@@ -1,6 +1,7 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import {
   buildPaginationClause,
+  escapeLikePattern,
   executeListQuery,
   type ListParams,
   type ListResult,
@@ -220,10 +221,10 @@ export async function listCatalogMergeCandidates(
   let values = [...filter.values];
   const conditions = [...filter.conditions];
   if (params.search?.trim()) {
-    values.push(`%${params.search.trim()}%`);
+    values.push(`%${escapeLikePattern(params.search.trim())}%`);
     const param = `$${values.length}`;
     conditions.push(
-      `(c.candidate_id ILIKE ${param} OR c.identity_fingerprint ILIKE ${param} OR (c.identity_json->>'printedProductName') ILIKE ${param} OR (c.identity_json->>'setName') ILIKE ${param} OR (c.identity_json->>'collectorNumber') ILIKE ${param} OR c.matched_catalog_item_id ILIKE ${param})`,
+      `(c.candidate_id ILIKE ${param} ESCAPE '\\' OR c.identity_fingerprint ILIKE ${param} ESCAPE '\\' OR (c.identity_json->>'printedProductName') ILIKE ${param} ESCAPE '\\' OR (c.identity_json->>'setName') ILIKE ${param} ESCAPE '\\' OR (c.identity_json->>'collectorNumber') ILIKE ${param} ESCAPE '\\' OR c.matched_catalog_item_id ILIKE ${param} ESCAPE '\\')`,
     );
   }
   const scopeCondition = buildCatalogMergeCandidateObservationScopeCondition(params, values);

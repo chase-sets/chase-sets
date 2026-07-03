@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PgQueryable } from "./types";
-import { buildFilteredQuery, executeListQuery } from "./list-query";
+import { buildFilteredQuery, escapeLikePattern, executeListQuery } from "./list-query";
 
 describe("list query helpers", () => {
   it("builds filtered count and list SQL with stable parameter indexes", () => {
@@ -15,13 +15,21 @@ describe("list query helpers", () => {
 
     expect(query).toEqual({
       countSql:
-        "SELECT COUNT(*) as count FROM catalog_fields WHERE value_type = $1 AND status = $2 AND (key ILIKE $3 OR name ILIKE $3)",
+        "SELECT COUNT(*) as count FROM catalog_fields WHERE value_type = $1 AND status = $2 AND (key ILIKE $3 ESCAPE '\\' OR name ILIKE $3 ESCAPE '\\')",
       listSql:
-        "SELECT * FROM catalog_fields WHERE value_type = $1 AND status = $2 AND (key ILIKE $3 OR name ILIKE $3) ORDER BY key ASC LIMIT $4 OFFSET $5",
+        "SELECT * FROM catalog_fields WHERE value_type = $1 AND status = $2 AND (key ILIKE $3 ESCAPE '\\' OR name ILIKE $3 ESCAPE '\\') ORDER BY key ASC LIMIT $4 OFFSET $5",
       values: ["text", "active", "%name%"],
       countValues: ["text", "active", "%name%"],
       listValues: ["text", "active", "%name%", 25, 50],
     });
+  });
+
+  it("escapes LIKE metacharacters before adding contains wildcards", () => {
+    const query = buildFilteredQuery("catalog_fields", { search: "100%_foil\\promo" }, ["key"], "key ASC");
+
+    expect(escapeLikePattern("100%_foil\\promo")).toBe("100\\%\\_foil\\\\promo");
+    expect(query.countSql).toContain("key ILIKE $1 ESCAPE '\\'");
+    expect(query.values).toEqual(["%100\\%\\_foil\\\\promo%"]);
   });
 
   it("defaults non-numeric and malicious pagination while keeping SQL parameterized", () => {

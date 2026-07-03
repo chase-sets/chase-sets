@@ -99,7 +99,7 @@ describe("postgres event store", () => {
     expect(queries[0].sql).toContain("tenant_id = $2");
     expect(queries[0].sql).toContain("event_type = ANY($3::text[])");
     expect(queries[0].sql).toContain(
-      "((stream_context_name = $4 AND stream_id LIKE $5 || '%') OR (stream_context_name = $6 AND stream_id LIKE $7 || '%'))",
+      "((stream_context_name = $4 AND stream_id LIKE $5 || '%' ESCAPE '\\') OR (stream_context_name = $6 AND stream_id LIKE $7 || '%' ESCAPE '\\'))",
     );
     expect(queries[0].sql).not.toContain("stream_category = ANY");
     expect(queries[0].sql).toContain("LIMIT $8");
@@ -134,7 +134,7 @@ describe("postgres event store", () => {
     });
 
     expect(queries[0].sql).toContain(
-      "((stream_context_name = $3 AND stream_id LIKE $4 || '%') OR (stream_context_name = $5 AND stream_id LIKE $6 || '%'))",
+      "((stream_context_name = $3 AND stream_id LIKE $4 || '%' ESCAPE '\\') OR (stream_context_name = $5 AND stream_id LIKE $6 || '%' ESCAPE '\\'))",
     );
     expect(queries[0].sql).not.toContain("stream_category = ANY");
     expect(queries[0].params).toEqual([
@@ -146,6 +146,26 @@ describe("postgres event store", () => {
       "identity.",
       50,
     ]);
+  });
+
+  it("escapes readAll stream prefix metacharacters before the trailing prefix wildcard", async () => {
+    const queries: { sql: string; params: readonly unknown[] }[] = [];
+    const store = createPostgresEventStore({
+      pool: {
+        query: async (sql: string, params: readonly unknown[] = []) => {
+          queries.push({ sql, params });
+          return { rows: [] };
+        },
+      } as never,
+    });
+
+    await store.readAll({
+      streamPrefixes: ["catalog.item_%"],
+      limit: 5,
+    });
+
+    expect(queries[0].sql).toContain("stream_id LIKE $3 || '%' ESCAPE '\\'");
+    expect(queries[0].params).toEqual(["0", "catalog", "catalog.item\\_\\%", 5]);
   });
 
   it("emits a versioned event-store wake notification only after append commit when enabled", async () => {

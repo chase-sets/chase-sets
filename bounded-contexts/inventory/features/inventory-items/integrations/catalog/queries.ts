@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { InventoryProductSchema } from "./versioning";
 import { toInventoryItemProductSchema } from "./versioning";
 
@@ -115,9 +115,9 @@ export async function searchInventoryCatalogItems(
   const where = ["status = $1"];
 
   if (search.length > 0) {
-    values.push(`%${search}%`);
+    values.push(`%${escapeLikePattern(search)}%`);
     where.push(
-      `(title ILIKE $${values.length} OR subtitle ILIKE $${values.length} OR catalog_item_id ILIKE $${values.length})`,
+      `(title ILIKE $${values.length} ESCAPE '\\' OR subtitle ILIKE $${values.length} ESCAPE '\\' OR catalog_item_id ILIKE $${values.length} ESCAPE '\\')`,
     );
   }
 
@@ -138,8 +138,8 @@ export async function searchInventoryCatalogItems(
      WHERE ${where.join(" AND ")}
      ORDER BY
        CASE
-         WHEN catalog_item_id ILIKE ${search.length > 0 ? `$2` : "''"} THEN 0
-         WHEN title ILIKE ${search.length > 0 ? `$2` : "''"} THEN 1
+         WHEN catalog_item_id ILIKE ${search.length > 0 ? `$2 ESCAPE '\\'` : "''"} THEN 0
+         WHEN title ILIKE ${search.length > 0 ? `$2 ESCAPE '\\'` : "''"} THEN 1
          ELSE 2
        END,
        title ASC,

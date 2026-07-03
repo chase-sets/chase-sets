@@ -635,6 +635,8 @@ describe("google shopping diagnostics", () => {
     );
     expect(db.queries[1]?.sql).toContain("sync_status = 'failed'");
     expect(db.queries[1]?.sql).toContain("lower(listing_id)");
+    expect(db.queries[1]?.sql).toContain("LIKE $1 ESCAPE '\\'");
+    expect(db.queries[1]?.values).toContain("%lst\\_1%");
   });
 });
 

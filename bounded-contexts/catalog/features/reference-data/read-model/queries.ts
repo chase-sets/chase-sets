@@ -1,5 +1,6 @@
 import {
   buildFilteredQuery,
+  escapeLikePattern,
   executeListQuery,
   type ListParams,
   type ListResult,
@@ -134,8 +135,8 @@ export async function listReferenceRecords(
   }
 
   if (params.attributeKey && params.attributeValue) {
-    extraValues.push(params.attributeValue);
-    extraConditions.push(`attributes->>$${extraValues.length - 1} ILIKE $${extraValues.length}`);
+    extraValues.push(escapeLikePattern(params.attributeValue));
+    extraConditions.push(`attributes->>$${extraValues.length - 1} ILIKE $${extraValues.length} ESCAPE '\\'`);
   }
 
   const query = buildFilteredQuery(

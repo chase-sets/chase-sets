@@ -1,5 +1,6 @@
 import {
   buildPaginationClause,
+  escapeLikePattern,
   executeListQuery,
   type ListParams,
   type PgQueryable,
@@ -33,16 +34,16 @@ export async function listSessions(db: PgQueryable, params: ListParams = {}) {
 
   if (params.search) {
     conditions.push(`(
-      sessions.session_id ILIKE $${paramIndex}
-      OR sessions.user_id ILIKE $${paramIndex}
-      OR users.display_name ILIKE $${paramIndex}
-      OR users.primary_email ILIKE $${paramIndex}
-      OR sessions.account_id ILIKE $${paramIndex}
-      OR accounts.display_name ILIKE $${paramIndex}
-      OR accounts.name ILIKE $${paramIndex}
-      OR sessions.authentication_method ILIKE $${paramIndex}
+      sessions.session_id ILIKE $${paramIndex} ESCAPE '\\'
+      OR sessions.user_id ILIKE $${paramIndex} ESCAPE '\\'
+      OR users.display_name ILIKE $${paramIndex} ESCAPE '\\'
+      OR users.primary_email ILIKE $${paramIndex} ESCAPE '\\'
+      OR sessions.account_id ILIKE $${paramIndex} ESCAPE '\\'
+      OR accounts.display_name ILIKE $${paramIndex} ESCAPE '\\'
+      OR accounts.name ILIKE $${paramIndex} ESCAPE '\\'
+      OR sessions.authentication_method ILIKE $${paramIndex} ESCAPE '\\'
     )`);
-    values.push(`%${params.search}%`);
+    values.push(`%${escapeLikePattern(params.search)}%`);
     paramIndex += 1;
   }
 

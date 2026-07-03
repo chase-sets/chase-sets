@@ -17,15 +17,16 @@ describe("session read-model queries", () => {
 
     await listSessions(db, {
       status: "active",
-      search: "session",
+      search: "session_%",
       limit: "1; DROP TABLE identity_sessions" as unknown,
       offset: 100_000,
     });
 
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.values).toEqual(["active", "%session%"]);
+    expect(calls[0]?.sql).toContain("ILIKE $2 ESCAPE '\\'");
+    expect(calls[0]?.values).toEqual(["active", "%session\\_\\%%"]);
     expect(calls[1]?.sql).toContain("LIMIT $3 OFFSET $4");
     expect(calls[1]?.sql).not.toContain("DROP TABLE");
-    expect(calls[1]?.values).toEqual(["active", "%session%", 50, 10_000]);
+    expect(calls[1]?.values).toEqual(["active", "%session\\_\\%%", 50, 10_000]);
   });
 });

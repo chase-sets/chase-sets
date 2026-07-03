@@ -102,7 +102,7 @@ describe("source observation read-model queries", () => {
     const result = await listCatalogMergeCandidates(db, {
       syncRunId: "job_sync_1",
       status: "has-conflicts",
-      search: "charizard",
+      search: "charizard_%",
       limit: 10,
     });
 
@@ -110,8 +110,9 @@ describe("source observation read-model queries", () => {
     expect(db.query).toHaveBeenNthCalledWith(
       1,
       expect.stringContaining("FROM catalog_merge_candidates c WHERE c.status = $1 AND c.sync_run_ids_json ? $2"),
-      ["has-conflicts", "job_sync_1", "%charizard%"],
+      ["has-conflicts", "job_sync_1", "%charizard\\_\\%%"],
     );
+    expect(String(vi.mocked(db.query).mock.calls[0]?.[0])).toContain("ILIKE $3 ESCAPE '\\'");
     const listSql = String(vi.mocked(db.query).mock.calls[1]?.[0]);
     expect(listSql).toContain("LEFT JOIN LATERAL");
     expect(listSql).toContain("WHERE candidate_id = c.candidate_id");
@@ -120,7 +121,7 @@ describe("source observation read-model queries", () => {
     expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("LEFT JOIN LATERAL"), [
       "has-conflicts",
       "job_sync_1",
-      "%charizard%",
+      "%charizard\\_\\%%",
       10,
       0,
     ]);

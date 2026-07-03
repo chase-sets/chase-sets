@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { WaitlistMetrics, WaitlistSignupListItem } from "../api/contracts";
 
 function normalizePageParams(params: Readonly<{ limit?: number; offset?: number }>) {
@@ -29,8 +29,8 @@ function waitlistFilters(
   }
 
   if (params.search) {
-    values.push(`%${params.search.trim().toLowerCase()}%`);
-    clauses.push(`LOWER(email) LIKE $${values.length}`);
+    values.push(`%${escapeLikePattern(params.search.trim().toLowerCase())}%`);
+    clauses.push(`LOWER(email) LIKE $${values.length} ESCAPE '\\'`);
   }
 
   return {

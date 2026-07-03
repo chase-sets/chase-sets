@@ -1,5 +1,6 @@
 import {
   buildPaginationClause,
+  escapeLikePattern,
   type ListParams,
   type ListResult,
   type PgQueryable,
@@ -400,22 +401,22 @@ function buildCatalogItemConditions(params: CatalogItemListParams): { where: str
 
   if (params.search) {
     conditions.push(
-      `(item.title ILIKE $${paramIndex}
-        OR item.subtitle ILIKE $${paramIndex}
-        OR item.tags::text ILIKE $${paramIndex}
+      `(item.title ILIKE $${paramIndex} ESCAPE '\\'
+        OR item.subtitle ILIKE $${paramIndex} ESCAPE '\\'
+        OR item.tags::text ILIKE $${paramIndex} ESCAPE '\\'
         OR EXISTS (
           SELECT 1
           FROM catalog_external_product_references AS source_search
           WHERE source_search.catalog_item_id = item.catalog_item_id
-            AND (source_search.provider_key ILIKE $${paramIndex} OR source_search.external_key ILIKE $${paramIndex})
+            AND (source_search.provider_key ILIKE $${paramIndex} ESCAPE '\\' OR source_search.external_key ILIKE $${paramIndex} ESCAPE '\\')
           UNION
           SELECT 1
           FROM catalog_external_catalog_item_references AS source_search
           WHERE source_search.catalog_item_id = item.catalog_item_id
-            AND (source_search.provider_key ILIKE $${paramIndex} OR source_search.external_key ILIKE $${paramIndex})
+            AND (source_search.provider_key ILIKE $${paramIndex} ESCAPE '\\' OR source_search.external_key ILIKE $${paramIndex} ESCAPE '\\')
         ))`,
     );
-    values.push(`%${params.search}%`);
+    values.push(`%${escapeLikePattern(params.search)}%`);
   }
 
   return {
