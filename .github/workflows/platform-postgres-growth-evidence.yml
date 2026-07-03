@@ -1,0 +1,184 @@
+name: Platform Postgres Growth Evidence
+
+on:
+  schedule:
+    - cron: "37 8 * * 2"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to inspect.
+        required: false
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      confirm:
+        description: Type "collect postgres growth evidence" to confirm read-only database inspection.
+        required: true
+        type: string
+      top_table_limit:
+        description: Number of largest tables to include per database.
+        required: false
+        default: "20"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: platform-postgres-growth-evidence-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Postgres Growth Evidence
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'collect postgres growth evidence'
+    steps:
+      - name: Refuse unconfirmed Postgres growth evidence
+        run: |
+          echo 'Confirmation text did not match exactly; expected "collect postgres growth evidence".' >&2
+          exit 1
+
+  growth-evidence:
+    name: Build Postgres Growth Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    permissions:
+      contents: read
+      issues: write
+    env:
+      TARGET_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+      TOP_TABLE_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.top_table_limit || '20' }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config="key=landing/${TARGET_ENVIRONMENT}.tfstate" \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Export database URLs
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-${TARGET_ENVIRONMENT}.tfstate.json"
+          terraform state pull > "$state_path"
+          node ../../../scripts/terraform-state-database-urls.mjs \
+            --state "$state_path" \
+            --environment "$TARGET_ENVIRONMENT" \
+            --github-env "$GITHUB_ENV"
+
+      - name: Build Postgres growth evidence
+        id: growth
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          set +e
+          pnpm run ops postgres:growth-evidence -- \
+            --environment "$TARGET_ENVIRONMENT" \
+            --top-table-limit "$TOP_TABLE_LIMIT" \
+            --out artifacts/release-health/postgres-growth-evidence.json
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          elif [ "$status" -eq 2 ]; then
+            echo "result=warning" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+            exit "$status"
+          fi
+
+      - name: Summarize Postgres growth evidence
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/postgres-growth-evidence.json"
+          if [ ! -f "$record" ]; then
+            echo "No Postgres growth evidence record was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const summary = record.summary ?? {};
+          console.log("## Postgres Growth Evidence");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Environment: ${record.environment}`);
+          console.log(`- Mode: ${record.mode}`);
+          console.log(`- Databases: ${summary.databaseCount ?? 0}`);
+          console.log(`- Collection errors: ${summary.collectionErrorCount ?? 0}`);
+          console.log(`- Total database size bytes: ${summary.totalDatabaseSizeBytes ?? 0}`);
+          console.log(`- Largest table bytes: ${summary.largestTableBytes ?? 0}`);
+          NODE
+
+      - name: Upload Postgres growth evidence artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-postgres-growth-evidence-${{ env.TARGET_ENVIRONMENT }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/postgres-growth-evidence.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Report Postgres growth warning
+        if: ${{ !failure() && steps.growth.outputs.result == 'warning' }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Postgres Growth Evidence
+          alert-status: warning
+          alert-summary: Postgres growth evidence completed with collection warnings.
+          alert-details: See the support-safe Postgres growth evidence artifact.
+
+      - name: Report Postgres growth failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Postgres Growth Evidence
+          alert-status: failure
+          alert-summary: Platform Postgres growth evidence failed before producing a clean result.
+
+      - name: Report Postgres growth recovery
+        if: ${{ success() && steps.growth.outputs.result == 'success' }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Postgres Growth Evidence
+          alert-status: success
+          alert-summary: Platform Postgres growth evidence completed successfully.

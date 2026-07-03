@@ -120,6 +120,10 @@ export const SUBCOMMANDS = {
     script: "projection-hot-lag-evidence.mjs",
     description: "Support-safe hot projection lag attribution evidence for projection worker pressure.",
   },
+  "postgres:growth-evidence": {
+    script: "postgres-growth-evidence.mjs",
+    description: "Support-safe Postgres growth and relation-size evidence.",
+  },
   "read-consistency:route-matrix-evidence": {
     script: "read-consistency-route-matrix-evidence.mjs",
     description: "Prometheus-backed read-consistency route matrix freshness evidence.",
