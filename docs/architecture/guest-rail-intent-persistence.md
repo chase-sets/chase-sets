@@ -2,9 +2,9 @@
 
 ## Purpose
 
-The simplified item-detail action rail lets signed-out users express Buy, Sell, and Watch intent before registration. Checkout already owns anonymous Buy Cart and Sell List intent. Listing draft creation and Watch alerts need the same guest-first experience, but their durable facts belong to Marketplace and Discovery rather than Checkout.
+The simplified item-detail action rail lets signed-out users express Buy, Sell, and Watch intent before registration. Checkout owns anonymous Buy Cart and Sell List intent. Marketplace owns guest listing draft intent, and Discovery owns guest Watch alert intent, because those durable facts belong with listing publication and Product Alert behavior rather than Checkout.
 
-This note selects the persistence mechanism for guest listing draft intent and guest Watch alert criteria so implementation can proceed without duplicating auth, URL, or storage patterns across contexts.
+This note records the shipped persistence contract for guest listing draft intent and guest Watch alert criteria. The implementation shipped through #1185, #1187, and #1192 in June 2026; the guardrails below remain the live contract for future changes.
 
 ## Decision
 
@@ -33,7 +33,7 @@ Return parameters:
 
 Signed stateless intent tokens reduce tampering risk, but they still require each owning context to implement claim, replay, stale recovery, telemetry, and limits. They also leave payload placement decisions in cookies or URLs and make operator cleanup harder.
 
-Use signed tokens only as a supporting mechanism if a future route must prove an intent id was issued by the server. They should not replace context-owned anonymous intent records for this milestone.
+Use signed tokens only as a supporting mechanism if a future route must prove an intent id was issued by the server. They should not replace context-owned anonymous intent records for guest rail persistence.
 
 ## Existing Repo Evidence
 
@@ -44,7 +44,7 @@ Use signed tokens only as a supporting mechanism if a future route must prove an
 
 ## Marketplace Listing Draft Intent
 
-Marketplace should add an anonymous listing draft intent owner keyed by a cookie such as `chase_sets_anonymous_listing_drafts`.
+Marketplace owns an anonymous listing draft intent store keyed by the `chase_sets_anonymous_listing_drafts` cookie.
 
 The stored intent should include only draft input needed to resume the item-detail or account-listing flow:
 
@@ -88,7 +88,7 @@ Replay and dedupe:
 
 ## Discovery Watch Intent
 
-Discovery should add an anonymous Product Alert intent owner keyed by a cookie such as `chase_sets_anonymous_product_alerts`.
+Discovery owns an anonymous Product Alert intent store keyed by the `chase_sets_anonymous_product_alerts` cookie.
 
 The stored intent should include:
 
@@ -215,14 +215,13 @@ Encoded registration URLs:
 - Listing draft: `/register?returnTo=%2Faccount%2Flistings%3FclaimListingIntent%3D<intentId>`
 - Watch alert: `/register?returnTo=%2Fitems%2F<slug>%3Fmarket%3Dwatch%26claimProductAlertIntent%3D<intentId>`
 
-The exact route can change during implementation, but the payload rule cannot: only opaque intent ids and UI route state belong in `returnTo`.
+The concrete routes can continue to evolve, but the payload rule cannot: only opaque intent ids and UI route state belong in `returnTo`.
 
-## Implementation Consequences
+## Shipped Evidence
 
-#1185 should implement Marketplace anonymous listing draft intent storage, claim/review behavior, stale recovery, and registration return for listing price and quantity.
+- #1185 shipped Marketplace anonymous listing draft intent storage, claim/review behavior, stale recovery, and registration return for listing price and quantity. It closed on 2026-06-10.
+- #1187 shipped Discovery anonymous Product Alert intent storage, claim behavior, stale recovery, and registration return for listing/offer Watch criteria. It closed on 2026-06-11.
+- #1192 shipped shared abuse and rate-limit guardrails for expanded anonymous rail intent across Buy Cart, Sell List, listing drafts, and Watch alerts. It closed on 2026-06-11.
+- Commit `c0e50f62` is the handoff evidence called out by the documentation audit for guest checkout claim continuations.
 
-#1187 should implement Discovery anonymous Product Alert intent storage, claim behavior, stale recovery, and registration return for listing/offer Watch criteria.
-
-#1192 should cover shared guardrails for all expanded anonymous rail intent: Buy Cart, Sell List, listing drafts, and Watch alerts.
-
-#1186 should treat listing draft and Watch claim routes as first-class registration-return paths alongside anonymous Sell List merge.
+#1186 treats listing draft and Watch claim routes as first-class registration-return paths alongside anonymous Sell List merge.

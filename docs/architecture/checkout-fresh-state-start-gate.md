@@ -1,6 +1,6 @@
 # Checkout Fresh-State Start Gate
 
-Milestone #17 rebuilds Buy Cart and Sell List checkout as one fresh, Shopify-simple flow. This start gate is the required reference before broad implementation begins. It keeps the target simple for customers while preserving bounded-context ownership underneath.
+The Checkout fresh-state rebuild shipped as the Shopify-simple Buy Cart and Sell List flow. This document now records the live ownership map, durable readiness rules, and evidence trail for the shipped system so future changes keep the customer path simple while preserving bounded-context ownership underneath. The main launch evidence lives on the closed milestone #33 epic, [#1850](https://github.com/chase-sets/chase-sets/issues/1850), which closed on 2026-06-16 after the June checkout rebuild and follow-up remediation.
 
 ## Scope
 
@@ -12,15 +12,15 @@ The target flow is:
 4. Confirm payment, sale, payout, label, or order commitments through context-owned commands.
 5. Land on confirmation and account/history handoff surfaces.
 
-The product has not launched, so the rebuild is fresh-state only. There is no customer migration, old checkout link support, old checkout session compatibility, dense checkout fallback, dual-write preservation, or compatibility shim for pre-launch checkout data.
+The marketplace launched this checkout surface as fresh-state only. There is no customer migration, old checkout link support, old checkout session compatibility, dense checkout fallback, dual-write preservation, or compatibility shim for pre-launch checkout data.
 
 ## Review Findings
 
-- The milestone has the right capability coverage, but issue #1133 must be the implementation start gate so later work does not begin as disconnected buy, sell, provider, and support slices.
-- Fulfillment assignment was the most important product gap to make explicit. Checkout must not become the place where customers resolve unassigned seller allocation. That resolution belongs in the cart or in a conditional pre-checkout readiness step.
-- The existing bounded-context docs already define the correct owners, but the milestone needed a single cross-context map that ties Checkout orchestration to Marketplace, Ordering, Payments, Settlement, Fulfillment, Identity, Tax, Notifications, Support, and Platform Operations.
-- Provider configuration and proof work must happen early enough to influence contract and state-machine decisions, not after UI implementation.
-- The first vertical slice must include one buy path and one sell path so the shared shell, readiness model, provider handoff, confirmation copy, and account/history handoff are proven together.
+- Issue #1133 established the original ownership and dependency map. The live system keeps that map as a maintenance constraint: follow-up checkout work should not split buy, sell, provider, and support behavior into disconnected slices.
+- Fulfillment assignment remains the most important product boundary. Checkout must not become the place where customers resolve unassigned seller allocation. That resolution belongs in the cart or in a conditional pre-checkout readiness step.
+- The bounded-context ownership map below ties Checkout orchestration to Marketplace, Ordering, Payments, Settlement, Fulfillment, Identity, Tax, Notifications, Support, and Platform Operations.
+- Provider configuration and proof work stay upstream of contract and state-machine changes. Checkout UI changes that touch payment, payout, shipping, tax, notification, or support rails need provider or mocked-provider evidence in the owning context.
+- The first vertical slice proved one buy path and one sell path together. Future expansions should preserve that shared shell, readiness model, provider handoff, confirmation copy, and account/history handoff behavior.
 
 ## Ownership Matrix
 
@@ -61,16 +61,18 @@ The readiness UI must stay customer-safe. It can describe item availability, shi
 
 ## Dependency Order
 
-1. Start gate: #1133 establishes ownership, dependency sequence, signoff, non-goals, and launch evidence mapping.
-2. Audit and cleanup: #1099 audits current surfaces; #1132 removes legacy checkout compatibility, dense routes, fixtures, data patterns, and fallback assumptions.
-3. Route and lifecycle foundation: #1103 defines fresh routes and route disposition; #1118 defines anonymous/signed-in cart, sell-list, guest merge, session recovery, and expiration.
-4. Contracts and readiness: #1100 defines buy/sell session contracts; #1117 defines fulfillment readiness and optimization before checkout; #1119 defines freshness, availability, reservation, and estimate guards.
-5. Provider and policy readiness: #1134 configures credentials, webhooks, and sandbox proof; #1124 covers security/privacy/legal; #1128 covers discounts, credits, fees, gift cards, and promotions; #1127 covers address validation and serviceability.
-6. Visual target and shell: #1112 finalizes visual targets; #1101 builds shared design-system primitives; #1102 normalizes copy and progressive disclosure.
-7. Buy implementation: #1104 replaces Buy Cart review; #1105 implements guest buy checkout; #1106 implements signed-in buy checkout; #1107 wires totals, tax, payment, and order creation.
-8. Sell implementation: #1108 replaces Sell List review; #1109 implements guest sell checkout if product/design approves it for launch; #1110 implements signed-in sell checkout; #1111 wires payout, label, condition review, and settlement contracts.
-9. Cross-flow hardening: #1113 integrates accelerated/saved payment and payout setup affordances; #1121 integrates saved addresses/contact preferences/seller readiness; #1131 adds risk controls; #1130 adds reconciliation; #1129 adds transactional communication.
-10. Confirmation and account handoff: #1120 adds receipts and next steps; #1135 links orders, sales, shipments, payment, payout, support, and account history surfaces.
+The shipped dependency path was:
+
+1. Start gate: #1133 established ownership, dependency sequence, signoff, non-goals, and launch evidence mapping.
+2. Audit and cleanup: #1099 audited current surfaces; #1132 removed legacy checkout compatibility, dense routes, fixtures, data patterns, and fallback assumptions.
+3. Route and lifecycle foundation: #1103 defined fresh routes and route disposition; #1118 defined anonymous/signed-in cart, sell-list, guest merge, session recovery, and expiration.
+4. Contracts and readiness: #1100 defined buy/sell session contracts; #1117 defined fulfillment readiness and optimization before checkout; #1119 defined freshness, availability, reservation, and estimate guards.
+5. Provider and policy readiness: #1134 configured credentials, webhooks, and sandbox proof; #1124 covered security/privacy/legal; #1128 covered discounts, credits, fees, gift cards, and promotions; #1127 covered address validation and serviceability.
+6. Visual target and shell: #1112 finalized visual targets; #1101 built shared design-system primitives; #1102 normalized copy and progressive disclosure.
+7. Buy implementation: #1104 replaced Buy Cart review; #1105 implemented guest buy checkout; #1106 implemented signed-in buy checkout; #1107 wired totals, tax, payment, and order creation.
+8. Sell implementation: #1108 replaced Sell List review; #1109 covered guest sell checkout posture; #1110 implemented signed-in sell checkout; #1111 wired payout, label, condition review, and settlement contracts.
+9. Cross-flow hardening: #1113 integrated accelerated/saved payment and payout setup affordances; #1121 integrated saved addresses/contact preferences/seller readiness; #1131 added risk controls; #1130 added reconciliation; #1129 added transactional communication.
+10. Confirmation and account handoff: #1120 added receipts and next steps; #1135 linked orders, sales, shipments, payment, payout, support, and account history surfaces.
 11. Evidence and launch: #1114 observability, #1123 performance, #1115 e2e/visual/a11y, and #1116 fresh-state launch smoke and final legacy deletion.
 
 ## First Vertical Slice
@@ -82,7 +84,7 @@ The first vertical slice must prove both sides of the composite flow:
 | Buy | Guest Buy Cart with checkout-ready fulfillment allocation, contact and delivery entry, shipping method selection, payment provider sandbox success, order creation, buyer confirmation, guest receipt or account-history handoff. |
 | Sell | Signed-in Sell List with saved or validated ship-from readiness, payout readiness, condition/verification review, label or label-readiness provider sandbox proof, sale confirmation, seller sale detail, shipment handoff, and payout/account history handoff. |
 
-Guest sell checkout remains allowed by the milestone but should not block the first vertical slice unless product/design explicitly chooses it as the launch-critical sell path. Signed-in sell is the lower-risk first proof because payout readiness and seller fulfillment setup are account-owned operational concerns.
+Guest sell checkout remains a product option, but signed-in sell was the lower-risk first proof because payout readiness and seller fulfillment setup are account-owned operational concerns.
 
 ## Capability Decisions
 
@@ -99,16 +101,16 @@ Guest sell checkout remains allowed by the milestone but should not block the fi
 | Optimization savings | Allowed before checkout through #1117 when it is customer-safe, optional for valid allocations, and never resolved inside the checkout form. |
 | AP2/headless checkout | Not launch-ready by default. UCP flows use trusted UI handoff unless Payments has approved verifier/provider support. |
 
-## Signoff Gates
+## Change Review Gates
 
-Broad implementation should not start until:
+Checkout changes after the shipped rebuild should preserve:
 
-- Product confirms first-slice buy and sell paths, guest account claim posture, and deferred capability list.
-- Design confirms final visual targets for desktop, mobile, guest, signed-in, buy, sell, readiness, optimization, confirmation, and error states.
-- Engineering confirms context owners, dependency order, route strategy, contract shape, and fresh-state cleanup scope.
-- Security/privacy/legal confirms payment, payout, tax, stored credential, guest receipt, communication, and data-retention posture.
-- Operations confirms provider sandbox/proof plan, webhook destinations, launch smoke, support recovery, and rollback posture.
-- QA confirms visual, mobile, accessibility, e2e, freshness, provider failure, reconciliation, and performance coverage.
+- Product clarity for first-slice buy and sell paths, guest account claim posture, and deferred capability decisions.
+- Design-system-owned desktop, mobile, guest, signed-in, buy, sell, readiness, optimization, confirmation, and error states.
+- Engineering ownership across context boundaries, route strategy, contract shape, and fresh-state-only cleanup scope.
+- Security/privacy/legal posture for payment, payout, tax, stored credential, guest receipt, communication, and data retention.
+- Operations evidence for provider sandbox/proof, webhook destinations, launch smoke, support recovery, and rollback posture.
+- QA evidence for visual, mobile, accessibility, e2e, freshness, provider failure, reconciliation, and performance coverage.
 
 ## Launch Evidence Index
 
@@ -136,7 +138,7 @@ Broad implementation should not start until:
 
 ## Verification Expectations
 
-Every implementation PR in this milestone should cite the relevant rows from this start gate and include:
+Follow-up PRs that change this checkout flow should cite the relevant rows from this document and include:
 
 - the owning bounded contexts touched,
 - the issue dependencies unblocked or consumed,
