@@ -377,6 +377,51 @@ describeDb("postgres event store real database integration", () => {
     ]);
   });
 
+  it("uses production event-store read indexes for filtered readAll plans", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+
+    await appendEvents(store, "catalog.item-item_1", "tenant_a", [["catalog.item.created", { itemId: "item_1" }]]);
+    await appendEvents(store, "catalog.item-item_2", "tenant_b", [["catalog.item.updated", { itemId: "item_2" }]]);
+    await appendEvents(store, "commerce.order-ord_1", "tenant_a", [["commerce.order.created", { orderId: "ord_1" }]]);
+
+    await withPgTransaction(schema.pool, async (client) => {
+      await client.query("SET LOCAL enable_seqscan = off");
+      const explain = await client.query<Readonly<{ "QUERY PLAN": unknown }>>(
+        `EXPLAIN (FORMAT JSON, COSTS OFF)
+         SELECT event_id,
+                stream_id,
+                stream_version,
+                global_position,
+                tenant_id,
+                stream_context_name,
+                stream_category,
+                event_type,
+                payload,
+                metadata,
+                occurred_at,
+                recorded_at,
+                performed_by_user_id,
+                for_account_id,
+                trace_id,
+                span_id,
+                parent_span_id,
+                trace_state
+         FROM event_store_events
+         WHERE global_position > $1::bigint
+           AND tenant_id = $2
+           AND event_type = ANY($3::text[])
+           AND ((stream_context_name = $4 AND stream_id LIKE $5 || '%' ESCAPE '\\'))
+         ORDER BY global_position ASC
+         LIMIT $6`,
+        [0, "tenant_a", ["catalog.item.created", "catalog.item.updated"], "catalog", "catalog.item-", 10],
+      );
+      const planText = JSON.stringify(explain.rows[0]?.["QUERY PLAN"] ?? "");
+
+      expect(planText).toContain("event_store_events_tenant_type_global_idx");
+      expect(planText).not.toContain("Seq Scan");
+    });
+  });
+
   it("keeps mixed stream-prefix filters and dashed aggregate ids visible in global reads", async () => {
     const store = createPostgresEventStore({ pool: schema.pool, createEventId });
 

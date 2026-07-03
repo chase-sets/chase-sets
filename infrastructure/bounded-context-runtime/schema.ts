@@ -1,6 +1,7 @@
 import type { BcApiModule, BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import {
   eventCorePostgresSchemaSql,
+  eventStoreEventsReadIndexStatements,
   type PgPoolClient,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -53,63 +54,6 @@ const eventStoreEventsContextNotNullSql = `ALTER TABLE event_store_events
   ALTER COLUMN stream_context_name SET NOT NULL,
   ALTER COLUMN stream_category SET NOT NULL;`;
 
-const eventStoreEventsIndexStatements = [
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_stream_idx
-  ON event_store_events (stream_id, stream_version ASC);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_stream_idx
-  ON event_store_events (stream_id, stream_version ASC);`,
-  },
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_global_idx
-  ON event_store_events (global_position ASC);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_global_idx
-  ON event_store_events (global_position ASC);`,
-  },
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_tenant_global_idx
-  ON event_store_events (tenant_id, global_position ASC);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_tenant_global_idx
-  ON event_store_events (tenant_id, global_position ASC);`,
-  },
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_type_idx
-  ON event_store_events (event_type);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_type_idx
-  ON event_store_events (event_type);`,
-  },
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_type_global_idx
-  ON event_store_events (event_type, global_position ASC);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_type_global_idx
-  ON event_store_events (event_type, global_position ASC);`,
-  },
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_tenant_type_global_idx
-  ON event_store_events (tenant_id, event_type, global_position ASC);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_tenant_type_global_idx
-  ON event_store_events (tenant_id, event_type, global_position ASC);`,
-  },
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_stream_prefix_global_idx
-  ON event_store_events (stream_id text_pattern_ops, global_position ASC);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_stream_prefix_global_idx
-  ON event_store_events (stream_id text_pattern_ops, global_position ASC);`,
-  },
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_context_category_type_global_idx
-  ON event_store_events (stream_context_name, stream_category, event_type, global_position ASC);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_context_category_type_global_idx
-  ON event_store_events (stream_context_name, stream_category, event_type, global_position ASC);`,
-  },
-  {
-    boot: `CREATE INDEX IF NOT EXISTS event_store_events_context_category_global_idx
-  ON event_store_events (stream_context_name, stream_category, global_position ASC);`,
-    concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_context_category_global_idx
-  ON event_store_events (stream_context_name, stream_category, global_position ASC);`,
-  },
-] as const;
-
 const contextBackfillMigration = {
   migrationId: "20260628_event_store_context_columns_backfill",
   description: "Backfill event-store context/category columns and enforce NOT NULL.",
@@ -119,7 +63,7 @@ const contextBackfillMigration = {
 const concurrentEventStoreIndexesMigration = {
   migrationId: "20260628_event_store_events_concurrent_indexes",
   description: "Create event-store event indexes concurrently outside boot-time schema SQL.",
-  statements: eventStoreEventsIndexStatements.map((statement) => statement.concurrent),
+  statements: eventStoreEventsReadIndexStatements.map((statement) => statement.concurrent),
 };
 
 const contextSchemaMigrations = [contextBackfillMigration, concurrentEventStoreIndexesMigration] as const;
@@ -612,7 +556,7 @@ function removeEventCoreMigrationStatements(schemaSql: string): string {
   for (const statement of [
     eventStoreEventsBackfillSql,
     eventStoreEventsContextNotNullSql,
-    ...eventStoreEventsIndexStatements.map((statement) => statement.boot),
+    ...eventStoreEventsReadIndexStatements.map((statement) => statement.boot),
   ]) {
     result = result.replace(statement, "");
   }

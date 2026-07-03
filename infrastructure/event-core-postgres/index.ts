@@ -1,4 +1,5 @@
 export * from "./catalog-mirror";
+export * from "./event-store-indexes";
 export * from "./event-store";
 export * from "./list-query";
 export * from "./pool";
