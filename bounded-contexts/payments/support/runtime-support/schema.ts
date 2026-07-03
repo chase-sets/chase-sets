@@ -1,7 +1,7 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { paymentsOrderInputSchemaSql } from "../../features/payments/integrations/order-input/order-input-schema";
-import { paymentsPaymentSchemaSql } from "../../features/payments/read-model/schema";
+import { paymentsPaymentSchemaMigrations, paymentsPaymentSchemaSql } from "../../features/payments/read-model/schema";
 import { paymentsOrderCancellationRefundEffectSchemaSql } from "../../features/refunds/integrations/ordering/order-cancellation-refund-effect-schema";
 import { paymentsSupportRefundEffectSchemaSql } from "../../features/refunds/integrations/support/support-refund-effect-schema";
 import { paymentsRefundSchemaSql } from "../../features/refunds/read-model/schema";
@@ -36,3 +36,5 @@ export const paymentsSchemaSql = [
   paymentsRefundSchemaSql,
   paymentsWorkClaimSchemaSql,
 ].join("\n\n");
+
+export const paymentsSchemaMigrations = [...paymentsPaymentSchemaMigrations] as const;

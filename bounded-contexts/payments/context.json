@@ -73,7 +73,7 @@
     {
       "projectionName": "payments-payment-projection",
       "sourceContextNames": ["payments"],
-      "ownedTables": ["payments_payment_pages"],
+      "ownedTables": ["payments_payment_orders", "payments_payment_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }

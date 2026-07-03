@@ -38,6 +38,12 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   last_stream_version bigint NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS payments_payment_orders (
+  payment_id text NOT NULL REFERENCES payments_payment_pages (payment_id) ON DELETE CASCADE,
+  order_id text NOT NULL,
+  PRIMARY KEY (payment_id, order_id)
+);
+
 CREATE INDEX IF NOT EXISTS payments_payment_pages_buyer_idx
   ON payments_payment_pages (buyer_account_id, updated_at DESC, payment_id DESC);
 
@@ -174,3 +180,24 @@ CREATE TABLE IF NOT EXISTS payments_provider_webhook_events (
 CREATE INDEX IF NOT EXISTS payments_provider_webhook_events_received_idx
   ON payments_provider_webhook_events (received_at DESC);
 `;
+
+export const paymentsPaymentSchemaMigrations = [
+  {
+    migrationId: "20260703_payments_payment_orders_lookup",
+    description: "Backfill payment-to-order lookup rows and index order-scoped payment reads.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS payments_payment_orders (
+  payment_id text NOT NULL REFERENCES payments_payment_pages (payment_id) ON DELETE CASCADE,
+  order_id text NOT NULL,
+  PRIMARY KEY (payment_id, order_id)
+)`,
+      `INSERT INTO payments_payment_orders (payment_id, order_id)
+SELECT payment_id, order_id
+FROM payments_payment_pages
+CROSS JOIN LATERAL jsonb_array_elements_text(order_ids) AS payment_order_ids(order_id)
+ON CONFLICT (payment_id, order_id) DO NOTHING`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_orders_order_idx
+  ON payments_payment_orders (order_id, payment_id)`,
+    ],
+  },
+] as const;

@@ -10,12 +10,13 @@ import { buildPaymentsOrderCancellationRefundEffectHandlers } from "./features/r
 import { buildPaymentsSupportRefundEffectHandlers } from "./features/refunds/integrations/support/support-refund-effect-projection";
 import { createPaymentProcessorWebhookRoutes } from "./features/payments/api/route";
 import { createPaymentsServices } from "./support/runtime-support/services";
-import { paymentsSchemaSql } from "./support/runtime-support/schema";
+import { paymentsSchemaMigrations, paymentsSchemaSql } from "./support/runtime-support/schema";
 import { seedPaymentsDatabase } from "./support/runtime-support/seed";
 
 export const module = defineBoundedContextModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>({
   manifest: contextManifest,
   schemaSql: paymentsSchemaSql,
+  schemaMigrations: paymentsSchemaMigrations,
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [buildPaymentsApi(services), createPaymentProcessorWebhookRoutes(services.payments)],
   projectionHandlerSets: (services) => services.projectors,

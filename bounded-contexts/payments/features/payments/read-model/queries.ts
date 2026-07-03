@@ -205,10 +205,14 @@ export async function getCapturedPaymentByOrderId(db: PgQueryable, orderId: stri
   const result = await db.query<PaymentPageRow>(
     `${paymentSelect}
      WHERE status IN ('captured', 'partially-refunded')
-       AND order_ids @> $1::jsonb
+       AND payment_id IN (
+         SELECT payment_id
+         FROM payments_payment_orders
+         WHERE order_id = $1
+       )
      ORDER BY captured_at DESC NULLS LAST, payment_id DESC
      LIMIT 1`,
-    [JSON.stringify([orderId])],
+    [orderId],
   );
 
   const row = result.rows[0];
