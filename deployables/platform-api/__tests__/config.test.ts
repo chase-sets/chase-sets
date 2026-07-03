@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PLATFORM_INTERNAL_AUTH_SECRET_ENV } from "@chase-sets/platform-runtime/http";
+import { DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS } from "@chase-sets/platform-runtime/ucp";
 import {
   getContextDatabaseEnvName,
   getContextWaiterDatabaseEnvName,
@@ -181,6 +182,7 @@ function resetConfigEnv() {
   delete process.env.UCP_BUSINESS_SIGNING_KEY_ID;
   delete process.env.UCP_BUSINESS_SIGNING_ALG;
   delete process.env.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS;
+  delete process.env.UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS;
 }
 
 beforeEach(resetConfigEnv);
@@ -217,6 +219,7 @@ describe("platform api config", () => {
       routeTuning: defaultCriticalReadConsistencyRouteTuning,
       wakeBeforeWaitEnabled: false,
     });
+    expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS);
   });
 
   it("loads per-context database urls without a shared fallback", () => {
@@ -838,6 +841,13 @@ describe("platform api config", () => {
       },
       previousPublicJwks: [{ kid: "merchant-2025" }],
     });
+  });
+
+  it("loads the UCP signature freshness window", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS = "120000";
+
+    expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(120_000);
   });
 
   it("loads social login provider credentials", () => {

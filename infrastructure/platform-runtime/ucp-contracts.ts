@@ -1,3 +1,5 @@
+// Universal Commerce Protocol (UCP) shopping profile for the 2026-04-08 spec.
+// AP2 support in this package follows the UCP shopping AP2 mandate capability.
 export const UCP_VERSION = "2026-04-08";
 export const UCP_SPEC_BASE_URL = `https://ucp.dev/${UCP_VERSION}`;
 export const UCP_LATEST_SPEC_BASE_URL = "https://ucp.dev/latest";
