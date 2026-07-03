@@ -121,6 +121,8 @@ Default posture:
 
 Operators can use DigitalOcean Droplet backups for host-image recovery, and DigitalOcean snapshots for Droplet or volume point-in-time copies; DigitalOcean documents these surfaces separately at [Backups](https://docs.digitalocean.com/products/backups/) and [Snapshots](https://docs.digitalocean.com/products/snapshots/). DigitalOcean also documents that Block Storage volumes can be snapshotted in [Volume Features](https://docs.digitalocean.com/products/volumes/details/features/). Treat those snapshots as account-side recovery artifacts, not downloadable telemetry exports.
 
+The observability data volume is stateful and protected by Terraform `prevent_destroy = true`. A deliberate volume replacement or deletion requires a PR that names the exact resource address, records snapshot or accepted-loss evidence, temporarily removes the lifecycle guard only for the approved operation, and restores the guard immediately after the maintenance window. Do not run Terraform destroy against the observability root for routine host rebuilds.
+
 The drift digest reports observability Droplet backup state and volume size. Staging backup-on or oversized staging volumes are warning findings because they are unexpected spend posture. Production backup-on is advisory because it may be intentional during a named recovery drill, but it must still be reviewed against the current retention policy and invoice expectations.
 
 Provision staging and production with `infrastructure/digitalocean/observability` before enabling App Platform telemetry export. Use backend keys `observability/staging.tfstate` and `observability/production.tfstate`. The root outputs the exact GitHub values to set:

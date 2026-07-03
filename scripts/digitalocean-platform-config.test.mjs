@@ -473,7 +473,8 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
     expect(catalogAssetsMain).toContain('resource "digitalocean_spaces_bucket" "catalog_assets"');
-    expect(catalogAssetsMain).toContain('acl           = "public-read"');
+    expect(catalogAssetsMain).toContain('acl           = "private"');
+    expect(catalogAssetsMain).toContain("prevent_destroy = true");
     expect(catalogAssetsMain).toContain('resource "digitalocean_cdn" "catalog_assets"');
     expect(catalogAssetsMain).toContain('resource "digitalocean_certificate" "catalog_assets_cdn"');
     expect(catalogAssetsMain).not.toContain("digitalocean_record");
