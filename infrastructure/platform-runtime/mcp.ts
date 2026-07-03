@@ -19,6 +19,11 @@ import {
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
 import { negotiateMcpProtocolVersion } from "./mcp-protocol";
+import {
+  createMemoryPlatformIdempotencyStore,
+  type PlatformIdempotencyRecord,
+  type PlatformIdempotencyStore,
+} from "./idempotency";
 
 export type McpRuntimeEnv = {
   Variables: {
@@ -60,19 +65,9 @@ export type McpAuditRecord = Readonly<{
 
 export type McpAuditSink = (record: McpAuditRecord) => Promise<void> | void;
 
-export type McpIdempotencyRecord = Readonly<{
-  key: string;
-  requestHash: string;
-  response: unknown;
-  createdAt: string;
-  expiresAt?: string | null;
-}>;
+export type McpIdempotencyRecord = PlatformIdempotencyRecord<unknown>;
 
-export type McpIdempotencyStore = Readonly<{
-  get: (key: string) => Promise<McpIdempotencyRecord | null> | McpIdempotencyRecord | null;
-  put: (record: McpIdempotencyRecord) => Promise<void> | void;
-  pruneExpired?: (now?: Date) => Promise<number> | number;
-}>;
+export type McpIdempotencyStore = PlatformIdempotencyStore<unknown>;
 
 export type CreateMcpRoutesOptions = Readonly<{
   services?: readonly McpServiceDescriptor[];
@@ -102,6 +97,7 @@ type McpResourceReadParams = Readonly<{
 }>;
 
 const JSON_RPC_VERSION = "2.0";
+const IDEMPOTENCY_PENDING_TTL_MS = 2 * 60 * 1000;
 
 type McpInputValidationIssue = Readonly<{
   path: string;
@@ -376,33 +372,7 @@ function mcpToolRequestHash(toolName: string, args: Readonly<Record<string, unkn
 }
 
 function createMemoryMcpIdempotencyStore(): McpIdempotencyStore {
-  const records = new Map<string, McpIdempotencyRecord>();
-  return {
-    get: (key) => {
-      const record = records.get(key);
-      if (!record) {
-        return null;
-      }
-      if (record.expiresAt && new Date(record.expiresAt).getTime() <= Date.now()) {
-        records.delete(key);
-        return null;
-      }
-      return record;
-    },
-    put: (record) => {
-      records.set(record.key, record);
-    },
-    pruneExpired: (now = new Date()) => {
-      let deletedCount = 0;
-      for (const [key, record] of records) {
-        if (record.expiresAt && new Date(record.expiresAt).getTime() <= now.getTime()) {
-          records.delete(key);
-          deletedCount += 1;
-        }
-      }
-      return deletedCount;
-    },
-  };
+  return createMemoryPlatformIdempotencyStore();
 }
 
 function isMcpTestRuntime() {
@@ -538,6 +508,10 @@ function validateResourceAccountOwnership(
 
 async function audit(sink: McpAuditSink | undefined, record: McpAuditRecord) {
   await sink?.(record);
+}
+
+async function auditBestEffort(sink: McpAuditSink | undefined, record: McpAuditRecord) {
+  await Promise.resolve(sink?.(record)).catch(() => undefined);
 }
 
 function mcpToolLimitKind(tool: McpToolDescriptor, services: readonly McpServiceDescriptor[]): McpToolCallLimitKind {
@@ -690,11 +664,18 @@ async function callTool(
           requestHash: mcpToolRequestHash(tool.name, args),
         }
       : null;
+  let reservedIdempotency: McpIdempotencyRecord | null = null;
   if (idempotency) {
-    const existing = await options.idempotencyStore.get(idempotency.key);
-    if (existing) {
-      if (existing.requestHash === idempotency.requestHash) {
-        await audit(options.audit, {
+    const createdAt = new Date();
+    const reservation = await options.idempotencyStore.reserve({
+      key: idempotency.key,
+      requestHash: idempotency.requestHash,
+      createdAt: createdAt.toISOString(),
+      expiresAt: new Date(createdAt.getTime() + IDEMPOTENCY_PENDING_TTL_MS).toISOString(),
+    });
+    if (reservation.outcome === "completed") {
+      if (reservation.record.response) {
+        await auditBestEffort(options.audit, {
           outcome: "allowed",
           method: "tools/call",
           toolName: tool.name,
@@ -706,9 +687,15 @@ async function callTool(
           sensitiveInputFields: tool.audit.sensitiveInputFields,
         });
 
-        return existing.response as ReturnType<typeof jsonRpcResult>;
+        return reservation.record.response as ReturnType<typeof jsonRpcResult>;
       }
+    }
 
+    if (reservation.outcome === "pending") {
+      return jsonRpcError(null, -32029, "A matching MCP tool call is already in progress. Retry later.");
+    }
+
+    if (reservation.outcome === "conflict") {
       const reason = "Idempotency key was already used with different MCP tool arguments.";
       await audit(options.audit, {
         outcome: "denied",
@@ -724,10 +711,15 @@ async function callTool(
 
       return jsonRpcError(null, -32000, reason);
     }
+
+    reservedIdempotency = reservation.record;
   }
 
   const handler = options.toolHandlers[tool.name];
   if (!handler) {
+    if (idempotency) {
+      await options.idempotencyStore.abandon(idempotency);
+    }
     const reason = `No runtime handler is registered for MCP tool '${tool.name}'.`;
     await audit(options.audit, {
       outcome: "denied",
@@ -749,6 +741,9 @@ async function callTool(
 
   const limit = await acquireMcpToolCallLease(options.toolCallLimiter, tool, actor, options.services);
   if (!limit.allowed) {
+    if (idempotency) {
+      await options.idempotencyStore.abandon(idempotency);
+    }
     await audit(options.audit, {
       outcome: "denied",
       method: "tools/call",
@@ -772,7 +767,22 @@ async function callTool(
       arguments: args,
       request,
     });
-    await audit(options.audit, {
+    const response = jsonRpcResult(null, {
+      content: [
+        {
+          type: "json",
+          json: result,
+        },
+      ],
+    });
+    if (reservedIdempotency) {
+      await options.idempotencyStore.complete({
+        ...reservedIdempotency,
+        response,
+      });
+    }
+
+    await auditBestEffort(options.audit, {
       outcome: "allowed",
       method: "tools/call",
       toolName: tool.name,
@@ -783,25 +793,11 @@ async function callTool(
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
-    const response = jsonRpcResult(null, {
-      content: [
-        {
-          type: "json",
-          json: result,
-        },
-      ],
-    });
-    if (idempotency) {
-      await options.idempotencyStore.put({
-        key: idempotency.key,
-        requestHash: idempotency.requestHash,
-        response,
-        createdAt: new Date().toISOString(),
-      });
-    }
-
     return response;
   } catch (error) {
+    if (idempotency) {
+      await options.idempotencyStore.abandon(idempotency);
+    }
     const reason = error instanceof Error ? error.message : String(error);
     await audit(options.audit, {
       outcome: "failed",

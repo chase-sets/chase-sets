@@ -24,6 +24,16 @@ function createRequest(method: string, params?: unknown) {
   };
 }
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
+
 function createActorApp(resolvedActor: ResolvedActor, options: Parameters<typeof createMcpRoutes>[0] = {}) {
   const app = new Hono<{ Variables: { actor: ResolvedActor } }>();
   app.use("*", async (c, next) => {
@@ -890,6 +900,118 @@ describe("MCP runtime routes", () => {
           },
         ],
       },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns retry-later for a duplicate idempotent call while the first call is still pending", async () => {
+    const started = createDeferred();
+    const release = createDeferred();
+    const handler = vi.fn(async () => {
+      started.resolve();
+      await release.promise;
+      return { payoutId: "payout_1", status: "requested" };
+    });
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "settlement.request-payout": handler,
+      },
+    });
+    const request = createRequest("tools/call", {
+      name: "settlement.request-payout",
+      arguments: {
+        accountId: "account_1",
+        amount: "25.00",
+        reason: "Seller requested payout.",
+        idempotencyKey: "idem_pending",
+        confirmationText: "Request Payout.",
+      },
+      confirmation: {
+        confirmed: true,
+        text: "Request Payout.",
+      },
+    });
+
+    const first = app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    await started.promise;
+    const duplicate = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    release.resolve();
+    const firstResponse = await Promise.resolve(first);
+
+    expect(duplicate.status).toBe(200);
+    await expect(duplicate.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32029,
+        message: "A matching MCP tool call is already in progress. Retry later.",
+      },
+    });
+    await expect(firstResponse.json()).resolves.toMatchObject({
+      result: {
+        content: [
+          {
+            json: {
+              payoutId: "payout_1",
+              status: "requested",
+            },
+          },
+        ],
+      },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores idempotent success before best-effort audit failures", async () => {
+    const handler = vi.fn(async () => ({ payoutId: "payout_1", status: "requested" }));
+    const audit = vi.fn(async (record: McpAuditRecord) => {
+      if (record.outcome === "allowed") {
+        throw new Error("audit unavailable");
+      }
+    });
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "settlement.request-payout": handler,
+      },
+      audit,
+    });
+    const request = createRequest("tools/call", {
+      name: "settlement.request-payout",
+      arguments: {
+        accountId: "account_1",
+        amount: "25.00",
+        reason: "Seller requested payout.",
+        idempotencyKey: "idem_audit",
+        confirmationText: "Request Payout.",
+      },
+      confirmation: {
+        confirmed: true,
+        text: "Request Payout.",
+      },
+    });
+
+    const first = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    const replay = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      result: { content: [{ json: { payoutId: "payout_1" } }] },
+    });
+    await expect(replay.json()).resolves.toMatchObject({
+      result: { content: [{ json: { payoutId: "payout_1" } }] },
     });
     expect(handler).toHaveBeenCalledTimes(1);
   });

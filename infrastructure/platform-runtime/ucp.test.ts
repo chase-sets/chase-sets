@@ -56,6 +56,16 @@ function signedHeadersWithKey(
   };
 }
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("UCP profile routes", () => {
   it("serves the business profile from the request origin", async () => {
     const app = new Hono().route("/.well-known", createUcpProfileRoutes());
@@ -229,6 +239,96 @@ describe("UCP REST routes", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     await expect(first.json()).resolves.toMatchObject({ checkout: { id: "chk_1" } });
     await expect(second.json()).resolves.toMatchObject({ checkout: { id: "chk_1" } });
+  });
+
+  it("returns retry-later for duplicate REST writes while the first request is still pending", async () => {
+    const started = createDeferred();
+    const release = createDeferred();
+    const handler = vi.fn(async () => {
+      started.resolve();
+      await release.promise;
+      return {
+        ucp: { version: UCP_VERSION, status: "ok" as const },
+        checkout: { id: "chk_1" },
+      };
+    });
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+      }),
+    );
+    const body = JSON.stringify({ source: { type: "cart" } });
+    const headers = signedHeaders(body, { "Idempotency-Key": "idem_pending" });
+
+    const first = app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers,
+    });
+    await started.promise;
+    const duplicate = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers,
+    });
+    release.resolve();
+    const firstResponse = await Promise.resolve(first);
+
+    expect(duplicate.status).toBe(409);
+    await expect(duplicate.json()).resolves.toMatchObject({
+      messages: [{ code: "idempotency_key_in_progress" }],
+    });
+    await expect(firstResponse.json()).resolves.toMatchObject({
+      checkout: { id: "chk_1" },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay REST error envelopes for duplicate write attempts", async () => {
+    const handler = vi
+      .fn()
+      .mockImplementationOnce(async () => ({
+        ucp: { version: UCP_VERSION, status: "error" as const },
+        messages: [{ severity: "error" as const, code: "temporary_failure", message: "Try again." }],
+      }))
+      .mockImplementationOnce(async () => ({
+        ucp: { version: UCP_VERSION, status: "ok" as const },
+        checkout: { id: "chk_retry" },
+      }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+      }),
+    );
+    const body = JSON.stringify({ source: { type: "cart" } });
+    const headers = signedHeaders(body, { "Idempotency-Key": "idem_error_retry" });
+
+    const first = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers,
+    });
+    const second = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers,
+    });
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    await expect(first.json()).resolves.toMatchObject({
+      ucp: { status: "error" },
+      messages: [{ code: "temporary_failure" }],
+    });
+    await expect(second.json()).resolves.toMatchObject({
+      ucp: { status: "ok" },
+      checkout: { id: "chk_retry" },
+    });
   });
 
   it("rejects REST idempotency-key reuse with different request bodies", async () => {
@@ -433,11 +533,73 @@ describe("UCP Postgres idempotency store", () => {
       key: "idem_1",
       requestHash: "hash_1",
       response: { ucp: { version: UCP_VERSION, status: "ok" } },
+      status: "completed",
       createdAt: "2026-05-16T12:00:00.000Z",
     });
 
     await expect(store.get("idem_1")).resolves.toBeNull();
     await expect(store.pruneExpired?.()).resolves.toBe(1);
+  });
+
+  it("reserves pending writes before completing or abandoning them", async () => {
+    const db = createFakeIdempotencyDb();
+    const store = createPostgresUcpIdempotencyStore(db, {
+      pendingTtlMs: 30_000,
+      retentionMs: 60_000,
+    });
+
+    const reserved = await store.reserve({
+      key: "idem_pending",
+      requestHash: "hash_1",
+      createdAt: "2099-05-16T12:00:00.000Z",
+    });
+    const duplicate = await store.reserve({
+      key: "idem_pending",
+      requestHash: "hash_1",
+      createdAt: "2099-05-16T12:00:01.000Z",
+    });
+    const conflict = await store.reserve({
+      key: "idem_pending",
+      requestHash: "hash_2",
+      createdAt: "2099-05-16T12:00:02.000Z",
+    });
+
+    expect(reserved.outcome).toBe("reserved");
+    expect(duplicate.outcome).toBe("pending");
+    expect(conflict.outcome).toBe("conflict");
+
+    if (reserved.outcome !== "reserved") {
+      throw new Error("Expected the first idempotency call to reserve the key.");
+    }
+    await store.complete({
+      ...reserved.record,
+      response: { ucp: { version: UCP_VERSION, status: "ok" } },
+    });
+    await expect(
+      store.reserve({
+        key: "idem_pending",
+        requestHash: "hash_1",
+        createdAt: "2099-05-16T12:00:03.000Z",
+      }),
+    ).resolves.toMatchObject({
+      outcome: "completed",
+      record: { response: { ucp: { status: "ok" } } },
+    });
+
+    const abandoned = await store.reserve({
+      key: "idem_abandon",
+      requestHash: "hash_3",
+      createdAt: "2099-05-16T12:00:04.000Z",
+    });
+    expect(abandoned.outcome).toBe("reserved");
+    await store.abandon({ key: "idem_abandon", requestHash: "hash_3" });
+    await expect(
+      store.reserve({
+        key: "idem_abandon",
+        requestHash: "hash_3",
+        createdAt: "2099-05-16T12:00:05.000Z",
+      }),
+    ).resolves.toMatchObject({ outcome: "reserved" });
   });
 });
 
@@ -1024,6 +1186,63 @@ describe("UCP MCP routes", () => {
       },
     });
   });
+
+  it("returns retry-later for duplicate idempotent MCP tool calls while the first call is still pending", async () => {
+    const started = createDeferred();
+    const release = createDeferred();
+    const handler = vi.fn(async () => {
+      started.resolve();
+      await release.promise;
+      return {
+        ucp: { version: UCP_VERSION, status: "ok" as const },
+        checkout: { id: "chk_1" },
+      };
+    });
+    const app = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({
+        mcpToolHandlers: {
+          complete_checkout: handler,
+        },
+      }),
+    );
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "1",
+      method: "tools/call",
+      params: {
+        name: "complete_checkout",
+        arguments: { id: "chk_1" },
+      },
+    });
+    const headers = signedHeaders(body, { "Idempotency-Key": "idem_mcp_pending" });
+
+    const first = app.request("/ucp/mcp", {
+      method: "POST",
+      body,
+      headers,
+    });
+    await started.promise;
+    const duplicate = await app.request("/ucp/mcp", {
+      method: "POST",
+      body,
+      headers,
+    });
+    release.resolve();
+    const firstResponse = await Promise.resolve(first);
+
+    expect(duplicate.status).toBe(200);
+    await expect(duplicate.json()).resolves.toMatchObject({
+      error: {
+        code: -32029,
+        message: "A matching request is already in progress. Retry later.",
+      },
+    });
+    await expect(firstResponse.json()).resolves.toMatchObject({
+      result: { structuredContent: { checkout: { id: "chk_1" } } },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
 });
 
 function createFakeProfileDb() {
@@ -1064,7 +1283,8 @@ function createFakeIdempotencyDb() {
     {
       key: string;
       request_hash: string;
-      response: unknown;
+      response: unknown | null;
+      status: "pending" | "completed";
       created_at: string;
       expires_at: string | null;
     }
@@ -1072,11 +1292,35 @@ function createFakeIdempotencyDb() {
 
   return {
     async query<Row = Record<string, unknown>>(text: string, values: readonly unknown[] = []) {
+      if (text.includes("VALUES ($1, $2, NULL, 'pending'")) {
+        const existing = records.get(String(values[0]));
+        if (existing) {
+          const expired =
+            existing.status === "pending" &&
+            existing.expires_at !== null &&
+            new Date(existing.expires_at).getTime() <= Date.now();
+          if (!expired) {
+            return { rows: [], rowCount: 0 };
+          }
+        }
+        const row = {
+          key: String(values[0]),
+          request_hash: String(values[1]),
+          response: null,
+          status: "pending" as const,
+          created_at: String(values[2]),
+          expires_at: values[3] ? String(values[3]) : null,
+        };
+        records.set(row.key, row);
+        return { rows: [row as Row], rowCount: 1 };
+      }
+
       if (text.includes("INSERT INTO platform_ucp_idempotency_records")) {
         const row = {
           key: String(values[0]),
           request_hash: String(values[1]),
           response: JSON.parse(String(values[2] ?? "{}")),
+          status: "completed" as const,
           created_at: String(values[3]),
           expires_at: values[4] ? String(values[4]) : null,
         };
@@ -1084,16 +1328,35 @@ function createFakeIdempotencyDb() {
         return { rows: [], rowCount: 1 };
       }
 
+      if (text.includes("UPDATE platform_ucp_idempotency_records")) {
+        const row = records.get(String(values[0]));
+        if (row && row.request_hash === values[1] && row.status === "pending") {
+          row.response = JSON.parse(String(values[2] ?? "{}"));
+          row.status = "completed";
+          row.expires_at = values[3] ? String(values[3]) : null;
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
       if (text.includes("SELECT key, request_hash")) {
         const row = records.get(String(values[0]));
-        const live = row && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now());
+        const live = Boolean(row && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now()));
         return {
-          rows: live ? [row as Row] : [],
+          rows: live && row ? [row as Row] : [],
           rowCount: live ? 1 : 0,
         };
       }
 
       if (text.includes("DELETE FROM platform_ucp_idempotency_records")) {
+        if (text.includes("AND request_hash = $2")) {
+          const row = records.get(String(values[0]));
+          if (row && row.request_hash === values[1] && row.status === "pending") {
+            records.delete(row.key);
+            return { rows: [], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
         const now = new Date(String(values[0])).getTime();
         let rowCount = 0;
         for (const [key, row] of records) {
