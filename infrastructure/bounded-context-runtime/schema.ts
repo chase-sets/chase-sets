@@ -11,7 +11,10 @@ const SCHEMA_BOOTSTRAP_LOCK_INITIAL_RETRY_DELAY_MS = 500;
 const SCHEMA_BOOTSTRAP_LOCK_MAX_RETRY_DELAY_MS = 5_000;
 export const SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 600_000;
 export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING = "5s";
-export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES = 5;
+export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES = 8;
+const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BASE_DELAY_MS = 1_000;
+const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_MAX_DELAY_MS = 15_000;
+const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_JITTER_MS = 500;
 const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
 const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
 export const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
@@ -266,7 +269,7 @@ export async function applyContextSchema(
 
       lastLockTimeoutError = error;
       if (attempt < SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES) {
-        await sleep(DATABASE_RETRY_DELAY_MS);
+        await sleep(schemaBootstrapLockTimeoutRetryDelayMs(attempt));
       }
     }
   }
@@ -275,6 +278,15 @@ export async function applyContextSchema(
     `Schema bootstrap hit PostgreSQL lock_timeout ${SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES} times while applying idempotent schema SQL. Another database session may be holding a relation lock; retry the deploy after the lock clears or inspect active database sessions if this persists.`,
     { cause: lastLockTimeoutError },
   );
+}
+
+function schemaBootstrapLockTimeoutRetryDelayMs(attempt: number): number {
+  const baseDelayMs = Math.min(
+    SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_MAX_DELAY_MS,
+    SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1),
+  );
+  const jitterMs = (attempt * 137) % SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_JITTER_MS;
+  return baseDelayMs + jitterMs;
 }
 
 async function applyContextSchemaOnce(

@@ -233,7 +233,7 @@ describe("bounded context runtime schema", () => {
       };
 
       const bootstrap = bootstrapContextDatabase(module, pool);
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(2_000);
       await bootstrap;
 
       expect(pool.connect).toHaveBeenCalledTimes(2);
@@ -245,6 +245,57 @@ describe("bounded context runtime schema", () => {
       expect(
         queryLog.filter((entry) => entry.sql.includes("pg_try_advisory_lock")).map((entry) => entry.clientIndex),
       ).toEqual([0, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("survives schema application lock_timeout contention beyond the old retry ceiling", async () => {
+    vi.useFakeTimers();
+    try {
+      let schemaAttempts = 0;
+      const clients = Array.from({ length: 7 }, (_entry, clientIndex) => ({
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("pg_try_advisory_lock")) {
+            return { rows: [{ acquired: true }] };
+          }
+          if (sql.includes(`SELECT 1 FROM ${SCHEMA_MIGRATIONS_TABLE}`)) {
+            return { rows: [] };
+          }
+          if (sql.includes("CREATE TABLE IF NOT EXISTS event_store_events")) {
+            schemaAttempts += 1;
+            if (schemaAttempts <= 6) {
+              const error = new Error(
+                `canceling statement due to lock timeout on attempt ${schemaAttempts}`,
+              ) as Error & { code: string };
+              error.code = "55P03";
+              throw error;
+            }
+          }
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      }));
+      let connectCount = 0;
+      const pool = {
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(async () => clients[connectCount++] ?? clients.at(-1)!),
+      };
+      const module = {
+        contextName: "example",
+        schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      };
+
+      const bootstrap = bootstrapContextDatabase(module, pool);
+      await vi.advanceTimersByTimeAsync(120_000);
+      await bootstrap;
+
+      expect(pool.connect).toHaveBeenCalledTimes(7);
+      expect(schemaAttempts).toBe(7);
+      expect(clients.slice(0, 6).map((client) => client.release.mock.calls[0]?.[0])).toEqual(
+        Array.from({ length: 6 }, () => expect.objectContaining({ code: "55P03" })),
+      );
+      expect(clients[6].release).toHaveBeenCalledWith(undefined);
     } finally {
       vi.useRealTimers();
     }
@@ -309,9 +360,9 @@ describe("bounded context runtime schema", () => {
       };
 
       const bootstrap = expect(bootstrapContextDatabase(module, pool)).rejects.toThrow(
-        /Schema bootstrap hit PostgreSQL lock_timeout 5 times/,
+        /Schema bootstrap hit PostgreSQL lock_timeout 8 times/,
       );
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(120_000);
       await bootstrap;
 
       expect(pool.connect).toHaveBeenCalledTimes(SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES);
