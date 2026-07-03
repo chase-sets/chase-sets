@@ -53,6 +53,17 @@ class ContentProjectionDb implements PgQueryable {
       return { rows: (row ? [{ slug: row.slug }] : []) as Row[], rowCount: row ? 1 : 0 };
     }
 
+    if (sql.includes("UPDATE discovery_search_catalog_items") && sql.includes("SET status = $1")) {
+      const itemId = String(values[2]);
+      const existing = this.items.get(itemId) ?? catalogItemRow(itemId, "");
+      this.items.set(itemId, {
+        ...existing,
+        status: values[0],
+        updated_at: values[1],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("UPDATE discovery_search_catalog_items") && sql.includes("SET slug = $2")) {
       const existing = this.items.get(String(values[0])) ?? catalogItemRow(String(values[0]), "");
       this.items.set(String(values[0]), {
@@ -192,9 +203,31 @@ describe("Discovery search Product Contents projection", () => {
     expect(db.contents.get("line_1")?.content_search_text).toContain("Radiant Charizard");
     expect(db.contents.get("line_1")?.content_search_text).not.toContain("Base Set");
   });
+
+  it("does not fold draft contained item text until the contained item is published", async () => {
+    const db = new ContentProjectionDb([catalogItemRow("cat_card", "Secret Prerelease Charizard", null, "draft")]);
+    const handlers = buildDiscoverySearchItemProjectionHandlers(db);
+
+    await handlers["catalog.product-contents.resolved"]?.(
+      productContentsResolvedEvent({
+        lines: [contentLine({ lineId: "line_1", containedCatalogItemId: "cat_card" })],
+      }),
+    );
+
+    expect(db.contents.get("line_1")?.content_search_text).toBe("");
+
+    await handlers["catalog.catalog-item.published"]?.(catalogItemPublishedEvent("cat_card"));
+
+    expect(db.contents.get("line_1")?.content_search_text).toContain("Secret Prerelease Charizard");
+  });
 });
 
-function catalogItemRow(catalogItemId: string, title: string, subtitle: string | null = null): CatalogItemRow {
+function catalogItemRow(
+  catalogItemId: string,
+  title: string,
+  subtitle: string | null = null,
+  status = "active",
+): CatalogItemRow {
   return {
     catalog_item_id: catalogItemId,
     slug: `${catalogItemId}-slug`,
@@ -206,7 +239,7 @@ function catalogItemRow(catalogItemId: string, title: string, subtitle: string |
     description_i18n: { defaultLocale: "en", values: {} },
     description: "",
     blueprint_id: null,
-    status: "active",
+    status,
     field_values: [],
     category_ids: [],
     tags: [],
@@ -215,6 +248,25 @@ function catalogItemRow(catalogItemId: string, title: string, subtitle: string |
     image_fallback: null,
     resolved_aliases: {},
     updated_at: "2026-07-02T00:00:00.000Z",
+  };
+}
+
+function catalogItemPublishedEvent(catalogItemId: string): TransportEvent {
+  return {
+    id: `evt_publish_${catalogItemId}` as never,
+    type: "catalog.catalog-item.published",
+    streamId: `catalog.item-${catalogItemId}` as never,
+    streamVersion: 2 as never,
+    globalPosition: 2 as never,
+    tenantId: "tnt_test" as never,
+    data: { blueprintId: "bpr_card" } as never,
+    metadata: {},
+    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+    trace: {},
+    timing: {
+      occurredAt: "2026-07-02T00:00:00.000Z" as never,
+      recordedAt: "2026-07-02T00:00:00.000Z" as never,
+    },
   };
 }
 

@@ -182,6 +182,9 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
   const values: unknown[] = [];
   let paramIndex = 1;
   const itemColumn = (name: string) => (options.itemAlias ? `${options.itemAlias}.${name}` : name);
+  const outerItemIdColumn = options.itemAlias
+    ? itemColumn("catalog_item_id")
+    : "discovery_search_items.catalog_item_id";
 
   conditions.push(`${itemColumn("status")} = $${paramIndex}`);
   values.push(params.status ?? "active");
@@ -200,7 +203,10 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
       `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}) OR EXISTS (
          SELECT 1
          FROM discovery_search_product_contents AS content
-         WHERE content.container_catalog_item_id = ${itemColumn("catalog_item_id")}
+         INNER JOIN discovery_search_catalog_items AS contained_item
+           ON contained_item.catalog_item_id = content.contained_catalog_item_id
+          AND contained_item.status = 'active'
+         WHERE content.container_catalog_item_id = ${outerItemIdColumn}
            AND (
              content.search_text @@ plainto_tsquery('english', $${englishSearchParamIndex})
              OR content.search_text_simple @@ plainto_tsquery('simple', $${simpleSearchParamIndex})
@@ -529,7 +535,10 @@ export async function searchDiscoveryItems(
         const contentRankExpression = `COALESCE((
           SELECT MAX((ts_rank(content.search_text, plainto_tsquery('english', $${englishSearchParamIndex})) + ts_rank(content.search_text_simple, plainto_tsquery('simple', $${simpleSearchParamIndex}))) * content.content_type_search_weight::real)
           FROM discovery_search_product_contents AS content
-          WHERE content.container_catalog_item_id = catalog_item_id
+          INNER JOIN discovery_search_catalog_items AS contained_item
+            ON contained_item.catalog_item_id = content.contained_catalog_item_id
+           AND contained_item.status = 'active'
+          WHERE content.container_catalog_item_id = discovery_search_items.catalog_item_id
         ), 0)`;
         rankExpression = `(${baseRankExpression} + (${contentRankExpression} * 0.20))`;
         orderBy = `${baseMatchExpression} DESC, ${rankExpression} DESC, title ASC, catalog_item_id ASC`;

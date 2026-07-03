@@ -38,7 +38,6 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
   const language = query("language");
   const marketActivity = normalizeMarketActivity(query("marketActivity"));
   const sort = query("sort");
-  const status = query("status");
   const limit = query("limit");
   const offset = query("offset");
   const cursor = query("cursor");
@@ -52,7 +51,7 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
     language: language || undefined,
     marketActivity,
     sort: sort || undefined,
-    status: status || undefined,
+    status: "active",
     limit: limit ? Number.parseInt(limit, 10) : undefined,
     offset: offset ? Number.parseInt(offset, 10) : undefined,
     cursor: cursor || undefined,
