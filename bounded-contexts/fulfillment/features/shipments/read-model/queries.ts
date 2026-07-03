@@ -385,6 +385,39 @@ export async function listStaleFulfillmentPostageLabelOperations(
   return result.rows;
 }
 
+export async function listStaleFulfillmentPostageLabelVoidOperations(
+  db: PgQueryable,
+  params: Readonly<{ staleBefore: string; limit?: number }>,
+): Promise<FulfillmentPostageLabelOperationRecord[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
+  const result = await db.query<FulfillmentPostageLabelOperationRecord>(
+    `SELECT
+       operation_key,
+       operation_kind,
+       shipment_id,
+       provider_name,
+       provider_mode,
+       idempotency_key,
+       request_json,
+       status,
+       provider_shipment_id,
+       provider_label_id,
+       tracking_identifier,
+       error_message,
+       created_at,
+       updated_at,
+       completed_at
+     FROM fulfillment_postage_label_operations
+     WHERE operation_kind = 'void-label'
+       AND status IN ('pending', 'provider-succeeded')
+       AND updated_at <= $1
+     ORDER BY updated_at ASC, operation_key ASC
+     LIMIT $2`,
+    [params.staleBefore, limit],
+  );
+  return result.rows;
+}
+
 type BaseShipmentPageRow = FulfillmentShipmentListRow;
 
 const baseShipmentSelect = `

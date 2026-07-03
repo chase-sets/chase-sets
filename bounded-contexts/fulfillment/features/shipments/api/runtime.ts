@@ -38,6 +38,7 @@ import {
   getSellerShipment,
   getShipmentForPostageRecovery,
   listStaleFulfillmentPostageLabelOperations,
+  listStaleFulfillmentPostageLabelVoidOperations,
   listSellerPackingSlips,
   listBuyerShipments,
   listSellerShipments,
@@ -75,8 +76,13 @@ type ShipmentForPostageProviderEvent = Readonly<{
   shipment_id: string;
   seller_account_id: string;
   status: string;
+  label_status: string;
+  label_refund_status: string | null;
+  label_voided_at: string | null;
   tracking_identifier: string | null;
   postage_provider_shipment_id: string | null;
+  matched_void_operation_key: string | null;
+  matched_void_operation_status: string | null;
 }>;
 
 export type PostageProviderWebhookProcessingResult = Readonly<{
@@ -172,6 +178,10 @@ export type FulfillmentShipmentServices = Readonly<{
     params?: Readonly<{ staleBefore?: string; staleAfterMs?: number; limit?: number }>,
     context?: EventStoreContext,
   ) => Promise<{ checked: number; attached: number; voided: number; failed: number }>;
+  reconcileStalePostageLabelVoids: (
+    params?: Readonly<{ staleBefore?: string; staleAfterMs?: number; limit?: number }>,
+    context?: EventStoreContext,
+  ) => Promise<{ checked: number; failed: number }>;
   voidLabel: (
     params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
     context: EventStoreContext,
@@ -323,23 +333,74 @@ async function findShipmentForPostageProviderEvent(
 ): Promise<ShipmentForPostageProviderEvent | null> {
   const trackingIdentifier = event.trackingIdentifier?.trim() || null;
   const providerShipmentId = event.providerShipmentId?.trim() || null;
+  const matchHistoricalVoidOperations = event.eventKind === "refund-status";
   if (!trackingIdentifier && !providerShipmentId) {
     return null;
   }
 
   const result = await db.query<ShipmentForPostageProviderEvent>(
-    `SELECT
+    `WITH candidate_shipments AS (
+       SELECT
+         page.shipment_id,
+         page.seller_account_id,
+         page.status,
+         page.label_status,
+         page.label_refund_status,
+         page.label_voided_at,
+         page.tracking_identifier,
+         page.postage_provider_shipment_id,
+         NULL::text AS matched_void_operation_key,
+         NULL::text AS matched_void_operation_status,
+         0 AS match_priority,
+         page.updated_at
+       FROM fulfillment_shipment_pages AS page
+       WHERE ($1::text IS NOT NULL AND page.tracking_identifier = $1)
+          OR ($2::text IS NOT NULL AND page.postage_provider_shipment_id = $2)
+       UNION ALL
+       SELECT
+         page.shipment_id,
+         page.seller_account_id,
+         page.status,
+         page.label_status,
+         page.label_refund_status,
+         page.label_voided_at,
+         page.tracking_identifier,
+         page.postage_provider_shipment_id,
+         operation.operation_key AS matched_void_operation_key,
+         operation.status AS matched_void_operation_status,
+         1 AS match_priority,
+         operation.updated_at
+       FROM fulfillment_postage_label_operations AS operation
+       JOIN fulfillment_shipment_pages AS page
+         ON page.shipment_id = operation.shipment_id
+       WHERE $3::boolean
+         AND operation.operation_kind = 'void-label'
+         AND (
+           ($1::text IS NOT NULL AND (
+             operation.tracking_identifier = $1
+             OR operation.request_json #>> '{trackingIdentifier}' = $1
+           ))
+           OR ($2::text IS NOT NULL AND (
+             operation.provider_shipment_id = $2
+             OR operation.request_json #>> '{providerShipmentId}' = $2
+           ))
+         )
+     )
+     SELECT
        shipment_id,
        seller_account_id,
        status,
+       label_status,
+       label_refund_status,
+       label_voided_at,
        tracking_identifier,
-       postage_provider_shipment_id
-     FROM fulfillment_shipment_pages
-     WHERE ($1::text IS NOT NULL AND tracking_identifier = $1)
-        OR ($2::text IS NOT NULL AND postage_provider_shipment_id = $2)
-     ORDER BY updated_at DESC, shipment_id DESC
+       postage_provider_shipment_id,
+       matched_void_operation_key,
+       matched_void_operation_status
+     FROM candidate_shipments
+     ORDER BY match_priority ASC, updated_at DESC, shipment_id DESC
      LIMIT 1`,
-    [trackingIdentifier, providerShipmentId],
+    [trackingIdentifier, providerShipmentId, matchHistoricalVoidOperations],
   );
 
   return result.rows[0] ?? null;
@@ -491,6 +552,85 @@ async function applyPostageProviderTrackingEvent(
   }
 
   return "recorded";
+}
+
+function normalizeProviderRefundStatus(status: string | null | undefined) {
+  const normalized = (status ?? "").trim().toLowerCase().replaceAll("_", "-");
+  if (normalized === "refunded" || normalized === "refund-successful" || normalized === "successful") {
+    return "refunded" as const;
+  }
+  if (normalized === "rejected" || normalized === "refund-rejected" || normalized === "failed") {
+    return "rejected" as const;
+  }
+  return null;
+}
+
+async function applyPostageProviderRefundEvent(
+  db: PgQueryable,
+  commandHandler: CommandHandler<FulfillmentShipmentCommand, FulfillmentShipmentState, FulfillmentShipmentEvent>,
+  event: PostageProviderWebhookEvent,
+  shipment: ShipmentForPostageProviderEvent,
+  context: EventStoreContext,
+) {
+  const refundStatus = normalizeProviderRefundStatus(event.status);
+  if (!refundStatus) {
+    return "recorded";
+  }
+
+  if (shipment.label_status === "voided" || shipment.label_status === "void-rejected") {
+    return "terminal-refund-status-ignored";
+  }
+
+  if (shipment.label_status !== "void-requested") {
+    if (refundStatus === "rejected" && shipment.matched_void_operation_key) {
+      await recordFulfillmentPostageLabelOperationFailed(db, {
+        operationKey: shipment.matched_void_operation_key,
+        errorMessage: "Postage label refund was rejected after a replacement label was purchased.",
+        completedAt: event.occurredAt,
+      });
+      return "refund-rejected-after-rebuy";
+    }
+    if (refundStatus === "refunded" && shipment.matched_void_operation_key) {
+      await recordFulfillmentPostageLabelOperationSucceeded(db, {
+        operationKey: shipment.matched_void_operation_key,
+        completedAt: event.occurredAt,
+      });
+      return "refund-resolved-after-rebuy";
+    }
+    return "recorded";
+  }
+
+  const result = await commandHandler({
+    streamId: `fulfillment.shipment-${shipment.shipment_id}`,
+    command: {
+      type: "RecordShipmentLabelRefundStatus",
+      refundStatus,
+      refundReference: event.providerObjectReference,
+      resolvedAt: event.occurredAt,
+    },
+    context,
+  });
+
+  if (result.newEvents.length === 0) {
+    return "terminal-refund-status-ignored";
+  }
+
+  if (shipment.matched_void_operation_key) {
+    if (refundStatus === "refunded") {
+      await recordFulfillmentPostageLabelOperationSucceeded(db, {
+        operationKey: shipment.matched_void_operation_key,
+        completedAt: event.occurredAt,
+      });
+    } else {
+      await recordFulfillmentPostageLabelOperationFailed(db, {
+        operationKey: shipment.matched_void_operation_key,
+        errorMessage: "Postage label refund was rejected by the provider.",
+        completedAt: event.occurredAt,
+      });
+    }
+  }
+
+  return refundStatus === "refunded" ? "refund-refunded" : "refund-rejected";
 }
 
 function isExceptionTrackingStatus(status: string, detail: string) {
@@ -827,6 +967,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         processingResult = "unmatched";
       } else if (event.eventKind === "tracking-status") {
         processingResult = await applyPostageProviderTrackingEvent(commandHandler, event, shipment, context);
+      } else if (event.eventKind === "refund-status") {
+        processingResult = await applyPostageProviderRefundEvent(deps.db, commandHandler, event, shipment, context);
       }
 
       await recordProcessedPostageProviderEvent(deps.db, event, shipment, processingResult);
@@ -1218,8 +1360,32 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
 
       return result;
     },
+    reconcileStalePostageLabelVoids: async (params = {}) => {
+      const staleBefore =
+        params.staleBefore ??
+        new Date(Date.now() - Math.max(1, params.staleAfterMs ?? 24 * 60 * 60 * 1000)).toISOString();
+      const operations = await listStaleFulfillmentPostageLabelVoidOperations(deps.db, {
+        staleBefore,
+        limit: params.limit,
+      });
+      const result = {
+        checked: operations.length,
+        failed: 0,
+      };
+
+      for (const operation of operations) {
+        await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+          operationKey: operation.operation_key,
+          errorMessage: "Postage label void request is stale without a terminal provider refund status.",
+        });
+        result.failed += 1;
+      }
+
+      return result;
+    },
     voidLabel: async (params, context) => {
       const shipment = await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+      const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
       if (
         !shipment.postage_provider_shipment_id ||
         !shipment.postage_provider_label_id ||
@@ -1229,6 +1395,11 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       }
 
       const voidRequestedAt = new Date().toISOString();
+      decideFulfillmentShipment(loaded.state, {
+        type: "VoidShipmentLabel",
+        refundStatus: "submitted",
+        voidedAt: voidRequestedAt,
+      });
       const operationKey = `shipment:${params.shipmentId}:void-label:${voidRequestedAt}`;
       await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
@@ -1252,6 +1423,13 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           providerLabelId: shipment.postage_provider_label_id,
           trackingIdentifier: shipment.tracking_identifier,
         });
+        await recordFulfillmentPostageLabelOperationProviderSucceeded(deps.db, {
+          operationKey,
+          providerShipmentId: shipment.postage_provider_shipment_id,
+          providerLabelId: shipment.postage_provider_label_id,
+          trackingIdentifier: shipment.tracking_identifier,
+          updatedAt: voidedLabel.voidedAt,
+        });
       } catch (error) {
         await recordFulfillmentPostageLabelOperationFailed(deps.db, {
           operationKey,
@@ -1269,14 +1447,24 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           voidedAt: voidedLabel.voidedAt,
         },
         context,
+        expectedVersion: loaded.version,
       });
-      await recordFulfillmentPostageLabelOperationSucceeded(deps.db, {
-        operationKey,
-        providerShipmentId: shipment.postage_provider_shipment_id,
-        providerLabelId: shipment.postage_provider_label_id,
-        trackingIdentifier: shipment.tracking_identifier,
-        completedAt: voidedLabel.voidedAt,
-      });
+      const terminalRefundStatus = normalizeProviderRefundStatus(voidedLabel.refundStatus);
+      if (terminalRefundStatus === "refunded") {
+        await recordFulfillmentPostageLabelOperationSucceeded(deps.db, {
+          operationKey,
+          providerShipmentId: shipment.postage_provider_shipment_id,
+          providerLabelId: shipment.postage_provider_label_id,
+          trackingIdentifier: shipment.tracking_identifier,
+          completedAt: voidedLabel.voidedAt,
+        });
+      } else if (terminalRefundStatus === "rejected") {
+        await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+          operationKey,
+          errorMessage: "Postage label refund was rejected by the provider.",
+          completedAt: voidedLabel.voidedAt,
+        });
+      }
 
       return { shipmentId: params.shipmentId, version: result.version };
     },

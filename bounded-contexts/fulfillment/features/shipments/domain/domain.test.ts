@@ -28,6 +28,65 @@ const shipmentAddressSnapshots = {
   },
 } as const;
 
+function createPackedShipmentState() {
+  const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+    type: "CreateShipment",
+    shipmentId: "shp_1" as never,
+    orderId: "ord_1" as never,
+    buyerAccountId: "acc_buyer" as never,
+    sellerAccountId: "acc_seller" as never,
+    shippingOption: "standard",
+    ...shipmentAddressSnapshots,
+    lines: [
+      {
+        lineId: "spl_1" as never,
+        orderLineId: "oli_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        productSummary: null,
+        quantity: 1,
+      },
+    ],
+    createdAt: "2026-04-02T00:00:00.000Z",
+  }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+  const packingState = decideFulfillmentShipment(createdState, {
+    type: "StartShipmentPacking",
+    startedAt: "2026-04-02T00:03:00.000Z",
+  }).reduce(evolveFulfillmentShipment, createdState);
+  const confirmedState = decideFulfillmentShipment(packingState, {
+    type: "ConfirmShipmentPackingLine",
+    lineId: "spl_1" as never,
+    confirmedAt: "2026-04-02T00:04:00.000Z",
+  }).reduce(evolveFulfillmentShipment, packingState);
+  return decideFulfillmentShipment(confirmedState, {
+    type: "PrepareShipmentPackage",
+    packageCount: 1,
+    preparedAt: "2026-04-02T00:05:00.000Z",
+  }).reduce(evolveFulfillmentShipment, confirmedState);
+}
+
+function attachPurchasedLabel(state: ReturnType<typeof createPackedShipmentState>) {
+  return decideFulfillmentShipment(state, {
+    type: "AttachShipmentLabel",
+    shippingMethod: "priority",
+    carrierName: "USPS",
+    labelReference: "lbl_123",
+    labelDocumentUrl: "https://labels.test/lbl_123.pdf",
+    trackingIdentifier: "trk_123",
+    postageProviderName: "sandbox-usps",
+    postageProviderMode: "test",
+    postageProviderShipmentId: "pshp_123",
+    postageProviderLabelId: "plbl_123",
+    postageRateId: "rate_123",
+    postageServiceLevel: "USPS_GROUND_ADVANTAGE",
+    postageAmountCents: 499,
+    postageCurrency: "USD",
+    attachedAt: "2026-04-02T00:10:00.000Z",
+  }).reduce(evolveFulfillmentShipment, state);
+}
+
 describe("fulfillment shipment domain", () => {
   it("moves a shipment through packing, labeling, dispatch, and delivery", () => {
     const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
@@ -263,6 +322,74 @@ describe("fulfillment shipment domain", () => {
         attachedAt: "2026-04-02T00:10:00.000Z",
       }),
     ).toThrow("Shipments must be packed before a label can be attached.");
+  });
+
+  it("rejects purchased postage labels without a known cost", () => {
+    const packedState = createPackedShipmentState();
+
+    expect(() =>
+      decideFulfillmentShipment(packedState, {
+        type: "AttachShipmentLabel",
+        shippingMethod: "priority",
+        carrierName: "USPS",
+        labelReference: "lbl_123",
+        trackingIdentifier: "trk_123",
+        postageAmountCents: null,
+        postageCurrency: "USD",
+        attachedAt: "2026-04-02T00:10:00.000Z",
+      }),
+    ).toThrow("Postage amount must be known before a label can be attached.");
+  });
+
+  it("records terminal refund statuses for requested label voids without resurrecting terminal states", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+    const voidRequestedState = decideFulfillmentShipment(labeledState, {
+      type: "VoidShipmentLabel",
+      refundStatus: "submitted",
+      refundReference: "rfnd_1",
+      voidedAt: "2026-04-02T00:15:00.000Z",
+    }).reduce(evolveFulfillmentShipment, labeledState);
+
+    expect(voidRequestedState.status).toBe("awaiting-label");
+    expect(voidRequestedState.labelStatus).toBe("void-requested");
+
+    const voidedState = decideFulfillmentShipment(voidRequestedState, {
+      type: "RecordShipmentLabelRefundStatus",
+      refundStatus: "refunded",
+      refundReference: "rfnd_1",
+      resolvedAt: "2026-04-02T00:20:00.000Z",
+    }).reduce(evolveFulfillmentShipment, voidRequestedState);
+
+    expect(voidedState.status).toBe("awaiting-label");
+    expect(voidedState.labelStatus).toBe("voided");
+    expect(
+      decideFulfillmentShipment(voidedState, {
+        type: "RecordShipmentLabelRefundStatus",
+        refundStatus: "rejected",
+        refundReference: "rfnd_1",
+        resolvedAt: "2026-04-02T00:21:00.000Z",
+      }),
+    ).toEqual([]);
+  });
+
+  it("marks rejected label refund requests without opening a replacement-label path", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+    const voidRequestedState = decideFulfillmentShipment(labeledState, {
+      type: "VoidShipmentLabel",
+      refundStatus: "submitted",
+      refundReference: "rfnd_1",
+      voidedAt: "2026-04-02T00:15:00.000Z",
+    }).reduce(evolveFulfillmentShipment, labeledState);
+
+    const rejectedState = decideFulfillmentShipment(voidRequestedState, {
+      type: "RecordShipmentLabelRefundStatus",
+      refundStatus: "rejected",
+      refundReference: "rfnd_1",
+      resolvedAt: "2026-04-02T00:20:00.000Z",
+    }).reduce(evolveFulfillmentShipment, voidRequestedState);
+
+    expect(rejectedState.status).toBe("label-attached");
+    expect(rejectedState.labelStatus).toBe("void-rejected");
   });
 
   it("cancels a shipment before package preparation starts", () => {
