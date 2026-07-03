@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     depends_on:
       grafana:
-        condition: service_healthy
+        condition: service_started
       otel-collector:
         condition: service_started
       prometheus:
@@ -16,6 +16,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - /var/lib/chase-sets-observability/caddy-data:/data
       - /var/lib/chase-sets-observability/caddy-config:/config
+      - /var/lib/chase-sets-observability/diagnostics:/srv/diagnostics:ro
 
   grafana:
     image: $${GRAFANA_IMAGE}

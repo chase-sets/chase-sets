@@ -2068,8 +2068,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityLocals).toContain("cloud_init_user_data = templatefile");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Token");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Query");
-    expect(observabilityDockerCompose).toContain("condition: service_healthy");
+    expect(observabilityDockerCompose).toContain("/var/lib/chase-sets-observability/diagnostics:/srv/diagnostics:ro");
+    expect(observabilityDockerCompose).toContain("condition: service_started");
     expect(observabilityDockerCompose).toContain("http://127.0.0.1:3000/api/health");
+    expect(observabilityCaddyfile).toContain("/__chase-sets/observability/boot-status");
+    expect(observabilityCloudInit).toContain("chase-sets-observability-diagnostics");
+    expect(observabilityCloudInit).toContain("chase-sets-observability-diagnostics.timer");
+    expect(observabilityCloudInit).toContain("docker compose logs --no-color --tail=80 grafana");
     expect(observabilityCloudInit).toContain("docker compose logs --tail=120 grafana");
     expect(observabilityCloudInit).toContain("docker compose up -d --remove-orphans");
     expect(observabilityOutputs).toContain('output "app_platform_otlp_headers"');
