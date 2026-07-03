@@ -33,9 +33,14 @@ vi.mock("../support/request-support/api-client", async () => {
   };
 });
 
-vi.mock("@chase-sets/payments/server", () => ({
-  createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
-}));
+vi.mock("@chase-sets/payments/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/payments/server")>("@chase-sets/payments/server");
+
+  return {
+    ...actual,
+    createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
+  };
+});
 
 import { loader as buyCheckoutConfirmationLoader } from "./buy-checkout-confirmation";
 

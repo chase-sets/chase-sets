@@ -19,11 +19,16 @@ const { mockCreateAccountPayment, mockCreatePaymentsRequestApiClient, mockGetChe
   };
 });
 
-vi.mock("@chase-sets/payments/server", () => ({
-  createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
-  hasPaymentsFreshReadAfterWriteSource: (source: unknown) =>
-    typeof source === "object" && source !== null && "commandReceipt" in source,
-}));
+vi.mock("@chase-sets/payments/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/payments/server")>("@chase-sets/payments/server");
+
+  return {
+    ...actual,
+    createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
+    hasPaymentsFreshReadAfterWriteSource: (source: unknown) =>
+      typeof source === "object" && source !== null && "commandReceipt" in source,
+  };
+});
 
 vi.mock("@chase-sets/ordering/server", () => ({
   createOrderingRequestApiClient: vi.fn(),

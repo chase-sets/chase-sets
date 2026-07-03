@@ -3,6 +3,15 @@ export type { BalanceCreditResolver, BalanceCreditResolution } from "./features/
 export { normalizeRequestedBalanceCreditAmount } from "./features/payments/api/balance-credit-request";
 export type { PaymentServices } from "./features/payments/api/runtime";
 export type { PaymentsCheckoutStatus } from "./features/payments/api/contracts";
+export {
+  marketplaceCheckoutFeePaymentMethodCategories,
+  normalizeMarketplaceCheckoutFeePaymentMethodCategory,
+  quoteMarketplaceCheckoutFee,
+} from "./features/payments/api/marketplace-checkout-fee-policy";
+export type {
+  MarketplaceCheckoutFeePaymentMethodCategory,
+  MarketplaceCheckoutFeeQuote,
+} from "./features/payments/api/marketplace-checkout-fee-policy";
 export type { PaymentsSavedCheckoutInstrument } from "./client";
 export type { PaymentsServices } from "./support/runtime-support/services";
 export type {

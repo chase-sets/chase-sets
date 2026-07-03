@@ -17,9 +17,14 @@ vi.mock("@chase-sets/ordering/server", () => ({
   }),
 }));
 
-vi.mock("@chase-sets/payments/server", () => ({
-  createPaymentsRequestApiClient: () => ({}),
-}));
+vi.mock("@chase-sets/payments/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/payments/server")>("@chase-sets/payments/server");
+
+  return {
+    ...actual,
+    createPaymentsRequestApiClient: () => ({}),
+  };
+});
 
 vi.mock("@chase-sets/marketplace/server", () => ({
   MarketplaceApiError: class MarketplaceApiError extends Error {
