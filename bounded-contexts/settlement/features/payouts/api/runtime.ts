@@ -84,6 +84,13 @@ type PayoutRuntimeDeps = Readonly<{
   notificationOutbox?: NotificationOutbox;
 }>;
 
+type PayoutWalletLedgerEntry = Readonly<{
+  ledgerEntryId?: string;
+  kind?: string;
+  direction?: string;
+  payoutId?: string | null;
+}>;
+
 export type PayoutReconciliationJobPayload = Readonly<{
   accountId: string;
   limit: number;
@@ -315,6 +322,18 @@ function providerObjectReferenceFromEvent(event: MoneyMovementWebhookEvent) {
   return event.kind === "payout-completed" || event.kind === "payout-failed" ? event.providerPayoutReference : null;
 }
 
+function payoutDebitLedgerEntryId(payoutId: string): LedgerEntryId {
+  return `led_payout_${payoutId}` as LedgerEntryId;
+}
+
+function payoutReversalLedgerEntryId(payoutId: string): LedgerEntryId {
+  return `led_payout_reversal_${payoutId}` as LedgerEntryId;
+}
+
+function isDuplicateLedgerEntryError(error: unknown) {
+  return error instanceof Error && error.message === "Ledger entry has already been posted.";
+}
+
 function payoutReadinessIsStale(updatedAt: string | null) {
   if (!updatedAt) {
     return false;
@@ -418,6 +437,18 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     });
   }
 
+  async function getCommittedPayoutLedgerEntry(accountId: string, ledgerEntryId: LedgerEntryId) {
+    const events = await deps.eventStore.readStream({
+      streamId: `settlement.wallet-${accountId}`,
+    });
+    return (
+      events
+        .filter((event) => event.eventType === "settlement.wallet.ledger-entry-posted")
+        .map((event) => event.payload as PayoutWalletLedgerEntry)
+        .find((entry) => entry.ledgerEntryId === ledgerEntryId) ?? null
+    );
+  }
+
   async function failPayoutAndReverseWallet(
     params: Readonly<{
       payoutId: string;
@@ -446,6 +477,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       throw new SettlementDomainError("Payout was not found.");
     }
     const failedAt = params.failedAt ?? new Date().toISOString();
+    const debitLedgerEntryId = payoutDebitLedgerEntryId(payout.payout_id);
+    const reversalLedgerEntryId = payoutReversalLedgerEntryId(payout.payout_id);
     const result = await commandHandler({
       streamId: `settlement.payout-${params.payoutId}`,
       command: {
@@ -459,23 +492,31 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       context,
     });
 
-    if (result.newEvents.length > 0) {
-      await deps.wallets.postEntry(
-        {
-          accountId: payout.account_id as AccountId,
-          ledgerEntryId: createId("led") as LedgerEntryId,
-          kind: "payout-reversal",
-          direction: "credit",
-          amount: payout.amount,
-          currencyCode: normalizeCurrencyCode(payout.currency_code),
-          fundsStatus: "available",
-          payoutId: payout.payout_id as PayoutId,
-          description:
-            params.failureReason ?? params.providerFailureMessage ?? `Reversed failed payout ${payout.payout_id}`,
-          postedAt: failedAt,
-        },
-        context,
-      );
+    const debitEntry = await getCommittedPayoutLedgerEntry(payout.account_id, debitLedgerEntryId);
+    const reversalEntry = await getCommittedPayoutLedgerEntry(payout.account_id, reversalLedgerEntryId);
+    if (debitEntry && !reversalEntry) {
+      try {
+        await deps.wallets.postEntry(
+          {
+            accountId: payout.account_id as AccountId,
+            ledgerEntryId: reversalLedgerEntryId,
+            kind: "payout-reversal",
+            direction: "credit",
+            amount: payout.amount,
+            currencyCode: normalizeCurrencyCode(payout.currency_code),
+            fundsStatus: "available",
+            payoutId: payout.payout_id as PayoutId,
+            description:
+              params.failureReason ?? params.providerFailureMessage ?? `Reversed failed payout ${payout.payout_id}`,
+            postedAt: failedAt,
+          },
+          context,
+        );
+      } catch (error) {
+        if (!isDuplicateLedgerEntryError(error)) {
+          throw error;
+        }
+      }
       await recordOperation({
         kind: "payout-reversal-posted",
         accountId: payout.account_id,
@@ -1070,7 +1111,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         await deps.wallets.postEntry(
           {
             accountId: params.accountId,
-            ledgerEntryId: createId("led") as LedgerEntryId,
+            ledgerEntryId: payoutDebitLedgerEntryId(payoutId),
             kind: "payout",
             direction: "debit",
             amount,

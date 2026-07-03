@@ -10,6 +10,7 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createWalletRuntime } from "../../wallets/api/runtime";
+import type { WalletServices } from "../../wallets/api/runtime";
 import { createPayoutRuntime } from "./runtime";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement/test-support";
@@ -798,6 +799,200 @@ describe("settlement payout runtime", () => {
     ).toEqual([
       expect.objectContaining({ kind: "payout", direction: "debit" }),
       expect.objectContaining({ kind: "payout-reversal", direction: "credit" }),
+    ]);
+  });
+
+  it("does not reverse a payout when the wallet debit never committed", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const realWallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    await seedAvailableWallet(realWallets);
+    const wallets = {
+      ...realWallets,
+      postEntry: async (...args: Parameters<WalletServices["postEntry"]>) => {
+        if (args[0].kind === "payout") {
+          throw new Error("simulated wallet debit conflict");
+        }
+        return realWallets.postEntry(...args);
+      },
+    } satisfies WalletServices;
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+    });
+
+    const requested = await payouts.requestPayout(
+      {
+        accountId: "acc_seller" as never,
+        amount: "12.50",
+      },
+      context,
+    );
+
+    expect(requested.payout).toMatchObject({
+      payout_id: requested.payoutId,
+      status: "failed",
+      provider_failure_message: "simulated wallet debit conflict",
+    });
+    expect(
+      readAllEvents()
+        .filter((event) => event.eventType === "settlement.wallet.ledger-entry-posted")
+        .map((event) => (event.payload as { kind?: string }).kind),
+    ).toEqual(["sale"]);
+  });
+
+  it("posts the payout reversal on retry when failure was recorded before the reversal", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    let payoutRow: Record<string, unknown> | null = null;
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        if (sql.includes("FROM settlement_payout_pages")) {
+          return {
+            rows: payoutRow ? [payoutRow] : [],
+            rowCount: payoutRow ? 1 : 0,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const realWallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    await seedAvailableWallet(realWallets);
+    let failNextReversal = true;
+    const wallets = {
+      ...realWallets,
+      postEntry: async (...args: Parameters<WalletServices["postEntry"]>) => {
+        if (args[0].kind === "payout-reversal" && failNextReversal) {
+          failNextReversal = false;
+          throw new Error("simulated crash after payout failure");
+        }
+        return realWallets.postEntry(...args);
+      },
+    } satisfies WalletServices;
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway({ failPayout: true }),
+    });
+
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "12.50",
+        },
+        context,
+      ),
+    ).rejects.toThrow("simulated crash after payout failure");
+
+    const payoutId = (
+      readAllEvents().find((event) => event.eventType === "settlement.payout.requested")?.payload as
+        | { payoutId?: string }
+        | undefined
+    )?.payoutId;
+    expect(payoutId).toEqual(expect.any(String));
+    payoutRow = {
+      payout_id: payoutId,
+      account_id: "acc_seller",
+      amount: "12.50",
+      currency_code: "usd",
+      destination_reference: null,
+      note: null,
+      status: "failed",
+      provider_transfer_reference: null,
+      provider_payout_reference: null,
+      provider_status: "failed",
+      provider_failure_code: null,
+      provider_failure_message: "Provider payout failed.",
+      requested_at: "2026-04-02T00:00:00.000Z",
+      updated_at: "2026-04-02T00:00:00.000Z",
+      sent_at: null,
+      completed_at: null,
+      failed_at: "2026-04-02T01:00:00.000Z",
+      failure_reason: "Payout account details need review.",
+    };
+
+    await payouts.failPayout(
+      {
+        payoutId: payoutId as string,
+        accountId: "acc_seller",
+        failureReason: "Payout account details need review.",
+        failedAt: "2026-04-02T01:05:00.000Z",
+      },
+      context,
+    );
+
+    const walletEntryEvents = readAllEvents().filter(
+      (event) =>
+        event.eventType === "settlement.wallet.ledger-entry-posted" &&
+        ["payout", "payout-reversal"].includes((event.payload as { kind?: string }).kind ?? ""),
+    );
+    expect(walletEntryEvents.map((event) => event.payload)).toEqual([
+      expect.objectContaining({
+        ledgerEntryId: `led_payout_${payoutId}`,
+        kind: "payout",
+        direction: "debit",
+      }),
+      expect.objectContaining({
+        ledgerEntryId: `led_payout_reversal_${payoutId}`,
+        kind: "payout-reversal",
+        direction: "credit",
+      }),
     ]);
   });
 
