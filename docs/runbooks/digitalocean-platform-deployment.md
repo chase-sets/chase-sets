@@ -404,9 +404,9 @@ terraform apply -var=environment=<environment>
 
 Run once for `staging` and `production`. Generate distinct `grafana_admin_password`, `otel_write_token`, and `prometheus_query_token` values for each environment. After apply, copy `app_platform_otlp_headers` to the matching GitHub Environment `OBSERVABILITY_OTLP_HEADERS` secret. Copy the same environment's `prometheus_query_token` to the matching GitHub Environment `PROMETHEUS_QUERY_TOKEN` secret so operational evidence workflows can query Prometheus without exposing credentials.
 
-## One-Time Catalog Asset Bootstrap
+## Catalog Asset Terraform Root
 
-Create or update the stable Catalog asset buckets, CDN endpoints, managed certificates, and CDN custom domains before deploying platform environments that write Catalog provider imagery:
+Create or update the stable Catalog asset buckets, CDN endpoints, managed certificates, and CDN custom domains before deploying platform environments that write Catalog provider imagery. For audited staging or production evidence, use the `Platform Catalog Assets Apply` workflow instead of an ad hoc local apply. Run `plan` first, review the uploaded plan artifact, then run `apply` with the exact confirmation text. After apply, the workflow verifies that the Spaces bucket root returns AccessDenied and can verify one support-safe known CDN object path when provided.
 
 ```bash
 cd infrastructure/digitalocean/catalog-assets
@@ -426,7 +426,7 @@ terraform init \
 terraform apply -var=environment=<environment>
 ```
 
-Run once for `preview`, `staging`, and `production`. `doctl spaces keys create` can create or rotate the Spaces key used by Terraform and App Platform, and `gh secret set --env <environment>` should then update `SPACES_ACCESS_ID` and `SPACES_SECRET_KEY` for each GitHub environment.
+Run for `preview`, `staging`, and `production` whenever this root changes. `doctl spaces keys create` can create or rotate the Spaces key used by Terraform and App Platform, and `gh secret set --env <environment>` should then update `SPACES_ACCESS_ID` and `SPACES_SECRET_KEY` for each GitHub environment.
 
 Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys. In preview and staging, Terraform also creates one managed Postgres transaction pool per context database and points runtime `DATABASE_URL_*` variables at the pool URIs.
 
