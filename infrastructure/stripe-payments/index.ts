@@ -384,6 +384,7 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
   }
 
   const processorStatus = paymentObject.payment_status?.trim() ?? paymentObject.status?.trim() ?? event.type;
+  const paymentStatus = normalizeOptionalText(paymentObject.payment_status)?.toLowerCase() ?? null;
   const occurredAt = new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
   const failureCode = normalizeOptionalText(paymentObject.last_payment_error?.code ?? null);
   const failureMessage = normalizeOptionalText(paymentObject.last_payment_error?.message ?? null);
@@ -393,6 +394,53 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
 
   switch (event.type) {
     case "checkout.session.completed":
+      if (paymentObject.mode === "setup") {
+        return {
+          eventId: event.id,
+          kind: "saved-payment-setup-succeeded",
+          processorName: "stripe",
+          processorPaymentKind: "checkout-session",
+          processorPaymentReference,
+          internalPaymentId,
+          processorStatus,
+          failureCode: null,
+          failureMessage: null,
+          occurredAt,
+          processorSetupReference: processorPaymentReference,
+          setupIntentReference: normalizeOptionalText(paymentObject.setup_intent ?? null),
+          savedPaymentConsentId,
+          savedPaymentConsentText,
+          savedPaymentMethod: null,
+        };
+      }
+      if (paymentStatus !== "paid") {
+        return {
+          eventId: event.id,
+          kind: "payment-authorized",
+          processorName: "stripe",
+          processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
+          processorPaymentReference,
+          internalPaymentId,
+          processorStatus,
+          failureCode: null,
+          failureMessage: null,
+          occurredAt,
+        };
+      }
+      return {
+        eventId: event.id,
+        kind: "payment-captured",
+        processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
+        processorPaymentReference,
+        internalPaymentId,
+        processorStatus,
+        failureCode: null,
+        failureMessage: null,
+        occurredAt,
+        savedPaymentConsentId,
+        savedPaymentConsentText,
+      };
     case "checkout.session.async_payment_succeeded":
       if (paymentObject.mode === "setup") {
         return {
