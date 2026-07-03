@@ -65,8 +65,8 @@ describe("auth api client authentication methods", () => {
       purpose: "passkey-sign-in",
       email: "seller@example.com",
     });
-    await api.registerPasskey({ externalCredentialId: "credential-id" });
-    await api.signInWithPasskey({ externalCredentialId: "credential-id" });
+    await api.registerPasskey({ externalCredentialId: "credential-id", webauthnResponse: "webauthn-response" });
+    await api.signInWithPasskey({ externalCredentialId: "credential-id", webauthnResponse: "webauthn-response" });
 
     expect(calls).toEqual([
       {
@@ -102,12 +102,12 @@ describe("auth api client authentication methods", () => {
       },
       {
         url: "https://app.test/api/auth/passkeys/register",
-        body: { externalCredentialId: "credential-id" },
+        body: { externalCredentialId: "credential-id", webauthnResponse: "webauthn-response" },
         headers: { "content-type": "application/json" },
       },
       {
         url: "https://app.test/api/auth/passkeys/sign-in",
-        body: { externalCredentialId: "credential-id" },
+        body: { externalCredentialId: "credential-id", webauthnResponse: "webauthn-response" },
         headers: { "content-type": "application/json" },
       },
     ]);

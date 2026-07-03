@@ -5,23 +5,30 @@ import {
   createTestEventStoreContext,
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   decodeCommitReceipt,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
+import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import type { AuthServices } from "../runtime-support/services";
 import { passkeyMatchesChallengeUser, registerPasskeyRoutes, resolvePasskeyRegistrationUserId } from "./passkey-routes";
 import type { AuthApiEnv } from "./support";
 
-const { mockCreateIdentityAuthRequestClient, mockCreatePersonalIdentity, mockRegisterPasskeyCredential } = vi.hoisted(
-  () => ({
-    mockCreateIdentityAuthRequestClient: vi.fn(),
-    mockCreatePersonalIdentity: vi.fn(),
-    mockRegisterPasskeyCredential: vi.fn(),
-  }),
-);
+const {
+  mockCreateIdentityAuthRequestClient,
+  mockCreatePersonalIdentity,
+  mockRegisterPasskeyCredential,
+  mockVerifyAuthenticationResponse,
+  mockVerifyRegistrationResponse,
+} = vi.hoisted(() => ({
+  mockCreateIdentityAuthRequestClient: vi.fn(),
+  mockCreatePersonalIdentity: vi.fn(),
+  mockRegisterPasskeyCredential: vi.fn(),
+  mockVerifyAuthenticationResponse: vi.fn(),
+  mockVerifyRegistrationResponse: vi.fn(),
+}));
 
 vi.mock("@chase-sets/identity/server", () => ({
   createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
@@ -33,6 +40,11 @@ vi.mock("@chase-sets/identity/server", () => ({
       super(`API error ${status}`);
     }
   },
+}));
+
+vi.mock("@simplewebauthn/server", () => ({
+  verifyAuthenticationResponse: mockVerifyAuthenticationResponse,
+  verifyRegistrationResponse: mockVerifyRegistrationResponse,
 }));
 
 function buildApp(services: AuthServices) {
@@ -63,7 +75,15 @@ function createServices() {
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
       getUserByEmail: vi.fn(async () => null),
-      listActiveMembershipsForUser: vi.fn(async () => []),
+      listActiveMembershipsForUser: vi.fn(async () => [
+        {
+          membershipId: "mbr_1",
+          accountId: "acc_new",
+          roleKey: "owner",
+          status: "active",
+          rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+        },
+      ]),
     },
     sessions: {
       commandHandler: vi.fn(async (input) => ({
@@ -106,11 +126,73 @@ function withCommandReceipt<T extends object>(body: T, source: SourceCommitPosit
   return body;
 }
 
-useMockReset(mockCreateIdentityAuthRequestClient, mockCreatePersonalIdentity, mockRegisterPasskeyCredential);
+useMockReset(
+  mockCreateIdentityAuthRequestClient,
+  mockCreatePersonalIdentity,
+  mockRegisterPasskeyCredential,
+  mockVerifyAuthenticationResponse,
+  mockVerifyRegistrationResponse,
+);
+
+const registrationResponse = JSON.stringify({
+  id: "external_credential",
+  rawId: "external_credential",
+  type: "public-key",
+  response: {
+    clientDataJSON: "client_data",
+    attestationObject: "attestation",
+    transports: ["internal"],
+  },
+  clientExtensionResults: {},
+});
+
+const authenticationResponse = JSON.stringify({
+  id: "external_credential",
+  rawId: "external_credential",
+  type: "public-key",
+  response: {
+    clientDataJSON: "client_data",
+    authenticatorData: "authenticator_data",
+    signature: "signature",
+  },
+  clientExtensionResults: {},
+});
+
+function mockVerifiedRegistration() {
+  mockVerifyRegistrationResponse.mockResolvedValue({
+    verified: true,
+    registrationInfo: {
+      credential: {
+        id: "external_credential",
+        publicKey: new Uint8Array([1, 2, 3]),
+        counter: 7,
+      },
+      credentialDeviceType: "multiDevice",
+      credentialBackedUp: true,
+    },
+  });
+}
+
+function mockVerifiedAuthentication() {
+  mockVerifyAuthenticationResponse.mockResolvedValue({
+    verified: true,
+    authenticationInfo: {
+      credentialID: "external_credential",
+      newCounter: 8,
+      credentialDeviceType: "multiDevice",
+      credentialBackedUp: true,
+    },
+  });
+}
 
 describe("passkey route security", () => {
+  beforeEach(() => {
+    mockVerifiedRegistration();
+    mockVerifiedAuthentication();
+  });
+
   it("allows discoverable credentials only when they match the challenged user", () => {
-    expect(passkeyMatchesChallengeUser(null, "usr_any")).toBe(true);
+    expect(passkeyMatchesChallengeUser(null, "usr_any")).toBe(false);
     expect(passkeyMatchesChallengeUser("usr_owner", "usr_owner")).toBe(true);
     expect(passkeyMatchesChallengeUser("usr_owner", "usr_other")).toBe(false);
   });
@@ -198,7 +280,7 @@ describe("passkey route security", () => {
         displayName: "PokeBash TCG",
         externalCredentialId: "external_credential",
         label: "Passkey",
-        publicKey: "public_key",
+        webauthnResponse: registrationResponse,
       }),
     });
 
@@ -231,7 +313,7 @@ describe("passkey route security", () => {
     });
     expect(dbQuery).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO identity_passkey_credentials"),
-      expect.arrayContaining(["usr_new", "external_credential", "Passkey", "public_key"]),
+      expect.arrayContaining(["usr_new", "external_credential", "Passkey", "AQID", 7, "multiDevice", true]),
     );
     expect(dbQuery).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO identity_passkey_lookup"),
@@ -247,5 +329,339 @@ describe("passkey route security", () => {
         }),
       }),
     );
+    expect(mockVerifyRegistrationResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedChallenge: "challenge_value",
+        expectedOrigin: "http://localhost",
+        expectedRPID: "localhost",
+        expectedType: "webauthn.create",
+        requireUserPresence: true,
+        requireUserVerification: true,
+      }),
+    );
+  });
+
+  it("rejects passkey sign-in when the WebAuthn assertion is missing", async () => {
+    const services = createServices();
+    const dbQuery = vi.mocked(services.db.query);
+    dbQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            challenge_id: "cmd_1",
+            purpose: "passkey-sign-in",
+            email: "owner@pokebash.example",
+            user_id: "usr_owner",
+            challenge_value: "challenge_value",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            consumed_at: new Date().toISOString(),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            credential_id: "crd_1",
+            user_id: "usr_owner",
+            external_credential_id: "external_credential",
+            label: "Passkey",
+            public_key: "AQID",
+            sign_count: 7,
+            credential_device_type: "multiDevice",
+            credential_backed_up: true,
+          },
+        ],
+      });
+    const app = buildApp(services);
+
+    const response = await app.request("/passkeys/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challengeId: "cmd_1",
+        challenge: "challenge_value",
+        externalCredentialId: "external_credential",
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(mockVerifyAuthenticationResponse).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous sign-in challenges instead of matching any passkey credential", async () => {
+    const services = createServices();
+    const dbQuery = vi.mocked(services.db.query);
+    dbQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            challenge_id: "cmd_1",
+            purpose: "passkey-sign-in",
+            email: null,
+            user_id: null,
+            challenge_value: "challenge_value",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            consumed_at: new Date().toISOString(),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            credential_id: "crd_1",
+            user_id: "usr_owner",
+            external_credential_id: "external_credential",
+            label: "Passkey",
+            public_key: "AQID",
+            sign_count: 7,
+            credential_device_type: "multiDevice",
+            credential_backed_up: true,
+          },
+        ],
+      });
+    const app = buildApp(services);
+
+    const response = await app.request("/passkeys/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challengeId: "cmd_1",
+        challenge: "challenge_value",
+        externalCredentialId: "external_credential",
+        webauthnResponse: authenticationResponse,
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(mockVerifyAuthenticationResponse).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects assertions whose credential id does not match the stored credential id", async () => {
+    const services = createServices();
+    const dbQuery = vi.mocked(services.db.query);
+    dbQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            challenge_id: "cmd_1",
+            purpose: "passkey-sign-in",
+            email: "owner@pokebash.example",
+            user_id: "usr_owner",
+            challenge_value: "challenge_value",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            consumed_at: new Date().toISOString(),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            credential_id: "crd_1",
+            user_id: "usr_owner",
+            external_credential_id: "external_credential",
+            label: "Passkey",
+            public_key: "AQID",
+            sign_count: 7,
+            credential_device_type: "multiDevice",
+            credential_backed_up: true,
+          },
+        ],
+      });
+    const app = buildApp(services);
+
+    const response = await app.request("/passkeys/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challengeId: "cmd_1",
+        challenge: "challenge_value",
+        externalCredentialId: "external_credential",
+        webauthnResponse: authenticationResponse.replaceAll("external_credential", "other_credential"),
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(mockVerifyAuthenticationResponse).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects assertions posted from an origin that does not match the request host", async () => {
+    const services = createServices();
+    const dbQuery = vi.mocked(services.db.query);
+    dbQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            challenge_id: "cmd_1",
+            purpose: "passkey-sign-in",
+            email: "owner@pokebash.example",
+            user_id: "usr_owner",
+            challenge_value: "challenge_value",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            consumed_at: new Date().toISOString(),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            credential_id: "crd_1",
+            user_id: "usr_owner",
+            external_credential_id: "external_credential",
+            label: "Passkey",
+            public_key: "AQID",
+            sign_count: 7,
+            credential_device_type: "multiDevice",
+            credential_backed_up: true,
+          },
+        ],
+      });
+    const app = buildApp(services);
+
+    const response = await app.request("https://app.test/passkeys/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://evil.test" },
+      body: JSON.stringify({
+        challengeId: "cmd_1",
+        challenge: "challenge_value",
+        externalCredentialId: "external_credential",
+        webauthnResponse: authenticationResponse,
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(mockVerifyAuthenticationResponse).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("verifies challenge, origin, rpId, signature material, and updates sign counter before passkey sign-in succeeds", async () => {
+    const services = createServices();
+    const dbQuery = vi.mocked(services.db.query);
+    dbQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            challenge_id: "cmd_1",
+            purpose: "passkey-sign-in",
+            email: "owner@pokebash.example",
+            user_id: "usr_owner",
+            challenge_value: "challenge_value",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            consumed_at: new Date().toISOString(),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            credential_id: "crd_1",
+            user_id: "usr_owner",
+            external_credential_id: "external_credential",
+            label: "Passkey",
+            public_key: "AQID",
+            sign_count: 7,
+            credential_device_type: "multiDevice",
+            credential_backed_up: true,
+          },
+        ],
+      })
+      .mockResolvedValue({ rows: [] });
+    const app = buildApp(services);
+
+    const response = await app.request("https://app.test/passkeys/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://app.test" },
+      body: JSON.stringify({
+        challengeId: "cmd_1",
+        challenge: "challenge_value",
+        externalCredentialId: "external_credential",
+        accountId: "acc_new",
+        webauthnResponse: authenticationResponse,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockVerifyAuthenticationResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedChallenge: "challenge_value",
+        expectedOrigin: "https://app.test",
+        expectedRPID: "app.test",
+        expectedType: "webauthn.get",
+        requireUserVerification: true,
+        advancedFIDOConfig: { userVerification: "required" },
+        credential: {
+          id: "external_credential",
+          publicKey: new Uint8Array([1, 2, 3]),
+          counter: 7,
+        },
+      }),
+    );
+    expect(dbQuery).toHaveBeenCalledWith(expect.stringContaining("UPDATE identity_passkey_credentials"), [
+      "external_credential",
+      8,
+      "multiDevice",
+      true,
+    ]);
+    expect(services.sessions.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "StartSession",
+          userId: "usr_owner",
+          accountId: "acc_new",
+        }),
+      }),
+    );
+  });
+
+  it("rejects invalid signatures and sign counter regressions reported by WebAuthn verification", async () => {
+    mockVerifyAuthenticationResponse.mockRejectedValue(new Error("Response counter value was lower than expected"));
+    const services = createServices();
+    const dbQuery = vi.mocked(services.db.query);
+    dbQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            challenge_id: "cmd_1",
+            purpose: "passkey-sign-in",
+            email: "owner@pokebash.example",
+            user_id: "usr_owner",
+            challenge_value: "challenge_value",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            consumed_at: new Date().toISOString(),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            credential_id: "crd_1",
+            user_id: "usr_owner",
+            external_credential_id: "external_credential",
+            label: "Passkey",
+            public_key: "AQID",
+            sign_count: 7,
+            credential_device_type: "multiDevice",
+            credential_backed_up: true,
+          },
+        ],
+      });
+    const app = buildApp(services);
+
+    const response = await app.request("https://app.test/passkeys/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://app.test" },
+      body: JSON.stringify({
+        challengeId: "cmd_1",
+        challenge: "challenge_value",
+        externalCredentialId: "external_credential",
+        accountId: "acc_new",
+        webauthnResponse: authenticationResponse,
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
 });

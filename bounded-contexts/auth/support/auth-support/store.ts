@@ -49,6 +49,9 @@ export async function upsertPasskeyCredential(
     externalCredentialId: string;
     label: string;
     publicKey: string;
+    signCount: number;
+    credentialDeviceType: string;
+    credentialBackedUp: boolean;
   }>,
 ) {
   await db.query(
@@ -58,16 +61,31 @@ export async function upsertPasskeyCredential(
        external_credential_id,
        label,
        public_key,
+       sign_count,
+       credential_device_type,
+       credential_backed_up,
        created_at,
        updated_at
      )
-     VALUES ($1, $2, $3, $4, $5, now(), now())
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
      ON CONFLICT (credential_id) DO UPDATE
      SET external_credential_id = $3,
          label = $4,
          public_key = $5,
+         sign_count = $6,
+         credential_device_type = $7,
+         credential_backed_up = $8,
          updated_at = now()`,
-    [params.credentialId, params.userId, params.externalCredentialId, params.label, params.publicKey],
+    [
+      params.credentialId,
+      params.userId,
+      params.externalCredentialId,
+      params.label,
+      params.publicKey,
+      params.signCount,
+      params.credentialDeviceType,
+      params.credentialBackedUp,
+    ],
   );
   await db.query(
     `INSERT INTO identity_passkey_lookup (
@@ -94,14 +112,44 @@ export async function getPasskeyCredentialByExternalId(db: PgQueryable, external
     external_credential_id: string;
     label: string;
     public_key: string;
+    sign_count: number;
+    credential_device_type: string;
+    credential_backed_up: boolean;
   }>(
-    `SELECT credential_id, user_id, external_credential_id, label, public_key
+    `SELECT credential_id,
+            user_id,
+            external_credential_id,
+            label,
+            public_key,
+            sign_count,
+            credential_device_type,
+            credential_backed_up
      FROM identity_passkey_credentials
      WHERE external_credential_id = $1`,
     [externalCredentialId],
   );
 
   return result.rows[0] ?? null;
+}
+
+export async function updatePasskeySignCount(
+  db: PgQueryable,
+  params: Readonly<{
+    externalCredentialId: string;
+    signCount: number;
+    credentialDeviceType: string;
+    credentialBackedUp: boolean;
+  }>,
+) {
+  await db.query(
+    `UPDATE identity_passkey_credentials
+     SET sign_count = $2,
+         credential_device_type = $3,
+         credential_backed_up = $4,
+         updated_at = now()
+     WHERE external_credential_id = $1`,
+    [params.externalCredentialId, params.signCount, params.credentialDeviceType, params.credentialBackedUp],
+  );
 }
 
 export async function insertMagicLinkToken(

@@ -83,7 +83,7 @@ describe("auth host", () => {
         challenge: "challenge",
         externalCredentialId: "external_credential",
         label: "Passkey",
-        publicKey: "public_key",
+        webauthnResponse: "webauthn_response",
       }),
     });
   }
