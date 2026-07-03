@@ -685,4 +685,20 @@ describe("SearchPage", () => {
 
     expect(onCommit).toHaveBeenCalledTimes(1);
   });
+
+  it("surfaces bulk add failures in a visible banner", () => {
+    renderSearchPage({
+      search: "base set",
+      committedSearch: "base set",
+      bulkAdd: {
+        status: "idle",
+        error: "We could not add matching products to Buy Cart. Try again.",
+        onPreview: vi.fn(),
+        onCommit: vi.fn(),
+      },
+    });
+
+    expect(screen.getByText("Could not add matching products")).toBeTruthy();
+    expect(screen.getByText("We could not add matching products to Buy Cart. Try again.")).toBeTruthy();
+  });
 });

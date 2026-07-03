@@ -858,6 +858,9 @@ export const discoveryEnglishTranslations = {
   "discovery.features.itemDetail.ui.itemDetailPage.no.additional.details": "No additional item details are available.",
   "discovery.features.search.ui.searchPage.default.product.image": "Default product image",
   "discovery.features.search.ui.searchPage.buy": "Add product to Buy Cart",
+  "discovery.features.search.ui.searchPage.bulk.error.description":
+    "We could not add matching products to Buy Cart. Try again, or open a product to add it individually.",
+  "discovery.features.search.ui.searchPage.bulk.error.title": "Could not add matching products",
   "discovery.features.search.ui.searchPage.buy.intent": "Buy",
   "discovery.features.search.ui.searchPage.sell": "Add product to Sell List",
   "discovery.features.search.ui.searchPage.sell.intent": "Sell",

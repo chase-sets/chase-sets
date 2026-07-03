@@ -213,6 +213,7 @@ export type BulkAddSearchActionData =
 export type BulkAddSearchState = Readonly<{
   status: "idle" | "submitting";
   data?: BulkAddSearchActionData;
+  error?: string | null;
   onPreview: () => void;
   onCommit: () => void;
 }>;
@@ -714,6 +715,13 @@ export function SearchPage({
 
         {error ? (
           <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} />
+        ) : null}
+        {bulkAdd?.error ? (
+          <Banner
+            tone="danger"
+            title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
+            description={bulkAdd.error}
+          />
         ) : null}
 
         {loading && !data ? (
