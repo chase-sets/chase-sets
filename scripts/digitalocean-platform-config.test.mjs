@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { retiredProfileComponentNames, runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
@@ -23,6 +23,10 @@ const observabilityCloudInit = readFileSync(
 );
 const observabilityDockerCompose = readFileSync(
   resolve("infrastructure/digitalocean/observability/templates/docker-compose.yml.tftpl"),
+  "utf8",
+);
+const observabilityCollectorTemplate = readFileSync(
+  resolve("infrastructure/digitalocean/observability/templates/collector-config.yml.tftpl"),
   "utf8",
 );
 const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
@@ -105,6 +109,16 @@ const adminWebViteConfig = readFileSync(resolve("deployables/admin-web/vite.conf
 
 function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
+}
+
+function listFilesRecursively(rootDir, prefix = "") {
+  return readdirSync(rootDir, { withFileTypes: true })
+    .flatMap((entry) => {
+      const entryPath = join(rootDir, entry.name);
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      return entry.isDirectory() ? listFilesRecursively(entryPath, relativePath) : [relativePath];
+    })
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function expectTerraformAssignment(source, localName, expression) {
@@ -2054,7 +2068,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain('check "observability_storage_posture"');
     expect(observabilityMain).toContain('check "observability_retention_posture"');
     expect(observabilityMain).toContain('check "observability_cloud_init_size"');
+    expect(observabilityMain).toContain('check "observability_stack_file_classification"');
     expect(observabilityMain).toContain("length(local.cloud_init_user_data) < 64000");
+    expect(observabilityMain).toContain("length(local.unclassified_stack_files) == 0");
     expect(observabilityVariables).toContain('variable "droplet_backups_enabled"');
     expect(observabilityVariables).toContain("default     = false");
     expect(observabilityVariables).toContain('variable "acceptable_telemetry_data_loss_window_hours"');
@@ -2062,10 +2078,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain('port_range       = "443"');
     expect(observabilityLocals).toContain("../../observability/stack");
     expect(observabilityLocals).toContain('fileset(local.stack_source_dir, "**/*")');
-    expect(observabilityLocals).not.toContain("grafana/dashboards/projection-wake-pipeline.json");
+    expect(observabilityLocals).toContain("stack_file_exclusions = toset([])");
+    expect(observabilityLocals).toContain('setsubtract(fileset(local.stack_source_dir, "**/*")');
+    expect(observabilityLocals).toContain('"collector-config.yml" = templatefile');
     expect(observabilityLocals).toContain('encoding    = "gz+b64"');
     expect(observabilityLocals).toContain("content     = base64gzip(content)");
     expect(observabilityLocals).toContain("cloud_init_user_data = templatefile");
+    expect(observabilityCollectorTemplate).toContain("deployment.environment");
+    expect(observabilityCollectorTemplate).toContain("value: ${deployment_environment}");
+    expect(observabilityCollectorTemplate).not.toContain("value: local");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Token");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Query");
     expect(observabilityDockerCompose).toContain("/var/lib/chase-sets-observability/diagnostics:/srv/diagnostics:ro");
@@ -2082,6 +2103,17 @@ describe("DigitalOcean platform configuration", () => {
     // longer exports canary_prometheus_* outputs. The scoped query-auth token
     // (X-Chase-Sets-Observability-Query, asserted above) stays for dashboards.
     expect(observabilityOutputs).not.toContain("canary_prometheus");
+  });
+
+  it("keeps every checked-in observability stack file deployed or explicitly excluded", () => {
+    const stackFiles = listFilesRecursively(resolve("infrastructure/observability/stack"));
+
+    expect(stackFiles).toContain("grafana/dashboards/catalog-integration-control-plane.json");
+    expect(stackFiles).toContain("grafana/provisioning/alerting/catalog-integration-alerts.yml");
+    expect(observabilityLocals).toContain("stack_file_paths = sort(tolist(setsubtract(");
+    expect(observabilityLocals).toContain("local.stack_file_exclusions");
+    expect(observabilityLocals).toContain("unclassified_stack_files = setsubtract(");
+    expect(observabilityLocals).toContain("setunion(toset(keys(local.stack_files)), local.stack_file_exclusions)");
   });
 
   it("splits app and data regions and manages uptime checks", () => {

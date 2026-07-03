@@ -11,13 +11,24 @@ locals {
 
   stack_source_dir = "${path.module}/../../observability/stack"
 
-  stack_file_paths = sort(fileset(local.stack_source_dir, "**/*"))
+  # Every checked-in stack file is deployed unless it is listed here with a
+  # comment explaining why the file is intentionally local-only.
+  stack_file_exclusions = toset([])
+
+  stack_file_paths = sort(tolist(setsubtract(fileset(local.stack_source_dir, "**/*"), local.stack_file_exclusions)))
   stack_files = {
     for relative_path in local.stack_file_paths :
     relative_path => file("${local.stack_source_dir}/${relative_path}")
   }
+  unclassified_stack_files = setsubtract(
+    fileset(local.stack_source_dir, "**/*"),
+    setunion(toset(keys(local.stack_files)), local.stack_file_exclusions)
+  )
 
   generated_stack_files = {
+    "collector-config.yml" = templatefile("${path.module}/templates/collector-config.yml.tftpl", {
+      deployment_environment = var.environment
+    })
     "docker-compose.yml" = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {})
     ".env" = templatefile("${path.module}/templates/stack.env.tftpl", {
       caddy_image          = var.caddy_image
