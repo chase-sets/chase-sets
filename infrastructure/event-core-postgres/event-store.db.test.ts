@@ -415,10 +415,19 @@ describeDb("postgres event store real database integration", () => {
          LIMIT $6`,
         [0, "tenant_a", ["catalog.item.created", "catalog.item.updated"], "catalog", "catalog.item-", 10],
       );
-      const planText = JSON.stringify(explain.rows[0]?.["QUERY PLAN"] ?? "");
+      const plan = explain.rows[0]?.["QUERY PLAN"] ?? "";
+      const planText = JSON.stringify(plan);
+      const indexNames = collectExplainIndexNames(plan);
 
-      expect(planText).toContain("event_store_events_tenant_type_global_idx");
       expect(planText).not.toContain("Seq Scan");
+      expect(indexNames).toEqual(
+        expect.arrayContaining([
+          // For a multi-event-type catch-up page ordered by global position, Postgres can prefer the
+          // tenant/global index and apply the type/prefix filters while preserving the requested order.
+          "event_store_events_tenant_global_idx",
+        ]),
+      );
+      expect(indexNames).not.toContain("event_store_events_global_idx");
     });
   });
 
@@ -1131,4 +1140,32 @@ async function readIdentityConsentProjectionRow(pool: PgTransactionalPool, conse
   );
 
   return result.rows[0] ?? {};
+}
+
+function collectExplainIndexNames(plan: unknown): string[] {
+  const names = new Set<string>();
+  collectExplainIndexNamesInto(plan, names);
+  return [...names].sort();
+}
+
+function collectExplainIndexNamesInto(plan: unknown, names: Set<string>): void {
+  if (Array.isArray(plan)) {
+    for (const entry of plan) {
+      collectExplainIndexNamesInto(entry, names);
+    }
+    return;
+  }
+
+  if (!plan || typeof plan !== "object") {
+    return;
+  }
+
+  const record = plan as Record<string, unknown>;
+  if (typeof record["Index Name"] === "string") {
+    names.add(record["Index Name"]);
+  }
+
+  for (const value of Object.values(record)) {
+    collectExplainIndexNamesInto(value, names);
+  }
 }
