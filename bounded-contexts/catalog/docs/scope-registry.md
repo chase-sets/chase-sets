@@ -34,8 +34,8 @@ Legacy provider attributes such as `set-code` or `abbreviation` may remain as pr
 - release date, official set code, and language editions
 - lifecycle status: `draft`, `active`, `deprecated`, or `archived`
 
-The projection does not rewrite Source Observation sync planning. Provider-specific ids, names, and category mappings remain provider evidence until the Provider Scope Mapping slice maps them onto these canonical Scope Records.
+The projection does not rewrite Source Observation sync planning. Provider-specific ids, names, and category mappings remain provider evidence until the Provider Scope Mapping slice maps them onto these canonical Scope Records through review.
 
 ## Boundaries
 
-Catalog Scope Record is canonical Catalog identity. Provider Scope Mapping is the future provider-to-canonical bridge. Scope Coverage is the future read model that will show which providers can cover each canonical Scope Record. Scope Sync is the future workflow that starts from a Scope Record, applies approved provider mappings, and then delegates provider pulls.
+Catalog Scope Record is canonical Catalog identity. Provider Scope Mapping is the reviewed provider-to-canonical bridge keyed by `scope_record_id`, `provider_key`, and `unit_key`. Scope Coverage is the future read model that will show which providers can cover each canonical Scope Record. Scope Sync is the future workflow that starts from a Scope Record, applies approved provider mappings, and then delegates provider pulls.

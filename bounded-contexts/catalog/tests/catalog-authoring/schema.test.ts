@@ -22,6 +22,7 @@ describe("catalog authoring schema composition", () => {
     expect(catalogAuthoringSchemaSql).toContain("catalog_source_observation_alias_candidates");
     expect(catalogAuthoringSchemaSql).toContain("catalog_item_aliases");
     expect(catalogAuthoringSchemaSql).toContain("catalog_reference_record_aliases");
+    expect(catalogAuthoringSchemaSql).toContain("catalog_provider_scope_mappings");
   });
 
   it("includes source-observation scope-summary concurrent index migrations", () => {
