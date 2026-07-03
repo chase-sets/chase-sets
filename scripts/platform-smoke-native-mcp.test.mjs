@@ -1,25 +1,44 @@
 import { describe, expect, it } from "vitest";
 import {
-  isNativeMcpAnonymousDiscoveryRejected,
+  isNativeMcpAnonymousDiscoveryAccepted,
   isNativeMcpPermissionBoundaryError,
+  isNativeMcpProtectedResourceChallenge,
+  readNativeMcpBearerResourceMetadataUrl,
   readNativeMcpToolStructuredContent,
 } from "./platform-smoke-native-mcp.mjs";
 
-function responseWithStatus(status) {
-  return { status };
+function responseWithStatus(status, headers = {}) {
+  const entries = new Map(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]));
+  return {
+    status,
+    headers: {
+      get: (key) => entries.get(key.toLowerCase()) ?? null,
+    },
+  };
 }
 
 describe("native MCP platform smoke", () => {
-  it("accepts safe anonymous discovery rejection statuses", () => {
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(401))).toBe(true);
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(403))).toBe(true);
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(405))).toBe(true);
+  it("accepts anonymous discovery success", () => {
+    expect(isNativeMcpAnonymousDiscoveryAccepted(responseWithStatus(200))).toBe(true);
   });
 
-  it("rejects success and missing-route responses", () => {
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(200))).toBe(false);
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(204))).toBe(false);
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(404))).toBe(false);
+  it("rejects unsuccessful anonymous discovery responses", () => {
+    expect(isNativeMcpAnonymousDiscoveryAccepted(responseWithStatus(204))).toBe(false);
+    expect(isNativeMcpAnonymousDiscoveryAccepted(responseWithStatus(401))).toBe(false);
+    expect(isNativeMcpAnonymousDiscoveryAccepted(responseWithStatus(404))).toBe(false);
+  });
+
+  it("recognizes protected resource bearer challenges", () => {
+    const response = responseWithStatus(401, {
+      "WWW-Authenticate": 'Bearer resource_metadata="https://marketplace.example/.well-known/oauth-protected-resource"',
+    });
+
+    expect(isNativeMcpProtectedResourceChallenge(response)).toBe(true);
+    expect(readNativeMcpBearerResourceMetadataUrl(response)).toBe(
+      "https://marketplace.example/.well-known/oauth-protected-resource",
+    );
+    expect(isNativeMcpProtectedResourceChallenge(responseWithStatus(401))).toBe(false);
+    expect(isNativeMcpProtectedResourceChallenge(responseWithStatus(200))).toBe(false);
   });
 
   it("recognizes the authenticated inventory permission boundary", () => {

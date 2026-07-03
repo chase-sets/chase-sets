@@ -32,7 +32,11 @@ import {
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
-import { createMcpRoutes, type CreateMcpRoutesOptions } from "@chase-sets/platform-runtime/mcp";
+import {
+  createMcpProtectedResourceMetadataRoutes,
+  createMcpRoutes,
+  type CreateMcpRoutesOptions,
+} from "@chase-sets/platform-runtime/mcp";
 import {
   createProjectionOperationsRoutes,
   type ProjectionWakeStatusWorkSignalStore,
@@ -310,6 +314,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     app.use("/mcp", platformActorMiddleware);
     app.use("/mcp/*", platformActorMiddleware);
     app.route("/mcp", createMcpRoutes(mcpOptions));
+    app.route("/.well-known", createMcpProtectedResourceMetadataRoutes());
     app.route("/.well-known", createUcpProfileRoutes(options.ucp));
     app.route("/.well-known", createUcpOAuthMetadataRoutes());
     app.use("/ucp/oauth/*", platformActorMiddleware);

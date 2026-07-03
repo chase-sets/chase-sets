@@ -24,7 +24,7 @@ import {
   type PlatformIdempotencyRecord,
   type PlatformIdempotencyStore,
 } from "./idempotency";
-import { resolveClientAddress } from "./http";
+import { resolveClientAddress, resolvePublicRequestOrigin } from "./http";
 
 export type McpRuntimeEnv = {
   Variables: {
@@ -80,6 +80,13 @@ export type CreateMcpRoutesOptions = Readonly<{
   allowInMemoryIdempotencyStoreForTests?: boolean;
 }>;
 
+export type CreateMcpProtectedResourceMetadataRoutesOptions = Readonly<{
+  resourcePath?: string;
+  authorizationServerIssuer?: string;
+  scopesSupported?: readonly string[];
+  bearerMethodsSupported?: readonly ("header" | "body" | "query")[];
+}>;
+
 type JsonRpcRequest = Readonly<{
   jsonrpc?: "2.0";
   id?: string | number | null;
@@ -99,6 +106,10 @@ type McpResourceReadParams = Readonly<{
 
 const JSON_RPC_VERSION = "2.0";
 const IDEMPOTENCY_PENDING_TTL_MS = 2 * 60 * 1000;
+export const MCP_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
+const DEFAULT_MCP_RESOURCE_PATH = "/mcp";
+const DEFAULT_MCP_SCOPES_SUPPORTED = ["catalog:read", "checkout:read", "checkout:write", "order:read"] as const;
+const DEFAULT_MCP_BEARER_METHODS_SUPPORTED = ["header"] as const;
 
 type McpInputValidationIssue = Readonly<{
   path: string;
@@ -169,12 +180,40 @@ function mcpToolErrorResult(text: string) {
   });
 }
 
-function mcpAuthenticationRequiredResponse(id: JsonRpcRequest["id"] = null) {
-  return jsonRpcError(id, -32001, "An authenticated actor is required for native MCP discovery.");
+function mcpAuthenticationRequiredResponse(
+  id: JsonRpcRequest["id"] = null,
+  message = "An authenticated actor is required.",
+) {
+  return jsonRpcError(id, -32001, message);
 }
 
-function requireMcpDiscoveryActor(actor: ResolvedActor | null | undefined) {
-  return actor ? null : mcpAuthenticationRequiredResponse();
+export function mcpProtectedResourceMetadataUrl(request: Request) {
+  return `${resolvePublicRequestOrigin(request)}${MCP_PROTECTED_RESOURCE_METADATA_PATH}`;
+}
+
+export function mcpProtectedResourceWwwAuthenticateChallenge(request: Request) {
+  return `Bearer resource_metadata="${mcpProtectedResourceMetadataUrl(request)}"`;
+}
+
+function createMcpProtectedResourceMetadata(
+  request: Request,
+  options: CreateMcpProtectedResourceMetadataRoutesOptions = {},
+) {
+  const origin = resolvePublicRequestOrigin(request);
+  const resourcePath = options.resourcePath ?? DEFAULT_MCP_RESOURCE_PATH;
+
+  return {
+    resource: `${origin}${resourcePath}`,
+    authorization_servers: [options.authorizationServerIssuer ?? origin],
+    scopes_supported: [...(options.scopesSupported ?? DEFAULT_MCP_SCOPES_SUPPORTED)],
+    bearer_methods_supported: [...(options.bearerMethodsSupported ?? DEFAULT_MCP_BEARER_METHODS_SUPPORTED)],
+  };
+}
+
+function isProtectedPermissionBoundary(
+  boundary: McpToolDescriptor["permissionBoundary"] | McpResourceDescriptor["permissionBoundary"],
+) {
+  return boundary.scope !== "public";
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -1014,33 +1053,18 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   const idempotencyStore = resolveMcpIdempotencyStore(options);
 
   app.get("/services", (c) => {
-    const actorError = requireMcpDiscoveryActor(c.get("actor"));
-    if (actorError) {
-      return c.json(actorError, 401);
-    }
-
     return c.json({
       services,
     });
   });
 
   app.get("/tools", (c) => {
-    const actorError = requireMcpDiscoveryActor(c.get("actor"));
-    if (actorError) {
-      return c.json(actorError, 401);
-    }
-
     return c.json({
       tools: flattenAvailableMcpTools(services).map(toToolListItem),
     });
   });
 
   app.get("/resources", (c) => {
-    const actorError = requireMcpDiscoveryActor(c.get("actor"));
-    if (actorError) {
-      return c.json(actorError, 401);
-    }
-
     return c.json({
       resources: flattenAvailableMcpResources(services).map(toResourceListItem),
     });
@@ -1060,11 +1084,6 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
 
     switch (request.method) {
       case "initialize": {
-        const actorError = requireMcpDiscoveryActor(actor);
-        if (actorError) {
-          return c.json({ ...actorError, id: request.id ?? null }, 401);
-        }
-
         return c.json(
           jsonRpcResult(request.id, {
             protocolVersion: negotiateMcpProtocolVersion(request.params),
@@ -1080,11 +1099,6 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         );
       }
       case "tools/list": {
-        const actorError = requireMcpDiscoveryActor(actor);
-        if (actorError) {
-          return c.json({ ...actorError, id: request.id ?? null }, 401);
-        }
-
         return c.json(
           jsonRpcResult(request.id, {
             tools: flattenAvailableMcpTools(services).map(toToolListItem),
@@ -1092,11 +1106,6 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         );
       }
       case "resources/list": {
-        const actorError = requireMcpDiscoveryActor(actor);
-        if (actorError) {
-          return c.json({ ...actorError, id: request.id ?? null }, 401);
-        }
-
         return c.json(
           jsonRpcResult(request.id, {
             resources: flattenAvailableMcpResources(services).map(toResourceListItem),
@@ -1104,6 +1113,24 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         );
       }
       case "tools/call": {
+        const params = (request.params ?? {}) as McpToolCallParams;
+        const tool = typeof params.name === "string" ? findMcpTool(params.name, services) : null;
+        if (!actor && tool && isProtectedPermissionBoundary(tool.permissionBoundary)) {
+          await audit(options.audit, {
+            outcome: "denied",
+            method: "tools/call",
+            toolName: tool.name,
+            actorId: null,
+            accountId: null,
+            auditEventName: tool.audit.eventName,
+            targetType: tool.audit.targetType,
+            reason: "An authenticated actor is required.",
+            sensitiveInputFields: tool.audit.sensitiveInputFields,
+          });
+          c.header("WWW-Authenticate", mcpProtectedResourceWwwAuthenticateChallenge(c.req.raw));
+          return c.json(mcpAuthenticationRequiredResponse(request.id), 401);
+        }
+
         const result = await callTool(c.req.raw, actor, (request.params ?? {}) as McpToolCallParams, {
           services,
           toolHandlers,
@@ -1114,7 +1141,35 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         return c.json({ ...result, id: request.id ?? null });
       }
       case "resources/read": {
-        const result = await readResource(c.req.raw, actor, (request.params ?? {}) as McpResourceReadParams, {
+        const params = (request.params ?? {}) as McpResourceReadParams;
+        const resourceUri = typeof params.uri === "string" ? params.uri : null;
+        const resourceMatch = resourceUri
+          ? (flattenMcpResources(services)
+              .map((candidate) => matchResourceUri(candidate, resourceUri))
+              .find((candidate) => candidate !== null) ?? null)
+          : null;
+        if (
+          !actor &&
+          resourceUri &&
+          resourceMatch &&
+          isProtectedPermissionBoundary(resourceMatch.resource.permissionBoundary)
+        ) {
+          const resource = resourceMatch.resource;
+          await audit(options.audit, {
+            outcome: "denied",
+            method: "resources/read",
+            resourceUri,
+            actorId: null,
+            accountId: null,
+            auditEventName: `mcp.${resource.serviceId}.resources.read`,
+            targetType: resource.title,
+            reason: "An authenticated actor is required.",
+          });
+          c.header("WWW-Authenticate", mcpProtectedResourceWwwAuthenticateChallenge(c.req.raw));
+          return c.json(mcpAuthenticationRequiredResponse(request.id), 401);
+        }
+
+        const result = await readResource(c.req.raw, actor, params, {
           services,
           resourceHandlers,
           audit: options.audit,
@@ -1125,6 +1180,16 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         return c.json(jsonRpcError(request.id, -32601, `Unsupported MCP method '${request.method}'.`));
     }
   });
+
+  return app;
+}
+
+export function createMcpProtectedResourceMetadataRoutes(
+  options: CreateMcpProtectedResourceMetadataRoutesOptions = {},
+) {
+  const app = new Hono();
+
+  app.get("/oauth-protected-resource", (c) => c.json(createMcpProtectedResourceMetadata(c.req.raw, options)));
 
   return app;
 }

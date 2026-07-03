@@ -1,5 +1,15 @@
-export function isNativeMcpAnonymousDiscoveryRejected(response) {
-  return [401, 403, 405].includes(response.status);
+export function isNativeMcpAnonymousDiscoveryAccepted(response) {
+  return response.status === 200;
+}
+
+export function readNativeMcpBearerResourceMetadataUrl(response) {
+  const header = response?.headers?.get?.("WWW-Authenticate") ?? response?.headers?.get?.("www-authenticate") ?? "";
+  const match = /\bBearer\b.*\bresource_metadata="([^"]+)"/i.exec(header);
+  return match?.[1] ?? null;
+}
+
+export function isNativeMcpProtectedResourceChallenge(response) {
+  return response.status === 401 && readNativeMcpBearerResourceMetadataUrl(response) !== null;
 }
 
 export function isNativeMcpPermissionBoundaryError(error, expectedPermission) {

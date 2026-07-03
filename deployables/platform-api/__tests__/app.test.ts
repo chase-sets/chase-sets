@@ -802,10 +802,10 @@ describe("platform api app wiring", () => {
     );
   });
 
-  it("rejects anonymous native MCP discovery through the composed platform API", async () => {
+  it("bootstraps anonymous native MCP discovery through protected resource metadata", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime());
 
-    const response = await app.request("/mcp", {
+    const discoveryResponse = await app.request("https://marketplace.example/mcp", {
       method: "POST",
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -813,15 +813,58 @@ describe("platform api app wiring", () => {
         method: "tools/list",
       }),
     });
+    const protectedCallResponse = await app.request("https://marketplace.example/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "call_1",
+        method: "tools/call",
+        params: {
+          name: "inventory.list-import-sources",
+          arguments: {
+            accountId: "account_1",
+          },
+        },
+      }),
+    });
+    const protectedResourceMetadataResponse = await app.request(
+      "https://marketplace.example/.well-known/oauth-protected-resource",
+    );
+    const authorizationServerMetadataResponse = await app.request(
+      "https://marketplace.example/.well-known/oauth-authorization-server",
+    );
 
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({
+    expect(discoveryResponse.status).toBe(200);
+    await expect(discoveryResponse.json()).resolves.toMatchObject({
       jsonrpc: "2.0",
       id: "tools_1",
+      result: {
+        tools: expect.arrayContaining([expect.objectContaining({ name: "inventory.list-import-sources" })]),
+      },
+    });
+    expect(protectedCallResponse.status).toBe(401);
+    expect(protectedCallResponse.headers.get("WWW-Authenticate")).toBe(
+      'Bearer resource_metadata="https://marketplace.example/.well-known/oauth-protected-resource"',
+    );
+    await expect(protectedCallResponse.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "call_1",
       error: {
         code: -32001,
-        message: "An authenticated actor is required for native MCP discovery.",
+        message: "An authenticated actor is required.",
       },
+    });
+    expect(protectedResourceMetadataResponse.status).toBe(200);
+    await expect(protectedResourceMetadataResponse.json()).resolves.toMatchObject({
+      resource: "https://marketplace.example/mcp",
+      authorization_servers: ["https://marketplace.example"],
+      scopes_supported: ["catalog:read", "checkout:read", "checkout:write", "order:read"],
+      bearer_methods_supported: ["header"],
+    });
+    expect(authorizationServerMetadataResponse.status).toBe(200);
+    await expect(authorizationServerMetadataResponse.json()).resolves.toMatchObject({
+      issuer: "https://marketplace.example",
+      authorization_endpoint: "https://marketplace.example/ucp/oauth/authorize",
     });
   });
 

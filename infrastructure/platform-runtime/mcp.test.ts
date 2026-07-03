@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createMcpRoutes, type McpAuditRecord } from "./mcp";
+import { createMcpProtectedResourceMetadataRoutes, createMcpRoutes, type McpAuditRecord } from "./mcp";
 import { MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import type { McpServiceDescriptor } from "./mcp-contracts";
@@ -198,22 +198,14 @@ describe("MCP runtime routes", () => {
     });
   });
 
-  it("requires an authenticated actor for native discovery endpoints", async () => {
+  it("allows anonymous native discovery endpoints", async () => {
     const app = createMcpRoutes();
     const endpoints = ["/services", "/tools", "/resources"];
 
     for (const endpoint of endpoints) {
       const response = await app.request(endpoint);
 
-      expect(response.status).toBe(401);
-      await expect(response.json()).resolves.toEqual({
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32001,
-          message: "An authenticated actor is required for native MCP discovery.",
-        },
-      });
+      expect(response.status).toBe(200);
     }
   });
 
@@ -291,7 +283,7 @@ describe("MCP runtime routes", () => {
     });
   });
 
-  it("requires an authenticated actor for JSON-RPC discovery methods", async () => {
+  it("allows anonymous JSON-RPC discovery methods", async () => {
     const app = createMcpRoutes();
 
     for (const method of ["initialize", "tools/list", "resources/list"]) {
@@ -300,13 +292,63 @@ describe("MCP runtime routes", () => {
         body: JSON.stringify(createRequest(method)),
       });
 
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        id: "request_1",
+        result: expect.any(Object),
+      });
+    }
+  });
+
+  it("advertises OAuth protected resource metadata for native MCP", async () => {
+    const app = new Hono().route("/.well-known", createMcpProtectedResourceMetadataRoutes());
+
+    const response = await app.request("https://marketplace.example/.well-known/oauth-protected-resource");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      resource: "https://marketplace.example/mcp",
+      authorization_servers: ["https://marketplace.example"],
+      scopes_supported: ["catalog:read", "checkout:read", "checkout:write", "order:read"],
+      bearer_methods_supported: ["header"],
+    });
+  });
+
+  it("returns RFC 9728 resource metadata challenges for anonymous protected invocations", async () => {
+    const app = createMcpRoutes();
+
+    const toolResponse = await app.request("https://marketplace.example/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.list-import-sources",
+          arguments: {
+            accountId: "account_1",
+          },
+        }),
+      ),
+    });
+    const resourceResponse = await app.request("https://marketplace.example/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("resources/read", {
+          uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+        }),
+      ),
+    });
+
+    for (const response of [toolResponse, resourceResponse]) {
       expect(response.status).toBe(401);
+      expect(response.headers.get("WWW-Authenticate")).toBe(
+        'Bearer resource_metadata="https://marketplace.example/.well-known/oauth-protected-resource"',
+      );
       await expect(response.json()).resolves.toEqual({
         jsonrpc: "2.0",
         id: "request_1",
         error: {
           code: -32001,
-          message: "An authenticated actor is required for native MCP discovery.",
+          message: "An authenticated actor is required.",
         },
       });
     }

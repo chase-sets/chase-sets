@@ -9,8 +9,10 @@ import {
   selectAdminDeployedPageSmokeRows,
 } from "./admin-shell-smoke-matrix.mjs";
 import {
-  isNativeMcpAnonymousDiscoveryRejected,
+  isNativeMcpAnonymousDiscoveryAccepted,
+  isNativeMcpProtectedResourceChallenge,
   isNativeMcpPermissionBoundaryError,
+  readNativeMcpBearerResourceMetadataUrl,
   readNativeMcpToolStructuredContent,
 } from "./platform-smoke-native-mcp.mjs";
 
@@ -368,17 +370,71 @@ async function expectUcpEndpoints(origin) {
   }
 }
 
-async function expectNativeMcpAuthenticationBoundary(origin) {
-  await fetchWithRetry(
-    "native MCP anonymous discovery rejection",
+async function expectNativeMcpConnectorBootstrap(origin) {
+  const discoveryResponse = await fetchWithRetry(
+    "native MCP anonymous discovery",
     `${origin}/mcp`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
     },
-    isNativeMcpAnonymousDiscoveryRejected,
+    isNativeMcpAnonymousDiscoveryAccepted,
   );
+  const discoveryBody = await discoveryResponse.json();
+  const toolNames = new Set(
+    Array.isArray(discoveryBody.result?.tools) ? discoveryBody.result.tools.map((tool) => tool?.name) : [],
+  );
+  if (!toolNames.has("inventory.list-import-sources")) {
+    throw new Error("Native MCP anonymous tools discovery did not include inventory.list-import-sources.");
+  }
+
+  const protectedCallResponse = await fetchWithRetry(
+    "native MCP protected resource challenge",
+    `${origin}/mcp`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "protected-call",
+        method: "tools/call",
+        params: {
+          name: "inventory.list-import-sources",
+          arguments: { accountId: "account_smoke" },
+        },
+      }),
+    },
+    isNativeMcpProtectedResourceChallenge,
+  );
+  const resourceMetadataUrl = readNativeMcpBearerResourceMetadataUrl(protectedCallResponse);
+  if (!resourceMetadataUrl) {
+    throw new Error("Native MCP protected call did not include resource_metadata in WWW-Authenticate.");
+  }
+
+  const resourceMetadataResponse = await expectOk("native MCP protected resource metadata", resourceMetadataUrl);
+  const resourceMetadata = await resourceMetadataResponse.json();
+  if (resourceMetadata.resource !== `${origin}/mcp`) {
+    throw new Error("Native MCP protected resource metadata did not advertise the MCP resource.");
+  }
+  if (!resourceMetadata.bearer_methods_supported?.includes("header")) {
+    throw new Error("Native MCP protected resource metadata did not advertise bearer header support.");
+  }
+  const authorizationServer = resourceMetadata.authorization_servers?.[0];
+  if (typeof authorizationServer !== "string") {
+    throw new Error("Native MCP protected resource metadata did not advertise an authorization server.");
+  }
+  const authorizationServerMetadataUrl = authorizationServer.endsWith("/.well-known/oauth-authorization-server")
+    ? authorizationServer
+    : `${authorizationServer.replace(/\/$/, "")}/.well-known/oauth-authorization-server`;
+  const authorizationServerMetadataResponse = await expectOk(
+    "native MCP authorization server metadata",
+    authorizationServerMetadataUrl,
+  );
+  const authorizationServerMetadata = await authorizationServerMetadataResponse.json();
+  if (authorizationServerMetadata.issuer !== authorizationServer.replace(/\/$/, "")) {
+    throw new Error("Native MCP authorization server metadata issuer did not match resource metadata.");
+  }
 }
 
 async function expectNativeMcpInventoryRead({ origin, sessionToken, accountId }) {
@@ -513,7 +569,7 @@ async function main() {
   await expectOk("landing home", `${landingUrl}/`);
   await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
   if (requireNativeMcp) {
-    await expectNativeMcpAuthenticationBoundary(landingUrl);
+    await expectNativeMcpConnectorBootstrap(landingUrl);
   } else {
     console.warn("Skipping native MCP smoke; SMOKE_REQUIRE_NATIVE_MCP is not true.");
   }
