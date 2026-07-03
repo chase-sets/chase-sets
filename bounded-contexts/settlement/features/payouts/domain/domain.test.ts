@@ -29,6 +29,29 @@ describe("settlement payout domain", () => {
     expect(completedState.completedAt).toBe("2026-04-02T02:00:00.000Z");
   });
 
+  it("records provider references without changing payout status", () => {
+    const requestedState = decidePayout(initialPayoutState, {
+      type: "RequestPayout",
+      payoutId: "pyo_1" as never,
+      accountId: "acc_seller" as never,
+      amount: "25.00",
+      currencyCode: "usd",
+      requestedAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolvePayout, initialPayoutState);
+
+    const referencedState = decidePayout(requestedState, {
+      type: "RecordPayoutProviderReferences",
+      providerTransferReference: "tr_1",
+      providerPayoutReference: "po_1",
+      providerStatus: "pending",
+      recordedAt: "2026-04-02T00:01:00.000Z",
+    }).reduce(evolvePayout, requestedState);
+
+    expect(referencedState.status).toBe("requested");
+    expect(referencedState.providerTransferReference).toBe("tr_1");
+    expect(referencedState.providerPayoutReference).toBe("po_1");
+  });
+
   it("fails idempotently", () => {
     const requestedState = decidePayout(initialPayoutState, {
       type: "RequestPayout",

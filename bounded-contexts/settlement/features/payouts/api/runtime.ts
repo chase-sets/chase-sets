@@ -36,7 +36,11 @@ import {
 } from "../../../support/runtime-support/common";
 import { moneyStatusDetails } from "@chase-sets/http/money-status";
 import type { MoneyMovementGateway, MoneyMovementWebhookEvent } from "@chase-sets/money-movement";
-import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
+import {
+  classifySettlementProviderError,
+  createNoopSettlementOperationsRecorder,
+  type SettlementOperationsRecorder,
+} from "./operations";
 import { assertPayoutAmountWithinPolicy, payoutAmountPolicy } from "../domain/payout-policy";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import {
@@ -46,7 +50,9 @@ import {
 import {
   getPayout,
   getAccountPayoutRiskSummary,
+  getPayoutByProviderOperationReference,
   getPayoutByProviderPayoutReference,
+  listSettlementProviderOperationsForPayout,
   listSettlementProviderIdempotencyKeys,
   listSettlementReconciliationRuns,
   listPayoutsNeedingReconciliation,
@@ -59,6 +65,7 @@ import {
   recordSettlementProviderOperationSucceeded,
   type SettlementReconciliationRunRow,
   type SettlementProviderIdempotencyKeyRow,
+  type SettlementProviderOperationRow,
   type SettlementPayoutRow,
 } from "../read-model/queries";
 import type { WalletServices } from "../../wallets/api/runtime";
@@ -334,6 +341,14 @@ function isDuplicateLedgerEntryError(error: unknown) {
   return error instanceof Error && error.message === "Ledger entry has already been posted.";
 }
 
+function providerErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function isTerminalProviderFailure(error: unknown) {
+  return ["missing_provider_account", "provider_validation"].includes(classifySettlementProviderError(error));
+}
+
 function payoutReadinessIsStale(updatedAt: string | null) {
   if (!updatedAt) {
     return false;
@@ -425,6 +440,35 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       providerName: event.providerName ?? deps.moneyMovementGateway.providerName,
       occurredAt: event.occurredAt ?? new Date().toISOString(),
     });
+  }
+
+  async function recordPayoutProviderReferences(
+    params: Readonly<{
+      payoutId: string;
+      providerTransferReference?: string | null;
+      providerPayoutReference?: string | null;
+      providerStatus?: string | null;
+      recordedAt?: string;
+    }>,
+    context: EventStoreContext,
+  ) {
+    const result = await commandHandler({
+      streamId: `settlement.payout-${params.payoutId}`,
+      command: {
+        type: "RecordPayoutProviderReferences",
+        providerTransferReference: params.providerTransferReference ?? null,
+        providerPayoutReference: params.providerPayoutReference ?? null,
+        providerStatus: params.providerStatus ?? null,
+        recordedAt: params.recordedAt ?? new Date().toISOString(),
+      },
+      context,
+    });
+
+    return {
+      payoutId: params.payoutId as PayoutId,
+      version: result.version,
+      payout: requirePayoutSnapshot(result.state, result.version),
+    };
   }
 
   async function recordProviderWebhookEvent(event: MoneyMovementWebhookEvent) {
@@ -537,7 +581,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   async function handleMoneyMovementEvent(event: MoneyMovementWebhookEvent, context: EventStoreContext) {
     switch (event.kind) {
       case "payout-completed": {
-        const payout = await getPayoutByProviderPayoutReference(deps.db, event.providerPayoutReference);
+        const payout =
+          (await getPayoutByProviderPayoutReference(deps.db, event.providerPayoutReference)) ??
+          (await getPayoutByProviderOperationReference(deps.db, event.providerPayoutReference));
         if (!payout) {
           await recordOperation({
             kind: "money-movement-webhook-ignored",
@@ -546,6 +592,29 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             reason: "Payout not found for provider payout reference.",
           });
           return { received: true, ignored: true };
+        }
+        if (payout.status === "failed") {
+          await recordOperation({
+            kind: "money-movement-webhook-ignored",
+            providerEventId: event.providerEventId,
+            accountId: payout.account_id,
+            payoutId: payout.payout_id,
+            providerPayoutReference: event.providerPayoutReference,
+            reason: "Provider reports paid for a locally failed payout; operator review is required.",
+            occurredAt: event.occurredAt,
+          });
+          return { received: true, ignored: true };
+        }
+        if (!payout.provider_payout_reference) {
+          await recordPayoutProviderReferences(
+            {
+              payoutId: payout.payout_id,
+              providerPayoutReference: event.providerPayoutReference,
+              providerStatus: event.providerStatus,
+              recordedAt: event.occurredAt,
+            },
+            context,
+          );
         }
         const result = await commandHandler({
           streamId: `settlement.payout-${payout.payout_id}`,
@@ -569,7 +638,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         return { received: true, ignored: result.newEvents.length === 0 };
       }
       case "payout-failed": {
-        const payout = await getPayoutByProviderPayoutReference(deps.db, event.providerPayoutReference);
+        const payout =
+          (await getPayoutByProviderPayoutReference(deps.db, event.providerPayoutReference)) ??
+          (await getPayoutByProviderOperationReference(deps.db, event.providerPayoutReference));
         if (!payout) {
           await recordOperation({
             kind: "money-movement-webhook-ignored",
@@ -578,6 +649,17 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             reason: "Payout not found for provider payout reference.",
           });
           return { received: true, ignored: true };
+        }
+        if (!payout.provider_payout_reference && payout.status !== "failed") {
+          await recordPayoutProviderReferences(
+            {
+              payoutId: payout.payout_id,
+              providerPayoutReference: event.providerPayoutReference,
+              providerStatus: event.providerStatus,
+              recordedAt: event.occurredAt,
+            },
+            context,
+          );
         }
         await failPayoutAndReverseWallet(
           {
@@ -644,6 +726,16 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     );
 
     if (["paid", "succeeded", "completed"].includes(providerPayout.providerStatus)) {
+      if (payout.status === "failed") {
+        await recordOperation({
+          kind: "money-movement-webhook-ignored",
+          accountId: payout.account_id,
+          payoutId: payout.payout_id,
+          providerPayoutReference: params.providerPayoutReference,
+          reason: "Provider reports paid for a locally failed payout; operator review is required.",
+        });
+        return { received: true, ignored: true };
+      }
       const result = await commandHandler({
         streamId: `settlement.payout-${payout.payout_id}`,
         command: {
@@ -689,6 +781,219 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     return { received: true, ignored: true };
   }
 
+  function providerOperationByKind(
+    operations: readonly SettlementProviderOperationRow[],
+    operationKind: string,
+  ): SettlementProviderOperationRow | null {
+    return operations.find((operation) => operation.operation_kind === operationKind) ?? null;
+  }
+
+  function providerOperationRequest(
+    operation: SettlementProviderOperationRow | null,
+    payout: SettlementPayoutRow,
+    providerReference: string,
+  ) {
+    const request = operation?.request_json && typeof operation.request_json === "object" ? operation.request_json : {};
+    const values = request as Record<string, unknown>;
+    return {
+      payoutId: typeof values.payoutId === "string" ? values.payoutId : payout.payout_id,
+      accountId: typeof values.accountId === "string" ? values.accountId : payout.account_id,
+      providerReference: typeof values.providerReference === "string" ? values.providerReference : providerReference,
+      amount: typeof values.amount === "string" ? values.amount : payout.amount,
+      currencyCode: normalizeCurrencyCode(
+        typeof values.currencyCode === "string" ? values.currencyCode : payout.currency_code,
+      ),
+    };
+  }
+
+  async function reconcilePayoutProviderState(
+    payout: SettlementPayoutRow,
+    context: EventStoreContext,
+  ): Promise<{ received: boolean; ignored: boolean }> {
+    const readiness = await deps.payoutReadiness.getPayoutReadiness(payout.account_id);
+    if (!readiness.provider_reference) {
+      throw new SettlementDomainError("Payout setup must include a provider account for reconciliation.");
+    }
+
+    const operations = await listSettlementProviderOperationsForPayout(deps.db, payout.payout_id);
+    const transferOperation = providerOperationByKind(operations, "platform-transfer-create");
+    const payoutOperation = providerOperationByKind(operations, "connected-account-payout-create");
+    let providerTransferReference =
+      payout.provider_transfer_reference ?? transferOperation?.provider_object_reference ?? null;
+
+    if (!providerTransferReference) {
+      const transferOperationKey = transferOperation?.operation_key ?? `payout:${payout.payout_id}:transfer`;
+      const transferIdempotencyKey =
+        transferOperation?.idempotency_key ?? `settlement:payout:${payout.payout_id}:transfer`;
+      const request = providerOperationRequest(transferOperation, payout, readiness.provider_reference);
+      await recordSettlementProviderOperationPending(deps.db, {
+        operationKey: transferOperationKey,
+        providerName: deps.moneyMovementGateway.providerName,
+        operationKind: "platform-transfer-create",
+        accountId: request.accountId,
+        payoutId: request.payoutId,
+        idempotencyKey: transferIdempotencyKey,
+        request,
+      });
+      try {
+        const transfer = await deps.moneyMovementGateway.transferPlatformBalanceToConnectedAccount({
+          payoutId: request.payoutId as PayoutId,
+          accountId: request.accountId as AccountId,
+          providerReference: request.providerReference,
+          amount: request.amount,
+          currencyCode: request.currencyCode,
+          idempotencyKey: transferIdempotencyKey,
+        });
+        providerTransferReference = transfer.providerTransferReference;
+        await recordSettlementProviderOperationSucceeded(deps.db, {
+          operationKey: transferOperationKey,
+          providerObjectReference: transfer.providerTransferReference,
+        });
+        await recordSettlementProviderIdempotencyKey(deps.db, {
+          operationKey: transferOperationKey,
+          providerName: deps.moneyMovementGateway.providerName,
+          operationKind: "platform-transfer-create",
+          accountId: request.accountId,
+          payoutId: request.payoutId,
+          providerObjectReference: transfer.providerTransferReference,
+          idempotencyKey: transferIdempotencyKey,
+          createdAt: new Date().toISOString(),
+        });
+        await recordPayoutProviderReferences(
+          {
+            payoutId: payout.payout_id,
+            providerTransferReference: transfer.providerTransferReference,
+          },
+          context,
+        );
+      } catch (error) {
+        const providerFailureMessage = providerErrorMessage(error, "Provider transfer reconciliation failed.");
+        await recordSettlementProviderOperationFailed(deps.db, {
+          operationKey: transferOperationKey,
+          errorMessage: providerFailureMessage,
+        });
+        if (isTerminalProviderFailure(error)) {
+          await failPayoutAndReverseWallet(
+            {
+              payoutId: payout.payout_id,
+              accountId: payout.account_id,
+              failureReason: "Payout account details need review.",
+              providerStatus: "failed",
+              providerFailureMessage,
+              failedAt: new Date().toISOString(),
+            },
+            context,
+          );
+          return { received: true, ignored: false };
+        }
+        return { received: true, ignored: true };
+      }
+    } else if (!payout.provider_transfer_reference) {
+      await recordPayoutProviderReferences(
+        {
+          payoutId: payout.payout_id,
+          providerTransferReference,
+        },
+        context,
+      );
+    }
+
+    const providerPayoutReference =
+      payout.provider_payout_reference ?? payoutOperation?.provider_object_reference ?? null;
+    if (providerPayoutReference) {
+      if (!payout.provider_payout_reference) {
+        await recordPayoutProviderReferences(
+          {
+            payoutId: payout.payout_id,
+            providerTransferReference,
+            providerPayoutReference,
+          },
+          context,
+        );
+      }
+      return reconcileProviderPayout({ providerPayoutReference }, context);
+    }
+
+    const payoutOperationKey = payoutOperation?.operation_key ?? `payout:${payout.payout_id}:payout`;
+    const payoutIdempotencyKey = payoutOperation?.idempotency_key ?? `settlement:payout:${payout.payout_id}:payout`;
+    const request = providerOperationRequest(payoutOperation, payout, readiness.provider_reference);
+    await recordSettlementProviderOperationPending(deps.db, {
+      operationKey: payoutOperationKey,
+      providerName: deps.moneyMovementGateway.providerName,
+      operationKind: "connected-account-payout-create",
+      accountId: request.accountId,
+      payoutId: request.payoutId,
+      idempotencyKey: payoutIdempotencyKey,
+      request,
+    });
+
+    try {
+      const providerPayout = await deps.moneyMovementGateway.createConnectedAccountPayout({
+        payoutId: request.payoutId as PayoutId,
+        accountId: request.accountId as AccountId,
+        providerReference: request.providerReference,
+        amount: request.amount,
+        currencyCode: request.currencyCode,
+        idempotencyKey: payoutIdempotencyKey,
+      });
+      await recordSettlementProviderOperationSucceeded(deps.db, {
+        operationKey: payoutOperationKey,
+        providerObjectReference: providerPayout.providerPayoutReference,
+      });
+      await recordSettlementProviderIdempotencyKey(deps.db, {
+        operationKey: payoutOperationKey,
+        providerName: deps.moneyMovementGateway.providerName,
+        operationKind: "connected-account-payout-create",
+        accountId: request.accountId,
+        payoutId: request.payoutId,
+        providerObjectReference: providerPayout.providerPayoutReference,
+        idempotencyKey: payoutIdempotencyKey,
+        createdAt: new Date().toISOString(),
+      });
+      await recordPayoutProviderReferences(
+        {
+          payoutId: payout.payout_id,
+          providerTransferReference,
+          providerPayoutReference: providerPayout.providerPayoutReference,
+          providerStatus: providerPayout.providerStatus,
+        },
+        context,
+      );
+
+      if (["paid", "succeeded", "completed"].includes(providerPayout.providerStatus)) {
+        const result = await commandHandler({
+          streamId: `settlement.payout-${payout.payout_id}`,
+          command: {
+            type: "CompletePayout",
+            providerStatus: providerPayout.providerStatus,
+            completedAt: new Date().toISOString(),
+          },
+          context,
+        });
+        return { received: true, ignored: result.newEvents.length === 0 };
+      }
+
+      const result = await commandHandler({
+        streamId: `settlement.payout-${payout.payout_id}`,
+        command: {
+          type: "MarkPayoutInTransit",
+          providerTransferReference,
+          providerPayoutReference: providerPayout.providerPayoutReference,
+          providerStatus: providerPayout.providerStatus,
+          sentAt: new Date().toISOString(),
+        },
+        context,
+      });
+      return { received: true, ignored: result.newEvents.length === 0 };
+    } catch (error) {
+      await recordSettlementProviderOperationFailed(deps.db, {
+        operationKey: payoutOperationKey,
+        errorMessage: providerErrorMessage(error, "Provider payout reconciliation failed."),
+      });
+      return { received: true, ignored: true };
+    }
+  }
+
   const reconcilePayoutsNeedingAttention: PayoutServices["reconcilePayoutsNeedingAttention"] = async (
     params,
     context,
@@ -721,21 +1026,14 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         }
       }
 
-      if (!payout.provider_payout_reference) {
-        skipped += 1;
-        completed += 1;
-        await progressCheckpoint?.checkpoint(
-          payoutReconciliationJobProgress("processing", completed, payouts.length, "Skipped payout."),
-          compactPayoutReconciliationJobResult({ checked: completed, reconciled, ignored, skipped }),
-        );
-        continue;
-      }
-
       try {
         const providerPayoutReference = payout.provider_payout_reference;
         const result = await runDurableJobSideEffect(
           jobContext,
-          (signal) => reconcileProviderPayout({ providerPayoutReference }, context, { signal }),
+          (signal) =>
+            providerPayoutReference
+              ? reconcileProviderPayout({ providerPayoutReference }, context, { signal })
+              : reconcilePayoutProviderState(payout, context),
           {
             renewIntervalMs: 5_000,
             claimLostMessage: "Payout reconciliation job claim was lost while reconciling a payout.",
@@ -1123,25 +1421,48 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           },
           context,
         );
-
-        const transferIdempotencyKey = `settlement:payout:${payoutId}:transfer`;
-        const transferOperationKey = `payout:${payoutId}:transfer`;
-        await recordSettlementProviderOperationPending(deps.db, {
-          operationKey: transferOperationKey,
-          providerName: deps.moneyMovementGateway.providerName,
-          operationKind: "platform-transfer-create",
-          accountId: params.accountId,
-          payoutId,
-          idempotencyKey: transferIdempotencyKey,
-          request: {
+      } catch (error) {
+        const failureMessage = providerErrorMessage(error, "Payout wallet debit failed.");
+        const failedSnapshot = await failPayoutAndReverseWallet(
+          {
             payoutId,
             accountId: params.accountId,
-            providerReference: readiness.provider_reference,
+            failureReason: "Payout account details need review.",
+            providerStatus: "failed",
+            providerFailureMessage: failureMessage,
             amount,
             currencyCode,
           },
-          createdAt: requestedAt,
-        });
+          context,
+        );
+        return {
+          payoutId,
+          version: failedSnapshot.version,
+          payout: failedSnapshot.payout,
+        };
+      }
+
+      const transferIdempotencyKey = `settlement:payout:${payoutId}:transfer`;
+      const transferOperationKey = `payout:${payoutId}:transfer`;
+      await recordSettlementProviderOperationPending(deps.db, {
+        operationKey: transferOperationKey,
+        providerName: deps.moneyMovementGateway.providerName,
+        operationKind: "platform-transfer-create",
+        accountId: params.accountId,
+        payoutId,
+        idempotencyKey: transferIdempotencyKey,
+        request: {
+          payoutId,
+          accountId: params.accountId,
+          providerReference: readiness.provider_reference,
+          amount,
+          currencyCode,
+        },
+        createdAt: requestedAt,
+      });
+
+      let providerTransferReference: string | null = null;
+      try {
         const transfer = await deps.moneyMovementGateway.transferPlatformBalanceToConnectedAccount({
           payoutId,
           accountId: params.accountId,
@@ -1150,6 +1471,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           currencyCode,
           idempotencyKey: transferIdempotencyKey,
         });
+        providerTransferReference = transfer.providerTransferReference;
         await recordSettlementProviderOperationSucceeded(deps.db, {
           operationKey: transferOperationKey,
           providerObjectReference: transfer.providerTransferReference,
@@ -1164,6 +1486,13 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           idempotencyKey: transferIdempotencyKey,
           createdAt: new Date().toISOString(),
         });
+        commandSnapshot = await recordPayoutProviderReferences(
+          {
+            payoutId,
+            providerTransferReference: transfer.providerTransferReference,
+          },
+          context,
+        );
         await recordOperation({
           kind: "provider-transfer-submitted",
           accountId: params.accountId,
@@ -1172,23 +1501,61 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           currencyCode,
           providerTransferReference: transfer.providerTransferReference,
         });
-        const payoutIdempotencyKey = `settlement:payout:${payoutId}:payout`;
-        const payoutOperationKey = `payout:${payoutId}:payout`;
-        await recordSettlementProviderOperationPending(deps.db, {
-          operationKey: payoutOperationKey,
-          providerName: deps.moneyMovementGateway.providerName,
-          operationKind: "connected-account-payout-create",
+      } catch (error) {
+        const providerFailureMessage = providerErrorMessage(error, "Provider transfer submission failed.");
+        await recordSettlementProviderOperationFailed(deps.db, {
+          operationKey: transferOperationKey,
+          errorMessage: providerFailureMessage,
+        });
+        if (!isTerminalProviderFailure(error)) {
+          return commandSnapshot;
+        }
+        await recordOperation({
+          kind: "payout-failed",
           accountId: params.accountId,
           payoutId,
-          idempotencyKey: payoutIdempotencyKey,
-          request: {
+          amount,
+          currencyCode,
+          reason: providerFailureMessage,
+        });
+        const failedSnapshot = await failPayoutAndReverseWallet(
+          {
             payoutId,
             accountId: params.accountId,
-            providerReference: readiness.provider_reference,
+            failureReason: "Payout account details need review.",
+            providerStatus: "failed",
+            providerFailureMessage,
             amount,
             currencyCode,
           },
-        });
+          context,
+        );
+        return {
+          payoutId,
+          version: failedSnapshot.version,
+          payout: failedSnapshot.payout,
+        };
+      }
+
+      const payoutIdempotencyKey = `settlement:payout:${payoutId}:payout`;
+      const payoutOperationKey = `payout:${payoutId}:payout`;
+      await recordSettlementProviderOperationPending(deps.db, {
+        operationKey: payoutOperationKey,
+        providerName: deps.moneyMovementGateway.providerName,
+        operationKind: "connected-account-payout-create",
+        accountId: params.accountId,
+        payoutId,
+        idempotencyKey: payoutIdempotencyKey,
+        request: {
+          payoutId,
+          accountId: params.accountId,
+          providerReference: readiness.provider_reference,
+          amount,
+          currencyCode,
+        },
+      });
+
+      try {
         const providerPayout = await deps.moneyMovementGateway.createConnectedAccountPayout({
           payoutId,
           accountId: params.accountId,
@@ -1211,6 +1578,15 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           idempotencyKey: payoutIdempotencyKey,
           createdAt: new Date().toISOString(),
         });
+        commandSnapshot = await recordPayoutProviderReferences(
+          {
+            payoutId,
+            providerTransferReference,
+            providerPayoutReference: providerPayout.providerPayoutReference,
+            providerStatus: providerPayout.providerStatus,
+          },
+          context,
+        );
         await recordOperation({
           kind: "provider-payout-submitted",
           accountId: params.accountId,
@@ -1224,7 +1600,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           streamId: `settlement.payout-${payoutId}`,
           command: {
             type: "MarkPayoutInTransit",
-            providerTransferReference: transfer.providerTransferReference,
+            providerTransferReference,
             providerPayoutReference: providerPayout.providerPayoutReference,
             providerStatus: providerPayout.providerStatus,
             sentAt: new Date().toISOString(),
@@ -1237,14 +1613,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           payout: requirePayoutSnapshot(inTransit.state, inTransit.version),
         };
       } catch (error) {
-        const providerFailureMessage = error instanceof Error ? error.message : "Provider payout submission failed.";
-        const safeFailureReason = "Payout account details need review.";
+        const providerFailureMessage = providerErrorMessage(error, "Provider payout submission failed.");
         await recordSettlementProviderOperationFailed(deps.db, {
-          operationKey: `payout:${payoutId}:transfer`,
-          errorMessage: providerFailureMessage,
-        });
-        await recordSettlementProviderOperationFailed(deps.db, {
-          operationKey: `payout:${payoutId}:payout`,
+          operationKey: payoutOperationKey,
           errorMessage: providerFailureMessage,
         });
         await recordOperation({
@@ -1255,23 +1626,6 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           currencyCode,
           reason: providerFailureMessage,
         });
-        const failedSnapshot = await failPayoutAndReverseWallet(
-          {
-            payoutId,
-            accountId: params.accountId,
-            failureReason: safeFailureReason,
-            providerStatus: "failed",
-            providerFailureMessage,
-            amount,
-            currencyCode,
-          },
-          context,
-        );
-        commandSnapshot = {
-          payoutId,
-          version: failedSnapshot.version,
-          payout: failedSnapshot.payout,
-        };
       }
 
       return commandSnapshot;
