@@ -225,6 +225,13 @@ export const CRITICAL_READ_CONSISTENCY_ROUTE_TUNING: readonly ReadConsistencyRou
     pollIntervalMs: 50,
     exactDependencyMode: "enabled",
   },
+  {
+    mountPath: "/api/public-presence/admin",
+    routePath: "/waitlist",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
 ];
 
 export type PlatformApiRealtimeStreamLimiterConfig =
