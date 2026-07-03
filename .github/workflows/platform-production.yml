@@ -2802,5 +2802,66 @@ jobs:
               --title "${title}" \
               --body "${body}" \
               --label "kind:ops" \
-              --label "area:infrastructure"
+              --label "area:infrastructure" \
+              --milestone "Incidents"
           fi
+
+  close-resolved-deploy-incidents:
+    name: Close Resolved Production Deploy Incidents
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - resolve-release
+      - deploy-production
+    if: >
+      always() &&
+      needs.deploy-production.result == 'success' &&
+      needs.deploy-production.outputs.superseded != 'true'
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Close resolved deploy incidents
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
+        run: |
+          set -euo pipefail
+
+          release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
+          close_comment="$(cat <<EOF
+          Automated production deploy incident resolution.
+
+          - Resolving workflow run: ${RUN_URL}
+          - Resolving release commit: ${release_commit}
+
+          This successful production deploy documents the replacement deploy requested in the incident next steps.
+          EOF
+          )"
+
+          open_incidents="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --search "\"Incident: Platform Deploy\" in:title" \
+              --limit 200 \
+              --json number,title \
+              --jq '.[] | select(.title | startswith("Incident: Platform Deploy failed for ") or startswith("Incident: Platform Deploy superseded before production for ")) | [.number, .title] | @tsv'
+          )"
+
+          if [ -z "${open_incidents}" ]; then
+            echo "No open production deploy incidents to close."
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r issue_number issue_title; do
+            if [ -z "${issue_number}" ]; then
+              continue
+            fi
+
+            gh issue close "${issue_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --comment "${close_comment}"
+            echo "Closed resolved deploy incident #${issue_number}: ${issue_title}"
+          done <<< "${open_incidents}"
