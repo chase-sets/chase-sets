@@ -18,6 +18,7 @@ import { accountRoutes } from "./features/accounts/api/route";
 import { userRoutes } from "./features/users/api/route";
 import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
+import { validateInvitationAcceptanceToken } from "./features/invitations/domain/domain";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
@@ -430,14 +431,31 @@ async function acceptInvitationForUserFromAuth(
   params: Readonly<{
     invitationId: string;
     userId: string;
+    acceptanceTokenHash: string;
     context: EventStoreContext;
   }>,
 ) {
   const invitation = await services.invitations.getInvitationState(params.invitationId);
-  if (!invitation?.id || !invitation.accountId || !invitation.roleKey || invitation.status !== "pending") {
+  const acceptedAt = new Date().toISOString();
+  if (!invitation?.id || !invitation.accountId || !invitation.roleKey || !invitation.email) {
     throw new IdentityDomainError("Invitation is unavailable.");
   }
+  validateInvitationAcceptanceToken(invitation, params.acceptanceTokenHash, acceptedAt);
+  const roleKey = parseGrantableRoleKey(invitation.roleKey);
+  if (!roleKey) {
+    throw new IdentityDomainError("Platform-admin can only be assigned by platform bootstrap.");
+  }
 
+  const invitationResult = await services.invitations.commandHandler({
+    streamId: `identity.invitation-${params.invitationId}`,
+    command: {
+      type: "AcceptInvitation",
+      userId: params.userId as UserId,
+      acceptanceTokenHash: params.acceptanceTokenHash,
+      acceptedAt,
+    },
+    context: params.context,
+  });
   const membershipId = createId("mbr") as MembershipId;
   const membershipResult = await services.memberships.commandHandler({
     streamId: `identity.membership-${membershipId}`,
@@ -446,25 +464,91 @@ async function acceptInvitationForUserFromAuth(
       membershipId,
       userId: params.userId as UserId,
       accountId: invitation.accountId,
-      roleKey: invitation.roleKey,
+      roleKey,
       assignmentAuthority: { type: "system" },
-    },
-    context: params.context,
-  });
-  const invitationResult = await services.invitations.commandHandler({
-    streamId: `identity.invitation-${params.invitationId}`,
-    command: {
-      type: "AcceptInvitation",
-      userId: params.userId as UserId,
     },
     context: params.context,
   });
   return {
     membershipId,
     snapshots: [
-      mutationSnapshot("membership", membershipId, membershipResult),
       mutationSnapshot("invitation", params.invitationId, invitationResult),
+      mutationSnapshot("membership", membershipId, membershipResult),
     ],
+  };
+}
+
+async function requirePendingInvitationForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    invitationId: string;
+  }>,
+) {
+  const invitation = await services.invitations.getInvitationState(params.invitationId);
+  if (
+    !invitation?.id ||
+    !invitation.accountId ||
+    !invitation.email ||
+    !invitation.roleKey ||
+    !invitation.expiresAt ||
+    invitation.status !== "pending"
+  ) {
+    throw new IdentityDomainError("Invitation is unavailable.");
+  }
+
+  if (Date.parse(invitation.expiresAt) <= Date.now()) {
+    throw new IdentityDomainError("Invitation is unavailable.");
+  }
+
+  return invitation;
+}
+
+async function issueInvitationAcceptanceTokenForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    invitationId: string;
+    tokenHash: string;
+    expiresAt: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const invitation = await requirePendingInvitationForAuth(services, params);
+  const result = await services.invitations.commandHandler({
+    streamId: `identity.invitation-${params.invitationId}`,
+    command: {
+      type: "IssueInvitationAcceptanceToken",
+      tokenHash: params.tokenHash,
+      expiresAt: params.expiresAt,
+    },
+    context: params.context,
+  });
+
+  return {
+    invitationId: params.invitationId,
+    accountId: invitation.accountId,
+    email: invitation.email,
+    roleKey: invitation.roleKey,
+    expiresAt: params.expiresAt,
+    snapshots: [mutationSnapshot("invitation", params.invitationId, result)],
+  };
+}
+
+async function verifyInvitationAcceptanceTokenForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    invitationId: string;
+    acceptanceTokenHash: string;
+  }>,
+) {
+  const invitation = await requirePendingInvitationForAuth(services, params);
+  validateInvitationAcceptanceToken(invitation, params.acceptanceTokenHash, new Date().toISOString());
+
+  return {
+    invitationId: params.invitationId,
+    accountId: invitation.accountId,
+    email: invitation.email,
+    roleKey: invitation.roleKey,
+    expiresAt: invitation.expiresAt,
   };
 }
 
@@ -672,9 +756,53 @@ export function buildIdentityApi(services: IdentityServices) {
       const membership = await acceptInvitationForUserFromAuth(services, {
         invitationId: c.req.param("id"),
         userId: String(body.userId ?? ""),
+        acceptanceTokenHash: String(body.acceptanceTokenHash ?? ""),
         context: getBootstrapContext(c),
       });
       return c.json(membership);
+    } catch (error) {
+      if (error instanceof IdentityDomainError && error.message === "Invitation is unavailable.") {
+        return c.json({ error: { code: "not_found", message: "Invitation is unavailable." } }, 404);
+      }
+      if (error instanceof IdentityDomainError) {
+        return c.json({ error: { code: "authorization_forbidden", message: error.message } }, 403);
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/internal/auth/invitations/:id/acceptance-token", async (c) => {
+    const body = await c.req.json();
+    try {
+      const token = await issueInvitationAcceptanceTokenForAuth(services, {
+        invitationId: c.req.param("id"),
+        tokenHash: String(body.tokenHash ?? ""),
+        expiresAt: String(body.expiresAt ?? ""),
+        context: getBootstrapContext(c),
+      });
+      return c.json(token);
+    } catch (error) {
+      if (error instanceof IdentityDomainError && error.message === "Invitation is unavailable.") {
+        return c.json({ error: { code: "not_found", message: "Invitation is unavailable." } }, 404);
+      }
+      if (error instanceof IdentityDomainError) {
+        return c.json({ error: { code: "authorization_forbidden", message: error.message } }, 403);
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/internal/auth/invitations/:id/verify-acceptance-token", async (c) => {
+    const body = await c.req.json();
+    try {
+      return c.json(
+        await verifyInvitationAcceptanceTokenForAuth(services, {
+          invitationId: c.req.param("id"),
+          acceptanceTokenHash: String(body.acceptanceTokenHash ?? ""),
+        }),
+      );
     } catch (error) {
       if (error instanceof IdentityDomainError && error.message === "Invitation is unavailable.") {
         return c.json({ error: { code: "not_found", message: "Invitation is unavailable." } }, 404);

@@ -130,10 +130,39 @@ export type IdentityAuthMutationClient = Readonly<{
     params: Readonly<{
       invitationId: string;
       userId: string;
-      accountId: string;
-      roleKey: string;
+      acceptanceTokenHash: string;
     }>,
   ) => Promise<Readonly<{ membershipId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
+  issueInvitationAcceptanceToken: (
+    params: Readonly<{
+      invitationId: string;
+      tokenHash: string;
+      expiresAt: string;
+    }>,
+  ) => Promise<
+    Readonly<{
+      invitationId: string;
+      accountId: string;
+      email: string;
+      roleKey: string;
+      expiresAt: string;
+      snapshots: readonly IdentityCommandSnapshot[];
+    }>
+  >;
+  verifyInvitationAcceptanceToken: (
+    params: Readonly<{
+      invitationId: string;
+      acceptanceTokenHash: string;
+    }>,
+  ) => Promise<
+    Readonly<{
+      invitationId: string;
+      accountId: string;
+      email: string;
+      roleKey: string;
+      expiresAt: string;
+    }>
+  >;
 }>;
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -179,11 +208,19 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         userId,
         roleKey,
       }),
-    acceptInvitationForUser: ({ invitationId, userId, accountId, roleKey }) =>
+    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash }) =>
       postJson(`invitations/${invitationId}/accept`, {
         userId,
-        accountId,
-        roleKey,
+        acceptanceTokenHash,
+      }),
+    issueInvitationAcceptanceToken: ({ invitationId, tokenHash, expiresAt }) =>
+      postJson(`invitations/${invitationId}/acceptance-token`, {
+        tokenHash,
+        expiresAt,
+      }),
+    verifyInvitationAcceptanceToken: ({ invitationId, acceptanceTokenHash }) =>
+      postJson(`invitations/${invitationId}/verify-acceptance-token`, {
+        acceptanceTokenHash,
       }),
   };
 }

@@ -661,8 +661,19 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
   await services.invitations.commandHandler({
     streamId: `identity.invitation-${support.invitationId}`,
     command: {
+      type: "IssueInvitationAcceptanceToken",
+      tokenHash: "seeded-support-invitation-token",
+      expiresAt: isoDate("2026-04-01T00:00:00.000Z"),
+    },
+    context,
+  });
+  await services.invitations.commandHandler({
+    streamId: `identity.invitation-${support.invitationId}`,
+    command: {
       type: "AcceptInvitation",
       userId: support.userId,
+      acceptanceTokenHash: "seeded-support-invitation-token",
+      acceptedAt: isoDate("2026-03-03T12:00:00.000Z"),
     },
     context,
   });

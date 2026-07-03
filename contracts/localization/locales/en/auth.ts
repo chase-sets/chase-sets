@@ -121,6 +121,8 @@ export const authEnglishTranslations = {
     "Account selection is invalid or has expired.",
   "auth.support.apiSupport.accountSelectionRoutes.account.selection.is.invalid.or.has.2":
     "Account selection is invalid or has expired.",
+  "auth.support.apiSupport.invitationRoutes.invitation.acceptance.token.invalid.or.expired":
+    "Invitation acceptance token is invalid or expired.",
   "auth.support.apiSupport.invitationRoutes.invitation.is.unavailable": "Invitation is unavailable.",
   "auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has": "Magic link is invalid or has expired.",
   "auth.support.routeSupport.authHost.magic.link.token.entry.is.not": "Magic link token entry is not available here.",
