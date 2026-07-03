@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockRequireActorFromAuthApi,
+  mockResolveRequiredActorFromAuthApi,
   mockCreateMarketplaceRequestApiClient,
   mockCreateInventoryRequestApiClient,
   mockClaimAnonymousListingDraftIntent,
 } = vi.hoisted(() => ({
   mockRequireActorFromAuthApi: vi.fn(),
+  mockResolveRequiredActorFromAuthApi: vi.fn(),
   mockCreateMarketplaceRequestApiClient: vi.fn(),
   mockCreateInventoryRequestApiClient: vi.fn(),
   mockClaimAnonymousListingDraftIntent: vi.fn(),
@@ -20,6 +22,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   return {
     ...actual,
     requireActorFromAuthApi: mockRequireActorFromAuthApi,
+    resolveRequiredActorFromAuthApi: mockResolveRequiredActorFromAuthApi,
   };
 });
 
@@ -48,11 +51,42 @@ describe("account listings route", () => {
     vi.clearAllMocks();
   });
 
+  it("returns an account access state instead of throwing 403 for signed-in actors without listing access", async () => {
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "forbidden",
+      actor: {
+        accountId: "acc_platform",
+        permissions: ["accounts.view"],
+      },
+      requiredPermission: "listings.view",
+    });
+    const listSellerListings = vi.fn();
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListings,
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/account/listings"),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(result).toMatchObject({
+      accountAccessRequired: {
+        returnTo: "/account/listings",
+      },
+    });
+    expect(listSellerListings).not.toHaveBeenCalled();
+  });
+
   it("claims an anonymous listing draft intent and pre-fills the create listing form", async () => {
     const listSellerListings = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
-    mockRequireActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_seller",
-      permissions: ["listings.view", "listings.manage"],
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "authorized",
+      actor: {
+        accountId: "acc_seller",
+        permissions: ["listings.view", "listings.manage"],
+      },
     });
     mockClaimAnonymousListingDraftIntent.mockResolvedValue({
       intent_id: "ldi_1",
@@ -120,9 +154,12 @@ describe("account listings route", () => {
   });
 
   it("keeps the claimed draft form when fresh seller page reads are still catching up", async () => {
-    mockRequireActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_seller",
-      permissions: ["listings.view", "listings.manage"],
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "authorized",
+      actor: {
+        accountId: "acc_seller",
+        permissions: ["listings.view", "listings.manage"],
+      },
     });
     mockClaimAnonymousListingDraftIntent.mockResolvedValue({
       intent_id: "ldi_1",
@@ -204,9 +241,12 @@ describe("account listings route", () => {
         message: "Projection freshness timed out.",
       },
     });
-    mockRequireActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_seller",
-      permissions: ["listings.view", "listings.manage"],
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "authorized",
+      actor: {
+        accountId: "acc_seller",
+        permissions: ["listings.view", "listings.manage"],
+      },
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       listSellerListings: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
@@ -241,9 +281,12 @@ describe("account listings route", () => {
   });
 
   it("pre-fills selected product options from listing setup links", async () => {
-    mockRequireActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_seller",
-      permissions: ["listings.view", "listings.manage"],
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "authorized",
+      actor: {
+        accountId: "acc_seller",
+        permissions: ["listings.view", "listings.manage"],
+      },
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       listSellerListings: vi.fn().mockResolvedValue({ items: [], total: 0 }),

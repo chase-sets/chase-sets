@@ -141,3 +141,54 @@ export async function requireActorFromAuthApi(
 
   return actor;
 }
+
+export type RequiredActorFromAuthApiResult =
+  | Readonly<{
+      kind: "authorized";
+      actor: ResolvedActor;
+    }>
+  | Readonly<{
+      kind: "signed-out";
+      response: Response;
+    }>
+  | Readonly<{
+      kind: "forbidden";
+      actor: ResolvedActor;
+      requiredPermission: string;
+    }>;
+
+export async function resolveRequiredActorFromAuthApi(
+  options: Readonly<{
+    request: Request;
+    permission?: string;
+    signInPath?: string;
+    authApiBaseUrl?: string;
+    authApiBasePath?: string;
+    sessionPath?: string;
+    fetch?: typeof globalThis.fetch;
+  }>,
+): Promise<RequiredActorFromAuthApiResult> {
+  const actor = await resolveActorFromAuthApi(options);
+
+  if (!actor) {
+    return {
+      kind: "signed-out",
+      response: createRedirectResponse(
+        `${options.signInPath ?? "/sign-in"}?returnTo=${encodeURIComponent(buildCurrentPath(options.request))}`,
+      ),
+    };
+  }
+
+  if (options.permission && !hasPermission(actor, options.permission)) {
+    return {
+      kind: "forbidden",
+      actor,
+      requiredPermission: options.permission,
+    };
+  }
+
+  return {
+    kind: "authorized",
+    actor,
+  };
+}

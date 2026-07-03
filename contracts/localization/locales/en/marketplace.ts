@@ -481,6 +481,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.routes.accountListing.listing.preparing.description":
     "We're preparing your listing details. Try again in a moment.",
   "marketplace.routes.accountListing.fee.quote.stale": "Fee quote is stale. Refresh the fee preview before continuing.",
+  "marketplace.routes.accountListings.account.access": "Account access",
+  "marketplace.routes.accountListings.account.access.required.description":
+    "This signed-in account can browse the marketplace, but it is not the selling account for listing management.",
+  "marketplace.routes.accountListings.account.access.required.title": "Use a selling account to manage listings",
   "marketplace.routes.accountListings.listings.marketplace": "Listings | Marketplace",
   "marketplace.routes.accountListings.inventory.item.preparing":
     "That inventory item is still preparing for listing setup. Refresh this page in a moment and the selected stock should appear.",
@@ -488,6 +492,11 @@ export const marketplaceEnglishTranslations = {
     "Listing draft was not found. Start a new listing draft from the item page.",
   "marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn":
     "Manage active, draft, paused, and withdrawn listings from your marketplace account.",
+  "marketplace.routes.accountListings.next.step": "Next step",
+  "marketplace.routes.accountListings.use.a.different.account": "Use a different account",
+  "marketplace.routes.accountListings.use.an.account.with.listing.access":
+    "Choose an account with listing access to continue. If this is the wrong account, use a different sign-in and return to this page.",
+  "marketplace.routes.accountListings.view.account": "View account",
   "marketplace.routes.accountOfferMatch.forbidden": "Forbidden.",
   "marketplace.routes.accountOfferMatch.forbidden.2": "Forbidden.",
   "marketplace.routes.accountOfferMatch.fee.quote.stale":
