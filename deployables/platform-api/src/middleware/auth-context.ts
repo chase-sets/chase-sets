@@ -1,6 +1,5 @@
 import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthBootstrapContext } from "@chase-sets/auth-context";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { PLATFORM_INTERNAL_AUTH_HEADER, resolvePlatformInternalAuthSecret } from "@chase-sets/platform-runtime/http";
@@ -8,10 +7,6 @@ import type { PlatformIdentityServices } from "../app";
 import { resolveActorFromRequest } from "../auth-request-context";
 import { authenticationRequiredResponse } from "@chase-sets/http/responses";
 import { attachActiveTraceContext } from "@chase-sets/observability";
-
-const TENANT_HEADER = "x-tenant-id";
-const USER_HEADER = "x-user-id";
-const ACCOUNT_HEADER = "x-account-id";
 
 export type TenantContextEnv = {
   Variables: {
@@ -71,25 +66,6 @@ function hasInternalCapability(request: Request, secret: string) {
   return request.headers.get(PLATFORM_INTERNAL_AUTH_HEADER) === secret;
 }
 
-function createContextFromHeaders(request: Request) {
-  const tenantId = request.headers.get(TENANT_HEADER);
-  const userId = request.headers.get(USER_HEADER);
-  const accountId = request.headers.get(ACCOUNT_HEADER);
-
-  if (!tenantId || !userId || !accountId) {
-    return null;
-  }
-
-  return {
-    tenantId: tenantId as TenantId,
-    audit: {
-      performedByUserId: userId as UserId,
-      forAccountId: accountId as AccountId,
-    },
-    trace: {},
-  } satisfies EventStoreContext;
-}
-
 export function createIdentityAuthMiddleware(
   services: PlatformIdentityServices,
   options: Readonly<{ internalAuthSecret?: string }> = {},
@@ -97,7 +73,6 @@ export function createIdentityAuthMiddleware(
   const internalAuthSecret = options.internalAuthSecret ?? resolvePlatformInternalAuthSecret();
   return async function identityAuthMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
     const pathname = new URL(c.req.url).pathname;
-    const headerContext = createContextFromHeaders(c.req.raw);
 
     if (isInternalIdentityAuthRoute(pathname) || isInternalGuestCheckoutClaimRoute(pathname)) {
       if (!hasInternalCapability(c.req.raw, internalAuthSecret)) {
@@ -110,13 +85,6 @@ export function createIdentityAuthMiddleware(
         await next();
         return;
       }
-    }
-
-    if (headerContext) {
-      c.set("context", attachActiveTraceContext(headerContext));
-      c.set("actor", null);
-      await next();
-      return;
     }
 
     const actor = await resolveActorFromRequest(services, c.req.raw);

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
+import { module as identityModule } from "@chase-sets/identity";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -82,6 +83,104 @@ function createCatalogRuntime() {
       identity: {},
     },
     projectionGroups: [],
+    subscriptionRunners: [],
+  } as never;
+}
+
+function createIdentityRuntime(services: Record<string, unknown>) {
+  const commandHandler = vi.fn(async () => ({ version: 1, state: { status: "active" } }));
+  const emptyList = vi.fn(async () => ({ items: [], total: 0 }));
+  const authServices = {
+    db: {
+      query: vi.fn(async () => ({ rows: [] })),
+    },
+    auth: {
+      hashSecret: (secret: string) => `hashed_${secret}`,
+    },
+    identity: {
+      bootstrapTenantId: "tenant_identity",
+      getActiveMembershipForUserAccount: vi.fn(async () => null),
+    },
+  };
+  const identityServices = {
+    bootstrapTenantId: "tenant_identity",
+    db: {
+      query: vi.fn(async () => ({ rows: [] })),
+    },
+    accounts: {
+      commandHandler,
+      listAccounts: emptyList,
+      getAccount: vi.fn(async () => null),
+      getAccountForRead: vi.fn(async () => null),
+      getAccountState: vi.fn(async () => null),
+      projectors: [],
+    },
+    users: {
+      commandHandler,
+      listUsers: emptyList,
+      getUser: vi.fn(async () => null),
+      getUserState: vi.fn(async () => null),
+      getUserBySocialLogin: vi.fn(async () => null),
+      projectors: [],
+    },
+    memberships: {
+      commandHandler,
+      listMemberships: emptyList,
+      getActiveMembershipForUserAccount: vi.fn(async () => null),
+      getMembershipState: vi.fn(async () => null),
+      projectors: [],
+    },
+    invitations: {
+      commandHandler,
+      listInvitations: emptyList,
+      getInvitation: vi.fn(async () => null),
+      projectors: [],
+    },
+    apiKeys: {
+      commandHandler,
+      listApiKeys: emptyList,
+      getApiKey: vi.fn(async () => null),
+      projectors: [],
+    },
+    shippingAddresses: {
+      commandHandler,
+      listShippingAddresses: vi.fn(async () => []),
+      projectors: [],
+    },
+    preferences: {
+      commandHandler,
+      getUserPreferences: vi.fn(async () => null),
+      projectors: [],
+    },
+    linkedPlatformAuthorizations: {
+      resolveAccessToken: vi.fn(async () => null),
+    },
+    projectors: [],
+    ...services,
+  };
+
+  return {
+    mountedContexts: [
+      {
+        contextName: "identity",
+        mountRole: "active",
+        module: identityModule,
+        services: identityServices,
+        pool: {},
+        projectionHandlerSets: [],
+      },
+    ],
+    mountedModules: [{ module: identityModule, services: identityServices }],
+    services: {
+      auth: authServices,
+      identity: identityServices,
+    },
+    projectionGroups: identityModule.projectionGroups?.map((group) => ({
+      targetContextName: "identity",
+      projectionName: group.projectionName,
+      ownedTables: group.ownedTables,
+      subscriptionRunners: [],
+    })),
     subscriptionRunners: [],
   } as never;
 }
@@ -187,6 +286,34 @@ describe("platform api app wiring", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "authentication_required" },
     });
+  });
+
+  it("rejects forged identity context headers on the mounted Identity consent API", async () => {
+    const listConsents = vi.fn(async () => ({ items: [], total: 0 }));
+    const app = buildPlatformApiApp(
+      createIdentityRuntime({
+        consents: {
+          commandHandler: vi.fn(),
+          listConsents,
+          projectors: [],
+        },
+      }),
+      { internalAuthSecret: "internal_secret" },
+    );
+
+    const response = await app.request("/api/identity/consents?userId=usr_victim&accountId=acc_victim", {
+      headers: {
+        "x-tenant-id": "tenant_forged",
+        "x-user-id": "usr_attacker",
+        "x-account-id": "acc_attacker",
+      },
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "authentication_required" },
+    });
+    expect(listConsents).not.toHaveBeenCalled();
   });
 
   it("lets the Auth session route wait for fresh session and membership projections before resolving the actor", async () => {
