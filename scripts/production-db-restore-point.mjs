@@ -4,8 +4,14 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { isCommitSha, readEnv, readOption } from "./lib/cli-options.mjs";
+import { isCommitSha, readEnv, readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import {
+  DEFAULT_MIN_AGE_HOURS,
+  DEFAULT_RESTORE_POINT_PREFIX,
+  listDatabaseClusters,
+  selectRestorePointCleanupCandidates,
+} from "./production-db-restore-point-cleanup.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -17,6 +23,9 @@ const DATABASE_AVAILABLE_STATUSES = new Set(["online"]);
 const DATABASE_FAILURE_STATUSES = new Set(["error", "errored", "failed"]);
 const SAFE_DATABASE_SUMMARY_FORMAT = "ID,Name,Status,Created";
 const DIGITALOCEAN_DATABASE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
+const RESTORE_POINT_CLEANUP_WORKFLOW = ".github/workflows/platform-production-restore-point-cleanup.yml";
+const RESTORE_POINT_CLEANUP_HELPER =
+  "node ./scripts/production-db-restore-point-cleanup.mjs --out artifacts/release-health/production-db-restore-point-cleanup.json";
 
 export function parseProductionDbRestorePointArgs(argv, env = process.env) {
   return {
@@ -50,6 +59,21 @@ export function parseProductionDbRestorePointArgs(argv, env = process.env) {
       "PRODUCTION_DB_RESTORE_POINT_FORK_POLL_SECONDS",
     ),
     doctlPath: readOption(argv, "--doctl") ?? readEnv("DOCTL_PATH", env) ?? "doctl",
+    preflightPrefix:
+      readOption(argv, "--preflight-prefix") ??
+      readEnv("PRODUCTION_DB_RESTORE_POINT_PREFLIGHT_PREFIX", env) ??
+      DEFAULT_RESTORE_POINT_PREFIX,
+    preflightMinAgeHours: parseNumber(
+      readOption(argv, "--preflight-min-age-hours") ??
+        readEnv("PRODUCTION_DB_RESTORE_POINT_PREFLIGHT_MIN_AGE_HOURS", env) ??
+        String(DEFAULT_MIN_AGE_HOURS),
+      "PRODUCTION_DB_RESTORE_POINT_PREFLIGHT_MIN_AGE_HOURS",
+    ),
+    preflightHoldNames: parseHoldNames([
+      ...readRepeatedOptions(argv, "--preflight-hold-name"),
+      readEnv("PRODUCTION_DB_RESTORE_POINT_PREFLIGHT_HOLD_NAMES", env),
+      readEnv("PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES", env),
+    ]),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
@@ -195,6 +219,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
       createdAt: null,
     },
     restorePointCleanup: restorePointCleanupNotRequired(),
+    restorePointPreflight: restorePointPreflightNotAttempted(options),
     skip: {
       requested: Boolean(options.skip),
       reason: emptyToNull(options.skipReason),
@@ -241,6 +266,30 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
   }
 
   const restorePointName = buildRestorePointName(options);
+  const preflight = await preflightRestorePointForkLifecycle(options, exec);
+  if (preflight.status !== "pass") {
+    return {
+      record: {
+        ...baseRecord,
+        restorePoint: {
+          ...baseRecord.restorePoint,
+          name: restorePointName,
+          status: "preflight-failed",
+        },
+        restorePointPreflight: preflight,
+        remediation: restorePointCleanupRemediation(),
+        errors:
+          preflight.status === "cleanup-required"
+            ? [
+                `Restore-point preflight found ${preflight.cleanupCandidates.length} old ${preflight.prefix} fork(s) eligible for the default ${preflight.minAgeHours}-hour cleanup guard.`,
+                restorePointCleanupRemediation().summary,
+              ]
+            : ["Restore-point preflight could not inspect existing restore-point forks.", ...preflight.errors],
+      },
+      passesRestorePointGate: false,
+    };
+  }
+
   let fork;
   try {
     fork = await createDigitalOceanDatabaseFork(
@@ -273,6 +322,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
       return {
         record: {
           ...baseRecord,
+          restorePointPreflight: preflight,
           restorePoint: {
             ...baseRecord.restorePoint,
             clusterId: discoveredFork.clusterId,
@@ -281,6 +331,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
             createdAt: discoveredFork.createdAt,
           },
           restorePointCleanup: cleanup,
+          remediation: restorePointCleanupRemediation(),
           failure,
           errors: [
             ...describeDoctlFailure(error),
@@ -292,9 +343,11 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
         passesRestorePointGate: false,
       };
     }
+    const quotaFailure = isLikelyDigitalOceanQuotaFailure(error);
     return {
       record: {
         ...baseRecord,
+        restorePointPreflight: preflight,
         restorePoint: {
           ...baseRecord.restorePoint,
           clusterId: discoveredFork.clusterId,
@@ -302,7 +355,18 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
           status: "create-failed",
           createdAt: discoveredFork.createdAt,
         },
-        errors: describeDoctlFailure(error),
+        failure: quotaFailure
+          ? {
+              type: "restore-point-quota-limit",
+              restorePointName,
+              clusterId: discoveredFork.clusterId,
+              status: "create-failed",
+            }
+          : undefined,
+        remediation: quotaFailure ? restorePointCleanupRemediation() : undefined,
+        errors: quotaFailure
+          ? [...describeDoctlFailure(error), restorePointCleanupRemediation().summary]
+          : describeDoctlFailure(error),
       },
       passesRestorePointGate: false,
     };
@@ -320,6 +384,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     return {
       record: {
         ...baseRecord,
+        restorePointPreflight: preflight,
         restorePoint: {
           ...baseRecord.restorePoint,
           name: fork.name ?? restorePointName,
@@ -357,6 +422,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     return {
       record: {
         ...baseRecord,
+        restorePointPreflight: preflight,
         restorePoint: {
           type: "digitalocean-database-fork",
           clusterId: fork.clusterId,
@@ -394,6 +460,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     return {
       record: {
         ...baseRecord,
+        restorePointPreflight: preflight,
         restorePoint: {
           type: "digitalocean-database-fork",
           clusterId: latest.clusterId,
@@ -434,6 +501,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     return {
       record: {
         ...baseRecord,
+        restorePointPreflight: preflight,
         restorePoint: {
           type: "digitalocean-database-fork",
           clusterId: latest.clusterId,
@@ -455,6 +523,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
   fork = availability.fork;
   const record = {
     ...baseRecord,
+    restorePointPreflight: preflight,
     restorePoint: {
       type: "digitalocean-database-fork",
       clusterId: fork.clusterId,
@@ -498,6 +567,67 @@ function describeDoctlFailure(
   }
 
   return details;
+}
+
+async function preflightRestorePointForkLifecycle(options, exec) {
+  const prefix = options.preflightPrefix ?? DEFAULT_RESTORE_POINT_PREFIX;
+  const minAgeHours = options.preflightMinAgeHours ?? DEFAULT_MIN_AGE_HOURS;
+  const base = {
+    attempted: true,
+    status: "unknown",
+    prefix,
+    minAgeHours,
+    cutoff: null,
+    observed: [],
+    held: [],
+    cleanupCandidates: [],
+    remediation: restorePointCleanupRemediation(),
+    errors: [],
+  };
+
+  if (!isNonEmptyString(prefix)) {
+    return {
+      ...base,
+      status: "failed",
+      errors: ["PRODUCTION_DB_RESTORE_POINT_PREFLIGHT_PREFIX is required."],
+    };
+  }
+  if (!Number.isFinite(minAgeHours) || minAgeHours < 0) {
+    return {
+      ...base,
+      status: "failed",
+      errors: ["PRODUCTION_DB_RESTORE_POINT_PREFLIGHT_MIN_AGE_HOURS must be zero or greater."],
+    };
+  }
+
+  try {
+    const cutoff = new Date(new Date(options.checkedAt).getTime() - minAgeHours * 60 * 60 * 1000);
+    const observed = (await listDatabaseClusters(options.doctlPath, exec)).filter((cluster) =>
+      cluster.name.startsWith(prefix),
+    );
+    const holdNames = options.preflightHoldNames ?? [];
+    const holds = new Set(holdNames);
+    const held = observed.filter((cluster) => holds.has(cluster.id) || holds.has(cluster.name));
+    const cleanupCandidates = selectRestorePointCleanupCandidates(observed, {
+      prefix,
+      cutoff,
+      holdNames,
+    });
+    return {
+      ...base,
+      status: cleanupCandidates.length > 0 ? "cleanup-required" : "pass",
+      cutoff: cutoff.toISOString(),
+      observed: observed.map(toRestorePointSummary),
+      held: held.map(toRestorePointSummary),
+      cleanupCandidates: cleanupCandidates.map(toRestorePointSummary),
+    };
+  } catch (error) {
+    return {
+      ...base,
+      status: "failed",
+      errors: describeDoctlFailure(error, "doctl database list failed during restore-point preflight."),
+    };
+  }
 }
 
 export function parseDoctlForkOutput(stdout) {
@@ -616,6 +746,8 @@ function githubOutputsForRecord(record) {
     restore_point_status: record.restorePoint.status ?? "",
     restore_point_created_at: record.restorePoint.createdAt ?? "",
     restore_point_cleanup_status: record.restorePointCleanup?.status ?? "",
+    restore_point_preflight_status: record.restorePointPreflight?.status ?? "",
+    restore_point_remediation: record.remediation?.summary ?? record.restorePointPreflight?.remediation?.summary ?? "",
     restore_point_bypassed: String(record.bypass.allowed),
   };
 }
@@ -689,6 +821,41 @@ function restorePointCleanupNotRequired() {
   };
 }
 
+function restorePointPreflightNotAttempted(options = {}) {
+  return {
+    attempted: false,
+    status: "not-attempted",
+    prefix: options.preflightPrefix ?? DEFAULT_RESTORE_POINT_PREFIX,
+    minAgeHours: options.preflightMinAgeHours ?? DEFAULT_MIN_AGE_HOURS,
+    cutoff: null,
+    observed: [],
+    held: [],
+    cleanupCandidates: [],
+    remediation: restorePointCleanupRemediation(),
+    errors: [],
+  };
+}
+
+function restorePointCleanupRemediation() {
+  return {
+    summary:
+      "Run the Platform Production Restore Point Cleanup workflow or dry-run/apply scripts before retrying production deploy; the cleanup helper keeps the default 24-hour guard unless an operator explicitly overrides it.",
+    workflow: RESTORE_POINT_CLEANUP_WORKFLOW,
+    helper: RESTORE_POINT_CLEANUP_HELPER,
+    applyHelper:
+      "node ./scripts/production-db-restore-point-cleanup.mjs --min-age-hours 24 --apply --out artifacts/release-health/production-db-restore-point-cleanup.json",
+  };
+}
+
+function toRestorePointSummary(cluster) {
+  return {
+    id: cluster.id,
+    name: cluster.name,
+    status: cluster.status ?? null,
+    createdAt: cluster.createdAt ?? null,
+  };
+}
+
 function readErrorField(error, fieldName) {
   if (typeof error === "object" && error !== null && fieldName in error) {
     const value = error[fieldName];
@@ -744,6 +911,18 @@ function isDoctlForkTimeoutFailure(error) {
   return /timeout waiting for database/i.test(text) || /couldn'?t enter the online state/i.test(text);
 }
 
+function isLikelyDigitalOceanQuotaFailure(error) {
+  const text = [
+    readErrorField(error, "stdout"),
+    readErrorField(error, "stderr"),
+    error instanceof Error ? error.message : "",
+  ]
+    .filter(isNonEmptyString)
+    .join("\n")
+    .toLowerCase();
+  return /\b412\b/.test(text) || /reached their limit/.test(text) || /quota/.test(text);
+}
+
 function inferDatabaseStatus(text) {
   const normalized = String(text ?? "").toLowerCase();
   if (/\bforking\b/.test(normalized)) {
@@ -777,6 +956,26 @@ function parsePositiveSecondsAsMs(value, name) {
     throw new Error(`${name} must be greater than zero.`);
   }
   return parsed * 1000;
+}
+
+function parseNumber(value, name) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${name} must be a number.`);
+  }
+  return parsed;
+}
+
+function parseHoldNames(values) {
+  return Array.from(
+    new Set(
+      values
+        .filter(isNonEmptyString)
+        .flatMap((value) => value.split(/[,\n]/g))
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function normalizeDependencies(dependencies) {

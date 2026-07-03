@@ -54,6 +54,7 @@ describe("release health summary", () => {
       productionRestorePointStatus: "online",
       productionRestorePointCreatedAt: "2026-05-31T12:05:45.000Z",
       productionRestorePointBypassed: false,
+      productionRestorePointRemediation: "Run restore-point cleanup before retrying production deploy.",
       ciRetryCount: 1,
       ciFlakyFailureCount: 1,
       ciTopFlakyJobs: [{ name: "Platform PR", retryCount: 1, flakyFailureCount: 1 }],
@@ -114,6 +115,7 @@ describe("release health summary", () => {
           status: "online",
           createdAt: "2026-05-31T12:05:45.000Z",
           bypassed: false,
+          remediation: "Run restore-point cleanup before retrying production deploy.",
         },
       },
       ci: {
@@ -503,6 +505,7 @@ describe("release health summary", () => {
       PRODUCTION_RESTORE_POINT_STATUS: "online",
       PRODUCTION_RESTORE_POINT_CREATED_AT: "2026-05-31T11:20:30.000Z",
       PRODUCTION_RESTORE_POINT_BYPASSED: "false",
+      PRODUCTION_RESTORE_POINT_REMEDIATION: "Run restore-point cleanup before retrying production deploy.",
     });
 
     expect(options).toMatchObject({
@@ -558,6 +561,7 @@ describe("release health summary", () => {
       productionRestorePointStatus: "online",
       productionRestorePointCreatedAt: "2026-05-31T11:20:30.000Z",
       productionRestorePointBypassed: false,
+      productionRestorePointRemediation: "Run restore-point cleanup before retrying production deploy.",
     });
   });
 
