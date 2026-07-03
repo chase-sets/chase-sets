@@ -11,20 +11,10 @@ locals {
 
   stack_source_dir = "${path.module}/../../observability/stack"
 
+  stack_file_paths = sort(fileset(local.stack_source_dir, "**/*"))
   stack_files = {
-    "collector-config.yml"                                          = file("${local.stack_source_dir}/collector-config.yml")
-    "prometheus.yml"                                                = file("${local.stack_source_dir}/prometheus.yml")
-    "loki-config.yml"                                               = file("${local.stack_source_dir}/loki-config.yml")
-    "tempo-config.yml"                                              = file("${local.stack_source_dir}/tempo-config.yml")
-    "grafana/dashboards/checkout-observability.json"                = file("${local.stack_source_dir}/grafana/dashboards/checkout-observability.json")
-    "grafana/dashboards/platform-api-overview.json"                 = file("${local.stack_source_dir}/grafana/dashboards/platform-api-overview.json")
-    "grafana/dashboards/projection-freshness.json"                  = file("${local.stack_source_dir}/grafana/dashboards/projection-freshness.json")
-    "grafana/dashboards/projection-wake-pipeline.json"              = file("${local.stack_source_dir}/grafana/dashboards/projection-wake-pipeline.json")
-    "grafana/dashboards/public-presence-waitlist.json"              = file("${local.stack_source_dir}/grafana/dashboards/public-presence-waitlist.json")
-    "grafana/provisioning/alerting/platform-api-alerts.yml"         = file("${local.stack_source_dir}/grafana/provisioning/alerting/platform-api-alerts.yml")
-    "grafana/provisioning/alerting/platform-worker-wake-alerts.yml" = file("${local.stack_source_dir}/grafana/provisioning/alerting/platform-worker-wake-alerts.yml")
-    "grafana/provisioning/dashboards/dashboards.yml"                = file("${local.stack_source_dir}/grafana/provisioning/dashboards/dashboards.yml")
-    "grafana/provisioning/datasources/datasources.yml"              = file("${local.stack_source_dir}/grafana/provisioning/datasources/datasources.yml")
+    for relative_path in local.stack_file_paths :
+    relative_path => file("${local.stack_source_dir}/${relative_path}")
   }
 
   generated_stack_files = {
