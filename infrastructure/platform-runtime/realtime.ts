@@ -31,6 +31,7 @@ import {
   type RealtimeTopicPolicyManifest,
   type RealtimeTopicNormalizationDiagnostic,
 } from "./realtime-topic-policy";
+import { resolveClientAddress } from "./http";
 import {
   compactRealtimeReplayMessages,
   coalesceRealtimeProjectionPatchInputs,
@@ -973,7 +974,7 @@ function resolveRealtimeConnectionKey(request: Request, actor: ResolvedActor | n
     return `account:${actor.accountId}`;
   }
 
-  return `anonymous:${request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown"}`;
+  return `anonymous:${resolveClientAddress(request) ?? "unknown"}`;
 }
 
 function parseRealtimeNotificationTopics(payload: string | undefined): readonly string[] {

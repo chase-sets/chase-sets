@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import type { PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -97,12 +98,8 @@ function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Re
   );
 }
 
-function resolvePublicOrigin(requestUrl: string, headers: Headers) {
-  const parsed = new URL(requestUrl);
-  const host = headers.get("x-forwarded-host") ?? headers.get("host") ?? parsed.host;
-  const protocol = headers.get("x-forwarded-proto") ?? parsed.protocol.replace(":", "") ?? "https";
-
-  return `${protocol}://${host}`;
+function resolvePublicOrigin(request: Request) {
+  return resolvePublicRequestOrigin(request);
 }
 
 function readAgenticPayment(value: unknown) {
@@ -246,11 +243,11 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
             ? Boolean(body.savePaymentMethodForFuture)
             : false,
-          returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
+          returnUrlBase: resolvePublicOrigin(c.req.raw),
           returnUrlPath:
             body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
           clientRiskContext: {
-            ipAddress: c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? null,
+            ipAddress: resolveClientAddress(c.req.raw),
             userAgent: c.req.header("user-agent") ?? null,
           },
           ...(readAgenticPayment(body.agenticPayment)
@@ -396,7 +393,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     try {
       const setup = await services.createSavedCheckoutSetupSession({
         accountId: access.actor.accountId as AccountId,
-        returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
+        returnUrlBase: resolvePublicOrigin(c.req.raw),
         returnUrlPath:
           body.returnUrlPath === null || body.returnUrlPath === undefined
             ? "/account/payment-methods"
@@ -558,11 +555,11 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           savePaymentMethodForFuture: canStorePaymentMethod(access.actor)
             ? Boolean(body.savePaymentMethodForFuture)
             : false,
-          returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
+          returnUrlBase: resolvePublicOrigin(c.req.raw),
           returnUrlPath:
             body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
           clientRiskContext: {
-            ipAddress: c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? null,
+            ipAddress: resolveClientAddress(c.req.raw),
             userAgent: c.req.header("user-agent") ?? null,
           },
           ...(readAgenticPayment(body.agenticPayment)

@@ -83,7 +83,9 @@ export async function resolveActorFromAuthApi(
 ): Promise<ResolvedActor | null> {
   const authApiBaseUrl = options.authApiBaseUrl
     ? normalizeAuthApiBaseUrl(options.authApiBaseUrl)
-    : resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth");
+    : resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth", {
+        requireInternalApiOrigin: true,
+      });
   let response: Response;
   try {
     response = await (options.fetch ?? globalThis.fetch)(

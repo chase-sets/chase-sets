@@ -25,6 +25,7 @@ import {
   action as itemDetailRailAnalyticsAction,
   loader as itemDetailRailAnalyticsLoader,
 } from "./routes/item-detail-rail-analytics";
+import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
 import { Layout, itemDetailRailAnalyticsBridgeScript, loader } from "./root";
 
 function createLoaderArgs(url: string): Parameters<typeof loader>[0] {
@@ -67,6 +68,7 @@ function requestPath(input: RequestInfo | URL) {
 
 describe("marketplace root layout", () => {
   beforeEach(() => {
+    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://marketplace.chasesets.com");
     mockUseLocation.mockReturnValue({
       pathname: "/search",
       search: "?search=charizard",

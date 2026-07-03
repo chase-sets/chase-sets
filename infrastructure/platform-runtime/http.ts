@@ -29,6 +29,7 @@ import {
 export const PLATFORM_INTERNAL_AUTH_HEADER = "x-chase-sets-internal-auth";
 export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET";
 export const CHASE_SETS_INTERNAL_API_ORIGIN_ENV = "CHASE_SETS_INTERNAL_API_ORIGIN";
+export const CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV = "CHASE_SETS_TRUST_FORWARDED_HEADERS";
 const DEFAULT_DEV_INTERNAL_AUTH_SECRET = "dev-platform-internal-auth-secret";
 const DEFAULT_POST_WRITE_TOKEN_TTL_MS = 120_000;
 
@@ -38,6 +39,15 @@ export class UnresolvedPostWriteTokenError extends Error {
   constructor() {
     super("Compact post-write token could not be resolved.");
     this.name = "UnresolvedPostWriteTokenError";
+  }
+}
+
+export class MissingInternalApiOriginError extends Error {
+  constructor() {
+    super(
+      `${CHASE_SETS_INTERNAL_API_ORIGIN_ENV} must be configured before forwarding browser credentials to an internal API.`,
+    );
+    this.name = "MissingInternalApiOriginError";
   }
 }
 
@@ -82,7 +92,17 @@ export type PlatformForwardedAuthHeadersOptions = Readonly<{
   postWriteTokenResolver?: PostWriteTokenResolver;
   nowMs?: number;
   maxAgeMs?: number;
+  trustForwardedHeaders?: boolean;
 }>;
+
+export type PlatformRequestOriginOptions = Readonly<{
+  trustForwardedHeaders?: boolean;
+}>;
+
+export type PlatformRequestApiBaseUrlOptions = PlatformRequestOriginOptions &
+  Readonly<{
+    requireInternalApiOrigin?: boolean;
+  }>;
 
 export type OffsetPageParams = Readonly<{
   limit: number;
@@ -382,17 +402,18 @@ export function createPlatformInternalAuthHeaders(
 export function createForwardedAuthHeaders(
   request: Request,
   initHeaders?: HeadersInit,
-  options: Readonly<{ readTargetContextName?: string; nowMs?: number; maxAgeMs?: number }> = {},
+  options: Readonly<{
+    readTargetContextName?: string;
+    nowMs?: number;
+    maxAgeMs?: number;
+    trustForwardedHeaders?: boolean;
+  }> = {},
 ): Headers {
   const headers = new Headers(initHeaders);
-  const url = new URL(request.url);
   const cookie = request.headers.get("cookie");
   const authorization = request.headers.get("authorization");
   const freshWrite = readFreshWriteToken(request, options.nowMs, options.maxAgeMs);
-  const forwardedProto =
-    firstForwardedValue(request.headers.get("x-forwarded-proto")) ?? url.protocol.replace(/:$/, "");
-  const forwardedHost =
-    firstForwardedValue(request.headers.get("x-forwarded-host")) ?? request.headers.get("host") ?? url.host;
+  const publicOrigin = new URL(resolvePublicRequestOrigin(request, options));
 
   if (cookie && !headers.has("cookie")) {
     headers.set("cookie", cookie);
@@ -410,12 +431,12 @@ export function createForwardedAuthHeaders(
     headers.set(CHASE_SETS_READ_TARGET_CONTEXT_HEADER, options.readTargetContextName);
   }
 
-  if (forwardedProto && !headers.has("x-forwarded-proto")) {
-    headers.set("x-forwarded-proto", forwardedProto);
+  if (!headers.has("x-forwarded-proto")) {
+    headers.set("x-forwarded-proto", publicOrigin.protocol.replace(/:$/, ""));
   }
 
-  if (forwardedHost && !headers.has("x-forwarded-host")) {
-    headers.set("x-forwarded-host", forwardedHost);
+  if (!headers.has("x-forwarded-host")) {
+    headers.set("x-forwarded-host", publicOrigin.host);
   }
 
   return headers;
@@ -431,13 +452,19 @@ export async function createForwardedAuthHeadersAsync(
     readTargetContextName: options.readTargetContextName,
     nowMs: options.nowMs,
     maxAgeMs: options.maxAgeMs,
+    trustForwardedHeaders: options.trustForwardedHeaders,
   });
 }
 
 export function createForwardedAuthFetch(
   request: Request,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
-  options: Readonly<{ readTargetContextName?: string; nowMs?: number; maxAgeMs?: number }> = {},
+  options: Readonly<{
+    readTargetContextName?: string;
+    nowMs?: number;
+    maxAgeMs?: number;
+    trustForwardedHeaders?: boolean;
+  }> = {},
 ): typeof globalThis.fetch {
   return (input, init = {}) =>
     fetchImpl(input, {
@@ -447,33 +474,116 @@ export function createForwardedAuthFetch(
     });
 }
 
-export function resolveRequestApiBaseUrl(request: Request, apiBasePath: string): string {
+export function resolveRequestApiBaseUrl(
+  request: Request,
+  apiBasePath: string,
+  options: PlatformRequestApiBaseUrlOptions = {},
+): string {
   const internalApiOrigin = resolveInternalApiOrigin();
   if (internalApiOrigin) {
     return new URL(apiBasePath, `${internalApiOrigin}/`).toString().replace(/\/$/, "");
   }
 
-  return `${resolvePublicRequestOrigin(request)}${apiBasePath}`;
+  if (options.requireInternalApiOrigin && !isLocalRequest(request) && hasBrowserCredentials(request)) {
+    throw new MissingInternalApiOriginError();
+  }
+
+  return `${resolvePublicRequestOrigin(request, options)}${apiBasePath}`;
 }
 
 function firstForwardedValue(value: string | null) {
   return value?.split(",")[0]?.trim().toLowerCase();
 }
 
-function isLocalHost(host: string) {
-  const hostname = (host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0])?.toLowerCase() ?? "";
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+function forwardedValues(value: string | null) {
+  return (
+    value
+      ?.split(",")
+      .map((part) => part.trim())
+      .filter(Boolean) ?? []
+  );
 }
 
-function resolvePublicRequestOrigin(request: Request): string {
+function trustedForwardedClientAddress(value: string | null) {
+  const parts = forwardedValues(value);
+  const nearestNonPrivate = [...parts].reverse().find((part) => !isLocalHost(part) && !isPrivateNetworkAddress(part));
+  return (nearestNonPrivate ?? parts[parts.length - 1] ?? null)?.toLowerCase() ?? null;
+}
+
+function isPrivateNetworkAddress(host: string) {
+  const hostname = (host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0])?.toLowerCase() ?? "";
+  if (
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(hostname)
+  ) {
+    return true;
+  }
+
+  const private172Match = /^172\.(\d+)\./.exec(hostname);
+  if (!private172Match) {
+    return false;
+  }
+
+  const secondOctet = Number.parseInt(private172Match[1]!, 10);
+  return secondOctet >= 16 && secondOctet <= 31;
+}
+
+function isLocalHost(host: string) {
+  const hostname = (host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0])?.toLowerCase() ?? "";
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".test")
+  );
+}
+
+function isLocalRequest(request: Request) {
   const url = new URL(request.url);
-  const forwardedProto = firstForwardedValue(request.headers.get("x-forwarded-proto"));
-  const forwardedHost = firstForwardedValue(request.headers.get("x-forwarded-host"));
+  const host = request.headers.get("host") ?? url.host;
+  return isLocalHost(host) || isLocalHost(url.host);
+}
+
+function hasBrowserCredentials(request: Request) {
+  return Boolean(request.headers.get("cookie") || request.headers.get("authorization"));
+}
+
+export function trustForwardedHeaders(env: Readonly<Record<string, string | undefined>> = readProcessEnv()): boolean {
+  return env[CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV]?.trim().toLowerCase() === "true";
+}
+
+function shouldTrustForwardedHeaders(options: PlatformRequestOriginOptions = {}) {
+  return options.trustForwardedHeaders ?? trustForwardedHeaders();
+}
+
+export function resolvePublicRequestOrigin(request: Request, options: PlatformRequestOriginOptions = {}): string {
+  const url = new URL(request.url);
+  const trusted = shouldTrustForwardedHeaders(options);
+  const forwardedProto = trusted ? firstForwardedValue(request.headers.get("x-forwarded-proto")) : null;
+  const forwardedHost = trusted ? firstForwardedValue(request.headers.get("x-forwarded-host")) : null;
   const host = forwardedHost || request.headers.get("host") || url.host;
   const protocol =
     forwardedProto === "http" || forwardedProto === "https" ? forwardedProto : url.protocol.replace(/:$/, "");
 
   return `${protocol === "http" && !isLocalHost(host) ? "https" : protocol}://${host}`;
+}
+
+export function resolveClientAddress(
+  request: Request | undefined,
+  options: PlatformRequestOriginOptions = {},
+): string | null {
+  if (!request || !shouldTrustForwardedHeaders(options)) {
+    return null;
+  }
+
+  return (
+    trustedForwardedClientAddress(request.headers.get("x-forwarded-for")) ??
+    request.headers.get("x-real-ip")?.trim() ??
+    null
+  );
 }
 
 export function resolveInternalApiOrigin(

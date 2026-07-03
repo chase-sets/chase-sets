@@ -51,4 +51,37 @@ describe("MCP tool call limiter", () => {
     });
     expect(retried.allowed).toBe(true);
   });
+
+  it("uses trusted client address for anonymous MCP principals", async () => {
+    const limiter = createMcpToolCallLimiterFromRealtime(createInMemoryRealtimeStreamLimiter(), {
+      maxConcurrentToolCalls: 3,
+      maxConcurrentToolCallsPerPrincipal: 1,
+    });
+
+    const first = await limiter.acquire({
+      transport: "ucp-mcp",
+      toolName: "inventory.list-import-sources",
+      limitKind: "read",
+      clientAddress: "198.51.100.10",
+    });
+    const secondSameClient = await limiter.acquire({
+      transport: "ucp-mcp",
+      toolName: "inventory.list-import-sources",
+      limitKind: "read",
+      clientAddress: "198.51.100.10",
+    });
+    const differentClient = await limiter.acquire({
+      transport: "ucp-mcp",
+      toolName: "inventory.list-import-sources",
+      limitKind: "read",
+      clientAddress: "198.51.100.11",
+    });
+
+    expect(first.allowed).toBe(true);
+    expect(secondSameClient).toEqual({
+      allowed: false,
+      reason: "Too many MCP tool calls are already running for this principal.",
+    });
+    expect(differentClient.allowed).toBe(true);
+  });
 });

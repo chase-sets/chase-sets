@@ -12,18 +12,23 @@ import {
 } from "@chase-sets/http/responses";
 import {
   CHASE_SETS_INTERNAL_API_ORIGIN_ENV,
+  CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV,
   createForwardedAuthHeadersAsync,
   createForwardedAuthFetch,
   createForwardedAuthHeaders,
   loadAfterWrite,
+  MissingInternalApiOriginError,
   navigateAfterWrite,
   navigateAfterWriteWithCompactToken,
   readOffsetPageParams,
   redirectAfterWrite,
   redirectAfterWriteWithCompactToken,
+  resolveClientAddress,
   resolveInternalApiOrigin,
+  resolvePublicRequestOrigin,
   resolvePostWriteTokenRequest,
   resolveRequestApiBaseUrl,
+  trustForwardedHeaders,
   UnresolvedPostWriteTokenError,
 } from "./http";
 import { registerPostWriteConsistencyRecorder } from "./post-write-consistency";
@@ -76,7 +81,7 @@ describe("resolveRequestApiBaseUrl", () => {
     expect(resolveRequestApiBaseUrl(request, "/api/auth")).toBe("https://admin.chasesets.test/api/auth");
   });
 
-  it("uses forwarded HTTPS origin when a platform proxy terminates TLS", () => {
+  it("ignores forwarded HTTPS origin when proxy headers are not trusted", () => {
     const request = new Request("http://internal-app/api/auth/social/google/callback", {
       headers: {
         "x-forwarded-host": "admin.chasesets.com",
@@ -85,7 +90,32 @@ describe("resolveRequestApiBaseUrl", () => {
     });
 
     expect(resolveRequestApiBaseUrl(request, "/api/identity/internal/auth")).toBe(
+      "https://internal-app/api/identity/internal/auth",
+    );
+  });
+
+  it("uses forwarded HTTPS origin when trusted platform proxy headers are enabled", () => {
+    const request = new Request("http://internal-app/api/auth/social/google/callback", {
+      headers: {
+        "x-forwarded-host": "admin.chasesets.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+
+    expect(resolveRequestApiBaseUrl(request, "/api/identity/internal/auth", { trustForwardedHeaders: true })).toBe(
       "https://admin.chasesets.com/api/identity/internal/auth",
+    );
+  });
+
+  it("requires an internal API origin before forwarding credentials on non-local requests", () => {
+    const request = new Request("https://app.chasesets.com/account", {
+      headers: {
+        cookie: "session=sess_1",
+      },
+    });
+
+    expect(() => resolveRequestApiBaseUrl(request, "/api/auth", { requireInternalApiOrigin: true })).toThrow(
+      MissingInternalApiOriginError,
     );
   });
 
@@ -102,6 +132,60 @@ describe("resolveRequestApiBaseUrl", () => {
     const request = new Request("https://admin.chasesets.test/catalog");
 
     expect(resolveRequestApiBaseUrl(request, "/api/catalog")).toBe("http://platform-api:8080/api/catalog");
+  });
+});
+
+describe("resolvePublicRequestOrigin", () => {
+  it("ignores spoofed forwarded origin headers by default", () => {
+    const request = new Request("https://marketplace.chasesets.test/account", {
+      headers: {
+        "x-forwarded-host": "evil.example",
+        "x-forwarded-proto": "http",
+      },
+    });
+
+    expect(resolvePublicRequestOrigin(request)).toBe("https://marketplace.chasesets.test");
+  });
+
+  it("uses forwarded origin headers only after explicit trust", () => {
+    const request = new Request("http://internal-app/account", {
+      headers: {
+        "x-forwarded-host": "marketplace.chasesets.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+
+    expect(resolvePublicRequestOrigin(request, { trustForwardedHeaders: true })).toBe(
+      "https://marketplace.chasesets.com",
+    );
+  });
+
+  it("reads the forwarded trust flag from the environment", () => {
+    expect(trustForwardedHeaders({})).toBe(false);
+    expect(trustForwardedHeaders({ [CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV]: "true" })).toBe(true);
+  });
+});
+
+describe("resolveClientAddress", () => {
+  it("ignores forwarded client address headers by default", () => {
+    const request = new Request("https://marketplace.chasesets.test/events", {
+      headers: {
+        "x-forwarded-for": "198.51.100.10, 10.0.0.2",
+        "x-real-ip": "198.51.100.11",
+      },
+    });
+
+    expect(resolveClientAddress(request)).toBeNull();
+  });
+
+  it("uses the trusted closest public forwarded hop when proxy trust is enabled", () => {
+    const request = new Request("https://marketplace.chasesets.test/events", {
+      headers: {
+        "x-forwarded-for": "203.0.113.250, 198.51.100.10, 10.0.0.2",
+      },
+    });
+
+    expect(resolveClientAddress(request, { trustForwardedHeaders: true })).toBe("198.51.100.10");
   });
 });
 

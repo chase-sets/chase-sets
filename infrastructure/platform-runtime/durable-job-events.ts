@@ -1,4 +1,5 @@
 import type { RealtimeStreamLimiter } from "./realtime-stream-limiter";
+import { resolveClientAddress } from "./http";
 
 export type DurableJobStreamEvent<T> = Readonly<{
   sequence: number;
@@ -298,8 +299,7 @@ function durableJobStreamLimitKey(request?: Request): string {
     return "unknown";
   }
 
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("x-real-ip") || "unknown";
+  return resolveClientAddress(request) ?? "unknown";
 }
 
 function waitForDurableJobEventPoll(ms: number, signal?: AbortSignal): Promise<void> {

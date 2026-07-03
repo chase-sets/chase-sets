@@ -8,6 +8,7 @@ import {
   readFreshWriteToken,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
+import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
 import { defineAuthHost } from "./auth-host";
 
 const host = defineAuthHost({
@@ -20,6 +21,7 @@ const host = defineAuthHost({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("auth host", () => {
@@ -161,6 +163,7 @@ describe("auth host", () => {
   }
 
   it("retries actor resolution without fresh-write metadata after transient auth freshness failures", async () => {
+    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://admin.test");
     const observedHeaders: Headers[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
       observedHeaders.push(new Headers(init?.headers));
@@ -376,6 +379,7 @@ describe("auth host", () => {
   });
 
   it("clears and revokes guest checkout state alongside normal session sign-out", async () => {
+    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://marketplace.test");
     const fetchPaths: string[] = [];
     const fetch: typeof globalThis.fetch = vi.fn(async (input) => {
       fetchPaths.push(new URL(String(input)).pathname);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthApiError, createAuthApiClient } from "../../client";
-import { PLATFORM_INTERNAL_AUTH_HEADER } from "@chase-sets/platform-runtime/http";
+import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV, PLATFORM_INTERNAL_AUTH_HEADER } from "@chase-sets/platform-runtime/http";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -44,6 +44,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.NODE_ENV;
   delete process.env.PLATFORM_INTERNAL_AUTH_SECRET;
+  delete process.env[CHASE_SETS_INTERNAL_API_ORIGIN_ENV];
 });
 
 describe("auth api client authentication methods", () => {
@@ -115,6 +116,7 @@ describe("auth api client authentication methods", () => {
 
   it("does not send internal capability headers on generic server request clients", async () => {
     process.env.PLATFORM_INTERNAL_AUTH_SECRET = "server-secret";
+    process.env[CHASE_SETS_INTERNAL_API_ORIGIN_ENV] = "https://app.test";
     const { fetch, calls } = createRecordingFetch();
     vi.stubGlobal("fetch", fetch);
     const request = new Request("https://app.test/checkout/start");
@@ -139,6 +141,7 @@ describe("auth api client authentication methods", () => {
 
   it("preserves internal capability headers on internal server request clients", async () => {
     process.env.PLATFORM_INTERNAL_AUTH_SECRET = "server-secret";
+    process.env[CHASE_SETS_INTERNAL_API_ORIGIN_ENV] = "https://app.test";
     const { fetch, calls } = createRecordingFetch();
     vi.stubGlobal("fetch", fetch);
     const request = new Request("https://app.test/checkout/payments/pay_1");
