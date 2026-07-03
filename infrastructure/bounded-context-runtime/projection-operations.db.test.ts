@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { defineBoundedContextModule, type BcApiModule } from "@chase-sets/bounded-context-module";
+import {
+  defineBoundedContextModule,
+  type BcApiModule,
+  type BcEventSubscription,
+} from "@chase-sets/bounded-context-module";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import {
   EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
@@ -9,6 +13,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import {
   bootstrapContextDatabase,
+  createSubscriptionRunner,
   rebuildAllContextProjectionGroups,
   rebuildContextProjectionGroup,
   resetProjectionGroup,
@@ -29,7 +34,10 @@ const describeDb = adminDatabaseUrl ? describe : describe.skip;
 
 type TestContextName = "source" | "target";
 type TestServices = Readonly<{ pool: PgTransactionalPool }>;
-type TestPorts = { failProjectionOnce?: () => boolean };
+type TestPorts = {
+  beforeProjectionWrite?: (itemId: string) => Promise<void>;
+  failProjectionOnce?: () => boolean;
+};
 
 const sourceModule = defineBoundedContextModule<TestServices, PgTransactionalPool, TestPorts>({
   manifest: {
@@ -65,37 +73,41 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Te
     `,
     createServices: (pool) => ({ pool }),
     buildApis: () => [],
-    buildSubscriptions: () => [
-      {
-        subscriptionName: "target.items",
-        sourceContextName: "source",
-        projectionName: "items",
-        subscriptionVersion: 1,
-        eventTypes: ["source.item-recorded"],
-        streamPrefixes: ["source.item-"],
-        batchSize: 10,
-        checkpointBatchSize: 1,
-        handlers: {
-          "source.item-recorded": async (event, context) => {
-            if (targetPorts.failProjectionOnce?.()) {
-              throw new Error("first projection attempt failed");
-            }
-            if (!context?.db) {
-              throw new Error("Projection handler requires a database context.");
-            }
-
-            await context.db.query(
-              `INSERT INTO projected_items (item_id, seen_count)
-               VALUES ($1, 1)
-               ON CONFLICT (item_id)
-               DO UPDATE SET seen_count = projected_items.seen_count + 1`,
-              [String(event.data.itemId)],
-            );
-          },
-        },
-      },
-    ],
+    buildSubscriptions: () => [createItemsSubscription()],
   });
+}
+
+function createItemsSubscription(): BcEventSubscription {
+  return {
+    subscriptionName: "target.items",
+    sourceContextName: "source",
+    projectionName: "items",
+    subscriptionVersion: 1,
+    eventTypes: ["source.item-recorded"],
+    streamPrefixes: ["source.item-"],
+    batchSize: 10,
+    checkpointBatchSize: 1,
+    handlers: {
+      "source.item-recorded": async (event, context) => {
+        if (targetPorts.failProjectionOnce?.()) {
+          throw new Error("first projection attempt failed");
+        }
+        if (!context?.db) {
+          throw new Error("Projection handler requires a database context.");
+        }
+
+        const itemId = String(event.data.itemId);
+        await targetPorts.beforeProjectionWrite?.(itemId);
+        await context.db.query(
+          `INSERT INTO projected_items (item_id, seen_count)
+           VALUES ($1, 1)
+           ON CONFLICT (item_id)
+           DO UPDATE SET seen_count = projected_items.seen_count + 1`,
+          [itemId],
+        );
+      },
+    },
+  };
 }
 
 const targetPorts: TestPorts = {};
@@ -114,6 +126,7 @@ describeDb("projection operations Postgres integration", () => {
   });
 
   beforeEach(async () => {
+    targetPorts.beforeProjectionWrite = undefined;
     targetPorts.failProjectionOnce = undefined;
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(sourceModule, pools.source);
@@ -262,6 +275,55 @@ describeDb("projection operations Postgres integration", () => {
     }
   });
 
+  it("serializes same-subscription runners through the application ledger", async () => {
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const primaryRunner = runtime.subscriptionRunners[0];
+    const competingRunner = createSubscriptionRunner("target", pools.target, pools.source, createItemsSubscription());
+    const projectionAttempts: string[] = [];
+    const firstProjectionStarted = createDeferred<void>();
+    const releaseFirstProjection = createDeferred<void>();
+
+    targetPorts.beforeProjectionWrite = async (itemId) => {
+      projectionAttempts.push(itemId);
+      firstProjectionStarted.resolve();
+      await releaseFirstProjection.promise;
+    };
+
+    await sourceEventStore.appendToStream({
+      streamId: "source.item-race",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [
+        {
+          eventType: "source.item-recorded",
+          payload: { itemId: "item-race" },
+        },
+      ],
+    });
+
+    const primaryRun = primaryRunner.runOnce();
+    await firstProjectionStarted.promise;
+    const competingRun = competingRunner.runOnce();
+
+    await expect(hasSettledWithin(competingRun, 50)).resolves.toBe(false);
+    releaseFirstProjection.resolve();
+
+    await expect(Promise.all([primaryRun, competingRun])).resolves.toEqual([
+      expect.objectContaining({ processed: 1, lastGlobalPosition: "1" }),
+      expect.objectContaining({ processed: 1, lastGlobalPosition: "1" }),
+    ]);
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-race", seen_count: 1 }]);
+    expect(projectionAttempts).toEqual(["item-race"]);
+    await expect(readSubscriptionApplicationRows(primaryRunner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "applied" },
+    ]);
+    await expect(loadSubscriptionCheckpoint(primaryRunner.checkpointKey)).resolves.toBe("1");
+  });
+
   it("rolls back owned-table and subscription-ledger reset when the rebuild lease is lost", async () => {
     const runtime = createMountedContextTestRuntime([
       { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
@@ -349,6 +411,20 @@ describeDb("projection operations Postgres integration", () => {
 
     return Number(result.rows[0]?.count ?? 0);
   }
+
+  async function readSubscriptionApplicationRows(
+    checkpointKey: string,
+  ): Promise<readonly { event_id: string; status: string }[]> {
+    const result = await pools.target.query<{ event_id: string; status: string }>(
+      `SELECT event_id, status
+       FROM event_subscription_applications
+       WHERE projection_key = $1
+       ORDER BY event_id`,
+      [checkpointKey],
+    );
+
+    return result.rows;
+  }
 });
 
 async function beginUncommittedSourceAppendWithGlobalLock(pool: PgTransactionalPool): Promise<PgPoolClient> {
@@ -430,6 +506,18 @@ function createProjectionRunContext(overrides: Partial<ProjectionRunContext> = {
     throwIfLeaseLost: () => undefined,
     ...overrides,
   };
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value?: T | PromiseLike<T>) => void;
+} {
+  let resolve!: (value?: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = (value) => promiseResolve(value as T | PromiseLike<T>);
+  });
+
+  return { promise, resolve };
 }
 
 function createEventStoreContext() {
