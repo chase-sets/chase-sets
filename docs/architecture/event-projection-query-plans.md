@@ -4,19 +4,20 @@ Projection subscriptions read source events by global position with optional eve
 
 ## Required Query Shape
 
-Filtered projection reads should use all normalized stream metadata that can be derived from the subscription manifest:
+Filtered projection reads should use normalized stream context metadata when it can be derived from the subscription manifest:
 
 ```sql
 WHERE global_position > $1::bigint
   AND event_type = ANY($2::text[])
-  AND stream_context_name = ANY($3::text[])
-  AND stream_category = ANY($4::text[])
-  AND (stream_id LIKE $5 || '%' OR ...)
+  AND (
+    (stream_context_name = $3 AND stream_id LIKE $4 || '%')
+    OR (stream_context_name = $5 AND stream_id LIKE $6 || '%')
+  )
 ORDER BY global_position ASC
 LIMIT $n
 ```
 
-`stream_id LIKE prefix || '%'` remains the final correctness guard, but the planner should be able to prune most rows through normalized `stream_context_name`, `stream_category`, and `event_type` predicates before checking the prefix.
+`stream_id LIKE prefix || '%'` remains the correctness guard. Prefix-derived `stream_context_name` predicates stay inside the matching OR arm so mixed prefix shapes cannot globally filter each other out. `stream_category` remains stored for wake metadata, operator inspection, and future planner work, but read correctness must not depend on it: existing category names and aggregate ids can both contain dashes, so the persisted category is not a safe replacement for the declared stream prefix.
 
 ## Supporting Indexes
 
@@ -38,4 +39,4 @@ $env:DATABASE_URL = "<connection-string>"
 node ./scripts/explain-event-projection-backlog.mjs --event-types=catalog.catalog-item.published --stream-prefixes=catalog.item- --after=0 --limit=500
 ```
 
-The accepted plan should show an index scan or bitmap plan using a context/category/type/global-position index for filtered reads. A broad global-position scan followed by heavy application-side filtering is not acceptable for sustained backlogs.
+The accepted plan should show an index scan or bitmap plan using the stream-prefix or event-type/global-position indexes for filtered reads. A broad global-position scan followed by heavy application-side filtering is not acceptable for sustained backlogs.

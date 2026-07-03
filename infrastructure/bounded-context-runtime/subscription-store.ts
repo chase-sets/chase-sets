@@ -6,7 +6,11 @@ import type {
   ProjectionRunContext,
 } from "@chase-sets/event-core/projector";
 import { parseGlobalPosition, type GlobalPosition, type StreamVersion } from "@chase-sets/event-core/storage";
-import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  buildStreamPrefixFilterSql,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import { SUBSCRIPTION_CHECKPOINTS_TABLE } from "./schema";
 import { withProjectionTransaction } from "./projection-transactions";
 
@@ -731,23 +735,11 @@ export async function estimateApplicableLag(
   const params: unknown[] = [afterGlobalPosition, [...new Set(eventTypes)]];
 
   if (streamPrefixes?.length) {
-    const streamContextNames = normalizedStreamContextNames(streamPrefixes);
-    if (streamContextNames.length > 0) {
-      params.push(streamContextNames);
-      predicates.push(`stream_context_name = ANY($${params.length}::text[])`);
+    const streamPrefixFilter = buildStreamPrefixFilterSql(streamPrefixes, params.length + 1);
+    if (streamPrefixFilter) {
+      params.push(...streamPrefixFilter.params);
+      predicates.push(streamPrefixFilter.predicate);
     }
-
-    const streamCategories = normalizedStreamCategories(streamPrefixes);
-    if (streamCategories.length > 0) {
-      params.push(streamCategories);
-      predicates.push(`stream_category = ANY($${params.length}::text[])`);
-    }
-
-    const prefixPredicates = [...new Set(streamPrefixes)].map((prefix) => {
-      params.push(prefix);
-      return `stream_id LIKE $${params.length} || '%'`;
-    });
-    predicates.push(`(${prefixPredicates.join(" OR ")})`);
   }
 
   try {
@@ -762,30 +754,6 @@ export async function estimateApplicableLag(
   } catch {
     return null;
   }
-}
-
-function normalizedStreamContextNames(streamPrefixes: readonly string[]): readonly string[] {
-  return [
-    ...new Set(
-      streamPrefixes
-        .map((prefix) => {
-          const separatorIndex = prefix.indexOf(".");
-          return separatorIndex > 0 ? prefix.slice(0, separatorIndex) : null;
-        })
-        .filter((value): value is string => Boolean(value)),
-    ),
-  ];
-}
-
-function normalizedStreamCategories(streamPrefixes: readonly string[]): readonly string[] {
-  return [
-    ...new Set(
-      streamPrefixes
-        .filter((prefix) => prefix.endsWith("-"))
-        .map((prefix) => prefix.slice(0, -1))
-        .filter(Boolean),
-    ),
-  ];
 }
 
 export async function refreshSubscriptionStatus(

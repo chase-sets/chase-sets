@@ -5,4 +5,5 @@ export * from "./pool";
 export * from "./projection-helpers";
 export * from "./projection-store";
 export * from "./schema";
+export * from "./stream-prefix-filter";
 export * from "./types";

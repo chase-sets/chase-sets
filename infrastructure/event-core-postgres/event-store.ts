@@ -17,6 +17,7 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { isPgRetryableTransientError, withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
+import { buildStreamPrefixFilterSql, streamCategory, streamContextName } from "./stream-prefix-filter";
 
 type DbEventRow = Readonly<{
   event_id: string;
@@ -371,22 +372,11 @@ function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): 
   }
 
   if (input?.streamPrefixes?.length) {
-    const streamContextNames = normalizedStreamContextNames(input.streamPrefixes);
-    if (streamContextNames.length > 0) {
-      predicates.push(`stream_context_name = ANY($${nextParam}::text[])`);
-      nextParam += 1;
+    const streamPrefixFilter = buildStreamPrefixFilterSql(input.streamPrefixes, nextParam);
+    if (streamPrefixFilter) {
+      predicates.push(streamPrefixFilter.predicate);
+      nextParam += streamPrefixFilter.params.length;
     }
-    const streamCategories = normalizedStreamCategories(input.streamPrefixes);
-    if (streamCategories.length > 0) {
-      predicates.push(`stream_category = ANY($${nextParam}::text[])`);
-      nextParam += 1;
-    }
-    const prefixPredicates = [...new Set(input.streamPrefixes)].map((_, index) => {
-      const prefixParam = nextParam + index;
-      return `stream_id LIKE $${prefixParam} || '%'`;
-    });
-    predicates.push(`(${prefixPredicates.join(" OR ")})`);
-    nextParam += prefixPredicates.length;
   }
 
   return `
@@ -410,43 +400,14 @@ function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
   }
 
   if (input.streamPrefixes?.length) {
-    const streamContextNames = normalizedStreamContextNames(input.streamPrefixes);
-    if (streamContextNames.length > 0) {
-      params.push(streamContextNames);
+    const streamPrefixFilter = buildStreamPrefixFilterSql(input.streamPrefixes, params.length + 1);
+    if (streamPrefixFilter) {
+      params.push(...streamPrefixFilter.params);
     }
-    const streamCategories = normalizedStreamCategories(input.streamPrefixes);
-    if (streamCategories.length > 0) {
-      params.push(streamCategories);
-    }
-    params.push(...new Set(input.streamPrefixes));
   }
 
   params.push(input.limit);
   return params;
-}
-
-function normalizedStreamContextNames(streamPrefixes: readonly string[]): readonly string[] {
-  return [
-    ...new Set(
-      streamPrefixes
-        .map((prefix) => {
-          const separatorIndex = prefix.indexOf(".");
-          return separatorIndex > 0 ? prefix.slice(0, separatorIndex) : null;
-        })
-        .filter((value): value is string => Boolean(value)),
-    ),
-  ];
-}
-
-function normalizedStreamCategories(streamPrefixes: readonly string[]): readonly string[] {
-  return [
-    ...new Set(
-      streamPrefixes
-        .filter((prefix) => prefix.endsWith("-"))
-        .map((prefix) => prefix.slice(0, -1))
-        .filter(Boolean),
-    ),
-  ];
 }
 
 async function appendEventsToStream(args: AppendInTransactionArgs): Promise<readonly StoredEvent[]> {
@@ -612,16 +573,6 @@ function assertExpectedVersion(streamId: string, expectedVersion: ExpectedStream
       currentVersion,
     });
   }
-}
-
-function streamContextName(streamId: string): string {
-  const separatorIndex = streamId.indexOf(".");
-  return separatorIndex > 0 ? streamId.slice(0, separatorIndex) : streamId;
-}
-
-function streamCategory(streamId: string): string {
-  const lastDashIndex = streamId.lastIndexOf("-");
-  return lastDashIndex > 0 ? streamId.slice(0, lastDashIndex) : streamId;
 }
 
 function normalizeEventStoreWakeNotificationConfig(
