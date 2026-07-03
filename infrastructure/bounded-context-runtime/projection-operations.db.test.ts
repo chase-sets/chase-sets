@@ -11,6 +11,7 @@ import {
   bootstrapContextDatabase,
   rebuildAllContextProjectionGroups,
   rebuildContextProjectionGroup,
+  resetProjectionGroup,
   retryProjectionBlockedStream,
 } from "./index";
 import {
@@ -261,6 +262,51 @@ describeDb("projection operations Postgres integration", () => {
     }
   });
 
+  it("rolls back owned-table and subscription-ledger reset when the rebuild lease is lost", async () => {
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const runner = runtime.subscriptionRunners[0];
+
+    await sourceEventStore.appendToStream({
+      streamId: "source.item-atomic",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [
+        {
+          eventType: "source.item-recorded",
+          payload: { itemId: "item-atomic" },
+        },
+      ],
+    });
+    await expect(
+      rebuildContextProjectionGroup(runtime, "target", "items", createProjectionRunContext()),
+    ).resolves.toBeUndefined();
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-atomic", seen_count: 1 }]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
+    await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
+
+    let leaseChecks = 0;
+    const lostLeaseContext = createProjectionRunContext({
+      throwIfLeaseLost: () => {
+        leaseChecks += 1;
+        if (leaseChecks >= 6) {
+          throw new Error("projection reset lease lost after owned-table reset");
+        }
+      },
+    });
+
+    await expect(resetProjectionGroup(runtime.projectionGroups[0], lostLeaseContext)).rejects.toThrow(
+      "projection reset lease lost after owned-table reset",
+    );
+
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-atomic", seen_count: 1 }]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
+    await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
+  });
+
   it("applies statementTimeoutMs inside the active transaction", async () => {
     await expect(
       withProjectionTransaction(
@@ -291,6 +337,17 @@ describeDb("projection operations Postgres integration", () => {
     );
 
     return result.rows[0] ? String(result.rows[0].last_global_position) : null;
+  }
+
+  async function countSubscriptionApplicationRows(checkpointKey: string): Promise<number> {
+    const result = await pools.target.query<{ count: string | number | bigint }>(
+      `SELECT COUNT(*) AS count
+       FROM event_subscription_applications
+       WHERE projection_key = $1`,
+      [checkpointKey],
+    );
+
+    return Number(result.rows[0]?.count ?? 0);
   }
 });
 

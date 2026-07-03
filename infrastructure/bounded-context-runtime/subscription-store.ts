@@ -39,7 +39,7 @@ function leaseFencingToken(context: ProjectionRunContext | undefined): string | 
 }
 
 export async function loadSubscriptionCheckpoint(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   checkpointKey: string,
 ): Promise<GlobalPosition | null> {
   const result = await db.query<SubscriptionCheckpointRow>(
@@ -292,7 +292,7 @@ export async function compactSubscriptionApplicationLedger(
 }
 
 export async function deleteSubscriptionCheckpoint(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   checkpointKey: string,
   context?: ProjectionRunContext,
 ): Promise<void> {
@@ -329,7 +329,7 @@ export async function deleteSubscriptionCheckpoint(
   await clearProjectionErrors(db, checkpointKey);
 }
 
-async function clearProjectionErrors(db: PgTransactionalPool, projectionKey: string): Promise<void> {
+async function clearProjectionErrors(db: PgQueryable, projectionKey: string): Promise<void> {
   await db.query(
     `UPDATE event_projection_blocked_streams
      SET state = 'resolved',

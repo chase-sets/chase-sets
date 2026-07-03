@@ -4,7 +4,7 @@ import type {
   BcSubscriptionHandlerKind,
 } from "@chase-sets/bounded-context-module";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withProjectionTransaction } from "./projection-transactions";
 import { PROJECTION_GROUP_GENERATIONS_TABLE, PROJECTION_GROUP_REVISIONS_TABLE, SQL_IDENTIFIER_RE } from "./schema";
 import type {
@@ -85,13 +85,18 @@ export type ContextProjectionGroup = Readonly<{
   resetStrategy?: BcProjectionGroupResetStrategy;
   requiredDuringBootstrap: boolean;
   subscriptionRunners: readonly ContextSubscriptionRunner[];
-  reset: (context?: ProjectionRunContext) => Promise<void>;
+  targetPool?: PgTransactionalPool;
+  reset: (context?: ProjectionRunContext, options?: ProjectionResetOptions) => Promise<void>;
   getStatus: () => ContextProjectionGroupStatus;
   refreshStatus: () => Promise<ContextProjectionGroupStatus>;
   markRevisionSynced: () => Promise<void>;
   startGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
   completeGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
   failGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
+}>;
+
+type ProjectionResetOptions = Readonly<{
+  db?: PgQueryable;
 }>;
 
 function assertSqlIdentifier(identifier: string): string {
@@ -273,7 +278,7 @@ function createDefaultProjectionGroupReset(
   resetStrategy: BcProjectionGroupResetStrategy | undefined,
   targetContextName: string,
   projectionName: string,
-): (context?: ProjectionRunContext) => Promise<void> {
+): (context?: ProjectionRunContext, options?: ProjectionResetOptions) => Promise<void> {
   for (const tableName of ownedTables) {
     assertSqlIdentifier(tableName);
   }
@@ -291,14 +296,19 @@ function createDefaultProjectionGroupReset(
   }
 
   if (resetStrategy === "truncate-owned-tables") {
-    return async (context) => {
+    return async (context, options) => {
       context?.throwIfLeaseLost?.();
-      await withProjectionTransaction(pool, context, async (client) => {
+      const truncateOwnedTables = async (db: PgQueryable) => {
         for (const tableName of ownedTables) {
           context?.throwIfLeaseLost?.();
-          await client.query(`TRUNCATE TABLE ${assertSqlIdentifier(tableName)}`);
+          await db.query(`TRUNCATE TABLE ${assertSqlIdentifier(tableName)}`);
         }
-      });
+      };
+      if (options?.db) {
+        await truncateOwnedTables(options.db);
+        return;
+      }
+      await withProjectionTransaction(pool, context, truncateOwnedTables);
     };
   }
 
@@ -377,6 +387,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
       resetStrategy: group.resetStrategy,
       requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
       subscriptionRunners: [],
+      targetPool: entry.pool,
       reset:
         group.reset ??
         createDefaultProjectionGroupReset(
@@ -643,12 +654,21 @@ export async function resetProjectionGroup(
   context?: ProjectionRunContext,
 ): Promise<void> {
   context?.throwIfLeaseLost?.();
-  await group.reset(context);
+  const reset = async (db?: PgQueryable) => {
+    await group.reset(context, { db });
 
-  for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
-    context?.throwIfLeaseLost?.();
-    await runner.reset(context);
+    for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
+      context?.throwIfLeaseLost?.();
+      await runner.reset(context, { db });
+    }
+  };
+
+  if (group.targetPool) {
+    await withProjectionTransaction(group.targetPool, context, reset);
+    return;
   }
+
+  await reset();
 }
 
 export async function rebuildProjectionGroup(
