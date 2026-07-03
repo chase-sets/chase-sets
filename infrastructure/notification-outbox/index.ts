@@ -13,12 +13,14 @@ import {
   type NotificationChannelAdapter,
   type NotificationMessage,
   type NotificationOutboxStore,
+  type RenewClaimedNotificationDeliveryInput,
 } from "@chase-sets/outbound-messaging";
 
 const DEFAULT_TABLE_NAME = "notification_outbox";
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_BATCH_SIZE = 50;
 const DEFAULT_CLAIM_TTL_MS = 60_000;
+const STRANDED_SENDING_LAST_ERROR = "attempts exhausted after crash";
 
 export const notificationOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${DEFAULT_TABLE_NAME} (
   outbox_id bigserial PRIMARY KEY,
@@ -172,18 +174,46 @@ export function createPostgresNotificationOutbox(options: PostgresNotificationOu
       const limit = Math.max(1, Math.floor(input.limit));
 
       const result = await db.query<NotificationOutboxRow>(
-        `WITH claimable AS (
+        `WITH exhausted AS (
+           SELECT outbox_id
+           FROM ${tableName}
+           WHERE status = 'sending'
+             AND claimed_until <= $1::timestamptz
+             AND attempt_count >= max_attempts
+           ORDER BY claimed_until ASC, outbox_id ASC
+           LIMIT $2
+           FOR UPDATE SKIP LOCKED
+         ),
+         recovered AS (
+           UPDATE ${tableName} AS outbox
+           SET status = 'failed',
+               claim_owner_id = NULL,
+               claimed_until = NULL,
+               last_error = $5,
+               updated_at = $1
+           FROM exhausted
+           WHERE outbox.outbox_id = exhausted.outbox_id
+           RETURNING outbox.outbox_id
+         ),
+         claimable AS (
            SELECT outbox_id
            FROM ${tableName}
            WHERE (
-               status = 'pending'
-               AND next_attempt_at <= $1::timestamptz
-               AND attempt_count < max_attempts
+               (
+                 status = 'pending'
+                 AND next_attempt_at <= $1::timestamptz
+                 AND attempt_count < max_attempts
+               )
+               OR (
+                 status = 'sending'
+                 AND claimed_until <= $1::timestamptz
+                 AND attempt_count < max_attempts
+               )
              )
-             OR (
-               status = 'sending'
-               AND claimed_until <= $1::timestamptz
-               AND attempt_count < max_attempts
+             AND NOT EXISTS (
+               SELECT 1
+               FROM recovered
+               WHERE recovered.outbox_id = ${tableName}.outbox_id
              )
            ORDER BY next_attempt_at ASC, outbox_id ASC
            LIMIT $2
@@ -213,10 +243,28 @@ export function createPostgresNotificationOutbox(options: PostgresNotificationOu
            outbox.updated_at,
            outbox.next_attempt_at,
            outbox.last_error`,
-        [claimStartedAt, limit, input.claimOwnerId, claimedUntil],
+        [claimStartedAt, limit, input.claimOwnerId, claimedUntil, STRANDED_SENDING_LAST_ERROR],
       );
 
       return result.rows.map(rowToClaimedNotificationDelivery);
+    },
+
+    async renewClaimedNotificationDelivery(input: RenewClaimedNotificationDeliveryInput) {
+      const updatedAt = input.now ?? now().toISOString();
+      const claimedUntil = new Date(new Date(updatedAt).getTime() + input.claimTtlMs).toISOString();
+
+      const result = await db.query(
+        `UPDATE ${tableName}
+         SET claimed_until = $4,
+             updated_at = $1
+         WHERE delivery_id = $2
+           AND claim_owner_id = $3
+           AND status = 'sending'
+           AND claimed_until > $1::timestamptz`,
+        [updatedAt, input.deliveryId, input.claimOwnerId, claimedUntil],
+      );
+
+      return Number(result.rowCount ?? 0) > 0;
     },
 
     async markNotificationDeliverySent(input: MarkNotificationDeliverySentInput) {
@@ -291,6 +339,17 @@ export function createNotificationOutboxDispatcher(
       });
 
       for (const delivery of deliveries) {
+        const claimRenewed = await options.outbox.renewClaimedNotificationDelivery({
+          deliveryId: delivery.deliveryId,
+          claimOwnerId: options.claimOwnerId,
+          claimTtlMs,
+          now: now().toISOString(),
+        });
+
+        if (!claimRenewed) {
+          continue;
+        }
+
         try {
           const adapter = adapterRegistry.adapterForChannel(delivery.channel.channel);
           if (!adapter) {

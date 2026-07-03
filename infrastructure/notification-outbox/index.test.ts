@@ -3,6 +3,7 @@ import type {
   ClaimedNotificationDelivery,
   NotificationMessage,
   NotificationOutboxStore,
+  RenewClaimedNotificationDeliveryInput,
 } from "@chase-sets/outbound-messaging";
 import {
   createNotificationOutboxDispatcher,
@@ -170,8 +171,64 @@ describe("notification outbox", () => {
     const result = await dispatcher.runOnce();
 
     expect(result.processed).toBe(1);
+    expect(outbox.renewed).toEqual([
+      {
+        deliveryId: delivery.deliveryId,
+        claimOwnerId: "worker_1",
+        claimTtlMs: 60_000,
+        now: "2026-05-09T00:00:00.000Z",
+      },
+    ]);
     expect(adapter.sendNotificationChannel).toHaveBeenCalledWith(delivery);
     expect(outbox.sent).toEqual([delivery.deliveryId]);
+  });
+
+  it("renews a claimed delivery before sending so another dispatcher cannot claim it mid-batch", async () => {
+    const delivery: ClaimedNotificationDelivery = {
+      outboxId: "1",
+      deliveryId: "ordering:order_confirmed:ord_1:web:4",
+      message,
+      channel: message.channels[3],
+      source: {
+        sourceEventId: "evt_1",
+        sourceGlobalPosition: "12",
+        projectionName: "ordering-order-notification-projection",
+        occurredAt: "2026-05-09T00:00:00.000Z",
+      },
+      status: "sending",
+      attemptCount: 1,
+      maxAttempts: 3,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+      nextAttemptAt: "2026-05-09T00:00:00.000Z",
+      lastError: null,
+    };
+    const outbox = createMemoryOutbox([delivery]);
+    const adapter = {
+      channel: "web" as const,
+      sendNotificationChannel: vi.fn(async () => {
+        expect(outbox.claimableBySecondDispatcherAt("2026-05-09T00:01:30.000Z")).toEqual([]);
+        return {
+          channel: "web" as const,
+          providerName: "web-notification-feed" as const,
+          providerMessageId: "web_1",
+          acceptedAt: "2026-05-09T00:01:30.000Z",
+          attemptCount: 1,
+        };
+      }),
+    };
+    const dispatcher = createNotificationOutboxDispatcher({
+      outbox,
+      adapters: [adapter],
+      claimOwnerId: "worker_1",
+      claimTtlMs: 120_000,
+      now: () => new Date("2026-05-09T00:00:00.000Z"),
+    });
+
+    await dispatcher.runOnce();
+
+    expect(adapter.sendNotificationChannel).toHaveBeenCalledOnce();
+    expect(outbox.renewed).toHaveLength(1);
   });
 
   it("dispatches future channels through configured adapters", async () => {
@@ -287,34 +344,111 @@ describe("notification outbox", () => {
       },
     ]);
   });
+
+  it("uses a live owner fence when renewing a Postgres delivery claim", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+    const outbox = createPostgresNotificationOutbox({ db });
+
+    await expect(
+      outbox.renewClaimedNotificationDelivery({
+        deliveryId: "ordering:order_confirmed:ord_1:web:4",
+        claimOwnerId: "worker_1",
+        claimTtlMs: 120_000,
+        now: "2026-05-09T00:00:00.000Z",
+      }),
+    ).resolves.toBe(true);
+
+    expect(calls[0]?.sql).toContain("claim_owner_id = $3");
+    expect(calls[0]?.sql).toContain("status = 'sending'");
+    expect(calls[0]?.sql).toContain("claimed_until > $1::timestamptz");
+    expect(calls[0]?.values).toEqual([
+      "2026-05-09T00:00:00.000Z",
+      "ordering:order_confirmed:ord_1:web:4",
+      "worker_1",
+      "2026-05-09T00:02:00.000Z",
+    ]);
+  });
+
+  it("recovers expired sending deliveries that exhausted their final attempt before claiming more work", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const outbox = createPostgresNotificationOutbox({ db });
+
+    await outbox.claimPendingNotificationDeliveries({
+      limit: 50,
+      claimOwnerId: "worker_1",
+      claimTtlMs: 60_000,
+      now: "2026-05-09T00:00:00.000Z",
+    });
+
+    expect(calls[0]?.sql).toContain("status = 'sending'");
+    expect(calls[0]?.sql).toContain("attempt_count >= max_attempts");
+    expect(calls[0]?.sql).toContain("SET status = 'failed'");
+    expect(calls[0]?.sql).toContain("last_error = $5");
+    expect(calls[0]?.values[4]).toBe("attempts exhausted after crash");
+  });
 });
 
 function createMemoryOutbox(claimed: readonly ClaimedNotificationDelivery[]): NotificationOutboxStore &
   Readonly<{
     sent: readonly string[];
+    renewed: readonly RenewClaimedNotificationDeliveryInput[];
     failed: readonly {
       deliveryId: string;
       error: string;
       retryAt: string | null | undefined;
       now: string | undefined;
     }[];
+    claimableBySecondDispatcherAt: (at: string) => readonly string[];
   }> {
   const sent: string[] = [];
+  const renewed: RenewClaimedNotificationDeliveryInput[] = [];
   const failed: {
     deliveryId: string;
     error: string;
     retryAt: string | null | undefined;
     now: string | undefined;
   }[] = [];
+  const claimedUntilByDeliveryId = new Map<string, string>(
+    claimed.map((delivery) => [delivery.deliveryId, "2026-05-09T00:01:00.000Z"]),
+  );
 
   return {
     sent,
+    renewed,
     failed,
+    claimableBySecondDispatcherAt(at) {
+      return claimed
+        .filter((delivery) => {
+          const claimedUntil = claimedUntilByDeliveryId.get(delivery.deliveryId);
+          return delivery.attemptCount < delivery.maxAttempts && claimedUntil !== undefined && claimedUntil <= at;
+        })
+        .map((delivery) => delivery.deliveryId);
+    },
     async enqueueNotification() {
       return undefined;
     },
     async claimPendingNotificationDeliveries() {
       return claimed;
+    },
+    async renewClaimedNotificationDelivery(input) {
+      renewed.push(input);
+      claimedUntilByDeliveryId.set(
+        input.deliveryId,
+        new Date(new Date(input.now ?? "2026-05-09T00:00:00.000Z").getTime() + input.claimTtlMs).toISOString(),
+      );
+      return true;
     },
     async markNotificationDeliverySent(input) {
       sent.push(input.deliveryId);

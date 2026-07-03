@@ -310,10 +310,18 @@ export type MarkNotificationDeliveryFailedInput = Readonly<{
   now?: string;
 }>;
 
+export type RenewClaimedNotificationDeliveryInput = Readonly<{
+  deliveryId: string;
+  claimOwnerId: string;
+  claimTtlMs: number;
+  now?: string;
+}>;
+
 export interface NotificationOutboxStore extends NotificationOutbox {
   claimPendingNotificationDeliveries(
     input: ClaimNotificationDeliveriesInput,
   ): Promise<readonly ClaimedNotificationDelivery[]>;
+  renewClaimedNotificationDelivery(input: RenewClaimedNotificationDeliveryInput): Promise<boolean>;
   markNotificationDeliverySent(input: MarkNotificationDeliverySentInput): Promise<void>;
   markNotificationDeliveryFailed(input: MarkNotificationDeliveryFailedInput): Promise<void>;
 }
@@ -472,6 +480,9 @@ export function createNoopNotificationOutbox(): NotificationOutboxStore {
     },
     async claimPendingNotificationDeliveries() {
       return [];
+    },
+    async renewClaimedNotificationDelivery() {
+      return true;
     },
     async markNotificationDeliverySent() {
       return undefined;
