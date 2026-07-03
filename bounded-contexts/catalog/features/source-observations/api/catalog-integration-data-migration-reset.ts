@@ -1,6 +1,6 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
-import { seedCatalogProviderIntegrationProfileVersions } from "./provider-integration-profile-store";
+import { seedCatalogProviderIntegrationProfileVersionsInTransaction } from "./provider-integration-profile-store";
 import type { CatalogIntegrationSchemaCompatibilitySurfaceKey } from "./catalog-integration-schema-compatibility";
 
 export type CatalogIntegrationDataSurfaceKey =
@@ -705,7 +705,7 @@ export function catalogIntegrationDataBackfillDecisions(
 }
 
 export async function resetCatalogIntegrationPreLaunchData(
-  db: PgQueryable,
+  db: PgTransactionalPool,
   options: CatalogIntegrationDataResetOptions = {},
 ): Promise<CatalogIntegrationDataResetReport> {
   const normalizedOptions = {
@@ -715,7 +715,7 @@ export async function resetCatalogIntegrationPreLaunchData(
     allowActiveJobReset: options.allowActiveJobReset ?? false,
   } as const satisfies Required<CatalogIntegrationDataResetOptions>;
 
-  return withOptionalResetTransaction(db, async (queryable) => {
+  return withResetTransaction(db, async (queryable) => {
     const before = await collectCatalogIntegrationDataVerificationReport(queryable);
     if (!normalizedOptions.allowActiveJobReset) {
       assertNoActiveCatalogIntegrationJobs(before);
@@ -738,7 +738,7 @@ export async function resetCatalogIntegrationPreLaunchData(
     }
 
     if (normalizedOptions.rebuildSeedProfiles) {
-      const seededProfiles = await seedCatalogProviderIntegrationProfileVersions(queryable);
+      const seededProfiles = await seedCatalogProviderIntegrationProfileVersionsInTransaction(queryable);
       steps.push({
         tableName: "catalog_provider_integration_profile_versions",
         action: "delete-and-rebuild-seed",
@@ -885,19 +885,11 @@ async function deleteRows(db: PgQueryable, sql: string): Promise<number> {
   return Number(result.rows[0]?.rows_deleted ?? 0);
 }
 
-async function withOptionalResetTransaction<T>(
-  db: PgQueryable,
+async function withResetTransaction<T>(
+  db: PgTransactionalPool,
   work: (queryable: PgQueryable) => Promise<T>,
 ): Promise<T> {
-  if (isTransactionalPool(db)) {
-    return withPgTransaction(db, work);
-  }
-
-  return work(db);
-}
-
-function isTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
-  return "connect" in db && typeof db.connect === "function";
+  return withPgTransaction(db, work);
 }
 
 export const catalogIntegrationDataResetPlanSummary = `${resettablePreLaunchReason} Fresh bootstrap must recreate seeded provider profiles through the persisted profile store, and any retained data must be named with owner, reason, and removal criteria in #804.`;

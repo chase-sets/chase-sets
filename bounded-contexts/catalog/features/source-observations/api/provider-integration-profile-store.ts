@@ -82,22 +82,8 @@ export function createCatalogProviderIntegrationProfileVersionStore(
   db: PgQueryable,
 ): CatalogProviderIntegrationProfileVersionStore {
   return {
-    seedProfileVersions: async (versions = catalogProviderIntegrationProfileVersions) => {
-      const seeded: CatalogProviderIntegrationProfileVersionRecord[] = [];
-      for (const version of versions) {
-        const existing = await getProfileVersion(db, version.providerKey, version.profileVersion, {
-          profileKey: version.profileKey,
-          ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
-        });
-        if (isAdminAuthoredProfileVersion(existing)) {
-          seeded.push(existing);
-          continue;
-        }
-        seeded.push(await upsertProfileVersion(db, version));
-      }
-      await assertSeededActiveProfileVersions(db, versions);
-      return seeded;
-    },
+    seedProfileVersions: (versions = catalogProviderIntegrationProfileVersions) =>
+      withProfileVersionTransaction(db, (queryable) => seedProfileVersionsInTransaction(queryable, versions)),
     upsertProfileVersion: (version) => upsertProfileVersion(db, version),
     listProfileVersions: (providerKey) => listProfileVersions(db, providerKey),
     getProfileVersion: (providerKey, profileVersion, selector) =>
@@ -126,11 +112,46 @@ export async function seedCatalogProviderIntegrationProfileVersions(
   return createCatalogProviderIntegrationProfileVersionStore(db).seedProfileVersions();
 }
 
+export async function seedCatalogProviderIntegrationProfileVersionsInTransaction(
+  db: PgQueryable,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]> {
+  return seedProfileVersionsInTransaction(db, versions);
+}
+
+async function seedProfileVersionsInTransaction(
+  db: PgQueryable,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+): Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]> {
+  await lockProviderProfileVersionRows(
+    db,
+    versions.map((version) => version.providerKey),
+  );
+
+  const seeded: CatalogProviderIntegrationProfileVersionRecord[] = [];
+  for (const version of versions) {
+    const existing = await getProfileVersion(db, version.providerKey, version.profileVersion, {
+      profileKey: version.profileKey,
+      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+    });
+    if (isAdminAuthoredProfileVersion(existing)) {
+      seeded.push(existing);
+      continue;
+    }
+    seeded.push(await upsertProfileVersionSnapshot(db, version));
+  }
+  await assertSeededActiveProfileVersions(db, versions);
+  return seeded;
+}
+
 async function upsertProfileVersion(
   db: PgQueryable,
   version: CatalogProviderIntegrationProfileVersionRecord,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  return withOptionalProfileVersionTransaction(db, (queryable) => upsertProfileVersionSnapshot(queryable, version));
+  return withProfileVersionTransaction(db, async (queryable) => {
+    await lockProviderProfileVersionRows(queryable, [version.providerKey]);
+    return upsertProfileVersionSnapshot(queryable, version);
+  });
 }
 
 async function upsertProfileVersionSnapshot(
@@ -327,32 +348,37 @@ async function activateProfileVersion(
   profileVersion: string,
   selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  const existingVersions = await listProfileVersions(db, providerKey);
-  const activatedVersions = activateCatalogProviderIntegrationProfileVersion(
-    providerKey,
-    profileVersion,
-    existingVersions,
-    selector,
-  );
-  const activated = selectProfileVersion(providerKey, profileVersion, activatedVersions, selector);
-  const changedVersions = activatedVersions.filter((version) => {
-    const prior = existingVersions.find(
-      (candidate) =>
-        candidate.providerKey === version.providerKey &&
-        candidate.profileKey === version.profileKey &&
-        candidate.profileVersion === version.profileVersion,
+  return withProfileVersionTransaction(db, async (queryable) => {
+    await lockProviderProfileVersionRows(queryable, [providerKey]);
+    const existingVersions = await listProfileVersions(queryable, providerKey);
+    const activatedVersions = activateCatalogProviderIntegrationProfileVersion(
+      providerKey,
+      profileVersion,
+      existingVersions,
+      selector,
     );
-    return !prior || prior.lifecycle !== version.lifecycle || prior.active !== version.active;
+    const activated = selectProfileVersion(providerKey, profileVersion, activatedVersions, selector);
+    const changedVersions = activatedVersions.filter((version) => {
+      const prior = existingVersions.find(
+        (candidate) =>
+          candidate.providerKey === version.providerKey &&
+          candidate.profileKey === version.profileKey &&
+          candidate.profileVersion === version.profileVersion,
+      );
+      return !prior || prior.lifecycle !== version.lifecycle || prior.active !== version.active;
+    });
+
+    for (const changedVersion of [...changedVersions].sort(
+      (left, right) => Number(left.active) - Number(right.active),
+    )) {
+      await upsertProfileVersionSnapshot(queryable, changedVersion);
+    }
+
+    if (!activated) {
+      throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not activated.`);
+    }
+    return activated;
   });
-
-  for (const changedVersion of [...changedVersions].sort((left, right) => Number(left.active) - Number(right.active))) {
-    await upsertProfileVersion(db, changedVersion);
-  }
-
-  if (!activated) {
-    throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not activated.`);
-  }
-  return activated;
 }
 
 async function deprecateProfileVersion(
@@ -502,17 +528,68 @@ function parseJsonField<T>(value: T | string): T {
   return typeof value === "string" ? (JSON.parse(value) as T) : value;
 }
 
-async function withOptionalProfileVersionTransaction<T>(
+async function lockProviderProfileVersionRows(db: PgQueryable, providerKeys: readonly string[]): Promise<void> {
+  const normalizedProviderKeys = [...new Set(providerKeys.map((providerKey) => providerKey.trim().toLowerCase()))]
+    .filter((providerKey) => providerKey.length > 0)
+    .sort();
+
+  for (const providerKey of normalizedProviderKeys) {
+    await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+      `catalog_provider_profile_versions:${providerKey}`,
+    ]);
+    await db.query(
+      `SELECT provider_key, profile_key, profile_version
+       FROM catalog_provider_integration_profile_versions
+       WHERE provider_key = $1
+       ORDER BY profile_key ASC, profile_version ASC
+       FOR UPDATE`,
+      [providerKey],
+    );
+  }
+}
+
+class CatalogProviderProfileVersionWriteConflictError extends Error {
+  constructor(
+    message: string,
+    readonly cause: unknown,
+  ) {
+    super(message);
+    this.name = "CatalogProviderProfileVersionWriteConflictError";
+  }
+}
+
+async function withProfileVersionTransaction<T>(
   db: PgQueryable,
   work: (queryable: PgQueryable) => Promise<T>,
 ): Promise<T> {
-  if (isTransactionalPool(db)) {
-    return withPgTransaction(db, work);
+  if (!isTransactionalPool(db)) {
+    throw new Error("Catalog provider profile version writes require a transactional Postgres pool.");
   }
 
-  return work(db);
+  try {
+    return await withPgTransaction(db, work);
+  } catch (error) {
+    if (isActiveProfileUniqueViolation(error)) {
+      throw new CatalogProviderProfileVersionWriteConflictError(
+        "Catalog provider profile activation hit a retryable active-profile conflict.",
+        error,
+      );
+    }
+    throw error;
+  }
 }
 
 function isTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
   return "connect" in db && typeof db.connect === "function";
+}
+
+function isActiveProfileUniqueViolation(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const candidate = error as Readonly<{ code?: unknown; constraint?: unknown }>;
+  return (
+    candidate.code === "23505" && candidate.constraint === "catalog_provider_integration_profile_versions_active_idx"
+  );
 }

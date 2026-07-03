@@ -19,6 +19,7 @@ describe("catalog provider integration profile version store", () => {
 
     await seedCatalogProviderIntegrationProfileVersions(db);
 
+    expect(db.statements).toEqual(expect.arrayContaining(["BEGIN", "COMMIT"]));
     expect(
       db.statements.some((statement) =>
         statement.includes("INSERT INTO catalog_provider_integration_profile_versions"),
@@ -39,6 +40,16 @@ describe("catalog provider integration profile version store", () => {
         profileVersion: "2026.06.03",
       }),
     });
+  });
+
+  it("requires a transactional pool for profile writes", async () => {
+    const db = {
+      query: async () => ({ rows: [] }),
+    };
+
+    await expect(seedCatalogProviderIntegrationProfileVersions(db)).rejects.toThrow(
+      "Catalog provider profile version writes require a transactional Postgres pool.",
+    );
   });
 
   it("deprecates an existing active provider version before seeding a new active version", async () => {
@@ -405,8 +416,19 @@ class InMemoryProfileVersionDb {
     this.referenceCounts.set(referenceKey(providerKey, profileVersion), count);
   }
 
+  async connect(): Promise<{ query: InMemoryProfileVersionDb["query"]; release: () => void }> {
+    return {
+      query: this.query.bind(this),
+      release: () => undefined,
+    };
+  }
+
   async query<T>(sql: string, params: readonly unknown[] = []): QueryResult<T> {
     this.statements.push(sql);
+
+    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK" || sql.includes("pg_advisory_xact_lock")) {
+      return { rows: [] };
+    }
 
     if (
       sql.includes("UPDATE catalog_provider_integration_profile_versions") &&

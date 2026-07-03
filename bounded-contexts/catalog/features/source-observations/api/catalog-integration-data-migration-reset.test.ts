@@ -24,6 +24,7 @@ const seedCatalogProviderIntegrationProfileVersions = vi.hoisted(() =>
 
 vi.mock("./provider-integration-profile-store", () => ({
   seedCatalogProviderIntegrationProfileVersions,
+  seedCatalogProviderIntegrationProfileVersionsInTransaction: seedCatalogProviderIntegrationProfileVersions,
 }));
 
 describe("catalog integration data migration reset", () => {
@@ -479,8 +480,19 @@ class InMemoryCatalogIntegrationDataDb {
     };
   }
 
+  async connect(): Promise<{ query: InMemoryCatalogIntegrationDataDb["query"]; release: () => void }> {
+    return {
+      query: this.query.bind(this),
+      release: () => undefined,
+    };
+  }
+
   async query<T>(sql: string): Promise<{ rows: T[] }> {
     this.statements.push(sql);
+
+    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
+      return { rows: [] };
+    }
 
     if (sql.startsWith("WITH deleted AS (DELETE FROM ")) {
       return { rows: [{ rows_deleted: this.applyDelete(sql) } as T] };
