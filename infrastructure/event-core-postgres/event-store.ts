@@ -15,7 +15,7 @@ import type {
   ReadStreamInput,
   StoredEvent,
 } from "@chase-sets/event-core/storage";
-import { withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
+import { isPgRetryableTransientError, withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 
 type DbEventRow = Readonly<{
@@ -136,8 +136,6 @@ const DEFAULT_EVENTS_TABLE = "event_store_events";
 const DEFAULT_STREAMS_TABLE = "event_store_streams";
 
 const EVENT_STORE_ERROR_CODES = new Set(["concurrency_conflict", "infrastructure_failure"]);
-
-const POSTGRES_RETRYABLE_CONFLICT_CODES = new Set(["40001", "40P01"]);
 
 const POSTGRES_WAKE_NOTIFICATION_CHANNEL_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 const SENSITIVE_WAKE_NOTIFICATION_KEY_PATTERN =
@@ -839,9 +837,9 @@ function normalizeEventStoreError(error: unknown, message: string): EventStoreEr
     });
   }
 
-  if (isPgRetryableConflict(error)) {
+  if (isPgRetryableTransientError(error)) {
     return createEventStoreError("concurrency_conflict", "Retryable Postgres conflict while appending events.", {
-      postgresCode: error.code,
+      postgresCode: getPgErrorCode(error),
     });
   }
 
@@ -858,13 +856,13 @@ function isPgUniqueViolation(error: unknown): error is PgError {
   return typeof error === "object" && error !== null && "code" in error && (error as PgError).code === "23505";
 }
 
-function isPgRetryableConflict(error: unknown): error is PgError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    POSTGRES_RETRYABLE_CONFLICT_CODES.has((error as PgError).code ?? "")
-  );
+function getPgErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return undefined;
+  }
+
+  const code = (error as PgError).code;
+  return typeof code === "string" ? code : undefined;
 }
 
 function isEventStoreError(error: unknown): error is EventStoreError {
