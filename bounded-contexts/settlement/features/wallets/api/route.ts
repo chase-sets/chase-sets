@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AccountId, LedgerEntryId, PaymentId } from "@chase-sets/primitives/typed-ids";
@@ -57,12 +58,8 @@ function normalizeRequiredBodyText(body: Record<string, unknown>, fieldName: str
 }
 
 function deterministicLedgerEntryId(idempotencyKey: string): LedgerEntryId {
-  let hash = 2166136261;
-  for (let index = 0; index < idempotencyKey.length; index += 1) {
-    hash ^= idempotencyKey.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `led_${Math.abs(hash).toString(36).padStart(26, "0").slice(0, 26)}` as LedgerEntryId;
+  const digest = createHash("sha256").update(idempotencyKey, "utf8").digest("hex").slice(0, 26);
+  return `led_${digest}` as LedgerEntryId;
 }
 
 function duplicateLedgerEntryResponse() {
