@@ -24,6 +24,10 @@ export const SUBCOMMANDS = {
     script: "design-system-legacy-inventory.mjs",
     description: "Inventory of legacy design-system surfaces and ledger writer.",
   },
+  "design-system:raw-ui-budget": {
+    script: "design-system-raw-ui-budget.mjs",
+    description: "Ratcheted raw UI budgets for bounded-context and deployable consumers.",
+  },
   "admin-workflows:qa-evidence": {
     script: "admin-workflows-qa-evidence.mjs",
     description: "Lint admin-workflows QA evidence for public redaction safety.",

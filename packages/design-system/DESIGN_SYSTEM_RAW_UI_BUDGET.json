@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "milestone": 82,
+  "issue": 3531,
+  "generatedBy": "node ./scripts/design-system-raw-ui-budget.mjs --write",
+  "description": "Ratcheted raw-UI budgets for bounded-context ui/ and deployable production TSX consumers. Counts may fall below budget; new raw host UI or increases over budget fail verify:static.",
+  "classification": {
+    "governed": ["bounded-contexts/**/ui/**/*.tsx", "deployables/**/*.tsx"],
+    "ignored": ["tests, specs, stories, fixtures, and non-production files"],
+    "preferredAlternative": "Use @chase-sets/design-system primitives/components such as Page, Stack/Cluster, Text, Button, TextInput, and DataTable/Table.",
+    "escapeHatch": "Add an allowList entry with path, tagName, node markers, and reason."
+  },
+  "allowList": [
+    {
+      "path": "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
+      "tagName": "main",
+      "markers": ["id", "main-content"],
+      "reason": "The public waitlist owns one raw main landmark id for skip-link targeting."
+    },
+    {
+      "path": "deployables/",
+      "tagName": "main",
+      "markers": [],
+      "reason": "Deployable composition roots may expose raw main landmarks while composing bounded-context UI."
+    }
+  ],
+  "summary": {
+    "governedFileCount": 195,
+    "budgetedFileCount": 1,
+    "allowListEntryCount": 2,
+    "totalRawClassNameCount": 0,
+    "totalRawElementCount": 1
+  },
+  "budgets": { "deployables/admin-web/app/root.tsx": { "rawClassNameCount": 0, "rawElementCount": 1 } }
+}
