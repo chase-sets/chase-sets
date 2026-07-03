@@ -74,11 +74,19 @@ const placeholderFieldTokens = new Set([
 ]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["auth-support", "request-support", "seed-support"]);
 const legacyForbiddenPaths = [
+  "bounded-contexts/experience",
+  "bounded-contexts/insights",
+  "bounded-contexts/reputation",
+  "bounded-contexts/support",
+  "bounded-contexts/tax",
   "bounded-contexts/catalog/authoring/package.json",
   "bounded-contexts/catalog/authoring/api",
+  "contracts/notifications",
   "contracts/dev-seeds",
   "contracts/event-core/postgres",
   "contracts/sellable-units",
+  "deployables/admin-support-api",
+  "deployables/admin-support-worker",
   "deployables/catalog-admin",
   "deployables/catalog-api",
   "deployables/identity-admin",
@@ -97,6 +105,7 @@ const legacyForbiddenPaths = [
   "scripts/generate-deployable-runtimes.mjs",
   "scripts/generate-deployable-shells.mjs",
 ];
+const nonPackageWorkspaceDirectoryExceptions = new Set(["infrastructure/digitalocean", "infrastructure/remote-dev"]);
 const manifestRequiredFields = [
   "contextName",
   "packageName",
@@ -1013,6 +1022,54 @@ async function loadContextManifests() {
   return manifests;
 }
 
+export async function findWorkspaceDirectoryManifestViolations(options = {}) {
+  const rootDir = options.repoRoot ?? repoRoot;
+  const workspaceRootNames = options.workspaceRoots ?? roots;
+  const diagnostics = [];
+
+  for (const workspaceRoot of workspaceRootNames) {
+    const rootPath = path.join(rootDir, workspaceRoot);
+    const entries = await readdir(rootPath, { withFileTypes: true }).catch(() => []);
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      const relativeDirectory = `${workspaceRoot}/${entry.name}`;
+      if (legacyForbiddenPaths.includes(relativeDirectory)) {
+        diagnostics.push({
+          path: relativeDirectory,
+          message: "retired workspace directory should not exist",
+        });
+        continue;
+      }
+
+      if (nonPackageWorkspaceDirectoryExceptions.has(relativeDirectory)) {
+        continue;
+      }
+
+      const directoryPath = path.join(rootPath, entry.name);
+      if (!existsSync(path.join(directoryPath, "package.json"))) {
+        diagnostics.push({
+          path: `${relativeDirectory}/package.json`,
+          message: "workspace directory must declare package.json or be added to the retired-path list",
+        });
+        continue;
+      }
+
+      if (workspaceRoot === "bounded-contexts" && !existsSync(path.join(directoryPath, "context.json"))) {
+        diagnostics.push({
+          path: `${relativeDirectory}/context.json`,
+          message: "bounded context workspace directory must declare context.json",
+        });
+      }
+    }
+  }
+
+  return diagnostics;
+}
+
 function isTestFile(relativeFile) {
   return (
     relativeFile.includes("/tests/") ||
@@ -1260,6 +1317,10 @@ export async function runStructureCheck(options = {}) {
   warnings.length = 0;
   clientSurfaceConsumers.clear();
   supportFileConsumers.clear();
+
+  for (const diagnostic of await findWorkspaceDirectoryManifestViolations({ repoRoot })) {
+    addPathViolation(diagnostic.path, diagnostic.message);
+  }
 
   const contextManifests = await loadContextManifests();
   const boundedContextPackages = [...contextManifests.values()].map(({ packageName }) => packageName);
