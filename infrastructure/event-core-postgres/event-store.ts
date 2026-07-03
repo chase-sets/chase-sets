@@ -206,7 +206,14 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
     )
+    ON CONFLICT (event_id) DO NOTHING
     RETURNING ${EVENT_COLUMNS}
+  `;
+
+  const readEventByIdSql = `
+    SELECT ${EVENT_COLUMNS}
+    FROM ${eventsTable}
+    WHERE event_id = $1
   `;
 
   const updateStreamVersionSql = `
@@ -249,6 +256,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
                   upsertStreamSql,
                   readCurrentVersionSql,
                   insertEventSql,
+                  readEventByIdSql,
                   updateStreamVersionSql,
                 }),
               {
@@ -329,6 +337,7 @@ type AppendInTransactionArgs = Readonly<{
   upsertStreamSql: string;
   readCurrentVersionSql: string;
   insertEventSql: string;
+  readEventByIdSql: string;
   updateStreamVersionSql: string;
 }>;
 
@@ -469,17 +478,20 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
 
   for (let index = 0; index < args.input.events.length; index += 1) {
     const eventRecord = args.input.events[index];
-    nextVersion += 1;
-    const storedEvent = await insertSingleEvent({
+    const candidateVersion = nextVersion + 1;
+    const insertResult = await insertSingleEvent({
       client: args.client,
       insertEventSql: args.insertEventSql,
+      readEventByIdSql: args.readEventByIdSql,
       streamId: args.input.streamId,
-      streamVersion: nextVersion,
+      streamVersion: candidateVersion,
       event: eventRecord,
       context: args.input.context,
       now,
       createEventId: args.createEventId,
     });
+    const storedEvent = insertResult.event;
+    nextVersion = insertResult.inserted ? candidateVersion : Math.max(nextVersion, storedEvent.streamVersion);
 
     storedEvents.push(storedEvent);
   }
@@ -492,6 +504,7 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
 type InsertSingleEventArgs = Readonly<{
   client: PgPoolClient;
   insertEventSql: string;
+  readEventByIdSql: string;
   streamId: string;
   streamVersion: number;
   event: EventRecordToStore;
@@ -500,9 +513,15 @@ type InsertSingleEventArgs = Readonly<{
   createEventId: () => EventId;
 }>;
 
-async function insertSingleEvent(args: InsertSingleEventArgs): Promise<StoredEvent> {
+type InsertSingleEventResult = Readonly<{
+  event: StoredEvent;
+  inserted: boolean;
+}>;
+
+async function insertSingleEvent(args: InsertSingleEventArgs): Promise<InsertSingleEventResult> {
+  const eventId = args.event.eventId ?? args.createEventId();
   const result = await args.client.query<DbEventRow>(args.insertEventSql, [
-    args.createEventId(),
+    eventId,
     args.streamId,
     args.streamVersion,
     args.context.tenantId,
@@ -521,11 +540,52 @@ async function insertSingleEvent(args: InsertSingleEventArgs): Promise<StoredEve
     args.context.trace?.traceState ?? null,
   ]);
 
-  if (result.rows.length !== 1) {
+  if (result.rows.length === 1) {
+    return { event: mapDbEventRow(result.rows[0]), inserted: true };
+  }
+
+  const existingResult = await args.client.query<DbEventRow>(args.readEventByIdSql, [eventId]);
+  if (existingResult.rows.length !== 1) {
     throw createEventStoreError("infrastructure_failure", "Failed to insert event row into Postgres event store.");
   }
 
-  return mapDbEventRow(result.rows[0]);
+  const existingEvent = mapDbEventRow(existingResult.rows[0]);
+  assertIdempotentEventMatch(existingEvent, args);
+  return { event: existingEvent, inserted: false };
+}
+
+function assertIdempotentEventMatch(existingEvent: StoredEvent, args: InsertSingleEventArgs): void {
+  const expectedMetadata = args.event.metadata ?? {};
+  if (
+    existingEvent.streamId !== args.streamId ||
+    existingEvent.tenantId !== args.context.tenantId ||
+    existingEvent.eventType !== args.event.eventType ||
+    stableJsonStringify(existingEvent.payload) !== stableJsonStringify(args.event.payload) ||
+    stableJsonStringify(existingEvent.metadata) !== stableJsonStringify(expectedMetadata)
+  ) {
+    throw createEventStoreError("concurrency_conflict", "Event id was already used with different event data.", {
+      eventId: existingEvent.eventId,
+      streamId: args.streamId,
+      existingStreamId: existingEvent.streamId,
+      eventType: args.event.eventType,
+      existingEventType: existingEvent.eventType,
+    });
+  }
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJsonStringify(entry)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJsonStringify(entryValue)}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
 }
 
 function assertExpectedVersion(streamId: string, expectedVersion: ExpectedStreamVersion, currentVersion: number): void {
@@ -617,7 +677,7 @@ async function emitEventStoreWakeNotificationAfterCommit(
       maxPayloadBytes: args.config.maxPayloadBytes,
     });
   } catch (error) {
-    args.config.observer?.payloadRejected?.({
+    emitWakeNotificationObserver(args.config.observer?.payloadRejected, {
       ...observation,
       reason: error instanceof Error ? error.message : String(error),
     });
@@ -626,15 +686,23 @@ async function emitEventStoreWakeNotificationAfterCommit(
 
   try {
     await args.client.query("SELECT pg_notify($1, $2)", [args.config.channel, serialized]);
-    args.config.observer?.notificationEmitted?.({
+    emitWakeNotificationObserver(args.config.observer?.notificationEmitted, {
       ...observation,
       payloadBytes: byteLengthUtf8(serialized),
     });
   } catch (error) {
-    args.config.observer?.notificationFailed?.({
+    emitWakeNotificationObserver(args.config.observer?.notificationFailed, {
       ...observation,
       error,
     });
+  }
+}
+
+function emitWakeNotificationObserver<TEvent>(observer: ((event: TEvent) => void) | undefined, event: TEvent): void {
+  try {
+    observer?.(event);
+  } catch {
+    return;
   }
 }
 

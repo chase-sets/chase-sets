@@ -69,6 +69,7 @@ export type EventStoreContext = Readonly<{
 }>;
 
 export type EventRecordToStore = Readonly<{
+  eventId?: EventId;
   eventType: string;
   payload: JsonObject;
   metadata?: JsonObject;

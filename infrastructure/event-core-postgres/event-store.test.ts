@@ -292,6 +292,54 @@ describe("postgres event store", () => {
     });
   });
 
+  it("keeps the committed append successful when wake notification observers throw", async () => {
+    const observerFailure = new Error("observer failed");
+    const emitted = createPostgresEventStore({
+      pool: createAppendPool({ globalPositions: ["501"] }).pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+      wakeNotifications: {
+        enabled: true,
+        observer: {
+          notificationEmitted: () => {
+            throw observerFailure;
+          },
+        },
+      },
+    });
+    const failed = createPostgresEventStore({
+      pool: createAppendPool({ failNotify: true, globalPositions: ["502"] }).pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+      wakeNotifications: {
+        enabled: true,
+        observer: {
+          notificationFailed: () => {
+            throw observerFailure;
+          },
+        },
+      },
+    });
+    const rejected = createPostgresEventStore({
+      pool: createAppendPool({ globalPositions: ["503"] }).pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+      wakeNotifications: {
+        enabled: true,
+        maxPayloadBytes: 1,
+        observer: {
+          payloadRejected: () => {
+            throw observerFailure;
+          },
+        },
+      },
+    });
+
+    await expect(emitted.appendToStream(appendInput())).resolves.toHaveLength(1);
+    await expect(failed.appendToStream(appendInput())).resolves.toHaveLength(1);
+    await expect(rejected.appendToStream(appendInput())).resolves.toHaveLength(1);
+  });
+
   it("rejects sensitive or oversized event-store wake notification envelopes", () => {
     const envelope = eventStoreWakeEnvelope();
 

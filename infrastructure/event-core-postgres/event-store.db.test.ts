@@ -78,6 +78,59 @@ describeDb("postgres event store real database integration", () => {
     });
   });
 
+  it("treats a duplicate caller-supplied event id retry as an idempotent no-op", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+    const event = {
+      eventId: "evt_db_command_1" as never,
+      eventType: "payments.refund.requested",
+      payload: { paymentId: "pay_1", refundId: "ref_1" },
+      metadata: { commandId: "cmd_1" },
+    };
+
+    const first = await store.appendToStream({
+      streamId: "payments.payment-pay_1",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [event],
+    });
+    const retry = await store.appendToStream({
+      streamId: "payments.payment-pay_1",
+      expectedVersion: "any",
+      context: eventContext("tenant_a"),
+      events: [event],
+    });
+
+    expect(first).toMatchObject([{ eventId: "evt_db_command_1", streamVersion: 1, globalPosition: "1" }]);
+    expect(retry).toEqual(first);
+    await expect(store.readAll({ limit: 10 })).resolves.toEqual([
+      expect.objectContaining({
+        eventId: "evt_db_command_1",
+        streamId: "payments.payment-pay_1",
+        streamVersion: 1,
+      }),
+    ]);
+    await expect(
+      store.appendToStream({
+        streamId: "payments.payment-pay_1",
+        expectedVersion: "any",
+        context: eventContext("tenant_a"),
+        events: [
+          {
+            ...event,
+            payload: { paymentId: "pay_1", refundId: "ref_changed" },
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "concurrency_conflict",
+      message: "Event id was already used with different event data.",
+    });
+  });
+
   it("keeps the same pooled client available after rolled-back business errors", async () => {
     const pool = schema.pool as PgTransactionalPool & Readonly<{ idleCount: number; totalCount: number }>;
 
