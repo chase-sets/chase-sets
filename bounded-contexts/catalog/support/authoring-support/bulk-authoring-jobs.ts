@@ -9,6 +9,8 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
+  isDurableJobWorkUnitTerminalAccepted,
+  type DurableJobWorkUnitTerminalOutcome,
   type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
@@ -665,8 +667,11 @@ function catalogAuthoringRetentionCutoff(daysAgo: number): Date {
   return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
 }
 
-async function requireCatalogAuthoringBulkJobClaim(succeeded: Promise<boolean> | boolean) {
-  if (!(await succeeded)) {
+async function requireCatalogAuthoringBulkJobClaim(
+  succeeded: Promise<boolean | DurableJobWorkUnitTerminalOutcome> | boolean | DurableJobWorkUnitTerminalOutcome,
+) {
+  const outcome = await succeeded;
+  if (!isDurableJobWorkUnitTerminalAccepted(outcome)) {
     throw new Error("Catalog authoring bulk job claim was lost before the status update completed.");
   }
 }

@@ -13,9 +13,11 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
+  isDurableJobWorkUnitTerminalAccepted,
   type DurableJobWorkUnitClaimOutcomeReason,
   type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
+  type DurableJobWorkUnitTerminalOutcome,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, InventoryItemId, ListingId } from "@chase-sets/primitives/typed-ids";
@@ -2072,8 +2074,11 @@ function requireCreateBatchId(payload: InventoryImportBatchJobPayload) {
   return batchId;
 }
 
-async function requireImportBatchJobClaim(succeeded: Promise<boolean> | boolean) {
-  if (!(await succeeded)) {
+async function requireImportBatchJobClaim(
+  succeeded: Promise<boolean | DurableJobWorkUnitTerminalOutcome> | boolean | DurableJobWorkUnitTerminalOutcome,
+) {
+  const outcome = await succeeded;
+  if (!isDurableJobWorkUnitTerminalAccepted(outcome)) {
     throw new InventoryDomainError("Import batch job claim was lost before the status update completed.");
   }
 }

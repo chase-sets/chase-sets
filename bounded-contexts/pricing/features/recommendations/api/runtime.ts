@@ -20,8 +20,10 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
+  isDurableJobWorkUnitTerminalAccepted,
   type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
+  type DurableJobWorkUnitTerminalOutcome,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import {
   getAccountRecommendation,
@@ -1123,8 +1125,11 @@ function recommendationRetentionCutoff(daysAgo: number): Date {
   return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
 }
 
-async function requirePricingRecommendationJobClaim(succeeded: Promise<boolean> | boolean) {
-  if (!(await succeeded)) {
+async function requirePricingRecommendationJobClaim(
+  succeeded: Promise<boolean | DurableJobWorkUnitTerminalOutcome> | boolean | DurableJobWorkUnitTerminalOutcome,
+) {
+  const outcome = await succeeded;
+  if (!isDurableJobWorkUnitTerminalAccepted(outcome)) {
     throw new Error("Pricing recommendation job claim was lost before the status update completed.");
   }
 }
