@@ -2,7 +2,11 @@ import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createAuthBootstrapContext } from "@chase-sets/auth-context";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import { PLATFORM_INTERNAL_AUTH_HEADER, resolvePlatformInternalAuthSecret } from "@chase-sets/platform-runtime/http";
+import {
+  PLATFORM_INTERNAL_AUTH_HEADER,
+  resolvePlatformInternalAuthSecret,
+  verifyPlatformInternalAuthSecret,
+} from "@chase-sets/platform-runtime/http";
 import type { PlatformIdentityServices } from "../app";
 import { authenticationRequiredResponse } from "@chase-sets/http/responses";
 import { attachActiveTraceContext } from "@chase-sets/observability";
@@ -45,7 +49,7 @@ function isInternalGuestCheckoutClaimRoute(pathname: string) {
 }
 
 function hasInternalCapability(request: Request, secret: string) {
-  return request.headers.get(PLATFORM_INTERNAL_AUTH_HEADER) === secret;
+  return verifyPlatformInternalAuthSecret(request.headers.get(PLATFORM_INTERNAL_AUTH_HEADER), secret);
 }
 
 export function createIdentityAuthMiddleware(

@@ -102,6 +102,15 @@ describe("platform auth actor resolution", () => {
     expect(isTransientAuthResolutionError(new AuthResolutionError("/api/auth", 500))).toBe(false);
   });
 
+  it("reports invalid auth API base URLs with an actionable option name", async () => {
+    await expect(
+      resolveActorFromAuthApi({
+        request: new Request("http://localhost/account"),
+        authApiBaseUrl: "not a url",
+      }),
+    ).rejects.toThrow("authApiBaseUrl must be a valid absolute URL.");
+  });
+
   it("treats rejected auth fetches as transient auth resolution failures", async () => {
     const cause = new TypeError("fetch failed");
     const fetch: typeof globalThis.fetch = async () => {

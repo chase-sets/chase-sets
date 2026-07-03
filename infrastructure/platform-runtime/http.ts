@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -223,13 +224,36 @@ export async function resolvePostWriteTokenRequest(
   return new Request(materializePostWriteTokenPayload(request.url, payload), request);
 }
 
-export function resolvePlatformInternalAuthSecret(options: Readonly<{ requireExplicitInProduction?: boolean }> = {}) {
+export function resolvePlatformInternalAuthSecret(
+  options: Readonly<{
+    requireExplicitInProduction?: boolean;
+    productionLike?: boolean;
+    productionMissingSecretError?: string;
+  }> = {},
+) {
   const configured = process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV]?.trim();
-  if (options.requireExplicitInProduction && process.env.NODE_ENV === "production" && !configured) {
-    throw new Error(`${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API calls in production.`);
+  const productionLike = options.productionLike ?? process.env.NODE_ENV === "production";
+  if (options.requireExplicitInProduction && productionLike && !configured) {
+    throw new Error(
+      options.productionMissingSecretError ??
+        `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API calls in production.`,
+    );
   }
 
   return configured || DEFAULT_DEV_INTERNAL_AUTH_SECRET;
+}
+
+export function verifyPlatformInternalAuthSecret(
+  headerValue: string | null | undefined,
+  expectedSecret = resolvePlatformInternalAuthSecret(),
+) {
+  const expected = hashInternalAuthSecret(expectedSecret);
+  const actual = hashInternalAuthSecret(headerValue ?? "");
+  return timingSafeEqual(actual, expected);
+}
+
+function hashInternalAuthSecret(value: string) {
+  return createHash("sha256").update(value).digest();
 }
 
 export function navigateAfterWrite(
@@ -594,7 +618,12 @@ export function resolveInternalApiOrigin(
     return null;
   }
 
-  const url = new URL(configured);
+  let url: URL;
+  try {
+    url = new URL(configured);
+  } catch (error) {
+    throw new Error(`${CHASE_SETS_INTERNAL_API_ORIGIN_ENV} must be a valid absolute URL.`, { cause: error });
+  }
   url.pathname = url.pathname.replace(/\/+$/, "");
   url.search = "";
   url.hash = "";

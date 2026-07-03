@@ -490,7 +490,11 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     ...databaseConfig,
     pool: loadPoolConfig(),
     port: Number(process.env.PORT ?? 6182),
-    internalAuthSecret: resolvePlatformInternalAuthSecret(),
+    internalAuthSecret: resolvePlatformInternalAuthSecret({
+      requireExplicitInProduction: true,
+      productionLike,
+      productionMissingSecretError: `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
+    }),
     realtime: {
       batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
       pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),
@@ -587,11 +591,6 @@ export function loadConfig(): PlatformApiConfig {
 
   if (providerRequired && !easyPostApiKey) {
     throw new Error("EASYPOST_API_KEY is required for USPS postage label purchasing in production.");
-  }
-  if (productionLike && !getOptionalEnv(PLATFORM_INTERNAL_AUTH_SECRET_ENV)) {
-    throw new Error(
-      `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
-    );
   }
   if (productionLike && Boolean(googleSocialLoginClientId) !== Boolean(googleSocialLoginClientSecret)) {
     throw new Error("GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.");
