@@ -242,6 +242,101 @@ describe("payout readiness runtime", () => {
     );
   });
 
+  it("creates fresh embedded account management sessions instead of replaying expired provider secrets", async () => {
+    const managementKeys: string[] = [];
+    const operationEvents: Record<string, unknown>[] = [];
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            account_id: "acc_seller",
+            status: "ready",
+            missing_requirements: [],
+            provider_reference: "acct_existing",
+            onboarding_status: "complete",
+            transfer_capability_status: "active",
+            payout_capability_status: "active",
+            payout_destination_status: "verified",
+            payout_account_dashboard: "none",
+            losses_collector: "application",
+            fees_collector: "application",
+            requirements_collector: "application",
+            updated_at: "2026-06-01T16:00:00.000Z",
+          },
+        ],
+      })),
+    };
+    const moneyMovementGateway = {
+      providerName: "stripe",
+      ensurePayoutAccount: vi.fn(),
+      refreshPayoutReadiness: vi.fn(),
+      createPayoutSetupSession: vi.fn(),
+      createPayoutAccountManagementSession: vi.fn(async (input: { idempotencyKey: string }) => {
+        managementKeys.push(input.idempotencyKey);
+        return {
+          providerReference: "acct_existing",
+          clientSecret: `provider_management_secret_${managementKeys.length}`,
+          expiresAt: "2026-06-01T15:00:00.000Z",
+          components: ["payout-account-management"],
+        };
+      }),
+      retrievePlatformBalance: vi.fn(),
+      transferPlatformBalanceToConnectedAccount: vi.fn(),
+      createConnectedAccountPayout: vi.fn(),
+      retrieveConnectedAccountPayout: vi.fn(),
+      parseMoneyMovementWebhook: vi.fn(),
+    };
+    const services = createPayoutReadinessRuntime({
+      eventStore: createEventStore() as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: moneyMovementGateway as never,
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    await expect(
+      services.createPayoutAccountManagementSession({ accountId: "acc_seller" as never }, context),
+    ).resolves.toMatchObject({
+      providerReference: "acct_existing",
+      clientSecret: "provider_management_secret_1",
+      components: ["payout-account-management"],
+    });
+    await expect(
+      services.createPayoutAccountManagementSession({ accountId: "acc_seller" as never }, context),
+    ).resolves.toMatchObject({
+      providerReference: "acct_existing",
+      clientSecret: "provider_management_secret_2",
+      components: ["payout-account-management"],
+    });
+
+    expect(managementKeys).toHaveLength(2);
+    expect(managementKeys[0]).toMatch(/^settlement:payout-account:acc_seller:embedded-manage:manage_/);
+    expect(managementKeys[1]).toMatch(/^settlement:payout-account:acc_seller:embedded-manage:manage_/);
+    expect(managementKeys[1]).not.toBe(managementKeys[0]);
+    expect(operationEvents).toEqual([
+      expect.objectContaining({
+        kind: "payout-account-management-session-created",
+        accountId: "acc_seller",
+        setupSurface: "embedded-account-management",
+        providerReference: "acct_existing",
+      }),
+      expect.objectContaining({
+        kind: "payout-account-management-session-created",
+        accountId: "acc_seller",
+        setupSurface: "embedded-account-management",
+        providerReference: "acct_existing",
+      }),
+    ]);
+    expect(JSON.stringify(operationEvents)).not.toContain("provider_management_secret");
+  });
+
   it("records setup session failures by safe category without leaking provider messages", async () => {
     const operationEvents: Record<string, unknown>[] = [];
     const db = {
