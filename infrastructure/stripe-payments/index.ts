@@ -11,6 +11,7 @@ import type {
   CreateProcessorSetupSessionInput,
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
+  ProcessorPaymentReconciliationResult,
   PaymentProcessorWebhookEvent,
   ProcessorSavedPaymentMethod,
   ProcessorSetupSessionResult,
@@ -38,7 +39,7 @@ type StripeCheckoutSessionResponse = Readonly<{
   status?: string | null;
   mode?: string | null;
   payment_status?: string | null;
-  payment_intent?: string | Readonly<{ id?: string | null }> | null;
+  payment_intent?: string | Readonly<StripePaymentIntentResponse> | null;
   setup_intent?: string | Readonly<{ id?: string | null }> | null;
   customer?: string | Readonly<{ id?: string | null }> | null;
   metadata?: Readonly<Record<string, string | null | undefined>> | null;
@@ -50,6 +51,11 @@ type StripePaymentIntentResponse = Readonly<{
   status?: string | null;
   payment_method?: string | Readonly<StripePaymentMethodResponse> | null;
   customer?: string | Readonly<{ id?: string | null }> | null;
+  metadata?: Readonly<Record<string, string | null | undefined>> | null;
+  last_payment_error?: Readonly<{
+    code?: string | null;
+    message?: string | null;
+  }> | null;
 }>;
 
 type StripeChargeResponse = Readonly<{
@@ -130,6 +136,10 @@ type StripeEventEnvelope = Readonly<{
   }>;
 }>;
 
+type StripeSearchResult<T> = Readonly<{
+  data?: readonly T[];
+}>;
+
 type StripeWebhookObject = NonNullable<NonNullable<StripeEventEnvelope["data"]>["object"]>;
 
 function paymentKindForStripeObject(reference: string) {
@@ -163,6 +173,10 @@ function moneyToMinorUnits(amount: string) {
 function normalizeOptionalText(value?: string | null) {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
+}
+
+function stripeSearchLiteral(value: string) {
+  return value.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
 }
 
 function toFormBody(entries: Record<string, string>) {
@@ -225,6 +239,84 @@ function paymentIntentReferenceFromSession(session: StripeCheckoutSessionRespons
     return normalizeOptionalText(paymentIntent);
   }
   return normalizeOptionalText(paymentIntent?.id ?? null);
+}
+
+function mapPaymentIntentReconciliationResult(
+  intent: StripePaymentIntentResponse,
+): ProcessorPaymentReconciliationResult | null {
+  const processorPaymentReference = normalizeOptionalText(intent.id);
+  if (!processorPaymentReference) {
+    return null;
+  }
+  const processorStatus = normalizeOptionalText(intent.status) ?? "unknown";
+  const outcome: ProcessorPaymentReconciliationResult["outcome"] =
+    processorStatus === "succeeded"
+      ? "captured"
+      : processorStatus === "requires_capture"
+        ? "authorized"
+        : processorStatus === "canceled"
+          ? "cancelled"
+          : processorStatus === "requires_payment_method" && intent.last_payment_error
+            ? "failed"
+            : ["processing", "requires_action", "requires_confirmation", "requires_payment_method"].includes(
+                  processorStatus,
+                )
+              ? "pending"
+              : "unknown";
+  return {
+    processorName: "stripe",
+    processorPaymentKind: "payment-intent",
+    processorPaymentReference,
+    processorStatus,
+    outcome,
+    occurredAt: new Date().toISOString(),
+    internalPaymentId: normalizeOptionalText(
+      intent.metadata?.payment_id ?? null,
+    ) as ProcessorPaymentReconciliationResult["internalPaymentId"],
+    failureCode: normalizeOptionalText(intent.last_payment_error?.code ?? null),
+    failureMessage: normalizeOptionalText(intent.last_payment_error?.message ?? null),
+  };
+}
+
+function mapCheckoutSessionReconciliationResult(
+  session: StripeCheckoutSessionResponse,
+  paymentIntent: StripePaymentIntentResponse | null,
+): ProcessorPaymentReconciliationResult | null {
+  const processorPaymentReference = normalizeOptionalText(session.id);
+  if (!processorPaymentReference) {
+    return null;
+  }
+
+  const sessionStatus = normalizeOptionalText(session.status);
+  const paymentStatus = normalizeOptionalText(session.payment_status);
+  const intentResult = paymentIntent ? mapPaymentIntentReconciliationResult(paymentIntent) : null;
+  const processorStatus = paymentStatus ?? sessionStatus ?? intentResult?.processorStatus ?? "unknown";
+  const outcome: ProcessorPaymentReconciliationResult["outcome"] =
+    paymentStatus === "paid" || intentResult?.outcome === "captured"
+      ? "captured"
+      : sessionStatus === "expired"
+        ? "cancelled"
+        : intentResult?.outcome === "failed"
+          ? "failed"
+          : sessionStatus === "complete"
+            ? "authorized"
+            : sessionStatus === "open" || intentResult?.outcome === "pending"
+              ? "pending"
+              : (intentResult?.outcome ?? "unknown");
+
+  return {
+    processorName: "stripe",
+    processorPaymentKind: "checkout-session",
+    processorPaymentReference,
+    processorStatus,
+    outcome,
+    occurredAt: new Date().toISOString(),
+    internalPaymentId: (normalizeOptionalText(session.metadata?.payment_id ?? null) ??
+      intentResult?.internalPaymentId ??
+      null) as ProcessorPaymentReconciliationResult["internalPaymentId"],
+    failureCode: intentResult?.failureCode ?? null,
+    failureMessage: intentResult?.failureMessage ?? null,
+  };
 }
 
 function paymentIntentReferenceFromCharge(charge: StripeChargeResponse) {
@@ -1001,6 +1093,48 @@ export function createStripePaymentProcessorGateway(
         processorRedirectUrl: null,
         processorStatus: body.status?.trim() ?? "requires_confirmation",
       };
+    },
+    async retrievePaymentResult(processorPaymentReference: string) {
+      const reference = normalizeOptionalText(processorPaymentReference);
+      if (!reference) {
+        return null;
+      }
+
+      if (reference.startsWith("cs_")) {
+        const session = await stripeRequest<StripeCheckoutSessionResponse>(
+          `/v1/checkout/sessions/${encodeURIComponent(reference)}`,
+          { method: "GET" },
+        );
+        const paymentIntentReference = paymentIntentReferenceFromSession(session);
+        const paymentIntent = paymentIntentReference
+          ? await stripeRequest<StripePaymentIntentResponse>(
+              `/v1/payment_intents/${encodeURIComponent(paymentIntentReference)}`,
+              { method: "GET" },
+            )
+          : null;
+        return mapCheckoutSessionReconciliationResult(session, paymentIntent);
+      }
+
+      const intent = await stripeRequest<StripePaymentIntentResponse>(
+        `/v1/payment_intents/${encodeURIComponent(reference)}`,
+        { method: "GET" },
+      );
+      return mapPaymentIntentReconciliationResult(intent);
+    },
+    async retrievePaymentResultByPaymentId(paymentId) {
+      const normalizedPaymentId = normalizeOptionalText(paymentId);
+      if (!normalizedPaymentId) {
+        return null;
+      }
+
+      const query = `metadata['payment_id']:'${stripeSearchLiteral(normalizedPaymentId)}'`;
+      const searchParams = new URLSearchParams({ query, limit: "1" });
+      const result = await stripeRequest<StripeSearchResult<StripePaymentIntentResponse>>(
+        `/v1/payment_intents/search?${searchParams.toString()}`,
+        { method: "GET" },
+      );
+      const intent = result.data?.[0] ?? null;
+      return intent ? mapPaymentIntentReconciliationResult(intent) : null;
     },
     async createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund> {
       const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Refund amount"));

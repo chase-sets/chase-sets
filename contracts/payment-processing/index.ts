@@ -121,6 +121,29 @@ export type CreatedProcessorPayment = Readonly<{
   processorStatus: string;
 }>;
 
+export type ProcessorPaymentReconciliationOutcome =
+  | "pending"
+  | "authorized"
+  | "captured"
+  | "failed"
+  | "cancelled"
+  | "unknown";
+
+export type ProcessorPaymentReconciliationResult = Readonly<{
+  processorName: PaymentProcessorName;
+  processorPaymentKind: ProcessorPaymentKind;
+  processorPaymentReference: string;
+  processorStatus: string;
+  outcome: ProcessorPaymentReconciliationOutcome;
+  occurredAt: string;
+  internalPaymentId?: PaymentId | null;
+  failureCode?: string | null;
+  failureMessage?: string | null;
+  savedPaymentMethod?: ProcessorSavedPaymentMethod | null;
+  savedPaymentConsentId?: string | null;
+  savedPaymentConsentText?: string | null;
+}>;
+
 export type CreateProcessorRefundInput = Readonly<{
   refundId: string;
   paymentId: PaymentId;
@@ -186,6 +209,8 @@ export interface PaymentProcessorGateway {
    */
   createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment>;
   createAgenticPaymentSession?(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment>;
+  retrievePaymentResult(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult | null>;
+  retrievePaymentResultByPaymentId?(paymentId: PaymentId): Promise<ProcessorPaymentReconciliationResult | null>;
   createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund>;
   parseWebhook(
     input: Readonly<{ rawBody: string; signatureHeader: string | null }>,

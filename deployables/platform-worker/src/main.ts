@@ -1187,14 +1187,17 @@ function createScheduledJobRunners(
         input.paymentReconciliationIntervalMs,
         controlPlane,
         async () => {
-          const result = await payments.payments.scanPaymentsNeedingReconciliation({
-            limit: 100,
-            claimOwnerId: config.workerId,
-            claimTtlMs: config.leaseTtlMs * 4,
-          });
+          const result = await payments.payments.scanPaymentsNeedingReconciliation(
+            {
+              limit: 100,
+              claimOwnerId: config.workerId,
+              claimTtlMs: config.leaseTtlMs * 4,
+            },
+            SYSTEM_CONTEXT,
+          );
           logger.info("Payment reconciliation scan completed.", {
-            type: "payments.reconciliation-needed",
-            count: result.attention,
+            type: "payments.reconciliation",
+            result,
           });
           return result.checked;
         },

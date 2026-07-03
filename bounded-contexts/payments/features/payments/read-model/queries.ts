@@ -130,6 +130,21 @@ export type PaymentCreationReservationResult = Readonly<
   | { outcome: "same-order-set"; reservation: PaymentCreationReservationRow }
 >;
 
+export type PaymentProviderOperationRow = Readonly<{
+  operation_key: string;
+  provider_name: string;
+  operation_kind: string;
+  account_id: string | null;
+  payment_id: string | null;
+  idempotency_key: string;
+  status: "pending" | "succeeded" | "failed";
+  provider_object_reference: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}>;
+
 type PaymentPageRow = Omit<PaymentDetailRow, "order_ids" | "seller_payouts"> &
   Readonly<{
     order_ids: unknown;
@@ -1074,6 +1089,95 @@ export async function recordPaymentProviderOperationFailed(
        AND status = 'pending'`,
     [operation.operationKey, operation.errorMessage, timestamp],
   );
+}
+
+export async function listPaymentProviderOperationsNeedingReconciliation(
+  db: PgQueryable,
+  params: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }> = {},
+): Promise<PaymentProviderOperationRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  if (params.claimOwnerId) {
+    const result = await db.query<PaymentProviderOperationRow>(
+      `WITH candidates AS (
+         SELECT operation_key
+         FROM payments_provider_operations
+         WHERE status = 'pending'
+           AND updated_at < NOW() - INTERVAL '15 minutes'
+         ORDER BY updated_at ASC, operation_key ASC
+         LIMIT $1
+       ),
+       claimed AS (
+         INSERT INTO payments_work_claims (
+           work_kind,
+           entity_id,
+           owner_id,
+           claim_expires_at,
+           attempts,
+           updated_at
+         )
+         SELECT
+           'payment-provider-operation-reconciliation',
+           operation_key,
+           $2,
+           now() + ($3::text || ' milliseconds')::interval,
+           1,
+           now()
+         FROM candidates
+         ON CONFLICT (work_kind, entity_id)
+         DO UPDATE SET
+           owner_id = EXCLUDED.owner_id,
+           claim_expires_at = EXCLUDED.claim_expires_at,
+           attempts = payments_work_claims.attempts + 1,
+           updated_at = EXCLUDED.updated_at
+         WHERE payments_work_claims.claim_expires_at <= now()
+            OR payments_work_claims.owner_id = EXCLUDED.owner_id
+         RETURNING entity_id
+       )
+       SELECT
+         operation_key,
+         provider_name,
+         operation_kind,
+         account_id,
+         payment_id,
+         idempotency_key,
+         status,
+         provider_object_reference,
+         error_message,
+         created_at,
+         updated_at,
+         completed_at
+       FROM payments_provider_operations
+       WHERE operation_key IN (SELECT entity_id FROM claimed)
+       ORDER BY updated_at ASC, operation_key ASC`,
+      [limit, params.claimOwnerId, params.claimTtlMs ?? 120_000],
+    );
+
+    return result.rows;
+  }
+
+  const result = await db.query<PaymentProviderOperationRow>(
+    `SELECT
+       operation_key,
+       provider_name,
+       operation_kind,
+       account_id,
+       payment_id,
+       idempotency_key,
+       status,
+       provider_object_reference,
+       error_message,
+       created_at,
+       updated_at,
+       completed_at
+     FROM payments_provider_operations
+     WHERE status = 'pending'
+       AND updated_at < NOW() - INTERVAL '15 minutes'
+     ORDER BY updated_at ASC, operation_key ASC
+     LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows;
 }
 
 export async function listPaymentProviderIdempotencyKeys(

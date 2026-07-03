@@ -5,6 +5,7 @@ import type {
   CreateProcessorSetupSessionInput,
   PaymentProcessorGateway,
   PaymentProcessorWebhookEvent,
+  ProcessorPaymentReconciliationResult,
   ProcessorSavedPaymentMethod,
 } from "./index";
 
@@ -20,6 +21,8 @@ type FakeWebhookEnvelope = Readonly<{
 
 export type FakePaymentProcessorGatewayOptions = Readonly<{
   publishableKey?: string | null;
+  paymentResults?: Readonly<Record<string, ProcessorPaymentReconciliationResult | null>>;
+  paymentResultsByPaymentId?: Readonly<Record<string, ProcessorPaymentReconciliationResult | null>>;
 }>;
 
 function createPaymentReference(input: CreateProcessorPaymentInput) {
@@ -49,6 +52,9 @@ function fakeSavedPaymentMethod(
 export function createFakePaymentProcessorGateway(
   options: FakePaymentProcessorGatewayOptions = {},
 ): PaymentProcessorGateway {
+  const paymentResults = new Map(Object.entries(options.paymentResults ?? {}));
+  const paymentResultsByPaymentId = new Map(Object.entries(options.paymentResultsByPaymentId ?? {}));
+
   return {
     getPublicConfiguration() {
       return {
@@ -96,18 +102,39 @@ export function createFakePaymentProcessorGateway(
       };
     },
     async createPaymentSession(input) {
+      const processorPaymentReference = input.savedCheckoutInstrument
+        ? `pi_seed_${input.paymentId}`
+        : createPaymentReference(input);
+      const processorPaymentKind = input.savedCheckoutInstrument ? "payment-intent" : "checkout-session";
+      const processorStatus = input.savedCheckoutInstrument ? "succeeded" : "open";
+      const result: ProcessorPaymentReconciliationResult = {
+        processorName: "stripe",
+        processorPaymentKind,
+        processorPaymentReference,
+        processorStatus,
+        outcome: processorStatus === "succeeded" ? "captured" : "pending",
+        occurredAt: new Date().toISOString(),
+        internalPaymentId: input.paymentId,
+      };
+      paymentResults.set(processorPaymentReference, result);
+      paymentResultsByPaymentId.set(input.paymentId, result);
+
       return {
         processorName: "stripe",
-        processorPaymentKind: input.savedCheckoutInstrument ? "payment-intent" : "checkout-session",
-        processorPaymentReference: input.savedCheckoutInstrument
-          ? `pi_seed_${input.paymentId}`
-          : createPaymentReference(input),
+        processorPaymentKind,
+        processorPaymentReference,
         processorClientSecret: input.savedCheckoutInstrument
           ? `pi_seed_${input.paymentId}_secret_seed`
           : `cs_seed_${input.paymentId}_secret_seed`,
         processorRedirectUrl: null,
-        processorStatus: input.savedCheckoutInstrument ? "succeeded" : "open",
+        processorStatus,
       };
+    },
+    async retrievePaymentResult(processorPaymentReference) {
+      return paymentResults.get(processorPaymentReference) ?? null;
+    },
+    async retrievePaymentResultByPaymentId(paymentId) {
+      return paymentResultsByPaymentId.get(paymentId) ?? null;
     },
     async createRefund(input) {
       if (input.reason.trim().toLowerCase().includes("fail")) {
