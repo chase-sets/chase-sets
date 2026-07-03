@@ -96,7 +96,7 @@ Quarterly, and before public launch, record:
 
 Those checks decide the next partition range size and whether any stream class needs snapshots.
 
-`Platform Postgres Growth Evidence` collects the same posture in a weekly support-safe artifact for every context database. The workflow pulls database URLs from Terraform state, runs read-only `pg_catalog` and statistics queries, and uploads `postgres-growth-evidence/v1`.
+`Platform Postgres Growth Evidence` collects the same posture in a weekly support-safe artifact for every context database. The workflow pulls database URLs from Terraform state, runs read-only `pg_catalog` and statistics queries, warns when connection utilization reaches 80% of `max_connections`, and uploads `postgres-growth-evidence/v1`.
 
 The artifact includes database size, table count, estimated live/dead row totals, largest relation sizes, vacuum/analyze timestamps, and event-store high-water position when `event_store_events` exists. It deliberately excludes row samples, query text, connection strings, account/order/provider identifiers, emails, and payload bodies.
 

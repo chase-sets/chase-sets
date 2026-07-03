@@ -341,8 +341,42 @@ variable "staging_database_size" {
 }
 
 variable "database_node_count" {
-  type    = number
-  default = 1
+  type        = number
+  default     = 1
+  description = "Managed Postgres node count. Production must stay at 1 until production_database_standby_approved and production_database_standby_reference record explicit launch/cost approval plus a support-safe no-delete/no-replace plan."
+
+  validation {
+    condition     = var.database_node_count >= 1 && var.database_node_count <= 3
+    error_message = "database_node_count must be between 1 and 3."
+  }
+}
+
+variable "production_database_standby_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit production HA/cost approval gate required before database_node_count may exceed 1 in production."
+
+  validation {
+    condition     = var.environment == "production" || var.production_database_standby_approved == false
+    error_message = "production_database_standby_approved may only be true for production."
+  }
+}
+
+variable "production_database_standby_reference" {
+  type        = string
+  default     = ""
+  description = "Operator-owned approval and plan-evidence reference for adding a production managed-Postgres standby node."
+
+  validation {
+    condition     = !var.production_database_standby_approved || trimspace(var.production_database_standby_reference) != ""
+    error_message = "production_database_standby_reference is required when production_database_standby_approved is true."
+  }
+}
+
+variable "managed_postgres_alerts_enabled" {
+  type        = bool
+  default     = true
+  description = "Create DigitalOcean DBAAS monitor alerts for provider-exposed managed Postgres cluster health metrics when alert_emails is configured."
 }
 
 variable "app_instance_size_slug" {
