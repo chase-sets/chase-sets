@@ -1,0 +1,167 @@
+import { describe, expect, it, vi } from "vitest";
+import type { AuthServices } from "./services";
+import {
+  AUTH_GUEST_CHECKOUT_PERMISSIONS,
+  AUTH_GUEST_CHECKOUT_ROLE_KEY,
+  AUTH_GUEST_CHECKOUT_USER_ID,
+  resolveActorFromRequest,
+} from "./runtime";
+
+function createServices(options: {
+  dbQuery?: AuthServices["db"]["query"];
+  membership?: Awaited<ReturnType<AuthServices["identity"]["getActiveMembershipForUserAccount"]>>;
+  session?: Awaited<ReturnType<AuthServices["sessions"]["getSession"]>>;
+}) {
+  return {
+    db: {
+      query: options.dbQuery ?? vi.fn(async () => ({ rows: [] })),
+    },
+    auth: {
+      hashSecret: vi.fn((secret: string) => `hashed:${secret}`),
+    },
+    identity: {
+      bootstrapTenantId: "tnt_auth",
+      getActiveMembershipForUserAccount: vi.fn(async () => options.membership ?? null),
+    },
+    sessions: {
+      getSession: vi.fn(async () => options.session ?? null),
+      getSessionState: vi.fn(async () => null),
+    },
+  } as unknown as AuthServices;
+}
+
+describe("Auth request actor resolution", () => {
+  it("resolves a browser session token through the auth session-token store", async () => {
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const services = createServices({
+      dbQuery: vi.fn(async () => ({
+        rows: [
+          {
+            session_id: "ses_1",
+            token_hash: "hashed:session_token",
+            expires_at: expiresAt,
+          },
+        ],
+      })),
+      session: {
+        session_id: "ses_1",
+        user_id: "usr_1",
+        user_display_name: null,
+        user_primary_email: "seller@example.test",
+        account_id: "acc_1",
+        account_display_name: "Seller",
+        account_name: "Seller",
+        available_account_ids: ["acc_1"],
+        authentication_method: "password",
+        status: "active",
+        expires_at: expiresAt,
+        updated_at: expiresAt,
+      },
+      membership: {
+        membership_id: "mem_1",
+        user_id: "usr_1",
+        account_id: "acc_1",
+        role_key: "owner",
+        role_permissions: ["accounts.view"],
+        status: "active",
+        updated_at: expiresAt,
+      },
+    });
+
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://platform.test/api/auth/session", {
+        headers: { cookie: "chase_sets_session=session_token" },
+      }),
+    );
+
+    expect(actor).toMatchObject({
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_1",
+      accountId: "acc_1",
+      membershipId: "mem_1",
+      roleKey: "owner",
+    });
+    expect(actor?.permissions).toContain("accounts.view");
+    expect(services.auth.hashSecret).toHaveBeenCalledWith("session_token");
+  });
+
+  it("defines the guest checkout actor shape inside Auth", async () => {
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const services = createServices({
+      dbQuery: vi.fn(async () => ({
+        rows: [
+          {
+            token_id: "tok_guest",
+            account_id: "acc_guest",
+            contact_email: "guest@example.test",
+            contact_name: "Guest Buyer",
+            token_hash: "hashed:guest_token",
+            expires_at: expiresAt,
+            revoked_at: null,
+          },
+        ],
+      })),
+    });
+
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://platform.test/api/checkout", {
+        headers: { cookie: "chase_sets_guest_checkout=guest_token" },
+      }),
+    );
+
+    expect(actor).toEqual({
+      sessionId: "guest:tok_guest",
+      tenantId: "tnt_auth",
+      userId: AUTH_GUEST_CHECKOUT_USER_ID,
+      accountId: "acc_guest",
+      membershipId: "guest:tok_guest",
+      roleKey: AUTH_GUEST_CHECKOUT_ROLE_KEY,
+      permissions: AUTH_GUEST_CHECKOUT_PERMISSIONS,
+    });
+    expect(services.auth.hashSecret).toHaveBeenCalledWith("guest_token");
+  });
+
+  it("resolves UCP access-token actors with Auth-owned scope permission policy", async () => {
+    const services = createServices({
+      membership: {
+        membership_id: "mem_1",
+        user_id: "usr_1",
+        account_id: "acc_1",
+        role_key: "owner",
+        role_permissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
+        status: "active",
+        updated_at: new Date().toISOString(),
+      },
+    });
+    const linkedPlatformAuthorizations = {
+      resolveAccessToken: vi.fn(async () => ({
+        authorization_id: "lpa_1",
+        user_id: "usr_1",
+        account_id: "acc_1",
+        scopes: ["catalog:read", "checkout:write"],
+      })),
+    };
+
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://platform.test/ucp/v1/catalog", {
+        headers: { authorization: "Bearer ucp_at_secret" },
+      }),
+      { linkedPlatformAuthorizations },
+    );
+
+    expect(actor).toEqual({
+      sessionId: "ucp:lpa_1",
+      tenantId: "tnt_auth",
+      userId: "usr_1",
+      accountId: "acc_1",
+      membershipId: "mem_1",
+      roleKey: "owner",
+      permissions: ["catalog.view", "listings.view", "orders.manage"],
+    });
+    expect(linkedPlatformAuthorizations.resolveAccessToken).toHaveBeenCalledWith("hashed:ucp_at_secret");
+  });
+});

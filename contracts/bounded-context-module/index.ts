@@ -131,6 +131,12 @@ export type BcApiMount = Readonly<{
   readonly readFreshnessRoutes?: readonly BcReadFreshnessRoute[];
 }>;
 
+export type BcAnonymousRoute = Readonly<{
+  readonly routePath: string;
+  readonly methods: readonly string[];
+  readonly match?: "exact" | "prefix";
+}>;
+
 export type BcEventSubscriptionDeclaration = Readonly<{
   readonly sourceContextName: string;
   readonly projectionName: string;
@@ -202,6 +208,7 @@ export type BcContextManifest = Readonly<{
   readonly apiBasePath: string;
   readonly streamPrefix: string;
   readonly apiMounts?: readonly unknown[];
+  readonly anonymousRoutes?: readonly unknown[];
   readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
   readonly eventReactions?: readonly BcEventReactionDeclaration[];
   readonly projectionGroups?: readonly unknown[];
@@ -385,6 +392,7 @@ export interface BcApiModule<
   readonly streamPrefix: string;
   readonly schemaSql: string;
   readonly apiMounts: readonly BcApiMount[];
+  readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
   createServices(pool: TPool, ports: THostPorts, options?: BcCreateServicesOptions<TPool>): TServices;
   buildApis(services: TServices): readonly TRouter[];
@@ -440,6 +448,7 @@ export function defineBoundedContextModule<
     streamPrefix: input.manifest.streamPrefix,
     schemaSql: input.schemaSql,
     apiMounts: (input.manifest.apiMounts ?? []) as readonly BcApiMount[],
+    anonymousRoutes: (input.manifest.anonymousRoutes ?? []) as readonly BcAnonymousRoute[],
     ...(input.manifest.projectionGroups
       ? { projectionGroups: input.manifest.projectionGroups as readonly BcProjectionGroupDeclaration[] }
       : {}),

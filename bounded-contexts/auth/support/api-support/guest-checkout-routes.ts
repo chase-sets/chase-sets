@@ -4,6 +4,7 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { mapGuestCheckoutClaimLinkRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import {
   consumeChallenge,
   consumeGuestCheckoutClaimContinuationToken,
@@ -17,10 +18,10 @@ import {
 } from "../auth-support/store";
 import { verifyPasskeyRegistration } from "../auth-support/webauthn";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
+import { isGuestCheckoutActor } from "../runtime-support/runtime";
 import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
 const AUTH_GUEST_CHECKOUT_TTL_MS = 1000 * 60 * 60 * 24;
-const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
 const GUEST_CHECKOUT_CLAIM_LINK_NOTIFICATION_PROJECTION = "auth-guest-checkout-claim-link-notification-intent";
 
 function parseCookieHeader(cookieHeader: string | null) {
@@ -68,7 +69,7 @@ function buildClaimContinuationLink(origin: unknown, paymentId: string, continua
 }
 
 function requireGuestCheckoutActor(actor: ResolvedActor | null) {
-  if (!actor || actor.roleKey !== "guest-buyer") {
+  if (!isGuestCheckoutActor(actor)) {
     return null;
   }
 

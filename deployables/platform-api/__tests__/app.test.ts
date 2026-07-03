@@ -316,26 +316,77 @@ describe("platform api app wiring", () => {
     expect(listConsents).not.toHaveBeenCalled();
   });
 
+  it("allows anonymous auth and identity routes declared by mounted modules", async () => {
+    const resolveActor = vi.fn(async () => null);
+    const anonymousRouter = new Hono();
+    anonymousRouter.post("/public-token", (c) => {
+      expect((c as unknown as { get(key: "actor"): unknown }).get("actor")).toBeNull();
+      expect((c as unknown as { get(key: "context"): { tenantId: string } }).get("context").tenantId).toBe(
+        "tenant_auth",
+      );
+      return c.json({ ok: true });
+    });
+    const module = {
+      contextName: "identity",
+      apiMounts: [
+        {
+          mountPath: "/api/identity",
+          kind: "primary",
+          requiresAuth: true,
+        },
+      ],
+      anonymousRoutes: [{ routePath: "/api/identity/public-token", methods: ["POST"] }],
+      buildApis: () => [anonymousRouter],
+      projectionHandlerSets: () => [],
+    };
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [
+          {
+            contextName: "identity",
+            mountRole: "active",
+            module,
+            services: {},
+            pool: {},
+            projectionHandlerSets: [],
+          },
+        ],
+        mountedModules: [{ module, services: {} }],
+        services: {
+          auth: {
+            identity: {
+              bootstrapTenantId: "tenant_auth",
+            },
+          },
+          identity: {},
+        },
+        projectionGroups: [],
+        subscriptionRunners: [],
+      } as never,
+      { resolveActor },
+    );
+
+    const response = await app.request("/api/identity/public-token", { method: "POST" });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    expect(resolveActor).toHaveBeenCalledTimes(1);
+  });
+
   it("lets the Auth session route wait for fresh session and membership projections before resolving the actor", async () => {
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
     let membershipFresh = false;
     const authServices = {
       db: {
-        query: vi.fn(async (sql: string) => {
-          if (sql.includes("FROM identity_session_tokens")) {
-            return {
-              rows: [
-                {
-                  session_id: "ses_1",
-                  token_hash: "hashed_session_token",
-                  expires_at: expiresAt,
-                },
-              ],
-            };
-          }
-
-          throw new Error(`Unexpected auth db query: ${sql}`);
-        }),
+        query: vi.fn(async () => ({
+          rows: [
+            {
+              session_id: "ses_1",
+              token_hash: "hashed_session_token",
+              expires_at: expiresAt,
+            },
+          ],
+        })),
       },
       auth: {
         hashSecret: (secret: string) => `hashed_${secret}`,

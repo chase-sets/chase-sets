@@ -73,7 +73,7 @@ import {
   recordUcpSignatureVerificationFailed,
   recordUcpSignedWriteRejected,
 } from "@chase-sets/observability";
-import { resolveActorFromRequest } from "./auth-request-context";
+import { resolveActorFromRequest } from "@chase-sets/auth/server";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import {
@@ -503,13 +503,15 @@ const app = buildPlatformApiApp(runtime, {
     },
   ],
   resolveActor: (request) =>
-    resolveActorFromRequest(
-      {
-        auth: runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0]["auth"],
-        identity: runtime.services.identity as Parameters<typeof resolveActorFromRequest>[0]["identity"],
-      },
-      request,
-    ),
+    resolveActorFromRequest(runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0], request, {
+      linkedPlatformAuthorizations: (
+        runtime.services.identity as Readonly<{
+          linkedPlatformAuthorizations: NonNullable<
+            Parameters<typeof resolveActorFromRequest>[2]
+          >["linkedPlatformAuthorizations"];
+        }>
+      ).linkedPlatformAuthorizations,
+    }),
   realtimeObserver,
   realtimeWakeSignal,
   realtimeStreamLimiter: realtimeStreamLimiter.limiter,

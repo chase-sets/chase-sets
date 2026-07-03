@@ -5,6 +5,18 @@ export {
 } from "./support/runtime-support/production-bootstrap";
 export { resolveActorFromSessionId } from "./support/runtime-support/services";
 export {
+  AUTH_GUEST_CHECKOUT_PERMISSIONS,
+  AUTH_GUEST_CHECKOUT_ROLE_KEY,
+  AUTH_GUEST_CHECKOUT_USER_ID,
+  createGuestCheckoutActor,
+  isGuestCheckoutActor,
+  resolveActorFromRequest,
+  resolveActorFromSessionToken,
+  resolveGuestCheckoutActor,
+  type AuthLinkedPlatformAuthorizationResolver,
+  type AuthRequestActorResolverOptions,
+} from "./support/runtime-support/runtime";
+export {
   AuthApiError,
   createAuthRequestApiClient,
   createInternalAuthRequestApiClient,
@@ -17,4 +29,8 @@ export {
   type SocialLoginProviderName,
   type SocialLoginProfile,
 } from "./support/social-login-support/providers";
-export { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes } from "./support/ucp-support/oauth";
+export {
+  createUcpOAuthMetadataRoutes,
+  createUcpOAuthRoutes,
+  resolveUcpScopedPermissions,
+} from "./support/ucp-support/oauth";

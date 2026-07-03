@@ -170,6 +170,25 @@
       ]
     }
   ],
+  "anonymousRoutes": [
+    { "routePath": "/api/auth/session", "methods": ["GET", "HEAD"] },
+    { "routePath": "/api/auth/register", "methods": ["POST"] },
+    { "routePath": "/api/auth/password-sign-in", "methods": ["POST"] },
+    { "routePath": "/api/auth/magic-link/request", "methods": ["POST"] },
+    { "routePath": "/api/auth/magic-link/consume", "methods": ["POST"] },
+    { "routePath": "/api/auth/passkeys/challenge", "methods": ["POST"] },
+    { "routePath": "/api/auth/passkeys/register", "methods": ["POST"] },
+    { "routePath": "/api/auth/passkeys/sign-in", "methods": ["POST"] },
+    { "routePath": "/api/auth/invitations/accept", "methods": ["POST"] },
+    { "routePath": "/api/auth/guest-checkout/start", "methods": ["POST"] },
+    { "routePath": "/api/auth/guest-checkout/claim-link/request", "methods": ["POST"] },
+    { "routePath": "/api/auth/guest-checkout/claim-with-magic-link", "methods": ["POST"] },
+    { "routePath": "/api/auth/guest-checkout/claim-with-continuation", "methods": ["POST"] },
+    { "routePath": "/api/auth/guest-checkout/claim-with-passkey", "methods": ["POST"] },
+    { "routePath": "/api/auth/account-selection/resolve", "methods": ["POST"] },
+    { "routePath": "/api/auth/account-selection/complete", "methods": ["POST"] },
+    { "routePath": "/api/auth/social/", "methods": ["GET", "HEAD"], "match": "prefix" }
+  ],
   "deployableContributions": [
     {
       "deployable": "admin-web",

@@ -127,6 +127,25 @@ type AuthorizationCodeRow = Readonly<{
   expires_at: string;
 }>;
 
+export function resolveUcpScopedPermissions(
+  scopes: readonly string[],
+  membershipPermissions: readonly string[],
+): readonly string[] {
+  const allowed = new Set<string>();
+  if (scopes.includes("catalog:read")) {
+    allowed.add("catalog.view");
+    allowed.add("listings.view");
+  }
+  if (scopes.includes("checkout:read") || scopes.includes("order:read")) {
+    allowed.add("orders.view");
+  }
+  if (scopes.includes("checkout:write")) {
+    allowed.add("orders.manage");
+  }
+
+  return membershipPermissions.filter((permission) => allowed.has(permission));
+}
+
 export function createUcpOAuthMetadataRoutes() {
   const app = new Hono();
 

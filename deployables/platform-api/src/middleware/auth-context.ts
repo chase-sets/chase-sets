@@ -4,7 +4,6 @@ import { createAuthBootstrapContext } from "@chase-sets/auth-context";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { PLATFORM_INTERNAL_AUTH_HEADER, resolvePlatformInternalAuthSecret } from "@chase-sets/platform-runtime/http";
 import type { PlatformIdentityServices } from "../app";
-import { resolveActorFromRequest } from "../auth-request-context";
 import { authenticationRequiredResponse } from "@chase-sets/http/responses";
 import { attachActiveTraceContext } from "@chase-sets/observability";
 
@@ -15,37 +14,20 @@ export type TenantContextEnv = {
   };
 };
 
-const ANONYMOUS_ROUTES = new Set([
-  "GET /api/auth/session",
-  "POST /api/auth/register",
-  "POST /api/auth/password-sign-in",
-  "POST /api/auth/magic-link/request",
-  "POST /api/auth/magic-link/consume",
-  "POST /api/auth/passkeys/challenge",
-  "POST /api/auth/passkeys/register",
-  "POST /api/auth/passkeys/sign-in",
-  "POST /api/auth/invitations/accept",
-  "POST /api/auth/guest-checkout/start",
-  "POST /api/auth/guest-checkout/claim-link/request",
-  "POST /api/auth/guest-checkout/claim-with-magic-link",
-  "POST /api/auth/guest-checkout/claim-with-continuation",
-  "POST /api/auth/guest-checkout/claim-with-passkey",
-  "POST /api/auth/account-selection/resolve",
-  "POST /api/auth/account-selection/complete",
-  "POST /api/identity/api-keys/resolve",
-]);
+export type AnonymousRouteDeclaration = Readonly<{
+  routePath: string;
+  methods: readonly string[];
+  match?: "exact" | "prefix";
+}>;
 
-function isAnonymousAllowed(method: string, pathname: string) {
-  const signature = `${method.toUpperCase()} ${pathname}`;
-  if (ANONYMOUS_ROUTES.has(signature)) {
-    return true;
-  }
-
-  if (method.toUpperCase() === "GET" && pathname.startsWith("/api/auth/social/")) {
-    return true;
-  }
-
-  return false;
+function isAnonymousAllowed(routes: readonly AnonymousRouteDeclaration[], method: string, pathname: string) {
+  const normalizedMethod = method.toUpperCase();
+  return routes.some((route) => {
+    if (!route.methods.map((entry) => entry.toUpperCase()).includes(normalizedMethod)) {
+      return false;
+    }
+    return route.match === "prefix" ? pathname.startsWith(route.routePath) : pathname === route.routePath;
+  });
 }
 
 function isInternalIdentityAuthRoute(pathname: string) {
@@ -68,9 +50,14 @@ function hasInternalCapability(request: Request, secret: string) {
 
 export function createIdentityAuthMiddleware(
   services: PlatformIdentityServices,
-  options: Readonly<{ internalAuthSecret?: string }> = {},
+  options: Readonly<{
+    internalAuthSecret?: string;
+    anonymousRoutes?: readonly AnonymousRouteDeclaration[];
+    resolveActor: PlatformActorResolver;
+  }>,
 ) {
   const internalAuthSecret = options.internalAuthSecret ?? resolvePlatformInternalAuthSecret();
+  const anonymousRoutes = options.anonymousRoutes ?? [];
   return async function identityAuthMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
     const pathname = new URL(c.req.url).pathname;
 
@@ -87,7 +74,7 @@ export function createIdentityAuthMiddleware(
       }
     }
 
-    const actor = await resolveActorFromRequest(services, c.req.raw);
+    const actor = await options.resolveActor(c.req.raw);
     if (actor) {
       c.set("actor", actor);
       c.set("context", attachActiveTraceContext(createActorEventStoreContext(actor)));
@@ -95,7 +82,7 @@ export function createIdentityAuthMiddleware(
       return;
     }
 
-    if (isAnonymousAllowed(c.req.method, pathname)) {
+    if (isAnonymousAllowed(anonymousRoutes, c.req.method, pathname)) {
       c.set("actor", null);
       c.set("context", attachActiveTraceContext(createAuthBootstrapContext(services.auth)));
       await next();
