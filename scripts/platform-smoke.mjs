@@ -59,6 +59,9 @@ const adminGoogleWorkspaceHostedDomain = getSmokeEnv("SMOKE_ADMIN_GOOGLE_WORKSPA
 const nativeMcpAccountId = getSmokeEnv("SMOKE_NATIVE_MCP_ACCOUNT_ID") || null;
 const fetchAttempts = readPositiveIntegerEnv("SMOKE_FETCH_ATTEMPTS", 6);
 const fetchRetryDelayMs = readPositiveIntegerEnv("SMOKE_FETCH_RETRY_DELAY_MS", 5_000);
+const commitReceiptHeader = "Chase-Sets-Commit-Receipt";
+const readAfterWriteHeader = "Chase-Sets-Read-After-Write";
+const readTargetContextHeader = "Chase-Sets-Read-Target-Context";
 
 function readBooleanEnv(name, defaultValue) {
   const value = getSmokeEnv(name).trim().toLowerCase();
@@ -557,10 +560,11 @@ async function main() {
     await expectRedirect("legacy staging redirect", `${redirectUrl}/`, new URL(landingUrl).host);
   }
 
+  let waitlistCommitReceipt = null;
   if (writeWaitlist) {
     const smokePagePath = createSmokePagePath();
 
-    await expectOk("waitlist signup", `${landingUrl}/api/public-presence/waitlist`, {
+    const waitlistSignupResponse = await expectOk("waitlist signup", `${landingUrl}/api/public-presence/waitlist`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -580,6 +584,10 @@ async function main() {
         },
       }),
     });
+    waitlistCommitReceipt = waitlistSignupResponse.headers.get(commitReceiptHeader);
+    if (!waitlistCommitReceipt) {
+      throw new Error(`waitlist signup did not return ${commitReceiptHeader}.`);
+    }
   }
 
   if (adminEmail && adminPassword) {
@@ -615,6 +623,12 @@ async function main() {
             {
               headers: {
                 Authorization: `Bearer ${authBody.sessionToken}`,
+                ...(waitlistCommitReceipt
+                  ? {
+                      [readAfterWriteHeader]: waitlistCommitReceipt,
+                      [readTargetContextHeader]: "public-presence",
+                    }
+                  : {}),
               },
             },
           );
