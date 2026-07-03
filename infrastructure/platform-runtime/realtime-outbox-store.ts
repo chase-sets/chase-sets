@@ -1,4 +1,9 @@
-import type { PgPoolClient, PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  isPgConnectionLevelError,
+  type PgPoolClient,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import {
   isRealtimeProjectionPatch,
@@ -842,16 +847,24 @@ function throwIfRealtimeReadAborted(signal: AbortSignal | undefined): void {
 }
 
 async function withPgTransaction<T>(client: PgPoolClient, work: (client: PgPoolClient) => Promise<T>): Promise<T> {
+  let releaseError: unknown;
   try {
     await client.query("BEGIN");
     const result = await work(client);
     await client.query("COMMIT");
     return result;
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      releaseError = rollbackError;
+    }
+    if (releaseError === undefined && isPgConnectionLevelError(error)) {
+      releaseError = error;
+    }
     throw error;
   } finally {
-    client.release();
+    client.release(releaseError);
   }
 }
 

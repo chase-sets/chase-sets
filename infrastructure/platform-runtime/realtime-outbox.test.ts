@@ -952,6 +952,80 @@ describe("realtime outbox", () => {
     expect(statements).toEqual(["BEGIN", "UPDATE read_model", "INSERT realtime_outbox", "COMMIT", "release"]);
   });
 
+  it("rolls back realtime projection transaction failures without destroying a clean client", async () => {
+    const releaseErrors: unknown[] = [];
+    const statements: string[] = [];
+    const failure = new Error("projection conflict");
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [] };
+      },
+      release: (error?: unknown) => {
+        releaseErrors.push(error);
+        statements.push("release");
+      },
+    };
+    const pool = {
+      query: async (sql: string) => {
+        statements.push(`pool:${sql}`);
+        return { rows: [] };
+      },
+      connect: async () => client,
+      idleCount: 1,
+      totalCount: 1,
+      waitingCount: 0,
+    };
+
+    await expect(
+      runRealtimeProjectionTransaction(pool, async (tx) => {
+        await tx.query("UPDATE read_model");
+        throw failure;
+      }),
+    ).rejects.toThrow("projection conflict");
+
+    expect(statements).toEqual(["BEGIN", "UPDATE read_model", "ROLLBACK", "release"]);
+    expect(releaseErrors).toEqual([undefined]);
+  });
+
+  it("destroys realtime projection transaction clients when rollback fails", async () => {
+    const releaseErrors: unknown[] = [];
+    const statements: string[] = [];
+    const rollbackFailure = new Error("rollback failed");
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        if (sql === "ROLLBACK") {
+          throw rollbackFailure;
+        }
+        return { rows: [] };
+      },
+      release: (error?: unknown) => {
+        releaseErrors.push(error);
+        statements.push("release");
+      },
+    };
+    const pool = {
+      query: async (sql: string) => {
+        statements.push(`pool:${sql}`);
+        return { rows: [] };
+      },
+      connect: async () => client,
+      idleCount: 1,
+      totalCount: 1,
+      waitingCount: 0,
+    };
+
+    await expect(
+      runRealtimeProjectionTransaction(pool, async () => {
+        throw new Error("projection conflict");
+      }),
+    ).rejects.toThrow("projection conflict");
+
+    expect(statements).toEqual(["BEGIN", "ROLLBACK", "release"]);
+    expect(releaseErrors).toEqual([rollbackFailure]);
+  });
+
   it("records a batch of projection patches through one transaction boundary", async () => {
     const statements: string[] = [];
     let outboxId = 0;

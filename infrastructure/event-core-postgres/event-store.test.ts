@@ -380,7 +380,7 @@ describe("postgres transaction helper", () => {
     expect(releaseErrors).toEqual([undefined]);
   });
 
-  it("rolls back failed work and releases the client with the original error", async () => {
+  it("rolls back failed work and keeps the client reusable", async () => {
     const queries: string[] = [];
     const releaseErrors: unknown[] = [];
     const failure = new Error("boom");
@@ -407,18 +407,19 @@ describe("postgres transaction helper", () => {
     ).rejects.toThrow("boom");
 
     expect(queries).toEqual(["BEGIN", "ROLLBACK"]);
-    expect(releaseErrors).toEqual([failure]);
+    expect(releaseErrors).toEqual([undefined]);
   });
 
-  it("preserves the original work error when rollback also fails", async () => {
+  it("preserves the original work error and destroys the client when rollback also fails", async () => {
     const queries: string[] = [];
     const releaseErrors: unknown[] = [];
     const failure = new Error("boom");
+    const rollbackFailure = new Error("rollback failed");
     const client = {
       query: async (sql: string) => {
         queries.push(sql);
         if (sql === "ROLLBACK") {
-          throw new Error("rollback failed");
+          throw rollbackFailure;
         }
         return { rows: [], rowCount: 0 };
       },
@@ -438,6 +439,36 @@ describe("postgres transaction helper", () => {
         },
       ),
     ).rejects.toThrow("boom");
+
+    expect(queries).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(releaseErrors).toEqual([rollbackFailure]);
+  });
+
+  it("destroys the client when failed work reports a connection-level error", async () => {
+    const queries: string[] = [];
+    const releaseErrors: unknown[] = [];
+    const failure = Object.assign(new Error("connection terminated unexpectedly"), { code: "ECONNRESET" });
+    const client = {
+      query: async (sql: string) => {
+        queries.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+      release: (error?: unknown) => {
+        releaseErrors.push(error);
+      },
+    };
+
+    await expect(
+      withPgTransaction(
+        {
+          query: client.query,
+          connect: async () => client,
+        },
+        async () => {
+          throw failure;
+        },
+      ),
+    ).rejects.toThrow("connection terminated unexpectedly");
 
     expect(queries).toEqual(["BEGIN", "ROLLBACK"]);
     expect(releaseErrors).toEqual([failure]);
