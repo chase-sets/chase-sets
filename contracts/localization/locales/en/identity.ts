@@ -123,6 +123,7 @@ export const identityEnglishTranslations = {
   "identity.features.apiKeys.ui.apiKeyListPage.prefix": "Prefix",
   "identity.features.apiKeys.ui.apiKeyListPage.status": "Status",
   "identity.features.apiKeys.ui.apiKeyListPage.user": "User",
+  "identity.features.consents.api.route.authentication.required": "Authentication required.",
   "identity.features.consents.readModel.schema.create.table.if.not.exists.identity":
     "CREATE TABLE IF NOT EXISTS identity_consents (\n  consent_id text PRIMARY KEY,\n  subject_type text NOT NULL,\n  user_id text NULL,\n  account_id text NULL,\n  policy_key text NOT NULL,\n  policy_version text NOT NULL,\n  recorded_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",
   "identity.features.consents.ui.consentHistoryPage.audit.history.for.agreements.policies.and":
