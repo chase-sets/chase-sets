@@ -297,7 +297,7 @@ test.describe("marketplace critical flows", () => {
     const secondContext = await browser.newContext({ baseURL: origin });
     try {
       const secondPage = await secondContext.newPage();
-      await signInWithConfiguredPassword(secondPage, origin, account);
+      await signInWithPassword(secondPage, origin, account);
       await expectAccountRouteReady(secondPage, accountCriticalRoutes[0]);
       await expect(secondPage.locator('[data-color-mode="dark"]').first()).toBeVisible();
       await expect(secondPage.locator('[data-reduced-motion="true"]').first()).toBeVisible();
