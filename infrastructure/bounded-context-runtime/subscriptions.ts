@@ -18,6 +18,7 @@ import {
   createPostgresProjectionStore,
   isPgRetryableTransientError,
   type PgTransactionalPool,
+  type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { runInProjectionDbContext, withProjectionTransaction } from "./projection-transactions";
 import {
@@ -109,8 +110,12 @@ export type ContextSubscriptionRunner = Readonly<{
   runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   getStatus: () => ContextSubscriptionStatus;
   refreshStatus: () => Promise<ContextSubscriptionStatus>;
-  reset: (context?: ProjectionRunContext) => Promise<void>;
+  reset: (context?: ProjectionRunContext, options?: SubscriptionResetOptions) => Promise<void>;
   retryBlockedStream: (streamId: string, context?: ProjectionRunContext) => Promise<ProjectionStreamRetryResult>;
+}>;
+
+type SubscriptionResetOptions = Readonly<{
+  db?: PgQueryable;
 }>;
 
 export type MountedContextRuntimeEntry = Readonly<{
@@ -249,8 +254,8 @@ export function createSubscriptionRunner(
       status.updatedAt = new Date().toISOString();
       return { ...status };
     },
-    reset: async (context) => {
-      await deleteSubscriptionCheckpoint(targetPool, checkpointKey, context);
+    reset: async (context, options) => {
+      await deleteSubscriptionCheckpoint(options?.db ?? targetPool, checkpointKey, context);
       status.initialized = false;
       status.lastGlobalPosition = ZERO_GLOBAL_POSITION;
       status.sourceHeadGlobalPosition = ZERO_GLOBAL_POSITION;
