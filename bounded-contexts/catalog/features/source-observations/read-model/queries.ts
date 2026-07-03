@@ -18,6 +18,11 @@ import type {
   CatalogMergeCandidateConflict,
   CatalogMergeCandidateObservationMember,
 } from "../domain/catalog-merge-candidate";
+import {
+  sourceObservationIntegrationScopeSummaryTable,
+  sourceObservationProductLineIdExpression,
+  sourceObservationProductLineNameExpression,
+} from "./integration-scope-summary";
 
 export type SourceObservationListRow = Readonly<{
   observation_id: string;
@@ -306,40 +311,29 @@ export async function listSourceObservationIntegrationScopes(
     "provider" | "language" | "productLineId" | "seriesId" | "expansionId" | "setId"
   > = {},
 ): Promise<SourceObservationIntegrationScopeRow[]> {
-  const filter = buildSourceObservationFilter(params, { includeListFilters: false });
+  const filter = buildSourceObservationIntegrationScopeSummaryFilter(params);
   const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
   const result = await db.query<SourceObservationIntegrationScopeRow>(
     `SELECT
        provider_key,
        language_code,
-       coalesce(normalized->>'expansionId', normalized->>'setId', normalized->>'setName', '') AS expansion_id,
-       coalesce(normalized->>'expansionName', normalized->>'setName', '') AS expansion_name,
-       coalesce(normalized->>'seriesId', '') AS series_id,
-       coalesce(normalized->>'seriesName', '') AS series_name,
-       coalesce(MIN(${sourceObservationProductLineIdExpression()}), '') AS product_line_id,
-       coalesce(
-         ${sourceObservationProductLineNameExpression()},
-         ''
-       ) AS product_line_name,
-       COUNT(*)::integer AS total_observations,
-       (COUNT(*) FILTER (WHERE status = 'observed'))::integer AS observed_observations,
-       (COUNT(*) FILTER (WHERE status = 'changed'))::integer AS changed_observations,
-       (COUNT(*) FILTER (WHERE status = 'promoted'))::integer AS promoted_observations,
-       (COUNT(*) FILTER (WHERE status = 'rejected'))::integer AS rejected_observations,
-       MIN(observed_at)::text AS first_observed_at,
-       MAX(observed_at)::text AS latest_observed_at,
-       MAX(source_updated_at)::text AS latest_source_updated_at
-     FROM catalog_source_observations
+       expansion_id,
+       expansion_name,
+       series_id,
+       series_name,
+       product_line_id,
+       product_line_name,
+       total_observations,
+       observed_observations,
+       changed_observations,
+       promoted_observations,
+       rejected_observations,
+       first_observed_at::text AS first_observed_at,
+       latest_observed_at::text AS latest_observed_at,
+       latest_source_updated_at::text AS latest_source_updated_at
+     FROM ${sourceObservationIntegrationScopeSummaryTable}
      ${where}
-     GROUP BY
-       provider_key,
-       language_code,
-       coalesce(normalized->>'expansionId', normalized->>'setId', normalized->>'setName', ''),
-       coalesce(normalized->>'expansionName', normalized->>'setName', ''),
-       coalesce(normalized->>'seriesId', ''),
-       coalesce(normalized->>'seriesName', ''),
-       ${sourceObservationProductLineNameExpression()}
-     ORDER BY MAX(observed_at) DESC, provider_key ASC, language_code ASC`,
+     ORDER BY latest_observed_at DESC, provider_key ASC, language_code ASC`,
     filter.values,
   );
 
@@ -810,16 +804,6 @@ function normalizeImpactSampleLimit(value: number | undefined): number {
   return Math.min(100, Math.max(1, Math.trunc(value ?? 25)));
 }
 
-function sourceObservationProductLineIdExpression(alias = ""): string {
-  const prefix = alias ? `${alias}.` : "";
-  return `coalesce(${prefix}source_payload->>'productLineId', ${prefix}source_payload->'detail'->>'productLineId', ${prefix}normalized->>'productLineId', ${prefix}normalized->'mergeIdentity'->>'productLineId')`;
-}
-
-function sourceObservationProductLineNameExpression(alias = ""): string {
-  const prefix = alias ? `${alias}.` : "";
-  return `coalesce(${prefix}source_payload->>'productLineName', ${prefix}source_payload->'detail'->>'productLineName', ${prefix}normalized->>'productLineName', ${prefix}normalized->'mergeIdentity'->>'productLineName')`;
-}
-
 function buildCatalogMergeCandidateObservationScopeCondition(
   params: CatalogMergeCandidateFilterScope,
   values: unknown[],
@@ -920,6 +904,47 @@ function buildSourceObservationFilter(
     conditions.push(
       `to_tsvector('simple', coalesce(normalized->>'name', '') || ' ' || coalesce(normalized->>'expansionName', normalized->>'setName', '') || ' ' || external_key) @@ plainto_tsquery('simple', ${param})`,
     );
+  }
+
+  return { conditions, values };
+}
+
+function buildSourceObservationIntegrationScopeSummaryFilter(
+  params: Pick<
+    SourceObservationFilterScope,
+    "provider" | "language" | "productLineId" | "seriesId" | "expansionId" | "setId"
+  >,
+): {
+  conditions: string[];
+  values: unknown[];
+} {
+  const scope = normalizeSourceObservationFilterScope(params);
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (scope.provider) {
+    values.push(scope.provider);
+    conditions.push(`provider_key = $${values.length}`);
+  }
+
+  if (scope.language) {
+    values.push(scope.language);
+    conditions.push(`language_code = $${values.length}`);
+  }
+
+  if (scope.productLineId) {
+    values.push(scope.productLineId);
+    conditions.push(`product_line_id = $${values.length}`);
+  }
+
+  if (scope.seriesId) {
+    values.push(scope.seriesId);
+    conditions.push(`series_id = $${values.length}`);
+  }
+
+  if (scope.expansionId) {
+    values.push(scope.expansionId);
+    conditions.push(`expansion_id = $${values.length}`);
   }
 
   return { conditions, values };

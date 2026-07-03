@@ -1,5 +1,64 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
+import {
+  sourceObservationExpansionIdExpression,
+  sourceObservationIntegrationScopeSummarySelectSql,
+  sourceObservationIntegrationScopeSummaryTable,
+  sourceObservationProductLineIdExpression,
+  sourceObservationSeriesIdExpression,
+} from "./integration-scope-summary";
+
+const catalogSourceObservationIntegrationScopeSummaryBackfillSql = `INSERT INTO ${sourceObservationIntegrationScopeSummaryTable} (
+  provider_key,
+  language_code,
+  product_line_id,
+  product_line_name,
+  series_id,
+  series_name,
+  expansion_id,
+  expansion_name,
+  total_observations,
+  observed_observations,
+  changed_observations,
+  promoted_observations,
+  rejected_observations,
+  first_observed_at,
+  latest_observed_at,
+  latest_source_updated_at,
+  updated_at
+)
+SELECT
+  ${sourceObservationIntegrationScopeSummarySelectSql()},
+  COUNT(*)::integer AS total_observations,
+  (COUNT(*) FILTER (WHERE status = 'observed'))::integer AS observed_observations,
+  (COUNT(*) FILTER (WHERE status = 'changed'))::integer AS changed_observations,
+  (COUNT(*) FILTER (WHERE status = 'promoted'))::integer AS promoted_observations,
+  (COUNT(*) FILTER (WHERE status = 'rejected'))::integer AS rejected_observations,
+  MIN(observed_at) AS first_observed_at,
+  MAX(observed_at) AS latest_observed_at,
+  MAX(source_updated_at) AS latest_source_updated_at,
+  now() AS updated_at
+FROM catalog_source_observations
+GROUP BY
+  provider_key,
+  language_code,
+  coalesce(${sourceObservationProductLineIdExpression()}, ''),
+  ${sourceObservationSeriesIdExpression()},
+  ${sourceObservationExpansionIdExpression()}
+ON CONFLICT (provider_key, language_code, product_line_id, series_id, expansion_id) DO UPDATE SET
+  product_line_name = EXCLUDED.product_line_name,
+  series_name = EXCLUDED.series_name,
+  expansion_name = EXCLUDED.expansion_name,
+  total_observations = EXCLUDED.total_observations,
+  observed_observations = EXCLUDED.observed_observations,
+  changed_observations = EXCLUDED.changed_observations,
+  promoted_observations = EXCLUDED.promoted_observations,
+  rejected_observations = EXCLUDED.rejected_observations,
+  first_observed_at = EXCLUDED.first_observed_at,
+  latest_observed_at = EXCLUDED.latest_observed_at,
+  latest_source_updated_at = EXCLUDED.latest_source_updated_at,
+  updated_at = EXCLUDED.updated_at;`;
 
 export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_source_observations (
   observation_id text PRIMARY KEY,
@@ -67,6 +126,27 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
       coalesce(normalized->>'name', '') || ' ' || coalesce(normalized->>'expansionName', normalized->>'setName', '') || ' ' || external_key
     )
   );
+
+CREATE TABLE IF NOT EXISTS ${sourceObservationIntegrationScopeSummaryTable} (
+  provider_key text NOT NULL,
+  language_code text NOT NULL,
+  product_line_id text NOT NULL,
+  product_line_name text NOT NULL DEFAULT '',
+  series_id text NOT NULL,
+  series_name text NOT NULL DEFAULT '',
+  expansion_id text NOT NULL,
+  expansion_name text NOT NULL DEFAULT '',
+  total_observations integer NOT NULL DEFAULT 0,
+  observed_observations integer NOT NULL DEFAULT 0,
+  changed_observations integer NOT NULL DEFAULT 0,
+  promoted_observations integer NOT NULL DEFAULT 0,
+  rejected_observations integer NOT NULL DEFAULT 0,
+  first_observed_at timestamptz NOT NULL,
+  latest_observed_at timestamptz NOT NULL,
+  latest_source_updated_at timestamptz NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_key, language_code, product_line_id, series_id, expansion_id)
+);
 
 CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
   candidate_id text PRIMARY KEY,
@@ -378,3 +458,24 @@ ${durableJobWorkUnitSchemaSql({
   workUnitsTable: "catalog_source_observation_integration_work_units",
 })}
 `;
+
+export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260703_catalog_source_observation_integration_scope_summaries",
+    description: "Backfill source-observation integration scope summaries and create landing-query indexes.",
+    statements: [
+      catalogSourceObservationIntegrationScopeSummaryBackfillSql,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_lookup_idx
+  ON ${sourceObservationIntegrationScopeSummaryTable} (
+    provider_key,
+    language_code,
+    product_line_id,
+    series_id,
+    expansion_id,
+    latest_observed_at DESC
+  );`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_latest_idx
+  ON ${sourceObservationIntegrationScopeSummaryTable} (latest_observed_at DESC, provider_key, language_code);`,
+    ],
+  },
+];

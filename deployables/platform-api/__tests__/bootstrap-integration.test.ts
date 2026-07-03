@@ -170,6 +170,7 @@ describe("platform api bootstrap", () => {
     expect(migrations.rows.map((row) => row.migration_id)).toEqual([
       "20260628_event_store_context_columns_backfill",
       "20260628_event_store_events_concurrent_indexes",
+      "20260703_catalog_source_observation_integration_scope_summaries",
     ]);
   }, 120_000);
 

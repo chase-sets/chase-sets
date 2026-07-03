@@ -399,7 +399,40 @@ describe("source observation read-model queries", () => {
       total_observations: 102,
       observed_observations: 100,
     });
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("GROUP BY"), ["tcgdex", "en", "base1"]);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM catalog_source_observation_integration_scope_summaries"),
+      ["tcgdex", "en", "base1"],
+    );
+    const sql = String(vi.mocked(db.query).mock.calls[0]?.[0]);
+    expect(sql).toContain("ORDER BY latest_observed_at DESC");
+    expect(sql).not.toContain("GROUP BY");
+    expect(sql).not.toContain("FROM catalog_source_observations");
+    expect(sql).not.toContain("normalized->");
+  });
+
+  it("filters source-observation integration scopes through summary-table columns and index order", async () => {
+    const db = queryable([]);
+
+    await listSourceObservationIntegrationScopes(db, {
+      provider: "tcgplayer",
+      language: "en",
+      productLineId: "3",
+      seriesId: "sv",
+      expansionId: "sv8",
+    });
+
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM catalog_source_observation_integration_scope_summaries"),
+      ["tcgplayer", "en", "3", "sv", "sv8"],
+    );
+    const sql = String(vi.mocked(db.query).mock.calls[0]?.[0]);
+    expect(sql).toContain("provider_key = $1");
+    expect(sql).toContain("language_code = $2");
+    expect(sql).toContain("product_line_id = $3");
+    expect(sql).toContain("series_id = $4");
+    expect(sql).toContain("expansion_id = $5");
+    expect(sql).not.toContain("source_payload");
+    expect(sql).not.toContain("jsonb");
   });
 });
 
