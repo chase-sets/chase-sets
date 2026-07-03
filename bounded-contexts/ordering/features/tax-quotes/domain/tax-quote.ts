@@ -46,11 +46,12 @@ export type LocalTaxRule = Readonly<{
 }>;
 
 function normalizeMoneyAmount(value: string | null | undefined) {
-  const amount = Number.parseFloat(String(value ?? "0.00"));
-  if (!Number.isFinite(amount) || amount < 0) {
+  const normalized = String(value ?? "0.00").trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
     throw new Error("Tax amounts must be non-negative money values.");
   }
-  return amount.toFixed(2);
+
+  return Number.parseFloat(normalized).toFixed(2);
 }
 
 function ceilMoney(value: number) {

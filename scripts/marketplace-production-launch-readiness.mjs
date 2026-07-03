@@ -82,6 +82,9 @@ export function buildProductionLaunchReadiness(input) {
   if (variables.PRODUCTION_MARKETPLACE_PROOF_ENABLED === "true") {
     errors.push("PRODUCTION_MARKETPLACE_PROOF_ENABLED must be false or unset for final public launch readiness.");
   }
+  if (variables.TAX_PROVIDER_BACKED_QUOTES_REQUIRED !== "true") {
+    errors.push("TAX_PROVIDER_BACKED_QUOTES_REQUIRED must be true for final public launch readiness.");
+  }
   if (variables.NOTIFICATION_EMAIL_PROVIDER && variables.NOTIFICATION_EMAIL_PROVIDER !== "amazon-ses") {
     errors.push("NOTIFICATION_EMAIL_PROVIDER must be amazon-ses for final public launch readiness.");
   }

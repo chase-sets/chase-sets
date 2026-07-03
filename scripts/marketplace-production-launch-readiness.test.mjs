@@ -36,7 +36,7 @@ const completeVariables = [
   variable("PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE", "CATALOG-MEASURES-2026-05-30"),
   variable("PRODUCTION_TAX_READINESS_APPROVED", "true"),
   variable("PRODUCTION_TAX_READINESS_REFERENCE", "TAX-READINESS-2026-05-30"),
-  variable("TAX_PROVIDER_BACKED_QUOTES_REQUIRED", "false"),
+  variable("TAX_PROVIDER_BACKED_QUOTES_REQUIRED", "true"),
   variable("EASYPOST_MODE", "production"),
   variable("ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS", "chasesets.com"),
   variable("NOTIFICATION_EMAIL_PROVIDER", "amazon-ses"),
@@ -75,6 +75,38 @@ describe("marketplace production launch readiness", () => {
         },
       },
     });
+  });
+
+  it("fails final production launch when provider-backed tax quotes are not required", () => {
+    const readiness = buildProductionLaunchReadiness({
+      variables: [
+        ...completeVariables.filter((row) => row.name !== "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"),
+        variable("TAX_PROVIDER_BACKED_QUOTES_REQUIRED", "false"),
+      ],
+      secrets: REQUIRED_LAUNCH_SECRETS.map(secret),
+      environmentName: "production",
+      checkedAt: "2026-05-30T12:00:00.000Z",
+    });
+
+    expect(readiness.passesProductionLaunchReadinessGate).toBe(false);
+    expect(readiness.errors).toContain(
+      "TAX_PROVIDER_BACKED_QUOTES_REQUIRED must be true for final public launch readiness.",
+    );
+  });
+
+  it("fails final production launch when the provider-backed tax quote flag is unset", () => {
+    const readiness = buildProductionLaunchReadiness({
+      variables: completeVariables.filter((row) => row.name !== "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"),
+      secrets: REQUIRED_LAUNCH_SECRETS.map(secret),
+      environmentName: "production",
+      checkedAt: "2026-05-30T12:00:00.000Z",
+    });
+
+    expect(readiness.passesProductionLaunchReadinessGate).toBe(false);
+    expect(readiness.missingVariables).toContain("TAX_PROVIDER_BACKED_QUOTES_REQUIRED");
+    expect(readiness.errors).toContain(
+      "TAX_PROVIDER_BACKED_QUOTES_REQUIRED must be true for final public launch readiness.",
+    );
   });
 
   it("reports current-style missing launch variables and live provider secrets", () => {
