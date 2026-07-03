@@ -101,3 +101,7 @@ Those checks decide the next partition range size and whether any stream class n
 The artifact includes database size, table count, estimated live/dead row totals, largest relation sizes, vacuum/analyze timestamps, and event-store high-water position when `event_store_events` exists. It deliberately excludes row samples, query text, connection strings, account/order/provider identifiers, emails, and payload bodies.
 
 Use the artifact to decide when a table needs retention, partitioning, index review, or a follow-up capacity issue. A warning means one or more database collections failed and should be inspected without exposing database URLs.
+
+`Platform Postgres Slow Query Digest` complements the growth artifact when managed Postgres already exposes `pg_stat_statements`. It uploads `postgres-slow-query-digest/v1` with hashed query fingerprints and aggregate timing/block counters only; it never emits raw query text, bind values, literals, customer/provider/account/session/order identifiers, emails, URLs, payloads, tokens, or secrets.
+
+The digest workflow does not enable `pg_stat_statements`. Enabling the extension can require managed-database settings and `CREATE EXTENSION`, so coordinate that posture with #3626/#3627 and the migration-ledger work instead of adding boot-time DDL to deployables.
