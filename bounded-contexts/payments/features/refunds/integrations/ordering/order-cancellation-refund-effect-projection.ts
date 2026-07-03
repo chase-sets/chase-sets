@@ -1,8 +1,24 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { RefundServices } from "../../api/runtime";
-import { getCapturedPaymentByOrderId, getOrderPaymentInput } from "../../../payments/read-model/queries";
+import {
+  getCapturedPaymentByOrderId,
+  getOrderPaymentInput,
+  type PaymentDetailRow,
+} from "../../../payments/read-model/queries";
+
+type CapturedPaymentForCancellationRefund = Pick<
+  PaymentDetailRow,
+  "payment_id" | "order_ids" | "marketplace_checkout_fee_amount"
+>;
+
+type PaymentOrderInputForRefund = Readonly<{
+  order_id: string;
+  total_amount: string;
+  status: string;
+}>;
 
 function moneyToCents(value: string) {
   return Math.round(Number.parseFloat(value) * 100);
@@ -12,21 +28,29 @@ function centsToMoney(cents: number) {
   return (cents / 100).toFixed(2);
 }
 
-async function loadOrderTotals(db: PgQueryable, orderIds: readonly string[]): Promise<Map<string, number>> {
+async function loadOrderInputs(
+  db: PgQueryable,
+  orderIds: readonly string[],
+): Promise<Map<string, PaymentOrderInputForRefund>> {
   if (orderIds.length === 0) {
     return new Map();
   }
 
-  const result = await db.query<{ order_id: string; total_cents: string }>(
+  const result = await db.query<PaymentOrderInputForRefund>(
     `SELECT
        order_id,
-       ROUND(total_amount * 100)::text AS total_cents
+       total_amount::text AS total_amount,
+       status
      FROM payments_order_inputs
      WHERE order_id = ANY($1)`,
     [orderIds],
   );
 
-  return new Map(result.rows.map((row) => [row.order_id, Number.parseInt(row.total_cents, 10)]));
+  return new Map(result.rows.map((row) => [row.order_id, row]));
+}
+
+function orderTotalsFromInputs(orderInputs: ReadonlyMap<string, PaymentOrderInputForRefund>): Map<string, number> {
+  return new Map([...orderInputs.values()].map((row) => [row.order_id, moneyToCents(row.total_amount)]));
 }
 
 function allocateCheckoutFeeCents(
@@ -83,12 +107,96 @@ async function claimCancellationRefundEffect(
        created_at,
        updated_at
      ) VALUES ($1, $2, $3, $4, $5, $6, $6)
-     ON CONFLICT (order_id) DO NOTHING
+     ON CONFLICT (order_id) DO UPDATE
+     SET payment_id = EXCLUDED.payment_id,
+         requested_amount = EXCLUDED.requested_amount,
+         status = EXCLUDED.status,
+         failure_message = EXCLUDED.failure_message,
+         updated_at = EXCLUDED.updated_at
+     WHERE payments_order_cancellation_refund_effects.status = 'skipped'
+       AND EXCLUDED.status = 'processing'
      RETURNING order_id`,
     [params.orderId, params.paymentId, params.amount, params.status, params.failureMessage ?? null, params.now],
   );
 
   return (result.rowCount ?? 0) > 0;
+}
+
+async function issueCancellationRefund(
+  db: PgQueryable,
+  refunds: RefundServices,
+  params: Readonly<{
+    payment: CapturedPaymentForCancellationRefund;
+    orderId: string;
+    orderInput: Readonly<{ total_amount: string }>;
+    now: string;
+    tenantId: EventStoreContext["tenantId"];
+    audit: EventStoreContext["audit"];
+    trace: EventStoreContext["trace"];
+  }>,
+) {
+  const orderInputs = await loadOrderInputs(db, params.payment.order_ids);
+  const orderTotals = orderTotalsFromInputs(orderInputs);
+  const checkoutFeeCents = moneyToCents(params.payment.marketplace_checkout_fee_amount);
+  const allocatedCheckoutFeeCents = allocateCheckoutFeeCents({
+    orderId: params.orderId,
+    paymentOrderIds: params.payment.order_ids,
+    orderTotals,
+    checkoutFeeCents,
+  });
+  const amount = centsToMoney(moneyToCents(params.orderInput.total_amount) + allocatedCheckoutFeeCents);
+
+  const claimed = await claimCancellationRefundEffect(db, {
+    orderId: params.orderId,
+    paymentId: params.payment.payment_id,
+    amount,
+    status: "processing",
+    now: params.now,
+  });
+  if (!claimed) {
+    return;
+  }
+
+  try {
+    const result = await refunds.issueRefund(
+      {
+        paymentId: params.payment.payment_id as PaymentId,
+        orderIds: [params.orderId],
+        amount,
+        reason: `Self-service purchase cancellation for order ${params.orderId}.`,
+      },
+      {
+        tenantId: params.tenantId,
+        audit: params.audit,
+        trace: params.trace,
+      },
+    );
+    await db.query(
+      `UPDATE payments_order_cancellation_refund_effects
+       SET refund_id = $2,
+           status = 'refund-requested',
+           failure_message = NULL,
+           updated_at = $3
+       WHERE order_id = $1
+         AND status = 'processing'`,
+      [params.orderId, result.refundId, new Date().toISOString()],
+    );
+  } catch (error) {
+    await db.query(
+      `UPDATE payments_order_cancellation_refund_effects
+       SET status = 'failed',
+           failure_message = $2,
+           updated_at = $3
+       WHERE order_id = $1
+         AND status = 'processing'`,
+      [
+        params.orderId,
+        error instanceof Error ? error.message : "Self-service cancellation refund failed.",
+        new Date().toISOString(),
+      ],
+    );
+    throw error;
+  }
 }
 
 export function buildPaymentsOrderCancellationRefundEffectHandlers(
@@ -118,64 +226,42 @@ export function buildPaymentsOrderCancellationRefundEffectHandlers(
         return;
       }
 
-      const orderTotals = await loadOrderTotals(db, payment.order_ids);
-      const checkoutFeeCents = moneyToCents(payment.marketplace_checkout_fee_amount);
-      const allocatedCheckoutFeeCents = allocateCheckoutFeeCents({
+      await issueCancellationRefund(db, refunds, {
+        payment,
         orderId: data.orderId,
-        paymentOrderIds: payment.order_ids,
-        orderTotals,
-        checkoutFeeCents,
-      });
-      const amount = centsToMoney(moneyToCents(orderInput.total_amount) + allocatedCheckoutFeeCents);
-
-      const claimed = await claimCancellationRefundEffect(db, {
-        orderId: data.orderId,
-        paymentId: payment.payment_id,
-        amount,
-        status: "processing",
+        orderInput,
         now: data.cancelledAt,
+        tenantId: event.tenantId,
+        audit: event.audit,
+        trace: event.trace,
       });
-      if (!claimed) {
-        return;
-      }
+    },
+    "payments.payment-captured": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        orderIds: string[];
+        marketplaceCheckoutFeeAmount: string;
+        capturedAt: string;
+      };
+      const orderInputs = await loadOrderInputs(db, data.orderIds ?? []);
+      const cancelledOrderInputs = (data.orderIds ?? [])
+        .map((orderId) => orderInputs.get(orderId))
+        .filter((orderInput): orderInput is PaymentOrderInputForRefund => orderInput?.status === "cancelled");
 
-      try {
-        const result = await refunds.issueRefund(
-          {
-            paymentId: payment.payment_id as PaymentId,
-            orderIds: [data.orderId],
-            amount,
-            reason: `Self-service purchase cancellation for order ${data.orderId}.`,
+      for (const orderInput of cancelledOrderInputs) {
+        await issueCancellationRefund(db, refunds, {
+          payment: {
+            payment_id: data.paymentId,
+            order_ids: data.orderIds ?? [],
+            marketplace_checkout_fee_amount: data.marketplaceCheckoutFeeAmount,
           },
-          {
-            tenantId: event.tenantId,
-            audit: event.audit,
-            trace: event.trace,
-          },
-        );
-        await db.query(
-          `UPDATE payments_order_cancellation_refund_effects
-           SET refund_id = $2,
-               status = 'refund-requested',
-               failure_message = NULL,
-               updated_at = $3
-           WHERE order_id = $1`,
-          [data.orderId, result.refundId, new Date().toISOString()],
-        );
-      } catch (error) {
-        await db.query(
-          `UPDATE payments_order_cancellation_refund_effects
-           SET status = 'failed',
-               failure_message = $2,
-               updated_at = $3
-           WHERE order_id = $1`,
-          [
-            data.orderId,
-            error instanceof Error ? error.message : "Self-service cancellation refund failed.",
-            new Date().toISOString(),
-          ],
-        );
-        throw error;
+          orderId: orderInput.order_id,
+          orderInput,
+          now: data.capturedAt,
+          tenantId: event.tenantId,
+          audit: event.audit,
+          trace: event.trace,
+        });
       }
     },
   };

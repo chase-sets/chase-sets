@@ -57,6 +57,25 @@ function subscriptionEventContext(event: SubscriptionContextEvent): EventStoreCo
   };
 }
 
+async function filterCancelledOrderIds(
+  db: OrderingServices["db"],
+  orderIds: readonly string[],
+): Promise<readonly string[]> {
+  if (orderIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<{ order_id: string; status: string }>(
+    `SELECT order_id, status
+     FROM ordering_order_pages
+     WHERE order_id = ANY($1)`,
+    [orderIds],
+  );
+  const cancelledOrderIds = new Set(result.rows.filter((row) => row.status === "cancelled").map((row) => row.order_id));
+
+  return orderIds.filter((orderId) => !cancelledOrderIds.has(orderId));
+}
+
 export const module = defineBoundedContextModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions>({
   manifest: orderingContextManifest,
   schemaSql: orderingSchemaSql,
@@ -271,8 +290,9 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
                 );
 
                 const orderIds = data.orderIds ?? [];
+                const readyOrderIds = await filterCancelledOrderIds(services.db, orderIds);
                 const dispatchResults = await Promise.allSettled(
-                  orderIds.map((orderId) =>
+                  readyOrderIds.map((orderId) =>
                     services.orders.commandHandler({
                       streamId: `ordering.order-${orderId}`,
                       command: {
@@ -284,11 +304,11 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
                   ),
                 );
                 const dispatchFailures = dispatchResults.flatMap((result, index) =>
-                  result.status === "rejected" ? [{ orderId: orderIds[index], reason: result.reason }] : [],
+                  result.status === "rejected" ? [{ orderId: readyOrderIds[index], reason: result.reason }] : [],
                 );
 
                 if (dispatchFailures.length > 0) {
-                  throw createPaymentCaptureDispatchError(dispatchFailures, orderIds.length);
+                  throw createPaymentCaptureDispatchError(dispatchFailures, readyOrderIds.length);
                 }
               },
             }),

@@ -113,6 +113,12 @@ describe("ordering order domain", () => {
 
     expect(cancelled.status).toBe("cancelled");
     expect(cancelled.cancelledAt).toBe("2026-03-31T00:00:00.000Z");
+    expect(
+      decideOrderingOrder(cancelled, {
+        type: "MarkReadyForFulfillment",
+        readyForFulfillmentAt: "2026-04-01T00:00:00.000Z",
+      }),
+    ).toEqual([]);
   });
 
   it("marks a pending order ready for fulfillment after payment capture", () => {

@@ -703,7 +703,7 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
       ];
     case "MarkReadyForFulfillment":
       assert(state.orderId !== null, "Order must be created first.");
-      if (state.status === "ready-for-fulfillment") {
+      if (state.status === "ready-for-fulfillment" || state.status === "cancelled") {
         return [];
       }
       assert(state.status === "pending-payment", "Only pending-payment orders can become ready for fulfillment.");

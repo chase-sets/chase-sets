@@ -38,6 +38,14 @@
       "eventTypes": ["ordering.order.cancelled"],
       "order": 20,
       "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "payments-order-cancellation-refund-effect",
+      "subscriptionVersion": 1,
+      "eventTypes": ["payments.payment-captured"],
+      "order": 21,
+      "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
     }
   ],
   "projectionGroups": [
@@ -57,7 +65,7 @@
     },
     {
       "projectionName": "payments-order-cancellation-refund-effect",
-      "sourceContextNames": ["ordering"],
+      "sourceContextNames": ["ordering", "payments"],
       "ownedTables": ["payments_order_cancellation_refund_effects"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
