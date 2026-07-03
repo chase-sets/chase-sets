@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isNativeMcpAnonymousDiscoveryRejected,
   isNativeMcpPermissionBoundaryError,
+  readNativeMcpToolStructuredContent,
 } from "./platform-smoke-native-mcp.mjs";
 
 function responseWithStatus(status) {
@@ -29,5 +30,20 @@ describe("native MCP platform smoke", () => {
       isNativeMcpPermissionBoundaryError({ message: "Missing required permission: inventory.edit." }, "inventory.view"),
     ).toBe(false);
     expect(isNativeMcpPermissionBoundaryError({ message: "Method not found." }, "inventory.view")).toBe(false);
+  });
+
+  it("reads native MCP tool structuredContent with a text JSON fallback", () => {
+    expect(
+      readNativeMcpToolStructuredContent({
+        structuredContent: { items: [{ sourceKey: "tcgplayer-csv" }] },
+        content: [{ type: "text", text: '{"items":[]}' }],
+      }),
+    ).toEqual({ items: [{ sourceKey: "tcgplayer-csv" }] });
+    expect(
+      readNativeMcpToolStructuredContent({
+        content: [{ type: "text", text: '{"items":[{"sourceKey":"tcgplayer-csv"}]}' }],
+      }),
+    ).toEqual({ items: [{ sourceKey: "tcgplayer-csv" }] });
+    expect(readNativeMcpToolStructuredContent({ content: [{ type: "json", json: { items: [] } }] })).toBeNull();
   });
 });

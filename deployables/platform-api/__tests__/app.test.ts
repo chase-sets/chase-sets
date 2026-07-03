@@ -647,12 +647,13 @@ describe("platform api app wiring", () => {
       jsonrpc: "2.0",
       id: "request_1",
       result: {
+        structuredContent: {
+          items: expect.arrayContaining([expect.objectContaining({ sourceKey: "tcgplayer-csv" })]),
+        },
         content: [
           {
-            type: "json",
-            json: {
-              items: expect.arrayContaining([expect.objectContaining({ sourceKey: "tcgplayer-csv" })]),
-            },
+            type: "text",
+            text: expect.stringContaining("tcgplayer-csv"),
           },
         ],
       },

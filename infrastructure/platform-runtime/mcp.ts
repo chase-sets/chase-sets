@@ -144,6 +144,31 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, d
   };
 }
 
+function mcpToolSuccessResult(result: unknown) {
+  const structuredContent = result === undefined ? null : result;
+  return jsonRpcResult(null, {
+    structuredContent,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(structuredContent),
+      },
+    ],
+  });
+}
+
+function mcpToolErrorResult(text: string) {
+  return jsonRpcResult(null, {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text,
+      },
+    ],
+  });
+}
+
 function mcpAuthenticationRequiredResponse(id: JsonRpcRequest["id"] = null) {
   return jsonRpcError(id, -32001, "An authenticated actor is required for native MCP discovery.");
 }
@@ -302,6 +327,21 @@ function validateToolArguments(schema: McpJsonSchema, value: unknown): McpInputV
   return validateObjectProperties(value, schema);
 }
 
+function formatToolArgumentValidationDiagnostic(reason: string, issues: readonly McpInputValidationIssue[]) {
+  if (issues.length === 0) {
+    return reason;
+  }
+
+  const details = issues
+    .map((issue) => {
+      const expected = issue.expected ? ` Expected ${issue.expected}.` : "";
+      const actual = issue.actual ? ` Actual ${issue.actual}.` : "";
+      return `${issue.path}: ${issue.message}${expected}${actual}`;
+    })
+    .join(" ");
+  return `${reason} ${details}`;
+}
+
 function normalizeConfirmation(value: unknown) {
   if (typeof value !== "object" || value === null) {
     return {
@@ -411,6 +451,7 @@ function toToolListItem(tool: McpToolDescriptor) {
     title: tool.title,
     description: tool.description,
     inputSchema: tool.inputSchema,
+    ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
     annotations: {
       serviceId: tool.serviceId,
       availability: getMcpCapabilityAvailability(tool),
@@ -596,9 +637,7 @@ async function callTool(
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
-    return jsonRpcError(null, -32602, reason, {
-      issues: validationIssues,
-    });
+    return mcpToolErrorResult(formatToolArgumentValidationDiagnostic(reason, validationIssues));
   }
 
   const args = normalizeArguments(params.arguments);
@@ -623,7 +662,7 @@ async function callTool(
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
-    return jsonRpcError(null, -32001, authorization.reason);
+    return mcpToolErrorResult(authorization.reason);
   }
 
   const accountOwnershipReason = validateToolAccountOwnership(tool, actor, args);
@@ -640,7 +679,7 @@ async function callTool(
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
-    return jsonRpcError(null, -32001, accountOwnershipReason);
+    return mcpToolErrorResult(accountOwnershipReason);
   }
 
   if (!hasRequiredIdempotencyKey(tool, args)) {
@@ -657,7 +696,7 @@ async function callTool(
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
-    return jsonRpcError(null, -32001, reason);
+    return mcpToolErrorResult(reason);
   }
 
   const idempotency =
@@ -695,7 +734,7 @@ async function callTool(
     }
 
     if (reservation.outcome === "pending") {
-      return jsonRpcError(null, -32029, "A matching MCP tool call is already in progress. Retry later.");
+      return mcpToolErrorResult("A matching MCP tool call is already in progress. Retry later.");
     }
 
     if (reservation.outcome === "conflict") {
@@ -712,7 +751,7 @@ async function callTool(
         sensitiveInputFields: tool.audit.sensitiveInputFields,
       });
 
-      return jsonRpcError(null, -32000, reason);
+      return mcpToolErrorResult(reason);
     }
 
     reservedIdempotency = reservation.record;
@@ -736,10 +775,9 @@ async function callTool(
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
-    return jsonRpcError(null, -32004, reason, {
-      tool: toToolListItem(tool),
-      redactedArguments: redactArguments(args, tool.audit.sensitiveInputFields),
-    });
+    return mcpToolErrorResult(
+      `${reason} Redacted arguments: ${JSON.stringify(redactArguments(args, tool.audit.sensitiveInputFields))}`,
+    );
   }
 
   const limit = await acquireMcpToolCallLease(options.toolCallLimiter, request, tool, actor, options.services);
@@ -760,7 +798,7 @@ async function callTool(
       limitKind: limit.limitKind,
     });
 
-    return jsonRpcError(null, -32029, limit.reason);
+    return mcpToolErrorResult(limit.reason);
   }
 
   try {
@@ -770,14 +808,7 @@ async function callTool(
       arguments: args,
       request,
     });
-    const response = jsonRpcResult(null, {
-      content: [
-        {
-          type: "json",
-          json: result,
-        },
-      ],
-    });
+    const response = mcpToolSuccessResult(result);
     if (reservedIdempotency) {
       await options.idempotencyStore.complete({
         ...reservedIdempotency,
@@ -798,10 +829,16 @@ async function callTool(
 
     return response;
   } catch (error) {
-    if (idempotency) {
+    const reason = error instanceof Error ? error.message : String(error);
+    const response = mcpToolErrorResult(reason);
+    if (reservedIdempotency) {
+      await options.idempotencyStore.complete({
+        ...reservedIdempotency,
+        response,
+      });
+    } else if (idempotency) {
       await options.idempotencyStore.abandon(idempotency);
     }
-    const reason = error instanceof Error ? error.message : String(error);
     await audit(options.audit, {
       outcome: "failed",
       method: "tools/call",
@@ -814,7 +851,7 @@ async function callTool(
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
-    return jsonRpcError(null, -32000, reason);
+    return response;
   } finally {
     await Promise.resolve(limit.lease?.release()).catch(() => undefined);
   }

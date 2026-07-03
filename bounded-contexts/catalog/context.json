@@ -12,7 +12,8 @@
     "product-contents",
     "product-measure-profile",
     "reference-type",
-    "reference-record"
+    "reference-record",
+    "scope-record"
   ],
   "streamPrefix": "catalog.",
   "apiBasePath": "/api/catalog",
@@ -28,6 +29,7 @@
     "product-contents",
     "product-measures",
     "reference-data",
+    "scope-registry",
     "source-observations"
   ],
   "allowedSupportDirectories": [
@@ -87,6 +89,13 @@
       "projectionName": "catalog-product-contents-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": ["catalog_resolved_product_contents"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "catalog-scope-registry-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_scope_records"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -492,6 +501,11 @@
       "purpose": "Own Catalog Product Contents configuration, resolved product-to-product containment facts, and forward/reverse read models.",
       "expectedConsumers": ["Internal catalog module composition", "Discovery product contents projections"]
     },
+    "scope-registry": {
+      "classification": "slice",
+      "purpose": "Own canonical Catalog Scope Records derived from Reference Records for product-line, series, expansion, and set sync identity.",
+      "expectedConsumers": ["source-observations", "Internal catalog module composition"]
+    },
     "source-observations": {
       "classification": "slice",
       "purpose": "Own provider source observations, review workflow, and promotion of candidate provider facts into canonical Catalog Items.",
@@ -582,6 +596,7 @@
         "fields",
         "product-contents",
         "reference-data",
+        "scope-registry",
         "source-observations"
       ]
     },
