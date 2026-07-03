@@ -1,7 +1,8 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { PaymentId } from "@chase-sets/primitives/typed-ids";
+import { createId, type PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { RefundId } from "../../../../support/runtime-support/common";
 import type { RefundServices } from "../../api/runtime";
 import {
   getCapturedPaymentByOrderId,
@@ -91,35 +92,46 @@ async function claimCancellationRefundEffect(
   params: Readonly<{
     orderId: string;
     paymentId: string | null;
+    refundId?: RefundId | null;
     amount: string | null;
     status: string;
     failureMessage?: string | null;
     now: string;
   }>,
 ) {
-  const result = await db.query<{ order_id: string }>(
+  const result = await db.query<{ order_id: string; refund_id: string | null }>(
     `INSERT INTO payments_order_cancellation_refund_effects (
        order_id,
        payment_id,
+       refund_id,
        requested_amount,
        status,
        failure_message,
        created_at,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $6)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
      ON CONFLICT (order_id) DO UPDATE
      SET payment_id = EXCLUDED.payment_id,
+         refund_id = COALESCE(payments_order_cancellation_refund_effects.refund_id, EXCLUDED.refund_id),
          requested_amount = EXCLUDED.requested_amount,
          status = EXCLUDED.status,
          failure_message = EXCLUDED.failure_message,
          updated_at = EXCLUDED.updated_at
-     WHERE payments_order_cancellation_refund_effects.status = 'skipped'
+     WHERE payments_order_cancellation_refund_effects.status IN ('skipped', 'failed')
        AND EXCLUDED.status = 'processing'
-     RETURNING order_id`,
-    [params.orderId, params.paymentId, params.amount, params.status, params.failureMessage ?? null, params.now],
+     RETURNING order_id, refund_id`,
+    [
+      params.orderId,
+      params.paymentId,
+      params.refundId ?? null,
+      params.amount,
+      params.status,
+      params.failureMessage ?? null,
+      params.now,
+    ],
   );
 
-  return (result.rowCount ?? 0) > 0;
+  return (result.rows[0]?.refund_id ?? null) as RefundId | null;
 }
 
 async function issueCancellationRefund(
@@ -149,6 +161,7 @@ async function issueCancellationRefund(
   const claimed = await claimCancellationRefundEffect(db, {
     orderId: params.orderId,
     paymentId: params.payment.payment_id,
+    refundId: createId("rfd") as RefundId,
     amount,
     status: "processing",
     now: params.now,
@@ -160,6 +173,7 @@ async function issueCancellationRefund(
   try {
     const result = await refunds.issueRefund(
       {
+        refundId: claimed,
         paymentId: params.payment.payment_id as PaymentId,
         orderIds: [params.orderId],
         amount,

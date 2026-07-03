@@ -1,6 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { PaymentId } from "@chase-sets/primitives/typed-ids";
+import { createId, type PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { RefundId } from "../../../../support/runtime-support/common";
 import type { RefundServices } from "../../api/runtime";
 import { getCapturedPaymentByOrderId, getOrderPaymentInput } from "../../../payments/read-model/queries";
 
@@ -23,36 +24,50 @@ async function claimSupportRefundEffect(
   params: Readonly<{
     supportRequestId: string;
     orderId: string;
+    paymentId: string;
+    refundId: RefundId;
     resolutionType: string;
     amount: string;
     now: string;
   }>,
 ) {
-  const result = await db.query<{ support_request_id: string }>(
+  const result = await db.query<{ support_request_id: string; refund_id: string }>(
     `INSERT INTO payments_support_refund_effects (
        support_request_id,
        refund_effect_id,
        order_id,
+       payment_id,
+       refund_id,
        resolution_type,
        requested_amount,
        status,
        failure_message,
        created_at,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, 'processing', NULL, $6, $6)
-     ON CONFLICT (support_request_id) DO NOTHING
-     RETURNING support_request_id`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'processing', NULL, $8, $8)
+     ON CONFLICT (support_request_id) DO UPDATE
+     SET payment_id = EXCLUDED.payment_id,
+         refund_id = COALESCE(payments_support_refund_effects.refund_id, EXCLUDED.refund_id),
+         resolution_type = EXCLUDED.resolution_type,
+         requested_amount = EXCLUDED.requested_amount,
+         status = EXCLUDED.status,
+         failure_message = NULL,
+         updated_at = EXCLUDED.updated_at
+     WHERE payments_support_refund_effects.status = 'failed'
+     RETURNING support_request_id, refund_id`,
     [
       params.supportRequestId,
       createPaymentsSupportRefundEffectId(params.supportRequestId),
       params.orderId,
+      params.paymentId,
+      params.refundId,
       params.resolutionType,
       params.amount,
       params.now,
     ],
   );
 
-  return (result.rowCount ?? 0) > 0;
+  return (result.rows[0]?.refund_id ?? null) as RefundId | null;
 }
 
 export function buildPaymentsSupportRefundEffectHandlers(
@@ -141,6 +156,8 @@ export function buildPaymentsSupportRefundEffectHandlers(
       const claimed = await claimSupportRefundEffect(db, {
         supportRequestId: data.supportRequestId,
         orderId: data.orderId,
+        paymentId: payment.payment_id,
+        refundId: createId("rfd") as RefundId,
         resolutionType: data.resolution.resolutionType,
         amount,
         now: data.resolution.resolvedAt,
@@ -152,6 +169,7 @@ export function buildPaymentsSupportRefundEffectHandlers(
       try {
         const result = await refunds.issueRefund(
           {
+            refundId: claimed,
             paymentId: payment.payment_id as PaymentId,
             orderIds: [data.orderId],
             amount,

@@ -106,7 +106,7 @@ describe("payments order cancellation refund effect projection", () => {
           return { rows: [{ order_id: "ord_1", total_amount: "10.00" }] };
         }
         if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
-          return { rowCount: 1, rows: [{ order_id: "ord_1" }] };
+          return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: "rfd_claimed" }] };
         }
         return { rows: [] };
       }),
@@ -117,6 +117,7 @@ describe("payments order cancellation refund effect projection", () => {
 
     expect(issueRefund).toHaveBeenCalledWith(
       {
+        refundId: "rfd_claimed",
         paymentId: "pay_1",
         orderIds: ["ord_1"],
         amount: "10.33",
@@ -139,7 +140,7 @@ describe("payments order cancellation refund effect projection", () => {
           return { rows: [{ order_id: "ord_1", total_amount: "10.00" }] };
         }
         if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
-          return { rowCount: 1, rows: [{ order_id: "ord_1" }] };
+          return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: null }] };
         }
         return { rows: [] };
       }),
@@ -151,7 +152,7 @@ describe("payments order cancellation refund effect projection", () => {
     expect(issueRefund).not.toHaveBeenCalled();
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO payments_order_cancellation_refund_effects"),
-      expect.arrayContaining(["ord_1", null, null, "skipped"]),
+      expect.arrayContaining(["ord_1", null, null, null, "skipped"]),
     );
   });
 
@@ -168,7 +169,7 @@ describe("payments order cancellation refund effect projection", () => {
           };
         }
         if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
-          return { rowCount: 1, rows: [{ order_id: "ord_1" }] };
+          return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: "rfd_capture_later" }] };
         }
         return { rows: [] };
       }),
@@ -180,6 +181,7 @@ describe("payments order cancellation refund effect projection", () => {
     expect(issueRefund).toHaveBeenCalledTimes(1);
     expect(issueRefund).toHaveBeenCalledWith(
       expect.objectContaining({
+        refundId: "rfd_capture_later",
         paymentId: "pay_1",
         orderIds: ["ord_1"],
         amount: "10.33",
@@ -187,8 +189,8 @@ describe("payments order cancellation refund effect projection", () => {
       expect.objectContaining({ tenantId: "tnt_test" }),
     );
     expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("payments_order_cancellation_refund_effects.status = 'skipped'"),
-      expect.arrayContaining(["ord_1", "pay_1", "10.33", "processing"]),
+      expect.stringContaining("payments_order_cancellation_refund_effects.status IN ('skipped', 'failed')"),
+      expect.arrayContaining(["ord_1", "pay_1", expect.any(String), "10.33", "processing"]),
     );
   });
 
@@ -235,7 +237,7 @@ describe("payments order cancellation refund effect projection", () => {
         }
         if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
           insertCalls += 1;
-          return { rowCount: 1, rows: [{ order_id: "ord_1" }] };
+          return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: "rfd_reclaimed" }] };
         }
         return { rows: [] };
       }),
@@ -249,7 +251,48 @@ describe("payments order cancellation refund effect projection", () => {
     expect(insertCalls).toBe(2);
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO payments_order_cancellation_refund_effects"),
-      expect.arrayContaining(["ord_1", null, null, "skipped"]),
+      expect.arrayContaining(["ord_1", null, null, null, "skipped"]),
+    );
+  });
+
+  it("reuses a claimed refund id when a failed cancellation effect is retried", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_retry", version: 2 }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [paymentRow] };
+        }
+        if (sql.includes("WHERE order_id = ANY($1)")) {
+          return {
+            rows: [
+              { order_id: "ord_1", total_amount: "10.00", status: "cancelled" },
+              { order_id: "ord_2", total_amount: "20.00", status: "pending-payment" },
+            ],
+          };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00" }] };
+        }
+        if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+          return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: "rfd_retry" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["ordering.order.cancelled"]?.(cancellationEvent());
+
+    expect(issueRefund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        refundId: "rfd_retry",
+        paymentId: "pay_1",
+      }),
+      expect.objectContaining({ tenantId: "tnt_test" }),
+    );
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("payments_order_cancellation_refund_effects.status IN ('skipped', 'failed')"),
+      expect.arrayContaining(["ord_1", "pay_1", expect.any(String), "10.33", "processing"]),
     );
   });
 });
