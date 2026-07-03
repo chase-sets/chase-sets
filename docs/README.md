@@ -169,4 +169,4 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ## Generated Markdown
 
-`packages/design-system/COMPONENT_INDEX.md` and Markdown under `artifacts/` are generated output. Regenerate them through the owning script instead of editing them by hand.
+`packages/design-system/COMPONENT_INDEX.md` is generated output. Regenerate it through the owning script instead of editing it by hand.

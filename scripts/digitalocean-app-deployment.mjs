@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -491,7 +492,40 @@ export function durableDatabaseDestructiveResourceChanges(plan) {
   return destructiveResourceChanges(plan).filter(durableDatabaseDestructiveResource);
 }
 
-export function approvedDestructiveChangeAddressesFromText(text) {
+const DESTRUCTIVE_APPROVAL_STATE_ACTIVE = "active";
+const DESTRUCTIVE_APPROVAL_STATE_NONE = "no-active-approval";
+
+function destructiveApprovalField(text, label) {
+  return new RegExp(`^${label}:\\s*(.+?)\\s*$`, "m").exec(text)?.[1]?.trim() ?? "";
+}
+
+export function destructiveChangesApprovalFingerprint(changes) {
+  const fingerprintInput = changes
+    .map((change) => ({
+      address: change.address,
+      actions: [...change.actions].sort(),
+    }))
+    .sort((left, right) => left.address.localeCompare(right.address));
+
+  return `sha256:${createHash("sha256").update(JSON.stringify(fingerprintInput)).digest("hex")}`;
+}
+
+export function destructiveChangeApprovalFromText(text) {
+  const state = destructiveApprovalField(text, "Approval state");
+  if (state === DESTRUCTIVE_APPROVAL_STATE_NONE) {
+    return { state, planFingerprint: "", addresses: [] };
+  }
+  if (state !== DESTRUCTIVE_APPROVAL_STATE_ACTIVE) {
+    throw new Error(
+      "Production destructive-change approval must declare 'Approval state: active' or 'Approval state: no-active-approval'.",
+    );
+  }
+
+  const planFingerprint = destructiveApprovalField(text, "Plan fingerprint");
+  if (!/^sha256:[a-f0-9]{64}$/.test(planFingerprint)) {
+    throw new Error("Active production destructive-change approval must include a current Plan fingerprint.");
+  }
+
   const headingMatch = /^## Approved Destructive Changes\s*$/m.exec(text);
   if (!headingMatch) {
     throw new Error("Production destructive-change approval must include an 'Approved Destructive Changes' section.");
@@ -510,11 +544,15 @@ export function approvedDestructiveChangeAddressesFromText(text) {
     throw new Error("Production destructive-change approval must list at least one exact Terraform resource address.");
   }
 
-  return [...new Set(addresses)];
+  return { state, planFingerprint, addresses: [...new Set(addresses)] };
+}
+
+export function approvedDestructiveChangeAddressesFromText(text) {
+  return destructiveChangeApprovalFromText(text).addresses;
 }
 
 export function readDestructiveChangeAllowFile(filePath) {
-  return approvedDestructiveChangeAddressesFromText(readFileSync(filePath, "utf8"));
+  return destructiveChangeApprovalFromText(readFileSync(filePath, "utf8"));
 }
 
 export function assertNoDestructiveChanges(plan, options = {}) {
@@ -524,9 +562,20 @@ export function assertNoDestructiveChanges(plan, options = {}) {
   }
 
   const durableDatabaseChanges = destructiveChanges.filter(durableDatabaseDestructiveResource);
+  const approval = options.destructiveChangeApproval;
+  const allowedDestructiveAddresses = approval?.addresses ?? options.allowedDestructiveAddresses ?? [];
 
-  if (options.allowedDestructiveAddresses?.length > 0) {
-    const allowed = new Set(options.allowedDestructiveAddresses);
+  if (allowedDestructiveAddresses.length > 0) {
+    if (approval) {
+      const expectedFingerprint = destructiveChangesApprovalFingerprint(destructiveChanges);
+      if (approval.planFingerprint !== expectedFingerprint) {
+        throw new Error(
+          `Production destructive-change approval plan fingerprint does not match the current Terraform plan. Expected ${expectedFingerprint}.`,
+        );
+      }
+    }
+
+    const allowed = new Set(allowedDestructiveAddresses);
     const unapprovedChanges = destructiveChanges.filter((change) => !allowed.has(change.address));
 
     if (unapprovedChanges.length > 0) {
@@ -999,10 +1048,10 @@ async function main(argv) {
     }
 
     const allowFilePath = options.find((option) => option.startsWith("--allow-file="))?.slice("--allow-file=".length);
-    const allowedDestructiveAddresses =
-      allowFilePath && existsSync(allowFilePath) ? readDestructiveChangeAllowFile(allowFilePath) : [];
+    const destructiveChangeApproval =
+      allowFilePath && existsSync(allowFilePath) ? readDestructiveChangeAllowFile(allowFilePath) : undefined;
 
-    await assertTerraformPlanSafe(tfplanPath, { allowedDestructiveAddresses });
+    await assertTerraformPlanSafe(tfplanPath, { destructiveChangeApproval });
     return;
   }
 
