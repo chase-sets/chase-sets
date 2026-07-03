@@ -49,7 +49,13 @@ export function ApiKeyListPage({
       columns={columns}
       actions={
         <Stack gap={3}>
-          <ApiKeySecretReveal secret={oneTimeSecret} />
+          <ApiKeySecretReveal
+            secret={
+              oneTimeSecret
+                ? { ...oneTimeSecret, detailsHref: `/access/api-keys/${oneTimeSecret.apiKeyId}` }
+                : oneTimeSecret
+            }
+          />
           <Form spacing="none" method="post">
             <Stack direction="row" align="end" gap={2}>
               <HiddenInput type="hidden" name="intent" value="create" readOnly />

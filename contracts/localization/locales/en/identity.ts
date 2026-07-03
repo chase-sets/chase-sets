@@ -121,6 +121,7 @@ export const identityEnglishTranslations = {
   "identity.features.apiKeys.ui.apiKeySecretReveal.created.title": "API key secret created",
   "identity.features.apiKeys.ui.apiKeySecretReveal.full.secret": "Full secret",
   "identity.features.apiKeys.ui.apiKeySecretReveal.rotated.title": "API key secret rotated",
+  "identity.features.apiKeys.ui.apiKeySecretReveal.view.key": "View key",
   "identity.features.apiKeys.ui.apiKeySecretReveal.warning":
     "Copy this full secret now. It is shown only once and cannot be recovered after you leave or reload this page.",
   "identity.features.apiKeys.ui.apiKeyListPage.api.keys": "API Keys",

@@ -22,7 +22,13 @@ export function ApiKeyDetailPage({
       status={data.status}
       actions={
         <Stack gap={3}>
-          <ApiKeySecretReveal secret={oneTimeSecret} />
+          <ApiKeySecretReveal
+            secret={
+              oneTimeSecret
+                ? { ...oneTimeSecret, detailsHref: `/access/api-keys/${oneTimeSecret.apiKeyId}` }
+                : oneTimeSecret
+            }
+          />
           <Inline gap={2}>
             {data.status === "active" ? (
               <>

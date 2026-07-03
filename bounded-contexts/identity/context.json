@@ -379,6 +379,35 @@
       }
     },
     {
+      "id": "identity.admin-api-key-create-detail-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "api-keys",
+        "actions": ["Create API key"],
+        "command": "CreateApiKey"
+      },
+      "destination": {
+        "routeId": "api-keys-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys/:id",
+        "helperUses": ["loadAfterWrite"],
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Admin API-key create returns the plaintext secret only as transient action data, then detail navigation reads after the API-key projection catches up. The detail route can re-fetch persisted API-key metadata, but never re-fetches the plaintext secret."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
       "id": "identity.admin-api-key-detail-fresh-read",
       "owner": "identity",
       "risk": "critical",
@@ -402,6 +431,34 @@
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "API key detail redirects carry the Identity API-key command receipt so the detail loader reads after the API-key projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity API-key API can return committed command-side state."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-api-key-list-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "api-keys",
+        "actions": ["Create API key"],
+        "command": "CreateApiKey"
+      },
+      "destination": {
+        "routeId": "api-keys",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys",
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Admin API-key create keeps the operator on the API-key list to show the plaintext secret once as transient action data, while the persisted API-key list metadata catches up through the API-key projection."
         }
       },
       "proof": {

@@ -3,6 +3,7 @@ export type OneTimeApiKeySecret = Readonly<{
   keyPrefix: string;
   secret: string;
   action: "created" | "rotated";
+  detailsHref?: string;
 }>;
 
 export type ApiKeySecretMutationResult = Readonly<{
