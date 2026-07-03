@@ -20,6 +20,7 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
 import type { PostgresWorkSignalStore } from "./work-signal-store";
+import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
 
 export type WorkerHostName = "platform-worker";
 export type WorkerHostRuntimeProfile = "landing" | "proof" | "public";
@@ -1439,16 +1440,5 @@ function isWorkerHostSourceOnly(
   hostName: WorkerHostName,
   runtimeProfile?: WorkerHostRuntimeProfile,
 ): boolean {
-  return Boolean(
-    (manifest.sourceRuntimeDeployables?.includes(hostName) &&
-      runtimeProfileMatches(manifest.sourceRuntimeProfiles, runtimeProfile)) ||
-    Boolean(manifest.sourceRuntimeProfiles && runtimeProfileMatches(manifest.sourceRuntimeProfiles, runtimeProfile)),
-  );
-}
-
-function runtimeProfileMatches(
-  profiles: readonly string[] | undefined,
-  runtimeProfile: WorkerHostRuntimeProfile | undefined,
-): boolean {
-  return !runtimeProfile || Boolean(profiles?.includes(runtimeProfile));
+  return sourceRuntimeHostMatches(manifest, hostName, runtimeProfile);
 }

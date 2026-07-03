@@ -18,6 +18,7 @@ import type {
   EnvironmentDataProfile,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
 
 export type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 
@@ -144,18 +145,7 @@ function isApiHostSourceOnly(
   hostName: ApiHostName,
   runtimeProfile?: ApiHostRuntimeProfile,
 ): boolean {
-  return Boolean(
-    (manifest.sourceRuntimeDeployables?.includes(hostName) &&
-      runtimeProfileMatches(manifest.sourceRuntimeProfiles, runtimeProfile)) ||
-    Boolean(manifest.sourceRuntimeProfiles && runtimeProfileMatches(manifest.sourceRuntimeProfiles, runtimeProfile)),
-  );
-}
-
-function runtimeProfileMatches(
-  profiles: readonly string[] | undefined,
-  runtimeProfile: ApiHostRuntimeProfile | undefined,
-): boolean {
-  return !runtimeProfile || Boolean(profiles?.includes(runtimeProfile));
+  return sourceRuntimeHostMatches(manifest, hostName, runtimeProfile);
 }
 
 export function createApiHost(
