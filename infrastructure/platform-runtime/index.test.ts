@@ -402,6 +402,7 @@ describe("platform host api registry", () => {
           contextName: "ordering",
           apiDeployables: ["platform-api"],
           apiRuntimeProfiles: ["proof", "public"],
+          sourceRuntimeDeployables: ["platform-api"],
           sourceRuntimeProfiles: ["landing"],
         },
         module: createModule("ordering", {
@@ -614,6 +615,7 @@ describe("platform host worker registry", () => {
           contextName: "fulfillment",
           runtimeDeployables: ["platform-worker"],
           workerRuntimeProfiles: ["proof", "public"],
+          sourceRuntimeDeployables: ["platform-worker"],
           sourceRuntimeProfiles: ["landing"],
         },
         module: createModule("fulfillment", {
