@@ -33,7 +33,18 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
       };
 
       await db.query(
-        `WITH upserted_payment AS (
+        `WITH source_conflict AS (
+         SELECT payment_id
+         FROM payments_payment_pages
+         WHERE $23::text IS NOT NULL
+           AND $24::text IS NOT NULL
+           AND source_context = $23
+           AND source_reference_id = $24
+           AND payment_id <> $1
+         ORDER BY created_at ASC, payment_id ASC
+         LIMIT 1
+       ),
+       upserted_payment AS (
          INSERT INTO payments_payment_pages (
            payment_id,
            buyer_account_id,
@@ -71,9 +82,10 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            refunded_amount,
            disputed_at,
            last_stream_version
-         ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-confirmation', NULL, NULL, $25, $25, NULL, NULL, NULL, NULL, 0, NULL, $26
          )
+         SELECT
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-confirmation', NULL, NULL, $25, $25, NULL, NULL, NULL, NULL, 0, NULL, $26
+         WHERE NOT EXISTS (SELECT 1 FROM source_conflict)
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              order_ids = EXCLUDED.order_ids,

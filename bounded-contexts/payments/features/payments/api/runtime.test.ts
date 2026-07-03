@@ -165,10 +165,78 @@ function createProcessorGateway() {
 function createOrderInputDb(
   options: Readonly<{ savedCheckoutInstrumentRows?: readonly Record<string, unknown>[] }> = {},
 ) {
+  const reservations = new Map<string, Record<string, unknown>>();
+  const sourceReservationKey = (sourceContext: unknown, sourceReferenceId: unknown) =>
+    typeof sourceContext === "string" && typeof sourceReferenceId === "string"
+      ? `${sourceContext}:${sourceReferenceId}`
+      : null;
+  const orderReservationKey = (buyerAccountId: unknown, orderSetKey: unknown) =>
+    typeof buyerAccountId === "string" && typeof orderSetKey === "string" ? `${buyerAccountId}:${orderSetKey}` : null;
+  const reservationRow = (
+    paymentId: unknown,
+    buyerAccountId: unknown,
+    orderSetKey: unknown,
+    orderIds: unknown,
+    sourceContext: unknown,
+    sourceReferenceId: unknown,
+    createdAt: unknown,
+  ) => ({
+    payment_id: paymentId,
+    buyer_account_id: buyerAccountId,
+    order_set_key: orderSetKey,
+    order_ids: typeof orderIds === "string" ? JSON.parse(orderIds) : [],
+    source_context: sourceContext,
+    source_reference_id: sourceReferenceId,
+    status: "active",
+    created_at: createdAt,
+    updated_at: createdAt,
+  });
+
   return {
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
       if (sql.includes("FROM payments_saved_checkout_instruments")) {
         return { rows: [...(options.savedCheckoutInstrumentRows ?? [])] };
+      }
+
+      if (sql.includes("INSERT INTO payments_payment_creation_reservations")) {
+        const sourceKey = sourceReservationKey(params?.[4], params?.[5]);
+        const orderKey = orderReservationKey(params?.[1], params?.[2]);
+        if (
+          (sourceKey && reservations.has(`source:${sourceKey}`)) ||
+          (orderKey && reservations.has(`order:${orderKey}`))
+        ) {
+          return { rows: [] };
+        }
+        const row = reservationRow(
+          params?.[0],
+          params?.[1],
+          params?.[2],
+          params?.[3],
+          params?.[4],
+          params?.[5],
+          params?.[6],
+        );
+        if (sourceKey) {
+          reservations.set(`source:${sourceKey}`, row);
+        }
+        if (orderKey) {
+          reservations.set(`order:${orderKey}`, row);
+        }
+        return { rows: [row] };
+      }
+
+      if (sql.includes("FROM payments_payment_creation_reservations") && sql.includes("source_context = $1")) {
+        const sourceKey = sourceReservationKey(params?.[0], params?.[1]);
+        return { rows: sourceKey ? [reservations.get(`source:${sourceKey}`)].filter(Boolean) : [] };
+      }
+
+      if (sql.includes("FROM payments_payment_creation_reservations") && sql.includes("buyer_account_id = $1")) {
+        const orderKey = orderReservationKey(params?.[0], params?.[1]);
+        return { rows: orderKey ? [reservations.get(`order:${orderKey}`)].filter(Boolean) : [] };
+      }
+
+      if (sql.includes("UPDATE payments_payment_creation_reservations")) {
+        return { rows: [] };
       }
 
       if (sql.includes("FROM payments_order_inputs")) {
@@ -354,6 +422,125 @@ describe("payment runtime", () => {
       processor_publishable_key: "pk_test_123",
     });
     expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
+  });
+
+  it("single-flights concurrent checkout-sourced payment creation", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    let releaseProviderSession: (() => void) | null = null;
+    const providerSessionEntered = new Promise<void>((resolve) => {
+      processorGateway.createPaymentSession.mockImplementation(async (input: { paymentId: string }) => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseProviderSession = release;
+        });
+        return {
+          processorName: "stripe" as const,
+          processorPaymentKind: "payment-intent" as const,
+          processorPaymentReference: `pi_${input.paymentId}`,
+          processorClientSecret: `secret_${input.paymentId}`,
+          processorRedirectUrl: null,
+          processorStatus: "requires_payment_method",
+        };
+      });
+    });
+    const db = createOrderInputDb();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const input = {
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+      marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      sourceContext: "checkout",
+      sourceReferenceId: "chk_1",
+    };
+
+    const first = services.createAccountPayment(input, context);
+    await providerSessionEntered;
+    const second = services.createAccountPayment(input, context);
+    releaseProviderSession?.();
+    const [firstPayment, secondPayment] = await Promise.all([first, second]);
+
+    expect(firstPayment.payment_id).toBe(secondPayment.payment_id);
+    expect(firstPayment.processor_payment_reference).toBe(secondPayment.processor_payment_reference);
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+    expect(readAllEvents().filter((event) => event.eventType === "payments.payment-created")).toHaveLength(1);
+  });
+
+  it.each([
+    ["different source", { sourceContext: "checkout", sourceReferenceId: "chk_2" }],
+    ["null source", { sourceContext: null, sourceReferenceId: null }],
+  ])("rejects the same order set with a %s while a payment is active", async (_label, conflictingSource) => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    let releaseProviderSession: (() => void) | null = null;
+    const providerSessionEntered = new Promise<void>((resolve) => {
+      processorGateway.createPaymentSession.mockImplementation(async (input: { paymentId: string }) => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseProviderSession = release;
+        });
+        return {
+          processorName: "stripe" as const,
+          processorPaymentKind: "payment-intent" as const,
+          processorPaymentReference: `pi_${input.paymentId}`,
+          processorClientSecret: `secret_${input.paymentId}`,
+          processorRedirectUrl: null,
+          processorStatus: "requires_payment_method",
+        };
+      });
+    });
+    const db = createOrderInputDb();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const first = services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+        sourceContext: "checkout",
+        sourceReferenceId: "chk_1",
+      },
+      context,
+    );
+    await providerSessionEntered;
+
+    await expect(
+      services.createAccountPayment(
+        {
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1" as never],
+          paymentMethodCategory: "card",
+          marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+          ...conflictingSource,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "active_payment_exists_for_order_set" });
+
+    releaseProviderSession?.();
+    await first;
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
   });
 
   it("applies available balance credit and creates an external payment for the remainder", async () => {

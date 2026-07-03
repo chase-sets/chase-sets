@@ -108,6 +108,28 @@ export type PaymentProviderIdempotencyKeyRow = Readonly<{
   created_at: string;
 }>;
 
+export type PaymentCreationReservationRow = Readonly<{
+  payment_id: string;
+  buyer_account_id: string;
+  order_set_key: string;
+  order_ids: readonly string[];
+  source_context: string | null;
+  source_reference_id: string | null;
+  status: "active" | "failed" | "released";
+  created_at: string;
+  updated_at: string;
+}>;
+
+type PaymentCreationReservationRawRow = Omit<PaymentCreationReservationRow, "order_ids"> &
+  Readonly<{ order_ids: unknown }>;
+
+export type PaymentCreationReservationResult = Readonly<
+  | { outcome: "reserved"; reservation: PaymentCreationReservationRow }
+  | { outcome: "same-source"; reservation: PaymentCreationReservationRow }
+  | { outcome: "source-conflict"; reservation: PaymentCreationReservationRow }
+  | { outcome: "same-order-set"; reservation: PaymentCreationReservationRow }
+>;
+
 type PaymentPageRow = Omit<PaymentDetailRow, "order_ids" | "seller_payouts"> &
   Readonly<{
     order_ids: unknown;
@@ -132,6 +154,19 @@ function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
         )
       : [],
   };
+}
+
+function mapPaymentCreationReservationRow(row: PaymentCreationReservationRawRow): PaymentCreationReservationRow {
+  return {
+    ...row,
+    order_ids: Array.isArray(row.order_ids)
+      ? row.order_ids.filter((value): value is string => typeof value === "string")
+      : [],
+  };
+}
+
+export function paymentCreationOrderSetKey(orderIds: readonly string[]) {
+  return JSON.stringify([...new Set(orderIds)].sort());
 }
 
 const paymentSelect = `
@@ -265,6 +300,189 @@ export async function getPaymentBySource(
 
   const row = result.rows[0];
   return row ? mapPaymentRow(row) : null;
+}
+
+const activePaymentStatuses = ["pending-confirmation", "captured", "partially-refunded", "refunded", "disputed"];
+
+export async function getActivePaymentByOrderSet(
+  db: PgQueryable,
+  orderIds: readonly string[],
+  buyerAccountId: string,
+): Promise<PaymentDetailRow | null> {
+  const result = await db.query<PaymentPageRow>(
+    `WITH requested_order_ids AS (
+       SELECT jsonb_array_elements_text($1::jsonb) AS order_id
+     ),
+     exact_payment_order_sets AS (
+       SELECT payment_id
+       FROM payments_payment_orders
+       GROUP BY payment_id
+       HAVING COUNT(*) = (SELECT COUNT(*) FROM requested_order_ids)
+          AND COUNT(*) FILTER (WHERE order_id IN (SELECT order_id FROM requested_order_ids)) =
+              (SELECT COUNT(*) FROM requested_order_ids)
+     )
+     ${paymentSelect}
+     WHERE buyer_account_id = $2
+       AND status = ANY($3::text[])
+       AND payment_id IN (SELECT payment_id FROM exact_payment_order_sets)
+     ORDER BY created_at ASC, payment_id ASC
+     LIMIT 1`,
+    [JSON.stringify([...new Set(orderIds)]), buyerAccountId, activePaymentStatuses],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPaymentRow(row) : null;
+}
+
+async function getActivePaymentCreationReservationBySource(
+  db: PgQueryable,
+  sourceContext: string,
+  sourceReferenceId: string,
+): Promise<PaymentCreationReservationRow | null> {
+  const result = await db.query<PaymentCreationReservationRawRow>(
+    `SELECT
+       payment_id,
+       buyer_account_id,
+       order_set_key,
+       order_ids,
+       source_context,
+       source_reference_id,
+       status,
+       created_at,
+       updated_at
+     FROM payments_payment_creation_reservations
+     WHERE source_context = $1
+       AND source_reference_id = $2
+       AND status = 'active'
+     ORDER BY created_at ASC, payment_id ASC
+     LIMIT 1`,
+    [sourceContext, sourceReferenceId],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPaymentCreationReservationRow(row) : null;
+}
+
+async function getActivePaymentCreationReservationByOrderSet(
+  db: PgQueryable,
+  buyerAccountId: string,
+  orderSetKey: string,
+): Promise<PaymentCreationReservationRow | null> {
+  const result = await db.query<PaymentCreationReservationRawRow>(
+    `SELECT
+       payment_id,
+       buyer_account_id,
+       order_set_key,
+       order_ids,
+       source_context,
+       source_reference_id,
+       status,
+       created_at,
+       updated_at
+     FROM payments_payment_creation_reservations
+     WHERE buyer_account_id = $1
+       AND order_set_key = $2
+       AND status = 'active'
+     ORDER BY created_at ASC, payment_id ASC
+     LIMIT 1`,
+    [buyerAccountId, orderSetKey],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPaymentCreationReservationRow(row) : null;
+}
+
+export async function reservePaymentCreation(
+  db: PgQueryable,
+  reservation: Readonly<{
+    paymentId: string;
+    buyerAccountId: string;
+    orderIds: readonly string[];
+    sourceContext?: string | null;
+    sourceReferenceId?: string | null;
+    createdAt?: string;
+  }>,
+): Promise<PaymentCreationReservationResult> {
+  const orderIds = [...new Set(reservation.orderIds)];
+  const orderSetKey = paymentCreationOrderSetKey(orderIds);
+  const timestamp = reservation.createdAt ?? new Date().toISOString();
+  const result = await db.query<PaymentCreationReservationRawRow>(
+    `INSERT INTO payments_payment_creation_reservations (
+       payment_id,
+       buyer_account_id,
+       order_set_key,
+       order_ids,
+       source_context,
+       source_reference_id,
+       status,
+       created_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'active', $7, $7)
+     ON CONFLICT DO NOTHING
+     RETURNING
+       payment_id,
+       buyer_account_id,
+       order_set_key,
+       order_ids,
+       source_context,
+       source_reference_id,
+       status,
+       created_at,
+       updated_at`,
+    [
+      reservation.paymentId,
+      reservation.buyerAccountId,
+      orderSetKey,
+      JSON.stringify(orderIds),
+      reservation.sourceContext ?? null,
+      reservation.sourceReferenceId ?? null,
+      timestamp,
+    ],
+  );
+
+  const inserted = result.rows[0];
+  if (inserted) {
+    return { outcome: "reserved", reservation: mapPaymentCreationReservationRow(inserted) };
+  }
+
+  if (reservation.sourceContext && reservation.sourceReferenceId) {
+    const existingSource = await getActivePaymentCreationReservationBySource(
+      db,
+      reservation.sourceContext,
+      reservation.sourceReferenceId,
+    );
+    if (existingSource) {
+      return {
+        outcome: existingSource.buyer_account_id === reservation.buyerAccountId ? "same-source" : "source-conflict",
+        reservation: existingSource,
+      };
+    }
+  }
+
+  const existingOrderSet = await getActivePaymentCreationReservationByOrderSet(
+    db,
+    reservation.buyerAccountId,
+    orderSetKey,
+  );
+  if (existingOrderSet) {
+    return { outcome: "same-order-set", reservation: existingOrderSet };
+  }
+
+  throw new Error("Payment creation reservation conflict could not be resolved.");
+}
+
+export async function markPaymentCreationReservationInactive(
+  db: PgQueryable,
+  params: Readonly<{ paymentId: string; status: "failed" | "released"; updatedAt?: string }>,
+) {
+  await db.query(
+    `UPDATE payments_payment_creation_reservations
+     SET status = $2,
+         updated_at = $3
+     WHERE payment_id = $1
+       AND status = 'active'`,
+    [params.paymentId, params.status, params.updatedAt ?? new Date().toISOString()],
+  );
 }
 
 export async function listSavedCheckoutInstruments(
