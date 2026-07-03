@@ -97,6 +97,36 @@ describe("checkout confirmation request support", () => {
     });
   });
 
+  it("surfaces the Payments single-flight result as the existing checkout payment", async () => {
+    mockCreateAccountPayment.mockResolvedValue({
+      payment_id: "pay_existing",
+      status: "pending-confirmation",
+      source_context: "checkout",
+      source_reference_id: "chk_1",
+    });
+    const request = new Request("https://checkout.test/account/checkout-sessions/chk_1/confirm");
+
+    const payment = await createCheckoutPaymentThroughPayments(
+      request,
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/account/payments/:paymentId",
+    );
+
+    expect(payment).toEqual({
+      payment_id: "pay_existing",
+      status: "pending-confirmation",
+      source_context: "checkout",
+      source_reference_id: "chk_1",
+    });
+    expect(mockCreateAccountPayment).toHaveBeenCalledTimes(1);
+  });
+
   it("retries existing-order payment creation when freshness metadata is missing and order input is still pending", async () => {
     mockCreateAccountPayment
       .mockRejectedValueOnce(

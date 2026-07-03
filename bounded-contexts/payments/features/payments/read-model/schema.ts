@@ -44,6 +44,18 @@ CREATE TABLE IF NOT EXISTS payments_payment_orders (
   PRIMARY KEY (payment_id, order_id)
 );
 
+CREATE TABLE IF NOT EXISTS payments_payment_creation_reservations (
+  payment_id text PRIMARY KEY,
+  buyer_account_id text NOT NULL,
+  order_set_key text NOT NULL,
+  order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  source_context text NULL,
+  source_reference_id text NULL,
+  status text NOT NULL CHECK (status IN ('active', 'failed', 'released')),
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS payments_payment_pages_buyer_idx
   ON payments_payment_pages (buyer_account_id, updated_at DESC, payment_id DESC);
 
@@ -53,6 +65,14 @@ CREATE INDEX IF NOT EXISTS payments_payment_pages_processor_idx
 CREATE UNIQUE INDEX IF NOT EXISTS payments_payment_pages_source_idx
   ON payments_payment_pages (source_context, source_reference_id)
   WHERE source_context IS NOT NULL AND source_reference_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS payments_payment_creation_reservations_source_active_idx
+  ON payments_payment_creation_reservations (source_context, source_reference_id)
+  WHERE status = 'active' AND source_context IS NOT NULL AND source_reference_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS payments_payment_creation_reservations_order_set_active_idx
+  ON payments_payment_creation_reservations (buyer_account_id, order_set_key)
+  WHERE status = 'active';
 
 CREATE TABLE IF NOT EXISTS payments_provider_idempotency_keys (
   operation_key text PRIMARY KEY,
@@ -198,6 +218,29 @@ CROSS JOIN LATERAL jsonb_array_elements_text(order_ids) AS payment_order_ids(ord
 ON CONFLICT (payment_id, order_id) DO NOTHING`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_orders_order_idx
   ON payments_payment_orders (order_id, payment_id)`,
+    ],
+  },
+  {
+    migrationId: "20260703_payments_payment_creation_reservations",
+    description: "Reserve payment creation by source and active order set before provider session creation.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS payments_payment_creation_reservations (
+  payment_id text PRIMARY KEY,
+  buyer_account_id text NOT NULL,
+  order_set_key text NOT NULL,
+  order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  source_context text NULL,
+  source_reference_id text NULL,
+  status text NOT NULL CHECK (status IN ('active', 'failed', 'released')),
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+)`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_creation_reservations_source_active_idx
+  ON payments_payment_creation_reservations (source_context, source_reference_id)
+  WHERE status = 'active' AND source_context IS NOT NULL AND source_reference_id IS NOT NULL`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_creation_reservations_order_set_active_idx
+  ON payments_payment_creation_reservations (buyer_account_id, order_set_key)
+  WHERE status = 'active'`,
     ],
   },
 ] as const;

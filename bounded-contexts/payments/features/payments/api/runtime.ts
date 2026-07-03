@@ -49,6 +49,7 @@ import {
   listSavedCheckoutInstruments,
   completeSavedCheckoutSetupSession,
   markSavedCheckoutInstrumentRemoved,
+  markPaymentCreationReservationInactive,
   recordSavedCheckoutInstrumentAudit,
   recordSavedCheckoutSetupSession,
   recordPaymentReconciliationRun,
@@ -56,9 +57,11 @@ import {
   recordPaymentProviderOperationFailed,
   recordPaymentProviderOperationPending,
   recordPaymentProviderOperationSucceeded,
+  reservePaymentCreation,
   setSavedCheckoutInstrumentDefault,
   upsertProviderCustomer,
   upsertSavedCheckoutInstrument,
+  getActivePaymentByOrderSet,
   getPaymentBySource,
   type PaymentDetailRow,
   type PaymentProviderEventRow,
@@ -159,6 +162,10 @@ function resolvePaymentReturnPath(value: string | null | undefined, paymentId: P
   }
 
   return raw.replaceAll(":paymentId", paymentId).replaceAll("{paymentId}", paymentId);
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function sumOrderAmounts(orders: readonly Readonly<{ total_amount: string }>[]) {
@@ -615,7 +622,7 @@ export type PaymentServices = Readonly<{
 
 export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<PaymentEvent>(),
     initialState: () => initialPaymentState,
@@ -643,6 +650,107 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       processor_publishable_key: canUseProcessorManagedForm ? publicConfig.publishableKey : null,
       provider_events: providerEvents,
     };
+  }
+
+  function paymentStateToDetailRow(state: PaymentState): PaymentDetailRow {
+    assert(state.paymentId, "Payment creation is still in progress.");
+    assert(state.buyerAccountId, "Payment creation is still in progress.");
+    assert(state.amount, "Payment creation is still in progress.");
+    assert(state.processorAmount, "Payment creation is still in progress.");
+    assert(state.marketplaceSalesFeeAmount, "Payment creation is still in progress.");
+    assert(state.marketplaceCheckoutFeeAmount, "Payment creation is still in progress.");
+    assert(state.sellerNetAmount, "Payment creation is still in progress.");
+    assert(state.sellerPayoutAmount, "Payment creation is still in progress.");
+    assert(state.currencyCode, "Payment creation is still in progress.");
+    assert(state.processorName, "Payment creation is still in progress.");
+    assert(state.processorPaymentKind, "Payment creation is still in progress.");
+    assert(state.processorPaymentReference, "Payment creation is still in progress.");
+    assert(state.processorStatus, "Payment creation is still in progress.");
+    assert(state.status, "Payment creation is still in progress.");
+    assert(state.createdAt, "Payment creation is still in progress.");
+
+    return {
+      payment_id: state.paymentId,
+      buyer_account_id: state.buyerAccountId,
+      order_ids: state.orderIds,
+      amount: state.amount,
+      balance_credit_amount: state.balanceCreditAmount,
+      processor_amount: state.processorAmount,
+      marketplace_sales_fee_amount: state.marketplaceSalesFeeAmount,
+      marketplace_checkout_fee_amount: state.marketplaceCheckoutFeeAmount,
+      marketplace_checkout_fee_policy_version: state.marketplaceCheckoutFeePolicyVersion,
+      marketplace_checkout_fee_quote_fingerprint: state.marketplaceCheckoutFeeQuoteFingerprint,
+      payment_method_category: state.paymentMethodCategory,
+      saved_checkout_instrument_id: state.savedCheckoutInstrumentId,
+      seller_net_amount: state.sellerNetAmount,
+      seller_payout_amount: state.sellerPayoutAmount,
+      seller_payouts: state.sellerPayouts,
+      currency_code: state.currencyCode,
+      processor_name: state.processorName,
+      processor_payment_kind: state.processorPaymentKind,
+      processor_payment_reference: state.processorPaymentReference,
+      processor_client_secret: state.processorClientSecret,
+      processor_redirect_url: state.processorRedirectUrl,
+      processor_status: state.processorStatus,
+      source_context: state.sourceContext,
+      source_reference_id: state.sourceReferenceId,
+      status: state.status,
+      failure_code: state.failureCode,
+      failure_message: state.failureMessage,
+      created_at: state.createdAt,
+      updated_at:
+        state.disputedAt ??
+        state.refundedAt ??
+        state.cancelledAt ??
+        state.failedAt ??
+        state.capturedAt ??
+        state.createdAt,
+      captured_at: state.capturedAt,
+      failed_at: state.failedAt,
+      cancelled_at: state.cancelledAt,
+      refunded_at: state.refundedAt,
+      refunded_amount: state.refundedAmount,
+      disputed_at: state.disputedAt,
+    };
+  }
+
+  async function loadExistingPaymentSnapshot(
+    paymentId: PaymentId,
+    accountId: AccountId,
+  ): Promise<
+    | (PaymentDetailRow &
+        Readonly<{
+          processor_publishable_key: string | null;
+          provider_events: readonly PaymentProviderEventRow[];
+        }>)
+    | null
+  > {
+    const projected = await getPaymentById(deps.db, paymentId);
+    if (projected) {
+      return projected.buyer_account_id === accountId ? exposePayment(projected) : null;
+    }
+
+    const loaded = await repository.load(`payments.payment-${paymentId}`);
+    if (!loaded.state.paymentId || loaded.state.buyerAccountId !== accountId) {
+      return null;
+    }
+
+    return exposePayment(paymentStateToDetailRow(loaded.state));
+  }
+
+  async function waitForExistingPaymentSnapshot(paymentId: PaymentId, accountId: AccountId) {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const payment = await loadExistingPaymentSnapshot(paymentId, accountId);
+      if (payment) {
+        return payment;
+      }
+      await delay(25);
+    }
+
+    throw new PaymentsDomainError(
+      "Payment creation is already in progress. Try again in a moment.",
+      "payment_creation_in_progress",
+    );
   }
 
   function mapCheckoutAffordanceInstrument(row: SavedCheckoutInstrumentRow): CheckoutAffordanceInstrument {
@@ -892,6 +1000,21 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       }
       const orderIds = normalizeOrderIds(params.orderIds);
       const orders = await loadAccountOrders(deps.db, orderIds, accountId);
+      const activeOrderSetPayment = await getActivePaymentByOrderSet(deps.db, orderIds, accountId);
+      if (activeOrderSetPayment) {
+        if (
+          sourceContext &&
+          sourceReferenceId &&
+          activeOrderSetPayment.source_context === sourceContext &&
+          activeOrderSetPayment.source_reference_id === sourceReferenceId
+        ) {
+          return exposePayment(activeOrderSetPayment);
+        }
+        throw new PaymentsDomainError(
+          "An active payment already exists for this order set.",
+          "active_payment_exists_for_order_set",
+        );
+      }
       const amount = sumOrderAmounts(orders);
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
       const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
@@ -950,9 +1073,6 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         !params.agenticPayment &&
         paymentMethodCategory !== "platform-credit" &&
         compareMoney(externalBasisAmount, "0.00") > 0;
-      const savePaymentProviderCustomer = shouldSavePaymentMethod
-        ? await ensureProviderCustomer(deps, { accountId })
-        : null;
       const paymentAmount = marketplaceCheckoutFeeQuote.total_amount;
       const processorAmount = marketplaceCheckoutFeeQuote.processor_amount;
       const marketplaceSalesFeeAmount = sumFeeAmounts(orders, "marketplace_sales_fee_amount");
@@ -961,17 +1081,46 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const sellerPayoutAmount = sumFeeAmounts(orders, "seller_payout_amount");
       const sellerPayouts = buildSellerPayoutComponents(orders);
       const paymentId = createId("pay") as PaymentId;
-      const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
-      const returnUrlPath = resolvePaymentReturnPath(params.returnUrlPath, paymentId);
-      const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
-      const providerOperationKey = `payment:${paymentId}:create`;
+      const createdAt = new Date().toISOString();
       const createAgenticPaymentSession = deps.processorGateway.createAgenticPaymentSession?.bind(
         deps.processorGateway,
       );
       if (params.agenticPayment && !createAgenticPaymentSession) {
         throw new PaymentsDomainError("Agentic payment handoff is not supported by the configured payment processor.");
       }
-      const createdAt = new Date().toISOString();
+      const reservation = await reservePaymentCreation(deps.db, {
+        paymentId,
+        buyerAccountId: accountId,
+        orderIds,
+        sourceContext,
+        sourceReferenceId,
+        createdAt,
+      });
+      if (reservation.outcome === "same-source") {
+        return waitForExistingPaymentSnapshot(reservation.reservation.payment_id as PaymentId, accountId);
+      }
+      if (reservation.outcome === "source-conflict" || reservation.outcome === "same-order-set") {
+        throw new PaymentsDomainError(
+          "An active payment already exists for this order set.",
+          "active_payment_exists_for_order_set",
+        );
+      }
+      let savePaymentProviderCustomer: ProviderCustomerRow | null = null;
+      if (shouldSavePaymentMethod) {
+        try {
+          savePaymentProviderCustomer = await ensureProviderCustomer(deps, { accountId });
+        } catch (error) {
+          await markPaymentCreationReservationInactive(deps.db, {
+            paymentId,
+            status: "failed",
+          });
+          throw error;
+        }
+      }
+      const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
+      const returnUrlPath = resolvePaymentReturnPath(params.returnUrlPath, paymentId);
+      const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
+      const providerOperationKey = `payment:${paymentId}:create`;
       const providerRequest = {
         paymentId,
         buyerAccountId: accountId,
@@ -1065,6 +1214,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         await recordPaymentProviderOperationFailed(deps.db, {
           operationKey: providerOperationKey,
           errorMessage: error instanceof Error ? error.message : "Payment processor session creation failed.",
+        });
+        await markPaymentCreationReservationInactive(deps.db, {
+          paymentId,
+          status: "failed",
         });
         throw error;
       }
@@ -1529,6 +1682,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             },
             context,
           });
+          await markPaymentCreationReservationInactive(deps.db, {
+            paymentId: payment.payment_id,
+            status: "failed",
+            updatedAt: webhookEvent.occurredAt,
+          });
           break;
         case "payment-cancelled":
           await commandHandler({
@@ -1538,6 +1696,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
               cancelledAt: webhookEvent.occurredAt,
             },
             context,
+          });
+          await markPaymentCreationReservationInactive(deps.db, {
+            paymentId: payment.payment_id,
+            status: "released",
+            updatedAt: webhookEvent.occurredAt,
           });
           break;
         case "payment-refunded":
