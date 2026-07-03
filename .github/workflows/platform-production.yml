@@ -114,58 +114,11 @@ jobs:
         id: deployment_scope
         run: |
           set -euo pipefail
-          release_commit="${{ steps.release.outputs.release_commit }}"
-          git fetch origin production || true
-
-          # Skip stale releases before any staging work starts: a newer main
-          # commit has its own deploy run queued behind this one (issue #1326).
-          if [ "${{ github.event_name }}" = "push" ]; then
-            git fetch origin main
-            latest_main="$(git rev-parse origin/main)"
-            if [ "$release_commit" != "$latest_main" ]; then
-              {
-                echo "deploy=false"
-                echo "exposure_posture_changed=false"
-                echo "exposure_posture_categories="
-                echo "exposure_posture_categories_json=[]"
-                echo "changed_files_json=[]"
-              } >> "$GITHUB_OUTPUT"
-              echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale deployment before staging."
-              exit 0
-            fi
-          fi
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_deploy }}" = "true" ]; then
-            {
-              echo "deploy=true"
-              echo "exposure_posture_changed=false"
-              echo "exposure_posture_categories="
-              echo "exposure_posture_categories_json=[]"
-              echo "changed_files_json=[]"
-            } >> "$GITHUB_OUTPUT"
-            echo "Manual force deployment requested for ${release_commit}."
-            exit 0
-          fi
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && git show-ref --verify --quiet refs/remotes/origin/production; then
-            base_commit="$(git rev-parse origin/production)"
-          else
-            base_commit="$(git rev-parse "${release_commit}^" 2>/dev/null || true)"
-          fi
-
-          if [ -z "$base_commit" ]; then
-            {
-              echo "deploy=true"
-              echo "exposure_posture_changed=false"
-              echo "exposure_posture_categories="
-              echo "exposure_posture_categories_json=[]"
-              echo "changed_files_json=[]"
-            } >> "$GITHUB_OUTPUT"
-            echo "No base commit was available for ${release_commit}; deployment is required."
-            exit 0
-          fi
-
-          node ./scripts/change-scope.mjs github-output --base="${base_commit}" --head="${release_commit}"
+          node ./scripts/release-deployment-scope.mjs \
+            --event-name "${{ github.event_name }}" \
+            --release-commit "${{ steps.release.outputs.release_commit }}" \
+            --force-deploy "${{ github.event_name == 'workflow_dispatch' && inputs.force_deploy == true && 'true' || 'false' }}" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Resolve production recovery mode
         id: recovery_mode
