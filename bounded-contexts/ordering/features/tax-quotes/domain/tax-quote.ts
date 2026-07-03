@@ -1,3 +1,11 @@
+import {
+  applyBasisPointsToMoneyAmount,
+  centsToMoneyAmount,
+  moneyToCents,
+  sumMoneyAmounts,
+  tryMoneyToCents,
+} from "@chase-sets/primitives/money";
+
 export type TaxDestinationAddress = Readonly<{
   name: string | null;
   line1: string;
@@ -47,18 +55,12 @@ export type LocalTaxRule = Readonly<{
 
 function normalizeMoneyAmount(value: string | null | undefined) {
   const normalized = String(value ?? "0.00").trim();
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+  const cents = tryMoneyToCents(normalized);
+  if (cents === null) {
     throw new Error("Tax amounts must be non-negative money values.");
   }
 
-  return Number.parseFloat(normalized).toFixed(2);
-}
-
-function ceilMoney(value: number) {
-  if (value <= 0) {
-    return "0.00";
-  }
-  return (Math.ceil((value + Number.EPSILON) * 100) / 100).toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeJurisdiction(value: string | null | undefined) {
@@ -83,21 +85,23 @@ export function createLocalTaxQuoteResolver(rules: readonly LocalTaxRule[] = [])
   return {
     async quoteTax(input) {
       const rule = chooseRule(rules, input.destinationAddress);
-      const itemSubtotalAmount = Number.parseFloat(normalizeMoneyAmount(input.itemSubtotalAmount));
-      const shippingAmount = Number.parseFloat(normalizeMoneyAmount(input.shippingAmount));
-      const marketplaceCheckoutFeeAmount = Number.parseFloat(normalizeMoneyAmount(input.marketplaceCheckoutFeeAmount));
+      const itemSubtotalAmount = normalizeMoneyAmount(input.itemSubtotalAmount);
+      const shippingAmount = normalizeMoneyAmount(input.shippingAmount);
+      const marketplaceCheckoutFeeAmount = normalizeMoneyAmount(input.marketplaceCheckoutFeeAmount);
       const itemTaxable = rule?.itemTaxable ?? Boolean(rule);
       const shippingTaxable = rule?.shippingTaxable ?? false;
       const marketplaceCheckoutFeeTaxable = rule?.marketplaceCheckoutFeeTaxable ?? false;
-      const taxableAmount =
-        (itemTaxable ? itemSubtotalAmount : 0) +
-        (shippingTaxable ? shippingAmount : 0) +
-        (marketplaceCheckoutFeeTaxable ? marketplaceCheckoutFeeAmount : 0);
+      const taxableAmount = sumMoneyAmounts([
+        itemTaxable ? itemSubtotalAmount : "0.00",
+        shippingTaxable ? shippingAmount : "0.00",
+        marketplaceCheckoutFeeTaxable ? marketplaceCheckoutFeeAmount : "0.00",
+      ]);
       const rateBps = rule?.rateBps ?? 0;
 
       return {
-        taxableAmount: taxableAmount.toFixed(2),
-        taxAmount: ceilMoney((taxableAmount * rateBps) / 10_000),
+        taxableAmount,
+        taxAmount:
+          moneyToCents(taxableAmount) > 0n ? applyBasisPointsToMoneyAmount(taxableAmount, rateBps, "ceil") : "0.00",
         jurisdictionCountry: normalizeJurisdiction(input.destinationAddress.country),
         jurisdictionState: normalizeJurisdiction(input.destinationAddress.state) || null,
         rateBps,

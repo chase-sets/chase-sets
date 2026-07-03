@@ -1,5 +1,13 @@
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import {
+  addMoneyAmounts,
+  compareMoneyAmounts,
+  centsToMoneyAmount,
+  moneyToCents,
+  subtractMoneyAmounts,
+  tryMoneyToCents,
+} from "@chase-sets/primitives/money";
 
 export type RefundId = TypedUlid<"rfd">;
 
@@ -61,47 +69,31 @@ export function normalizeMoneyAmount(
   const normalized = value.trim();
   const fieldName = options.fieldName ?? "Amount";
 
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, `${fieldName} must be a valid decimal.`);
 
-  const numeric = Number.parseFloat(normalized);
   assert(
-    options.allowZero ? numeric >= 0 : numeric > 0,
+    options.allowZero ? cents >= 0n : cents > 0n,
     `${fieldName} must be ${options.allowZero ? "zero or greater" : "greater than zero"}.`,
   );
 
-  return numeric.toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 export function moneyToMinorUnits(value: string): number {
-  const normalized = normalizeMoneyAmount(value, {
-    allowZero: true,
-    fieldName: "Amount",
-  });
-
-  return Math.round(Number.parseFloat(normalized) * 100);
-}
-
-function parseMoneyAmount(value: string, options: Readonly<{ allowZero?: boolean; fieldName?: string }> = {}) {
-  return Number.parseFloat(normalizeMoneyAmount(value, options));
+  return Number(moneyToCents(normalizeMoneyAmount(value, { allowZero: true, fieldName: "Amount" })));
 }
 
 export function addMoney(left: string, right: string) {
-  return (parseMoneyAmount(left, { allowZero: true }) + parseMoneyAmount(right, { allowZero: true })).toFixed(2);
+  return addMoneyAmounts(left, right);
 }
 
 export function subtractMoney(left: string, right: string) {
-  return (parseMoneyAmount(left, { allowZero: true }) - parseMoneyAmount(right, { allowZero: true })).toFixed(2);
+  return subtractMoneyAmounts(left, right);
 }
 
 export function compareMoney(left: string, right: string): -1 | 0 | 1 {
-  const difference = parseMoneyAmount(left, { allowZero: true }) - parseMoneyAmount(right, { allowZero: true });
-  if (difference < 0) {
-    return -1;
-  }
-  if (difference > 0) {
-    return 1;
-  }
-  return 0;
+  return compareMoneyAmounts(left, right);
 }
 
 export function normalizeCurrencyCode(value: string): CurrencyCode {

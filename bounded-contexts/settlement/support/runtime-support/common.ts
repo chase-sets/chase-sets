@@ -1,4 +1,13 @@
 import type { AccountId, LedgerEntryId, OrderId, PaymentId, PayoutId } from "@chase-sets/primitives/typed-ids";
+import {
+  addSignedMoneyAmounts,
+  centsToMoneyAmount,
+  centsToSignedMoneyAmount,
+  compareMoneyAmounts,
+  subtractMoneyAmounts,
+  tryMoneyToCents,
+  trySignedMoneyToCents,
+} from "@chase-sets/primitives/money";
 
 export type CurrencyCode = "usd";
 
@@ -127,44 +136,34 @@ export function normalizeMoneyAmount(
   const normalized = value.trim();
   const fieldName = options.fieldName ?? "Amount";
 
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, `${fieldName} must be a valid decimal.`);
 
-  const numeric = Number.parseFloat(normalized);
   assert(
-    options.allowZero ? numeric >= 0 : numeric > 0,
+    options.allowZero ? cents >= 0n : cents > 0n,
     `${fieldName} must be ${options.allowZero ? "zero or greater" : "greater than zero"}.`,
   );
 
-  return numeric.toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 export function normalizeSignedMoneyAmount(value: string, fieldName = "Amount") {
   const normalized = value.trim();
-  assert(/^-?\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid signed decimal.`);
-  return Number.parseFloat(normalized).toFixed(2);
-}
-
-function parseSignedMoneyAmount(value: string, fieldName = "Amount") {
-  return Number.parseFloat(normalizeSignedMoneyAmount(value, fieldName));
+  const cents = trySignedMoneyToCents(normalized);
+  assert(cents !== null, `${fieldName} must be a valid signed decimal.`);
+  return centsToSignedMoneyAmount(cents);
 }
 
 export function addMoney(left: string, right: string) {
-  return (parseSignedMoneyAmount(left) + parseSignedMoneyAmount(right)).toFixed(2);
+  return addSignedMoneyAmounts(left, right);
 }
 
 export function subtractMoney(left: string, right: string) {
-  return (parseSignedMoneyAmount(left) - parseSignedMoneyAmount(right)).toFixed(2);
+  return subtractMoneyAmounts(left, right);
 }
 
 export function compareMoney(left: string, right: string): -1 | 0 | 1 {
-  const difference = parseSignedMoneyAmount(left) - parseSignedMoneyAmount(right);
-  if (difference < 0) {
-    return -1;
-  }
-  if (difference > 0) {
-    return 1;
-  }
-  return 0;
+  return compareMoneyAmounts(left, right);
 }
 
 export function normalizeCurrencyCode(value: string): CurrencyCode {

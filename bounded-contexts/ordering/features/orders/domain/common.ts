@@ -1,5 +1,6 @@
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
 import type { OrderingOrderSourceType } from "@chase-sets/checkout-order-source";
+import { centsToMoneyAmount, moneyToCents, roundRational, tryMoneyToCents } from "@chase-sets/primitives/money";
 
 export type CartLineId = TypedUlid<"cli">;
 export type OrderLineId = TypedUlid<"oli">;
@@ -53,29 +54,35 @@ export function normalizeMoneyAmount(
   const normalized = value.trim();
   const fieldName = options.fieldName ?? "Amount";
 
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, `${fieldName} must be a valid decimal.`);
 
-  const numeric = Number.parseFloat(normalized);
   assert(
-    options.allowZero ? numeric >= 0 : numeric > 0,
+    options.allowZero ? cents >= 0n : cents > 0n,
     `${fieldName} must be ${options.allowZero ? "zero or greater" : "greater than zero"}.`,
   );
 
-  return numeric.toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 export function moneyToNumber(value: string) {
-  return Number.parseFloat(normalizeMoneyAmount(value, { allowZero: true }));
+  return Number(moneyToCents(normalizeMoneyAmount(value, { allowZero: true }))) / 100;
 }
 
 export function numberToMoneyAmount(value: number) {
   assert(Number.isFinite(value) && value >= 0, "Monetary values cannot be negative.");
-  return value.toFixed(2);
+  return centsToMoneyAmount(numberToCents(value, "nearest"));
 }
 
 export function numberToMoneyAmountRoundDown(value: number) {
   assert(Number.isFinite(value) && value >= 0, "Monetary values cannot be negative.");
-  return (Math.floor(value * 100) / 100).toFixed(2);
+  return centsToMoneyAmount(numberToCents(value, "floor"));
+}
+
+function numberToCents(value: number, roundingMode: "ceil" | "floor" | "nearest") {
+  const [wholePart = "0", fractionalPart = ""] = value.toFixed(6).split(".");
+  const scaledDollars = BigInt(wholePart) * 1_000_000n + BigInt(fractionalPart.padEnd(6, "0"));
+  return roundRational(scaledDollars, 10_000n, roundingMode);
 }
 
 export function normalizeVersionSelection(value: readonly VersionSelectedOptionEntry[]): VersionSelectedOptionEntry[] {

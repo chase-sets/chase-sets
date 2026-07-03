@@ -19,12 +19,17 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 import {
+  addMoneyAmounts,
+  applyBasisPointsToMoneyAmount,
+  centsToMoneyAmount,
+  moneyToCents,
+  subtractNonNegativeMoneyAmounts,
+  sumMoneyAmounts,
+} from "@chase-sets/primitives/money";
+import {
   OrderingDomainError,
   buildDemandSignature,
-  moneyToNumber,
   normalizeMoneyAmount,
-  numberToMoneyAmount,
-  numberToMoneyAmountRoundDown,
   type OrderLineId,
   type OrderSourceType,
   type OrderStatus,
@@ -204,8 +209,8 @@ type SellerOrderDraft = Readonly<{
 
 type CheckoutPlan = Readonly<{
   orderDrafts: readonly SellerOrderDraft[];
-  totalAmount: number;
-  itemSubtotalAmount: number;
+  totalAmount: bigint;
+  itemSubtotalAmount: bigint;
   orderCount: number;
 }>;
 
@@ -512,33 +517,26 @@ function calculateShippingIncentive(
     fieldName: "Shipping base amount",
     allowZero: true,
   });
-  const earnedAmount = numberToMoneyAmount(
-    Math.min(
-      moneyToNumber(shippingBaseAmount),
-      moneyToNumber(
-        numberToMoneyAmountRoundDown(
-          moneyToNumber(params.itemSubtotalAmount) * (params.shippingAllowancePercentageBps / 10_000),
-        ),
-      ),
-    ),
+  const allowedAmount = applyBasisPointsToMoneyAmount(
+    params.itemSubtotalAmount,
+    params.shippingAllowancePercentageBps,
+    "floor",
   );
+  const earnedAmount =
+    moneyToCents(shippingBaseAmount) <= moneyToCents(allowedAmount) ? shippingBaseAmount : allowedAmount;
 
   if (params.sourceType === "offer-acceptance") {
     return {
       shippingBaseAmount,
       shippingDiscountAmount: "0.00",
       shippingAllowanceAmount: earnedAmount,
-      shippingOverageAmount: numberToMoneyAmount(
-        Math.max(0, moneyToNumber(shippingBaseAmount) - moneyToNumber(earnedAmount)),
-      ),
+      shippingOverageAmount: subtractNonNegativeMoneyAmounts(shippingBaseAmount, earnedAmount),
       sellerShippingPayoutAmount: earnedAmount,
       shippingChargeAmount: earnedAmount,
     };
   }
 
-  const shippingChargeAmount = numberToMoneyAmount(
-    Math.max(0, moneyToNumber(shippingBaseAmount) - moneyToNumber(earnedAmount)),
-  );
+  const shippingChargeAmount = subtractNonNegativeMoneyAmounts(shippingBaseAmount, earnedAmount);
   return {
     shippingBaseAmount,
     shippingDiscountAmount: earnedAmount,
@@ -574,7 +572,7 @@ function quotePlan(
       reservations: Array<SellerOrderDraft["reservations"][number]>;
       sellerDisplayName: string | null;
       shippingOriginSnapshot: AddressSnapshot;
-      subtotal: number;
+      subtotalCents: bigint;
       listingIds: Set<string>;
       quantity: number;
     }
@@ -590,21 +588,21 @@ function quotePlan(
         reservations: [],
         sellerDisplayName: allocation.candidate.sellerDisplayName,
         shippingOriginSnapshot,
-        subtotal: 0,
+        subtotalCents: 0n,
         listingIds: new Set<string>(),
         quantity: 0,
       };
       const unitPriceAmount = priceOverrideAmount ?? allocation.candidate.priceAmount;
-      const lineTotalAmount = numberToMoneyAmount(moneyToNumber(unitPriceAmount) * allocation.quantity);
+      const lineTotalAmount = centsToMoneyAmount(moneyToCents(unitPriceAmount) * BigInt(allocation.quantity));
       const marketplaceSalesFeeUnitAmount =
         feeOverride?.marketplaceSalesFeeUnitAmount ?? allocation.candidate.marketplaceSalesFeeUnitAmount;
       const sellerNetUnitAmount = feeOverride?.sellerNetUnitAmount ?? allocation.candidate.sellerNetUnitAmount;
       const shippingAllowancePercentageBps =
         feeOverride?.shippingAllowancePercentageBps ?? allocation.candidate.shippingAllowancePercentageBps;
-      const marketplaceSalesFeeTotalAmount = numberToMoneyAmount(
-        moneyToNumber(marketplaceSalesFeeUnitAmount) * allocation.quantity,
+      const marketplaceSalesFeeTotalAmount = centsToMoneyAmount(
+        moneyToCents(marketplaceSalesFeeUnitAmount) * BigInt(allocation.quantity),
       );
-      const sellerNetTotalAmount = numberToMoneyAmount(moneyToNumber(sellerNetUnitAmount) * allocation.quantity);
+      const sellerNetTotalAmount = centsToMoneyAmount(moneyToCents(sellerNetUnitAmount) * BigInt(allocation.quantity));
       sellerDraft.lines.push({
         lineId: createId("oli") as OrderLineId,
         listingId: allocation.candidate.listingId,
@@ -634,7 +632,7 @@ function quotePlan(
         quantity: allocation.quantity,
       });
       sellerDraft.sellerDisplayName = sellerDraft.sellerDisplayName ?? allocation.candidate.sellerDisplayName;
-      sellerDraft.subtotal += moneyToNumber(lineTotalAmount);
+      sellerDraft.subtotalCents += moneyToCents(lineTotalAmount);
       sellerDraft.listingIds.add(allocation.candidate.listingId);
       sellerDraft.quantity += allocation.quantity;
       groupedBySellerAndOrigin.set(sellerGroupKey, sellerDraft);
@@ -642,14 +640,15 @@ function quotePlan(
   }
 
   const orderDrafts: SellerOrderDraft[] = [];
-  let totalAmount = 0;
-  let itemSubtotalAmount = 0;
+  let totalAmount = 0n;
+  let itemSubtotalAmount = 0n;
 
   for (const draft of groupedBySellerAndOrigin.values()) {
     const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
+    const draftSubtotalAmount = centsToMoneyAmount(draft.subtotalCents);
     const packagePlan = buildPackagePlan({
       shippingOption,
-      itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
+      itemSubtotalAmount: draftSubtotalAmount,
       postagePolicy,
       lines: draft.lines.map((line) => ({
         productId: line.productId,
@@ -663,20 +662,20 @@ function quotePlan(
     const quote = shippingQuotePolicy.quote({
       sellerAccountId: draft.sellerAccountId,
       shippingOption,
-      itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
+      itemSubtotalAmount: draftSubtotalAmount,
       quantity: draft.quantity,
       listingCount: draft.listingIds.size,
       packagePlan,
     });
     const shippingEconomics = calculateShippingIncentive({
       sourceType,
-      itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
+      itemSubtotalAmount: draftSubtotalAmount,
       shippingBaseAmount: quote.baseAmount,
       shippingAllowancePercentageBps,
     });
-    const orderTotal = draft.subtotal + moneyToNumber(shippingEconomics.shippingChargeAmount);
-    totalAmount += orderTotal;
-    itemSubtotalAmount += draft.subtotal;
+    const orderTotalCents = draft.subtotalCents + moneyToCents(shippingEconomics.shippingChargeAmount);
+    totalAmount += orderTotalCents;
+    itemSubtotalAmount += draft.subtotalCents;
 
     orderDrafts.push({
       sellerAccountId: draft.sellerAccountId,
@@ -684,7 +683,7 @@ function quotePlan(
       sourceType,
       sourceReferenceId,
       shippingOption,
-      itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
+      itemSubtotalAmount: draftSubtotalAmount,
       shippingBaseAmount: shippingEconomics.shippingBaseAmount,
       shippingDiscountAmount: shippingEconomics.shippingDiscountAmount,
       shippingAllowanceAmount: shippingEconomics.shippingAllowanceAmount,
@@ -693,7 +692,7 @@ function quotePlan(
       shippingChargeAmount: shippingEconomics.shippingChargeAmount,
       shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
       salesTaxAmount: "0.00",
-      totalAmount: numberToMoneyAmount(orderTotal),
+      totalAmount: centsToMoneyAmount(orderTotalCents),
       taxQuote: {
         taxableAmount: "0.00",
         taxAmount: "0.00",
@@ -728,7 +727,7 @@ async function applyTaxToPlan(
   taxQuoteResolver: TaxQuoteResolver,
 ): Promise<CheckoutPlan> {
   const orderDrafts: SellerOrderDraft[] = [];
-  let totalAmount = 0;
+  let totalAmount = 0n;
 
   for (const draft of plan.orderDrafts) {
     const taxQuote = await taxQuoteResolver.quoteTax({
@@ -743,12 +742,8 @@ async function applyTaxToPlan(
       fieldName: "Sales tax amount",
       allowZero: true,
     });
-    const orderTotal = numberToMoneyAmount(
-      moneyToNumber(draft.itemSubtotalAmount) +
-        moneyToNumber(draft.shippingChargeAmount) +
-        moneyToNumber(salesTaxAmount),
-    );
-    totalAmount += moneyToNumber(orderTotal);
+    const orderTotal = sumMoneyAmounts([draft.itemSubtotalAmount, draft.shippingChargeAmount, salesTaxAmount]);
+    totalAmount += moneyToCents(orderTotal);
     orderDrafts.push({
       ...draft,
       salesTaxAmount,
@@ -1048,11 +1043,8 @@ function planToPreview(
       };
     }),
   }));
-  const shippingAmount = params.plan.orderDrafts.reduce(
-    (sum, draft) => sum + moneyToNumber(draft.shippingChargeAmount),
-    0,
-  );
-  const salesTaxAmount = params.plan.orderDrafts.reduce((sum, draft) => sum + moneyToNumber(draft.salesTaxAmount), 0);
+  const shippingAmount = sumMoneyAmounts(params.plan.orderDrafts.map((draft) => draft.shippingChargeAmount));
+  const salesTaxAmount = sumMoneyAmounts(params.plan.orderDrafts.map((draft) => draft.salesTaxAmount));
   const materialChangeReasons = sellerGroups.flatMap((group) =>
     group.lines.flatMap((line) => line.materialChangeReasons),
   );
@@ -1062,10 +1054,10 @@ function planToPreview(
     unavailableLineKeys: params.unavailableLines.map((line) => line.lineKey),
     sellerGroups,
     totals: {
-      itemSubtotalAmount: numberToMoneyAmount(params.plan.itemSubtotalAmount),
-      shippingAmount: numberToMoneyAmount(shippingAmount),
-      salesTaxAmount: numberToMoneyAmount(salesTaxAmount),
-      totalAmount: numberToMoneyAmount(params.plan.totalAmount),
+      itemSubtotalAmount: centsToMoneyAmount(params.plan.itemSubtotalAmount),
+      shippingAmount,
+      salesTaxAmount,
+      totalAmount: centsToMoneyAmount(params.plan.totalAmount),
       packageCount: params.plan.orderCount,
     },
     unavailableLines: params.unavailableLines,
@@ -1105,15 +1097,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     const storedEvents: StoredEvent[] = [];
 
     for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
-      const marketplaceSalesFeeAmount = numberToMoneyAmount(
-        draft.lines.reduce((sum, line) => sum + moneyToNumber(line.marketplaceSalesFeeTotalAmount), 0),
-      );
-      const sellerNetAmount = numberToMoneyAmount(
-        draft.lines.reduce((sum, line) => sum + moneyToNumber(line.sellerNetTotalAmount), 0),
-      );
-      const sellerPayoutAmount = numberToMoneyAmount(
-        moneyToNumber(sellerNetAmount) + moneyToNumber(draft.sellerShippingPayoutAmount),
-      );
+      const marketplaceSalesFeeAmount = sumMoneyAmounts(draft.lines.map((line) => line.marketplaceSalesFeeTotalAmount));
+      const sellerNetAmount = sumMoneyAmounts(draft.lines.map((line) => line.sellerNetTotalAmount));
+      const sellerPayoutAmount = addMoneyAmounts(sellerNetAmount, draft.sellerShippingPayoutAmount);
       const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
       const firstLine = draft.lines[0];
       const termsScheduleId = firstLine ? planTermsForLines(draft.lines, "termsScheduleId") : null;
@@ -1346,9 +1332,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
 
         const lines = [...existing.lines, ...draft.lines];
         const reservations = [...existing.reservations, ...draft.reservations];
-        const itemSubtotalAmount = numberToMoneyAmount(
-          moneyToNumber(existing.itemSubtotalAmount) + moneyToNumber(draft.itemSubtotalAmount),
-        );
+        const itemSubtotalAmount = addMoneyAmounts(existing.itemSubtotalAmount, draft.itemSubtotalAmount);
         const listingIds = new Set(lines.map((line) => line.listingId));
         const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
         const postagePolicy = await postagePolicyResolver();
@@ -1391,9 +1375,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           shippingChargeAmount: shippingEconomics.shippingChargeAmount,
           shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
           salesTaxAmount: "0.00",
-          totalAmount: numberToMoneyAmount(
-            moneyToNumber(itemSubtotalAmount) + moneyToNumber(shippingEconomics.shippingChargeAmount),
-          ),
+          totalAmount: addMoneyAmounts(itemSubtotalAmount, shippingEconomics.shippingChargeAmount),
           lines,
           reservations,
         });
@@ -1402,8 +1384,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       const taxAdjustedPlan = await applyTaxToPlan(
         {
           orderDrafts: [...mergedBySeller.values()],
-          totalAmount: 0,
-          itemSubtotalAmount: 0,
+          totalAmount: 0n,
+          itemSubtotalAmount: 0n,
           orderCount: mergedBySeller.size,
         },
         group.buyerAccountId,
