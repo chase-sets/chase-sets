@@ -1,6 +1,6 @@
 # Push-Driven Projection Runtime Phase Map
 
-_Status: Phases 0–1 (event-store wake, worker relay, durable wake store, wake scheduler, Checkout hot path) have shipped and run in staging for wave-1 source contexts; production rollout stays gated by the ADR 0010 gates. Retained as the phased rollout contract and source-of-truth boundary map._
+_Status: Phases 0–1 (event-store wake, worker relay, durable wake store, wake scheduler, Checkout hot path) have shipped and run in staging for enabled source contexts. Production and previews keep event-store wake emission, relay fan-out, and API wake-before-wait disabled by rollout controls until the ADR 0010 production gates are deliberately promoted. Retained as the phased rollout contract and source-of-truth boundary map._
 
 ## Purpose
 

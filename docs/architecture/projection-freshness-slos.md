@@ -141,7 +141,7 @@ Dashboard labels must use route templates and context/projection names only. The
 - #1073 must optimize `checkout.session-projection` against the p95 <= 1,000 ms and p99 <= 2,250 ms API freshness wait target.
 - #1082 must prove staging and production worker topology can satisfy the same Checkout target during deploys, restarts, and normal worker polling.
 - #1075 must implement alerts and dashboards using the measures above.
-- #1079 must provide feature flags or rollout controls that can hold or disable new freshness behavior when these gates fail.
+- #1079 is satisfied: rollout controls and kill switches can hold or disable new freshness behavior when these gates fail.
 - #1074 must include a controlled projection-lag path that fails on permanent not-found and proves temporary recovery plus eventual checkout readiness.
 - #1086 must run the symptom-level staging canary against the same `pass`, `temporary`, and `fail` definitions.
 - #1085 must use these thresholds when deciding whether targeted fast-path catch-up is necessary.

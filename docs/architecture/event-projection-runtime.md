@@ -4,9 +4,9 @@
 
 Projection consumers keep bounded-context read models current without coupling event publishers to downstream projectors. Publishers append integration facts to their own event store. Workers lease projection consumers, read matching source events, apply downstream handlers, and persist checkpoints.
 
-## Push-Driven Migration Note
+## Production Push Posture
 
-Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md). The Phase 1 push pipeline — event-store wake emission, the [worker-owned wake relay](./projection-wake-relay.md), the durable control-plane wake store, and the [wake-intent scheduler](./projection-wake-scheduler.md) — is live in staging for the wave-1 source contexts. In production the relay and emission stay killed until the rollout gates pass (#1224, #1243, #1237), so the poll-driven runner contract described below remains production's only freshness mechanism today, and it remains the reconciliation/disaster-recovery fallback everywhere even after push enablement. Push-first changes must keep worker-owned execution, projection leases, fencing, ledgers, poison handling, statement timeouts, and checkpoint truth intact; API routes may wake and wait, but must not run projectors inline.
+Push acceleration is live in staging; production and previews keep event-store wake emission, relay fan-out, and API wake-before-wait disabled by rollout controls while fallback polling remains the durable correctness path. Phase status lives in the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md).
 
 ## Runtime Model
 

@@ -2,9 +2,9 @@
 
 Projection operations are durable control-plane records for operator-triggered projection work. Admin APIs enqueue operations and return immediately; workers claim and execute them. Publishers remain unaware of projectors.
 
-## Push-Driven Migration Note
+## Production Push Posture
 
-Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md). Projection operation event notifications and waits use the platform work-signal composite, while operation rows, event rows, leases, and fencing remain the durable control-plane contract.
+Projection operation event waits use the work-signal composite in every environment, while production projection wake acceleration remains off until the rollout controls are deliberately promoted. Phase status lives in the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md).
 
 ## Operation Lifecycle
 
