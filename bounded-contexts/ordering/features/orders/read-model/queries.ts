@@ -218,15 +218,14 @@ const baseOrderSelect = `
     ON buyer.account_id = page.buyer_account_id
   LEFT JOIN ordering_account_pages AS seller
     ON seller.account_id = page.seller_account_id
-  LEFT JOIN (
+  LEFT JOIN LATERAL (
     SELECT
-      order_id,
       COUNT(*)::integer AS line_count,
       COALESCE(SUM(quantity), 0)::integer AS total_quantity
-    FROM ordering_order_line_pages
-    GROUP BY order_id
+    FROM ordering_order_line_pages AS line
+    WHERE line.order_id = page.order_id
   ) AS line_stats
-    ON line_stats.order_id = page.order_id
+    ON true
   LEFT JOIN ordering_fulfillment_cancellation_inputs AS fulfillment
     ON fulfillment.order_id = page.order_id
 `;
