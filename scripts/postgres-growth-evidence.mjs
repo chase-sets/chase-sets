@@ -9,6 +9,7 @@ const { Client } = pg;
 
 export const POSTGRES_GROWTH_EVIDENCE_VERSION = "postgres-growth-evidence/v1";
 export const DEFAULT_TOP_TABLE_LIMIT = 20;
+export const DEFAULT_CONNECTION_UTILIZATION_WARNING_PERCENT = 80;
 
 export function parsePostgresGrowthEvidenceArgs(argv, env = process.env) {
   return {
@@ -17,6 +18,11 @@ export function parsePostgresGrowthEvidenceArgs(argv, env = process.env) {
     topTableLimit: normalizePositiveInteger(
       readOption(argv, "--top-table-limit") ?? readEnv("POSTGRES_GROWTH_TOP_TABLE_LIMIT", env),
       DEFAULT_TOP_TABLE_LIMIT,
+    ),
+    connectionUtilizationWarningPercent: normalizePositiveInteger(
+      readOption(argv, "--connection-utilization-warning-percent") ??
+        readEnv("POSTGRES_CONNECTION_UTILIZATION_WARNING_PERCENT", env),
+      DEFAULT_CONNECTION_UTILIZATION_WARNING_PERCENT,
     ),
     outPath:
       readOption(argv, "--out") ??
@@ -37,6 +43,13 @@ export function validatePostgresGrowthEvidenceOptions(options) {
   }
   if (!Number.isInteger(options.topTableLimit) || options.topTableLimit < 1 || options.topTableLimit > 100) {
     errors.push("--top-table-limit must be an integer from 1 to 100.");
+  }
+  if (
+    !Number.isInteger(options.connectionUtilizationWarningPercent) ||
+    options.connectionUtilizationWarningPercent < 1 ||
+    options.connectionUtilizationWarningPercent > 100
+  ) {
+    errors.push("--connection-utilization-warning-percent must be an integer from 1 to 100.");
   }
   if (!Array.isArray(options.databaseUrls) || options.databaseUrls.length === 0) {
     errors.push(
@@ -73,6 +86,7 @@ export async function runPostgresGrowthEvidence(options, dependencies = {}) {
     environment: options.environment,
     checkedAt: options.checkedAt,
     topTableLimit: options.topTableLimit,
+    connectionUtilizationWarningPercent: options.connectionUtilizationWarningPercent,
     databases,
     errors,
   });
@@ -86,9 +100,14 @@ export function buildPostgresGrowthEvidence(input) {
     tableCount: nonNegativeInteger(database.tableCount),
     estimatedLiveRows: nonNegativeInteger(database.estimatedLiveRows),
     estimatedDeadRows: nonNegativeInteger(database.estimatedDeadRows),
+    connections: sanitizeConnectionSummary(database.connections),
     largestTables: database.largestTables.map(sanitizeTableGrowth),
     eventStore: sanitizeEventStoreGrowth(database.eventStore),
   }));
+  const warnings = buildWarnings({
+    databases,
+    connectionUtilizationWarningPercent: input.connectionUtilizationWarningPercent,
+  });
   const errors = input.errors.map((error) => ({
     contextName: sanitizeContextName(error.contextName),
     category: "collection-error",
@@ -115,10 +134,14 @@ export function buildPostgresGrowthEvidence(input) {
           "payload bodies",
         ],
       },
+      thresholds: {
+        connectionUtilizationWarningPercent: input.connectionUtilizationWarningPercent,
+      },
     },
     summary: {
       databaseCount: databases.length,
       collectionErrorCount: errors.length,
+      warningCount: warnings.length,
       totalDatabaseSizeBytes: databases.reduce((sum, database) => sum + database.databaseSizeBytes, 0),
       totalEstimatedLiveRows: databases.reduce((sum, database) => sum + database.estimatedLiveRows, 0),
       largestDatabaseBytes: Math.max(0, ...databases.map((database) => database.databaseSizeBytes)),
@@ -126,10 +149,15 @@ export function buildPostgresGrowthEvidence(input) {
         0,
         ...databases.flatMap((database) => database.largestTables.map((table) => table.totalBytes)),
       ),
+      maxConnectionUtilizationPercent: Math.max(
+        0,
+        ...databases.map((database) => database.connections.utilizationPercent),
+      ),
     },
     databases,
+    warnings,
     errors,
-    result: errors.length === 0 ? "success" : "warning",
+    result: errors.length === 0 && warnings.length === 0 ? "success" : "warning",
   };
 }
 
@@ -158,6 +186,11 @@ export async function collectPostgresDatabaseGrowthWithClient(client, database, 
     tableCount: summaryRow.table_count,
     estimatedLiveRows: summaryRow.estimated_live_rows,
     estimatedDeadRows: summaryRow.estimated_dead_rows,
+    connections: {
+      active: summaryRow.active_connections,
+      max: summaryRow.max_connections,
+      utilizationPercent: summaryRow.connection_utilization_percent,
+    },
     largestTables: tables.rows.map((row) => ({
       schemaName: row.schema_name,
       tableName: row.table_name,
@@ -293,6 +326,33 @@ function sanitizeEventStoreGrowth(eventStore) {
   };
 }
 
+function sanitizeConnectionSummary(connections) {
+  return {
+    active: nonNegativeInteger(connections?.active),
+    max: nonNegativeInteger(connections?.max),
+    utilizationPercent: nonNegativeInteger(connections?.utilizationPercent),
+  };
+}
+
+function buildWarnings(input) {
+  const threshold = nonNegativeInteger(input.connectionUtilizationWarningPercent);
+  return input.databases.flatMap((database) => {
+    const connections = sanitizeConnectionSummary(database.connections);
+    if (threshold < 1 || connections.utilizationPercent < threshold) {
+      return [];
+    }
+    return [
+      {
+        contextName: sanitizeContextName(database.contextName),
+        category: "connection-pressure",
+        message: `Connection utilization is ${connections.utilizationPercent}% of max_connections.`,
+        thresholdPercent: threshold,
+        utilizationPercent: connections.utilizationPercent,
+      },
+    ];
+  });
+}
+
 function sanitizeContextName(value) {
   return sanitizeIdentifier(
     String(value ?? "")
@@ -367,7 +427,13 @@ SELECT
   pg_database_size(current_database())::bigint AS database_size_bytes,
   COUNT(*)::bigint AS table_count,
   COALESCE(SUM(n_live_tup), 0)::bigint AS estimated_live_rows,
-  COALESCE(SUM(n_dead_tup), 0)::bigint AS estimated_dead_rows
+  COALESCE(SUM(n_dead_tup), 0)::bigint AS estimated_dead_rows,
+  (SELECT COUNT(*)::bigint FROM pg_stat_activity WHERE datname = current_database()) AS active_connections,
+  (SELECT setting::bigint FROM pg_settings WHERE name = 'max_connections') AS max_connections,
+  (
+    (SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database()) * 100 /
+    NULLIF((SELECT setting::integer FROM pg_settings WHERE name = 'max_connections'), 0)
+  )::bigint AS connection_utilization_percent
 FROM pg_stat_user_tables
 `;
 

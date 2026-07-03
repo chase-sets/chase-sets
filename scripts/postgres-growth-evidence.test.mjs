@@ -21,6 +21,8 @@ describe("postgres growth evidence", () => {
         checkedAt,
         "--top-table-limit",
         "12",
+        "--connection-utilization-warning-percent",
+        "75",
         "--contexts",
         "catalog,checkout",
         "--database-url",
@@ -38,6 +40,7 @@ describe("postgres growth evidence", () => {
       environment: "production",
       checkedAt,
       topTableLimit: 12,
+      connectionUtilizationWarningPercent: 75,
       contexts: ["catalog", "checkout"],
       outPath: "artifacts/postgres-growth.json",
     });
@@ -50,12 +53,14 @@ describe("postgres growth evidence", () => {
         environment: "",
         checkedAt: "soon",
         topTableLimit: 101,
+        connectionUtilizationWarningPercent: 0,
         databaseUrls: [],
       }),
     ).toEqual([
       "--environment is required.",
       "--checked-at must be an ISO timestamp.",
       "--top-table-limit must be an integer from 1 to 100.",
+      "--connection-utilization-warning-percent must be an integer from 1 to 100.",
       "At least one DATABASE_URL_<CONTEXT>, PLATFORM_CONTROL_DATABASE_URL, or --database-url context=url is required.",
     ]);
 
@@ -64,6 +69,7 @@ describe("postgres growth evidence", () => {
         environment: "staging",
         checkedAt,
         topTableLimit: 20,
+        connectionUtilizationWarningPercent: 80,
         contexts: ["catalog"],
         databaseUrls: [{ contextName: "checkout", url: "postgresql://checkout" }],
       }),
@@ -89,6 +95,7 @@ describe("postgres growth evidence", () => {
       environment: "staging",
       checkedAt,
       topTableLimit: 20,
+      connectionUtilizationWarningPercent: 80,
       databases: [
         {
           contextName: "checkout",
@@ -97,6 +104,11 @@ describe("postgres growth evidence", () => {
           tableCount: "2",
           estimatedLiveRows: "30",
           estimatedDeadRows: "4",
+          connections: {
+            active: "4",
+            max: "100",
+            utilizationPercent: "4",
+          },
           largestTables: [
             {
               schemaName: "public",
@@ -136,14 +148,21 @@ describe("postgres growth evidence", () => {
       summary: {
         databaseCount: 1,
         collectionErrorCount: 1,
+        warningCount: 0,
         totalDatabaseSizeBytes: 2048,
         totalEstimatedLiveRows: 30,
         largestTableBytes: 1024,
+        maxConnectionUtilizationPercent: 4,
       },
       databases: [
         {
           contextName: "checkout",
           databaseSizeBytes: 2048,
+          connections: {
+            active: 4,
+            max: 100,
+            utilizationPercent: 4,
+          },
           largestTables: [
             {
               schemaName: "public",
@@ -163,6 +182,48 @@ describe("postgres growth evidence", () => {
     expect(JSON.stringify(evidence)).not.toContain("postgresql://");
   });
 
+  it("warns when connection pressure crosses the support-safe threshold", () => {
+    const evidence = buildPostgresGrowthEvidence({
+      environment: "production",
+      checkedAt,
+      topTableLimit: 20,
+      connectionUtilizationWarningPercent: 80,
+      databases: [
+        {
+          contextName: "checkout",
+          databaseName: "checkout",
+          databaseSizeBytes: "2048",
+          tableCount: "2",
+          estimatedLiveRows: "30",
+          estimatedDeadRows: "4",
+          connections: {
+            active: "82",
+            max: "100",
+            utilizationPercent: "82",
+          },
+          largestTables: [],
+          eventStore: { present: false },
+        },
+      ],
+      errors: [],
+    });
+
+    expect(evidence.result).toBe("warning");
+    expect(evidence.summary).toMatchObject({
+      warningCount: 1,
+      maxConnectionUtilizationPercent: 82,
+    });
+    expect(evidence.warnings).toEqual([
+      {
+        contextName: "checkout",
+        category: "connection-pressure",
+        message: "Connection utilization is 82% of max_connections.",
+        thresholdPercent: 80,
+        utilizationPercent: 82,
+      },
+    ]);
+  });
+
   it("collects database growth through a bounded query surface", async () => {
     const queries = [];
     const client = {
@@ -177,6 +238,9 @@ describe("postgres growth evidence", () => {
                 table_count: "3",
                 estimated_live_rows: "120",
                 estimated_dead_rows: "7",
+                active_connections: "5",
+                max_connections: "100",
+                connection_utilization_percent: "5",
               },
             ],
           };
@@ -231,6 +295,11 @@ describe("postgres growth evidence", () => {
       databaseName: "checkout",
       databaseSizeBytes: "4096",
       tableCount: "3",
+      connections: {
+        active: "5",
+        max: "100",
+        utilizationPercent: "5",
+      },
       eventStore: {
         present: true,
         maxGlobalPosition: "9001",
@@ -250,6 +319,7 @@ describe("postgres growth evidence", () => {
           { contextName: "checkout", url: "postgresql://checkout:secret@example/checkout" },
           { contextName: "payments", url: "postgresql://payments:secret@example/payments" },
         ],
+        connectionUtilizationWarningPercent: 80,
       },
       {
         async collectDatabase(database) {
@@ -263,6 +333,7 @@ describe("postgres growth evidence", () => {
             tableCount: 1,
             estimatedLiveRows: 1,
             estimatedDeadRows: 0,
+            connections: { active: 1, max: 100, utilizationPercent: 1 },
             largestTables: [],
             eventStore: { present: false },
           };

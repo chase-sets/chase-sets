@@ -72,6 +72,10 @@ const platformDatabaseRestoreDrillWorkflow = readFileSync(
   resolve(".github/workflows/platform-database-restore-drill.yml"),
   "utf8",
 );
+const platformPostgresGrowthEvidenceWorkflow = readFileSync(
+  resolve(".github/workflows/platform-postgres-growth-evidence.yml"),
+  "utf8",
+);
 const platformStagingRollbackDrillWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-rollback-drill.yml"),
   "utf8",
@@ -2130,6 +2134,27 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("uptime_check_targets = merge(");
     expect(platformLocals).toContain("realtime_stream_limiter");
     expect(platformMain).toContain('check "api_realtime_coordination"');
+  });
+
+  it("keeps production managed Postgres standby posture guarded and alerting source-owned", () => {
+    expect(platformVariables).toContain('variable "production_database_standby_approved"');
+    expect(platformVariables).toContain('variable "production_database_standby_reference"');
+    expect(platformVariables).toContain('variable "managed_postgres_alerts_enabled"');
+    expect(platformVariables).toContain("Production must stay at 1 until production_database_standby_approved");
+    expect(platformLocals).toContain("production_database_standby_desired_node_count = 2");
+    expect(platformLocals).toContain('traffic_posture          = "primary-only-runtime-bindings"');
+    expect(platformLocals).toContain("read_traffic_to_standbys = false");
+    expect(platformMain).toContain('check "production_database_standby_approval"');
+    expect(platformMain).toContain('resource "digitalocean_monitor_alert" "managed_postgres"');
+    expect(platformMain).toContain("entities    = [digitalocean_database_cluster.postgres.id]");
+    expect(platformLocals).toContain('"v1/dbaas/alerts/disk_utilization_alerts"');
+    expect(platformLocals).toContain('"v1/dbaas/alerts/memory_utilization_alerts"');
+    expect(platformLocals).toContain('"v1/dbaas/alerts/cpu_alerts"');
+    expect(platformLocals).toContain('"v1/dbaas/alerts/load_15_alerts"');
+    expect(platformOutputs).toContain('output "production_database_standby_posture"');
+    expect(platformOutputs).toContain('output "managed_postgres_alert_policies"');
+    expect(platformPostgresGrowthEvidenceWorkflow).toContain('CONNECTION_UTILIZATION_WARNING_PERCENT: "80"');
+    expect(platformPostgresGrowthEvidenceWorkflow).toContain("--connection-utilization-warning-percent");
   });
 
   it("keeps representative commerce refresh as an explicit staging-only operator workflow", () => {

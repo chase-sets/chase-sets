@@ -53,6 +53,7 @@ jobs:
     env:
       TARGET_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
       TOP_TABLE_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.top_table_limit || '20' }}
+      CONNECTION_UTILIZATION_WARNING_PERCENT: "80"
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
     steps:
@@ -109,6 +110,7 @@ jobs:
           pnpm run ops postgres:growth-evidence -- \
             --environment "$TARGET_ENVIRONMENT" \
             --top-table-limit "$TOP_TABLE_LIMIT" \
+            --connection-utilization-warning-percent "$CONNECTION_UTILIZATION_WARNING_PERCENT" \
             --out artifacts/release-health/postgres-growth-evidence.json
           status=$?
           set -e
@@ -142,8 +144,10 @@ jobs:
           console.log(`- Mode: ${record.mode}`);
           console.log(`- Databases: ${summary.databaseCount ?? 0}`);
           console.log(`- Collection errors: ${summary.collectionErrorCount ?? 0}`);
+          console.log(`- Warnings: ${summary.warningCount ?? 0}`);
           console.log(`- Total database size bytes: ${summary.totalDatabaseSizeBytes ?? 0}`);
           console.log(`- Largest table bytes: ${summary.largestTableBytes ?? 0}`);
+          console.log(`- Max connection utilization: ${summary.maxConnectionUtilizationPercent ?? 0}%`);
           NODE
 
       - name: Upload Postgres growth evidence artifact

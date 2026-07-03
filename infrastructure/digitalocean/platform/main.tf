@@ -41,6 +41,17 @@ check "staging_production_observability_export" {
   }
 }
 
+check "production_database_standby_approval" {
+  assert {
+    condition = var.environment != "production" || var.database_node_count == 1 || (
+      var.production_database_standby_approved &&
+      length(trimspace(var.production_database_standby_reference)) >= 6 &&
+      !contains(local.placeholder_evidence_references, lower(trimspace(var.production_database_standby_reference)))
+    )
+    error_message = "Production database_node_count may not exceed 1 until explicit HA/cost approval and support-safe no-delete/no-replace plan evidence are recorded in production_database_standby_reference."
+  }
+}
+
 check "production_marketplace_promotion" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
@@ -1882,6 +1893,22 @@ resource "digitalocean_uptime_alert" "platform_down" {
   period   = "2m"
 
   notifications {
+    email = var.alert_emails
+  }
+}
+
+resource "digitalocean_monitor_alert" "managed_postgres" {
+  for_each = var.managed_postgres_alerts_enabled && length(var.alert_emails) > 0 ? local.managed_postgres_alert_policies : {}
+
+  description = each.value.description
+  type        = each.value.type
+  compare     = each.value.compare
+  value       = each.value.value
+  window      = each.value.window
+  enabled     = true
+  entities    = [digitalocean_database_cluster.postgres.id]
+
+  alerts {
     email = var.alert_emails
   }
 }

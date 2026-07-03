@@ -62,7 +62,52 @@ locals {
   admin_web_internal_api_origin = local.api_private_url
   marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
-  observability_zone            = local.is_production ? var.root_domain : local.environment_zone
+
+  production_database_standby_desired_node_count = 2
+  production_database_standby_posture = {
+    desired_node_count       = local.production_database_standby_desired_node_count
+    configured_node_count    = var.database_node_count
+    approved                 = var.production_database_standby_approved
+    approval_reference       = var.production_database_standby_reference
+    traffic_posture          = "primary-only-runtime-bindings"
+    read_traffic_to_standbys = false
+    remaining_operator_action = (
+      local.is_production && var.database_node_count < local.production_database_standby_desired_node_count
+      ? "Record launch/cost approval plus a support-safe Terraform plan showing no deletes or replacements for digitalocean_database_cluster.postgres and context databases, then set database_node_count to 2."
+      : ""
+    )
+  }
+  managed_postgres_alert_policies = {
+    disk_utilization = {
+      description = "${local.name_prefix} managed Postgres disk utilization above 80% for 10m"
+      type        = "v1/dbaas/alerts/disk_utilization_alerts"
+      compare     = "GreaterThan"
+      value       = 80
+      window      = "10m"
+    }
+    memory_utilization = {
+      description = "${local.name_prefix} managed Postgres memory utilization above 85% for 10m"
+      type        = "v1/dbaas/alerts/memory_utilization_alerts"
+      compare     = "GreaterThan"
+      value       = 85
+      window      = "10m"
+    }
+    cpu_utilization = {
+      description = "${local.name_prefix} managed Postgres CPU utilization above 85% for 10m"
+      type        = "v1/dbaas/alerts/cpu_alerts"
+      compare     = "GreaterThan"
+      value       = 85
+      window      = "10m"
+    }
+    load_15 = {
+      description = "${local.name_prefix} managed Postgres 15-minute load above 85 for 30m"
+      type        = "v1/dbaas/alerts/load_15_alerts"
+      compare     = "GreaterThan"
+      value       = 85
+      window      = "30m"
+    }
+  }
+  observability_zone = local.is_production ? var.root_domain : local.environment_zone
   default_observability_otlp_endpoint = (
     local.is_production || local.is_staging ? "https://otel.${local.observability_zone}" : ""
   )

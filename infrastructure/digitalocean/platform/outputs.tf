@@ -50,3 +50,11 @@ output "uptime_check_targets" {
 output "connection_budget_profiles" {
   value = local.connection_budget_profiles
 }
+
+output "production_database_standby_posture" {
+  value = local.production_database_standby_posture
+}
+
+output "managed_postgres_alert_policies" {
+  value = local.managed_postgres_alert_policies
+}
