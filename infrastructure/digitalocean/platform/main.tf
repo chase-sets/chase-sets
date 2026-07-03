@@ -760,6 +760,11 @@ resource "digitalocean_app" "platform" {
         value = local.event_store_wake_notifications_enabled
         scope = "RUN_TIME"
       }
+      env {
+        key   = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"
+        value = local.projection_wake_source_contexts
+        scope = "RUN_TIME"
+      }
 
       env {
         key   = "DATABASE_POOL_MAX"
@@ -1142,6 +1147,11 @@ resource "digitalocean_app" "platform" {
       env {
         key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
         value = local.event_store_wake_notifications_enabled
+        scope = "RUN_TIME"
+      }
+      env {
+        key   = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"
+        value = local.projection_wake_source_contexts
         scope = "RUN_TIME"
       }
 
@@ -1536,6 +1546,11 @@ resource "digitalocean_app" "platform" {
       env {
         key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
         value = local.event_store_wake_notifications_enabled
+        scope = "RUN_TIME"
+      }
+      env {
+        key   = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"
+        value = local.projection_wake_source_contexts
         scope = "RUN_TIME"
       }
 

@@ -24,6 +24,7 @@ describe("push wake capacity evidence", () => {
       "marketplace",
       "ordering",
       "payments",
+      "public-presence",
     ]);
     expect(evidence.terraformDefaults.apiWaiterContexts).toEqual(["catalog", "discovery", "inventory", "marketplace"]);
     expect(evidence.terraformDefaults.connectionBudgetUpgradeTriggerPercent).toBe(80);
@@ -41,12 +42,12 @@ describe("push wake capacity evidence", () => {
     ]);
 
     expect(evidence.environments.staging).toMatchObject({ upgradeTriggerPercent: 80, upgradeTrigger: 75 });
-    expect(evidence.environments.staging.steadyState).toMatchObject({ total: 50, limit: 94, headroom: 44 });
+    expect(evidence.environments.staging.steadyState).toMatchObject({ total: 51, limit: 94, headroom: 43 });
     expect(evidence.environments.staging.deployOverlap).toMatchObject({
-      total: 60,
+      total: 62,
       limit: 94,
-      headroom: 34,
-      additionalDirectListenerContextsBeforeUpgradeTrigger: 7,
+      headroom: 32,
+      additionalDirectListenerContextsBeforeUpgradeTrigger: 6,
     });
     expect(evidence.environments.production).toMatchObject({
       apiPoolDemand: 12,
@@ -54,13 +55,13 @@ describe("push wake capacity evidence", () => {
       upgradeTriggerPercent: 80,
       upgradeTrigger: 75,
       apiWaiterListenerDemand: 8,
-      steadyState: { total: 37, limit: 94, headroom: 57 },
+      steadyState: { total: 38, limit: 94, headroom: 56 },
       deployOverlap: {
-        total: 70,
+        total: 72,
         limit: 94,
-        headroom: 24,
-        additionalDirectListenerContextsAtCurrentTier: 12,
-        additionalDirectListenerContextsBeforeUpgradeTrigger: 2,
+        headroom: 22,
+        additionalDirectListenerContextsAtCurrentTier: 11,
+        additionalDirectListenerContextsBeforeUpgradeTrigger: 1,
       },
     });
   });
@@ -72,7 +73,6 @@ describe("push wake capacity evidence", () => {
     expect(evidence.registryToInfrastructureGap.activeRelayContextsWithoutDirectListenerUrls).toEqual([
       "catalog",
       "platform-operations",
-      "public-presence",
       "settlement",
     ]);
     expect(evidence.registryToInfrastructureGap.wave2ContextsWithoutDirectListenerUrls).toEqual([
@@ -83,14 +83,14 @@ describe("push wake capacity evidence", () => {
     expect(evidence.expansionDecision.wave2DirectListenerExpansion).toMatchObject({
       additionalListenerContextCount: 2,
       additionalOverlapDemand: 4,
-      expandedOverlapDemand: 74,
+      expandedOverlapDemand: 76,
       fitsCurrentTier: true,
       requiredDatabaseSize: null,
     });
     expect(evidence.volumeLoadProofPosture.posture).toBe("not-proven-by-this-ci-evidence");
 
     const markdown = renderPushWakeCapacityMarkdown(evidence);
-    expect(markdown).toContain("Rolling-deploy overlap: 70/94");
+    expect(markdown).toContain("Rolling-deploy overlap: 72/94");
     expect(markdown).toContain("Tier-upgrade trigger: 75/94 (80%)");
     expect(markdown).toContain("Posture: **wave-2-direct-listeners-fit-current-tier**");
     expect(markdown).toContain("Production-like volume load proof for #1363 still requires live load evidence");

@@ -622,6 +622,7 @@ export function requireSourceContextWakeRegistryEntry(
 }
 
 export const PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED_ENV = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED";
+export const PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS_ENV = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS";
 
 /**
  * Deployment-level kill switch for write-side event-store wake emission. The
@@ -642,6 +643,22 @@ export function isEventStoreWakeNotificationEmissionEnabled(env: NodeJS.ProcessE
   return ["1", "true", "yes", "on"].includes(value);
 }
 
+export function isProjectionWakeSourceContextEnabled(
+  sourceContextName: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const rawValue = env[PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS_ENV]?.trim();
+  if (rawValue === undefined || rawValue === "" || rawValue === "*") {
+    return true;
+  }
+
+  return rawValue
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .includes(sourceContextName);
+}
+
 export function createEventStoreWakeNotificationConfigForSourceContext(
   input: SourceContextWakeNotificationConfigInput,
 ): PostgresEventStoreWakeNotificationConfig {
@@ -649,7 +666,10 @@ export function createEventStoreWakeNotificationConfigForSourceContext(
   validateSourceContextWakeRegistryEntry(entry);
 
   return {
-    enabled: entry.enablement.eventStoreWakeNotifications && isEventStoreWakeNotificationEmissionEnabled(),
+    enabled:
+      entry.enablement.eventStoreWakeNotifications &&
+      isEventStoreWakeNotificationEmissionEnabled() &&
+      isProjectionWakeSourceContextEnabled(entry.sourceContextName),
     channel: input.channel ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
     source: input.source ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
     ...(input.maxPayloadBytes === undefined ? {} : { maxPayloadBytes: input.maxPayloadBytes }),
@@ -721,6 +741,7 @@ export function listSourceContextWakeRelayConfigs(
 
   return registry
     .filter((entry) => input.includeInactive || entry.enablement.relayFanOut)
+    .filter((entry) => input.includeInactive || isProjectionWakeSourceContextEnabled(entry.sourceContextName))
     .map((entry) => ({
       sourceContextName: entry.sourceContextName,
       channel,
