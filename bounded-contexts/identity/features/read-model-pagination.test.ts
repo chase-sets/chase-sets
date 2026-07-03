@@ -23,16 +23,17 @@ describe("identity read-model pagination", () => {
 
     await list(db, {
       status: "active",
-      search: "identity",
+      search: "identity_%",
       limit: 999_999,
       offset: "-1 UNION SELECT password" as unknown,
     });
 
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.values).toEqual(["active", "%identity%"]);
+    expect(calls[0]?.sql).toContain("ILIKE $2 ESCAPE '\\'");
+    expect(calls[0]?.values).toEqual(["active", "%identity\\_\\%%"]);
     expect(calls[1]?.sql).toContain(`ORDER BY ${orderBy}`);
     expect(calls[1]?.sql).toContain("LIMIT $3 OFFSET $4");
     expect(calls[1]?.sql).not.toContain("UNION SELECT");
-    expect(calls[1]?.values).toEqual(["active", "%identity%", 500, 0]);
+    expect(calls[1]?.values).toEqual(["active", "%identity\\_\\%%", 500, 0]);
   });
 });

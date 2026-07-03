@@ -25,6 +25,10 @@ export type PaginationClause = Readonly<{
   values: readonly [number, number];
 }>;
 
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 export function buildFilteredQuery(
   baseTable: string,
   params: ListParams,
@@ -44,9 +48,9 @@ export function buildFilteredQuery(
   }
 
   if (params.search) {
-    const likeClauses = searchColumns.map((column) => `${column} ILIKE $${paramIndex}`);
+    const likeClauses = searchColumns.map((column) => `${column} ILIKE $${paramIndex} ESCAPE '\\'`);
     conditions.push(`(${likeClauses.join(" OR ")})`);
-    values.push(`%${params.search}%`);
+    values.push(`%${escapeLikePattern(params.search)}%`);
     paramIndex++;
   }
 

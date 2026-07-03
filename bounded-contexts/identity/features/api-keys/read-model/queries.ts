@@ -1,5 +1,6 @@
 import {
   buildPaginationClause,
+  escapeLikePattern,
   executeListQuery,
   type ListParams,
   type PgQueryable,
@@ -30,13 +31,13 @@ export async function listApiKeys(db: PgQueryable, params: ListParams = {}) {
 
   if (params.search) {
     conditions.push(`(
-      api_keys.name ILIKE $${paramIndex}
-      OR api_keys.user_id ILIKE $${paramIndex}
-      OR api_keys.key_prefix ILIKE $${paramIndex}
-      OR users.display_name ILIKE $${paramIndex}
-      OR users.primary_email ILIKE $${paramIndex}
+      api_keys.name ILIKE $${paramIndex} ESCAPE '\\'
+      OR api_keys.user_id ILIKE $${paramIndex} ESCAPE '\\'
+      OR api_keys.key_prefix ILIKE $${paramIndex} ESCAPE '\\'
+      OR users.display_name ILIKE $${paramIndex} ESCAPE '\\'
+      OR users.primary_email ILIKE $${paramIndex} ESCAPE '\\'
     )`);
-    values.push(`%${params.search}%`);
+    values.push(`%${escapeLikePattern(params.search)}%`);
     paramIndex += 1;
   }
 

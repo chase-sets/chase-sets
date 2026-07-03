@@ -1,5 +1,6 @@
 import {
   buildPaginationClause,
+  escapeLikePattern,
   type ListParams,
   type ListResult,
   type PgQueryable,
@@ -81,9 +82,9 @@ function displayTemplateConditions(params: DisplayTemplateListParams): { where: 
 
   if (params.search) {
     conditions.push(
-      `(name ILIKE $${paramIndex} OR key ILIKE $${paramIndex} OR title_template ILIKE $${paramIndex} OR COALESCE(subtitle_template, '') ILIKE $${paramIndex})`,
+      `(name ILIKE $${paramIndex} ESCAPE '\\' OR key ILIKE $${paramIndex} ESCAPE '\\' OR title_template ILIKE $${paramIndex} ESCAPE '\\' OR COALESCE(subtitle_template, '') ILIKE $${paramIndex} ESCAPE '\\')`,
     );
-    values.push(`%${params.search}%`);
+    values.push(`%${escapeLikePattern(params.search)}%`);
   }
 
   return {

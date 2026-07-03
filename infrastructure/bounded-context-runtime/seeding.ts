@@ -4,6 +4,7 @@ import {
   type BcSeedOptions,
   type EnvironmentDataProfile,
 } from "@chase-sets/bounded-context-module";
+import { escapeLikePattern } from "@chase-sets/event-core-postgres";
 
 export const allEnvironmentDataProfiles: readonly EnvironmentDataProfile[] = ENVIRONMENT_DATA_PROFILES;
 
@@ -35,9 +36,10 @@ export async function countEventsWithPrefix(
   },
   prefix: string,
 ): Promise<number> {
-  const result = await pool.query("SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1", [
-    `${prefix}%`,
-  ]);
+  const result = await pool.query(
+    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1 ESCAPE '\\'",
+    [`${escapeLikePattern(prefix)}%`],
+  );
 
   return Number(result.rows?.[0]?.count ?? 0);
 }

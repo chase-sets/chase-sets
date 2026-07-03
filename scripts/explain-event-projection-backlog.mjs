@@ -89,13 +89,13 @@ function buildStreamPrefixFilterSql(streamPrefixes, nextParamIndex) {
       const contextParam = nextParamIndex + params.length;
       params.push(contextName);
       const prefixParam = nextParamIndex + params.length;
-      params.push(prefix);
-      return `(stream_context_name = $${contextParam} AND stream_id LIKE $${prefixParam} || '%')`;
+      params.push(escapeLikePattern(prefix));
+      return `(stream_context_name = $${contextParam} AND stream_id LIKE $${prefixParam} || '%' ESCAPE '\\')`;
     }
 
     const prefixParam = nextParamIndex + params.length;
-    params.push(prefix);
-    return `(stream_id LIKE $${prefixParam} || '%')`;
+    params.push(escapeLikePattern(prefix));
+    return `(stream_id LIKE $${prefixParam} || '%' ESCAPE '\\')`;
   });
 
   return {
@@ -107,4 +107,8 @@ function buildStreamPrefixFilterSql(streamPrefixes, nextParamIndex) {
 function normalizedStreamPrefixContextName(prefix) {
   const separatorIndex = prefix.indexOf(".");
   return separatorIndex > 0 ? prefix.slice(0, separatorIndex) : null;
+}
+
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, "\\$&");
 }

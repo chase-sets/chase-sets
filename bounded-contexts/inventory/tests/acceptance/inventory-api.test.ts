@@ -18,7 +18,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { escapeLikePattern, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
@@ -76,9 +76,10 @@ const shipFromAddress = {
 };
 
 async function countEvents(pool: PgTransactionalPool, prefix: string) {
-  const result = await pool.query("SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1", [
-    `${prefix}%`,
-  ]);
+  const result = await pool.query(
+    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1 ESCAPE '\\'",
+    [`${escapeLikePattern(prefix)}%`],
+  );
 
   return Number(result.rows[0]?.count ?? 0);
 }

@@ -10,12 +10,16 @@ type StoredCatalogItem = Omit<InventoryCatalogItemSnapshot, "product_schema"> &
 const now = "2026-06-23T00:00:00.000Z";
 
 class CatalogItemSearchDb implements PgQueryable {
+  public readonly queries: Array<Readonly<{ sql: string; values: readonly unknown[] }>> = [];
+
   public constructor(private readonly rows: readonly StoredCatalogItem[]) {}
 
   async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    this.queries.push({ sql, values });
+
     if (sql.includes("to_regclass('public.inventory_catalog_items')")) {
       return { rows: [{ table_name: "inventory_catalog_items" } as Row], rowCount: 1 };
     }
@@ -74,6 +78,16 @@ describe("inventory catalog item queries", () => {
         status: "active",
       }),
     ]);
+  });
+
+  it("escapes LIKE metacharacters in picker search text", async () => {
+    const db = new CatalogItemSearchDb([]);
+
+    await searchInventoryCatalogItems(db, { search: "air_%", limit: 10 });
+
+    const searchQuery = db.queries.find((query) => query.sql.includes("FROM inventory_catalog_items"));
+    expect(searchQuery?.sql).toContain("ILIKE $2 ESCAPE '\\'");
+    expect(searchQuery?.values).toEqual(["active", "%air\\_\\%%", 10]);
   });
 
   it("bounds result limits for picker requests", async () => {

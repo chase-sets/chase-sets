@@ -1,3 +1,5 @@
+import { escapeLikePattern } from "./list-query";
+
 export type StreamPrefixFilterSql = Readonly<{
   predicate: string;
   params: readonly string[];
@@ -19,13 +21,13 @@ export function buildStreamPrefixFilterSql(
       const contextParam = nextParamIndex + params.length;
       params.push(streamContextName);
       const prefixParam = nextParamIndex + params.length;
-      params.push(prefix);
-      return `(stream_context_name = $${contextParam} AND stream_id LIKE $${prefixParam} || '%')`;
+      params.push(escapeLikePattern(prefix));
+      return `(stream_context_name = $${contextParam} AND stream_id LIKE $${prefixParam} || '%' ESCAPE '\\')`;
     }
 
     const prefixParam = nextParamIndex + params.length;
-    params.push(prefix);
-    return `(stream_id LIKE $${prefixParam} || '%')`;
+    params.push(escapeLikePattern(prefix));
+    return `(stream_id LIKE $${prefixParam} || '%' ESCAPE '\\')`;
   });
 
   return {

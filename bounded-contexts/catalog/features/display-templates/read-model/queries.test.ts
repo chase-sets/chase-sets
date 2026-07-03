@@ -9,14 +9,17 @@ describe("display template read-model queries", () => {
     const result = await listDisplayTemplates(db, {
       status: "active",
       targetKind: "catalog-item",
+      search: "title_%",
       limit: "999999999",
       offset: -20,
     });
 
     expect(result).toEqual({ items: [{ display_template_id: "dt_1" }], total: 1 });
-    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("LIMIT $3 OFFSET $4"), [
+    expect(String(vi.mocked(db.query).mock.calls[0]?.[0])).toContain("ILIKE $3 ESCAPE '\\'");
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("LIMIT $4 OFFSET $5"), [
       "active",
       "catalog-item",
+      "%title\\_\\%%",
       500,
       0,
     ]);

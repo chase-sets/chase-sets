@@ -8,15 +8,16 @@ describe("catalog item read-model queries", () => {
 
     const result = await listCatalogItems(db, {
       status: "active",
-      search: "charizard",
+      search: "charizard_%",
       limit: 9e15,
       offset: -5,
     });
 
     expect(result).toEqual({ items: [{ catalog_item_id: "cat_1" }], total: 1 });
+    expect(String(vi.mocked(db.query).mock.calls[0]?.[0])).toContain("ILIKE $2 ESCAPE '\\'");
     expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("LIMIT $3 OFFSET $4"), [
       "active",
-      "%charizard%",
+      "%charizard\\_\\%%",
       500,
       0,
     ]);

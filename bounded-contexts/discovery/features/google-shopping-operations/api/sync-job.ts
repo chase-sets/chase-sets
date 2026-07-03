@@ -1,5 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   createDurableJobExecutionContext,
@@ -1826,9 +1826,9 @@ function googleShoppingFeedRowWhere(filter: GoogleShoppingFeedRowFilter, search:
   }
 
   if (search) {
-    const searchParameter = parameter(`%${search.toLowerCase()}%`);
+    const searchParameter = parameter(`%${escapeLikePattern(search.toLowerCase())}%`);
     clauses.push(
-      `(lower(row_id) LIKE ${searchParameter} OR lower(listing_id) LIKE ${searchParameter} OR lower(account_id) LIKE ${searchParameter} OR lower(catalog_catalog_item_id) LIKE ${searchParameter} OR lower(product_id) LIKE ${searchParameter} OR lower(merchant_offer_id) LIKE ${searchParameter} OR lower(external_seller_id) LIKE ${searchParameter})`,
+      `(lower(row_id) LIKE ${searchParameter} ESCAPE '\\' OR lower(listing_id) LIKE ${searchParameter} ESCAPE '\\' OR lower(account_id) LIKE ${searchParameter} ESCAPE '\\' OR lower(catalog_catalog_item_id) LIKE ${searchParameter} ESCAPE '\\' OR lower(product_id) LIKE ${searchParameter} ESCAPE '\\' OR lower(merchant_offer_id) LIKE ${searchParameter} ESCAPE '\\' OR lower(external_seller_id) LIKE ${searchParameter} ESCAPE '\\')`,
     );
   }
 

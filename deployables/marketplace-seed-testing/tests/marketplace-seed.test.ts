@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { escapeLikePattern } from "@chase-sets/event-core-postgres";
 import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {
@@ -168,8 +169,8 @@ async function readSeedEventCounts(pools: ReturnType<typeof useMarketplaceSeedRu
   const entries = await Promise.all(
     seedEventSources.map(async ([streamContextName, poolName]) => {
       const result = await pools[poolName].query<{ count: string }>(
-        "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
-        [`${streamContextName}.%`],
+        "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1 ESCAPE '\\'",
+        [`${escapeLikePattern(`${streamContextName}.`)}%`],
       );
       return [streamContextName, result.rows[0]?.count ?? "0"] as const;
     }),
