@@ -29,6 +29,7 @@ import {
   processReferenceRecordAliasRecomputeBatch,
   purgeCompletedCatalogItemAliasRecomputeWork,
   purgeCompletedReferenceRecordAliasRecomputeWork,
+  type AliasRecomputeBatchOptions,
   type AliasRecomputeBatchResult,
   type AliasRecomputeHealth,
   type AliasRecomputeRetentionOptions,
@@ -102,12 +103,12 @@ export type CatalogAliasServices = Readonly<{
   /** Drain pending Catalog Item resolved-alias recompute work and publish changed facts. */
   processCatalogItemAliasRecomputeBatch: (
     context: EventStoreContext,
-    options?: Readonly<{ limit?: number }>,
+    options?: AliasRecomputeBatchOptions,
   ) => Promise<AliasRecomputeBatchResult>;
   /** Drain pending Reference Record resolved-alias recompute work and publish changed facts. */
   processReferenceRecordAliasRecomputeBatch: (
     context: EventStoreContext,
-    options?: Readonly<{ limit?: number }>,
+    options?: AliasRecomputeBatchOptions,
   ) => Promise<AliasRecomputeBatchResult>;
   /** Backfill: enqueue resolved-alias recompute for every Catalog Item with published aliases. */
   enqueueAllCatalogItemAliasRecomputeWork: () => Promise<number>;

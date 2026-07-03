@@ -172,7 +172,8 @@ CREATE INDEX IF NOT EXISTS catalog_reference_record_resolved_aliases_hash_idx
 -- Bounded, resumable recompute work for resolved alias facts. One row per
 -- target id (Catalog Item or Reference Record); accepted-alias changes upsert a
 -- pending row, the worker resolves and publishes only changed facts, and
--- completed rows are purged on a retention cutoff. Mirrors
+-- completed rows are purged on a retention cutoff. Poison rows reach the
+-- terminal failed status after a bounded retry cap. Mirrors
 -- catalog_item_display_identity_recompute_work.
 CREATE TABLE IF NOT EXISTS catalog_item_alias_recompute_work (
   catalog_item_id text PRIMARY KEY,
@@ -186,7 +187,9 @@ CREATE TABLE IF NOT EXISTS catalog_item_alias_recompute_work (
   available_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  completed_at timestamptz NULL
+  completed_at timestamptz NULL,
+  CONSTRAINT catalog_item_alias_recompute_work_status_check
+    CHECK (status IN ('pending', 'running', 'completed', 'failed'))
 );
 
 CREATE INDEX IF NOT EXISTS catalog_item_alias_recompute_work_status_idx
@@ -204,7 +207,9 @@ CREATE TABLE IF NOT EXISTS catalog_reference_record_alias_recompute_work (
   available_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  completed_at timestamptz NULL
+  completed_at timestamptz NULL,
+  CONSTRAINT catalog_reference_record_alias_recompute_work_status_check
+    CHECK (status IN ('pending', 'running', 'completed', 'failed'))
 );
 
 CREATE INDEX IF NOT EXISTS catalog_reference_record_alias_recompute_work_status_idx

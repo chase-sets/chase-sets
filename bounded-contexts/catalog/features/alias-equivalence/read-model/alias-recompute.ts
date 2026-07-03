@@ -54,10 +54,17 @@ export type AliasRecomputeBatchResult = Readonly<{
   failed: number;
 }>;
 
+export type AliasRecomputeBatchOptions = Readonly<{
+  limit?: number;
+  maxAttempts?: number;
+  runningLeaseMs?: number;
+}>;
+
 export type AliasRecomputeHealth = Readonly<{
   pending: number;
   running: number;
   completed: number;
+  failed: number;
   pendingWithError: number;
   oldestPendingAt: string | null;
   latestFailureMessage: string | null;
@@ -70,6 +77,8 @@ export type AliasRecomputeRetentionOptions = Readonly<{
 
 const CATALOG_ITEM_WORK_TABLE = "catalog_item_alias_recompute_work";
 const REFERENCE_RECORD_WORK_TABLE = "catalog_reference_record_alias_recompute_work";
+const DEFAULT_ALIAS_RECOMPUTE_MAX_ATTEMPTS = 5;
+const DEFAULT_ALIAS_RECOMPUTE_RUNNING_LEASE_MS = 5 * 60 * 1000;
 
 // --- Enqueue ---------------------------------------------------------------
 
@@ -187,7 +196,7 @@ export async function processCatalogItemAliasRecomputeBatch(
   db: PgQueryable,
   commandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>,
   context: EventStoreContext,
-  options: Readonly<{ limit?: number }> = {},
+  options: AliasRecomputeBatchOptions = {},
 ): Promise<AliasRecomputeBatchResult> {
   return processAliasRecomputeBatch(db, CATALOG_ITEM_WORK_TABLE, "catalog_item_id", options, async (targetId) => {
     const item = await loadCatalogItemLanguage(db, targetId);
@@ -205,7 +214,7 @@ export async function processReferenceRecordAliasRecomputeBatch(
   db: PgQueryable,
   commandHandler: CommandHandler<ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>,
   context: EventStoreContext,
-  options: Readonly<{ limit?: number }> = {},
+  options: AliasRecomputeBatchOptions = {},
 ): Promise<AliasRecomputeBatchResult> {
   return processAliasRecomputeBatch(
     db,
@@ -227,23 +236,22 @@ export async function processReferenceRecordAliasRecomputeBatch(
 
 type RecomputeOutcome = "changed" | "unchanged" | "missing";
 
+type ClaimedAliasWork = Readonly<{
+  targetId: string;
+  attempt: number;
+}>;
+
 async function processAliasRecomputeBatch(
   db: PgQueryable,
   table: string,
   idColumn: string,
-  options: Readonly<{ limit?: number }>,
+  options: AliasRecomputeBatchOptions,
   resolveOne: (targetId: string) => Promise<RecomputeOutcome>,
 ): Promise<AliasRecomputeBatchResult> {
   const limit = Math.max(1, Math.min(options.limit ?? 50, 250));
-  const work = await db.query<Record<string, string>>(
-    `SELECT ${idColumn}
-     FROM ${table}
-     WHERE status = 'pending' AND available_at <= now()
-     ORDER BY updated_at ASC, ${idColumn} ASC
-     LIMIT $1
-     FOR UPDATE SKIP LOCKED`,
-    [limit],
-  );
+  const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? DEFAULT_ALIAS_RECOMPUTE_MAX_ATTEMPTS));
+  const runningLeaseMs = Math.max(1, Math.floor(options.runningLeaseMs ?? DEFAULT_ALIAS_RECOMPUTE_RUNNING_LEASE_MS));
+  const work = await claimAliasRecomputeWork(db, table, idColumn, { limit, maxAttempts, runningLeaseMs });
 
   let processed = 0;
   let changed = 0;
@@ -251,16 +259,15 @@ async function processAliasRecomputeBatch(
   let missing = 0;
   let failed = 0;
 
-  for (const row of work.rows) {
-    const targetId = row[idColumn];
+  for (const row of work) {
+    const targetId = row.targetId;
     if (!targetId) {
       continue;
     }
 
     try {
-      await markAliasWorkRunning(db, table, idColumn, targetId);
       const outcome = await resolveOne(targetId);
-      await markAliasWorkCompleted(db, table, idColumn, targetId);
+      await markAliasWorkCompleted(db, table, idColumn, targetId, row.attempt);
 
       if (outcome === "missing") {
         missing += 1;
@@ -274,18 +281,73 @@ async function processAliasRecomputeBatch(
       }
     } catch (error) {
       failed += 1;
-      await markAliasWorkFailed(db, table, idColumn, targetId, error);
+      await markAliasWorkFailed(db, table, idColumn, targetId, row.attempt, maxAttempts, error);
     }
   }
 
   return {
-    selected: work.rows.length,
+    selected: work.length,
     processed,
     changed,
     unchanged,
     missing,
     failed,
   };
+}
+
+async function claimAliasRecomputeWork(
+  db: PgQueryable,
+  table: string,
+  idColumn: string,
+  options: Readonly<{ limit: number; maxAttempts: number; runningLeaseMs: number }>,
+): Promise<ClaimedAliasWork[]> {
+  const result = await db.query<Record<string, string | number>>(
+    `WITH poisoned AS (
+       UPDATE ${table}
+       SET status = 'failed',
+         updated_at = now()
+       WHERE attempts >= $2
+         AND (
+           status = 'pending'
+           OR (status = 'running' AND updated_at <= now() - ($3::text || ' milliseconds')::interval)
+         )
+       RETURNING 1
+     ),
+     candidates AS (
+       SELECT ${idColumn}
+       FROM ${table}
+       WHERE attempts < $2
+         AND (
+           (status = 'pending' AND available_at <= now())
+           OR (status = 'running' AND updated_at <= now() - ($3::text || ' milliseconds')::interval)
+         )
+       ORDER BY updated_at ASC, ${idColumn} ASC
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     ),
+     claimed AS (
+       UPDATE ${table} AS work
+       SET status = 'running',
+         attempts = work.attempts + 1,
+         updated_at = now(),
+         completed_at = NULL
+       FROM candidates
+       WHERE work.${idColumn} = candidates.${idColumn}
+       RETURNING work.${idColumn}, work.attempts
+     )
+     SELECT ${idColumn}, attempts
+     FROM claimed
+     ORDER BY ${idColumn} ASC`,
+    [options.limit, options.maxAttempts, options.runningLeaseMs],
+  );
+
+  return result.rows.flatMap((row) => {
+    const targetId = row[idColumn];
+    if (typeof targetId !== "string" || targetId.length === 0) {
+      return [];
+    }
+    return [{ targetId, attempt: Number(row.attempts) || 1 }];
+  });
 }
 
 async function publishCatalogItemAliasesIfChanged(
@@ -372,6 +434,7 @@ async function getAliasRecomputeHealth(db: PgQueryable, table: string): Promise<
     pending: countByStatus.get("pending") ?? 0,
     running: countByStatus.get("running") ?? 0,
     completed: countByStatus.get("completed") ?? 0,
+    failed: countByStatus.get("failed") ?? 0,
     pendingWithError: Number(pendingRow?.pending_with_error ?? 0),
     oldestPendingAt: pendingRow?.oldest_pending_at ?? null,
     latestFailureMessage: pendingRow?.latest_failure_message ?? null,
@@ -433,26 +496,20 @@ async function loadReferenceRecordExists(
   return result.rows[0] ?? null;
 }
 
-async function markAliasWorkRunning(db: PgQueryable, table: string, idColumn: string, targetId: string): Promise<void> {
-  await db.query(
-    `UPDATE ${table}
-     SET status = 'running', attempts = attempts + 1, updated_at = now()
-     WHERE ${idColumn} = $1`,
-    [targetId],
-  );
-}
-
 async function markAliasWorkCompleted(
   db: PgQueryable,
   table: string,
   idColumn: string,
   targetId: string,
+  attempt: number,
 ): Promise<void> {
   await db.query(
     `UPDATE ${table}
      SET status = 'completed', updated_at = now(), completed_at = now()
-     WHERE ${idColumn} = $1`,
-    [targetId],
+     WHERE ${idColumn} = $1
+       AND status = 'running'
+       AND attempts = $2`,
+    [targetId, attempt],
   );
 }
 
@@ -461,17 +518,21 @@ async function markAliasWorkFailed(
   table: string,
   idColumn: string,
   targetId: string,
+  attempt: number,
+  maxAttempts: number,
   error: unknown,
 ): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   await db.query(
     `UPDATE ${table}
-     SET status = 'pending',
+     SET status = CASE WHEN attempts >= $3 THEN 'failed' ELSE 'pending' END,
        last_error = $2,
-       available_at = now() + interval '1 minute',
+       available_at = CASE WHEN attempts >= $3 THEN available_at ELSE now() + interval '1 minute' END,
        updated_at = now()
-     WHERE ${idColumn} = $1`,
-    [targetId, message],
+     WHERE ${idColumn} = $1
+       AND status = 'running'
+       AND attempts = $4`,
+    [targetId, message, maxAttempts, attempt],
   );
 }
 

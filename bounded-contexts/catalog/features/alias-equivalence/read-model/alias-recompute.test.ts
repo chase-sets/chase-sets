@@ -46,30 +46,33 @@ function recomputeDb(options: {
   publishableRows?: Record<string, unknown>[];
   existingHash?: string | null;
   statusUpdates?: string[];
+  failOnLanguageLoad?: Error;
 }) {
   const statusUpdates = options.statusUpdates ?? [];
 
   return {
     statusUpdates,
     async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount?: number }> {
-      if (sql.includes("FROM catalog_item_alias_recompute_work") && sql.includes("status = 'pending'")) {
-        return {
-          rows: (options.workTargetId === null ? [] : [{ catalog_item_id: options.workTargetId ?? "cat_1" }]) as T[],
-        };
-      }
-      if (sql.includes("SET status = 'running'")) {
+      if (sql.includes("WITH poisoned") && sql.includes("UPDATE catalog_item_alias_recompute_work AS work")) {
         statusUpdates.push("running");
-        return { rows: [] };
+        return {
+          rows: (options.workTargetId === null
+            ? []
+            : [{ catalog_item_id: options.workTargetId ?? "cat_1", attempts: 1 }]) as T[],
+        };
       }
       if (sql.includes("SET status = 'completed'")) {
         statusUpdates.push("completed");
         return { rows: [] };
       }
-      if (sql.includes("SET status = 'pending'")) {
+      if (sql.includes("CASE WHEN attempts >= $3 THEN 'failed' ELSE 'pending' END")) {
         statusUpdates.push("failed");
         return { rows: [] };
       }
       if (sql.includes("SELECT language_code FROM catalog_items")) {
+        if (options.failOnLanguageLoad) {
+          throw options.failOnLanguageLoad;
+        }
         return { rows: (options.itemExists === false ? [] : [{ language_code: "en" }]) as T[] };
       }
       if (sql.includes("COUNT(DISTINCT catalog_item_id)")) {
@@ -93,6 +96,65 @@ function recomputeDb(options: {
   };
 }
 
+function poisonedRecomputeDb() {
+  let status: "pending" | "running" | "completed" | "failed" = "pending";
+  let attempts = 0;
+  const statusUpdates: string[] = [];
+
+  return {
+    get status() {
+      return status;
+    },
+    get attempts() {
+      return attempts;
+    },
+    statusUpdates,
+    async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount?: number }> {
+      if (sql.includes("WITH poisoned") && sql.includes("UPDATE catalog_item_alias_recompute_work AS work")) {
+        const maxAttempts = Number(params?.[1] ?? 5);
+        if (status !== "pending" || attempts >= maxAttempts) {
+          return { rows: [] };
+        }
+        status = "running";
+        attempts += 1;
+        statusUpdates.push(`running:${attempts}`);
+        return { rows: [{ catalog_item_id: "cat_poison", attempts }] as T[] };
+      }
+      if (sql.includes("SELECT language_code FROM catalog_items")) {
+        throw new Error("resolver boom");
+      }
+      if (sql.includes("CASE WHEN attempts >= $3 THEN 'failed' ELSE 'pending' END")) {
+        const maxAttempts = Number(params?.[2] ?? 5);
+        status = attempts >= maxAttempts ? "failed" : "pending";
+        statusUpdates.push(status);
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [] };
+    },
+  };
+}
+
+function cappedPendingRecomputeDb() {
+  let status: "pending" | "failed" = "pending";
+  const attempts = 3;
+
+  return {
+    get status() {
+      return status;
+    },
+    async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount?: number }> {
+      if (sql.includes("WITH poisoned") && sql.includes("UPDATE catalog_item_alias_recompute_work")) {
+        const maxAttempts = Number(params?.[1] ?? 5);
+        if (status === "pending" && attempts >= maxAttempts) {
+          status = "failed";
+        }
+        return { rows: [] };
+      }
+      return { rows: [] };
+    },
+  };
+}
+
 describe("resolved alias recompute work", () => {
   it("enqueues work idempotently by target id", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
@@ -109,6 +171,18 @@ describe("resolved alias recompute work", () => {
     expect(calls[0]?.sql).toContain("INSERT INTO catalog_item_alias_recompute_work");
     expect(calls[0]?.sql).toContain("ON CONFLICT (catalog_item_id) DO UPDATE");
     expect(calls[0]?.params[0]).toEqual(["cat_1", "cat_2"]);
+  });
+
+  it("claims pending and stale running recompute work with one fenced update", async () => {
+    const db = recomputeDb({ workTargetId: null });
+
+    await processCatalogItemAliasRecomputeBatch(db, commandHandler(), {} as never, {
+      limit: 7,
+      maxAttempts: 3,
+      runningLeaseMs: 12_000,
+    });
+
+    expect(db.statusUpdates).toEqual(["running"]);
   });
 
   it("resolves and publishes one aliases-resolved fact when the hash changes", async () => {
@@ -147,6 +221,31 @@ describe("resolved alias recompute work", () => {
 
     expect(result).toMatchObject({ processed: 1, changed: 0, unchanged: 1 });
     expect(published).not.toHaveBeenCalled();
+  });
+
+  it("stops retrying poison work at the attempt cap", async () => {
+    const published = commandHandler();
+    const db = poisonedRecomputeDb();
+
+    const first = await processCatalogItemAliasRecomputeBatch(db, published, {} as never, { maxAttempts: 2 });
+    const second = await processCatalogItemAliasRecomputeBatch(db, published, {} as never, { maxAttempts: 2 });
+    const third = await processCatalogItemAliasRecomputeBatch(db, published, {} as never, { maxAttempts: 2 });
+
+    expect(first).toMatchObject({ selected: 1, failed: 1 });
+    expect(second).toMatchObject({ selected: 1, failed: 1 });
+    expect(third).toMatchObject({ selected: 0, failed: 0 });
+    expect(db.status).toBe("failed");
+    expect(db.attempts).toBe(2);
+    expect(db.statusUpdates).toEqual(["running:1", "pending", "running:2", "failed"]);
+  });
+
+  it("marks already exhausted pending work terminal before claiming more", async () => {
+    const db = cappedPendingRecomputeDb();
+
+    const result = await processCatalogItemAliasRecomputeBatch(db, commandHandler(), {} as never, { maxAttempts: 3 });
+
+    expect(result).toMatchObject({ selected: 0, failed: 0 });
+    expect(db.status).toBe("failed");
   });
 
   it("publishes an empty (retracted) fact when the last publishable alias is gone", async () => {
@@ -201,6 +300,7 @@ describe("resolved alias recompute work", () => {
             rows: [
               { status: "pending", count: "2" },
               { status: "completed", count: "5" },
+              { status: "failed", count: "1" },
             ] as T[],
           };
         }
@@ -216,6 +316,7 @@ describe("resolved alias recompute work", () => {
       pending: 2,
       running: 0,
       completed: 5,
+      failed: 1,
       pendingWithError: 1,
       oldestPendingAt: "2026-06-16T00:00:00.000Z",
       latestFailureMessage: "boom",
