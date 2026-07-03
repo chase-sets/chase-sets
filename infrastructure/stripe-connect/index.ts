@@ -145,9 +145,13 @@ type StripePayoutResponse = Readonly<{
 type StripeEventEnvelope = Readonly<{
   id?: string;
   type?: string;
-  created?: number;
+  created?: number | string;
   data?: Readonly<{
     object?: Record<string, unknown>;
+  }>;
+  account?: string;
+  related_object?: Readonly<{
+    id?: string;
   }>;
 }>;
 
@@ -439,7 +443,17 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
 }
 
 function occurredAtFromEvent(event: StripeEventEnvelope) {
-  return new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
+  const created = event.created;
+  const timestamp =
+    typeof created === "number"
+      ? created * 1000
+      : typeof created === "string" && /^\d+$/.test(created.trim())
+        ? Number.parseInt(created.trim(), 10) * 1000
+        : typeof created === "string"
+          ? Date.parse(created)
+          : Date.now();
+
+  return new Date(Number.isFinite(timestamp) ? timestamp : Date.now()).toISOString();
 }
 
 function expiresAtFromStripeTimestamp(value: number | string | null | undefined) {
@@ -462,6 +476,22 @@ function expiresAtFromStripeTimestamp(value: number | string | null | undefined)
 
 function providerEventIdFromEvent(event: StripeEventEnvelope, fallbackReference: string) {
   return event.id?.trim() || `stripe:${event.type ?? "event"}:${fallbackReference}`;
+}
+
+function accountReferenceFromReadinessWebhook(
+  event: StripeEventEnvelope,
+  object: Record<string, unknown> | null | undefined,
+) {
+  const references = [object?.id, event.related_object?.id, event.account];
+
+  for (const reference of references) {
+    const normalized = typeof reference === "string" ? reference.trim() : "";
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
 }
 
 function providerFailureCategoryFromStripeError(message: string, status: number, code?: string | null) {
@@ -884,11 +914,28 @@ export function createStripeConnectMoneyMovementGateway(
       verifyStripeSignature(input.rawBody, input.signatureHeader, options.webhookSecret, webhookToleranceSeconds);
       const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
       const object = event.data?.object;
-      const occurredAt = occurredAtFromEvent(event);
+
+      if (event.type && accountStrategy.handlesReadinessWebhook(event.type)) {
+        const providerReference = accountReferenceFromReadinessWebhook(event, object);
+        if (!providerReference) {
+          return null;
+        }
+        const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(providerReference));
+
+        return {
+          kind: "payout-readiness-updated",
+          providerEventId: providerEventIdFromEvent(event, providerReference),
+          providerReference,
+          readiness,
+          occurredAt: occurredAtFromEvent(event),
+        } satisfies MoneyMovementWebhookEvent;
+      }
 
       if (!object || typeof object !== "object") {
         return null;
       }
+
+      const occurredAt = occurredAtFromEvent(event);
 
       if (event.type === "payout.paid") {
         const providerPayoutReference = String(object.id ?? "").trim();
@@ -916,22 +963,6 @@ export function createStripeConnectMoneyMovementGateway(
           providerStatus: String(object.status ?? "failed"),
           failureCode: typeof object.failure_code === "string" ? object.failure_code : null,
           failureMessage: typeof object.failure_message === "string" ? object.failure_message : null,
-          occurredAt,
-        } satisfies MoneyMovementWebhookEvent;
-      }
-
-      if (event.type && accountStrategy.handlesReadinessWebhook(event.type)) {
-        const providerReference = String(object.id ?? "").trim();
-        if (!providerReference) {
-          return null;
-        }
-        const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(providerReference));
-
-        return {
-          kind: "payout-readiness-updated",
-          providerEventId: providerEventIdFromEvent(event, providerReference),
-          providerReference,
-          readiness,
           occurredAt,
         } satisfies MoneyMovementWebhookEvent;
       }
