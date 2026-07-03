@@ -194,6 +194,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
       status: null,
       createdAt: null,
     },
+    restorePointCleanup: restorePointCleanupNotRequired(),
     skip: {
       requested: Boolean(options.skip),
       reason: emptyToNull(options.skipReason),
@@ -254,6 +255,14 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
   } catch (error) {
     const discoveredFork = await discoverForkFromCreateFailure(error, restorePointName, options.doctlPath, exec);
     if (isDoctlForkTimeoutFailure(error)) {
+      const cleanup = await cleanupFailedRestorePointFork(
+        {
+          doctlPath: options.doctlPath,
+          fork: discoveredFork,
+          forkName: restorePointName,
+        },
+        exec,
+      );
       const failure = restorePointFailure("restore-point-fork-timeout", {
         restorePointName,
         fork: discoveredFork,
@@ -271,11 +280,13 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
             status: discoveredFork.status ?? "unknown",
             createdAt: discoveredFork.createdAt,
           },
+          restorePointCleanup: cleanup,
           failure,
           errors: [
             ...describeDoctlFailure(error),
             `last observed cluster id: ${discoveredFork.clusterId ?? "unknown"}`,
             `last observed status: ${discoveredFork.status ?? "unknown"}`,
+            ...cleanup.errors,
           ],
         },
         passesRestorePointGate: false,
@@ -298,6 +309,14 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
   }
 
   if (!fork.clusterId) {
+    const cleanup = await cleanupFailedRestorePointFork(
+      {
+        doctlPath: options.doctlPath,
+        fork,
+        forkName: restorePointName,
+      },
+      exec,
+    );
     return {
       record: {
         ...baseRecord,
@@ -306,7 +325,8 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
           name: fork.name ?? restorePointName,
           status: fork.status ?? "create-failed",
         },
-        errors: ["doctl database fork output did not include a forked cluster id."],
+        restorePointCleanup: cleanup,
+        errors: ["doctl database fork output did not include a forked cluster id.", ...cleanup.errors],
       },
       passesRestorePointGate: false,
     };
@@ -326,6 +346,14 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
       normalizedDependencies,
     );
   } catch (error) {
+    const cleanup = await cleanupFailedRestorePointFork(
+      {
+        doctlPath: options.doctlPath,
+        fork,
+        forkName: restorePointName,
+      },
+      exec,
+    );
     return {
       record: {
         ...baseRecord,
@@ -336,10 +364,11 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
           status: "status-check-failed",
           createdAt: fork.createdAt,
         },
+        restorePointCleanup: cleanup,
         errors: describeDoctlFailure(
           error,
           "doctl database fork status check failed before the restore-point cluster became available.",
-        ),
+        ).concat(cleanup.errors),
       },
       passesRestorePointGate: false,
     };
@@ -347,6 +376,14 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
 
   if (availability.outcome === "timeout") {
     const latest = availability.fork ?? fork;
+    const cleanup = await cleanupFailedRestorePointFork(
+      {
+        doctlPath: options.doctlPath,
+        fork: latest,
+        forkName: restorePointName,
+      },
+      exec,
+    );
     const failure = restorePointFailure("restore-point-fork-timeout", {
       restorePointName,
       fork: latest,
@@ -364,11 +401,13 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
           status: latest.status,
           createdAt: latest.createdAt,
         },
+        restorePointCleanup: cleanup,
         failure,
         errors: [
           `Timed out waiting for restore-point fork '${restorePointName}' to become online.`,
           `last observed cluster id: ${latest.clusterId ?? "unknown"}`,
           `last observed status: ${latest.status ?? "unknown"}`,
+          ...cleanup.errors,
         ],
       },
       passesRestorePointGate: false,
@@ -377,6 +416,14 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
 
   if (availability.outcome === "failed") {
     const latest = availability.fork ?? fork;
+    const cleanup = await cleanupFailedRestorePointFork(
+      {
+        doctlPath: options.doctlPath,
+        fork: latest,
+        forkName: restorePointName,
+      },
+      exec,
+    );
     const failure = restorePointFailure("restore-point-fork-failed-status", {
       restorePointName,
       fork: latest,
@@ -394,8 +441,12 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
           status: latest.status,
           createdAt: latest.createdAt,
         },
+        restorePointCleanup: cleanup,
         failure,
-        errors: [`Restore-point fork '${restorePointName}' entered failed status '${latest.status ?? "unknown"}'.`],
+        errors: [
+          `Restore-point fork '${restorePointName}' entered failed status '${latest.status ?? "unknown"}'.`,
+          ...cleanup.errors,
+        ],
       },
       passesRestorePointGate: false,
     };
@@ -564,6 +615,7 @@ function githubOutputsForRecord(record) {
     restore_point_name: record.restorePoint.name ?? "",
     restore_point_status: record.restorePoint.status ?? "",
     restore_point_created_at: record.restorePoint.createdAt ?? "",
+    restore_point_cleanup_status: record.restorePointCleanup?.status ?? "",
     restore_point_bypassed: String(record.bypass.allowed),
   };
 }
@@ -589,6 +641,51 @@ function summarizeDigitalOceanDatabase(database, fallbackName) {
     name: readField(database, "name", "Name") ?? fallbackName,
     status: readField(database, "status", "Status") ?? null,
     createdAt: readField(database, "created_at", "createdAt", "CreatedAt", "Created At") ?? null,
+  };
+}
+
+async function cleanupFailedRestorePointFork(options, exec) {
+  const clusterId = options.fork?.clusterId ?? null;
+  const name = options.fork?.name ?? options.forkName ?? null;
+  if (!isNonEmptyString(clusterId)) {
+    return {
+      attempted: false,
+      clusterId: null,
+      name,
+      status: "not-attempted",
+      errors: ["restore-point cleanup skipped because no fork cluster id was available."],
+    };
+  }
+
+  try {
+    await exec(options.doctlPath ?? "doctl", ["databases", "delete", clusterId, "--force"], {
+      maxBuffer: 1024 * 1024,
+    });
+    return {
+      attempted: true,
+      clusterId,
+      name,
+      status: "deleted",
+      errors: [],
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      clusterId,
+      name,
+      status: "delete-failed",
+      errors: describeDoctlFailure(error, "doctl database delete failed for the failed restore-point fork."),
+    };
+  }
+}
+
+function restorePointCleanupNotRequired() {
+  return {
+    attempted: false,
+    clusterId: null,
+    name: null,
+    status: "not-required",
+    errors: [],
   };
 }
 
