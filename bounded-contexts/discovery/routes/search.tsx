@@ -305,6 +305,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   const [bulkAddState, setBulkAddState] = useState<{
     status: "idle" | "submitting";
     data?: BulkAddActionData;
+    error?: string | null;
   }>({ status: "idle" });
   const loadMoreInFlightRef = useRef(false);
   const bulkAddRequestIdRef = useRef(0);
@@ -551,7 +552,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     bulkAddRequestIdRef.current = requestId;
     const formData = new FormData();
     formData.set("intent", intent);
-    setBulkAddState((current) => ({ ...current, status: "submitting" }));
+    setBulkAddState((current) => ({ ...current, status: "submitting", error: null }));
 
     try {
       const response = await fetch(window.location.href, {
@@ -574,7 +575,11 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     } catch (error) {
       console.error("Bulk add search results failed.", error);
       if (bulkAddRequestIdRef.current === requestId && resultSetKeyRef.current === requestKey) {
-        setBulkAddState((current) => ({ ...current, status: "idle" }));
+        setBulkAddState((current) => ({
+          ...current,
+          status: "idle",
+          error: t("discovery.features.search.ui.searchPage.bulk.error.description"),
+        }));
       }
     }
   }, []);
@@ -597,6 +602,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       bulkAdd={{
         status: bulkAddState.status,
         data: bulkAddState.data,
+        error: bulkAddState.error,
         onPreview: () => void submitBulkAddIntent("preview-bulk-add"),
         onCommit: () => void submitBulkAddIntent("commit-bulk-add"),
       }}

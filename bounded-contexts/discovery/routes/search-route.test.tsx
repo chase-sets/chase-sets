@@ -515,6 +515,28 @@ describe("marketplace search route", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Add eligible products")).toBeNull();
   });
+
+  it("renders a visible bulk add failure when the POST fails", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ error: "Route action missing." }), { status: 405 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Add matching products to Buy Cart" }));
+
+    await waitFor(() => expect(screen.getByText("Could not add matching products")).toBeTruthy());
+    expect(
+      screen.getByText(
+        "We could not add matching products to Buy Cart. Try again, or open a product to add it individually.",
+      ),
+    ).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 function bulkPreview(): DiscoveryBulkCartPreview {

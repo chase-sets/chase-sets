@@ -8,6 +8,7 @@ import { loader as robotsLoader } from "./robots";
 import { loader as manifestLoader } from "./manifest";
 import { loader as serviceWorkerLoader } from "./service-worker";
 import { loader as searchLoader, meta as searchMeta } from "@chase-sets/discovery/routes/search";
+import { action as homeAction } from "./index";
 import { meta as signInMeta } from "@chase-sets/auth/routes/marketplace/sign-in";
 import { loader as sitemapLoader } from "./sitemap";
 import { loader as healthReadyLoader } from "./health-ready";
@@ -138,6 +139,85 @@ describe("marketplace SSR routes", () => {
       count: 0,
       nextCursor: null,
     });
+  });
+
+  it("handles home-page bulk add posts through the discovery search action", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      const method = init?.method ?? request?.method ?? "GET";
+
+      if (url.pathname === "/api/auth/session") {
+        return Response.json({ actor: null });
+      }
+
+      if (url.pathname === "/api/marketplace/items/bulk-cart-preview") {
+        expect(url.searchParams.get("search")).toBe("pikachu");
+        return Response.json({
+          totalMatches: 1,
+          eligibleCount: 1,
+          skippedCount: 0,
+          overLimit: false,
+          limit: 24,
+          lines: [
+            {
+              catalog_item_id: "cat_pikachu",
+              product_id: "cat_pikachu::form:raw",
+              title: "Pikachu",
+              subtitle: "Jungle 60/64 Common",
+              image_url: null,
+              image_srcset: null,
+              image_loading_url: null,
+              image_loading_alt: null,
+              image_loading_srcset: null,
+              selected_options: [],
+              product_summary: "Raw",
+              quantity: 1,
+            },
+          ],
+          skippedItems: [],
+        });
+      }
+
+      if (url.pathname === "/api/marketplace/guest/cart/bulk") {
+        expect(method).toBe("POST");
+        expect(new Headers(init?.headers).get("x-checkout-anonymous-cart-id")).toBe("anon_cart_1");
+        return Response.json({
+          addedLineCount: 1,
+          mergedLineCount: 0,
+          failedLineCount: 0,
+          requestedLineCount: 1,
+        });
+      }
+
+      return new Response(JSON.stringify({ error: `Unexpected request to ${url.pathname}` }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const formData = new FormData();
+    formData.set("intent", "commit-bulk-add");
+    const response = await homeAction({
+      request: new Request("http://localhost/?q=pikachu", {
+        method: "POST",
+        body: formData,
+        headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    await expect(response.json()).resolves.toMatchObject({
+      status: "bulk-added",
+      addedLineCount: 1,
+      mergedLineCount: 0,
+      failedLineCount: 0,
+      requestedLineCount: 1,
+    });
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_cart=anon_cart_1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/marketplace/items/bulk-cart-preview?search=pikachu"),
+      expect.anything(),
+    );
   });
 
   it("builds canonical URLs for marketplace pages", () => {
