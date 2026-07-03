@@ -18,6 +18,7 @@ import {
   type SupportEvidence,
   type SupportEvidenceType,
   type SupportFlowType,
+  type SupportOffer,
   type SupportPriority,
   type SupportRequesterRole,
   type SupportRequestStatus,
@@ -31,6 +32,7 @@ import { createChecklist, getSupportFlowDefinition, includesEvidenceType } from 
 export type SupportRequestState = Readonly<{
   supportRequestId: SupportRequestId | null;
   orderId: OrderId | null;
+  orderTotalAmount: string | null;
   buyerAccountId: AccountId | null;
   sellerAccountId: AccountId | null;
   flowType: SupportFlowType | null;
@@ -45,6 +47,8 @@ export type SupportRequestState = Readonly<{
   checklist: readonly SupportChecklistItem[];
   evidence: readonly SupportEvidence[];
   responses: readonly SupportResponse[];
+  offers: readonly SupportOffer[];
+  pendingOffer: SupportOffer | null;
   resolution: SupportResolution | null;
   closedAt: string | null;
   cancellationReason: string | null;
@@ -53,6 +57,7 @@ export type SupportRequestState = Readonly<{
 export const initialSupportRequestState: SupportRequestState = {
   supportRequestId: null,
   orderId: null,
+  orderTotalAmount: null,
   buyerAccountId: null,
   sellerAccountId: null,
   flowType: null,
@@ -67,6 +72,8 @@ export const initialSupportRequestState: SupportRequestState = {
   checklist: [],
   evidence: [],
   responses: [],
+  offers: [],
+  pendingOffer: null,
   resolution: null,
   closedAt: null,
   cancellationReason: null,
@@ -76,6 +83,7 @@ export type OpenSupportRequestCommand = Readonly<{
   type: "OpenSupportRequest";
   supportRequestId: SupportRequestId;
   orderId: OrderId;
+  orderTotalAmount: string;
   buyerAccountId: AccountId;
   sellerAccountId: AccountId;
   flowType: SupportFlowType;
@@ -104,6 +112,26 @@ export type RecordSupportResponseCommand = Readonly<{
   submittedByRole: SupportRequesterRole;
   summary: string;
   submittedAt: string;
+  offerId?: string | null;
+  offerResolutionType?: SupportResolutionType | null;
+  refundAmount?: string | null;
+}>;
+
+export type AcceptSupportOfferCommand = Readonly<{
+  type: "AcceptSupportOffer";
+  offerId: string;
+  acceptedByAccountId?: AccountId | null;
+  acceptedByRole: SupportRequesterRole;
+  acceptedAt: string;
+}>;
+
+export type DeclineSupportOfferCommand = Readonly<{
+  type: "DeclineSupportOffer";
+  offerId: string;
+  declinedByAccountId?: AccountId | null;
+  declinedByRole: SupportRequesterRole;
+  declinedAt: string;
+  summary?: string | null;
 }>;
 
 export type EscalateSupportRequestCommand = Readonly<{
@@ -136,6 +164,8 @@ export type SupportRequestCommand =
   | OpenSupportRequestCommand
   | SubmitSupportEvidenceCommand
   | RecordSupportResponseCommand
+  | AcceptSupportOfferCommand
+  | DeclineSupportOfferCommand
   | EscalateSupportRequestCommand
   | ResolveSupportRequestCommand
   | CloseSupportRequestCommand
@@ -146,6 +176,7 @@ export type SupportRequestOpenedEvent = DomainEvent<
   Readonly<{
     supportRequestId: SupportRequestId;
     orderId: OrderId;
+    orderTotalAmount: string;
     buyerAccountId: AccountId;
     sellerAccountId: AccountId;
     flowType: SupportFlowType;
@@ -175,6 +206,24 @@ export type SupportResponseRecordedEvent = DomainEvent<
   Readonly<{
     supportRequestId: SupportRequestId;
     response: SupportResponse;
+    offer: SupportOffer | null;
+    status: SupportRequestStatus;
+  }>
+>;
+
+export type SupportOfferAcceptedEvent = DomainEvent<
+  "support.support-request.offer-accepted",
+  Readonly<{
+    supportRequestId: SupportRequestId;
+    offer: SupportOffer;
+  }>
+>;
+
+export type SupportOfferDeclinedEvent = DomainEvent<
+  "support.support-request.offer-declined",
+  Readonly<{
+    supportRequestId: SupportRequestId;
+    offer: SupportOffer;
     status: SupportRequestStatus;
   }>
 >;
@@ -223,6 +272,8 @@ export type SupportRequestEvent =
   | SupportRequestOpenedEvent
   | SupportEvidenceSubmittedEvent
   | SupportResponseRecordedEvent
+  | SupportOfferAcceptedEvent
+  | SupportOfferDeclinedEvent
   | SupportRequestEscalatedEvent
   | SupportRequestResolvedEvent
   | SupportRequestClosedEvent
@@ -290,6 +341,120 @@ function normalizeResponse(command: RecordSupportResponseCommand): SupportRespon
     submittedByRole: normalizeRequesterRole(command.submittedByRole),
     summary: normalizeRequiredText(command.summary, "Support response must include a summary."),
     submittedAt: normalizeIsoTimestamp(command.submittedAt, "Support response must record a timestamp."),
+    offerId: command.offerId ? normalizeRequiredText(command.offerId, "Support offer must include an id.") : null,
+  };
+}
+
+function isOfferResponseType(responseType: SupportResponseType) {
+  return (
+    responseType === "accept-return" || responseType === "offer-partial-refund" || responseType === "offer-replacement"
+  );
+}
+
+function expectedOfferResolution(responseType: SupportResponseType): SupportResolutionType | null {
+  switch (responseType) {
+    case "accept-return":
+      return "return-for-refund";
+    case "offer-partial-refund":
+      return "partial-refund";
+    case "offer-replacement":
+      return "replacement";
+    default:
+      return null;
+  }
+}
+
+function counterpartyFor(role: SupportRequesterRole): SupportRequesterRole {
+  if (role === "buyer") {
+    return "seller";
+  }
+  if (role === "seller") {
+    return "buyer";
+  }
+  return "buyer";
+}
+
+function statusForPendingOffer(offer: SupportOffer): SupportRequestStatus {
+  if (offer.pendingWithRole === "buyer") {
+    return "waiting-on-buyer";
+  }
+  if (offer.pendingWithRole === "seller") {
+    return "waiting-on-seller";
+  }
+  return "ready-for-support";
+}
+
+function normalizePositiveRefundAmount(value: string | null | undefined, orderTotalAmount: string | null) {
+  const amount = normalizeMoneyAmount(value, "Offer refund amount");
+  assert(amount !== null && Number(amount) > 0, "Offer refund amount must be greater than zero.");
+  assert(orderTotalAmount !== null, "Support request order total is required for refund offer validation.");
+  assert(Number(amount) <= Number(orderTotalAmount), "Offer refund amount cannot exceed the order total.");
+  return amount;
+}
+
+function buildOffer(
+  state: SupportRequestState,
+  command: RecordSupportResponseCommand,
+  response: SupportResponse,
+): SupportOffer | null {
+  if (!isOfferResponseType(response.responseType)) {
+    assert(command.offerId === null || command.offerId === undefined, "Only offer responses can include an offer id.");
+    assert(
+      command.offerResolutionType === null || command.offerResolutionType === undefined,
+      "Only offer responses can include an offer resolution.",
+    );
+    assert(
+      command.refundAmount === null || command.refundAmount === undefined,
+      "Only offer responses can include a refund amount.",
+    );
+    return null;
+  }
+
+  assert(response.offerId !== null, "Offer responses must include an offer id.");
+  const resolutionType = normalizeResolutionType(command.offerResolutionType ?? "");
+  const expectedResolution = expectedOfferResolution(response.responseType);
+  assert(expectedResolution === resolutionType, "Offer resolution does not match the response type.");
+  assert(state.flowType !== null, "Support request flow is missing.");
+  const definition = getSupportFlowDefinition(state.flowType);
+  assert(
+    definition.allowedResolutions.includes(resolutionType),
+    "This offer resolution is not accepted for the support flow.",
+  );
+  const refundAmount =
+    resolutionType === "partial-refund"
+      ? normalizePositiveRefundAmount(command.refundAmount, state.orderTotalAmount)
+      : null;
+  assert(
+    resolutionType === "partial-refund" || command.refundAmount === null || command.refundAmount === undefined,
+    "Only partial refund offers can include a refund amount.",
+  );
+
+  return {
+    offerId: response.offerId,
+    responseId: response.responseId,
+    offeredByAccountId: response.submittedByAccountId,
+    offeredByRole: response.submittedByRole,
+    pendingWithRole: counterpartyFor(response.submittedByRole),
+    responseType: response.responseType,
+    resolutionType,
+    refundAmount,
+    summary: response.summary,
+    offeredAt: response.submittedAt,
+    status: "pending",
+    decidedByAccountId: null,
+    decidedByRole: null,
+    decidedAt: null,
+    decisionSummary: null,
+  };
+}
+
+function resolveFromOffer(offer: SupportOffer, acceptedByAccountId: AccountId | null): SupportResolution {
+  return {
+    resolutionType: offer.resolutionType,
+    summary: `Party agreement accepted offer ${offer.offerId}: ${offer.summary}`,
+    refundAmount: offer.refundAmount,
+    resolvedByAccountId: acceptedByAccountId,
+    resolvedAt: offer.decidedAt!,
   };
 }
 
@@ -306,6 +471,8 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
       assert(definition.openedBy.includes(openedByRole), "This support flow cannot be opened by that role.");
 
       const openedAt = normalizeIsoTimestamp(command.openedAt, "Support request opening must record a timestamp.");
+      const orderTotalAmount = normalizeMoneyAmount(command.orderTotalAmount, "Order total");
+      assert(orderTotalAmount !== null, "Support request must include the order total.");
       const checklist = createChecklist(flowType);
       return [
         {
@@ -313,6 +480,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
           data: {
             supportRequestId: command.supportRequestId,
             orderId: command.orderId,
+            orderTotalAmount,
             buyerAccountId: command.buyerAccountId,
             sellerAccountId: command.sellerAccountId,
             flowType,
@@ -374,14 +542,125 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         response.submittedByRole === "seller" || response.submittedByRole === "support",
         "Support responses must come from the seller or support.",
       );
+      assert(
+        state.pendingOffer === null,
+        "Pending support offers must be accepted or declined before another response.",
+      );
+      const offer = buildOffer(state, command, response);
+      const responseRecorded: SupportResponseRecordedEvent = {
+        type: "support.support-request.response-recorded",
+        data: {
+          supportRequestId: state.supportRequestId,
+          response,
+          offer,
+          status: offer ? statusForPendingOffer(offer) : "ready-for-support",
+        },
+      };
+
+      if (state.flowType === "buyer-cancel-request" && response.responseType === "confirm-cancellation") {
+        assert(
+          definition.allowedResolutions.includes("cancel-order"),
+          "This resolution is not accepted for the support flow.",
+        );
+        return [
+          responseRecorded,
+          {
+            type: "support.support-request.resolved",
+            data: {
+              supportRequestId: state.supportRequestId,
+              orderId: state.orderId!,
+              buyerAccountId: state.buyerAccountId!,
+              sellerAccountId: state.sellerAccountId!,
+              flowType: state.flowType,
+              resolution: {
+                resolutionType: "cancel-order",
+                summary: "Seller confirmed the buyer cancellation request.",
+                refundAmount: null,
+                resolvedByAccountId: response.submittedByAccountId,
+                resolvedAt: response.submittedAt,
+              },
+            },
+          },
+        ];
+      }
+
+      return [responseRecorded];
+    }
+    case "AcceptSupportOffer": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(
+        state.status !== "resolved" && state.status !== "closed" && state.status !== "cancelled",
+        "Closed support requests cannot accept offers.",
+      );
+      const acceptedByRole = normalizeRequesterRole(command.acceptedByRole);
+      const acceptedAt = normalizeIsoTimestamp(command.acceptedAt, "Support offer acceptance must record a timestamp.");
+      const offerId = normalizeRequiredText(command.offerId, "Support offer id is required.");
+      const offer = state.pendingOffer;
+      assert(
+        offer !== null && offer.offerId === offerId && offer.status === "pending",
+        "No pending support offer is available.",
+      );
+      assert(offer.pendingWithRole === acceptedByRole, "This support offer is waiting on the other party.");
+      const acceptedOffer: SupportOffer = {
+        ...offer,
+        status: "accepted",
+        decidedByAccountId: command.acceptedByAccountId ?? null,
+        decidedByRole: acceptedByRole,
+        decidedAt: acceptedAt,
+        decisionSummary: "Offer accepted by the counterparty.",
+      };
+      const resolution = resolveFromOffer(acceptedOffer, command.acceptedByAccountId ?? null);
 
       return [
         {
-          type: "support.support-request.response-recorded",
+          type: "support.support-request.offer-accepted",
           data: {
             supportRequestId: state.supportRequestId,
-            response,
-            status: response.responseType === "request-support-review" ? "ready-for-support" : "ready-for-support",
+            offer: acceptedOffer,
+          },
+        },
+        {
+          type: "support.support-request.resolved",
+          data: {
+            supportRequestId: state.supportRequestId,
+            orderId: state.orderId!,
+            buyerAccountId: state.buyerAccountId!,
+            sellerAccountId: state.sellerAccountId!,
+            flowType: state.flowType!,
+            resolution,
+          },
+        },
+      ];
+    }
+    case "DeclineSupportOffer": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(
+        state.status !== "resolved" && state.status !== "closed" && state.status !== "cancelled",
+        "Closed support requests cannot decline offers.",
+      );
+      const declinedByRole = normalizeRequesterRole(command.declinedByRole);
+      const declinedAt = normalizeIsoTimestamp(command.declinedAt, "Support offer decline must record a timestamp.");
+      const offerId = normalizeRequiredText(command.offerId, "Support offer id is required.");
+      const offer = state.pendingOffer;
+      assert(
+        offer !== null && offer.offerId === offerId && offer.status === "pending",
+        "No pending support offer is available.",
+      );
+      assert(offer.pendingWithRole === declinedByRole, "This support offer is waiting on the other party.");
+      return [
+        {
+          type: "support.support-request.offer-declined",
+          data: {
+            supportRequestId: state.supportRequestId,
+            offer: {
+              ...offer,
+              status: "declined",
+              decidedByAccountId: command.declinedByAccountId ?? null,
+              decidedByRole: declinedByRole,
+              decidedAt: declinedAt,
+              decisionSummary: normalizeOptionalText(command.summary) ?? "Offer declined by the counterparty.",
+            },
+            status: "ready-for-support",
           },
         },
       ];
@@ -490,6 +769,7 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
       return {
         supportRequestId: event.data.supportRequestId,
         orderId: event.data.orderId,
+        orderTotalAmount: event.data.orderTotalAmount,
         buyerAccountId: event.data.buyerAccountId,
         sellerAccountId: event.data.sellerAccountId,
         flowType: event.data.flowType,
@@ -504,6 +784,8 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         checklist: event.data.checklist,
         evidence: [],
         responses: [],
+        offers: [],
+        pendingOffer: null,
         resolution: null,
         closedAt: null,
         cancellationReason: null,
@@ -522,6 +804,23 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         status: event.data.status,
         updatedAt: event.data.response.submittedAt,
         responses: [...state.responses, event.data.response],
+        offers: event.data.offer ? [...state.offers, event.data.offer] : state.offers,
+        pendingOffer: event.data.offer ?? state.pendingOffer,
+      };
+    case "support.support-request.offer-accepted":
+      return {
+        ...state,
+        updatedAt: event.data.offer.decidedAt,
+        offers: state.offers.map((offer) => (offer.offerId === event.data.offer.offerId ? event.data.offer : offer)),
+        pendingOffer: null,
+      };
+    case "support.support-request.offer-declined":
+      return {
+        ...state,
+        status: event.data.status,
+        updatedAt: event.data.offer.decidedAt,
+        offers: state.offers.map((offer) => (offer.offerId === event.data.offer.offerId ? event.data.offer : offer)),
+        pendingOffer: null,
       };
     case "support.support-request.escalated":
       return {

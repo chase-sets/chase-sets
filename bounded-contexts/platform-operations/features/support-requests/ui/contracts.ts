@@ -14,7 +14,16 @@ export type SupportRequestDetail = SupportRequestDetailRow;
 export type SupportRequestCommandSnapshot = Readonly<{
   id: string;
   version: number;
-  status: "opened" | "evidence-submitted" | "response-recorded" | "escalated" | "resolved" | "closed" | "cancelled";
+  status:
+    | "opened"
+    | "evidence-submitted"
+    | "response-recorded"
+    | "offer-accepted"
+    | "offer-declined"
+    | "escalated"
+    | "resolved"
+    | "closed"
+    | "cancelled";
 }>;
 
 export type SupportRequestEscalationSnapshot = Readonly<{

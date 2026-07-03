@@ -254,6 +254,8 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           submittedByRole: "support",
           responseType: String(body.responseType ?? ""),
           summary: String(body.summary ?? ""),
+          offerResolutionType: typeof body.offerResolutionType === "string" ? body.offerResolutionType : null,
+          refundAmount: typeof body.refundAmount === "string" ? body.refundAmount : null,
           scope: "operations",
         },
         contextResult.context,
@@ -516,10 +518,82 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           submittedByRole: String(body.submittedByRole ?? ""),
           responseType: String(body.responseType ?? ""),
           summary: String(body.summary ?? ""),
+          offerResolutionType: typeof body.offerResolutionType === "string" ? body.offerResolutionType : null,
+          refundAmount: typeof body.refundAmount === "string" ? body.refundAmount : null,
         },
         context,
       );
       return c.json({ id: result.supportRequestId, version: result.version, status: "response-recorded" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/offers/:offerId/accept", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.acceptOffer(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          offerId: c.req.param("offerId"),
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "offer-accepted" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/offers/:offerId/decline", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const result = await services.declineOffer(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          offerId: c.req.param("offerId"),
+          summary: typeof body.summary === "string" ? body.summary : null,
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "offer-declined" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

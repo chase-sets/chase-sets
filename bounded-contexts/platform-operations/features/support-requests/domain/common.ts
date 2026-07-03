@@ -64,6 +64,8 @@ export type SupportResolutionType =
   | "no-action"
   | "support-reviewed";
 
+export type SupportOfferStatus = "pending" | "accepted" | "declined";
+
 export type SupportChecklistItem = Readonly<{
   key: string;
   label: string;
@@ -91,6 +93,25 @@ export type SupportResponse = Readonly<{
   submittedByRole: SupportRequesterRole;
   summary: string;
   submittedAt: string;
+  offerId: string | null;
+}>;
+
+export type SupportOffer = Readonly<{
+  offerId: string;
+  responseId: string;
+  offeredByAccountId: AccountId | null;
+  offeredByRole: SupportRequesterRole;
+  pendingWithRole: SupportRequesterRole;
+  responseType: SupportResponseType;
+  resolutionType: SupportResolutionType;
+  refundAmount: string | null;
+  summary: string;
+  offeredAt: string;
+  status: SupportOfferStatus;
+  decidedByAccountId: AccountId | null;
+  decidedByRole: SupportRequesterRole | null;
+  decidedAt: string | null;
+  decisionSummary: string | null;
 }>;
 
 export type SupportResolution = Readonly<{
@@ -104,6 +125,7 @@ export type SupportResolution = Readonly<{
 export type SupportRequestSnapshot = Readonly<{
   supportRequestId: SupportRequestId;
   orderId: OrderId;
+  orderTotalAmount: string;
   buyerAccountId: AccountId;
   sellerAccountId: AccountId;
   flowType: SupportFlowType;
@@ -118,6 +140,8 @@ export type SupportRequestSnapshot = Readonly<{
   checklist: readonly SupportChecklistItem[];
   evidence: readonly SupportEvidence[];
   responses: readonly SupportResponse[];
+  offers: readonly SupportOffer[];
+  pendingOffer: SupportOffer | null;
   resolution: SupportResolution | null;
   closedAt: string | null;
 }>;

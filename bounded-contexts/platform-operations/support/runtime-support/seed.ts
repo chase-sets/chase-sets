@@ -123,6 +123,7 @@ type SupportSeedOrderSource = Readonly<{
   buyer_account_id: string;
   seller_account_id: string;
   status: string;
+  total_amount: string;
 }>;
 
 function createSupportSeedContext(accountId: string, userId: string): EventStoreContext {
@@ -150,7 +151,7 @@ async function supportRequestExists(services: PlatformOperationsServices, suppor
 
 async function loadSeedOrderSource(services: PlatformOperationsServices): Promise<SupportSeedOrderSource> {
   const reservedOrder = await services.db.query<SupportSeedOrderSource>(
-    `SELECT order_id, buyer_account_id, seller_account_id, status
+    `SELECT order_id, buyer_account_id, seller_account_id, status, total_amount::text AS total_amount
      FROM support_order_sources
      WHERE order_id = $1`,
     [supportSeedOrderSourceIds.acceptedOfferReady],
@@ -163,7 +164,7 @@ async function loadSeedOrderSource(services: PlatformOperationsServices): Promis
     // because opening a support request deletes the review eligibility the
     // marketplace reviews seed depends on.
     const reconciledOrder = await services.db.query<SupportSeedOrderSource>(
-      `SELECT order_id, buyer_account_id, seller_account_id, status
+      `SELECT order_id, buyer_account_id, seller_account_id, status, total_amount::text AS total_amount
        FROM support_order_sources
        WHERE buyer_account_id = $1
          AND seller_account_id = $2
@@ -219,6 +220,7 @@ export async function seedSupportDatabase(
           type: "OpenSupportRequest",
           supportRequestId: supportSeedIds.supportRequests.activeProductNotReceived as SupportRequestId,
           orderId: order.order_id as OrderId,
+          orderTotalAmount: order.total_amount,
           buyerAccountId: order.buyer_account_id as AccountId,
           sellerAccountId: order.seller_account_id as AccountId,
           flowType: "product-not-received",
@@ -258,6 +260,7 @@ export async function seedSupportDatabase(
           type: "OpenSupportRequest",
           supportRequestId: supportSeedIds.supportRequests.resolvedPartialRefund as SupportRequestId,
           orderId: order.order_id as OrderId,
+          orderTotalAmount: order.total_amount,
           buyerAccountId: order.buyer_account_id as AccountId,
           sellerAccountId: order.seller_account_id as AccountId,
           flowType: "product-damaged",
