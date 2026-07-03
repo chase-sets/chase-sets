@@ -131,6 +131,119 @@ describeDb("postgres event store real database integration", () => {
     });
   });
 
+  it("allows exactly one simultaneous append with the same expected stream revision", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+
+    await store.appendToStream({
+      streamId: "commerce.order-ord_concurrent_existing",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("commerce.order.created", { orderId: "ord_concurrent_existing" })],
+    });
+
+    const lockClient = await beginGlobalAppendLock(schema.pool);
+    let lockClientReleased = false;
+    const firstAppend = store.appendToStream({
+      streamId: "commerce.order-ord_concurrent_existing",
+      expectedVersion: 1,
+      context: eventContext("tenant_a"),
+      events: [eventToStore("commerce.order.confirmed", { orderId: "ord_concurrent_existing" })],
+    });
+    const secondAppend = store.appendToStream({
+      streamId: "commerce.order-ord_concurrent_existing",
+      expectedVersion: 1,
+      context: eventContext("tenant_a"),
+      events: [eventToStore("commerce.order.cancelled", { orderId: "ord_concurrent_existing" })],
+    });
+
+    try {
+      await expect(hasSettledWithin(Promise.allSettled([firstAppend, secondAppend]), 50)).resolves.toBe(false);
+
+      await lockClient.query("COMMIT");
+      lockClient.release();
+      lockClientReleased = true;
+
+      const results = await Promise.allSettled([firstAppend, secondAppend]);
+      const fulfilled = fulfilledResults(results);
+      const rejected = rejectedResults(results);
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(fulfilled[0]).toMatchObject([{ streamVersion: 2 }]);
+      expect(rejected[0]).toMatchObject({
+        code: "concurrency_conflict",
+        details: {
+          expectedVersion: 1,
+          currentVersion: 2,
+        },
+      });
+      await expect(
+        store.readStream({ streamId: "commerce.order-ord_concurrent_existing", fromVersion: 1, limit: 10 }),
+      ).resolves.toHaveLength(2);
+    } finally {
+      if (!lockClientReleased) {
+        await lockClient.query("ROLLBACK").catch(() => undefined);
+        lockClient.release();
+      }
+    }
+  });
+
+  it("allows exactly one parallel first append with no_stream expected revision", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+    const streamId = "commerce.order-ord_concurrent_first";
+    const lockClient = await beginGlobalAppendLock(schema.pool);
+    let lockClientReleased = false;
+    const firstAppend = store.appendToStream({
+      streamId,
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("commerce.order.created", { orderId: "ord_concurrent_first", attempt: "first" })],
+    });
+    const secondAppend = store.appendToStream({
+      streamId,
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("commerce.order.created", { orderId: "ord_concurrent_first", attempt: "second" })],
+    });
+
+    try {
+      await expect(hasSettledWithin(Promise.allSettled([firstAppend, secondAppend]), 50)).resolves.toBe(false);
+
+      await lockClient.query("COMMIT");
+      lockClient.release();
+      lockClientReleased = true;
+
+      const results = await Promise.allSettled([firstAppend, secondAppend]);
+      const fulfilled = fulfilledResults(results);
+      const rejected = rejectedResults(results);
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(fulfilled[0]).toMatchObject([{ streamVersion: 1 }]);
+      expect(rejected[0]).toMatchObject({
+        code: "concurrency_conflict",
+        details: {
+          expectedVersion: "no_stream",
+          currentVersion: 1,
+        },
+      });
+      await expect(store.readStream({ streamId, fromVersion: 1, limit: 10 })).resolves.toHaveLength(1);
+    } finally {
+      if (!lockClientReleased) {
+        await lockClient.query("ROLLBACK").catch(() => undefined);
+        lockClient.release();
+      }
+    }
+  });
+
   it("keeps the same pooled client available after rolled-back business errors", async () => {
     const pool = schema.pool as PgTransactionalPool & Readonly<{ idleCount: number; totalCount: number }>;
 
@@ -270,6 +383,20 @@ describeDb("postgres event store real database integration", () => {
   }
 });
 
+async function beginGlobalAppendLock(pool: IsolatedPostgresTestSchema["pool"]): Promise<PgPoolClient> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    return client;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    client.release(error);
+    throw error;
+  }
+}
+
 async function beginUncommittedAppendWithGlobalLock(pool: IsolatedPostgresTestSchema["pool"]): Promise<PgPoolClient> {
   const client = await pool.connect();
 
@@ -338,6 +465,18 @@ async function hasSettledWithin(promise: Promise<unknown>, timeoutMs: number): P
       setTimeout(() => resolve(false), timeoutMs);
     }),
   ]);
+}
+
+function fulfilledResults<T>(results: readonly PromiseSettledResult<T>[]): T[] {
+  return results
+    .filter((result): result is PromiseFulfilledResult<T> => result.status === "fulfilled")
+    .map((result) => result.value);
+}
+
+function rejectedResults<T>(results: readonly PromiseSettledResult<T>[]): unknown[] {
+  return results
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) => result.reason);
 }
 
 function eventContext(tenantId: string): EventStoreContext {
