@@ -763,11 +763,27 @@ export function buildIdentityApi(services: IdentityServices) {
         401,
       );
     }
-    const result = await services.apiKeys.commandHandler({
-      streamId: `identity.api-key-${apiKeySecret.api_key_id}`,
-      command: { type: "RecordApiKeyUse", usedAt: new Date().toISOString() },
-      context: getBootstrapContext(c),
-    });
+    let result: Awaited<ReturnType<IdentityServices["apiKeys"]["commandHandler"]>>;
+    try {
+      result = await services.apiKeys.commandHandler({
+        streamId: `identity.api-key-${apiKeySecret.api_key_id}`,
+        command: { type: "RecordApiKeyUse", usedAt: new Date().toISOString() },
+        context: getBootstrapContext(c),
+      });
+    } catch (error) {
+      if (error instanceof IdentityDomainError) {
+        return c.json(
+          {
+            error: {
+              code: "authentication_required",
+              message: "Invalid API key.",
+            },
+          },
+          401,
+        );
+      }
+      throw error;
+    }
     return c.json({
       apiKeyId: apiKeySecret.api_key_id,
       userId: apiKeySecret.user_id as UserId,

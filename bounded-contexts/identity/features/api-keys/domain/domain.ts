@@ -93,7 +93,7 @@ export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEv
       requireActiveApiKey(state);
       return [{ type: "identity.api-key.revoked", data: EMPTY_EVENT_DATA }];
     case "RecordApiKeyUse":
-      requireCreatedApiKey(state);
+      requireActiveApiKey(state);
       return [
         {
           type: "identity.api-key.used",

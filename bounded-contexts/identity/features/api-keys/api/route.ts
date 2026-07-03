@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import type { IdentityApiEnv } from "../../../api";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import type { IdentitySecretAdapters } from "./secret-adapters";
-import { upsertApiKeySecret } from "./secret-store";
+import { deleteApiKeySecret, upsertApiKeySecret } from "./secret-store";
 import type { ApiKeyServices } from "./runtime";
 
 function canManageApiKey(actor: IdentityApiEnv["Variables"]["actor"], apiKey: Readonly<{ user_id: string }>) {
@@ -150,6 +150,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
       command: { type: "RevokeApiKey" },
       context: c.get("context"),
     });
+    await deleteApiKeySecret(services.db, apiKeyId);
     return c.json({ id: apiKeyId, version: result.version, status: result.state.status });
   });
 
