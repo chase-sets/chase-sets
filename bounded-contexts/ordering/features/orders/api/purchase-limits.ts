@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { OrderingDomainError, type OrderSourceType } from "../domain/common";
 import type { MarketplaceSupplyCandidate } from "../domain/policies";
@@ -332,7 +332,7 @@ export async function claimPlanPurchaseLimitUsage(
 }
 
 export async function releasePurchaseLimitClaimsForOrder(
-  db: PgQueryable,
+  db: PgTransactionalPool,
   order: Readonly<{
     source_type: string;
     source_reference_id: string | null;
@@ -347,35 +347,38 @@ export async function releasePurchaseLimitClaimsForOrder(
   if (listingIds.length === 0) {
     return;
   }
-  const releasedClaims = await db.query<{
-    listing_id: string;
-    quantity: number | string;
-    claimed_at: string;
-  }>(
-    `UPDATE ordering_listing_purchase_limit_claims
-     SET status = 'released',
-         released_at = now()
-     WHERE source_type = $1
-       AND source_reference_id = $2
-       AND buyer_account_id = $3
-       AND listing_id = ANY($4::text[])
-       AND status = 'claimed'
-     RETURNING listing_id, quantity, claimed_at`,
-    [order.source_type, order.source_reference_id, order.buyer_account_id, listingIds],
-  );
 
-  for (const claim of releasedClaims.rows) {
-    await db.query(
-      `UPDATE ordering_listing_purchase_limit_usage
-       SET day_quantity = CASE
-             WHEN marketplace_day = $3::date THEN GREATEST(0, day_quantity - $4)
-             ELSE day_quantity
-           END,
-           customer_account_quantity = GREATEST(0, customer_account_quantity - $4),
-           updated_at = now()
-       WHERE buyer_account_id = $1
-         AND listing_id = $2`,
-      [order.buyer_account_id, claim.listing_id, String(claim.claimed_at).slice(0, 10), Number(claim.quantity)],
+  await withPgTransaction(db, async (client) => {
+    const releasedClaims = await client.query<{
+      listing_id: string;
+      quantity: number | string;
+      claimed_day: string;
+    }>(
+      `UPDATE ordering_listing_purchase_limit_claims
+       SET status = 'released',
+           released_at = now()
+       WHERE source_type = $1
+         AND source_reference_id = $2
+         AND buyer_account_id = $3
+         AND listing_id = ANY($4::text[])
+         AND status = 'claimed'
+       RETURNING listing_id, quantity, claimed_at::date::text AS claimed_day`,
+      [order.source_type, order.source_reference_id, order.buyer_account_id, listingIds],
     );
-  }
+
+    for (const claim of releasedClaims.rows) {
+      await client.query(
+        `UPDATE ordering_listing_purchase_limit_usage
+         SET day_quantity = CASE
+               WHEN marketplace_day = $3::date THEN GREATEST(0, day_quantity - $4)
+               ELSE day_quantity
+             END,
+             customer_account_quantity = GREATEST(0, customer_account_quantity - $4),
+             updated_at = now()
+         WHERE buyer_account_id = $1
+           AND listing_id = $2`,
+        [order.buyer_account_id, claim.listing_id, claim.claimed_day, Number(claim.quantity)],
+      );
+    }
+  });
 }
