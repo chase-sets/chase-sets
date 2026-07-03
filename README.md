@@ -186,13 +186,26 @@ pnpm run build
 pnpm run verify
 ```
 
-The main verification path is:
+Use focused checks for the local inner loop. Workspace watch mode is the
+default while iterating:
+
+```bash
+pnpm --filter @chase-sets/<workspace> run test:watch
+```
+
+Before opening a PR, run the scoped checks for the workspaces or scripts you
+touched, such as `pnpm --filter <workspace> run test` or `pnpm run test:scripts`
+for script tooling. Reserve the full workspace gate for broad
+cross-workspace impact:
 
 ```bash
 pnpm run verify
 ```
 
-It syncs workspace metadata, checks architectural boundaries, typechecks, runs fast tests, and builds all workspaces. DB-backed verification is separate:
+`pnpm run verify` syncs workspace metadata, checks architectural boundaries,
+typechecks, runs fast tests, runs DB-backed tests, and builds all workspaces.
+CI carries the full scope-gated gate on every PR. DB-backed verification can be
+run directly when needed:
 
 ```bash
 pnpm run verify:db
@@ -208,6 +221,10 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 ```
 
 ## Development Workflow
+
+Committed agent guidance lives in [AGENTS.md](AGENTS.md). The parent
+worktree-container `CLAUDE.md` is a symlink to `main/AGENTS.md`, so update the
+committed file rather than maintaining a second copy.
 
 When adding or changing behavior:
 
