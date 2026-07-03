@@ -28,7 +28,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const refundStatuses = await pools.payments.query<{ status: string }>(
       "SELECT status FROM payments_refund_pages ORDER BY refund_id ASC",
     );
-    expect(new Set(refundStatuses.rows.map((row) => row.status))).toEqual(new Set(["issued", "failed"]));
+    expect(new Set(refundStatuses.rows.map((row) => row.status))).toEqual(new Set(["requested", "issued", "failed"]));
 
     const readyOrders = await pools.ordering.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM ordering_order_pages WHERE status = 'ready-for-fulfillment'",

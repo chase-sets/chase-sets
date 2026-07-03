@@ -34,6 +34,7 @@ import {
   type RefundEvent,
   type RefundState,
 } from "../domain/domain";
+import { decidePayment, evolvePayment, initialPaymentState, type PaymentEvent } from "../../payments/domain/domain";
 
 type RefundRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -64,16 +65,23 @@ export type RefundServices = Readonly<{
 
 export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler, repository } = createAggregateCommandHandler({
+  const { commandHandler: refundCommandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<RefundEvent>(),
     initialState: () => initialRefundState,
     evolve: evolveRefund,
     decide: decideRefund,
   });
+  const { commandHandler: paymentCommandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<PaymentEvent>(),
+    initialState: () => initialPaymentState,
+    evolve: evolvePayment,
+    decide: decidePayment,
+  });
 
   return {
-    commandHandler,
+    commandHandler: refundCommandHandler,
     async issueRefund(params, context) {
       const payment = await getPaymentById(deps.db, params.paymentId);
       if (!payment) {
@@ -122,7 +130,19 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
         throw new PaymentsDomainError("Refund amount cannot exceed the remaining refundable payment amount.");
       }
 
-      const requested = await commandHandler({
+      await paymentCommandHandler({
+        streamId: `payments.payment-${params.paymentId}`,
+        command: {
+          type: "RequestPaymentRefund",
+          refundId,
+          orderIds: orderIds as OrderId[],
+          amount,
+          requestedAt,
+        },
+        context,
+      });
+
+      const requested = await refundCommandHandler({
         streamId: refundStreamId,
         command: {
           type: "RequestRefund",
@@ -150,7 +170,7 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
           reason: params.reason,
         });
       } catch (error) {
-        const failed = await commandHandler({
+        const failed = await refundCommandHandler({
           streamId: refundStreamId,
           command: {
             type: "RecordRefundFailure",
@@ -165,18 +185,8 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
         return { refundId, version: failed.version || requested.version };
       }
 
-      const issued = await commandHandler({
-        streamId: refundStreamId,
-        command: {
-          type: "RecordRefundIssued",
-          processorRefundReference: processorRefund.processorRefundReference,
-          processorStatus: processorRefund.processorStatus,
-          issuedAt: new Date().toISOString(),
-        },
-        context,
-      });
-
-      return { refundId, version: issued.version };
+      void processorRefund;
+      return { refundId, version: requested.version };
     },
     projectors: [
       createProjectionHandlerSet({

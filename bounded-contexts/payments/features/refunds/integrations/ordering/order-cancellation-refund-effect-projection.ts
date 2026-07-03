@@ -12,7 +12,7 @@ import {
 
 type CapturedPaymentForCancellationRefund = Pick<
   PaymentDetailRow,
-  "payment_id" | "order_ids" | "marketplace_checkout_fee_amount"
+  "payment_id" | "order_ids" | "marketplace_checkout_fee_amount" | "order_refund_caps" | "order_refunded_amounts"
 >;
 
 type PaymentOrderInputForRefund = Readonly<{
@@ -27,6 +27,20 @@ function moneyToCents(value: string) {
 
 function centsToMoney(cents: number) {
   return (cents / 100).toFixed(2);
+}
+
+function orderMoneyAmount(entries: readonly { orderId: string; amount: string }[] | undefined, orderId: string) {
+  return entries?.find((entry) => entry.orderId === orderId)?.amount ?? "0.00";
+}
+
+function remainingRefundableOrderAmount(
+  payment: CapturedPaymentForCancellationRefund,
+  orderId: string,
+  fallbackCap: string,
+) {
+  const cap = payment.order_refund_caps.length > 0 ? orderMoneyAmount(payment.order_refund_caps, orderId) : fallbackCap;
+  const refunded = orderMoneyAmount(payment.order_refunded_amounts, orderId);
+  return centsToMoney(Math.max(0, moneyToCents(cap) - moneyToCents(refunded)));
 }
 
 async function loadOrderInputs(
@@ -157,12 +171,29 @@ async function issueCancellationRefund(
     checkoutFeeCents,
   });
   const amount = centsToMoney(moneyToCents(params.orderInput.total_amount) + allocatedCheckoutFeeCents);
+  const refundableAmount = centsToMoney(
+    Math.min(
+      moneyToCents(amount),
+      moneyToCents(remainingRefundableOrderAmount(params.payment, params.orderId, amount)),
+    ),
+  );
+  if (moneyToCents(refundableAmount) <= 0) {
+    await claimCancellationRefundEffect(db, {
+      orderId: params.orderId,
+      paymentId: params.payment.payment_id,
+      amount: null,
+      status: "skipped",
+      failureMessage: "Order has no remaining refundable amount.",
+      now: params.now,
+    });
+    return;
+  }
 
   const claimed = await claimCancellationRefundEffect(db, {
     orderId: params.orderId,
     paymentId: params.payment.payment_id,
     refundId: createId("rfd") as RefundId,
-    amount,
+    amount: refundableAmount,
     status: "processing",
     now: params.now,
   });
@@ -176,7 +207,7 @@ async function issueCancellationRefund(
         refundId: claimed,
         paymentId: params.payment.payment_id as PaymentId,
         orderIds: [params.orderId],
-        amount,
+        amount: refundableAmount,
         reason: `Self-service purchase cancellation for order ${params.orderId}.`,
       },
       {
@@ -268,6 +299,10 @@ export function buildPaymentsOrderCancellationRefundEffectHandlers(
             payment_id: data.paymentId,
             order_ids: data.orderIds ?? [],
             marketplace_checkout_fee_amount: data.marketplaceCheckoutFeeAmount,
+            order_refund_caps:
+              (data as { orderRefundCaps?: CapturedPaymentForCancellationRefund["order_refund_caps"] })
+                .orderRefundCaps ?? [],
+            order_refunded_amounts: [],
           },
           orderId: orderInput.order_id,
           orderInput,

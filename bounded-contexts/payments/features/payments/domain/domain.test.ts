@@ -118,25 +118,34 @@ describe("payments payment domain", () => {
 
     const firstRefundEvents = decidePayment(capturedState, {
       type: "RecordPaymentRefund",
+      refundId: "rfd_1" as never,
+      orderIds: ["ord_1" as never],
       processorStatus: "succeeded",
       processorRefundReference: "re_1",
       amount: "4.00",
+      refundedAmount: "4.00",
       refundedAt: "2026-04-01T00:03:00.000Z",
     });
     const partiallyRefundedState = firstRefundEvents.reduce(evolvePayment, capturedState);
     const secondRefundEvents = decidePayment(partiallyRefundedState, {
       type: "RecordPaymentRefund",
+      refundId: "rfd_2" as never,
+      orderIds: ["ord_1" as never],
       processorStatus: "succeeded",
       processorRefundReference: "re_2",
-      amount: "7.00",
+      amount: "3.00",
+      refundedAmount: "7.00",
       refundedAt: "2026-04-01T00:04:00.000Z",
     });
     const secondPartialState = secondRefundEvents.reduce(evolvePayment, partiallyRefundedState);
     const finalRefundEvents = decidePayment(secondPartialState, {
       type: "RecordPaymentRefund",
+      refundId: "rfd_3" as never,
+      orderIds: ["ord_1" as never],
       processorStatus: "succeeded",
       processorRefundReference: "re_3",
-      amount: "10.00",
+      amount: "3.00",
+      refundedAmount: "10.00",
       refundedAt: "2026-04-01T00:05:00.000Z",
     });
     const refundedState = finalRefundEvents.reduce(evolvePayment, secondPartialState);
@@ -162,10 +171,25 @@ describe("payments payment domain", () => {
     expect(
       decidePayment(secondPartialState, {
         type: "RecordPaymentRefund",
+        refundId: "rfd_2" as never,
+        orderIds: ["ord_1" as never],
         processorStatus: "succeeded",
         processorRefundReference: "re_2",
-        amount: "7.00",
+        amount: "3.00",
+        refundedAmount: "7.00",
         refundedAt: "2026-04-01T00:04:00.000Z",
+      }),
+    ).toEqual([]);
+    expect(
+      decidePayment(refundedState, {
+        type: "RecordPaymentRefund",
+        refundId: "rfd_3" as never,
+        orderIds: ["ord_1" as never],
+        processorStatus: "succeeded",
+        processorRefundReference: "re_3",
+        amount: "3.00",
+        refundedAmount: "10.00",
+        refundedAt: "2026-04-01T00:05:00.000Z",
       }),
     ).toEqual([]);
   });
@@ -174,55 +198,171 @@ describe("payments payment domain", () => {
     const capturedState = capturedPaymentState();
     const partialState = decidePayment(capturedState, {
       type: "RecordPaymentRefund",
+      refundId: "rfd_1" as never,
+      orderIds: ["ord_1" as never],
       processorStatus: "succeeded",
       processorRefundReference: "re_1",
       amount: "4.00",
+      refundedAmount: "4.00",
       refundedAt: "2026-04-01T00:03:00.000Z",
     }).reduce(evolvePayment, capturedState);
 
     expect(() =>
       decidePayment(capturedState, {
         type: "RecordPaymentRefund",
+        refundId: "rfd_missing" as never,
+        orderIds: ["ord_1" as never],
         processorStatus: "succeeded",
         processorRefundReference: "re_missing",
         amount: null,
         refundedAt: "2026-04-01T00:03:00.000Z",
       }),
-    ).toThrow("Refund webhook must include the cumulative refunded amount.");
+    ).toThrow("Refund webhook must include the refunded amount.");
     expect(() =>
       decidePayment(capturedState, {
         type: "RecordPaymentRefund",
+        refundId: "rfd_over" as never,
+        orderIds: ["ord_1" as never],
         processorStatus: "succeeded",
         processorRefundReference: "re_over",
         amount: "10.01",
+        refundedAmount: "10.01",
         refundedAt: "2026-04-01T00:03:00.000Z",
       }),
     ).toThrow("Refunded amount cannot exceed the captured payment amount.");
     expect(() =>
       decidePayment(partialState, {
         type: "RecordPaymentRefund",
+        refundId: "rfd_backwards" as never,
+        orderIds: ["ord_1" as never],
         processorStatus: "succeeded",
         processorRefundReference: "re_backwards",
         amount: "3.00",
+        refundedAmount: "3.00",
         refundedAt: "2026-04-01T00:04:00.000Z",
       }),
     ).toThrow("Refunded amount cannot move backwards.");
+  });
+
+  it("caps refund requests independently by order and emits filtered seller payout facts", () => {
+    const createdState = decidePayment(initialPaymentState, {
+      type: "CreatePayment",
+      paymentId: "pay_multi" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_a" as never, "ord_b" as never],
+      orderRefundCaps: [
+        { orderId: "ord_a" as never, amount: "10.00" },
+        { orderId: "ord_b" as never, amount: "15.00" },
+      ],
+      amount: "25.00",
+      marketplaceSalesFeeAmount: "2.00",
+      marketplaceCheckoutFeeAmount: "0.00",
+      sellerNetAmount: "23.00",
+      sellerPayouts: [
+        {
+          orderId: "ord_a" as never,
+          sellerAccountId: "acc_seller_a" as never,
+          sellerItemNetAmount: "9.00",
+          shippingAllowanceAmount: "1.00",
+          sellerShippingPayoutAmount: "1.00",
+          sellerPayoutAmount: "10.00",
+        },
+        {
+          orderId: "ord_b" as never,
+          sellerAccountId: "acc_seller_b" as never,
+          sellerItemNetAmount: "14.00",
+          shippingAllowanceAmount: "1.00",
+          sellerShippingPayoutAmount: "1.00",
+          sellerPayoutAmount: "15.00",
+        },
+      ],
+      currencyCode: "usd",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_multi",
+      processorClientSecret: "pi_multi_secret",
+      processorStatus: "requires_payment_method",
+      createdAt: "2026-04-01T00:00:00.000Z",
+    }).reduce(evolvePayment, initialPaymentState);
+    const capturedState = decidePayment(createdState, {
+      type: "RecordPaymentCapture",
+      processorStatus: "succeeded",
+      capturedAt: "2026-04-01T00:01:00.000Z",
+    }).reduce(evolvePayment, createdState);
+    const requestedAState = decidePayment(capturedState, {
+      type: "RequestPaymentRefund",
+      refundId: "rfd_a" as never,
+      orderIds: ["ord_a" as never],
+      amount: "10.00",
+      requestedAt: "2026-04-01T00:02:00.000Z",
+    }).reduce(evolvePayment, capturedState);
+
+    expect(() =>
+      decidePayment(requestedAState, {
+        type: "RequestPaymentRefund",
+        refundId: "rfd_a_over" as never,
+        orderIds: ["ord_a" as never],
+        amount: "0.01",
+        requestedAt: "2026-04-01T00:02:01.000Z",
+      }),
+    ).toThrow("Refund amount cannot exceed the remaining refundable order amount.");
+    expect(
+      decidePayment(requestedAState, {
+        type: "RequestPaymentRefund",
+        refundId: "rfd_b" as never,
+        orderIds: ["ord_b" as never],
+        amount: "15.00",
+        requestedAt: "2026-04-01T00:02:02.000Z",
+      }),
+    ).toHaveLength(1);
+
+    const refundEvents = decidePayment(requestedAState, {
+      type: "RecordPaymentRefund",
+      refundId: "rfd_a" as never,
+      orderIds: ["ord_a" as never],
+      processorStatus: "succeeded",
+      processorRefundReference: "re_a",
+      amount: "10.00",
+      refundedAmount: "10.00",
+      refundedAt: "2026-04-01T00:03:00.000Z",
+    });
+
+    expect(refundEvents[0]?.type).toBe("payments.payment-refunded");
+    if (refundEvents[0]?.type !== "payments.payment-refunded") {
+      throw new Error("Expected refund provider fact.");
+    }
+    const refundEvent = refundEvents[0];
+
+    expect(refundEvent.data).toMatchObject({
+      orderIds: ["ord_a"],
+      amount: "10.00",
+      refundedAmount: "10.00",
+      orderRefundAmounts: [{ orderId: "ord_a", amount: "10.00" }],
+      sellerPayouts: [expect.objectContaining({ sellerAccountId: "acc_seller_a" })],
+    });
+    expect(refundEvent.data.sellerPayouts).toHaveLength(1);
   });
 
   it("allows disputes after refunds but forbids captures after terminal provider states", () => {
     const capturedState = capturedPaymentState();
     const partialState = decidePayment(capturedState, {
       type: "RecordPaymentRefund",
+      refundId: "rfd_1" as never,
+      orderIds: ["ord_1" as never],
       processorStatus: "succeeded",
       processorRefundReference: "re_1",
       amount: "4.00",
+      refundedAmount: "4.00",
       refundedAt: "2026-04-01T00:03:00.000Z",
     }).reduce(evolvePayment, capturedState);
     const refundedState = decidePayment(partialState, {
       type: "RecordPaymentRefund",
+      refundId: "rfd_2" as never,
+      orderIds: ["ord_1" as never],
       processorStatus: "succeeded",
       processorRefundReference: "re_2",
-      amount: "10.00",
+      amount: "6.00",
+      refundedAmount: "10.00",
       refundedAt: "2026-04-01T00:04:00.000Z",
     }).reduce(evolvePayment, partialState);
 

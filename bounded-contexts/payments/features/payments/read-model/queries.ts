@@ -4,6 +4,10 @@ export type PaymentDetailRow = Readonly<{
   payment_id: string;
   buyer_account_id: string;
   order_ids: readonly string[];
+  order_refund_caps: readonly {
+    orderId: string;
+    amount: string;
+  }[];
   amount: string;
   balance_credit_amount: string;
   processor_amount: string;
@@ -42,6 +46,10 @@ export type PaymentDetailRow = Readonly<{
   cancelled_at: string | null;
   refunded_at: string | null;
   refunded_amount: string;
+  order_refunded_amounts: readonly {
+    orderId: string;
+    amount: string;
+  }[];
   disputed_at: string | null;
 }>;
 
@@ -145,11 +153,28 @@ export type PaymentProviderOperationRow = Readonly<{
   completed_at: string | null;
 }>;
 
-type PaymentPageRow = Omit<PaymentDetailRow, "order_ids" | "seller_payouts"> &
+type PaymentPageRow = Omit<
+  PaymentDetailRow,
+  "order_ids" | "order_refund_caps" | "seller_payouts" | "order_refunded_amounts"
+> &
   Readonly<{
     order_ids: unknown;
+    order_refund_caps: unknown;
     seller_payouts: unknown;
+    order_refunded_amounts: unknown;
   }>;
+
+function mapOrderMoneyAmounts(value: unknown): PaymentDetailRow["order_refund_caps"] {
+  return Array.isArray(value)
+    ? value.filter(
+        (entry): entry is PaymentDetailRow["order_refund_caps"][number] =>
+          Boolean(entry) &&
+          typeof entry === "object" &&
+          typeof (entry as { orderId?: unknown }).orderId === "string" &&
+          typeof (entry as { amount?: unknown }).amount === "string",
+      )
+    : [];
+}
 
 function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
   return {
@@ -159,6 +184,7 @@ function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
     order_ids: Array.isArray(row.order_ids)
       ? row.order_ids.filter((value): value is string => typeof value === "string")
       : [],
+    order_refund_caps: mapOrderMoneyAmounts(row.order_refund_caps),
     seller_payouts: Array.isArray(row.seller_payouts)
       ? row.seller_payouts.filter(
           (value): value is PaymentDetailRow["seller_payouts"][number] =>
@@ -168,6 +194,7 @@ function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
             typeof (value as { sellerAccountId?: unknown }).sellerAccountId === "string",
         )
       : [],
+    order_refunded_amounts: mapOrderMoneyAmounts(row.order_refunded_amounts),
   };
 }
 
@@ -189,6 +216,7 @@ const paymentSelect = `
     payment_id,
     buyer_account_id,
     order_ids,
+    order_refund_caps,
     amount::text AS amount,
     balance_credit_amount::text AS balance_credit_amount,
     processor_amount::text AS processor_amount,
@@ -220,6 +248,7 @@ const paymentSelect = `
     cancelled_at,
     refunded_at,
     refunded_amount::text AS refunded_amount,
+    order_refunded_amounts,
     disputed_at
   FROM payments_payment_pages
 `;

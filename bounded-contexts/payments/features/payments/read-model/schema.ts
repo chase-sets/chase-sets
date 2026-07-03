@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   payment_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  order_refund_caps jsonb NOT NULL DEFAULT '[]'::jsonb,
   amount numeric(12, 2) NOT NULL,
   balance_credit_amount numeric(12, 2) NOT NULL DEFAULT 0,
   processor_amount numeric(12, 2) NOT NULL DEFAULT 0,
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   cancelled_at timestamptz NULL,
   refunded_at timestamptz NULL,
   refunded_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  order_refunded_amounts jsonb NOT NULL DEFAULT '[]'::jsonb,
   disputed_at timestamptz NULL,
   last_stream_version bigint NOT NULL DEFAULT 0
 );
@@ -244,6 +246,16 @@ CROSS JOIN LATERAL jsonb_array_elements_text(order_ids) AS payment_order_ids(ord
 ON CONFLICT (payment_id, order_id) DO NOTHING`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_orders_order_idx
   ON payments_payment_orders (order_id, payment_id)`,
+    ],
+  },
+  {
+    migrationId: "20260703_payments_order_refund_amounts",
+    description: "Track order-level refundable caps and refunded amounts on payment read models.",
+    statements: [
+      `ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS order_refund_caps jsonb NOT NULL DEFAULT '[]'::jsonb`,
+      `ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS order_refunded_amounts jsonb NOT NULL DEFAULT '[]'::jsonb`,
     ],
   },
   {
