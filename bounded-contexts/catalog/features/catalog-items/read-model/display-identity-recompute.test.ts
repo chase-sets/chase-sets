@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
+import { buildDiscoverySearchItemProjectionHandlers } from "../../../../discovery/features/search/read-model/projection";
+import type { CatalogItemCommand } from "../domain/domain";
 import {
   getCatalogItemDisplayIdentityRecomputeHealth,
   processCatalogItemDisplayIdentityRecomputeBatch,
@@ -86,6 +90,42 @@ describe("display identity recomputation work", () => {
     expect(publicationMarks).toEqual([["cat_1", "en", hash, expect.any(String)]]);
   });
 
+  it("propagates the template-resolved Catalog display identity into Discovery search rows", async () => {
+    const publishedCommands: CatalogItemCommand[] = [];
+    const published = vi.fn(async (input: { command: CatalogItemCommand }) => {
+      publishedCommands.push(input.command);
+      return { state: null, version: 1, newEvents: [], storedEvents: [] } as never;
+    });
+    const db = recomputeDb({ existingHash: null });
+
+    const result = await processCatalogItemDisplayIdentityRecomputeBatch(db, published, {} as never);
+
+    expect(result).toMatchObject({ processed: 1, changed: 1, failed: 0 });
+    expect(publishedCommands).toHaveLength(1);
+    const command = publishedCommands[0];
+    expect(command).toMatchObject({
+      type: "RecordCatalogItemDisplayIdentity",
+      title: "Pikachu 58/102",
+      subtitle: "Base Set",
+      displayTemplateKey: "pokemon-card",
+    });
+
+    const discoveryDb = new DiscoverySearchProjectionDb();
+    const handlers = buildDiscoverySearchItemProjectionHandlers(discoveryDb);
+    await handlers["catalog.catalog-item.display-identity-resolved"]?.(displayIdentityEventFromCommand(command));
+
+    expect(discoveryDb.searchCatalogItems.get("cat_1")).toMatchObject({
+      title: "Pikachu 58/102",
+      subtitle: "Base Set",
+    });
+    expect(discoveryDb.searchItems.get("cat_1")).toMatchObject({
+      title: "Pikachu 58/102",
+      subtitle: "Base Set",
+      titleSearchText: "Pikachu 58/102",
+      subtitleSearchText: "Base Set",
+    });
+  });
+
   it("summarizes recomputation health for operators", async () => {
     const db = {
       async query<T>(sql: string): Promise<{ rows: T[] }> {
@@ -145,6 +185,134 @@ describe("display identity recomputation work", () => {
 
 function commandHandler() {
   return vi.fn(async () => ({ state: null, version: 1, newEvents: [], storedEvents: [] }) as never);
+}
+
+class DiscoverySearchProjectionDb implements PgQueryable {
+  public readonly searchCatalogItems = new Map<string, Record<string, unknown>>([["cat_1", discoveryCatalogItemRow()]]);
+  public readonly searchItems = new Map<string, Record<string, unknown>>();
+
+  async query<Row = Record<string, unknown>>(
+    sql: string,
+    values: readonly unknown[] = [],
+  ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("SELECT slug FROM discovery_search_catalog_items")) {
+      const row = this.searchCatalogItems.get(String(values[0]));
+      return { rows: (row ? [{ slug: row.slug }] : []) as Row[], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("UPDATE discovery_search_catalog_items") && sql.includes("title = $5")) {
+      this.searchCatalogItems.set(String(values[0]), {
+        ...this.searchCatalogItems.get(String(values[0])),
+        slug: values[1],
+        language_code: values[2],
+        title_i18n: JSON.parse(String(values[3])),
+        title: values[4],
+        subtitle_i18n: values[5] === null ? null : JSON.parse(String(values[5])),
+        subtitle: values[6],
+        updated_at: values[7],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("INSERT INTO discovery_slug_redirects")) {
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("SELECT * FROM discovery_search_catalog_items")) {
+      const row = this.searchCatalogItems.get(String(values[0]));
+      return { rows: (row ? [row] : []) as Row[], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("INSERT INTO discovery_search_items")) {
+      this.searchItems.set(String(values[0]), {
+        catalogItemId: values[0],
+        slug: values[1],
+        languageCode: values[2],
+        title: values[4],
+        subtitle: values[6],
+        titleSearchText: values[22],
+        subtitleSearchText: values[23],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("UPDATE discovery_search_product_contents")) {
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (
+      sql.includes("discovery_search_catalog_categories") ||
+      sql.includes("discovery_search_catalog_blueprints") ||
+      sql.includes("discovery_search_catalog_fields") ||
+      sql.includes("discovery_search_catalog_reference_records") ||
+      sql.includes("discovery_search_catalog_blueprint_dimensions")
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+
+    throw new Error(`Unexpected query: ${sql}`);
+  }
+}
+
+function discoveryCatalogItemRow(): Record<string, unknown> {
+  return {
+    catalog_item_id: "cat_1",
+    slug: "old-title-cat-1",
+    language_code: "en",
+    title_i18n: { defaultLocale: "en", values: { en: "Old Title" } },
+    title: "Old Title",
+    subtitle_i18n: null,
+    subtitle: null,
+    description_i18n: { defaultLocale: "en", values: { en: "Description" } },
+    description: "Description",
+    blueprint_id: null,
+    status: "active",
+    field_values: [],
+    category_ids: [],
+    tags: [],
+    image_urls: [],
+    product_asset_sets: [],
+    image_fallback: null,
+    resolved_aliases: {},
+    updated_at: "2026-06-06T00:00:00.000Z",
+  };
+}
+
+function displayIdentityEventFromCommand(command: CatalogItemCommand): TransportEvent {
+  if (command.type !== "RecordCatalogItemDisplayIdentity") {
+    throw new Error(`Expected display identity command, received ${command.type}`);
+  }
+
+  return {
+    id: "evt_display_identity" as never,
+    type: "catalog.catalog-item.display-identity-resolved",
+    streamId: `catalog.item-${command.catalogItemId}` as never,
+    streamVersion: 2 as never,
+    globalPosition: 2 as never,
+    tenantId: "tnt_1" as never,
+    data: {
+      catalogItemId: command.catalogItemId,
+      languageCode: command.languageCode ?? "en",
+      title: command.title,
+      subtitle: command.subtitle ?? null,
+      displayTemplateKey: command.displayTemplateKey ?? null,
+      displayTemplateTargetKind: command.displayTemplateTargetKind ?? null,
+      displayTemplateTargetId: command.displayTemplateTargetId ?? null,
+      displayIdentityHash: command.displayIdentityHash,
+      resolverVersion: command.resolverVersion,
+      resolvedAt: command.resolvedAt,
+    } as never,
+    metadata: {},
+    audit: {
+      performedByUserId: "usr_1" as never,
+      forAccountId: "acc_1" as never,
+    },
+    trace: {},
+    timing: {
+      occurredAt: command.resolvedAt as never,
+      recordedAt: command.resolvedAt as never,
+    },
+  };
 }
 
 function recomputeDb(options: {
