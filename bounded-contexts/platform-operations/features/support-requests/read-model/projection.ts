@@ -1,6 +1,12 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { SupportChecklistItem, SupportEvidence, SupportResolution, SupportResponse } from "../domain/common";
+import type {
+  SupportChecklistItem,
+  SupportEvidence,
+  SupportOffer,
+  SupportResolution,
+  SupportResponse,
+} from "../domain/common";
 
 export function buildSupportRequestProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -39,12 +45,14 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
            checklist,
            evidence,
            responses,
+           offers,
+           pending_offer,
            resolution,
            closed_at,
            cancellation_reason
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12,
-           $13::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL
+           $13::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (support_request_id) DO UPDATE
          SET status = EXCLUDED.status,
@@ -98,6 +106,7 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
       const data = event.data as {
         supportRequestId: string;
         response: SupportResponse;
+        offer: SupportOffer | null;
         status: string;
       };
 
@@ -105,9 +114,61 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         `UPDATE support_request_pages
          SET status = $2,
              updated_at = $3,
-             responses = responses || $4::jsonb
+             responses = responses || $4::jsonb,
+             offers = CASE WHEN $5::jsonb IS NULL THEN offers ELSE offers || jsonb_build_array($5::jsonb) END,
+             pending_offer = $5::jsonb
          WHERE support_request_id = $1`,
-        [data.supportRequestId, data.status, data.response.submittedAt, JSON.stringify([data.response])],
+        [
+          data.supportRequestId,
+          data.status,
+          data.response.submittedAt,
+          JSON.stringify([data.response]),
+          data.offer ? JSON.stringify(data.offer) : null,
+        ],
+      );
+    },
+    "support.support-request.offer-accepted": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        offer: SupportOffer;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET updated_at = $3,
+             offers = COALESCE(
+               (
+                 SELECT jsonb_agg(CASE WHEN offer ->> 'offerId' = $2 THEN $4::jsonb ELSE offer END)
+                 FROM jsonb_array_elements(offers) offer
+               ),
+               '[]'::jsonb
+             ),
+             pending_offer = NULL
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.offer.offerId, data.offer.decidedAt, JSON.stringify(data.offer)],
+      );
+    },
+    "support.support-request.offer-declined": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        offer: SupportOffer;
+        status: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET status = $2,
+             updated_at = $4,
+             offers = COALESCE(
+               (
+                 SELECT jsonb_agg(CASE WHEN offer ->> 'offerId' = $3 THEN $5::jsonb ELSE offer END)
+                 FROM jsonb_array_elements(offers) offer
+               ),
+               '[]'::jsonb
+             ),
+             pending_offer = NULL
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.status, data.offer.offerId, data.offer.decidedAt, JSON.stringify(data.offer)],
       );
     },
     "support.support-request.escalated": async (event) => {

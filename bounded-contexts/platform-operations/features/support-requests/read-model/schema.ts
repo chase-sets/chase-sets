@@ -16,10 +16,18 @@ CREATE TABLE IF NOT EXISTS support_request_pages (
   checklist jsonb NOT NULL DEFAULT '[]'::jsonb,
   evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
   responses jsonb NOT NULL DEFAULT '[]'::jsonb,
+  offers jsonb NOT NULL DEFAULT '[]'::jsonb,
+  pending_offer jsonb NULL,
   resolution jsonb NULL,
   closed_at timestamptz NULL,
   cancellation_reason text NULL
 );
+
+ALTER TABLE support_request_pages
+  ADD COLUMN IF NOT EXISTS offers jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE support_request_pages
+  ADD COLUMN IF NOT EXISTS pending_offer jsonb NULL;
 
 CREATE INDEX IF NOT EXISTS support_request_pages_buyer_idx
   ON support_request_pages (buyer_account_id, updated_at DESC, support_request_id DESC);

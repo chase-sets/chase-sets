@@ -1,5 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { SupportChecklistItem, SupportEvidence, SupportResolution, SupportResponse } from "../domain/common";
+import type {
+  SupportChecklistItem,
+  SupportEvidence,
+  SupportOffer,
+  SupportResolution,
+  SupportResponse,
+} from "../domain/common";
 
 export type SupportRequestListRow = Readonly<{
   support_request_id: string;
@@ -16,6 +22,7 @@ export type SupportRequestListRow = Readonly<{
   seller_response_due_at: string | null;
   support_review_due_at: string | null;
   checklist: readonly SupportChecklistItem[];
+  pending_offer: SupportOffer | null;
   resolution: SupportResolution | null;
   closed_at: string | null;
   cancellation_reason: string | null;
@@ -25,6 +32,7 @@ export type SupportRequestDetailRow = SupportRequestListRow &
   Readonly<{
     evidence: readonly SupportEvidence[];
     responses: readonly SupportResponse[];
+    offers: readonly SupportOffer[];
   }>;
 
 const listSelect = `
@@ -43,6 +51,7 @@ const listSelect = `
     seller_response_due_at::text AS seller_response_due_at,
     support_review_due_at::text AS support_review_due_at,
     checklist,
+    pending_offer,
     resolution,
     closed_at::text AS closed_at,
     cancellation_reason
@@ -67,6 +76,8 @@ const detailSelect = `
     checklist,
     evidence,
     responses,
+    offers,
+    pending_offer,
     resolution,
     closed_at::text AS closed_at,
     cancellation_reason

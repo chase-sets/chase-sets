@@ -261,6 +261,8 @@
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/close",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/escalate",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/evidence",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/offers/:offerId/accept",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/offers/:offerId/decline",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/resolve",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/responses",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/:id/cancel",

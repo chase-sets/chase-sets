@@ -114,8 +114,18 @@ export type SupportRequestServices = Readonly<{
       submittedByRole: SupportRequesterRole | string;
       responseType: SupportResponseType | string;
       summary: string;
+      offerResolutionType?: SupportResolutionType | string | null;
+      refundAmount?: string | null;
       scope?: SupportRequestMutationScope;
     }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; version: number }>;
+  acceptOffer: (
+    params: Readonly<{ supportRequestId: string; accountId: string; offerId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; version: number }>;
+  declineOffer: (
+    params: Readonly<{ supportRequestId: string; accountId: string; offerId: string; summary?: string | null }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
   escalateSupportRequest: (
@@ -242,6 +252,28 @@ async function requireMutableSupportRequest(
   return requireAccountSupportRequest(db, params.supportRequestId, params.accountId);
 }
 
+function isOfferResponseType(responseType: SupportResponseType) {
+  return (
+    responseType === "accept-return" || responseType === "offer-partial-refund" || responseType === "offer-replacement"
+  );
+}
+
+function accountRoleForSupportRequest(
+  supportRequest: Awaited<ReturnType<typeof getAccountSupportRequest>>,
+  accountId: string,
+): Exclude<SupportRequesterRole, "support"> {
+  if (!supportRequest) {
+    throw new SupportDomainError("Support request not found.");
+  }
+  if (supportRequest.buyer_account_id === accountId) {
+    return "buyer";
+  }
+  if (supportRequest.seller_account_id === accountId) {
+    return "seller";
+  }
+  throw new SupportDomainError("Support request is not available for this account.");
+}
+
 export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): SupportRequestServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const { commandHandler } = createAggregateCommandHandler({
@@ -304,6 +336,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           type: "OpenSupportRequest",
           supportRequestId,
           orderId: order.order_id as OrderId,
+          orderTotalAmount: order.total_amount,
           buyerAccountId: order.buyer_account_id as AccountId,
           sellerAccountId: order.seller_account_id as AccountId,
           flowType,
@@ -338,6 +371,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     },
     recordResponse: async (params, context) => {
       await requireMutableSupportRequest(deps.db, params);
+      const responseType = normalizeResponseType(params.responseType);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
@@ -345,9 +379,50 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           responseId: createId("srp"),
           submittedByAccountId: params.accountId as AccountId,
           submittedByRole: normalizeRequesterRole(params.submittedByRole),
-          responseType: normalizeResponseType(params.responseType),
+          responseType,
           summary: params.summary,
           submittedAt: new Date().toISOString(),
+          offerId: isOfferResponseType(responseType) ? createId("sof") : null,
+          offerResolutionType:
+            params.offerResolutionType === null || params.offerResolutionType === undefined
+              ? null
+              : normalizeResolutionType(params.offerResolutionType),
+          refundAmount: params.refundAmount ?? null,
+        },
+        context,
+      });
+
+      return { supportRequestId: params.supportRequestId, version: result.version };
+    },
+    acceptOffer: async (params, context) => {
+      const supportRequest = await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      const acceptedByRole = accountRoleForSupportRequest(supportRequest, params.accountId);
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "AcceptSupportOffer",
+          offerId: params.offerId,
+          acceptedByAccountId: params.accountId as AccountId,
+          acceptedByRole,
+          acceptedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { supportRequestId: params.supportRequestId, version: result.version };
+    },
+    declineOffer: async (params, context) => {
+      const supportRequest = await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      const declinedByRole = accountRoleForSupportRequest(supportRequest, params.accountId);
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "DeclineSupportOffer",
+          offerId: params.offerId,
+          declinedByAccountId: params.accountId as AccountId,
+          declinedByRole,
+          declinedAt: new Date().toISOString(),
+          summary: params.summary ?? null,
         },
         context,
       });
