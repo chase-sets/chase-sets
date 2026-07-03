@@ -33,7 +33,8 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
       };
 
       await db.query(
-        `INSERT INTO payments_payment_pages (
+        `WITH upserted_payment AS (
+         INSERT INTO payments_payment_pages (
            payment_id,
            buyer_account_id,
            order_ids,
@@ -100,7 +101,20 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
-         WHERE payments_payment_pages.last_stream_version < EXCLUDED.last_stream_version`,
+         WHERE payments_payment_pages.last_stream_version < EXCLUDED.last_stream_version
+         RETURNING payment_id
+       ),
+       deleted_payment_orders AS (
+         DELETE FROM payments_payment_orders
+         WHERE payment_id IN (SELECT payment_id FROM upserted_payment)
+         RETURNING payment_id
+       )
+       INSERT INTO payments_payment_orders (payment_id, order_id)
+       SELECT upserted_payment.payment_id, payment_order_ids.order_id
+       FROM upserted_payment
+       CROSS JOIN (SELECT COUNT(*) FROM deleted_payment_orders) AS deleted_order_count
+       CROSS JOIN LATERAL jsonb_array_elements_text($3::jsonb) AS payment_order_ids(order_id)
+       ON CONFLICT (payment_id, order_id) DO NOTHING`,
         [
           data.paymentId,
           data.buyerAccountId,
