@@ -205,8 +205,11 @@ function createPayoutProviderOperationDb(payoutRows: () => Record<string, unknow
 
       if (sql.includes("settlement_money_movement_webhook_events")) {
         const providerEventId = String(values?.[0] ?? "");
-        if (processedProviderEvents.has(providerEventId)) {
-          return { rows: [], rowCount: 0 };
+        if (sql.includes("SELECT provider_event_id")) {
+          return {
+            rows: processedProviderEvents.has(providerEventId) ? [{ provider_event_id: providerEventId }] : [],
+            rowCount: processedProviderEvents.has(providerEventId) ? 1 : 0,
+          };
         }
         processedProviderEvents.add(providerEventId);
         return { rows: [{ provider_event_id: providerEventId }], rowCount: 1 };
@@ -1354,6 +1357,54 @@ describe("settlement payout runtime", () => {
     ]);
   });
 
+  it("does not mark payout webhooks processed when the payout projection is not ready", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT provider_event_id") && sql.includes("settlement_money_movement_webhook_events")) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("INSERT INTO settlement_money_movement_webhook_events")) {
+          throw new Error("Provider event should not be marked processed before payout effects commit.");
+        }
+        if (sql.includes("FROM settlement_payout_pages")) {
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+    });
+
+    await expect(
+      payouts.processMoneyMovementWebhook(
+        {
+          rawBody: JSON.stringify({
+            kind: "payout-completed",
+            providerEventId: "evt_provider_paid_before_projection",
+            providerPayoutReference: "po_missing",
+          }),
+          signatureHeader: null,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Payout was not found for provider webhook.");
+    expect(
+      db.query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO settlement_money_movement_webhook_events")),
+    ).toBe(false);
+  });
+
   it("processes duplicate payout failure webhooks without duplicate reversals", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     let payoutRow: Record<string, unknown> | null = null;
@@ -1387,8 +1438,11 @@ describe("settlement payout runtime", () => {
 
         if (sql.includes("settlement_money_movement_webhook_events")) {
           const providerEventId = String(values?.[0] ?? "");
-          if (processedProviderEvents.has(providerEventId)) {
-            return { rows: [], rowCount: 0 };
+          if (sql.includes("SELECT provider_event_id")) {
+            return {
+              rows: processedProviderEvents.has(providerEventId) ? [{ provider_event_id: providerEventId }] : [],
+              rowCount: processedProviderEvents.has(providerEventId) ? 1 : 0,
+            };
           }
           processedProviderEvents.add(providerEventId);
           return {

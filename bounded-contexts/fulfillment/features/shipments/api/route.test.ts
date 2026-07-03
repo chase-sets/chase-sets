@@ -620,4 +620,34 @@ describe("fulfillment shipment routes", () => {
       },
     );
   });
+
+  it("returns a retryable error when postage webhook processing fails after verification", async () => {
+    const services = {
+      ...createServices(),
+      processPostageProviderWebhook: vi.fn(async () => {
+        throw new Error("simulated postage webhook commit conflict");
+      }),
+    };
+    const app = new Hono();
+    app.route("/api/fulfillment/provider", createPostageProviderWebhookRoutes(services));
+
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/api/fulfillment/provider/postage/webhooks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-provider-test": "present",
+        },
+        body: JSON.stringify({ id: "evt_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "postage_webhook_processing_failed",
+        message: "simulated postage webhook commit conflict",
+      },
+    });
+  });
 });

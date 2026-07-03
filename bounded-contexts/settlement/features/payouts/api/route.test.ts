@@ -383,6 +383,32 @@ describe("settlement money movement webhook route", () => {
     });
   });
 
+  it("returns a retryable error when money movement webhook processing fails after verification", async () => {
+    const processMoneyMovementWebhook = vi.fn(async () => {
+      throw new Error("simulated payout webhook commit conflict");
+    });
+    const app = new Hono().route(
+      "/provider",
+      createMoneyMovementWebhookRoutes({
+        processMoneyMovementWebhook,
+      } as unknown as PayoutServices),
+    );
+
+    const response = await app.request("/provider/money-movement/webhooks", {
+      method: "POST",
+      body: "{}",
+      headers: { "Stripe-Signature": "t=1,v1=abc" },
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "provider_webhook_processing_failed",
+        message: "simulated payout webhook commit conflict",
+      },
+    });
+  });
+
   it("returns ignored responses for unsupported provider events", async () => {
     const processMoneyMovementWebhook = vi.fn(async () => ({
       received: true,

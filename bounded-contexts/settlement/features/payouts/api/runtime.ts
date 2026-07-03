@@ -24,7 +24,10 @@ import {
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
-import { recordProviderWebhookEvent as recordProviderWebhookInboxEvent } from "@chase-sets/provider-webhook-inbox";
+import {
+  hasProcessedProviderWebhookEvent as hasProcessedProviderWebhookInboxEvent,
+  recordProviderWebhookEvent as recordProviderWebhookInboxEvent,
+} from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -481,6 +484,13 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     });
   }
 
+  async function hasProcessedProviderWebhookEvent(event: MoneyMovementWebhookEvent) {
+    return hasProcessedProviderWebhookInboxEvent(deps.db, {
+      tableName: "settlement_money_movement_webhook_events",
+      providerEventId: event.providerEventId,
+    });
+  }
+
   async function getCommittedPayoutLedgerEntry(accountId: string, ledgerEntryId: LedgerEntryId) {
     const events = await deps.eventStore.readStream({
       streamId: `settlement.wallet-${accountId}`,
@@ -591,7 +601,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             providerPayoutReference: event.providerPayoutReference,
             reason: "Payout not found for provider payout reference.",
           });
-          return { received: true, ignored: true };
+          throw new SettlementDomainError("Payout was not found for provider webhook.");
         }
         if (payout.status === "failed") {
           await recordOperation({
@@ -648,7 +658,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             providerPayoutReference: event.providerPayoutReference,
             reason: "Payout not found for provider payout reference.",
           });
-          return { received: true, ignored: true };
+          throw new SettlementDomainError("Payout was not found for provider webhook.");
         }
         if (!payout.provider_payout_reference && payout.status !== "failed") {
           await recordPayoutProviderReferences(
@@ -1676,8 +1686,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         });
         return { received: true, ignored: true };
       }
-      const isNewProviderEvent = await recordProviderWebhookEvent(event);
-      if (!isNewProviderEvent) {
+      const alreadyProcessed = await hasProcessedProviderWebhookEvent(event);
+      if (alreadyProcessed) {
         await recordOperation({
           kind: "money-movement-webhook-ignored",
           providerEventId: event.providerEventId,
@@ -1686,7 +1696,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         });
         return { received: true, ignored: true };
       }
-      return handleMoneyMovementEvent(event, context);
+      const result = await handleMoneyMovementEvent(event, context);
+      await recordProviderWebhookEvent(event);
+      return result;
     },
     reconcileProviderPayout,
     reconcilePayoutsNeedingAttention,

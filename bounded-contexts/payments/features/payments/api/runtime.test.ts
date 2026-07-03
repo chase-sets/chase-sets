@@ -235,6 +235,47 @@ describe("payment runtime", () => {
     ]);
   });
 
+  it("does not mark provider webhooks processed when the payment target is not ready", async () => {
+    const processorGateway = createProcessorGateway();
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_refund_before_payment",
+      processorName: "stripe",
+      kind: "payment-refunded",
+      processorPaymentReference: "pi_missing",
+      processorRefundReference: "re_missing",
+      processorStatus: "succeeded",
+      amount: "12.50",
+      occurredAt: "2026-04-29T00:10:00.000Z",
+    } as never);
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_provider_webhook_events")) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("INSERT INTO payments_provider_webhook_events")) {
+          throw new Error("Provider event should not be marked processed before payment effects commit.");
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).rejects.toThrow(
+      "Payment webhook target was not found.",
+    );
+    expect(
+      db.query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO payments_provider_webhook_events")),
+    ).toBe(false);
+  });
+
   it("reuses checkout-sourced payments by checkout session id", async () => {
     const processorGateway = {
       getPublicConfiguration: vi.fn(() => ({

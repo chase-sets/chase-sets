@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recordProviderWebhookEvent } from ".";
+import { hasProcessedProviderWebhookEvent, recordProviderWebhookEvent } from ".";
 
 describe("provider webhook inbox", () => {
   it("inserts provider events idempotently into a caller-owned table", async () => {
@@ -31,5 +31,22 @@ describe("provider webhook inbox", () => {
         eventKind: "payment-failed",
       }),
     ).rejects.toThrow("Provider webhook inbox table name is invalid.");
+  });
+
+  it("checks whether a provider event was already processed", async () => {
+    const db = {
+      query: async (sql: string, values?: readonly unknown[]) => {
+        expect(sql).toContain("FROM payments_provider_webhook_events");
+        expect(values).toEqual(["evt_123"]);
+        return { rows: [{ provider_event_id: "evt_123" }] };
+      },
+    };
+
+    await expect(
+      hasProcessedProviderWebhookEvent(db as never, {
+        tableName: "payments_provider_webhook_events",
+        providerEventId: "evt_123",
+      }),
+    ).resolves.toBe(true);
   });
 });
