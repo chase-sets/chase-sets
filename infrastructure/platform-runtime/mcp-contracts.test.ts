@@ -11,6 +11,8 @@ import {
   mcpServiceCatalog,
   validateMcpServiceCatalog,
   type McpActor,
+  type McpJsonSchema,
+  type McpJsonSchemaProperty,
   type McpServiceDescriptor,
 } from "./mcp-contracts";
 
@@ -32,6 +34,89 @@ const accountActor: McpActor = {
     "payouts.view",
   ],
 };
+
+function actualType(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  return typeof value;
+}
+
+function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+  switch (expected) {
+    case "array":
+      return Array.isArray(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "object":
+      return typeof value === "object" && value !== null && !Array.isArray(value);
+    case "boolean":
+    case "string":
+      return typeof value === expected;
+  }
+}
+
+function validateProperty(value: unknown, schema: McpJsonSchemaProperty, path: string): string[] {
+  if (!matchesType(value, schema.type)) {
+    return [`${path} expected ${schema.type} but received ${actualType(value)}.`];
+  }
+
+  const errors: string[] = [];
+  if (schema.enum && typeof value === "string" && !schema.enum.includes(value)) {
+    errors.push(`${path} expected one of ${schema.enum.join(", ")} but received ${value}.`);
+  }
+  if (schema.type === "array" && schema.items) {
+    (value as readonly unknown[]).forEach((item, index) => {
+      errors.push(...validateProperty(item, schema.items as McpJsonSchemaProperty, `${path}[${index}]`));
+    });
+  }
+  if (schema.type === "object" && schema.properties) {
+    errors.push(
+      ...validateObject(value as Readonly<Record<string, unknown>>, {
+        additionalProperties: schema.additionalProperties,
+        properties: schema.properties,
+        required: schema.required,
+      }),
+    );
+  }
+  return errors;
+}
+
+function validateObject(
+  value: Readonly<Record<string, unknown>>,
+  schema: Pick<McpJsonSchema, "additionalProperties" | "properties" | "required">,
+) {
+  const errors: string[] = [];
+  for (const field of schema.required ?? []) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) {
+      errors.push(`${field} is required.`);
+    }
+  }
+  if (schema.additionalProperties === false) {
+    for (const field of Object.keys(value)) {
+      if (!Object.prototype.hasOwnProperty.call(schema.properties, field)) {
+        errors.push(`${field} is not allowed.`);
+      }
+    }
+  }
+  for (const [field, propertySchema] of Object.entries(schema.properties)) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) {
+      continue;
+    }
+    errors.push(...validateProperty(value[field], propertySchema, field));
+  }
+  return errors;
+}
+
+function validateOutputSchema(schema: McpJsonSchema | undefined, value: Readonly<Record<string, unknown>>) {
+  expect(schema).toBeDefined();
+  return validateObject(value, schema as McpJsonSchema);
+}
 
 describe("MCP service catalog", () => {
   it("covers every core context and external provider that needs agent access", () => {
@@ -69,6 +154,58 @@ describe("MCP service catalog", () => {
         .sort(),
     ).toEqual(["chase-sets://inventory/{accountId}/import-batches/{batchId}"]);
     expect(flattenMcpTools().find((tool) => tool.name === "inventory.list-items")?.availability).toBe("planned");
+  });
+
+  it("publishes output schemas for available inventory MCP handler outputs", () => {
+    const listSourcesOutput = {
+      items: [
+        {
+          sourceKey: "tcgplayer-csv",
+          label: "TCGplayer CSV",
+          kind: "csv",
+          adapterVersion: 1,
+          displayNameValueKeys: ["title"],
+          values: [{ targetKey: "sellerSku" }],
+          externalReferenceCandidates: [
+            {
+              providerKey: "tcgplayer",
+              externalKeyPrefix: "sku:",
+              targetIntent: "product-reference",
+            },
+          ],
+          selectedOptionInference: [{ dimensionKey: "condition", headers: ["Condition"] }],
+        },
+      ],
+      total: 1,
+    };
+    const importBatchOutput = {
+      batch_id: "imb_1",
+      account_id: "acct_1",
+      status: "uploaded",
+      source_key: "tcgplayer-csv",
+      adapter_version: 1,
+      quantity_mode: "add",
+      default_storage_location_id: null,
+      source_filename: null,
+      total_count: 1,
+      accepted_count: 1,
+      rejected_count: 0,
+      committed_count: 0,
+      created_at: "2026-05-28T00:00:00.000Z",
+      updated_at: "2026-05-28T00:00:00.000Z",
+      rows: [],
+    };
+
+    expect(validateOutputSchema(findMcpTool("inventory.list-import-sources")?.outputSchema, listSourcesOutput)).toEqual(
+      [],
+    );
+    for (const toolName of [
+      "inventory.create-import-batch",
+      "inventory.get-import-batch",
+      "inventory.commit-import-batch",
+    ]) {
+      expect(validateOutputSchema(findMcpTool(toolName)?.outputSchema, importBatchOutput)).toEqual([]);
+    }
   });
 
   it("requires confirmation and idempotency for sensitive and destructive tools", () => {

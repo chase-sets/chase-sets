@@ -130,6 +130,11 @@ const booleanProperty = (description: string): McpJsonSchemaProperty => ({
   description,
 });
 
+const integerProperty = (description: string): McpJsonSchemaProperty => ({
+  type: "integer",
+  description,
+});
+
 const arrayProperty = (description: string, items: McpJsonSchemaProperty): McpJsonSchemaProperty => ({
   type: "array",
   description,
@@ -338,6 +343,132 @@ const mutationInput = (idName: string, description: string): McpJsonSchema =>
     },
     ["accountId", idName, "reason", "idempotencyKey", "confirmationText"],
   );
+
+const importSourceProfileOutputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Inventory import source profile.",
+  additionalProperties: true,
+  required: [
+    "sourceKey",
+    "label",
+    "kind",
+    "adapterVersion",
+    "displayNameValueKeys",
+    "values",
+    "externalReferenceCandidates",
+    "selectedOptionInference",
+  ],
+  properties: {
+    sourceKey: stringProperty("Configured import source key."),
+    label: stringProperty("Human-readable import source label."),
+    kind: stringProperty("Import source transport kind.", ["csv", "api"]),
+    adapterVersion: integerProperty("Version of the import adapter contract."),
+    nativePassthrough: booleanProperty("Whether rows pass through native Chase Sets CSV fields."),
+    displayNameValueKeys: arrayProperty("Value keys that make a row display name.", stringProperty("Value key.")),
+    rowNoteValueKeys: arrayProperty("Value keys used to build review notes.", stringProperty("Value key.")),
+    values: arrayProperty("Value mappings accepted by this source.", {
+      type: "object",
+      description: "Import value mapping.",
+      additionalProperties: true,
+      required: ["targetKey"],
+      properties: {
+        targetKey: stringProperty("Normalized target value key."),
+      },
+    }),
+    externalReferenceCandidates: arrayProperty("External reference candidates inferred from source rows.", {
+      type: "object",
+      description: "External reference candidate rule.",
+      additionalProperties: true,
+      required: ["providerKey", "externalKeyPrefix", "targetIntent"],
+      properties: {
+        providerKey: stringProperty("External provider key."),
+        externalKeyPrefix: stringProperty("Prefix used for external reference keys."),
+        targetIntent: stringProperty("How this external reference should be resolved."),
+      },
+    }),
+    selectedOptionInference: arrayProperty("Catalog option inference rules for source rows.", {
+      type: "object",
+      description: "Selected option inference rule.",
+      additionalProperties: true,
+      required: ["dimensionKey", "headers"],
+      properties: {
+        dimensionKey: stringProperty("Catalog dimension key."),
+        headers: arrayProperty("Source headers used for the dimension.", stringProperty("Source header.")),
+      },
+    }),
+  },
+};
+
+const inventoryImportSourcesOutputSchema = objectSchema(
+  {
+    items: arrayProperty("Supported inventory import source profiles.", importSourceProfileOutputProperty),
+    total: integerProperty("Total supported source profile count."),
+  },
+  ["items", "total"],
+);
+
+const importBatchRowOutputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Inventory import batch row.",
+  additionalProperties: true,
+  required: [
+    "row_id",
+    "batch_id",
+    "row_number",
+    "status",
+    "quantity_mode",
+    "resolution_status",
+    "validation_errors",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    row_id: stringProperty("Import batch row identifier."),
+    batch_id: stringProperty("Import batch identifier."),
+    row_number: integerProperty("Source row number."),
+    status: stringProperty("Import row status.", ["accepted", "rejected", "committed"]),
+    quantity_mode: stringProperty("How row quantities affect stock.", ["add", "replace"]),
+    resolution_status: stringProperty("Catalog resolution status.", ["native", "resolved", "unresolved"]),
+    validation_errors: arrayProperty("Validation errors for the row.", stringProperty("Validation error.")),
+    created_at: stringProperty("Creation timestamp."),
+    updated_at: stringProperty("Last update timestamp."),
+  },
+};
+
+const inventoryImportBatchDetailOutputSchema: McpJsonSchema = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    batch_id: stringProperty("Import batch identifier."),
+    account_id: stringProperty("Account that owns the import batch."),
+    status: stringProperty("Import batch status.", ["uploaded", "committed"]),
+    source_key: stringProperty("Configured import source key."),
+    adapter_version: integerProperty("Version of the import adapter contract."),
+    quantity_mode: stringProperty("How row quantities affect stock.", ["add", "replace"]),
+    total_count: integerProperty("Total row count."),
+    accepted_count: integerProperty("Accepted row count."),
+    rejected_count: integerProperty("Rejected row count."),
+    committed_count: integerProperty("Committed row count."),
+    created_at: stringProperty("Creation timestamp."),
+    updated_at: stringProperty("Last update timestamp."),
+    rows: arrayProperty("Import batch rows.", importBatchRowOutputProperty),
+  },
+  required: [
+    "batch_id",
+    "account_id",
+    "status",
+    "source_key",
+    "adapter_version",
+    "quantity_mode",
+    "total_count",
+    "accepted_count",
+    "rejected_count",
+    "committed_count",
+    "created_at",
+    "updated_at",
+    "rows",
+  ],
+};
 
 export const mcpServiceCatalog = [
   {
@@ -635,6 +766,7 @@ export const mcpServiceCatalog = [
           ["Use before creating an import batch so agents can choose the right sourceKey and row shape."],
         ),
         availability: "available",
+        outputSchema: inventoryImportSourcesOutputSchema,
       },
       {
         ...writeTool(
@@ -666,6 +798,7 @@ export const mcpServiceCatalog = [
           ["Use after source rows are fetched and before committing stock or draft listings."],
         ),
         availability: "available",
+        outputSchema: inventoryImportBatchDetailOutputSchema,
       },
       {
         ...readTool(
@@ -685,6 +818,7 @@ export const mcpServiceCatalog = [
           ["Use after creating a batch to inspect accepted, rejected, unresolved, and committed rows."],
         ),
         availability: "available",
+        outputSchema: inventoryImportBatchDetailOutputSchema,
       },
       {
         ...writeTool(
@@ -708,6 +842,7 @@ export const mcpServiceCatalog = [
           ["Use only after reviewing match outcomes and confirming rejected rows should remain in review."],
         ),
         availability: "available",
+        outputSchema: inventoryImportBatchDetailOutputSchema,
       },
       writeTool(
         "inventory",

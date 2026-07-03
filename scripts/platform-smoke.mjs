@@ -11,6 +11,7 @@ import {
 import {
   isNativeMcpAnonymousDiscoveryRejected,
   isNativeMcpPermissionBoundaryError,
+  readNativeMcpToolStructuredContent,
 } from "./platform-smoke-native-mcp.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
@@ -421,7 +422,8 @@ async function expectNativeMcpInventoryRead({ origin, sessionToken, accountId })
     }
     throw new Error(`Native MCP inventory source read returned JSON-RPC error: ${listSourcesBody.error.message}.`);
   }
-  const items = listSourcesBody.result?.content?.find((entry) => entry?.type === "json")?.json?.items;
+  const structuredContent = readNativeMcpToolStructuredContent(listSourcesBody.result);
+  const items = structuredContent?.items;
   if (!Array.isArray(items) || !items.some((item) => item?.sourceKey === "tcgplayer-csv")) {
     throw new Error("Native MCP inventory source read did not include the TCGplayer CSV source.");
   }
