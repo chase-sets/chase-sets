@@ -6,8 +6,14 @@ import {
   consumeChallenge,
   getPasskeyCredentialByExternalId,
   insertChallenge,
+  updatePasskeySignCount,
   upsertPasskeyCredential,
 } from "../auth-support/store";
+import {
+  readWebAuthnCredentialId,
+  verifyPasskeyAuthentication,
+  verifyPasskeyRegistration,
+} from "../auth-support/webauthn";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import {
   createIdentityMutations,
@@ -19,7 +25,7 @@ import {
 } from "./support";
 
 export function passkeyMatchesChallengeUser(challengeUserId: string | null, passkeyUserId: string) {
-  return challengeUserId === null || challengeUserId === passkeyUserId;
+  return challengeUserId !== null && challengeUserId === passkeyUserId;
 }
 
 export function resolvePasskeyRegistrationUserId(
@@ -68,6 +74,15 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
       challengeValue: String(body.challenge ?? ""),
     });
     if (!challenge) {
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired") }, 401);
+    }
+
+    const verifiedPasskey = await verifyPasskeyRegistration(c.req.raw, {
+      webauthnResponse: body.webauthnResponse,
+      expectedChallenge: challenge.challenge_value,
+      externalCredentialId: typeof body.externalCredentialId === "string" ? body.externalCredentialId : null,
+    });
+    if (!verifiedPasskey) {
       return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired") }, 401);
     }
 
@@ -126,9 +141,12 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
     await upsertPasskeyCredential(services.db, {
       credentialId,
       userId,
-      externalCredentialId: String(body.externalCredentialId ?? ""),
+      externalCredentialId: verifiedPasskey.externalCredentialId,
       label: String(body.label ?? ""),
-      publicKey: String(body.publicKey ?? ""),
+      publicKey: verifiedPasskey.publicKey,
+      signCount: verifiedPasskey.signCount,
+      credentialDeviceType: verifiedPasskey.credentialDeviceType,
+      credentialBackedUp: verifiedPasskey.credentialBackedUp,
     });
 
     const authResult =
@@ -169,13 +187,37 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
       );
     }
 
-    const passkey = await getPasskeyCredentialByExternalId(services.db, String(body.externalCredentialId ?? ""));
+    const externalCredentialId =
+      typeof body.externalCredentialId === "string" && body.externalCredentialId
+        ? body.externalCredentialId
+        : readWebAuthnCredentialId(body.webauthnResponse);
+    const passkey = externalCredentialId
+      ? await getPasskeyCredentialByExternalId(services.db, externalCredentialId)
+      : null;
     if (!passkey) {
       return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.unknown.passkey.credential") }, 401);
     }
     if (!passkeyMatchesChallengeUser(challenge.user_id, passkey.user_id)) {
       return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.does.not.match.the.requested") }, 401);
     }
+
+    const verifiedPasskey = await verifyPasskeyAuthentication(c.req.raw, {
+      webauthnResponse: body.webauthnResponse,
+      expectedChallenge: challenge.challenge_value,
+      externalCredentialId: passkey.external_credential_id,
+      publicKey: passkey.public_key,
+      signCount: Number(passkey.sign_count),
+    });
+    if (!verifiedPasskey) {
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.does.not.match.the.requested") }, 401);
+    }
+
+    await updatePasskeySignCount(services.db, {
+      externalCredentialId: verifiedPasskey.externalCredentialId,
+      signCount: verifiedPasskey.newSignCount,
+      credentialDeviceType: verifiedPasskey.credentialDeviceType,
+      credentialBackedUp: verifiedPasskey.credentialBackedUp,
+    });
 
     const authResult = await startInteractiveAuth(services, {
       userId: passkey.user_id,

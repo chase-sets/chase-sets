@@ -40,9 +40,21 @@ CREATE TABLE IF NOT EXISTS identity_passkey_credentials (
   external_credential_id text NOT NULL UNIQUE,
   label text NOT NULL,
   public_key text NOT NULL,
+  sign_count integer NOT NULL DEFAULT 0,
+  credential_device_type text NOT NULL DEFAULT 'unknown',
+  credential_backed_up boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE identity_passkey_credentials
+  ADD COLUMN IF NOT EXISTS sign_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE identity_passkey_credentials
+  ADD COLUMN IF NOT EXISTS credential_device_type text NOT NULL DEFAULT 'unknown';
+
+ALTER TABLE identity_passkey_credentials
+  ADD COLUMN IF NOT EXISTS credential_backed_up boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS identity_passkey_lookup (
   external_credential_id text PRIMARY KEY,

@@ -8,7 +8,7 @@ export type PasskeyCredentialPayload = Readonly<{
   challenge: string;
   externalCredentialId: string;
   label: string;
-  publicKey: string;
+  webauthnResponse: string;
 }>;
 
 function base64UrlToBuffer(value: string) {
@@ -26,6 +26,61 @@ function base64UrlToBuffer(value: string) {
 
 function textToBuffer(value: string) {
   return new TextEncoder().encode(value).buffer;
+}
+
+function bufferToBase64Url(value: ArrayBuffer) {
+  const bytes = new Uint8Array(value);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function serializeRegistrationCredential(credential: PublicKeyCredential) {
+  const response = credential.response;
+  if (!("attestationObject" in response)) {
+    throw new Error("Passkey registration did not return an attestation response.");
+  }
+  const attestationResponse = response as AuthenticatorAttestationResponse & {
+    getTransports?: () => AuthenticatorTransport[];
+  };
+
+  return JSON.stringify({
+    id: credential.id,
+    rawId: bufferToBase64Url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: bufferToBase64Url(attestationResponse.clientDataJSON),
+      attestationObject: bufferToBase64Url(attestationResponse.attestationObject),
+      transports: attestationResponse.getTransports?.() ?? [],
+    },
+    clientExtensionResults: credential.getClientExtensionResults(),
+    authenticatorAttachment: credential.authenticatorAttachment ?? undefined,
+  });
+}
+
+function serializeAuthenticationCredential(credential: PublicKeyCredential) {
+  const response = credential.response;
+  if (!("authenticatorData" in response) || !("signature" in response)) {
+    throw new Error("Passkey sign-in did not return an assertion response.");
+  }
+  const assertionResponse = response as AuthenticatorAssertionResponse;
+
+  return JSON.stringify({
+    id: credential.id,
+    rawId: bufferToBase64Url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: bufferToBase64Url(assertionResponse.clientDataJSON),
+      authenticatorData: bufferToBase64Url(assertionResponse.authenticatorData),
+      signature: bufferToBase64Url(assertionResponse.signature),
+      userHandle: assertionResponse.userHandle ? bufferToBase64Url(assertionResponse.userHandle) : undefined,
+    },
+    clientExtensionResults: credential.getClientExtensionResults(),
+    authenticatorAttachment: credential.authenticatorAttachment ?? undefined,
+  });
 }
 
 function assertPublicKeyCredential(value: Credential | null) {
@@ -87,7 +142,7 @@ export async function createPasskeyCredential(
         ],
         authenticatorSelection: {
           residentKey: "preferred",
-          userVerification: "preferred",
+          userVerification: "required",
         },
         timeout: 60_000,
         attestation: "none",
@@ -100,10 +155,7 @@ export async function createPasskeyCredential(
     challenge: challenge.challenge,
     externalCredentialId: credential.id,
     label: "Passkey",
-    publicKey: JSON.stringify({
-      id: credential.id,
-      type: credential.type,
-    }),
+    webauthnResponse: serializeRegistrationCredential(credential),
   };
 }
 
@@ -118,7 +170,7 @@ export async function getPasskeyCredential(email: string): Promise<PasskeyCreden
       publicKey: {
         challenge: base64UrlToBuffer(challenge.challenge),
         timeout: 60_000,
-        userVerification: "preferred",
+        userVerification: "required",
       },
     }),
   );
@@ -128,9 +180,6 @@ export async function getPasskeyCredential(email: string): Promise<PasskeyCreden
     challenge: challenge.challenge,
     externalCredentialId: credential.id,
     label: "Passkey",
-    publicKey: JSON.stringify({
-      id: credential.id,
-      type: credential.type,
-    }),
+    webauthnResponse: serializeAuthenticationCredential(credential),
   };
 }

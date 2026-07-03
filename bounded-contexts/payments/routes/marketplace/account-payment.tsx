@@ -307,7 +307,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
         challenge: formData.get("challenge"),
         externalCredentialId: formData.get("externalCredentialId"),
         label: formData.get("label"),
-        publicKey: formData.get("publicKey"),
+        webauthnResponse: formData.get("webauthnResponse"),
       });
 
       const response = completeBrowserAuthentication(request, result, {
@@ -349,7 +349,7 @@ function PasskeyHiddenFields({ payload }: { payload: PasskeyCredentialPayload | 
       <HiddenInput type="hidden" name="challenge" value={payload?.challenge ?? ""} readOnly />
       <HiddenInput type="hidden" name="externalCredentialId" value={payload?.externalCredentialId ?? ""} readOnly />
       <HiddenInput type="hidden" name="label" value={payload?.label ?? ""} readOnly />
-      <HiddenInput type="hidden" name="publicKey" value={payload?.publicKey ?? ""} readOnly />
+      <HiddenInput type="hidden" name="webauthnResponse" value={payload?.webauthnResponse ?? ""} readOnly />
     </>
   );
 }

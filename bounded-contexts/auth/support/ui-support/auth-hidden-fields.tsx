@@ -30,7 +30,7 @@ export function PasskeyHiddenFields({
       <HiddenInput type="hidden" name="challenge" value={payload.challenge} readOnly />
       <HiddenInput type="hidden" name="externalCredentialId" value={payload.externalCredentialId} readOnly />
       <HiddenInput type="hidden" name="label" value={payload.label} readOnly />
-      <HiddenInput type="hidden" name="publicKey" value={payload.publicKey} readOnly />
+      <HiddenInput type="hidden" name="webauthnResponse" value={payload.webauthnResponse} readOnly />
     </>
   );
 }

@@ -512,6 +512,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                       challengeId: formData.get("challengeId"),
                       challenge: formData.get("challenge"),
                       externalCredentialId: formData.get("externalCredentialId"),
+                      webauthnResponse: formData.get("webauthnResponse"),
                       accountId: formData.get("accountId"),
                     })
                   : await retryTransientPasswordSignIn(() =>
@@ -559,7 +560,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               challenge: formData.get("challenge"),
               externalCredentialId: formData.get("externalCredentialId"),
               label: formData.get("label"),
-              publicKey: formData.get("publicKey"),
+              webauthnResponse: formData.get("webauthnResponse"),
             });
             freshWriteSource = identityFreshWriteSource(passkeyRegistration);
             authResult = passkeyRegistration.authResult;

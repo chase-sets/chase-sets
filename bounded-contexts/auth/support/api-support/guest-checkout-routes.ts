@@ -15,6 +15,7 @@ import {
   upsertGuestCheckoutToken,
   upsertPasskeyCredential,
 } from "../auth-support/store";
+import { verifyPasskeyRegistration } from "../auth-support/webauthn";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
@@ -352,6 +353,18 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
       );
     }
 
+    const verifiedPasskey = await verifyPasskeyRegistration(c.req.raw, {
+      webauthnResponse: body.webauthnResponse,
+      expectedChallenge: challenge.challenge_value,
+      externalCredentialId: typeof body.externalCredentialId === "string" ? body.externalCredentialId : null,
+    });
+    if (!verifiedPasskey) {
+      return c.json(
+        { error: t("auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.is.invalid.or.expired") },
+        401,
+      );
+    }
+
     const userId = await resolveClaimUser(services, identityMutations, {
       email,
       displayName,
@@ -371,9 +384,12 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     await upsertPasskeyCredential(services.db, {
       credentialId,
       userId,
-      externalCredentialId: String(body.externalCredentialId ?? ""),
+      externalCredentialId: verifiedPasskey.externalCredentialId,
       label: String(body.label ?? "Passkey"),
-      publicKey: String(body.publicKey ?? ""),
+      publicKey: verifiedPasskey.publicKey,
+      signCount: verifiedPasskey.signCount,
+      credentialDeviceType: verifiedPasskey.credentialDeviceType,
+      credentialBackedUp: verifiedPasskey.credentialBackedUp,
     });
 
     const authResult = await claimGuestAccountAndStartSession(services, identityMutations, {

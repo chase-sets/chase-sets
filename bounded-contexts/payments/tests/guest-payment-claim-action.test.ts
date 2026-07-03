@@ -548,7 +548,7 @@ describe("guest payment claim action", () => {
     form.set("challenge", "challenge");
     form.set("externalCredentialId", "cred_external");
     form.set("label", "Passkey");
-    form.set("publicKey", "{}");
+    form.set("webauthnResponse", "webauthn_response");
 
     const result = await action({
       request: new Request("http://localhost/checkout/payments/pay_1", {
@@ -569,7 +569,7 @@ describe("guest payment claim action", () => {
       challenge: "challenge",
       externalCredentialId: "cred_external",
       label: "Passkey",
-      publicKey: "{}",
+      webauthnResponse: "webauthn_response",
     });
     expect(mockCompleteBrowserAuthentication).toHaveBeenCalledWith(expect.any(Request), authResult, {
       defaultSuccessPath: "/account/payments/pay_1",
