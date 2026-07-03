@@ -913,7 +913,7 @@ async function disconnectSourceListener(state: ProjectionWakeRelaySourceState): 
   } catch (error) {
     disconnectError = error;
   } finally {
-    client.release();
+    client.release(disconnectError ?? true);
     if (errorListener) {
       removePostgresListener(client, "error", errorListener);
     }

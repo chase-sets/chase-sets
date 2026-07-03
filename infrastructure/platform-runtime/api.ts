@@ -19,6 +19,7 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
+import { attachRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 export type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 
@@ -155,6 +156,7 @@ export function createApiHost(
     pools: ApiHostPools;
     hostPorts?: Readonly<Record<string, unknown>>;
     runtimeProfile?: ApiHostRuntimeProfile;
+    runtimeLifecycle?: RuntimeLifecycleRegistry;
   }>,
 ): ApiHostRuntime {
   const entries = getApiHostEntries(registry, hostName, options.runtimeProfile);
@@ -162,13 +164,18 @@ export function createApiHost(
     entries.map((entry) => {
       const pool = getContextPool(options.pools, hostName, entry.contextName);
       const notificationWaiterPool = options.pools.contextWaiters?.[entry.contextName] ?? pool;
+      const servicePool = attachRuntimeLifecycleRegistry(createProjectionAwarePool(pool), options.runtimeLifecycle);
+      const serviceNotificationWaiterPool = attachRuntimeLifecycleRegistry(
+        createProjectionAwarePool(notificationWaiterPool),
+        options.runtimeLifecycle,
+      );
 
       return [
         entry.contextName,
         entry.module.createServices(
-          createProjectionAwarePool(pool),
+          servicePool,
           getHostPortsForContext(entry.manifest as ApiContextManifest, options.hostPorts ?? {}) as never,
-          { notificationWaiterPool: createProjectionAwarePool(notificationWaiterPool) },
+          { notificationWaiterPool: serviceNotificationWaiterPool },
         ),
       ];
     }),
@@ -179,6 +186,10 @@ export function createApiHost(
     const notificationWaiterPool = options.pools.contextWaiters?.[entry.contextName] ?? pool;
     const contextServices = services[entry.contextName];
     const mountRole = getApiHostMountRole(entry.manifest as ApiContextManifest, hostName, options.runtimeProfile);
+    const mountedNotificationWaiterPool = attachRuntimeLifecycleRegistry(
+      notificationWaiterPool,
+      options.runtimeLifecycle,
+    );
 
     return {
       contextName: entry.contextName,
@@ -186,7 +197,7 @@ export function createApiHost(
       module: entry.module,
       services: contextServices,
       pool,
-      notificationWaiterPool,
+      notificationWaiterPool: mountedNotificationWaiterPool,
       projectionHandlerSets:
         mountRole === "source-only" ? [] : (entry.module.projectionHandlerSets?.(contextServices as never) ?? []),
     };

@@ -360,7 +360,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
           for (let runs = 0; runs < maxRunsPerClaim; runs += 1) {
             wakeRunContext.throwIfLeaseLost?.();
             await entry.runner.runOnce(wakeRunContext);
-            const status = await subscription.refreshStatus();
+            const status = subscription.getStatus();
             const position = BigInt(status.lastGlobalPosition);
             const progressed = position > checkpointPosition;
             checkpointPosition = position;

@@ -30,6 +30,7 @@
     "./projection-wake-scheduler": "./projection-wake-scheduler.ts",
     "./pwa": "./pwa.ts",
     "./runtime-profiles": "./runtime-profiles.ts",
+    "./runtime-lifecycle": "./runtime-lifecycle.ts",
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
     "./ucp": "./ucp.ts",
     "./seo": "./seo.ts",

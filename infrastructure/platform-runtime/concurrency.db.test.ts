@@ -117,6 +117,70 @@ describe("platform runtime Postgres concurrency guards", () => {
     expect(reclaimed?.claimOwnerId).toBe("worker_b");
   });
 
+  it("delays stale poison durable jobs, quarantines them at the cap, and lets younger jobs proceed", async () => {
+    const store = createPostgresDurableJobStore<JobPayload, JobProgress, JobResult>(pools.platform, durableJobTables, {
+      maxAttempts: 2,
+      retryBackoffBaseMs: 60_000,
+      retryBackoffMaxMs: 60_000,
+    });
+    await store.enqueue({
+      jobId: "job_poison",
+      jobKind: "import",
+      payload: { task: "poison" },
+      progress: { completed: 0 },
+    });
+    await store.enqueue({
+      jobId: "job_younger",
+      jobKind: "import",
+      payload: { task: "younger" },
+      progress: { completed: 0 },
+    });
+
+    const firstClaim = await store.claimNext({ claimOwnerId: "worker_a", claimTtlMs: 30_000 });
+    expect(firstClaim?.jobId).toBe("job_poison");
+    expect(firstClaim?.attemptCount).toBe(1);
+
+    await pools.platform.query(
+      `UPDATE ${durableJobTables.jobsTable}
+       SET claimed_until = now() - interval '1 second'
+       WHERE job_id = $1`,
+      ["job_poison"],
+    );
+
+    const youngerClaim = await store.claimNext({ claimOwnerId: "worker_b", claimTtlMs: 30_000 });
+    expect(youngerClaim?.jobId).toBe("job_younger");
+
+    const delayedPoison = await store.get("job_poison");
+    expect(delayedPoison?.status).toBe("running");
+    expect(delayedPoison?.claimOwnerId).toBe("worker_a");
+    expect(new Date(delayedPoison?.nextEligibleAt ?? 0).getTime()).toBeGreaterThan(Date.now());
+
+    await pools.platform.query(
+      `UPDATE ${durableJobTables.jobsTable}
+       SET claimed_until = now() - interval '1 second',
+           next_eligible_at = now() - interval '1 second',
+           attempt_count = 2
+       WHERE job_id = $1`,
+      ["job_poison"],
+    );
+    await store.complete({
+      jobId: "job_younger",
+      claimOwnerId: "worker_b",
+      progress: { completed: 1 },
+      result: { ok: true },
+    });
+
+    await expect(store.claimNext({ claimOwnerId: "worker_c", claimTtlMs: 30_000 })).resolves.toBeNull();
+    const quarantined = await store.get("job_poison");
+
+    expect(quarantined).toMatchObject({
+      status: "failed",
+      claimOwnerId: null,
+      errorMessage: "Durable job retry attempts exhausted.",
+    });
+    expect(quarantined?.completedAt).not.toBeNull();
+  });
+
   it("lets only one durable work-unit worker claim the same unit", async () => {
     const jobStore = createPostgresDurableJobStore<JobPayload, JobProgress, JobResult>(
       pools.platform,

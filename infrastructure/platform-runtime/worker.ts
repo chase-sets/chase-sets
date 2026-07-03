@@ -19,6 +19,7 @@ import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
+import { attachRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 import type { PostgresWorkSignalStore } from "./work-signal-store";
 import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
 
@@ -218,18 +219,21 @@ export function createWorkerHost(
     pools: WorkerHostPools;
     hostPorts?: Readonly<Record<string, unknown>>;
     runtimeProfile?: WorkerHostRuntimeProfile;
+    runtimeLifecycle?: RuntimeLifecycleRegistry;
   }>,
 ): WorkerHostRuntime {
   const entries = getWorkerHostEntries(registry, hostName, options.runtimeProfile);
   const services = Object.fromEntries(
     entries.map((entry) => {
       const pool = getContextPool(options.pools, hostName, entry.contextName);
+      const servicePool = attachRuntimeLifecycleRegistry(createProjectionAwarePool(pool), options.runtimeLifecycle);
 
       return [
         entry.contextName,
         entry.module.createServices(
-          createProjectionAwarePool(pool),
+          servicePool,
           getHostPortsForContext(entry.manifest, options.hostPorts ?? {}) as never,
+          { notificationWaiterPool: servicePool },
         ),
       ];
     }),

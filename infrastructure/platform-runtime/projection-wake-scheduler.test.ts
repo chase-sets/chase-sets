@@ -206,6 +206,7 @@ describe("projection wake scheduler", () => {
 
     expect(result).toMatchObject({ processed: 1 });
     expect(projection.runCount()).toBe(3);
+    expect(projection.subscriptionRefreshCount()).toBe(1);
     expect(controlPlane.acquiredLeaseNames).toHaveLength(1);
     expect(completed[0]).toMatchObject({ outcome: "ran", checkpointPosition: "105" });
   });
@@ -987,6 +988,7 @@ function checkoutProjection(
   let position = input.position;
   let runCount = 0;
   let resetCount = 0;
+  let subscriptionRefreshCount = 0;
 
   const subscriptionRunner: ContextSubscriptionRunner = {
     subscriptionName: "checkout.checkout-session-pages.checkout",
@@ -1017,7 +1019,10 @@ function checkoutProjection(
       };
     },
     getStatus: () => subscriptionStatus(position, input.blockedStreamCount ?? 0),
-    refreshStatus: async () => subscriptionStatus(position, input.blockedStreamCount ?? 0),
+    refreshStatus: async () => {
+      subscriptionRefreshCount += 1;
+      return subscriptionStatus(position, input.blockedStreamCount ?? 0);
+    },
     reset: async () => {
       resetCount += 1;
     },
@@ -1044,6 +1049,7 @@ function checkoutProjection(
     group,
     runCount: () => runCount,
     resetCount: () => resetCount,
+    subscriptionRefreshCount: () => subscriptionRefreshCount,
     setPosition: (next: bigint) => {
       position = next;
     },

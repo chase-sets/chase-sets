@@ -185,6 +185,7 @@ describe("work signal composite", () => {
     await waiter.stop();
     expect(client.queries).toContain("UNLISTEN platform_projection_operation_events");
     expect(client.isReleased()).toBe(true);
+    expect(client.releaseErrors()).toEqual([true]);
   });
 
   it("falls back to a bounded timeout when LISTEN is unavailable", async () => {
@@ -208,6 +209,7 @@ describe("work signal composite", () => {
     ).resolves.toBe("listener-unavailable");
     expect(unavailable[0]).toMatchObject({ channel: "platform_projection_operation_events" });
     expect(client.isReleased()).toBe(true);
+    expect(client.releaseErrors()[0]).toBeInstanceOf(Error);
   });
 
   it("circuit-breaks listener reconnect attempts during the retry cooldown", async () => {
@@ -295,18 +297,41 @@ describe("work signal composite", () => {
     await expect(wait).resolves.toBe("aborted");
     expect(client.hadErrorListenerDuringUnlisten()).toBe(true);
     expect(client.listenerCount("error")).toBe(0);
+    expect(client.releaseErrors()).toEqual([true]);
+  });
+
+  it("destroys the listener client when the listener emits an error", async () => {
+    const client = createNotificationClient();
+    const waiter = createPostgresWorkSignalWaiter(createPoolForClient(client), {
+      channel: "durable_job_events",
+    });
+
+    const wait = waiter.wait({ timeoutMs: 100, matches: () => true });
+
+    await vi.waitFor(() => {
+      expect(client.queries).toContain("LISTEN durable_job_events");
+    });
+
+    const error = new Error("connection terminated unexpectedly");
+    client.emit("error", error);
+
+    await expect(wait).resolves.toBe("timeout");
+    expect(client.isReleased()).toBe(true);
+    expect(client.releaseErrors()).toEqual([error]);
   });
 });
 
 function createNotificationClient(options: { failListen?: boolean; recordErrorListenerDuringUnlisten?: boolean } = {}) {
   const emitter = new EventEmitter();
   const queries: string[] = [];
+  const releaseErrors: unknown[] = [];
   let released = false;
   let hadErrorListenerDuringUnlisten = false;
 
   return Object.assign(emitter, {
     queries,
     isReleased: () => released,
+    releaseErrors: () => releaseErrors,
     hadErrorListenerDuringUnlisten: () => hadErrorListenerDuringUnlisten,
     query: async (sql: string) => {
       queries.push(sql);
@@ -318,13 +343,15 @@ function createNotificationClient(options: { failListen?: boolean; recordErrorLi
       }
       return { rows: [], rowCount: 0 };
     },
-    release: () => {
+    release: (error?: unknown) => {
+      releaseErrors.push(error);
       released = true;
     },
   }) as unknown as PgPoolClient &
     EventEmitter & {
       readonly queries: string[];
       isReleased: () => boolean;
+      releaseErrors: () => unknown[];
       hadErrorListenerDuringUnlisten: () => boolean;
     };
 }

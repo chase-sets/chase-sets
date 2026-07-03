@@ -47,8 +47,8 @@ describe("platform work-signal primitive guardrail", () => {
   it("keeps platform control-plane reads on the control pool when work signals split", () => {
     const platformApiMain = readFileSync(path.resolve("deployables/platform-api/src/main.ts"), "utf8");
 
-    expect(platformApiMain).toContain("createPostgresPlatformControlPlane(pools.control)");
-    expect(platformApiMain).not.toContain("createPostgresPlatformControlPlane(pools.workSignal)");
+    expect(platformApiMain).toMatch(/createPostgresPlatformControlPlane\s*\(\s*pools\.control\b/);
+    expect(platformApiMain).not.toMatch(/createPostgresPlatformControlPlane\s*\(\s*pools\.workSignal\b/);
   });
 
   it("requires direct notification and listener primitives to have a composite migration disposition", () => {

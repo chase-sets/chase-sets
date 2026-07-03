@@ -252,7 +252,7 @@ export function createPostgresWorkSignalWaiter(
   >();
   let clientPromise: Promise<PostgresNotificationClient> | null = null;
   let activeClient: PostgresNotificationClient | null = null;
-  let activeErrorListener: (() => void) | null = null;
+  let activeErrorListener: ((message?: unknown) => void) | null = null;
   let stopped = false;
 
   const removeListener = (
@@ -268,14 +268,18 @@ export function createPostgresWorkSignalWaiter(
     client.removeListener?.(event, listener);
   };
 
-  const resetClient = (client: PostgresNotificationClient, onError: () => void) => {
+  const resetClient = (
+    client: PostgresNotificationClient,
+    onError: (message?: unknown) => void,
+    releaseError: unknown = true,
+  ) => {
     removeListener(client, "notification", onNotification);
     clientPromise = null;
     if (activeClient === client) {
       activeClient = null;
       activeErrorListener = null;
     }
-    client.release();
+    client.release(releaseError);
     removeListener(client, "error", onError);
   };
 
@@ -331,7 +335,7 @@ export function createPostgresWorkSignalWaiter(
         throw error;
       }
 
-      const onError = () => resetClient(client, onError);
+      const onError = (error?: unknown) => resetClient(client, onError, error ?? true);
       activeClient = client;
       activeErrorListener = onError;
       client.on?.("error", onError);
@@ -342,7 +346,7 @@ export function createPostgresWorkSignalWaiter(
       } catch (error) {
         listenDisabledUntil = Date.now() + listenRetryCooldownMs;
         removeListener(client, "notification", onNotification);
-        resetClient(client, onError);
+        resetClient(client, onError, error);
         throw error;
       }
 
@@ -422,10 +426,13 @@ export function createPostgresWorkSignalWaiter(
 
       removeListener(client, "notification", onNotification);
       const errorListener = activeErrorListener;
+      let releaseError: unknown = true;
       try {
         await client.query(`UNLISTEN ${channel}`);
+      } catch (error) {
+        releaseError = error;
       } finally {
-        client.release();
+        client.release(releaseError);
         if (errorListener) {
           removeListener(client, "error", errorListener);
         }

@@ -7,6 +7,7 @@ import {
   emitPostgresWorkSignalNotification,
   type PostgresWorkSignalNotification,
 } from "./work-signal-composite";
+import type { RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
 const PROJECTION_OPERATION_NOTIFY_CHANNEL = "platform_projection_operation_events";
@@ -287,6 +288,7 @@ export type ProjectionWakeRelayCursorRecord = Readonly<{
 
 export type PlatformControlPlane = Readonly<{
   bootstrap: () => Promise<void>;
+  stop?: () => Promise<void>;
   acquireLease: (
     input: Readonly<{
       leaseName: string;
@@ -463,11 +465,22 @@ export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<vo
   await db.query(platformControlPlaneSchemaSql);
 }
 
-export function createPostgresPlatformControlPlane(db: PgTransactionalPool): PlatformControlPlane {
+export function createPostgresPlatformControlPlane(
+  db: PgTransactionalPool,
+  options: Readonly<{ lifecycle?: RuntimeLifecycleRegistry }> = {},
+): PlatformControlPlane {
   const projectionOperationWaiter = createProjectionOperationNotificationWaiter(db);
+  const unregisterProjectionOperationWaiter = options.lifecycle?.register({
+    name: "platform-control-plane.projection-operation-waiter",
+    stop: () => projectionOperationWaiter.stop(),
+  });
 
   return {
     bootstrap: () => bootstrapPlatformControlPlane(db),
+    stop: async () => {
+      unregisterProjectionOperationWaiter?.();
+      await projectionOperationWaiter.stop();
+    },
     acquireLease: async (input) => {
       const result = await db.query<LeaseRow>(
         `WITH claimable AS (
@@ -1332,6 +1345,7 @@ function createProjectionOperationNotificationWaiter(db: PgTransactionalPool) {
         matches: (notification) => projectionOperationNotificationMatches(notification, input.operationId),
       });
     },
+    stop: () => waiter.stop(),
   };
 }
 

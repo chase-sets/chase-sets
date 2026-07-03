@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+
+import { describe, expect, it, vi } from "vitest";
 import { bootstrapPlatformControlPlane, createPostgresPlatformControlPlane } from "./control-plane";
+import { createRuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 describe("platform control plane", () => {
   it("bootstraps additive coordination tables", async () => {
@@ -475,4 +478,54 @@ describe("platform control plane", () => {
     expect(calls[1].params).toEqual(["payments.reconciliation", 60_000]);
     expect(calls[2].sql).toContain("last_completed_at = now()");
   });
+
+  it("registers and stops the projection operation LISTEN waiter", async () => {
+    const lifecycle = createRuntimeLifecycleRegistry();
+    const client = createProjectionOperationNotificationClient();
+    const controlPlane = createPostgresPlatformControlPlane(
+      {
+        connect: async () => client,
+        query: async () => ({ rows: [], rowCount: 0 }),
+      },
+      { lifecycle },
+    );
+
+    const wait = controlPlane.waitForProjectionOperationEvents({
+      operationId: "projection-operation-1",
+      timeoutMs: 30_000,
+    });
+
+    await vi.waitFor(() => {
+      expect(client.queries).toContain("LISTEN platform_projection_operation_events");
+    });
+    expect(lifecycle.size()).toBe(1);
+
+    await lifecycle.stopAll();
+    await expect(wait).resolves.toBeUndefined();
+
+    expect(client.queries).toContain("UNLISTEN platform_projection_operation_events");
+    expect(client.isReleased()).toBe(true);
+    expect(client.releaseErrors()).toEqual([true]);
+  });
 });
+
+function createProjectionOperationNotificationClient() {
+  const emitter = new EventEmitter();
+  const queries: string[] = [];
+  const releaseErrors: unknown[] = [];
+  let released = false;
+
+  return Object.assign(emitter, {
+    queries,
+    isReleased: () => released,
+    releaseErrors: () => releaseErrors,
+    query: async (sql: string) => {
+      queries.push(sql);
+      return { rows: [], rowCount: 0 };
+    },
+    release: (error?: unknown) => {
+      releaseErrors.push(error);
+      released = true;
+    },
+  });
+}
