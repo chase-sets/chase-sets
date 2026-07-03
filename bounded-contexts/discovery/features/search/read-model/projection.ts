@@ -443,7 +443,7 @@ async function buildContentSearchText(db: PgQueryable, containedCatalogItemId: s
     [containedCatalogItemId],
   );
   const item = result.rows[0];
-  if (!item) {
+  if (!item || item.status !== "active") {
     return "";
   }
 
@@ -1224,7 +1224,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshDiscoverySearchItem(db, itemId);
+      await refreshDiscoverySearchItem(db, itemId, { refreshProductContentText: true });
     },
     "catalog.catalog-item.display-identity-resolved": async (event) => {
       await applyCatalogItemDisplayIdentity(
@@ -1346,7 +1346,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshDiscoverySearchItem(db, itemId);
+      await refreshDiscoverySearchItem(db, itemId, { refreshProductContentText: true });
     },
     "catalog.catalog-item.archived": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);

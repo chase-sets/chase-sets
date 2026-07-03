@@ -12,6 +12,7 @@ import {
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
 } from "@chase-sets/bounded-context-runtime";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -22,7 +23,10 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildDiscoveryApi } from "../../api";
-import { rebuildDiscoverySearchIndex } from "../../features/search/read-model/projection";
+import {
+  buildDiscoverySearchItemProjectionHandlers,
+  rebuildDiscoverySearchIndex,
+} from "../../features/search/read-model/projection";
 import { createDiscoveryServices } from "../../support/runtime-support/services";
 import { module as discoveryModule } from "../..";
 
@@ -983,6 +987,79 @@ describe("marketplace search", () => {
     expect(Number(result.rows[0].count)).toBe(1);
   });
 
+  it("does not expose draft catalog items through public status params or bulk preview", async () => {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
+       VALUES
+         ('cat_public_active', 'Public Active Item', 'active', now()),
+         ('cat_private_draft', 'Draft Leak Item', 'draft', now())`,
+    );
+
+    await rebuildDiscoverySearchIndex(pools.discovery);
+
+    const searchResponse = await app.request("/api/marketplace/items?status=draft&includeTotal=true");
+    expect(searchResponse.status).toBe(200);
+    const searchBody = await searchResponse.json();
+    expect(searchBody.total).toBe(1);
+    expect(searchBody.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+      "cat_public_active",
+    ]);
+    expect(searchBody.items.every((item: { status: string }) => item.status === "active")).toBe(true);
+
+    const archivedSearchResponse = await app.request("/api/marketplace/items?status=archived&includeTotal=true");
+    expect(archivedSearchResponse.status).toBe(200);
+    const archivedSearchBody = await archivedSearchResponse.json();
+    expect(archivedSearchBody.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+      "cat_public_active",
+    ]);
+
+    const bulkResponse = await app.request("/api/marketplace/items/bulk-cart-preview?status=draft&includeTotal=true");
+    expect(bulkResponse.status).toBe(200);
+    const bulkBody = await bulkResponse.json();
+    expect(bulkBody.lines.map((line: { catalog_item_id: string }) => line.catalog_item_id)).toEqual([
+      "cat_public_active",
+    ]);
+  });
+
+  it("does not match active containers by draft contained item text until the contained item is published", async () => {
+    const handlers = buildDiscoverySearchItemProjectionHandlers(pools.discovery);
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, language_code, title, status, updated_at)
+       VALUES
+         ('cat_public_container', 'en', 'Public Booster Box', 'active', now()),
+         ('cat_secret_contained', 'ja', 'Secret Contained Leak', 'draft', now())`,
+    );
+    await rebuildDiscoverySearchIndex(pools.discovery);
+
+    await handlers["catalog.product-contents.resolved"]?.(
+      productContentsResolvedEvent({
+        containerCatalogItemId: "cat_public_container",
+        containedCatalogItemId: "cat_secret_contained",
+      }),
+    );
+
+    const draftSearchResponse = await app.request(
+      `/api/marketplace/items?language=en&search=${encodeURIComponent("Secret Contained Leak")}&includeTotal=true`,
+    );
+    expect(draftSearchResponse.status).toBe(200);
+    const draftSearchBody = await draftSearchResponse.json();
+    expect(draftSearchBody.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).not.toContain(
+      "cat_public_container",
+    );
+    expect(draftSearchBody.total).toBe(0);
+
+    await handlers["catalog.catalog-item.published"]?.(catalogItemPublishedEvent("cat_secret_contained"));
+
+    const publishedSearchResponse = await app.request(
+      `/api/marketplace/items?language=en&search=${encodeURIComponent("Secret Contained Leak")}&includeTotal=true`,
+    );
+    expect(publishedSearchResponse.status).toBe(200);
+    const publishedSearchBody = await publishedSearchResponse.json();
+    expect(publishedSearchBody.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+      "cat_public_container",
+    ]);
+  });
+
   describe("Catalog alias facts in search (#1911)", () => {
     const aliasSeed = {
       categoryId: "cat_pokemon",
@@ -1258,3 +1335,62 @@ describe("marketplace search", () => {
     });
   });
 });
+
+function productContentsResolvedEvent(input: {
+  containerCatalogItemId: string;
+  containedCatalogItemId: string;
+}): TransportEvent {
+  return {
+    id: "evt_contents" as never,
+    type: "catalog.product-contents.resolved",
+    streamId: `catalog.product-contents-${input.containerCatalogItemId}` as never,
+    streamVersion: 1 as never,
+    globalPosition: 1 as never,
+    tenantId: "tnt_test" as never,
+    data: {
+      containerCatalogItemId: input.containerCatalogItemId,
+      containerProductId: null,
+      lines: [
+        {
+          lineId: "line_1",
+          containerCatalogItemId: input.containerCatalogItemId,
+          containerProductId: null,
+          containedCatalogItemId: input.containedCatalogItemId,
+          containedProductId: null,
+          contentTypeId: "pct_included_item",
+          contentTypeDiscoverySearchWeight: 0.5,
+          resolutionStatus: "resolved",
+        },
+      ],
+      resolvedFactHash: "hash",
+      resolverVersion: 1,
+      resolvedAt: "2026-07-02T00:00:00.000Z",
+    } as never,
+    metadata: {},
+    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+    trace: {},
+    timing: {
+      occurredAt: "2026-07-02T00:00:00.000Z" as never,
+      recordedAt: "2026-07-02T00:00:00.000Z" as never,
+    },
+  };
+}
+
+function catalogItemPublishedEvent(catalogItemId: string): TransportEvent {
+  return {
+    id: `evt_publish_${catalogItemId}` as never,
+    type: "catalog.catalog-item.published",
+    streamId: `catalog.item-${catalogItemId}` as never,
+    streamVersion: 2 as never,
+    globalPosition: 2 as never,
+    tenantId: "tnt_test" as never,
+    data: { blueprintId: null } as never,
+    metadata: {},
+    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+    trace: {},
+    timing: {
+      occurredAt: "2026-07-02T00:00:00.000Z" as never,
+      recordedAt: "2026-07-02T00:00:00.000Z" as never,
+    },
+  };
+}

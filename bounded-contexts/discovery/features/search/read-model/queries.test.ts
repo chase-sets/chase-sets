@@ -130,7 +130,9 @@ describe("searchDiscoveryItems cursor paging", () => {
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     expect(listCall?.sql).toContain("OR EXISTS");
     expect(listCall?.sql).toContain("FROM discovery_search_product_contents AS content");
-    expect(listCall?.sql).toContain("content.container_catalog_item_id = catalog_item_id");
+    expect(listCall?.sql).toContain("INNER JOIN discovery_search_catalog_items AS contained_item");
+    expect(listCall?.sql).toContain("contained_item.status = 'active'");
+    expect(listCall?.sql).toContain("content.container_catalog_item_id = discovery_search_items.catalog_item_id");
     expect(listCall?.sql).toContain("content.content_type_search_weight::real");
     expect(listCall?.sql).toContain("* 0.20");
     expect(listCall?.sql).toContain(
