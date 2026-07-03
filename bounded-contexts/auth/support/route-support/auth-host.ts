@@ -155,7 +155,7 @@ function shouldRetryWithoutFreshWrite(request: Request, error: unknown) {
 
 function createAuthRequestApiClientInternal(request: Request) {
   return createAuthApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/auth", { requireInternalApiOrigin: true }),
     fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "auth" }),
   });
 }
@@ -167,7 +167,9 @@ export async function resolveActorFromAuthContext(
     fetch?: typeof globalThis.fetch;
   }>,
 ) {
-  const authApiBaseUrl = resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth");
+  const authApiBaseUrl = resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth", {
+    requireInternalApiOrigin: true,
+  });
   try {
     return await resolveActorFromAuthApi({
       request: options.request,
@@ -198,7 +200,9 @@ export async function requireActorFromAuthContext(
     fetch?: typeof globalThis.fetch;
   }>,
 ) {
-  const authApiBaseUrl = resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth");
+  const authApiBaseUrl = resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth", {
+    requireInternalApiOrigin: true,
+  });
   try {
     return await requireActorFromAuthApi({
       request: options.request,

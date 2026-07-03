@@ -5,7 +5,8 @@ import {
   createTestEventStoreContext,
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { describe, expect, it, vi } from "vitest";
+import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
 import type { AuthApiEnv } from "./support";
@@ -178,6 +179,10 @@ useMockReset(
   mockIdentityMutations.linkSocialLogin,
 );
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("social login routes", () => {
   it("starts a provider redirect with a single-use state token", async () => {
     const services = createServices({ existingUser: null });
@@ -194,6 +199,7 @@ describe("social login routes", () => {
   });
 
   it("uses the forwarded HTTPS origin for provider callback redirects", async () => {
+    vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
     const services = createServices({ existingUser: null });
     const app = buildApp(services);
 
@@ -249,6 +255,7 @@ describe("social login routes", () => {
   });
 
   it("uses the forwarded HTTPS origin when exchanging provider callbacks", async () => {
+    vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
     const services = createServices({
       existingUser: { user_id: "usr_existing", status: "active" },
     });

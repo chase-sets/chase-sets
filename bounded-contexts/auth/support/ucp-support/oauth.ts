@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Hono, type Context } from "hono";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AuthServices } from "../runtime-support/services";
 
@@ -523,8 +524,5 @@ function pkceS256(verifier: string) {
 }
 
 function requestOrigin(request: Request) {
-  const url = new URL(request.url);
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  return `${forwardedProto || url.protocol.slice(0, -1)}://${forwardedHost || request.headers.get("host") || url.host}`;
+  return resolvePublicRequestOrigin(request);
 }

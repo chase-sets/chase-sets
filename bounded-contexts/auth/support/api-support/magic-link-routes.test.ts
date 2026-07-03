@@ -5,7 +5,8 @@ import {
   createTestEventStoreContext,
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { describe, expect, it, vi } from "vitest";
+import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../runtime-support/services";
 import { registerMagicLinkRoutes } from "./magic-link-routes";
 import type { AuthApiEnv } from "./support";
@@ -76,8 +77,13 @@ function createServices() {
 
 useMockReset();
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("magic link auth routes", () => {
   it("requests a magic link without returning the bearer token to the browser", async () => {
+    vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
     const services = createServices();
     const app = buildApp(services);
 

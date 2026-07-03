@@ -63,7 +63,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     callerType: "server-loader/action",
     sourceFile: "bounded-contexts/auth/support/request-support/api-client.ts",
     apiPath: "/api/auth",
-    sourceEvidence: ['resolveRequestApiBaseUrl(request, "/api/auth")'],
+    sourceEvidence: ['resolveRequestApiBaseUrl(request, "/api/auth",'],
     contract: "internal-origin server call",
     localProxyPrefix: "/api/auth",
     smokeCoverageId: "SMOKE-API-AUTH-ACCESS-SESSIONS",

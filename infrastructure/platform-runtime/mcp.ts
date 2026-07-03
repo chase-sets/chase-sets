@@ -24,6 +24,7 @@ import {
   type PlatformIdempotencyRecord,
   type PlatformIdempotencyStore,
 } from "./idempotency";
+import { resolveClientAddress } from "./http";
 
 export type McpRuntimeEnv = {
   Variables: {
@@ -525,6 +526,7 @@ function mcpToolLimitKind(tool: McpToolDescriptor, services: readonly McpService
 
 async function acquireMcpToolCallLease(
   limiter: McpToolCallLimiter | undefined,
+  request: Request,
   tool: McpToolDescriptor,
   actor: ResolvedActor | null,
   services: readonly McpServiceDescriptor[],
@@ -552,6 +554,7 @@ async function acquireMcpToolCallLease(
       limitKind,
       actorId: actor?.userId ?? null,
       accountId: actor?.accountId ?? null,
+      clientAddress: resolveClientAddress(request),
     });
 
     return result.allowed
@@ -739,7 +742,7 @@ async function callTool(
     });
   }
 
-  const limit = await acquireMcpToolCallLease(options.toolCallLimiter, tool, actor, options.services);
+  const limit = await acquireMcpToolCallLease(options.toolCallLimiter, request, tool, actor, options.services);
   if (!limit.allowed) {
     if (idempotency) {
       await options.idempotencyStore.abandon(idempotency);

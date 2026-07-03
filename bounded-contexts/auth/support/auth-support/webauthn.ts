@@ -4,6 +4,7 @@ import {
   type AuthenticationResponseJSON,
   type RegistrationResponseJSON,
 } from "@simplewebauthn/server";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 
 export type VerifiedPasskeyRegistration = Readonly<{
   externalCredentialId: string;
@@ -55,13 +56,7 @@ function base64UrlToBuffer(value: string) {
 }
 
 function resolvePublicOrigin(request: Request) {
-  const url = new URL(request.url);
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const host = forwardedHost || request.headers.get("host")?.trim() || url.host;
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const protocol = forwardedProto || url.protocol.slice(0, -1);
-
-  return `${protocol}://${host}`;
+  return resolvePublicRequestOrigin(request);
 }
 
 export function resolveWebAuthnRelyingParty(request: Request) {

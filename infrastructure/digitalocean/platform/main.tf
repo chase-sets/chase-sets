@@ -537,6 +537,12 @@ resource "digitalocean_app" "platform" {
         scope = "RUN_TIME"
       }
 
+      env {
+        key   = "CHASE_SETS_TRUST_FORWARDED_HEADERS"
+        value = "true"
+        scope = "RUN_TIME"
+      }
+
       health_check {
         http_path = "/"
       }
@@ -603,6 +609,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "CHASE_SETS_TRUST_FORWARDED_HEADERS"
+          value = "true"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
           value = local.context_database_urls["control"]
           type  = "SECRET"
@@ -661,6 +673,12 @@ resource "digitalocean_app" "platform" {
       env {
         key   = "CHASE_SETS_INTERNAL_API_ORIGIN"
         value = local.admin_web_internal_api_origin
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "CHASE_SETS_TRUST_FORWARDED_HEADERS"
+        value = "true"
         scope = "RUN_TIME"
       }
 
@@ -800,6 +818,12 @@ resource "digitalocean_app" "platform" {
       env {
         key   = "CHASE_SETS_INTERNAL_API_ORIGIN"
         value = "http://localhost:8080"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "CHASE_SETS_TRUST_FORWARDED_HEADERS"
+        value = "true"
         scope = "RUN_TIME"
       }
 

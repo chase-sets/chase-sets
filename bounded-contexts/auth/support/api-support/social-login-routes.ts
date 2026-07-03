@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { isSocialLoginProviderKey } from "@chase-sets/auth-context";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import {
   AUTH_SOCIAL_LOGIN_STATE_TTL_MS,
   createExpiryTimestamp,
@@ -101,24 +102,8 @@ function getSafeReturnToFromUrl(url: URL, journey: SocialLoginJourney) {
   return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : getDefaultSuccessPath(journey);
 }
 
-function firstForwardedValue(value: string | null) {
-  return value?.split(",")[0]?.trim().toLowerCase();
-}
-
-function isLocalHost(host: string) {
-  const hostname = (host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0])?.toLowerCase() ?? "";
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-}
-
 function buildPublicOrigin(request: Request) {
-  const requestUrl = new URL(request.url);
-  const forwardedProto = firstForwardedValue(request.headers.get("x-forwarded-proto"));
-  const forwardedHost = firstForwardedValue(request.headers.get("x-forwarded-host"));
-  const host = forwardedHost || request.headers.get("host") || requestUrl.host;
-  const protocol =
-    forwardedProto === "http" || forwardedProto === "https" ? forwardedProto : requestUrl.protocol.replace(/:$/, "");
-
-  return `${protocol === "http" && !isLocalHost(host) ? "https" : protocol}://${host}`;
+  return resolvePublicRequestOrigin(request);
 }
 
 function buildSocialRedirectUri(request: Request, providerName: string) {

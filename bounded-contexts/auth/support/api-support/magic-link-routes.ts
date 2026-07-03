@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { consumeMagicLinkToken, insertMagicLinkToken } from "../auth-support/store";
@@ -13,24 +14,8 @@ import {
   type AuthApiApp,
 } from "./support";
 
-function firstForwardedValue(value: string | null) {
-  return value?.split(",")[0]?.trim().toLowerCase();
-}
-
-function isLocalHost(host: string) {
-  const hostname = (host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0])?.toLowerCase() ?? "";
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-}
-
 function buildPublicOrigin(request: Request) {
-  const requestUrl = new URL(request.url);
-  const forwardedProto = firstForwardedValue(request.headers.get("x-forwarded-proto"));
-  const forwardedHost = firstForwardedValue(request.headers.get("x-forwarded-host"));
-  const host = forwardedHost || request.headers.get("host") || requestUrl.host;
-  const protocol =
-    forwardedProto === "http" || forwardedProto === "https" ? forwardedProto : requestUrl.protocol.replace(/:$/, "");
-
-  return `${protocol === "http" && !isLocalHost(host) ? "https" : protocol}://${host}`;
+  return resolvePublicRequestOrigin(request);
 }
 
 function safeLandingPath(value: unknown) {

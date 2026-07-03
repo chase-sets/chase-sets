@@ -30,6 +30,7 @@ import {
 } from "./ucp-contracts";
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
+import { resolveClientAddress, resolvePublicRequestOrigin } from "./http";
 
 export {
   buildUcpBusinessProfile,
@@ -341,44 +342,7 @@ CREATE INDEX IF NOT EXISTS platform_ucp_agent_profiles_expires_at_idx
 `;
 
 function requestOrigin(request: Request) {
-  const url = new URL(request.url);
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const host = forwardedHost || request.headers.get("host")?.trim() || url.host;
-
-  const protocol =
-    forwardedProto || (url.protocol === "http:" && isPublicHostname(host) ? "https" : url.protocol.slice(0, -1));
-
-  return `${protocol}://${host}`;
-}
-
-function isPublicHostname(host: string) {
-  const hostname = host.replace(/:\d+$/, "").toLowerCase();
-  if (
-    hostname === "localhost" ||
-    hostname === "0.0.0.0" ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]" ||
-    hostname === "::1" ||
-    hostname.endsWith(".localhost") ||
-    hostname.endsWith(".local")
-  ) {
-    return false;
-  }
-
-  if (/^10\./.test(hostname) || /^192\.168\./.test(hostname)) {
-    return false;
-  }
-
-  const private172Match = /^172\.(\d+)\./.exec(hostname);
-  if (private172Match) {
-    const secondOctet = Number.parseInt(private172Match[1], 10);
-    if (secondOctet >= 16 && secondOctet <= 31) {
-      return false;
-    }
-  }
-
-  return hostname.includes(".");
+  return resolvePublicRequestOrigin(request);
 }
 
 function jsonRpcResult(id: JsonRpcRequest["id"], result: unknown) {
@@ -1476,7 +1440,7 @@ async function acquireUcpMcpToolCallLease(
       limitKind,
       actorId: actor?.userId ?? null,
       accountId: actor?.accountId ?? null,
-      agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+      clientAddress: resolveClientAddress(c.req.raw),
     });
 
     if (result.allowed) {

@@ -10,6 +10,7 @@ export type McpToolCallLimitRequest = Readonly<{
   actorId?: string | null;
   accountId?: string | null;
   agentProfileUrl?: string | null;
+  clientAddress?: string | null;
 }>;
 
 export type McpToolCallLease = Readonly<{
@@ -112,6 +113,7 @@ function mcpToolCallConnectionKey(request: McpToolCallLimitRequest) {
         request.accountId ? `account:${request.accountId}` : "",
         request.actorId ? `actor:${request.actorId}` : "",
         request.agentProfileUrl ? `agent:${request.agentProfileUrl}` : "",
+        request.clientAddress ? `client:${request.clientAddress}` : "",
       ]
         .filter(Boolean)
         .join("|") || "anonymous",
