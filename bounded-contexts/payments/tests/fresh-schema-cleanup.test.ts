@@ -3,8 +3,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { paymentsOrderInputSchemaSql } from "../features/payments/integrations/order-input/order-input-schema";
-import { paymentsPaymentSchemaSql } from "../features/payments/read-model/schema";
+import {
+  paymentsOrderInputSchemaMigrations,
+  paymentsOrderInputSchemaSql,
+} from "../features/payments/integrations/order-input/order-input-schema";
+import { paymentsPaymentSchemaMigrations, paymentsPaymentSchemaSql } from "../features/payments/read-model/schema";
 import { paymentsSupportRefundEffectSchemaSql } from "../features/refunds/integrations/support/support-refund-effect-schema";
 
 const paymentsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,5 +43,16 @@ describe("fresh payments schemas", () => {
     expect(localization).not.toContain("ALTER TABLE payments_");
     expect(localization).not.toContain("FROM payments_payment_pages");
     expect(localization).not.toMatch(/payments\.features\.[^"]*(?:schema|queries|Schema)\./);
+  });
+
+  it("keeps additive migrations for stale checkout payment read-model tables", () => {
+    const migrationSql = [...paymentsOrderInputSchemaMigrations, ...paymentsPaymentSchemaMigrations]
+      .flatMap((migration) => migration.statements)
+      .join("\n");
+
+    expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS sales_tax_amount");
+    expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_amount");
+    expect(migrationSql).toContain("payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payouts");
+    expect(migrationSql).toContain("payments_payment_pages ADD COLUMN IF NOT EXISTS disputed_at");
   });
 });

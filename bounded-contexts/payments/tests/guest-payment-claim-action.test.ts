@@ -882,6 +882,34 @@ describe("guest payment claim action", () => {
     await expect(response?.text()).resolves.toBe("Payment not found.");
   });
 
+  it("returns permanent not-found recovery for stale signed-in payment links", async () => {
+    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    mockGetAccountPayment.mockRejectedValue(
+      new PaymentsApiError(404, {
+        error: { code: "not_found", message: "Payment not found." },
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await loader({
+        request: new Request("http://localhost/account/payments/pay_e2e_missing"),
+        params: { paymentId: "pay_e2e_missing" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
+      request: expect.any(Request),
+      permission: "orders.view",
+    });
+    expect(response?.status).toBe(404);
+    expect(response?.statusText).toBe("");
+    await expect(response?.text()).resolves.toBe("Payment not found.");
+  });
+
   it("returns permanent not-found recovery when a payment handoff is expired", async () => {
     const { PaymentsApiError } = await import("../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
