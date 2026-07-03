@@ -157,6 +157,8 @@ describe("createForwardedAuthHeaders", () => {
     expect(headers.get("authorization")).toBe("Bearer account-token");
     expect(headers.get("cookie")).toBe("session=sess_1");
     expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("marketplace");
+    expect(headers.get("x-forwarded-host")).toBe("marketplace.chasesets.test");
+    expect(headers.get("x-forwarded-proto")).toBe("https");
     expect(decodeFreshWriteReceipt(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER), observedAtMs)).toEqual({
       observedAtMs,
       sources: [
@@ -192,12 +194,16 @@ describe("createForwardedAuthHeaders", () => {
       {
         [CHASE_SETS_READ_AFTER_WRITE_HEADER]: explicitReceipt,
         [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "checkout",
+        "x-forwarded-host": "api.chasesets.test",
+        "x-forwarded-proto": "https",
       },
       { readTargetContextName: "marketplace" },
     );
 
     expect(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBe(explicitReceipt);
     expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("checkout");
+    expect(headers.get("x-forwarded-host")).toBe("api.chasesets.test");
+    expect(headers.get("x-forwarded-proto")).toBe("https");
   });
 
   it("resolves compact post-write tokens before forwarding freshness headers", async () => {

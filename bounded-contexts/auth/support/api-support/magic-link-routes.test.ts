@@ -81,10 +81,18 @@ describe("magic link auth routes", () => {
     const services = createServices();
     const app = buildApp(services);
 
-    const response = await app.request("/magic-link/request", {
+    const response = await app.request("http://internal-app/magic-link/request", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: " Todd.Skelton@ChaseSets.com " }),
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-host": "marketplace.chasesets.com",
+        "x-forwarded-proto": "https",
+      },
+      body: JSON.stringify({
+        email: " Todd.Skelton@ChaseSets.com ",
+        landingPath: "/sign-in/magic",
+        returnTo: "/account/listings",
+      }),
     });
 
     expect(response.status).toBe(200);
@@ -112,6 +120,19 @@ describe("magic link auth routes", () => {
               token: expect.anything(),
               deliveryToken: expect.anything(),
               tokenHash: expect.anything(),
+            }),
+          }),
+        ],
+      }),
+    );
+    expect(services.eventStore.appendToStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        events: [
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              origin: "https://marketplace.chasesets.com",
+              landingPath: "/sign-in/magic",
+              returnTo: "/account/listings",
             }),
           }),
         ],

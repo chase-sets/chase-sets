@@ -130,6 +130,8 @@ describe("auth api client authentication methods", () => {
       body: { displayName: "Jane Smith", email: "jane@example.com" },
       headers: {
         "content-type": "application/json",
+        "x-forwarded-host": "app.test",
+        "x-forwarded-proto": "https",
       },
     });
     expect(calls[0].headers).not.toHaveProperty(PLATFORM_INTERNAL_AUTH_HEADER);
@@ -150,6 +152,8 @@ describe("auth api client authentication methods", () => {
       headers: {
         "content-type": "application/json",
         [PLATFORM_INTERNAL_AUTH_HEADER]: "server-secret",
+        "x-forwarded-host": "app.test",
+        "x-forwarded-proto": "https",
       },
     });
   });

@@ -54,6 +54,19 @@ describe("auth host", () => {
     });
   }
 
+  function createMagicLinkRequest(returnTo = "/account/sell-list") {
+    return new Request(`https://marketplace.test/sign-in?returnTo=${encodeURIComponent(returnTo)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        intent: "magic-link-request",
+        email: "seller@example.test",
+      }),
+    });
+  }
+
   function createPasswordRegistrationRequest(returnTo = "") {
     return new Request(`https://marketplace.test/register${returnTo}`, {
       method: "POST",
@@ -186,6 +199,51 @@ describe("auth host", () => {
     expect((response as Response).headers.get("X-Remix-Reload-Document")).toBe("true");
     expect((response as Response).headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("requests magic links with the host landing path and safe return path", async () => {
+    let requestBody: unknown;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return Response.json({
+        tokenId: "cmd_magic",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await host.createSignInAction()(createActionArgs(createMagicLinkRequest()));
+
+    expect(result).toMatchObject({
+      status: "magic-link-sent",
+      tokenId: "cmd_magic",
+      email: "seller@example.test",
+    });
+    expect(requestBody).toEqual({
+      email: "seller@example.test",
+      landingPath: "/sign-in/magic",
+      returnTo: "/account/sell-list",
+    });
+  });
+
+  it("uses the host success path when a magic-link request return path is unsafe", async () => {
+    let requestBody: unknown;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return Response.json({
+        tokenId: "cmd_magic",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await host.createSignInAction()(createActionArgs(createMagicLinkRequest("//evil.test")));
+
+    expect(requestBody).toEqual({
+      email: "seller@example.test",
+      landingPath: "/sign-in/magic",
+      returnTo: "/account",
+    });
   });
 
   it("keeps repeated internal auth connection failures on the sign-in form", async () => {
