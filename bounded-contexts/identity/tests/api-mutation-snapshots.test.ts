@@ -60,6 +60,7 @@ function createServices(
                 user_id: actor.userId,
                 key_prefix: "key_secret_1",
                 secret_hash: "hashed:key_secret_1_value",
+                status: "active",
               },
             ],
           };
@@ -744,7 +745,8 @@ describe("Identity API mutation snapshots", () => {
   });
 
   it("returns API-key secrets, lookup results, and revocation receipts from the committed command response", async () => {
-    const app = buildApp(createServices());
+    const services = createServices();
+    const app = buildApp(services);
 
     const created = await requestJson(app, "/api-keys", {
       method: "POST",
@@ -808,6 +810,95 @@ describe("Identity API mutation snapshots", () => {
       version: 51,
       status: "revoked",
     });
+    expect(services.db.query).toHaveBeenCalledWith(expect.stringContaining("DELETE FROM identity_api_key_secrets"), [
+      "key_existing",
+    ]);
+  });
+
+  it("rejects a revoked API-key secret after revocation invalidates the stored secret", async () => {
+    let secretPresent = true;
+    let apiKeyStatus: "active" | "revoked" = "active";
+    const services = createServices();
+    vi.mocked(services.db.query).mockImplementation(async (sql: string, params: readonly unknown[] = []) => {
+      if (sql.includes("DELETE FROM identity_api_key_secrets")) {
+        secretPresent = false;
+        return { rows: [] };
+      }
+      if (sql.includes("FROM identity_api_key_secrets")) {
+        return {
+          rows:
+            secretPresent && params[0] === "key_secret_1"
+              ? [
+                  {
+                    api_key_id: "key_existing",
+                    user_id: actor.userId,
+                    key_prefix: "key_secret_1",
+                    secret_hash: "hashed:key_secret_1_value",
+                    status: apiKeyStatus,
+                  },
+                ]
+              : [],
+        };
+      }
+      return { rows: [] };
+    });
+    const apiKeyState = (status: "active" | "revoked") => ({
+      id: "key_existing" as never,
+      userId: actor.userId as never,
+      name: "Automation",
+      keyPrefix: "key_secret_1",
+      status,
+      lastUsedAt: null,
+    });
+    const apiKeyCommandResult = (version: number, status: "active" | "revoked") => ({
+      version,
+      state: apiKeyState(status),
+      newEvents: [],
+      storedEvents: [],
+    });
+    vi.mocked(services.apiKeys.commandHandler).mockImplementation(async (input) => {
+      if (input.command.type === "RevokeApiKey") {
+        apiKeyStatus = "revoked";
+        return apiKeyCommandResult(52, "revoked");
+      }
+      return apiKeyCommandResult(51, apiKeyStatus);
+    });
+    const app = buildApp(services);
+
+    const resolved = await requestJson(app, "/api-keys/resolve", {
+      method: "POST",
+      body: JSON.stringify({ secret: "key_secret_1_value" }),
+    });
+    expect(resolved.response.status).toBe(200);
+
+    const revoked = await requestJson(app, "/api-keys/key_existing/revoke", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(revoked.response.status).toBe(200);
+
+    const rejected = await requestJson(app, "/api-keys/resolve", {
+      method: "POST",
+      body: JSON.stringify({ secret: "key_secret_1_value" }),
+    });
+    expect(rejected.response.status).toBe(401);
+    expect(rejected.body).toMatchObject({ error: { code: "authentication_required" } });
+  });
+
+  it("rejects a stale API-key secret row when the aggregate is already revoked", async () => {
+    const services = createServices();
+    vi.mocked(services.apiKeys.commandHandler).mockRejectedValue(
+      new IdentityDomainError("Only active API keys can change."),
+    );
+    const app = buildApp(services);
+
+    const rejected = await requestJson(app, "/api-keys/resolve", {
+      method: "POST",
+      body: JSON.stringify({ secret: "key_secret_1_value" }),
+    });
+
+    expect(rejected.response.status).toBe(401);
+    expect(rejected.body).toMatchObject({ error: { code: "authentication_required" } });
   });
 
   it("keeps API-key create and rotate behind owner or platform-admin access", async () => {

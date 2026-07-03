@@ -43,3 +43,7 @@ export async function getApiKeySecretByPrefix(db: PgQueryable, keyPrefix: string
 
   return result.rows[0] ?? null;
 }
+
+export async function deleteApiKeySecret(db: PgQueryable, apiKeyId: string) {
+  await db.query(`DELETE FROM identity_api_key_secrets WHERE api_key_id = $1`, [apiKeyId]);
+}
