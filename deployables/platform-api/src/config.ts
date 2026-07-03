@@ -43,7 +43,10 @@ import {
   PLATFORM_INTERNAL_AUTH_SECRET_ENV,
   resolvePlatformInternalAuthSecret,
 } from "@chase-sets/platform-runtime/http";
-import type { UcpBusinessSigningKeySet } from "@chase-sets/platform-runtime/ucp";
+import {
+  DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS,
+  type UcpBusinessSigningKeySet,
+} from "@chase-sets/platform-runtime/ucp";
 import type {
   ReadConsistencyExactDependencyMode,
   ReadConsistencyRouteTuning,
@@ -254,6 +257,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     stripeGoLive: StripeGoLiveCheckReport;
     ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
+    ucpSignatureCreatedFreshnessWindowMs: number;
   }>;
 
 export type PlatformApiMobileMessagingConfig =
@@ -573,6 +577,10 @@ export function loadConfig(): PlatformApiConfig {
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
   const twilioRequireWebhookSignature = getBooleanEnv("TWILIO_WEBHOOK_SIGNATURE_REQUIRED", true);
   const ucpBusinessSigningKeys = loadUcpBusinessSigningKeys(productionLike);
+  const ucpSignatureCreatedFreshnessWindowMs = getRequiredPositiveNumberEnv(
+    "UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS",
+    DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS,
+  );
 
   if (
     providerRequired &&
@@ -677,6 +685,7 @@ export function loadConfig(): PlatformApiConfig {
     socialLogin,
     adminGoogleWorkspaceSso,
     ucpBusinessSigningKeys,
+    ucpSignatureCreatedFreshnessWindowMs,
     paymentProcessor: stripeProvider.paymentProcessor,
   };
 }

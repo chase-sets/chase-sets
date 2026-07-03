@@ -35,13 +35,37 @@ function signedHeadersWithKey(
   body: string,
   privateKey: KeyObject,
   extra: Readonly<Record<string, string>> = {},
+  options: Readonly<{
+    createdSeconds?: number;
+    omitCoveredComponents?: readonly string[];
+  }> = {},
 ) {
   const contentDigest = `sha-256=:${createHash("sha256").update(body).digest("base64")}:`;
-  const signatureParams = '("@method" "@path" "content-digest");keyid="platform-2026"';
+  const url = new URL(path, "https://marketplace.example");
+  const coveredComponents = ["@method", "@path", ...(url.search ? ["@query"] : []), "content-digest"];
+  if (Object.keys(extra).some((key) => key.toLowerCase() === "idempotency-key")) {
+    coveredComponents.push("idempotency-key");
+  }
+  const omitted = new Set(options.omitCoveredComponents ?? []);
+  const components = coveredComponents.filter((component) => !omitted.has(component));
+  const createdSeconds = options.createdSeconds ?? Math.floor(Date.now() / 1000);
+  const componentParams = components.map((component) => `"${component}"`).join(" ");
+  const signatureParams = `(${componentParams});created=${createdSeconds};keyid="platform-2026"`;
   const signatureBase = [
-    `"@method": ${method.toUpperCase()}`,
-    `"@path": ${path}`,
-    `"content-digest": ${contentDigest}`,
+    ...components.map((component) => {
+      switch (component) {
+        case "@method":
+          return `"@method": ${method.toUpperCase()}`;
+        case "@path":
+          return `"@path": ${url.pathname}`;
+        case "@query":
+          return `"@query": ${url.search}`;
+        case "content-digest":
+          return `"content-digest": ${contentDigest}`;
+        default:
+          return `"${component}": ${extra[Object.keys(extra).find((key) => key.toLowerCase() === component) ?? component]}`;
+      }
+    }),
     `"@signature-params": ${signatureParams}`,
   ].join("\n");
   const signature = createSign("sha256").update(signatureBase).end().sign(privateKey).toString("base64");
@@ -442,6 +466,137 @@ describe("UCP REST routes", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     await expect(response.json()).resolves.toMatchObject({
       checkout: { id: "chk_signed" },
+    });
+  });
+
+  it("rejects signed writes when created is stale", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+    });
+    const publicJwk = publicKey.export({ format: "jwk" });
+    const handler = vi.fn(async () => ({
+      ucp: { version: UCP_VERSION, status: "ok" as const },
+      checkout: { id: "chk_signed" },
+    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+        signatureVerification: {
+          keyResolver: vi.fn(async () => publicJwk),
+          now: () => new Date("2026-05-16T12:10:00.000Z"),
+          createdFreshnessWindowMs: 5 * 60 * 1000,
+        },
+      }),
+    );
+    const body = JSON.stringify({ source: { type: "cart" } });
+
+    const response = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers: signedHeadersWithKey(
+        "POST",
+        "/ucp/v1/checkout-sessions",
+        body,
+        privateKey,
+        {
+          "Idempotency-Key": "idem_stale",
+        },
+        {
+          createdSeconds: Math.floor(new Date("2026-05-16T12:00:00.000Z").getTime() / 1000),
+        },
+      ),
+    });
+
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      messages: [{ message: "Signature-Input created timestamp is outside the allowed freshness window." }],
+    });
+  });
+
+  it("rejects signed writes when the idempotency key is not covered", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+    });
+    const publicJwk = publicKey.export({ format: "jwk" });
+    const handler = vi.fn(async () => ({
+      ucp: { version: UCP_VERSION, status: "ok" as const },
+      checkout: { id: "chk_signed" },
+    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+        signatureVerification: {
+          keyResolver: vi.fn(async () => publicJwk),
+        },
+      }),
+    );
+    const body = JSON.stringify({ source: { type: "cart" } });
+
+    const response = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers: signedHeadersWithKey(
+        "POST",
+        "/ucp/v1/checkout-sessions",
+        body,
+        privateKey,
+        {
+          "Idempotency-Key": "idem_unsigned",
+        },
+        {
+          omitCoveredComponents: ["idempotency-key"],
+        },
+      ),
+    });
+
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      messages: [{ message: "Signature-Input must cover idempotency-key for signed UCP writes." }],
+    });
+  });
+
+  it("verifies RFC path and query components independently", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+    });
+    const publicJwk = publicKey.export({ format: "jwk" });
+    const handler = vi.fn(async () => ({
+      ucp: { version: UCP_VERSION, status: "ok" as const },
+      checkout: { id: "chk_query" },
+    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+        signatureVerification: {
+          keyResolver: vi.fn(async () => publicJwk),
+        },
+      }),
+    );
+    const body = JSON.stringify({ source: { type: "cart" } });
+
+    const response = await app.request("/ucp/v1/checkout-sessions?source=agent", {
+      method: "POST",
+      body,
+      headers: signedHeadersWithKey("POST", "/ucp/v1/checkout-sessions?source=agent", body, privateKey, {
+        "Idempotency-Key": "idem_query",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+    await expect(response.json()).resolves.toMatchObject({
+      checkout: { id: "chk_query" },
     });
   });
 

@@ -537,6 +537,7 @@ const app = buildPlatformApiApp(runtime, {
     }),
     signatureVerification: {
       keyResolver: createUcpProfileKeyResolver({ db: pools.control }),
+      createdFreshnessWindowMs: config.ucpSignatureCreatedFreshnessWindowMs,
     },
     observer: ucpObserver,
     mcpToolCallLimiter,

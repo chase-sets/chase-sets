@@ -108,6 +108,8 @@ export type UcpSignatureKeyResolver = (
 
 export type UcpSignatureVerificationOptions = Readonly<{
   keyResolver: UcpSignatureKeyResolver;
+  createdFreshnessWindowMs?: number;
+  now?: () => Date;
 }>;
 
 export type UcpProfileCacheOptions = Readonly<{
@@ -185,6 +187,7 @@ const JSON_RPC_VERSION = "2.0";
 
 const SIGNED_WRITE_HEADERS = ["Signature-Input", "Signature", "Content-Digest", "UCP-Agent"] as const;
 
+export const DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_PROFILE_CACHE_TTL_MS = 15 * 60 * 1000;
 const UCP_MCP_MARKETPLACE_RESULTS_HTML = `<!doctype html>
 <html lang="en">
@@ -626,6 +629,7 @@ function parseSignatureInput(request: Request) {
 
   const params = match[3] ?? "";
   const keyId = /(?:^|;)keyid="([^"]+)"/.exec(params)?.[1] ?? null;
+  const createdText = /(?:^|;)created=([^;]+)/.exec(params)?.[1] ?? null;
   const components = [...match[2].matchAll(/"([^"]+)"/g)].map((entry) => entry[1].toLowerCase());
 
   return {
@@ -633,6 +637,7 @@ function parseSignatureInput(request: Request) {
     components,
     params: `(${match[2]})${params}`,
     keyId,
+    createdSeconds: createdText && /^[0-9]+$/.test(createdText) ? Number(createdText) : null,
   };
 }
 
@@ -649,7 +654,9 @@ function signatureComponentValue(request: Request, component: string) {
     case "@method":
       return request.method.toUpperCase();
     case "@path":
-      return `${url.pathname}${url.search}`;
+      return url.pathname;
+    case "@query":
+      return url.search;
     case "@authority":
       return request.headers.get("host") ?? url.host;
     default:
@@ -668,6 +675,40 @@ function signatureBase(request: Request, components: readonly string[], params: 
   });
 
   return [...lines, `"@signature-params": ${params}`].join("\n");
+}
+
+function validateSignatureInputCoverage(
+  request: Request,
+  input: NonNullable<ReturnType<typeof parseSignatureInput>>,
+  options: UcpSignatureVerificationOptions,
+) {
+  const coveredComponents = new Set(input.components);
+  const requiredComponents = ["@method", "@path", "content-digest"];
+  if (idempotencyKey(request)) {
+    requiredComponents.push("idempotency-key");
+  }
+
+  const missingComponents = requiredComponents.filter((component) => !coveredComponents.has(component));
+  if (missingComponents.length > 0) {
+    return `Signature-Input must cover ${missingComponents.join(", ")} for signed UCP writes.`;
+  }
+
+  const createdSeconds = input.createdSeconds;
+  if (typeof createdSeconds !== "number" || !Number.isSafeInteger(createdSeconds)) {
+    return "Signature-Input must include a valid created timestamp.";
+  }
+
+  const windowMs = options.createdFreshnessWindowMs ?? DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS;
+  const nowMs = (options.now?.() ?? new Date()).getTime();
+  const createdMs = createdSeconds * 1000;
+  if (createdMs < nowMs - windowMs) {
+    return "Signature-Input created timestamp is outside the allowed freshness window.";
+  }
+  if (createdMs > nowMs + windowMs) {
+    return "Signature-Input created timestamp is too far in the future.";
+  }
+
+  return null;
 }
 
 function publicKeyAlgorithm(jwk: JsonWebKey) {
@@ -824,6 +865,11 @@ async function verifyHttpMessageSignature(request: Request, options: UcpSignatur
   const input = parseSignatureInput(request);
   if (!input?.keyId) {
     return "Signature-Input must include keyid.";
+  }
+
+  const coverageFailure = validateSignatureInputCoverage(request, input, options);
+  if (coverageFailure) {
+    return coverageFailure;
   }
 
   const signature = parseSignature(request, input.label);
