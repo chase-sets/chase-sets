@@ -423,6 +423,27 @@ describe("commercial terms resolver", () => {
     expect(result.sellerNetUnitAmount).toBe("0.01");
   });
 
+  it("does not overcharge exact-cent low-value marketplace sales fees", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        schedule: {
+          schedule_id: "cts_low_value",
+          marketplace_sales_fee_percentage_bps: 1000,
+          marketplace_sales_fee_fixed_amount: "0.00",
+        },
+      }),
+    });
+
+    const result = await resolver.resolveListingTerms({
+      accountId: "acc_test",
+      amount: "0.10",
+      effectiveAt: "2026-04-16T10:00:00.000Z",
+    });
+
+    expect(result.marketplaceSalesFeeUnitAmount).toBe("0.01");
+    expect(result.sellerNetUnitAmount).toBe("0.09");
+  });
+
   it("resolves public standard listing terms from the personal default schedule without an account", async () => {
     const queries: string[] = [];
     const resolver = createCommercialTermsResolver({

@@ -2,6 +2,12 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import {
+  allocateMoneyByLargestRemainder,
+  centsToMoneyAmount,
+  moneyToCents,
+  roundRational,
+} from "@chase-sets/primitives/money";
 import type { WalletServices } from "../../api/runtime";
 import { compareMoney, normalizeCurrencyCode, SettlementDomainError } from "../../../../support/runtime-support/common";
 
@@ -164,15 +170,29 @@ async function creditSellerPayouts(
   }
 }
 
-function allocateRefundDebitAmount(refundAmount: string, paymentAmount: string, sellerPayoutAmount: string) {
-  const refund = Number.parseFloat(refundAmount);
-  const payment = Number.parseFloat(paymentAmount);
-  const sellerPayout = Number.parseFloat(sellerPayoutAmount);
-  if (!Number.isFinite(refund) || !Number.isFinite(payment) || !Number.isFinite(sellerPayout) || payment <= 0) {
-    return "0.00";
+function allocateRefundDebitAmounts(
+  debitAmount: string,
+  paymentAmount: string,
+  sellerPayouts: readonly SellerPayoutComponent[],
+) {
+  const debitCents = moneyToCents(debitAmount);
+  const paymentCents = moneyToCents(paymentAmount);
+  if (debitCents === 0n || paymentCents === 0n || sellerPayouts.length === 0) {
+    return sellerPayouts.map(() => "0.00");
   }
 
-  return Math.min(sellerPayout, (sellerPayout * refund) / payment).toFixed(2);
+  const weights = sellerPayouts.map((payout) => moneyToCents(payout.sellerPayoutAmount));
+  const sellerExposureCents = weights.reduce((sum, weight) => sum + weight, 0n);
+  if (sellerExposureCents === 0n) {
+    return sellerPayouts.map(() => "0.00");
+  }
+
+  const proratedDebitCents = roundRational(sellerExposureCents * debitCents, paymentCents, "nearest");
+  const cappedDebitCents = [proratedDebitCents, sellerExposureCents, debitCents].reduce((minimum, value) =>
+    value < minimum ? value : minimum,
+  );
+
+  return allocateMoneyByLargestRemainder(centsToMoneyAmount(cappedDebitCents), weights);
 }
 
 async function debitSellerRefunds(
@@ -197,8 +217,10 @@ async function debitSellerRefunds(
     trace: event.trace,
   };
 
-  for (const payout of data.sellerPayouts) {
-    const debitAmount = allocateRefundDebitAmount(data.refundAmount, data.paymentAmount, payout.sellerPayoutAmount);
+  const debitAmounts = allocateRefundDebitAmounts(data.refundAmount, data.paymentAmount, data.sellerPayouts);
+
+  for (const [index, payout] of data.sellerPayouts.entries()) {
+    const debitAmount = debitAmounts[index] ?? "0.00";
     if (compareMoney(debitAmount, "0.00") <= 0) {
       continue;
     }
@@ -254,8 +276,10 @@ async function postSellerDisputeLedgerEntries(
   };
   const releaseHold = shouldReleaseDisputeHold(data.disputeStatus, data.disputeMessage);
 
-  for (const payout of data.sellerPayouts) {
-    const holdAmount = allocateRefundDebitAmount(data.disputeAmount, data.paymentAmount, payout.sellerPayoutAmount);
+  const holdAmounts = allocateRefundDebitAmounts(data.disputeAmount, data.paymentAmount, data.sellerPayouts);
+
+  for (const [index, payout] of data.sellerPayouts.entries()) {
+    const holdAmount = holdAmounts[index] ?? "0.00";
     if (compareMoney(holdAmount, "0.00") <= 0) {
       continue;
     }

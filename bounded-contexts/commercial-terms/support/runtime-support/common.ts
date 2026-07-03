@@ -1,3 +1,14 @@
+import {
+  addMoneyAmounts,
+  applyBasisPointsToMoneyAmount,
+  centsToMoneyAmount,
+  moneyToCents,
+  normalizeMoneyAmount as normalizePrimitiveMoneyAmount,
+  roundRational,
+  subtractMoneyAmounts as subtractPrimitiveMoneyAmounts,
+  tryMoneyToCents,
+} from "@chase-sets/primitives/money";
+
 export type CommercialAccountType = "personal" | "business" | "enterprise";
 export type CommercialTermsStatus = "active" | "inactive";
 export const DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS = 500;
@@ -59,15 +70,15 @@ export function normalizeMoneyAmount(
   },
 ) {
   const normalized = value.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${options.fieldName} must be a valid decimal.`);
-  const numericValue = Number.parseFloat(normalized);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, `${options.fieldName} must be a valid decimal.`);
   assert(
-    options.allowZero ? numericValue >= 0 : numericValue > 0,
+    options.allowZero ? cents >= 0n : cents > 0n,
     options.allowZero
       ? `${options.fieldName} must be zero or greater.`
       : `${options.fieldName} must be greater than zero.`,
   );
-  return numericValue.toFixed(2);
+  return centsToMoneyAmount(cents);
 }
 
 export function normalizePercentageBps(value: number, fieldName: string) {
@@ -91,7 +102,8 @@ export function normalizeCommercialTermsStatus(value: string): CommercialTermsSt
 }
 
 export function numberToMoneyAmount(value: number) {
-  return value.toFixed(2);
+  assert(Number.isFinite(value), "Money amount must be finite.");
+  return centsToMoneyAmount(numberToCents(value, "nearest"));
 }
 
 export function numberToMoneyAmountRoundUp(value: number) {
@@ -99,24 +111,28 @@ export function numberToMoneyAmountRoundUp(value: number) {
     return "0.00";
   }
 
-  return (Math.ceil(value * 100) / 100).toFixed(2);
+  assert(Number.isFinite(value), "Money amount must be finite.");
+  return centsToMoneyAmount(numberToCents(value, "ceil"));
 }
 
 export function moneyToNumber(value: string) {
-  return Number.parseFloat(
-    normalizeMoneyAmount(value, {
-      fieldName: "Money amount",
-      allowZero: true,
-    }),
-  );
+  return Number(moneyToCents(normalizeMoneyAmount(value, { fieldName: "Money amount", allowZero: true }))) / 100;
 }
 
 export function applyFeeFormula(baseAmount: string, formula: FeeFormula) {
-  const base = moneyToNumber(baseAmount);
-  const fixedAmount = moneyToNumber(formula.fixedAmount);
-  return numberToMoneyAmountRoundUp(base * (formula.percentageBps / 10_000) + fixedAmount);
+  return addMoneyAmounts(
+    applyBasisPointsToMoneyAmount(baseAmount, formula.percentageBps, "ceil"),
+    normalizePrimitiveMoneyAmount(formula.fixedAmount),
+  );
 }
 
 export function subtractMoneyAmounts(left: string, right: string) {
-  return numberToMoneyAmount(moneyToNumber(left) - moneyToNumber(right));
+  return subtractPrimitiveMoneyAmounts(left, right);
+}
+
+function numberToCents(value: number, roundingMode: "ceil" | "floor" | "nearest") {
+  assert(value >= 0, "Money amount cannot be negative.");
+  const [wholePart = "0", fractionalPart = ""] = value.toFixed(6).split(".");
+  const scaledDollars = BigInt(wholePart) * 1_000_000n + BigInt(fractionalPart.padEnd(6, "0"));
+  return roundRational(scaledDollars, 10_000n, roundingMode);
 }

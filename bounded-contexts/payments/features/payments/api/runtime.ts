@@ -10,6 +10,7 @@ import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-se
 import { hasProcessedProviderWebhookEvent, recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import { sumMoneyAmounts } from "@chase-sets/primitives/money";
 import {
   assert,
   compareMoney,
@@ -161,18 +162,13 @@ function resolvePaymentReturnPath(value: string | null | undefined, paymentId: P
 }
 
 function sumOrderAmounts(orders: readonly Readonly<{ total_amount: string }>[]) {
-  return orders
-    .reduce(
-      (sum, order) =>
-        sum +
-        Number.parseFloat(
-          normalizeMoneyAmount(order.total_amount, {
-            fieldName: "Order total",
-          }),
-        ),
-      0,
-    )
-    .toFixed(2);
+  return sumMoneyAmounts(
+    orders.map((order) =>
+      normalizeMoneyAmount(order.total_amount, {
+        fieldName: "Order total",
+      }),
+    ),
+  );
 }
 
 function sumFeeAmounts(
@@ -188,19 +184,14 @@ function sumFeeAmounts(
     | "seller_net_amount"
     | "seller_payout_amount",
 ) {
-  return orders
-    .reduce(
-      (sum, order) =>
-        sum +
-        Number.parseFloat(
-          normalizeMoneyAmount(order[fieldName] ?? order.seller_net_amount, {
-            fieldName,
-            allowZero: true,
-          }),
-        ),
-      0,
-    )
-    .toFixed(2);
+  return sumMoneyAmounts(
+    orders.map((order) =>
+      normalizeMoneyAmount(order[fieldName] ?? order.seller_net_amount, {
+        fieldName,
+        allowZero: true,
+      }),
+    ),
+  );
 }
 
 function buildSellerPayoutComponents(
@@ -251,15 +242,15 @@ function buildMarketplaceRiskMetadata(
 ): Record<string, string | number | boolean> {
   const sellerAccountIds = [...new Set(sellerPayouts.map((payout) => payout.sellerAccountId))].sort();
   const maxSellerOrderAmount = sellerPayouts.reduce(
-    (max, payout) => Math.max(max, Number.parseFloat(payout.sellerPayoutAmount)),
-    0,
+    (max, payout) => (compareMoney(payout.sellerPayoutAmount, max) > 0 ? payout.sellerPayoutAmount : max),
+    "0.00",
   );
 
   return {
     seller_account_ids: sellerAccountIds.join(","),
     seller_account_count: sellerAccountIds.length,
-    max_seller_order_amount: maxSellerOrderAmount.toFixed(2),
-    high_dollar_order: maxSellerOrderAmount >= 250,
+    max_seller_order_amount: maxSellerOrderAmount,
+    high_dollar_order: compareMoney(maxSellerOrderAmount, "250.00") >= 0,
     fulfillment_required: sellerPayouts.length > 0,
   };
 }

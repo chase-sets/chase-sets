@@ -172,6 +172,67 @@ describe("settlement payment source projection", () => {
     );
   });
 
+  it("allocates refund debit pennies by largest remainder across seller payouts", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT amount::text AS amount")) {
+          return {
+            rows: [
+              {
+                amount: "0.03",
+                seller_payouts: [
+                  {
+                    orderId: "ord_1",
+                    sellerAccountId: "acc_seller_1",
+                    sellerItemNetAmount: "0.01",
+                    shippingAllowanceAmount: "0.00",
+                    sellerShippingPayoutAmount: "0.00",
+                    sellerPayoutAmount: "0.01",
+                  },
+                  {
+                    orderId: "ord_2",
+                    sellerAccountId: "acc_seller_2",
+                    sellerItemNetAmount: "0.01",
+                    shippingAllowanceAmount: "0.00",
+                    sellerShippingPayoutAmount: "0.00",
+                    sellerPayoutAmount: "0.01",
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await handlers["payments.payment-refunded"]!(
+      transportEvent("payments.payment-refunded", {
+        paymentId: "pay_1",
+        amount: "0.01",
+        currencyCode: "usd",
+        processorStatus: "succeeded",
+        refundedAt: "2026-05-01T00:10:00.000Z",
+      }),
+    );
+
+    expect(wallets.postEntry).toHaveBeenCalledTimes(1);
+    expect(wallets.postEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller_1",
+        ledgerEntryId: "led_refund_pay_1_ord_1_1",
+        amount: "0.01",
+      }),
+      expect.objectContaining({
+        tenantId: "tnt_test",
+      }),
+    );
+  });
+
   it("posts dispute holds and releases won disputes against seller payout exposure", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {

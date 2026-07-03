@@ -656,4 +656,76 @@ describe("ordering order runtime: checkout supply and grouping", () => {
       },
     });
   });
+
+  it("calculates exact-cent shipping allowances without floating point round-down", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createSupplyDb(() => [
+      {
+        listingId: "lst_low_value",
+        sellerAccountId: "acc_seller",
+        inventoryItemId: "inv_low_value",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        storageLocationName: "A",
+        shipFromCode: "A",
+        priceAmount: "1.40",
+        marketplaceSalesFeeUnitAmount: "0.00",
+        sellerNetUnitAmount: "1.40",
+        shippingAllowancePercentageBps: 500,
+        availableQuantity: 1,
+        updatedAt: "2026-03-31T00:00:00.000Z",
+      },
+    ]);
+
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+
+    await services.createOrdersFromCheckout(
+      {
+        buyerAccountId: "acc_buyer" as never,
+        checkoutSessionId: "chk_exact_allowance",
+        sourceType: "cart-checkout",
+        shippingOption: "standard",
+        shippingAddress,
+        lines: [
+          {
+            listingId: null,
+            cartLineId: "cli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      },
+      context,
+    );
+
+    const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
+    expect(createdEvent?.payload).toMatchObject({
+      itemSubtotalAmount: "1.40",
+      shippingDiscountAmount: "0.07",
+      shippingAllowanceAmount: "0.07",
+      shippingChargeAmount: "4.92",
+      totalAmount: "6.32",
+    });
+  });
 });

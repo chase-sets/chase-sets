@@ -1,4 +1,5 @@
-import { addMoney, normalizeMoneyAmount } from "../../../support/runtime-support/common";
+import { compareMoney, addMoney, normalizeMoneyAmount, subtractMoney } from "../../../support/runtime-support/common";
+import { grossUpMoneyAmountByBasisPoints } from "@chase-sets/primitives/money";
 
 export const marketplaceCheckoutFeePaymentMethodCategories = ["card", "bank-account", "platform-credit"] as const;
 
@@ -58,13 +59,6 @@ export function normalizeMarketplaceCheckoutFeePaymentMethodCategory(
   }
 }
 
-function ceilMoneyAmount(value: number) {
-  if (value <= 0) {
-    return "0.00";
-  }
-  return (Math.ceil((value + Number.EPSILON) * 100) / 100).toFixed(2);
-}
-
 export function quoteMarketplaceCheckoutFee(
   params: Readonly<{
     orderAmount: string;
@@ -87,15 +81,28 @@ export function quoteMarketplaceCheckoutFee(
     fieldName: "Balance credit amount",
     allowZero: true,
   });
-  const externalBasis = Number.parseFloat(externalBasisAmount);
-  const method = externalBasis === 0 ? "platform-credit" : params.paymentMethodCategory;
+  const method = compareMoney(externalBasisAmount, "0.00") === 0 ? "platform-credit" : params.paymentMethodCategory;
   const rateBps = method === "platform-credit" ? 0 : method === "bank-account" ? 50 : 290;
-  const fixedAmount = method === "card" ? 0.3 : 0;
-  const rate = rateBps / 10_000;
+  const fixedAmount = method === "card" ? "0.30" : "0.00";
   const feeAmount =
-    rate > 0 || fixedAmount > 0 ? ceilMoneyAmount((externalBasis * rate + fixedAmount) / (1 - rate)) : "0.00";
-  const cardFeeAmount = externalBasis > 0 ? ceilMoneyAmount((externalBasis * 0.029 + 0.3) / (1 - 0.029)) : "0.00";
-  const reductionAmount = ceilMoneyAmount(Number.parseFloat(cardFeeAmount) - Number.parseFloat(feeAmount));
+    rateBps > 0 || compareMoney(fixedAmount, "0.00") > 0
+      ? grossUpMoneyAmountByBasisPoints({
+          basisAmount: externalBasisAmount,
+          percentageBps: rateBps,
+          fixedAmount,
+          roundingMode: "ceil",
+        })
+      : "0.00";
+  const cardFeeAmount =
+    compareMoney(externalBasisAmount, "0.00") > 0
+      ? grossUpMoneyAmountByBasisPoints({
+          basisAmount: externalBasisAmount,
+          percentageBps: 290,
+          fixedAmount: "0.30",
+          roundingMode: "ceil",
+        })
+      : "0.00";
+  const reductionAmount = compareMoney(cardFeeAmount, feeAmount) > 0 ? subtractMoney(cardFeeAmount, feeAmount) : "0.00";
   const totalAmount = addMoney(orderAmount, feeAmount);
   const processorAmount = addMoney(externalBasisAmount, feeAmount);
   const quotedAt = params.quotedAt ?? new Date().toISOString();

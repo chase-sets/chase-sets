@@ -4,6 +4,14 @@ import {
   quoteMarketplaceCheckoutFee,
   type MarketplaceCheckoutFeeQuote,
 } from "@chase-sets/payments/server";
+import {
+  addSignedMoneyAmounts,
+  centsToSignedMoneyAmount,
+  compareMoneyAmounts,
+  signedMoneyToCents,
+  subtractMoneyAmounts,
+  trySignedMoneyToCents,
+} from "@chase-sets/primitives/money";
 
 export type CheckoutPaymentPreviewStatus = Readonly<{
   order_ids: readonly string[];
@@ -25,44 +33,32 @@ export type CheckoutPaymentPreviewStatus = Readonly<{
 }>;
 
 function moneyCents(value: string | null | undefined) {
-  const text = String(value ?? "0.00").trim();
-  const match = /^(-?\d+)(?:\.(\d{0,2}))?$/.exec(text);
-  if (!match) {
+  const cents = trySignedMoneyToCents(String(value ?? "0.00").trim());
+  if (cents === null) {
     throw new Error("Checkout money amount must be a valid decimal.");
   }
 
-  const negative = text.startsWith("-");
-  const dollars = BigInt(match[1] ?? "0") * 100n;
-  const cents = BigInt((match[2] ?? "").padEnd(2, "0"));
-  return negative ? dollars - cents : dollars + cents;
-}
-
-function formatMoney(cents: bigint) {
-  const sign = cents < 0n ? "-" : "";
-  const absolute = cents < 0n ? -cents : cents;
-  return `${sign}${absolute / 100n}.${(absolute % 100n).toString().padStart(2, "0")}`;
+  return cents;
 }
 
 function normalizeMoney(value: string | null | undefined) {
-  return formatMoney(moneyCents(value));
+  return centsToSignedMoneyAmount(moneyCents(value));
 }
 
 function addMoney(left: string, right: string) {
-  return formatMoney(moneyCents(left) + moneyCents(right));
+  return addSignedMoneyAmounts(left, right);
 }
 
 function subtractMoney(left: string, right: string) {
-  return formatMoney(moneyCents(left) - moneyCents(right));
+  return subtractMoneyAmounts(left, right);
 }
 
 function minMoney(left: string, right: string) {
-  return moneyCents(left) <= moneyCents(right) ? left : right;
+  return signedMoneyToCents(left) <= signedMoneyToCents(right) ? left : right;
 }
 
 function compareMoney(left: string, right: string) {
-  const leftCents = moneyCents(left);
-  const rightCents = moneyCents(right);
-  return leftCents === rightCents ? 0 : leftCents < rightCents ? -1 : 1;
+  return compareMoneyAmounts(left, right);
 }
 
 export function buildCheckoutPaymentPreviewStatus(
