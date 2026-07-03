@@ -108,6 +108,13 @@ describe("ordering payment-capture subscription", () => {
     });
   });
 
+  it("does not dispatch fulfillment readiness for payment authorization events", () => {
+    const subscription = getPaymentCaptureSubscription(createServices(async () => undefined as never));
+
+    expect(subscription.handlers["payments.payment-authorized"]).toBeUndefined();
+    expect(Object.keys(subscription.handlers)).toEqual(["payments.payment-captured"]);
+  });
+
   it("stores captured order IDs as JSONB and starts per-order command dispatch concurrently", async () => {
     const firstDispatchStarted = createDeferred();
     const releaseFirstDispatch = createDeferred();

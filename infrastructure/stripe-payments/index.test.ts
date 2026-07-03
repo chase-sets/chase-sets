@@ -324,6 +324,120 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("captures synchronous paid Checkout Session completion webhooks", async () => {
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_checkout_paid",
+      type: "checkout.session.completed",
+      created: now,
+      data: {
+        object: {
+          id: "cs_paid",
+          mode: "payment",
+          status: "complete",
+          payment_status: "paid",
+          metadata: { payment_id: "pay_123" },
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody,
+        signatureHeader: signature(rawBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_checkout_paid",
+      kind: "payment-captured",
+      processorPaymentKind: "checkout-session",
+      processorPaymentReference: "cs_paid",
+      internalPaymentId: "pay_123",
+      processorStatus: "paid",
+    });
+  });
+
+  it("records unpaid Checkout Session completion webhooks as authorization without capture", async () => {
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_checkout_unpaid",
+      type: "checkout.session.completed",
+      created: now,
+      data: {
+        object: {
+          id: "cs_unpaid",
+          mode: "payment",
+          status: "complete",
+          payment_status: "unpaid",
+          metadata: { payment_id: "pay_ach" },
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody,
+        signatureHeader: signature(rawBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_checkout_unpaid",
+      kind: "payment-authorized",
+      processorPaymentKind: "checkout-session",
+      processorPaymentReference: "cs_unpaid",
+      internalPaymentId: "pay_ach",
+      processorStatus: "unpaid",
+    });
+  });
+
+  it("captures delayed Checkout Session payments only after async success", async () => {
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_checkout_async_succeeded",
+      type: "checkout.session.async_payment_succeeded",
+      created: now,
+      data: {
+        object: {
+          id: "cs_ach",
+          mode: "payment",
+          status: "complete",
+          payment_status: "paid",
+          metadata: { payment_id: "pay_ach" },
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody,
+        signatureHeader: signature(rawBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_checkout_async_succeeded",
+      kind: "payment-captured",
+      processorPaymentKind: "checkout-session",
+      processorPaymentReference: "cs_ach",
+      internalPaymentId: "pay_ach",
+      processorStatus: "paid",
+    });
+  });
+
   it("parses signed Stripe checkout failure webhooks into provider-neutral events", async () => {
     const gateway = createStripePaymentProcessorGateway({
       secretKey: "sk_test",

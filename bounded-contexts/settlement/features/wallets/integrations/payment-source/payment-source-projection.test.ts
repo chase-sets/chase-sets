@@ -24,6 +24,32 @@ function transportEvent(type: string, data: Record<string, unknown>) {
 }
 
 describe("settlement payment source projection", () => {
+  it("does not credit seller wallets when a payment is only authorized", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await handlers["payments.payment-authorized"]!(
+      transportEvent("payments.payment-authorized", {
+        paymentId: "pay_1",
+        processorStatus: "unpaid",
+        authorizedAt: "2026-05-01T00:00:00.000Z",
+      }),
+    );
+
+    expect(wallets.postEntry).not.toHaveBeenCalled();
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE settlement_payment_sources"), [
+      "pay_1",
+      "unpaid",
+      "2026-05-01T00:00:00.000Z",
+      1,
+    ]);
+  });
+
   it("credits item proceeds and shipping allowance separately when a payment captures", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),
