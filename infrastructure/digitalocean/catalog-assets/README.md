@@ -31,3 +31,5 @@ terraform apply -var=environment=<environment>
 ```
 
 `DIGITALOCEAN_ACCESS_TOKEN`, `SPACES_ACCESS_ID`, and `SPACES_SECRET_KEY` must be supplied through `TF_VAR_*` variables. The Spaces key needs permission to create the three Catalog asset buckets and to read/write the Terraform state bucket.
+
+Prefer the `Platform Catalog Assets Apply` GitHub workflow for staging and production plan/apply evidence. It initializes this root with `catalog-assets/<environment>.tfstate`, uploads a redacted plan artifact, verifies bucket-root `AccessDenied` after apply, and can verify a support-safe known CDN object path without printing object keys.
