@@ -84,12 +84,22 @@ function identifierFromNotice(notice: AuthActionNotice | null | undefined) {
   return "";
 }
 
+function resolveInitialMethod(
+  method: string | null | undefined,
+  availableMethods: readonly SignInMethodItem[],
+  fallback: SignInMethod,
+) {
+  return availableMethods.some((item) => item.value === method) ? (method as SignInMethod) : fallback;
+}
+
 export function SignInPage(
   props: Readonly<{
     action?: string;
     contextMessage?: Readonly<{ title: string; description: string }> | null;
     errorMessage?: string | null;
     hiddenFields?: readonly { name: string; value: string }[];
+    initialIdentifier?: string | null;
+    initialMethod?: string | null;
     notice?: AuthActionNotice | null;
     returnTo?: string;
     signInMethods?: readonly SignInMethod[];
@@ -99,7 +109,7 @@ export function SignInPage(
   }>,
 ) {
   const signInMethods = props.signInMethods ?? DEFAULT_SIGN_IN_METHODS;
-  const initialIdentifier = identifierFromNotice(props.notice);
+  const initialIdentifier = identifierFromNotice(props.notice) || props.initialIdentifier?.trim() || "";
   const initialIdentifierKind = initialIdentifier ? detectIdentifierKind(initialIdentifier) : null;
   const initialMethodItems = initialIdentifierKind
     ? methodItemsForIdentifier(initialIdentifierKind, signInMethods)
@@ -109,7 +119,7 @@ export function SignInPage(
       ? "phone-code"
       : props.notice?.status === "magic-link-sent" && signInMethods.includes("magic-link")
         ? "magic-link"
-        : (initialMethodItems[0]?.value ?? "password");
+        : resolveInitialMethod(props.initialMethod, initialMethodItems, initialMethodItems[0]?.value ?? "password");
   const [identifier, setIdentifier] = useState(initialIdentifier);
   const [identifierKind, setIdentifierKind] = useState<SignInIdentifierKind | null>(initialIdentifierKind);
   const [method, setMethod] = useState<SignInMethod>(initialMethod);
@@ -242,6 +252,10 @@ export function SignInPage(
           <Card>
             <Form spacing="none" onSubmit={handleIdentifierSubmit}>
               <Stack gap={3}>
+                {props.returnTo ? <HiddenInput type="hidden" name="returnTo" value={props.returnTo} readOnly /> : null}
+                {signInMethods.includes("password") ? (
+                  <HiddenInput type="hidden" name="signInMethod" value="password" readOnly />
+                ) : null}
                 <TextInput
                   label={t("auth.features.signIn.ui.signInPage.email.or.phone")}
                   name="signInIdentifier"

@@ -19,6 +19,8 @@ export function loader({ request }: LoaderFunctionArgs) {
     returnTo,
     formAction: authFormActionFromRequest(request),
     contextMessage: marketplaceAccountGateContextMessage(returnTo),
+    initialIdentifier: url.searchParams.get("signInIdentifier"),
+    initialMethod: url.searchParams.get("signInMethod"),
     socialLoginError: url.searchParams.get("socialLoginError"),
   };
 }
@@ -33,6 +35,8 @@ export default function MarketplaceSignInRoute() {
         contextMessage={data.contextMessage}
         notice={actionData && "status" in actionData ? actionData : null}
         action={data.formAction}
+        initialIdentifier={data.initialIdentifier}
+        initialMethod={data.initialMethod}
         returnTo={data.returnTo}
         signInMethods={marketplaceAuthHostConfig.signInMethods}
         allowManualMagicLinkTokenEntry={marketplaceAuthHostConfig.allowManualMagicLinkTokenEntry}
