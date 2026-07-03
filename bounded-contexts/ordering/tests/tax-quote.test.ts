@@ -56,4 +56,25 @@ describe("local tax quote resolver", () => {
     expect(quote.taxAmount).toBe("0.00");
     expect(quote.rateBps).toBe(0);
   });
+
+  it.each(["1e2", "12.999", "12.34abc"])("rejects malformed tax amount %s", async (itemSubtotalAmount) => {
+    await expect(
+      createLocalTaxQuoteResolver().quoteTax({
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        currencyCode: "usd",
+        destinationAddress: {
+          name: null,
+          line1: "1 Main St",
+          line2: null,
+          city: "Unknown",
+          state: "ZZ",
+          postalCode: "00000",
+          country: "US",
+        },
+        itemSubtotalAmount,
+        shippingAmount: "1.00",
+      }),
+    ).rejects.toThrow("Tax amounts must be non-negative money values.");
+  });
 });
