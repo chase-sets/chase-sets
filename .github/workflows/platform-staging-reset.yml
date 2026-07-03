@@ -436,7 +436,9 @@ jobs:
           TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
           TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
           TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
-        run: terraform destroy -auto-approve
+        run: |
+          node ../../../scripts/disable-terraform-prevent-destroy.mjs main.tf
+          terraform destroy -auto-approve
 
       - name: Terraform init catalog assets
         working-directory: infrastructure/digitalocean/catalog-assets
@@ -514,7 +516,9 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        run: terraform destroy -auto-approve
+        run: |
+          node ../../../scripts/disable-terraform-prevent-destroy.mjs main.tf
+          terraform destroy -auto-approve
 
       - name: Terraform plan staging catalog assets recreate
         working-directory: infrastructure/digitalocean/catalog-assets

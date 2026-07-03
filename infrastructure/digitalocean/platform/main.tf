@@ -11,6 +11,10 @@ resource "digitalocean_database_cluster" "postgres" {
   region     = var.data_region
   node_count = var.database_node_count
   tags       = [var.environment, "platform", "managed-by-terraform"]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 check "api_realtime_coordination" {

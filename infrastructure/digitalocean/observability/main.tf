@@ -5,6 +5,10 @@ resource "digitalocean_volume" "observability_data" {
   description             = "Persistent ${var.environment} observability data for Chase Sets."
   initial_filesystem_type = "ext4"
   tags                    = local.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "digitalocean_droplet" "observability" {

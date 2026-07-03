@@ -8,4 +8,8 @@ resource "digitalocean_spaces_bucket" "terraform_state" {
   }
 
   force_destroy = false
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }

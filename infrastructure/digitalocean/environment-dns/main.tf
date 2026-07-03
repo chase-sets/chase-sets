@@ -1,5 +1,9 @@
 resource "digitalocean_domain" "environment" {
   name = local.environment_zone
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "digitalocean_record" "delegation" {
