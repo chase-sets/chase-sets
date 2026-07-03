@@ -109,7 +109,7 @@ describe("bounded context runtime schema", () => {
     );
   });
 
-  it("waits past transient schema bootstrap lock contention up to the ceiling", async () => {
+  it("waits past transient schema bootstrap lock contention that outlives the old two-minute ceiling", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-03T00:00:00.000Z"));
     try {
@@ -141,14 +141,51 @@ describe("bounded context runtime schema", () => {
       };
 
       const bootstrap = bootstrapContextDatabase(module, pool);
-      for (let index = 0; index < 31; index += 1) {
-        await vi.advanceTimersByTimeAsync(1_000);
-      }
+      await vi.advanceTimersByTimeAsync(138_000);
       await bootstrap;
 
       expect(lockAttempts).toBe(31);
-      expect(SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS).toBeGreaterThan(30_000);
+      expect(SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS).toBeGreaterThan(120_000);
       expect(client.release).toHaveBeenCalledWith(undefined);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails with deploy-useful diagnostics after the schema bootstrap lock wait budget is exhausted", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-03T00:00:00.000Z"));
+    try {
+      let lockAttempts = 0;
+      const client = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("pg_try_advisory_lock")) {
+            lockAttempts += 1;
+            return { rows: [{ acquired: false }] };
+          }
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      };
+      const pool = {
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(async () => client),
+      };
+      const module = {
+        contextName: "example",
+        schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      };
+
+      const bootstrap = bootstrapContextDatabase(module, pool);
+      const bootstrapRejected = expect(bootstrap).rejects.toThrow(
+        /Schema bootstrap lock was not acquired within 600000ms after \d+ attempts \(elapsed 600000ms, advisory lock 739134880509551001\)\. Another deploy may still be applying schema changes/,
+      );
+      await vi.advanceTimersByTimeAsync(SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS + 1);
+
+      await bootstrapRejected;
+      expect(lockAttempts).toBeGreaterThan(30);
+      expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+      expect(client.query).not.toHaveBeenCalledWith("SELECT pg_advisory_unlock($1::bigint)", expect.anything());
     } finally {
       vi.useRealTimers();
     }

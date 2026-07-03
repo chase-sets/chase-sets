@@ -7,8 +7,9 @@ import {
 
 const DATABASE_RETRY_DELAY_MS = 1_000;
 const DATABASE_MAX_RETRIES = 30;
-const SCHEMA_BOOTSTRAP_LOCK_RETRY_DELAY_MS = 1_000;
-export const SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 120_000;
+const SCHEMA_BOOTSTRAP_LOCK_INITIAL_RETRY_DELAY_MS = 500;
+const SCHEMA_BOOTSTRAP_LOCK_MAX_RETRY_DELAY_MS = 5_000;
+export const SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 600_000;
 export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING = "5s";
 const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
 const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
@@ -292,8 +293,12 @@ export async function applyContextSchema(
 
 async function acquireSchemaBootstrapLock(client: PgPoolClient): Promise<void> {
   const startedAt = Date.now();
+  const deadlineAt = startedAt + SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS;
+  let attempts = 0;
+  let retryDelayMs = SCHEMA_BOOTSTRAP_LOCK_INITIAL_RETRY_DELAY_MS;
 
-  while (Date.now() - startedAt < SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS) {
+  while (Date.now() < deadlineAt) {
+    attempts += 1;
     const result = await client.query<Readonly<{ acquired: boolean }>>(
       "SELECT pg_try_advisory_lock($1::bigint) AS acquired",
       [SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID],
@@ -302,10 +307,21 @@ async function acquireSchemaBootstrapLock(client: PgPoolClient): Promise<void> {
       return;
     }
 
-    await sleep(SCHEMA_BOOTSTRAP_LOCK_RETRY_DELAY_MS);
+    const remainingBudgetMs = deadlineAt - Date.now();
+    if (remainingBudgetMs <= 0) {
+      break;
+    }
+
+    await sleep(Math.min(retryDelayMs, remainingBudgetMs));
+    retryDelayMs = Math.min(retryDelayMs * 2, SCHEMA_BOOTSTRAP_LOCK_MAX_RETRY_DELAY_MS);
   }
 
-  throw new Error(`Schema bootstrap lock was not acquired within ${SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS}ms.`);
+  const elapsedMs = Date.now() - startedAt;
+  throw new Error(
+    `Schema bootstrap lock was not acquired within ${SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS}ms ` +
+      `after ${attempts} attempts (elapsed ${elapsedMs}ms, advisory lock ${SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID}). ` +
+      "Another deploy may still be applying schema changes; retry after the older bootstrap finishes or inspect active database sessions if this persists.",
+  );
 }
 
 function createSchemaMigrationsTableSql(): string {
