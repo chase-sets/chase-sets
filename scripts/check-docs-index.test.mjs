@@ -33,6 +33,7 @@ describe("checkDocsIndex", () => {
 
     await expect(checkDocsIndex({ repoRoot: rootDir })).resolves.toEqual({
       orphanDocs: ["docs/architecture/orphan.md"],
+      proseAccuracyIssues: [],
     });
   });
 
@@ -42,6 +43,46 @@ describe("checkDocsIndex", () => {
     write(rootDir, "docs/architecture/root.md", "- [Leaf](./leaf.md)\n");
     write(rootDir, "docs/architecture/leaf.md", "# Leaf\n");
 
-    await expect(checkDocsIndex({ repoRoot: rootDir })).resolves.toEqual({ orphanDocs: [] });
+    await expect(checkDocsIndex({ repoRoot: rootDir })).resolves.toEqual({ orphanDocs: [], proseAccuracyIssues: [] });
+  });
+
+  it("pins push-wake glossary coverage and DNS incident prose ownership", async () => {
+    const rootDir = createTempRepo();
+    write(
+      rootDir,
+      "docs/README.md",
+      [
+        "- [Glossary](./GLOSSARY.md)",
+        "- [Environment Domain Names](./architecture/environment-domain-names.md)",
+        "- [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md)",
+        "",
+      ].join("\n"),
+    );
+    write(
+      rootDir,
+      "docs/GLOSSARY.md",
+      [
+        "| Term | Owning source | Notes |",
+        "| --- | --- | --- |",
+        "| Wake Intent | [Projection Wake-Intent Scheduler](./architecture/projection-wake-scheduler.md) | Durable wake request. |",
+        "| Projection Wake Relay | [Projection Wake Relay](./architecture/projection-wake-relay.md) | Relay. |",
+        "| Projection Interest Index | [Projection Interest Index](./architecture/projection-interest-index.md) | Mapping. |",
+        "| Source-Context Wake Registry | [Source-Context Wake Registry](./architecture/source-context-wake-registry.md) | Rollout source. |",
+        "| Platform Work-Signal Composite | [Platform Work-Signal Composite](./architecture/work-signal-composite.md) | Shared wake primitive. |",
+        "",
+      ].join("\n"),
+    );
+    write(
+      rootDir,
+      "docs/architecture/environment-domain-names.md",
+      "# Environment Domain Names\n\nPre-launch conditional: production proof mode may attach a marketplace host.\n",
+    );
+    write(
+      rootDir,
+      "docs/runbooks/digitalocean-platform-deployment.md",
+      "# DigitalOcean Platform Deployment Runbook\n\n### Staging DNS Operations\n\nMay 17, 2026 and May 26, 2026 incident history lives here.\n",
+    );
+
+    await expect(checkDocsIndex({ repoRoot: rootDir })).resolves.toEqual({ orphanDocs: [], proseAccuracyIssues: [] });
   });
 });
