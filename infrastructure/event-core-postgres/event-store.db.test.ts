@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createPostgresEventStore } from "./event-store";
+import { EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY, createPostgresEventStore } from "./event-store";
 import { createIsolatedPostgresTestSchema, type IsolatedPostgresTestSchema } from "./postgres-db-test-support";
+import type { PgPoolClient } from "./types";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
@@ -145,10 +146,125 @@ describeDb("postgres event store real database integration", () => {
     ]);
   });
 
+  it("does not expose a later committed append while a lower global position is in flight", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    const lowPositionClient = await beginUncommittedAppendWithGlobalLock(schema.pool);
+    let lowPositionClientReleased = false;
+
+    const appendHighPosition = store.appendToStream({
+      streamId: "catalog.item-high",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("catalog.item.created", { itemId: "high" })],
+    });
+
+    try {
+      await expect(hasSettledWithin(appendHighPosition, 50)).resolves.toBe(false);
+      await expect(store.readAll({ limit: 10 })).resolves.toEqual([]);
+
+      await lowPositionClient.query("COMMIT");
+      lowPositionClient.release();
+      lowPositionClientReleased = true;
+
+      await expect(appendHighPosition).resolves.toEqual([
+        expect.objectContaining({
+          streamId: "catalog.item-high",
+          globalPosition: "2",
+        }),
+      ]);
+      await expect(store.readAll({ limit: 10 })).resolves.toEqual([
+        expect.objectContaining({
+          eventId: "evt_db_low",
+          streamId: "catalog.item-low",
+          globalPosition: "1",
+        }),
+        expect.objectContaining({
+          streamId: "catalog.item-high",
+          globalPosition: "2",
+        }),
+      ]);
+    } finally {
+      if (!lowPositionClientReleased) {
+        await lowPositionClient.query("ROLLBACK").catch(() => undefined);
+        lowPositionClient.release();
+      }
+    }
+  });
+
   function createEventId() {
     return `evt_db_${nextEventId++}` as never;
   }
 });
+
+async function beginUncommittedAppendWithGlobalLock(pool: IsolatedPostgresTestSchema["pool"]): Promise<PgPoolClient> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    await client.query(
+      `INSERT INTO event_store_streams (stream_id, current_version, updated_at)
+       VALUES ('catalog.item-low', 0, $1::timestamptz)`,
+      ["2026-06-28T12:00:00.000Z"],
+    );
+    await client.query(
+      `INSERT INTO event_store_events (
+         event_id,
+         stream_id,
+         stream_version,
+         tenant_id,
+         stream_context_name,
+         stream_category,
+         event_type,
+         payload,
+         metadata,
+         occurred_at,
+         recorded_at,
+         performed_by_user_id,
+         for_account_id
+       ) VALUES (
+         'evt_db_low',
+         'catalog.item-low',
+         1,
+         'tenant_a',
+         'catalog',
+         'catalog.item',
+         'catalog.item.created',
+         '{"itemId":"low"}'::jsonb,
+         '{}'::jsonb,
+         $1::timestamptz,
+         $1::timestamptz,
+         'user_db_test',
+         'account_db_test'
+       )`,
+      ["2026-06-28T12:00:00.000Z"],
+    );
+    await client.query(
+      `UPDATE event_store_streams
+       SET current_version = 1, updated_at = $2::timestamptz
+       WHERE stream_id = $1`,
+      ["catalog.item-low", "2026-06-28T12:00:00.000Z"],
+    );
+
+    return client;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    client.release(error);
+    throw error;
+  }
+}
+
+async function hasSettledWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  return Promise.race([
+    promise.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+}
 
 function eventContext(tenantId: string): EventStoreContext {
   return {

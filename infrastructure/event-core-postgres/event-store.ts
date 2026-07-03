@@ -52,6 +52,7 @@ export const EVENT_STORE_WAKE_NOTIFICATION_MAX_PAYLOAD_BYTES = 4 * 1024;
 // Keep event reads bounded to match list and poison-event page hardening.
 export const EVENT_STORE_READ_PAGE_SIZE_DEFAULT = 500;
 export const EVENT_STORE_READ_PAGE_SIZE_LIMIT = 500;
+export const EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY = "-8041932795057830931";
 
 export type EventStoreWakeNotificationPayload = Readonly<{
   sourceContextName: string;
@@ -444,6 +445,11 @@ function normalizedStreamCategories(streamPrefixes: readonly string[]): readonly
 async function appendEventsToStream(args: AppendInTransactionArgs): Promise<readonly StoredEvent[]> {
   const now = args.now();
 
+  // The event log uses a bigserial global position. Holding one store-wide xact
+  // advisory lock until commit makes position assignment match commit order, so
+  // readAll/source-head checkpoint scans cannot observe a higher committed
+  // position while a lower assigned position is still in flight.
+  await args.client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
   await args.client.query(args.upsertStreamSql, [args.input.streamId, now]);
 
   const streamVersionResult = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [
