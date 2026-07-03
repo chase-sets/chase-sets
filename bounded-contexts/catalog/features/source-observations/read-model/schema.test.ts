@@ -18,20 +18,86 @@ describe("catalogSourceObservationSchemaSql", () => {
   });
 
   it("backfills and indexes source-observation integration scope summaries through ledgered migrations", () => {
-    expect(catalogSourceObservationSchemaMigrations).toEqual([
-      expect.objectContaining({
-        migrationId: "20260703_catalog_source_observation_integration_scope_summaries",
-        statements: [
-          expect.stringContaining("INSERT INTO catalog_source_observation_integration_scope_summaries"),
-          expect.stringContaining(
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_lookup_idx",
-          ),
-          expect.stringContaining(
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_latest_idx",
-          ),
-        ],
-      }),
-    ]);
+    expect(catalogSourceObservationSchemaMigrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          migrationId: "20260703_catalog_source_observation_required_source_profile_columns",
+          statements: [expect.stringContaining("ALTER COLUMN source_profile_key SET NOT NULL")],
+        }),
+        expect.objectContaining({
+          migrationId: "20260703_catalog_source_observation_integration_scope_summaries",
+          statements: [
+            expect.stringContaining("INSERT INTO catalog_source_observation_integration_scope_summaries"),
+            expect.stringContaining(
+              "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_lookup_idx",
+            ),
+            expect.stringContaining(
+              "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_latest_idx",
+            ),
+          ],
+        }),
+      ]),
+    );
+  });
+
+  it("ledgers provider-profile and option-query-cache reshapes", () => {
+    expect(catalogSourceObservationSchemaSql).not.toContain("DROP COLUMN IF EXISTS compatibility_mode");
+    expect(catalogSourceObservationSchemaSql).not.toContain(
+      "DROP INDEX IF EXISTS catalog_provider_integration_profile_versions_active_idx",
+    );
+    expect(catalogSourceObservationSchemaSql).not.toContain("UPDATE catalog_provider_option_query_cache");
+    expect(catalogSourceObservationSchemaSql).not.toContain("ALTER COLUMN ingestion_unit_key SET NOT NULL");
+    expect(catalogSourceObservationSchemaSql).not.toContain(
+      "DROP INDEX IF EXISTS catalog_provider_option_query_cache_lookup_idx",
+    );
+
+    expect(catalogSourceObservationSchemaMigrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          migrationId: "20260703_catalog_provider_profile_active_index_scope",
+          statements: [
+            expect.stringContaining("DROP COLUMN IF EXISTS compatibility_mode"),
+            expect.stringContaining(
+              "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_integration_profile_versions_active_idx",
+            ),
+          ],
+        }),
+        expect.objectContaining({
+          migrationId: "20260703_catalog_provider_option_query_cache_profile_lookup",
+          statements: [
+            expect.stringContaining("UPDATE catalog_provider_option_query_cache"),
+            expect.stringContaining("ALTER COLUMN ingestion_unit_key SET NOT NULL"),
+            expect.stringContaining("DROP INDEX IF EXISTS catalog_provider_option_query_cache_lookup_idx"),
+            expect.stringContaining(
+              "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx",
+            ),
+          ],
+        }),
+      ]),
+    );
+  });
+
+  it("second boot after migrations has no source-observation index reshapes or update backfills", () => {
+    const queryLog: string[] = [];
+    const appliedMigrations = new Set(
+      catalogSourceObservationSchemaMigrations.map((migration) => migration.migrationId),
+    );
+    const runBoot = () => {
+      queryLog.push(catalogSourceObservationSchemaSql);
+      for (const migration of catalogSourceObservationSchemaMigrations) {
+        if (appliedMigrations.has(migration.migrationId)) {
+          continue;
+        }
+        queryLog.push(...migration.statements);
+        appliedMigrations.add(migration.migrationId);
+      }
+    };
+
+    runBoot();
+
+    expect(queryLog.join("\n")).not.toMatch(/\bDROP\s+INDEX\b/i);
+    expect(queryLog.join("\n")).not.toMatch(/\bUPDATE\s+catalog_/i);
+    expect(queryLog.join("\n")).not.toMatch(/\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b/i);
   });
 
   it("persists Catalog Merge Candidates with review, provenance, and promotion-planning shape", () => {
@@ -117,7 +183,6 @@ describe("catalogSourceObservationSchemaSql", () => {
     expect(catalogSourceObservationSchemaSql).toContain(
       "ADD COLUMN IF NOT EXISTS source_profile_version text NOT NULL",
     );
-    expect(catalogSourceObservationSchemaSql).toContain("ALTER COLUMN source_mapping_fingerprint DROP DEFAULT");
     expect(catalogSourceObservationSchemaSql).toContain(
       "CREATE INDEX IF NOT EXISTS catalog_merge_candidates_updated_idx",
     );
@@ -126,7 +191,7 @@ describe("catalogSourceObservationSchemaSql", () => {
     );
   });
 
-  it("evolves provider option query cache profile columns before lookup indexing", () => {
+  it("adds provider option query cache profile columns before lookup indexing", () => {
     const alterPosition = catalogSourceObservationSchemaSql.indexOf("ALTER TABLE catalog_provider_option_query_cache");
     const indexPosition = catalogSourceObservationSchemaSql.indexOf(
       "CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx",
@@ -136,10 +201,10 @@ describe("catalogSourceObservationSchemaSql", () => {
     expect(indexPosition).toBeGreaterThan(alterPosition);
     expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS profile_key text DEFAULT ''");
     expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS ingestion_unit_key text DEFAULT ''");
-    expect(catalogSourceObservationSchemaSql).toContain("ALTER COLUMN profile_key SET NOT NULL");
-    expect(catalogSourceObservationSchemaSql).toContain("ALTER COLUMN ingestion_unit_key SET NOT NULL");
-    expect(
-      catalogSourceObservationSchemaSql.indexOf("DROP INDEX IF EXISTS catalog_provider_option_query_cache_lookup_idx"),
-    ).toBeGreaterThan(alterPosition);
+    expect(catalogSourceObservationSchemaSql).not.toContain("ALTER COLUMN profile_key SET NOT NULL");
+    expect(catalogSourceObservationSchemaSql).not.toContain("ALTER COLUMN ingestion_unit_key SET NOT NULL");
+    expect(catalogSourceObservationSchemaSql).not.toContain(
+      "DROP INDEX IF EXISTS catalog_provider_option_query_cache_lookup_idx",
+    );
   });
 });

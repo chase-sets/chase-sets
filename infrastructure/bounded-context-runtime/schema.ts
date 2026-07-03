@@ -5,8 +5,11 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 
-const RETRY_DELAY_MS = 1_000;
-const MAX_RETRIES = 30;
+const DATABASE_RETRY_DELAY_MS = 1_000;
+const DATABASE_MAX_RETRIES = 30;
+const SCHEMA_BOOTSTRAP_LOCK_RETRY_DELAY_MS = 1_000;
+export const SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 120_000;
+export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING = "5s";
 const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
 const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
 export const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
@@ -183,16 +186,16 @@ export async function waitForDatabase(
   pool: { query: (sql: string) => Promise<unknown> },
   label = "Database",
 ): Promise<void> {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+  for (let attempt = 1; attempt <= DATABASE_MAX_RETRIES; attempt += 1) {
     try {
       await pool.query("SELECT 1");
       return;
     } catch (error) {
-      if (attempt === MAX_RETRIES) {
-        throw new Error(`${label} did not become ready after ${MAX_RETRIES} attempts.`, { cause: error });
+      if (attempt === DATABASE_MAX_RETRIES) {
+        throw new Error(`${label} did not become ready after ${DATABASE_MAX_RETRIES} attempts.`, { cause: error });
       }
 
-      await sleep(RETRY_DELAY_MS);
+      await sleep(DATABASE_RETRY_DELAY_MS);
     }
   }
 }
@@ -250,32 +253,47 @@ export async function applyContextSchema(
   moduleSchemaMigrations: readonly BcSchemaMigration[] = [],
 ): Promise<void> {
   const client = await pool.connect();
-  let releaseError: unknown;
+  let operationError: unknown;
+  let cleanupError: unknown;
   let lockAcquired = false;
 
   try {
     await acquireSchemaBootstrapLock(client);
     lockAcquired = true;
+    await client.query(`SET lock_timeout TO '${SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING}'`);
     await client.query(createSchemaMigrationsTableSql());
     await client.query(schemaSql);
     for (const migration of [...contextSchemaMigrations, ...moduleSchemaMigrations]) {
       await applySchemaMigration(client, migration);
     }
   } catch (error) {
-    releaseError = error;
-    throw error;
+    operationError = error;
   } finally {
     if (lockAcquired) {
+      await client.query("RESET lock_timeout").catch((error: unknown) => {
+        cleanupError ??= error;
+      });
       await client
         .query("SELECT pg_advisory_unlock($1::bigint)", [SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID])
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          cleanupError ??= error;
+        });
     }
-    client.release(releaseError);
+    client.release(operationError ?? cleanupError);
+  }
+
+  if (operationError) {
+    throw operationError;
+  }
+  if (cleanupError) {
+    throw cleanupError;
   }
 }
 
 async function acquireSchemaBootstrapLock(client: PgPoolClient): Promise<void> {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS) {
     const result = await client.query<Readonly<{ acquired: boolean }>>(
       "SELECT pg_try_advisory_lock($1::bigint) AS acquired",
       [SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID],
@@ -284,10 +302,10 @@ async function acquireSchemaBootstrapLock(client: PgPoolClient): Promise<void> {
       return;
     }
 
-    await sleep(RETRY_DELAY_MS);
+    await sleep(SCHEMA_BOOTSTRAP_LOCK_RETRY_DELAY_MS);
   }
 
-  throw new Error(`Schema bootstrap lock was not acquired after ${MAX_RETRIES} attempts.`);
+  throw new Error(`Schema bootstrap lock was not acquired within ${SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS}ms.`);
 }
 
 function createSchemaMigrationsTableSql(): string {

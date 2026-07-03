@@ -1,3 +1,46 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
+const fulfillmentShipmentLinePackingConfirmedQuantityBackfillSql = `UPDATE fulfillment_shipment_line_pages
+SET packing_confirmed_quantity = quantity
+WHERE packing_confirmed_quantity = 0
+  AND packing_confirmed_at IS NOT NULL;`;
+
+const fulfillmentPostageLabelOperationsStatusConstraintSql = `ALTER TABLE fulfillment_postage_label_operations
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_status_check;
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD CONSTRAINT fulfillment_postage_label_operations_status_check
+  CHECK (status IN ('pending', 'provider-succeeded', 'succeeded', 'failed')) NOT VALID;
+
+ALTER TABLE fulfillment_postage_label_operations
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_status_check;`;
+
+const fulfillmentPostageLabelOperationsDuplicateActiveBackfillSql = `WITH duplicate_active_operations AS (
+  SELECT
+    operation_key,
+    ROW_NUMBER() OVER (
+      PARTITION BY shipment_id, operation_kind
+      ORDER BY updated_at ASC, operation_key ASC
+    ) AS duplicate_rank
+  FROM fulfillment_postage_label_operations
+  WHERE status IN ('pending', 'provider-succeeded')
+)
+UPDATE fulfillment_postage_label_operations AS operation
+SET status = 'failed',
+    error_message = COALESCE(
+      operation.error_message,
+      'Superseded duplicate active postage operation during idempotency fence migration.'
+    ),
+    completed_at = COALESCE(operation.completed_at, now()),
+    updated_at = now()
+FROM duplicate_active_operations AS duplicate
+WHERE operation.operation_key = duplicate.operation_key
+  AND duplicate.duplicate_rank > 1;`;
+
+const fulfillmentPostageLabelOperationsActiveKindIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_active_kind_idx
+  ON fulfillment_postage_label_operations (shipment_id, operation_kind)
+  WHERE status IN ('pending', 'provider-succeeded');`;
+
 export const fulfillmentShipmentSchemaSql = `
 CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   shipment_id text PRIMARY KEY,
@@ -103,11 +146,6 @@ ALTER TABLE IF EXISTS fulfillment_shipment_line_pages
   ADD COLUMN IF NOT EXISTS packing_confirmed_quantity integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS packing_confirmed_at timestamptz NULL;
 
-UPDATE fulfillment_shipment_line_pages
-SET packing_confirmed_quantity = quantity
-WHERE packing_confirmed_quantity = 0
-  AND packing_confirmed_at IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS fulfillment_label_address_override_audit_pages (
   shipment_id text NOT NULL REFERENCES fulfillment_shipment_pages (shipment_id) ON DELETE CASCADE,
   recorded_at timestamptz NOT NULL,
@@ -142,42 +180,6 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
 CREATE INDEX IF NOT EXISTS fulfillment_postage_label_operations_status_idx
   ON fulfillment_postage_label_operations (status, updated_at);
 
-ALTER TABLE fulfillment_postage_label_operations
-  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_status_check;
-
-ALTER TABLE fulfillment_postage_label_operations
-  ADD CONSTRAINT fulfillment_postage_label_operations_status_check
-  CHECK (status IN ('pending', 'provider-succeeded', 'succeeded', 'failed')) NOT VALID;
-
-ALTER TABLE fulfillment_postage_label_operations
-  VALIDATE CONSTRAINT fulfillment_postage_label_operations_status_check;
-
-WITH duplicate_active_operations AS (
-  SELECT
-    operation_key,
-    ROW_NUMBER() OVER (
-      PARTITION BY shipment_id, operation_kind
-      ORDER BY updated_at ASC, operation_key ASC
-    ) AS duplicate_rank
-  FROM fulfillment_postage_label_operations
-  WHERE status IN ('pending', 'provider-succeeded')
-)
-UPDATE fulfillment_postage_label_operations AS operation
-SET status = 'failed',
-    error_message = COALESCE(
-      operation.error_message,
-      'Superseded duplicate active postage operation during idempotency fence migration.'
-    ),
-    completed_at = COALESCE(operation.completed_at, now()),
-    updated_at = now()
-FROM duplicate_active_operations AS duplicate
-WHERE operation.operation_key = duplicate.operation_key
-  AND duplicate.duplicate_rank > 1;
-
-CREATE UNIQUE INDEX IF NOT EXISTS fulfillment_postage_label_operations_active_kind_idx
-  ON fulfillment_postage_label_operations (shipment_id, operation_kind)
-  WHERE status IN ('pending', 'provider-succeeded');
-
 CREATE TABLE IF NOT EXISTS fulfillment_postage_provider_events (
   provider_event_id text PRIMARY KEY,
   provider_name text NOT NULL,
@@ -201,3 +203,20 @@ CREATE INDEX IF NOT EXISTS fulfillment_postage_provider_events_shipment_idx
 CREATE INDEX IF NOT EXISTS fulfillment_postage_provider_events_received_idx
   ON fulfillment_postage_provider_events (received_at DESC);
 `;
+
+export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260703_fulfillment_shipment_line_packing_confirmed_quantity",
+    description: "Backfill packing-confirmed quantities for existing shipment line read models.",
+    statements: [fulfillmentShipmentLinePackingConfirmedQuantityBackfillSql],
+  },
+  {
+    migrationId: "20260703_fulfillment_postage_label_operation_active_fence",
+    description: "Normalize postage label operation status checks and active-operation uniqueness.",
+    statements: [
+      fulfillmentPostageLabelOperationsStatusConstraintSql,
+      fulfillmentPostageLabelOperationsDuplicateActiveBackfillSql,
+      fulfillmentPostageLabelOperationsActiveKindIndexSql,
+    ],
+  },
+];

@@ -5,6 +5,8 @@ export {
   composeModuleSchemaSql,
   composeSchemaSql,
   eventSubscriptionSchemaSql,
+  SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING,
+  SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
   SCHEMA_MIGRATIONS_TABLE,
   waitForDatabase,
 } from "./schema";

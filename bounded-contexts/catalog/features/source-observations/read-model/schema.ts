@@ -1,5 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
-import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+import { durableJobSchemaMigrations, durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import {
   sourceObservationExpansionIdExpression,
@@ -60,6 +60,51 @@ ON CONFLICT (provider_key, language_code, product_line_id, series_id, expansion_
   latest_source_updated_at = EXCLUDED.latest_source_updated_at,
   updated_at = EXCLUDED.updated_at;`;
 
+const catalogSourceObservationRequiredSourceProfileColumnsSql = `ALTER TABLE catalog_source_observations
+  ALTER COLUMN source_profile_key DROP DEFAULT,
+  ALTER COLUMN source_profile_key SET NOT NULL,
+  ALTER COLUMN source_profile_version DROP DEFAULT,
+  ALTER COLUMN source_profile_version SET NOT NULL,
+  ALTER COLUMN source_mapping_fingerprint DROP DEFAULT,
+  ALTER COLUMN source_mapping_fingerprint SET NOT NULL;`;
+
+const catalogProviderIntegrationProfileVersionsActiveIndexReshapeSql = `ALTER TABLE catalog_provider_integration_profile_versions
+  DROP COLUMN IF EXISTS compatibility_mode,
+  ADD COLUMN IF NOT EXISTS ingestion_unit_key text NULL,
+  ADD COLUMN IF NOT EXISTS migration_evidence_json jsonb NULL,
+  ADD COLUMN IF NOT EXISTS authoring_audit_json jsonb NULL;
+
+DROP INDEX IF EXISTS catalog_provider_integration_profile_versions_active_idx;`;
+
+const catalogProviderIntegrationProfileVersionsActiveIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_integration_profile_versions_active_idx
+  ON catalog_provider_integration_profile_versions (provider_key, ingestion_unit_key)
+  WHERE active = true AND lifecycle = 'active';`;
+
+const catalogProviderOptionQueryCacheProfileBackfillSql = `UPDATE catalog_provider_option_query_cache
+  SET profile_key = COALESCE(profile_key, ''),
+      ingestion_unit_key = COALESCE(ingestion_unit_key, '')
+  WHERE profile_key IS NULL OR ingestion_unit_key IS NULL;`;
+
+const catalogProviderOptionQueryCacheRequiredProfileColumnsSql = `ALTER TABLE catalog_provider_option_query_cache
+  ALTER COLUMN profile_key SET DEFAULT '',
+  ALTER COLUMN profile_key SET NOT NULL,
+  ALTER COLUMN ingestion_unit_key SET DEFAULT '',
+  ALTER COLUMN ingestion_unit_key SET NOT NULL;`;
+
+const catalogProviderOptionQueryCacheLookupIndexReshapeSql =
+  "DROP INDEX IF EXISTS catalog_provider_option_query_cache_lookup_idx;";
+
+const catalogProviderOptionQueryCacheLookupIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx
+  ON catalog_provider_option_query_cache (
+    provider_key,
+    profile_key,
+    profile_version,
+    ingestion_unit_key,
+    query_kind,
+    language_code,
+    parent_value
+  );`;
+
 export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_source_observations (
   observation_id text PRIMARY KEY,
   sync_run_id text NULL,
@@ -96,14 +141,6 @@ ALTER TABLE catalog_source_observations
   ADD COLUMN IF NOT EXISTS promotion_profile_key text NULL,
   ADD COLUMN IF NOT EXISTS promotion_profile_version text NULL,
   ADD COLUMN IF NOT EXISTS promotion_plan_fingerprint text NULL;
-
-ALTER TABLE catalog_source_observations
-  ALTER COLUMN source_profile_key DROP DEFAULT,
-  ALTER COLUMN source_profile_key SET NOT NULL,
-  ALTER COLUMN source_profile_version DROP DEFAULT,
-  ALTER COLUMN source_profile_version SET NOT NULL,
-  ALTER COLUMN source_mapping_fingerprint DROP DEFAULT,
-  ALTER COLUMN source_mapping_fingerprint SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS catalog_source_observations_provider_idx
   ON catalog_source_observations (provider_key, language_code);
@@ -305,12 +342,9 @@ CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
 );
 
 ALTER TABLE catalog_provider_integration_profile_versions
-  DROP COLUMN IF EXISTS compatibility_mode,
   ADD COLUMN IF NOT EXISTS ingestion_unit_key text NULL,
   ADD COLUMN IF NOT EXISTS migration_evidence_json jsonb NULL,
   ADD COLUMN IF NOT EXISTS authoring_audit_json jsonb NULL;
-
-DROP INDEX IF EXISTS catalog_provider_integration_profile_versions_active_idx;
 
 CREATE UNIQUE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_active_idx
   ON catalog_provider_integration_profile_versions (provider_key, ingestion_unit_key)
@@ -409,18 +443,9 @@ ALTER TABLE catalog_provider_option_query_cache
   ADD COLUMN IF NOT EXISTS profile_key text DEFAULT '',
   ADD COLUMN IF NOT EXISTS ingestion_unit_key text DEFAULT '';
 
-UPDATE catalog_provider_option_query_cache
-  SET profile_key = COALESCE(profile_key, ''),
-      ingestion_unit_key = COALESCE(ingestion_unit_key, '')
-  WHERE profile_key IS NULL OR ingestion_unit_key IS NULL;
-
 ALTER TABLE catalog_provider_option_query_cache
   ALTER COLUMN profile_key SET DEFAULT '',
-  ALTER COLUMN profile_key SET NOT NULL,
-  ALTER COLUMN ingestion_unit_key SET DEFAULT '',
-  ALTER COLUMN ingestion_unit_key SET NOT NULL;
-
-DROP INDEX IF EXISTS catalog_provider_option_query_cache_lookup_idx;
+  ALTER COLUMN ingestion_unit_key SET DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx
   ON catalog_provider_option_query_cache (
@@ -440,6 +465,7 @@ ${durableJobSchemaSql({
   jobsTable: "catalog_source_observation_bulk_review_jobs",
   eventsTable: "catalog_source_observation_bulk_review_job_events",
   notifyChannel: "catalog_source_observation_durable_job_events",
+  includeBootReshapes: false,
 })}
 
 ${durableJobWorkUnitSchemaSql({
@@ -451,6 +477,7 @@ ${durableJobSchemaSql({
   jobsTable: "catalog_source_observation_integration_durable_jobs",
   eventsTable: "catalog_source_observation_integration_job_events",
   notifyChannel: "catalog_source_observation_durable_job_events",
+  includeBootReshapes: false,
 })}
 
 ${durableJobWorkUnitSchemaSql({
@@ -460,6 +487,17 @@ ${durableJobWorkUnitSchemaSql({
 `;
 
 export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigration[] = [
+  ...durableJobSchemaMigrations({
+    jobsTable: "catalog_source_observation_bulk_review_jobs",
+  }),
+  ...durableJobSchemaMigrations({
+    jobsTable: "catalog_source_observation_integration_durable_jobs",
+  }),
+  {
+    migrationId: "20260703_catalog_source_observation_required_source_profile_columns",
+    description: "Enforce required Source Observation source-profile columns outside boot schema.",
+    statements: [catalogSourceObservationRequiredSourceProfileColumnsSql],
+  },
   {
     migrationId: "20260703_catalog_source_observation_integration_scope_summaries",
     description: "Backfill source-observation integration scope summaries and create landing-query indexes.",
@@ -476,6 +514,24 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
   );`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_latest_idx
   ON ${sourceObservationIntegrationScopeSummaryTable} (latest_observed_at DESC, provider_key, language_code);`,
+    ],
+  },
+  {
+    migrationId: "20260703_catalog_provider_profile_active_index_scope",
+    description: "Reshape active provider-profile index to include ingestion-unit scope.",
+    statements: [
+      catalogProviderIntegrationProfileVersionsActiveIndexReshapeSql,
+      catalogProviderIntegrationProfileVersionsActiveIndexSql,
+    ],
+  },
+  {
+    migrationId: "20260703_catalog_provider_option_query_cache_profile_lookup",
+    description: "Backfill option-query cache profile scope and reshape lookup index.",
+    statements: [
+      catalogProviderOptionQueryCacheProfileBackfillSql,
+      catalogProviderOptionQueryCacheRequiredProfileColumnsSql,
+      catalogProviderOptionQueryCacheLookupIndexReshapeSql,
+      catalogProviderOptionQueryCacheLookupIndexSql,
     ],
   },
 ];

@@ -1,3 +1,4 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
@@ -128,10 +129,11 @@ export type DurableJobStore<
   pruneTerminalJobs: (input: { completedBefore: string | Date; limit?: number }) => Promise<number>;
 }>;
 
-type DurableJobTables = Readonly<{
+export type DurableJobTables = Readonly<{
   jobsTable: string;
   eventsTable: string;
   notifyChannel?: string;
+  includeBootReshapes?: boolean;
 }>;
 
 type DurableJobRow = Readonly<{
@@ -163,6 +165,7 @@ type DurableJobEventRow = Readonly<{
 export function durableJobSchemaSql(input: DurableJobTables): string {
   const jobsTable = sqlIdentifier(input.jobsTable);
   const eventsTable = sqlIdentifier(input.eventsTable);
+  const includeBootReshapes = input.includeBootReshapes ?? true;
 
   return `
 CREATE TABLE IF NOT EXISTS ${jobsTable} (
@@ -190,13 +193,7 @@ ALTER TABLE ${jobsTable}
 ALTER TABLE ${jobsTable}
   ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NULL;
 
-UPDATE ${jobsTable}
-SET next_eligible_at = COALESCE(next_eligible_at, created_at, updated_at, now())
-WHERE next_eligible_at IS NULL;
-
-ALTER TABLE ${jobsTable}
-  ALTER COLUMN next_eligible_at SET DEFAULT now(),
-  ALTER COLUMN next_eligible_at SET NOT NULL;
+${includeBootReshapes ? durableJobNextEligibleAtBackfillSql(jobsTable) : ""}
 
 DO $$
 BEGIN
@@ -238,6 +235,34 @@ CREATE TABLE IF NOT EXISTS ${eventsTable} (
 CREATE INDEX IF NOT EXISTS ${eventsTable}_lookup_idx
   ON ${eventsTable} (job_id, sequence);
 `;
+}
+
+export function durableJobSchemaMigrations(input: Pick<DurableJobTables, "jobsTable">): readonly BcSchemaMigration[] {
+  const jobsTable = sqlIdentifier(input.jobsTable);
+  return [
+    {
+      migrationId: `20260703_${jobsTable}_next_eligible_at_backfill`,
+      description: `Backfill and require ${jobsTable}.next_eligible_at outside boot schema.`,
+      statements: [
+        `ALTER TABLE ${jobsTable}
+  ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE ${jobsTable}
+  ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NULL;`,
+        durableJobNextEligibleAtBackfillSql(jobsTable),
+      ],
+    },
+  ];
+}
+
+function durableJobNextEligibleAtBackfillSql(jobsTable: string): string {
+  return `UPDATE ${jobsTable}
+SET next_eligible_at = COALESCE(next_eligible_at, created_at, updated_at, now())
+WHERE next_eligible_at IS NULL;
+
+ALTER TABLE ${jobsTable}
+  ALTER COLUMN next_eligible_at SET DEFAULT now(),
+  ALTER COLUMN next_eligible_at SET NOT NULL;`;
 }
 
 export function createPostgresDurableJobStore<

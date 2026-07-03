@@ -4,6 +4,8 @@ import {
   bootstrapContextDatabase,
   composeModuleSchemaSql,
   eventSubscriptionSchemaSql,
+  SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING,
+  SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
   SCHEMA_MIGRATIONS_TABLE,
 } from "./index";
 
@@ -65,7 +67,12 @@ describe("bounded context runtime schema", () => {
       ],
     };
     await bootstrapContextDatabase(module, pool);
+    const firstBootQueryCount = queryLog.length;
     await bootstrapContextDatabase(module, pool);
+    const secondBootSql = queryLog
+      .slice(firstBootQueryCount)
+      .map((entry) => entry.sql)
+      .join("\n");
 
     const bootSchemaSql =
       queryLog.find((entry) => entry.sql.includes("CREATE TABLE IF NOT EXISTS event_store_events"))?.sql ?? "";
@@ -74,6 +81,10 @@ describe("bounded context runtime schema", () => {
     expect(client.release).toHaveBeenCalledTimes(2);
     expect(queryLog.filter((entry) => entry.sql.includes("pg_try_advisory_lock")).length).toBe(2);
     expect(queryLog.filter((entry) => entry.sql.includes("pg_advisory_unlock")).length).toBe(2);
+    expect(
+      queryLog.filter((entry) => entry.sql === `SET lock_timeout TO '${SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING}'`),
+    ).toHaveLength(2);
+    expect(queryLog.filter((entry) => entry.sql === "RESET lock_timeout")).toHaveLength(2);
     expect(queryLog.some((entry) => entry.sql.includes(`CREATE TABLE IF NOT EXISTS ${SCHEMA_MIGRATIONS_TABLE}`))).toBe(
       true,
     );
@@ -86,6 +97,9 @@ describe("bounded context runtime schema", () => {
     expect(
       queryLog.filter((entry) => entry.sql.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_")),
     ).toHaveLength(2);
+    expect(secondBootSql).not.toContain("UPDATE event_store_events");
+    expect(secondBootSql).not.toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_");
+    expect(secondBootSql).not.toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_");
     expect(appliedMigrations).toEqual(
       new Set([
         "20260628_event_store_context_columns_backfill",
@@ -93,6 +107,51 @@ describe("bounded context runtime schema", () => {
         "20260703_example_pages_concurrent_indexes",
       ]),
     );
+  });
+
+  it("waits past transient schema bootstrap lock contention up to the ceiling", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-03T00:00:00.000Z"));
+    try {
+      const appliedMigrations = new Set<string>();
+      let lockAttempts = 0;
+      const client = {
+        query: vi.fn(async (sql: string, values?: readonly unknown[]) => {
+          if (sql.includes("pg_try_advisory_lock")) {
+            lockAttempts += 1;
+            return { rows: [{ acquired: lockAttempts > 30 }] };
+          }
+          if (sql.includes(`SELECT 1 FROM ${SCHEMA_MIGRATIONS_TABLE}`)) {
+            return { rows: appliedMigrations.has(String(values?.[0])) ? [{ "?column?": 1 }] : [] };
+          }
+          if (sql.includes(`INSERT INTO ${SCHEMA_MIGRATIONS_TABLE}`)) {
+            appliedMigrations.add(String(values?.[0]));
+          }
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      };
+      const pool = {
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(async () => client),
+      };
+      const module = {
+        contextName: "example",
+        schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      };
+
+      const bootstrap = bootstrapContextDatabase(module, pool);
+      for (let index = 0; index < 31; index += 1) {
+        await vi.advanceTimersByTimeAsync(1_000);
+      }
+      await bootstrap;
+
+      expect(lockAttempts).toBe(31);
+      expect(SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS).toBeGreaterThan(30_000);
+      expect(client.release).toHaveBeenCalledWith(undefined);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("carries module schema migrations through API bootstrap", async () => {
