@@ -15,6 +15,7 @@ import {
 const baseEnv = {
   PLATFORM_CONTROL_DATABASE_URL: "postgresql://control:secret@db.example:25060/control?sslmode=require",
   DATABASE_URL_CHECKOUT: "postgresql://checkout:secret@db.example:25060/checkout?sslmode=require",
+  DATABASE_URL_PUBLIC_PRESENCE: "postgresql://public_presence:secret@db.example:25060/public_presence?sslmode=require",
 };
 
 function checkpoint(position, key = "checkout.session-projection:checkout:v2") {
@@ -34,6 +35,7 @@ describe("production readiness gate options", () => {
     expect(options.sourceContexts).toEqual([...DEFAULT_READINESS_SOURCE_CONTEXTS]);
     expect(options.budgetMs).toBe(DEFAULT_READINESS_BUDGET_MS);
     expect(options.contextDatabaseUrls.checkout).toBe(baseEnv.DATABASE_URL_CHECKOUT);
+    expect(options.contextDatabaseUrls["public-presence"]).toBe(baseEnv.DATABASE_URL_PUBLIC_PRESENCE);
     expect(options.outPath).toBe("artifacts/release-health/production-readiness-gate.json");
     expect(validateProductionReadinessGateOptions(options)).toEqual([]);
   });
@@ -52,6 +54,13 @@ describe("production readiness gate options", () => {
         error.includes("PLATFORM_CONTROL_DATABASE_URL"),
       ),
     ).toBe(true);
+  });
+
+  it("keeps required production smoke contexts even when configured contexts are narrower", () => {
+    const options = parseProductionReadinessGateArgs(["--source-contexts", "checkout"], baseEnv);
+
+    expect(options.sourceContexts).toEqual(["checkout", "public-presence"]);
+    expect(validateProductionReadinessGateOptions(options)).toEqual([]);
   });
 });
 
@@ -138,6 +147,43 @@ describe("readiness polling", () => {
     expect(readiness.readyAfterMs).toBeNull();
     expect(readiness.finalSamples.checkout.reasons).toContain("projection-checkpoint-behind-event-store-head");
   });
+
+  it("waits for all default source contexts before reporting ready", async () => {
+    let nowMs = 0;
+    let sampleCount = 0;
+    const samplesByContext = {
+      checkout: [
+        { head: "10", relayCursor: null, checkpoints: [checkpoint("10")] },
+        { head: "10", relayCursor: null, checkpoints: [checkpoint("10")] },
+      ],
+      "public-presence": [
+        { head: "20", relayCursor: null, checkpoints: [checkpoint("12", "waitlist-signups:public-presence:v1")] },
+        { head: "20", relayCursor: null, checkpoints: [checkpoint("20", "waitlist-signups:public-presence:v1")] },
+      ],
+    };
+    const deps = {
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms;
+      },
+      sampleSourceContext: async (contextName) => {
+        const attemptIndex = Math.floor(sampleCount / DEFAULT_READINESS_SOURCE_CONTEXTS.length);
+        sampleCount += 1;
+        return samplesByContext[contextName][Math.min(attemptIndex, samplesByContext[contextName].length - 1)];
+      },
+    };
+
+    const readiness = await pollForReadiness(
+      { sourceContexts: DEFAULT_READINESS_SOURCE_CONTEXTS, budgetMs: 60_000, pollIntervalMs: 5_000 },
+      deps,
+    );
+
+    expect(readiness.ready).toBe(true);
+    expect(readiness.readyAfterMs).toBe(5_000);
+    expect(readiness.finalSamples["public-presence"].checkpointGaps[0].checkpointKey).toBe(
+      "waitlist-signups:public-presence:v1",
+    );
+  });
 });
 
 describe("readiness evidence", () => {
@@ -152,7 +198,7 @@ describe("readiness evidence", () => {
     });
   }
 
-  it("builds warn-and-proceed evidence with the gate version and outcome", () => {
+  it("builds fail-closed evidence with the gate version and outcome", () => {
     const evidence = evidenceFor({
       ready: true,
       readyAfterMs: 15_000,
@@ -163,11 +209,11 @@ describe("readiness evidence", () => {
     });
 
     expect(evidence.schemaVersion).toBe(PRODUCTION_READINESS_GATE_VERSION);
-    expect(evidence.gateBehavior).toBe("warn-and-proceed");
+    expect(evidence.gateBehavior).toBe("fail-closed");
     expect(evidence.outcome).toBe("ready");
 
     const summary = renderReadinessStepSummary(evidence);
-    expect(summary).toContain("warn-and-proceed");
+    expect(summary).toContain("fail-closed");
     expect(summary).toContain("**ready**");
   });
 

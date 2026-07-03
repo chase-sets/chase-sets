@@ -818,18 +818,18 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
-  it("waits for post-deploy projection readiness before the production canaries (warn-and-proceed)", () => {
+  it("waits for post-deploy projection readiness before production smoke asserts", () => {
     const exportStep = workflowStep(platformProductionWorkflow, "Export production readiness database URLs");
     const readinessStep = workflowStep(platformProductionWorkflow, "Production post-deploy readiness gate");
 
-    // Ordering: after the smoke check and before the Stage 1 canary, so the
-    // canary measures steady state (#1237).
+    // Ordering: before the smoke check and Stage 1 canary, so projection-
+    // dependent production smoke assertions measure steady state (#4012).
     const smokeIndex = platformProductionWorkflow.lastIndexOf("- name: Smoke check");
     const exportIndex = platformProductionWorkflow.indexOf("- name: Export production readiness database URLs");
     const readinessIndex = platformProductionWorkflow.indexOf("- name: Production post-deploy readiness gate");
     const stage1Index = platformProductionWorkflow.indexOf("- name: Stage 1 production canary");
-    expect(smokeIndex).toBeLessThan(exportIndex);
     expect(exportIndex).toBeLessThan(readinessIndex);
+    expect(readinessIndex).toBeLessThan(smokeIndex);
     expect(readinessIndex).toBeLessThan(stage1Index);
 
     // The export step derives direct production URLs from Terraform state
@@ -838,23 +838,28 @@ describe("DigitalOcean platform configuration", () => {
     expect(exportStep).toContain("digitalocean_database_cluster");
     expect(exportStep).toContain("::add-mask::");
     expect(exportStep).toContain("PLATFORM_CONTROL_DATABASE_URL");
+    expect(exportStep).toContain('[...readinessContexts, "checkout", "public-presence", "control"]');
     expect(exportStep).toContain(
-      "READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout' }}",
+      "READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence' }}",
     );
-    expect(exportStep).toContain("vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true'");
+    expect(exportStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(exportStep).not.toContain("vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true'");
     expect(exportStep).toContain("continue-on-error: true");
 
-    // The gate is warn-and-proceed: it records the outcome but never fails
-    // the job. Stage 1 production canary remains the release gate.
+    // The gate records the bounded outcome and fails closed before
+    // projection-dependent smoke assertions when the budget expires.
     expect(readinessStep).toContain("node ./scripts/production-readiness-gate.mjs");
+    expect(readinessStep).toContain(
+      "READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout,public-presence' }}",
+    );
     expect(readinessStep).toContain(
       "READINESS_GATE_BUDGET_MS: ${{ vars.PRODUCTION_READINESS_GATE_BUDGET_MS || '300000' }}",
     );
     expect(readinessStep).toContain("set +e");
     expect(readinessStep).toContain('echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"');
-    expect(readinessStep).toContain("warn-and-proceed");
+    expect(readinessStep).toContain("failing closed before projection-dependent smoke assertions");
     expect(readinessStep).not.toContain("exit 1");
-    expect(readinessStep).not.toContain('exit "$gate_exit"');
+    expect(readinessStep).toContain('exit "$gate_exit"');
     expect(readinessStep).toContain("artifacts/release-health/production-readiness-gate.json");
     expect(platformProductionWorkflow).toContain("artifacts/release-health/production-readiness-gate.json");
   });

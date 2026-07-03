@@ -3,15 +3,15 @@
 //
 // Polls until the wave source contexts' projection checkpoints reach the
 // event-store head (steady state) or a bounded budget expires, so the
-// production canaries measure steady-state behavior instead of post-deploy
+// production smoke checks measure steady-state behavior instead of post-deploy
 // catch-up. Reuses the read-only reconciliation audit machinery from
 // scripts/staging-wake-drills.mjs against the production database URLs the
 // deploy job derives from Terraform state.
 //
-// This gate is warn-and-proceed by design: the deploy workflow records the
-// outcome while Stage 1 production canary remains the release gate. The relay cursor is
-// recorded as informational context only and never affects readiness, because
-// production runs with the relay killed until push enablement.
+// This gate fails closed when the budget expires so projection-dependent smoke
+// assertions do not race post-deploy catch-up. The relay cursor is recorded as
+// informational context only and never affects readiness, because production
+// runs with the relay killed until push enablement.
 //
 // Exit codes: 0 ready, 1 budget expired (not ready), 2 configuration error.
 import { appendFileSync } from "node:fs";
@@ -26,14 +26,16 @@ export const DEFAULT_READINESS_BUDGET_MS = 300_000;
 export const MIN_READINESS_BUDGET_MS = 5_000;
 export const MAX_READINESS_BUDGET_MS = 900_000;
 export const DEFAULT_READINESS_POLL_INTERVAL_MS = 5_000;
-export const DEFAULT_READINESS_SOURCE_CONTEXTS = Object.freeze(["checkout"]);
+export const DEFAULT_READINESS_SOURCE_CONTEXTS = Object.freeze(["checkout", "public-presence"]);
 
 export function parseProductionReadinessGateArgs(argv, env = process.env) {
+  const sourceContexts = readSourceContexts(
+    readOption(argv, "--source-contexts") ?? readEnv("READINESS_GATE_SOURCE_CONTEXTS", env),
+    DEFAULT_READINESS_SOURCE_CONTEXTS,
+  );
+
   return {
-    sourceContexts: readCsv(
-      readOption(argv, "--source-contexts") ?? readEnv("READINESS_GATE_SOURCE_CONTEXTS", env),
-      DEFAULT_READINESS_SOURCE_CONTEXTS,
-    ),
+    sourceContexts,
     budgetMs: clampInteger(
       readOption(argv, "--budget-ms") ?? readEnv("READINESS_GATE_BUDGET_MS", env),
       DEFAULT_READINESS_BUDGET_MS,
@@ -52,10 +54,7 @@ export function parseProductionReadinessGateArgs(argv, env = process.env) {
       "artifacts/release-health/production-readiness-gate.json",
     controlDatabaseUrl: readEnv("PLATFORM_CONTROL_DATABASE_URL", env),
     contextDatabaseUrls: Object.fromEntries(
-      readCsv(
-        readOption(argv, "--source-contexts") ?? readEnv("READINESS_GATE_SOURCE_CONTEXTS", env),
-        DEFAULT_READINESS_SOURCE_CONTEXTS,
-      ).map((contextName) => [contextName, readEnv(contextDatabaseEnvName(contextName), env)]),
+      sourceContexts.map((contextName) => [contextName, readEnv(contextDatabaseEnvName(contextName), env)]),
     ),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
@@ -163,7 +162,7 @@ export function buildReadinessEvidence(input) {
   const evidence = {
     schemaVersion: PRODUCTION_READINESS_GATE_VERSION,
     environment: "production",
-    gateBehavior: "warn-and-proceed",
+    gateBehavior: "fail-closed",
     checkedAt: input.checkedAt,
     completedAt: input.completedAt,
     sourceContexts: input.sourceContexts,
@@ -191,7 +190,7 @@ export function renderReadinessStepSummary(evidence) {
   const lines = [
     "## Production post-deploy readiness gate",
     "",
-    `- Outcome: **${evidence.outcome}** (warn-and-proceed; Stage 1 production canary is the release gate)`,
+    `- Outcome: **${evidence.outcome}** (fail-closed before projection-dependent production smoke asserts)`,
     `- Budget: ${evidence.budgetMs} ms; ready after: ${evidence.readyAfterMs ?? "budget expired"}${
       evidence.readyAfterMs !== null && evidence.readyAfterMs !== undefined ? " ms" : ""
     } across ${evidence.sampleCount} sample(s)`,
@@ -220,6 +219,10 @@ function readCsv(value, fallback) {
     .map((entry) => entry.trim())
     .filter(Boolean);
   return entries.length > 0 ? [...new Set(entries)] : [...fallback];
+}
+
+function readSourceContexts(value, requiredContexts) {
+  return [...new Set([...readCsv(value, requiredContexts), ...requiredContexts])];
 }
 
 function clampInteger(value, fallback, minimum, maximum) {
