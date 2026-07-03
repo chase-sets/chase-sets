@@ -124,6 +124,10 @@ export const SUBCOMMANDS = {
     script: "postgres-growth-evidence.mjs",
     description: "Support-safe Postgres growth and relation-size evidence.",
   },
+  "postgres:slow-query-digest": {
+    script: "postgres-slow-query-digest.mjs",
+    description: "Support-safe pg_stat_statements slow-query aggregate digest.",
+  },
   "read-consistency:route-matrix-evidence": {
     script: "read-consistency-route-matrix-evidence.mjs",
     description: "Prometheus-backed read-consistency route matrix freshness evidence.",

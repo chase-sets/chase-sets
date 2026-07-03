@@ -114,6 +114,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, rebuild triage, and poison-event/blocked-stream repair.
+- [Postgres Slow Query Digest](./runbooks/postgres-slow-query-digest.md): support-safe `pg_stat_statements` aggregate evidence, interpretation, redaction exclusions, and extension ownership boundary.
 - [Push-Wake Rollout Controls](./runbooks/push-wake-rollout-controls.md): kill-switch matrix, rollback recipes, verification, and scope assessment for the push-first projection wake runtime.
 - [Push-Wake Operations](./runbooks/push-wake-operations.md): incident playbook for the push-wake pipeline — Grafana-first latency stage map, structural status inspection, failure classes, Checkout triage, and safe inspection commands.
 - [Push-Wake Recovery Drills](./runbooks/push-wake-recovery-drills.md): disaster-recovery drill catalog — staging reconciliation/burst drill workflow, operator-driven failover/kill-switch/cursor-loss procedures, and evidence rules.
