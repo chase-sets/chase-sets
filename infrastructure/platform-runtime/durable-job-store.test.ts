@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
+  durableJobSchemaMigrations,
   durableJobSchemaSql,
   DurableJobHandoffError,
   runDurableJobSideEffect,
@@ -34,6 +35,30 @@ describe("durable job store", () => {
     expect(sql).toContain("inventory_import_batch_jobs_claim_eligibility_idx");
     expect(sql).toContain("(event_context->>'tenantId')");
     expect(sql).toContain("PRIMARY KEY (job_id, sequence)");
+  });
+
+  it("can move next-eligible-at backfills out of boot schema SQL", () => {
+    const sql = durableJobSchemaSql({
+      jobsTable: "catalog_source_observation_jobs",
+      eventsTable: "catalog_source_observation_job_events",
+      includeBootReshapes: false,
+    });
+    const migrations = durableJobSchemaMigrations({
+      jobsTable: "catalog_source_observation_jobs",
+    });
+
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NULL");
+    expect(sql).not.toContain("UPDATE catalog_source_observation_jobs");
+    expect(sql).not.toContain("ALTER COLUMN next_eligible_at SET NOT NULL");
+    expect(migrations).toEqual([
+      expect.objectContaining({
+        migrationId: "20260703_catalog_source_observation_jobs_next_eligible_at_backfill",
+        statements: [
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NULL"),
+          expect.stringContaining("UPDATE catalog_source_observation_jobs"),
+        ],
+      }),
+    ]);
   });
 
   it("enqueues and claims jobs with ordered status events", async () => {

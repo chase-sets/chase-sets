@@ -166,12 +166,25 @@ describe("platform api bootstrap", () => {
        FROM ${SCHEMA_MIGRATIONS_TABLE}
        ORDER BY migration_id ASC`,
     );
-
-    expect(migrations.rows.map((row) => row.migration_id)).toEqual([
+    const migrationIds = migrations.rows.map((row) => row.migration_id);
+    const expectedMigrationIds = [
       "20260628_event_store_context_columns_backfill",
       "20260628_event_store_events_concurrent_indexes",
-      "20260703_catalog_source_observation_integration_scope_summaries",
-    ]);
+      ...(catalogContext.module.schemaMigrations ?? []).map((migration) => migration.migrationId),
+    ].sort();
+
+    expect(expectedMigrationIds).toHaveLength(new Set(expectedMigrationIds).size);
+    expect(migrationIds).toHaveLength(new Set(migrationIds).size);
+    expect(migrationIds).toEqual(expectedMigrationIds);
+
+    await bootstrapContextDatabase(catalogContext.module, pools.catalog);
+    const migrationsAfterThirdBoot = await pools.catalog.query<Readonly<{ migration_id: string }>>(
+      `SELECT migration_id
+       FROM ${SCHEMA_MIGRATIONS_TABLE}
+       ORDER BY migration_id ASC`,
+    );
+
+    expect(migrationsAfterThirdBoot.rows.map((row) => row.migration_id)).toEqual(migrationIds);
   }, 120_000);
 
   it("limits long-lived environment bootstrap to critical and integration data", async () => {

@@ -20,6 +20,7 @@ import {
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
 import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
+import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -3296,6 +3297,11 @@ export async function runStructureCheck(options = {}) {
   }
   for (const warning of crossContextReadInventoryResult.warnings) {
     warnings.push(warning);
+  }
+
+  const bootSchemaDdlDisciplineViolations = await findBootSchemaDdlDisciplineViolations({ repoRoot });
+  for (const violation of bootSchemaDdlDisciplineViolations) {
+    violations.push(`${violation.file}:${violation.line}: ${violation.message}`);
   }
 
   const workspaceTsconfigResult = await checkWorkspaceTsconfigExtends({ repoRoot });
