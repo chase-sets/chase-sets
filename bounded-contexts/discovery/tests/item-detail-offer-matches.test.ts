@@ -444,6 +444,9 @@ describe("item detail offer matches", () => {
     ]);
     expect(offerQueries[0]).toContain("offer.status = 'submitted'");
     expect(offerQueries[0]).not.toContain("offer.status IN ('submitted', 'accepted')");
+    expect(offerQueries[0]).toContain("offer.offer_id");
+    expect(offerQueries[0]).not.toContain("offer.*");
+    expect(offerQueries[0]).toContain("LIMIT 25");
   });
 
   it("summarizes only checkout-startable listings on item detail payloads", async () => {
@@ -553,5 +556,9 @@ describe("item detail offer matches", () => {
     expect(marketQueries[0]).toContain("COALESCE(listing.active_held_quantity, 0)");
     expect(marketQueries[1]).toContain("listing.product_measure_snapshot IS NOT NULL");
     expect(marketQueries[1]).toContain("WHERE visible_quantity > 0");
+    expect(marketQueries[1]).toContain("listing.listing_id");
+    expect(marketQueries[1]).not.toContain("listing.*");
+    expect(marketQueries[1]).not.toContain("SELECT *");
+    expect(marketQueries[1]).toContain("LIMIT 25");
   });
 });

@@ -14,6 +14,8 @@ import type {
   DiscoverySellerInventoryItem,
 } from "../../../support/client-support/contracts";
 
+const ITEM_DETAIL_PUBLIC_MARKET_ROW_LIMIT = 25;
+
 export type DiscoveryItemDetailRow = Readonly<{
   catalog_item_id: string;
   slug: string;
@@ -269,7 +271,27 @@ export async function getDiscoveryItemDetail(
   itemIdOrSlug: string,
 ): Promise<DiscoveryItemDetailRow | null> {
   const result = await db.query<BaseDiscoveryItemDetailRow>(
-    `SELECT page.*
+    `SELECT
+       page.catalog_item_id,
+       page.slug,
+       page.language_code,
+       page.title_i18n,
+       page.title,
+       page.subtitle_i18n,
+       page.subtitle,
+       page.description_i18n,
+       page.description,
+       page.blueprint_id,
+       page.blueprint,
+       page.status,
+       page.field_values,
+       page.categories,
+       page.tags,
+       page.image_urls,
+       page.product_asset_sets,
+       page.image_fallback,
+       page.product_schema,
+       page.updated_at::text AS updated_at
      FROM discovery_item_detail_pages AS page
      LEFT JOIN discovery_slug_redirects AS redirect
        ON redirect.entity_kind = 'item'
@@ -324,22 +346,71 @@ export async function getDiscoveryItemDetail(
   >(
     `WITH startable_listing AS (
        SELECT
-         listing.*,
+         listing.listing_id,
+         listing.listing_slug,
+         listing.product_slug,
+         listing.account_id,
+         listing.inventory_item_id,
+         listing.catalog_catalog_item_id,
+         listing.product_id,
+         listing.item_title,
+         listing.item_subtitle,
+         listing.selected_options,
+         listing.product_summary,
+         listing.storage_location_name,
+         listing.ship_from_code,
+         listing.price_amount,
+         listing.shipping_allowance_percentage_bps,
+         listing.quantity_cap,
+         listing.max_units_per_order,
+         listing.max_units_per_day,
+         listing.max_units_per_customer_account,
+         listing.status,
          account.seller_slug,
          account.seller_display_name,
          account.average_rating::text AS seller_average_rating,
          COALESCE(account.review_count, 0)::integer AS seller_review_count,
-         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
+         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity,
+         listing.created_at::text AS created_at,
+         listing.updated_at::text AS updated_at
        FROM discovery_market_listings AS listing
        LEFT JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
        WHERE listing.catalog_catalog_item_id = $1
          AND ${buyerVisibleListingPredicateSql("listing", "account")}
      )
-     SELECT *
+     SELECT
+       listing_id,
+       listing_slug,
+       product_slug,
+       account_id,
+       inventory_item_id,
+       catalog_catalog_item_id,
+       product_id,
+       item_title,
+       item_subtitle,
+       selected_options,
+       product_summary,
+       storage_location_name,
+       ship_from_code,
+       price_amount,
+       shipping_allowance_percentage_bps,
+       quantity_cap,
+       max_units_per_order,
+       max_units_per_day,
+       max_units_per_customer_account,
+       status,
+       seller_slug,
+       seller_display_name,
+       seller_average_rating,
+       seller_review_count,
+       visible_quantity,
+       created_at,
+       updated_at
      FROM startable_listing
      WHERE visible_quantity > 0
-     ORDER BY price_amount::numeric ASC, updated_at DESC, listing_id ASC`,
+     ORDER BY price_amount::numeric ASC, updated_at DESC, listing_id ASC
+     LIMIT ${ITEM_DETAIL_PUBLIC_MARKET_ROW_LIMIT}`,
     [item.catalog_item_id],
   );
 
@@ -349,11 +420,25 @@ export async function getDiscoveryItemDetail(
     }
   >(
     `SELECT
-       offer.*,
+       offer.offer_id,
+       offer.buyer_account_id,
+       offer.catalog_catalog_item_id,
+       offer.product_id,
+       offer.item_title,
+       offer.item_subtitle,
+       offer.selected_options,
+       offer.product_summary,
+       offer.price_amount,
+       offer.quantity_requested,
+       offer.status,
+       offer.accepted_seller_account_id,
+       offer.accepted_at::text AS accepted_at,
        account.seller_slug AS buyer_slug,
        account.seller_display_name AS buyer_display_name,
        account.average_rating::text AS buyer_average_rating,
-       COALESCE(account.review_count, 0)::integer AS buyer_review_count
+       COALESCE(account.review_count, 0)::integer AS buyer_review_count,
+       offer.created_at::text AS created_at,
+       offer.updated_at::text AS updated_at
      FROM discovery_offer_demand_matches AS offer
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
@@ -363,7 +448,8 @@ export async function getDiscoveryItemDetail(
        offer.price_amount::numeric DESC,
        offer.quantity_requested DESC,
        offer.created_at ASC,
-       offer.offer_id ASC`,
+       offer.offer_id ASC
+     LIMIT ${ITEM_DETAIL_PUBLIC_MARKET_ROW_LIMIT}`,
     [item.catalog_item_id],
   );
 
