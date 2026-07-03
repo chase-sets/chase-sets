@@ -860,8 +860,8 @@ running BUILDING 2026-06-19T22:05:00Z
         }
         throw new Error(`Unexpected JSON command: ${args.join(" ")}`);
       },
-      commandOutput: async (command, args) => {
-        calls.push([command, args]);
+      commandOutput: async (command, args, options = {}) => {
+        calls.push([command, args, options]);
         if (args[1] === "list-deployments") {
           return "old ACTIVE 2026-06-19T21:00:00Z\nfailed ERROR 2026-06-19T22:00:00Z\n";
         }
@@ -884,7 +884,7 @@ running BUILDING 2026-06-19T22:05:00Z
     });
     expect(warnings).toEqual([]);
     expect(calls).toEqual([
-      ["doctl", ["apps", "list-deployments", "app-id", "--format", "ID,Phase,Updated", "--no-header"]],
+      ["doctl", ["apps", "list-deployments", "app-id", "--format", "ID,Phase,Updated", "--no-header"], {}],
       ["doctl", ["apps", "get-deployment", "app-id", "failed", "--output", "json"]],
       [
         "doctl",
@@ -901,10 +901,45 @@ running BUILDING 2026-06-19T22:05:00Z
           "50",
           "--no-prefix",
         ],
+        { timeoutMs: 30_000 },
       ],
     ]);
     expect(logs.join("\n")).toContain("platform-bootstrap: ERROR - DeployContainerExitNonZero");
     expect(logs.join("\n")).toContain("Catalog integration seed conflict.");
+  });
+
+  it("bounds stalled deployment log diagnostics and reports the failed log source", async () => {
+    const warnings = [];
+
+    const result = await collectDeploymentDiagnostics("app-id", {
+      componentNames: ["platform-worker"],
+      logTypes: ["run"],
+      deploymentId: "failed-deployment",
+      commandJson: async () => [],
+      commandOutput: async (_command, args, options = {}) => {
+        expect(args[1]).toBe("logs");
+        expect(options.timeoutMs).toBe(125);
+        const error = new Error("Command failed: doctl apps logs timed out");
+        error.signal = "SIGTERM";
+        throw error;
+      },
+      commandTimeoutMs: 125,
+      log: () => {},
+      warn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({
+      deploymentId: "failed-deployment",
+      logs: [
+        {
+          componentName: "platform-worker",
+          logType: "run",
+          ok: false,
+          error: expect.stringContaining("timed out"),
+        },
+      ],
+    });
+    expect(warnings).toEqual([expect.stringContaining("Unable to load platform-worker run logs")]);
   });
 
   it("parses deployment diagnostics details JSON from a failed doctl command stdout", async () => {
