@@ -1,5 +1,9 @@
 # ADR 0001: Platform API Observability
 
+## Status
+
+Accepted
+
 ## Decision
 
 Use OpenTelemetry in application deployables and an open-source LGTM stack for local/self-hosted observability. The application emits OTLP traces and metrics, keeps logs as JSON stdout, and propagates W3C `traceparent` / `tracestate` instead of custom correlation headers.

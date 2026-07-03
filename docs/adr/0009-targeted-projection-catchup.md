@@ -67,6 +67,7 @@ Create a new design issue before implementing any fast-path catchup if all of th
 ## Consequences
 
 - #1085 is satisfied by an explicit no-go decision for this milestone.
+- ADR 0010 supersedes only the no-go on worker wake signals; it does not change this ADR's rejection of inline route-time projection catchup.
 - #1072 is not required for milestone closure and should be closed as not planned.
 - #1082, #1074, #1075, and #1086 remain the right closure path for proving the baseline contract in staging and production evidence.
 - Future work must not add a route-time projection runner or hidden synchronous drain without a new accepted ADR or design record.

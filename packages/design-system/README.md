@@ -243,7 +243,7 @@ Provider-owned embedded flows still use design-system token mappings. See [Embed
 
 ## Validation
 
-Use the real marketplace and admin applications as the default visual validation surfaces, and use `npm run test:design-system` for component-level regression checks.
+Use the real marketplace and admin applications as the default visual validation surfaces, and use `pnpm run test:design-system` for component-level regression checks.
 
 Use `packages/design-system/src/` as the canonical component inventory. Avoid maintaining hand-written component lists that can drift from exports.
 

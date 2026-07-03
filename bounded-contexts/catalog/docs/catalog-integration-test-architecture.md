@@ -10,11 +10,11 @@ Catalog Integration Control Plane tests should prove the decomposed boundaries d
 | Catalog Integration Engine semantics | Catalog Source Observations | `features/source-observations/api/catalog-integration-engine.test.ts` |
 | Provider profile contracts and section parsing | Catalog Source Observations | `features/source-observations/api/provider-profile-contract-harness.test.ts`, `provider-profile-admin-contracts.test.ts`, `provider-profile-section-registry.test.ts`, `provider-profile-section-projection.test.ts` |
 | Runtime facets and jobs | Catalog Source Observations | `features/source-observations/api/runtime-service-facets.test.ts`, `runtime.test.ts` |
-| API permissions, validation, rollout, and streams | Catalog Source Observations API | `features/source-observations/api/route.test.ts` |
+| API permissions, validation, rollout, and streams | Catalog Source Observations API | `features/source-observations/api/route-integration-jobs.test.ts`, `route-provider-profile-admin.test.ts`, `route-review-controls.test.ts` |
 | Admin Control Plane workbench read model | Catalog Source Observations UI | `features/source-observations/ui/primary-workbench-core-read-model.test.ts`, `primary-workbench-profile-authoring.test.ts`, `primary-workbench-validation-readiness.test.ts`, `primary-workbench-lifecycle-recovery.test.ts`, `primary-workbench-import-jobs.test.ts`, `primary-workbench-health-triage.test.ts`, `primary-workbench-source-observation-review.test.ts`, `primary-workbench-conflict-resolution.test.ts`, `primary-workbench-governance-controls.test.ts`, `primary-workbench-audit-evidence.test.ts` |
 | Admin Control Plane rendered workflows | Catalog Source Observations UI | `features/source-observations/ui/primary-workbench-page.test.tsx` |
 | Admin Control Plane route context and copy | Catalog Source Observations UI | `features/source-observations/ui/primary-workbench-route-context.test.ts`, `primary-workbench-copy.test.ts` |
-| Operator journeys and no-confusion acceptance | Catalog acceptance and deployable E2E | `tests/operator-acceptance-journeys.test.ts`, `features/source-observations/api/catalog-integration-no-confusion-ux-acceptance.test.ts` |
+| Operator journeys and no-confusion acceptance | Catalog acceptance and deployable E2E | `tests/operator-acceptance-journeys.test.ts`, `features/source-observations/tests/catalog-integration-no-confusion-ux-acceptance.test.ts` |
 
 ## Rules
 

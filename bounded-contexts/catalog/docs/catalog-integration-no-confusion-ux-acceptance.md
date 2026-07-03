@@ -8,8 +8,8 @@ Health, profile authoring, validation, lifecycle recovery, RBAC, rollout control
 
 The executable acceptance packet lives in:
 
-- `bounded-contexts/catalog/features/source-observations/api/catalog-integration-no-confusion-ux-acceptance.ts`
-- `bounded-contexts/catalog/features/source-observations/api/catalog-integration-no-confusion-ux-acceptance.test.ts`
+- `bounded-contexts/catalog/features/source-observations/tests/catalog-integration-no-confusion-ux-acceptance.ts`
+- `bounded-contexts/catalog/features/source-observations/tests/catalog-integration-no-confusion-ux-acceptance.test.ts`
 
 The packet uses schema `catalog-no-confusion-ux-acceptance/v1` and checklist version `catalog-no-confusion-checklist/2026-06-11`. It fails closed unless it includes:
 
