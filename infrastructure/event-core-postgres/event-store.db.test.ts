@@ -3,7 +3,7 @@ import type { JsonObject } from "@chase-sets/primitives/json";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY, createPostgresEventStore } from "./event-store";
 import { createIsolatedPostgresTestSchema, type IsolatedPostgresTestSchema } from "./postgres-db-test-support";
-import type { PgPoolClient } from "./types";
+import { withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
@@ -76,6 +76,27 @@ describeDb("postgres event store real database integration", () => {
         currentVersion: 2,
       },
     });
+  });
+
+  it("keeps the same pooled client available after rolled-back business errors", async () => {
+    const pool = schema.pool as PgTransactionalPool & Readonly<{ idleCount: number; totalCount: number }>;
+
+    await withPgTransaction(pool, async () => "warm");
+    const baseline = {
+      idleCount: pool.idleCount,
+      totalCount: pool.totalCount,
+    };
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await expect(
+        withPgTransaction(pool, async () => {
+          throw new Error(`business conflict ${attempt}`);
+        }),
+      ).rejects.toThrow(`business conflict ${attempt}`);
+    }
+
+    expect(pool.totalCount).toBe(baseline.totalCount);
+    expect(pool.idleCount).toBe(baseline.idleCount);
   });
 
   it("reads a stream from the requested stream version in stream-version order", async () => {

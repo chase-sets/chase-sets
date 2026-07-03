@@ -475,6 +475,7 @@ export const sourceContextWakeRegistry = [
       "checkout:checkout.payment-affordance-projection",
       "checkout:checkout.payment-summary-projection",
       "ordering:ordering-payment-capture",
+      "payments:payments-order-cancellation-refund-effect",
       "payments:payments-payment-projection",
       "settlement:settlement-payment-input-projection",
     ],

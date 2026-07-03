@@ -41,12 +41,62 @@ export async function withPgTransaction<T>(
     await options.afterCommit?.(client, result);
     return result;
   } catch (error) {
-    releaseError = error;
     if (!committed) {
-      await client.query("ROLLBACK").catch(() => undefined);
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        releaseError = rollbackError;
+      }
+    }
+    if (releaseError === undefined && isPgConnectionLevelError(error)) {
+      releaseError = error;
     }
     throw error;
   } finally {
     client.release(releaseError);
   }
+}
+
+export function isPgConnectionLevelError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const candidate = error as Readonly<{
+    code?: unknown;
+    message?: unknown;
+  }>;
+  const code = typeof candidate.code === "string" ? candidate.code.toUpperCase() : "";
+  if (
+    code === "ECONNRESET" ||
+    code === "ECONNREFUSED" ||
+    code === "EPIPE" ||
+    code === "ETIMEDOUT" ||
+    code === "ENOTFOUND" ||
+    code === "08000" ||
+    code === "08001" ||
+    code === "08003" ||
+    code === "08004" ||
+    code === "08006" ||
+    code === "08007" ||
+    code === "08P01" ||
+    code === "57P01" ||
+    code === "57P02" ||
+    code === "57P03"
+  ) {
+    return true;
+  }
+
+  if (typeof candidate.message !== "string") {
+    return false;
+  }
+
+  const message = candidate.message.toLowerCase();
+  return (
+    message.includes("connection terminated") ||
+    message.includes("connection ended unexpectedly") ||
+    message.includes("client has encountered a connection error") ||
+    message.includes("connection is not queryable") ||
+    message.includes("terminating connection")
+  );
 }
