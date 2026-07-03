@@ -11,6 +11,17 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createPaymentRuntime } from "./runtime";
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function createInMemoryEventStore() {
   let globalPosition = 0;
   const streams = new Map<string, StoredEvent[]>();
@@ -427,13 +438,11 @@ describe("payment runtime", () => {
   it("single-flights concurrent checkout-sourced payment creation", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
-    let releaseProviderSession: (() => void) | null = null;
+    const releaseProviderSession = createDeferred();
     const providerSessionEntered = new Promise<void>((resolve) => {
       processorGateway.createPaymentSession.mockImplementation(async (input: { paymentId: string }) => {
         resolve();
-        await new Promise<void>((release) => {
-          releaseProviderSession = release;
-        });
+        await releaseProviderSession.promise;
         return {
           processorName: "stripe" as const,
           processorPaymentKind: "payment-intent" as const,
@@ -468,7 +477,7 @@ describe("payment runtime", () => {
     const first = services.createAccountPayment(input, context);
     await providerSessionEntered;
     const second = services.createAccountPayment(input, context);
-    releaseProviderSession?.();
+    releaseProviderSession.resolve();
     const [firstPayment, secondPayment] = await Promise.all([first, second]);
 
     expect(firstPayment.payment_id).toBe(secondPayment.payment_id);
@@ -483,13 +492,11 @@ describe("payment runtime", () => {
   ])("rejects the same order set with a %s while a payment is active", async (_label, conflictingSource) => {
     const { eventStore } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
-    let releaseProviderSession: (() => void) | null = null;
+    const releaseProviderSession = createDeferred();
     const providerSessionEntered = new Promise<void>((resolve) => {
       processorGateway.createPaymentSession.mockImplementation(async (input: { paymentId: string }) => {
         resolve();
-        await new Promise<void>((release) => {
-          releaseProviderSession = release;
-        });
+        await releaseProviderSession.promise;
         return {
           processorName: "stripe" as const,
           processorPaymentKind: "payment-intent" as const,
@@ -538,7 +545,7 @@ describe("payment runtime", () => {
       ),
     ).rejects.toMatchObject({ code: "active_payment_exists_for_order_set" });
 
-    releaseProviderSession?.();
+    releaseProviderSession.resolve();
     await first;
     expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
   });
