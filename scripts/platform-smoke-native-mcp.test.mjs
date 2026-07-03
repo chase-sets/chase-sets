@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   isNativeMcpAnonymousDiscoveryRejected,
   isNativeMcpPermissionBoundaryError,
+  isNativeMcpPermissionBoundaryResult,
+  readNativeMcpToolTextMessages,
   readNativeMcpToolStructuredContent,
+  summarizeNativeMcpImportSourceKeys,
 } from "./platform-smoke-native-mcp.mjs";
 
 function responseWithStatus(status) {
@@ -32,6 +35,18 @@ describe("native MCP platform smoke", () => {
     expect(isNativeMcpPermissionBoundaryError({ message: "Method not found." }, "inventory.view")).toBe(false);
   });
 
+  it("recognizes permission boundaries returned as MCP tool results", () => {
+    const result = {
+      isError: true,
+      content: [{ type: "text", text: "Missing required permission: inventory.view." }],
+    };
+
+    expect(readNativeMcpToolTextMessages(result)).toEqual(["Missing required permission: inventory.view."]);
+    expect(isNativeMcpPermissionBoundaryResult(result, "inventory.view")).toBe(true);
+    expect(isNativeMcpPermissionBoundaryResult({ ...result, isError: false }, "inventory.view")).toBe(false);
+    expect(isNativeMcpPermissionBoundaryResult(result, "inventory.edit")).toBe(false);
+  });
+
   it("reads native MCP tool structuredContent with a text JSON fallback", () => {
     expect(
       readNativeMcpToolStructuredContent({
@@ -45,5 +60,31 @@ describe("native MCP platform smoke", () => {
       }),
     ).toEqual({ items: [{ sourceKey: "tcgplayer-csv" }] });
     expect(readNativeMcpToolStructuredContent({ content: [{ type: "json", json: { items: [] } }] })).toBeNull();
+  });
+
+  it("summarizes import source keys for deploy smoke diagnostics", () => {
+    expect(
+      summarizeNativeMcpImportSourceKeys({
+        structuredContent: { items: [{ sourceKey: "shopify-csv" }, { sourceKey: "tcgplayer-csv" }] },
+      }),
+    ).toEqual({
+      hasExpectedSource: true,
+      sourceKeys: ["shopify-csv", "tcgplayer-csv"],
+      diagnostic: "Native MCP import source keys: shopify-csv, tcgplayer-csv.",
+    });
+    expect(
+      summarizeNativeMcpImportSourceKeys({
+        structuredContent: { items: [{ sourceKey: "native-csv" }] },
+      }),
+    ).toEqual({
+      hasExpectedSource: false,
+      sourceKeys: ["native-csv"],
+      diagnostic: "Native MCP import source keys: native-csv.",
+    });
+    expect(summarizeNativeMcpImportSourceKeys({ structuredContent: { total: 0 } })).toEqual({
+      hasExpectedSource: false,
+      sourceKeys: [],
+      diagnostic: "Native MCP import source result did not expose an items array. Structured keys: total.",
+    });
   });
 });
