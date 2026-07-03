@@ -143,6 +143,9 @@ describe("production database restore point", () => {
               stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tforking\t2026-06-28T09:30:01Z\n",
             };
           }
+          if (args[1] === "delete") {
+            return { stdout: "" };
+          }
           throw new Error(`Unexpected doctl call: ${args.join(" ")}`);
         },
       },
@@ -155,6 +158,7 @@ describe("production database restore point", () => {
       ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
+      ["databases", "delete", "db-fork-1", "--force"],
     ]);
     expect(sleeps).toEqual([30_000, 30_000, 5_000]);
     expect(result.record).toMatchObject({
@@ -172,6 +176,12 @@ describe("production database restore point", () => {
         timeoutMs: 65_000,
         pollIntervalMs: 30_000,
         elapsedMs: 65_000,
+      },
+      restorePointCleanup: {
+        attempted: true,
+        clusterId: "db-fork-1",
+        name: "cs-prod-rp-aaaaaaaa-12345-2",
+        status: "deleted",
       },
     });
     expect(result.record.errors).toEqual([
@@ -208,6 +218,9 @@ describe("production database restore point", () => {
               stdout: `${liveForkId}\tcs-prod-rp-c051382b-28617834359-1\tforking\t2026-07-02 20:08:49 +0000 UTC\n`,
             };
           }
+          if (args[1] === "delete") {
+            return { stdout: "" };
+          }
           throw new Error(`Unexpected doctl call: ${args.join(" ")}`);
         },
       },
@@ -217,6 +230,7 @@ describe("production database restore point", () => {
     expect(calls.map((call) => call.args)).toEqual([
       ["databases", "fork", "cs-prod-rp-c051382b-28617834359-1", "--restore-from-cluster-id", "db-prod-1"],
       ["databases", "get", liveForkId, "--format", "ID,Name,Status,Created", "--no-header"],
+      ["databases", "delete", liveForkId, "--force"],
     ]);
     expect(result.record).toMatchObject({
       result: "failure",
@@ -235,6 +249,12 @@ describe("production database restore point", () => {
         pollIntervalMs: 30 * 1000,
         elapsedMs: null,
       },
+      restorePointCleanup: {
+        attempted: true,
+        clusterId: liveForkId,
+        name: "cs-prod-rp-c051382b-28617834359-1",
+        status: "deleted",
+      },
     });
     expect(result.record.errors).toEqual([
       "doctl database fork failed before a restore-point cluster id was returned.",
@@ -243,6 +263,63 @@ describe("production database restore point", () => {
       `last observed cluster id: ${liveForkId}`,
       "last observed status: forking",
     ]);
+  });
+
+  it("records cleanup failure diagnostics when a failed restore-point fork cannot be deleted", async () => {
+    const deleteFailure = new Error("Command failed: doctl databases delete");
+    deleteFailure.code = 1;
+    deleteFailure.stderr = "Error: access_token=super-secret-token expired\n";
+    let nowMs = 0;
+
+    const result = await createProductionDbRestorePoint(
+      {
+        ...baseOptions,
+        forkTimeoutMs: 1_000,
+        forkPollIntervalMs: 1_000,
+      },
+      {
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+        execFile: async (_command, args) => {
+          if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
+            return {
+              stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
+            };
+          }
+          if (args[1] === "get") {
+            return {
+              stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tforking\t2026-06-28T09:30:01Z\n",
+            };
+          }
+          if (args[1] === "delete") {
+            throw deleteFailure;
+          }
+          throw new Error(`Unexpected doctl call: ${args.join(" ")}`);
+        },
+      },
+    );
+
+    expect(result.passesRestorePointGate).toBe(false);
+    expect(result.record.restorePointCleanup).toMatchObject({
+      attempted: true,
+      clusterId: "db-fork-1",
+      name: "cs-prod-rp-aaaaaaaa-12345-2",
+      status: "delete-failed",
+    });
+    expect(result.record.errors).toEqual([
+      "Timed out waiting for restore-point fork 'cs-prod-rp-aaaaaaaa-12345-2' to become online.",
+      "last observed cluster id: db-fork-1",
+      "last observed status: forking",
+      "doctl database delete failed for the failed restore-point fork.",
+      "exit code: 1",
+      "stderr: Error: access_token=[redacted] expired",
+    ]);
+    expect(JSON.stringify(result.record)).not.toContain("super-secret-token");
   });
 
   it("records redacted diagnostics when status polling fails", async () => {
@@ -267,6 +344,9 @@ describe("production database restore point", () => {
               stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
             };
           }
+          if (args[1] === "delete") {
+            return { stdout: "" };
+          }
           throw failure;
         },
       },
@@ -277,6 +357,12 @@ describe("production database restore point", () => {
       clusterId: "db-fork-1",
       name: "cs-prod-rp-aaaaaaaa-12345-2",
       status: "status-check-failed",
+    });
+    expect(result.record.restorePointCleanup).toMatchObject({
+      attempted: true,
+      clusterId: "db-fork-1",
+      name: "cs-prod-rp-aaaaaaaa-12345-2",
+      status: "deleted",
     });
     expect(result.record.errors).toEqual([
       "doctl database fork status check failed before the restore-point cluster became available.",
