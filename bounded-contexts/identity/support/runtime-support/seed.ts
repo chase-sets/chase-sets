@@ -554,6 +554,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       userId: demo.userId,
       accountId: demo.accountId,
       roleKey: "owner",
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -565,6 +566,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       userId: collector.userId,
       accountId: collector.accountId,
       roleKey: "owner",
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -576,6 +578,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       userId: support.userId,
       accountId: demo.accountId,
       roleKey: "viewer",
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -584,6 +587,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
     command: {
       type: "ChangeMembershipRole",
       roleKey: "manager",
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -605,6 +609,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       userId: suspended.userId,
       accountId: suspended.accountId,
       roleKey: "owner",
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -617,6 +622,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
         userId: persona.seed.userId,
         accountId: persona.seed.accountId,
         roleKey: "owner",
+        assignmentAuthority: { type: "system" },
       },
       context,
     });
@@ -648,6 +654,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       email: "support@chasesets.test",
       roleKey: "manager",
       expiresAt: isoDate("2026-05-01T00:00:00.000Z"),
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -669,6 +676,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       email: "declined@chasesets.test",
       roleKey: "viewer",
       expiresAt: isoDate("2026-05-03T00:00:00.000Z"),
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -687,6 +695,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       email: "cancelled@chasesets.test",
       roleKey: "viewer",
       expiresAt: isoDate("2026-05-05T00:00:00.000Z"),
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -705,6 +714,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       email: "expired@chasesets.test",
       roleKey: "viewer",
       expiresAt: isoDate("2026-03-04T00:00:00.000Z"),
+      assignmentAuthority: { type: "system" },
     },
     context,
   });
@@ -831,6 +841,7 @@ async function seedRepresentativeIdentityAccounts(
           userId: account.userId as UserId,
           accountId: account.accountId as AccountId,
           roleKey: account.roleKey,
+          assignmentAuthority: { type: "system" },
         },
         context,
       });

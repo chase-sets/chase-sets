@@ -124,6 +124,7 @@ describe("invitation runtime", () => {
         email: "invitee@example.com",
         roleKey: "viewer",
         expiresAt: "2026-07-01T00:00:00.000Z",
+        assignmentAuthority: { type: "system" },
       },
       context,
     });

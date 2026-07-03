@@ -2,7 +2,15 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AccountId, InvitationId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
-import { formatValidRoleKeys, parseRoleKey, PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
+import {
+  canAssignRole,
+  formatGrantableRoleKeys,
+  parseGrantableRoleKey,
+  parseRoleKey,
+  PLATFORM_ADMIN_ROLE_KEY,
+  type RoleAssignmentAuthority,
+  type RoleKey,
+} from "../../../support/runtime-support/common";
 import type { InvitationServices } from "./runtime";
 
 type InvitationAccountReader = Readonly<{
@@ -30,10 +38,19 @@ function invalidRoleKey() {
     error: {
       code: "validation_failed",
       message: t("identity.features.invitations.api.route.role.key.invalid", {
-        validRoleKeys: formatValidRoleKeys(),
+        validRoleKeys: formatGrantableRoleKeys(),
       }),
     },
   };
+}
+
+function actorRoleKey(actor: IdentityApiEnv["Variables"]["actor"]): RoleKey | null {
+  return actor ? parseRoleKey(actor.roleKey) : null;
+}
+
+function assignmentAuthority(actor: IdentityApiEnv["Variables"]["actor"]): RoleAssignmentAuthority {
+  const roleKey = actorRoleKey(actor);
+  return roleKey ? { type: "actor", roleKey } : { type: "system" };
 }
 
 function invalidAccountId() {
@@ -67,9 +84,13 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
     if (!canManageInvitation(c.var.actor, { account_id: accountId })) {
       return c.json(forbidden(), 403);
     }
-    const roleKey = parseRoleKey(body.roleKey);
+    const roleKey = parseGrantableRoleKey(body.roleKey);
     if (!roleKey) {
       return c.json(invalidRoleKey(), 400);
+    }
+    const roleKeyForActor = actorRoleKey(c.var.actor);
+    if (c.var.actor && (!roleKeyForActor || !canAssignRole(roleKeyForActor, roleKey))) {
+      return c.json(forbidden(), 403);
     }
     const account = await accounts.getAccountForRead(accountId);
     if (!account) {
@@ -84,6 +105,7 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
         email: body.email,
         roleKey,
         expiresAt: body.expiresAt,
+        assignmentAuthority: assignmentAuthority(c.var.actor),
       },
       context: c.get("context"),
     });

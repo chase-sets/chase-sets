@@ -4,8 +4,10 @@ import {
   EMPTY_EVENT_DATA,
   assert,
   assertNever,
+  assertRoleAssignmentAllowed,
   type EmptyEventData,
   type MembershipStatus,
+  type RoleAssignmentAuthority,
   type RoleKey,
 } from "../../../support/runtime-support/common";
 
@@ -31,11 +33,13 @@ export type GrantMembershipCommand = Readonly<{
   userId: UserId;
   accountId: AccountId;
   roleKey: RoleKey;
+  assignmentAuthority: RoleAssignmentAuthority;
 }>;
 
 export type ChangeMembershipRoleCommand = Readonly<{
   type: "ChangeMembershipRole";
   roleKey: RoleKey;
+  assignmentAuthority: RoleAssignmentAuthority;
 }>;
 
 export type RevokeMembershipCommand = Readonly<{ type: "RevokeMembership" }>;
@@ -81,6 +85,7 @@ export const decideMembership: AggregateDecider<MembershipState, MembershipComma
   switch (command.type) {
     case "GrantMembership":
       assert(state.id === null, "Membership has already been created.");
+      assertRoleAssignmentAllowed(command.roleKey, command.assignmentAuthority);
       return [
         {
           type: "identity.membership.granted",
@@ -96,6 +101,7 @@ export const decideMembership: AggregateDecider<MembershipState, MembershipComma
       requireCreatedMembership(state);
       assert(state.status === "active", "Only active memberships can change roles.");
       assert(state.roleKey !== command.roleKey, "Membership already uses that role.");
+      assertRoleAssignmentAllowed(command.roleKey, command.assignmentAuthority);
       return [
         {
           type: "identity.membership.role-changed",

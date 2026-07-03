@@ -6,7 +6,13 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { getApiKeySecretByPrefix } from "./features/api-keys/api/secret-store";
-import { formatValidRoleKeys, parseRoleKey, type PermissionKey, type RoleKey } from "./support/runtime-support/common";
+import {
+  formatGrantableRoleKeys,
+  IdentityDomainError,
+  parseGrantableRoleKey,
+  type GrantableRoleKey,
+  type PermissionKey,
+} from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";
 import { userRoutes } from "./features/users/api/route";
@@ -188,6 +194,7 @@ async function createPersonalIdentityForAuth(
       userId,
       accountId,
       roleKey: "owner",
+      assignmentAuthority: { type: "system" },
     },
     context: params.context,
   });
@@ -280,7 +287,7 @@ async function grantGuestAccountForAuth(
   params: Readonly<{
     accountId: string;
     userId: string;
-    roleKey: RoleKey;
+    roleKey: GrantableRoleKey;
     context: EventStoreContext;
   }>,
 ) {
@@ -293,6 +300,7 @@ async function grantGuestAccountForAuth(
       userId: params.userId as UserId,
       accountId: params.accountId as AccountId,
       roleKey: params.roleKey,
+      assignmentAuthority: { type: "system" },
     },
     context: params.context,
   });
@@ -373,7 +381,7 @@ function roleKeyValidationError() {
   return {
     error: {
       code: "validation_failed",
-      message: `Role key is invalid. Valid role keys: ${formatValidRoleKeys()}.`,
+      message: `Role key is invalid. Valid role keys: ${formatGrantableRoleKeys()}.`,
     },
   };
 }
@@ -422,11 +430,14 @@ async function acceptInvitationForUserFromAuth(
   params: Readonly<{
     invitationId: string;
     userId: string;
-    accountId: string;
-    roleKey: RoleKey;
     context: EventStoreContext;
   }>,
 ) {
+  const invitation = await services.invitations.getInvitationState(params.invitationId);
+  if (!invitation?.id || !invitation.accountId || !invitation.roleKey || invitation.status !== "pending") {
+    throw new IdentityDomainError("Invitation is unavailable.");
+  }
+
   const membershipId = createId("mbr") as MembershipId;
   const membershipResult = await services.memberships.commandHandler({
     streamId: `identity.membership-${membershipId}`,
@@ -434,8 +445,9 @@ async function acceptInvitationForUserFromAuth(
       type: "GrantMembership",
       membershipId,
       userId: params.userId as UserId,
-      accountId: params.accountId as AccountId,
-      roleKey: params.roleKey,
+      accountId: invitation.accountId,
+      roleKey: invitation.roleKey,
+      assignmentAuthority: { type: "system" },
     },
     context: params.context,
   });
@@ -539,7 +551,7 @@ export function buildIdentityApi(services: IdentityServices) {
 
   app.post("/internal/auth/guest-accounts/:id/claim", async (c) => {
     const body = await c.req.json();
-    const roleKey = parseRoleKey(body.roleKey ?? "owner");
+    const roleKey = parseGrantableRoleKey(body.roleKey ?? "owner");
     if (!roleKey) {
       return c.json(roleKeyValidationError(), 400);
     }
@@ -656,18 +668,23 @@ export function buildIdentityApi(services: IdentityServices) {
 
   app.post("/internal/auth/invitations/:id/accept", async (c) => {
     const body = await c.req.json();
-    const roleKey = parseRoleKey(body.roleKey);
-    if (!roleKey) {
-      return c.json(roleKeyValidationError(), 400);
+    try {
+      const membership = await acceptInvitationForUserFromAuth(services, {
+        invitationId: c.req.param("id"),
+        userId: String(body.userId ?? ""),
+        context: getBootstrapContext(c),
+      });
+      return c.json(membership);
+    } catch (error) {
+      if (error instanceof IdentityDomainError && error.message === "Invitation is unavailable.") {
+        return c.json({ error: { code: "not_found", message: "Invitation is unavailable." } }, 404);
+      }
+      if (error instanceof IdentityDomainError) {
+        return c.json({ error: { code: "authorization_forbidden", message: error.message } }, 403);
+      }
+
+      throw error;
     }
-    const membership = await acceptInvitationForUserFromAuth(services, {
-      invitationId: c.req.param("id"),
-      userId: String(body.userId ?? ""),
-      accountId: String(body.accountId ?? ""),
-      roleKey,
-      context: getBootstrapContext(c),
-    });
-    return c.json(membership);
   });
 
   app.get("/current-actor-display", async (c) => {

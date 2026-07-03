@@ -2,7 +2,16 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MembershipId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
-import { formatValidRoleKeys, parseRoleKey, PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
+import {
+  canAssignRole,
+  formatGrantableRoleKeys,
+  parseGrantableRoleKey,
+  parseRoleKey,
+  PLATFORM_ADMIN_ROLE_KEY,
+  type GrantableRoleKey,
+  type RoleAssignmentAuthority,
+  type RoleKey,
+} from "../../../support/runtime-support/common";
 import type { MembershipServices } from "./runtime";
 
 function canManageMembership(
@@ -26,10 +35,24 @@ function invalidRoleKey() {
     error: {
       code: "validation_failed",
       message: t("identity.features.memberships.api.route.role.key.invalid", {
-        validRoleKeys: formatValidRoleKeys(),
+        validRoleKeys: formatGrantableRoleKeys(),
       }),
     },
   };
+}
+
+function actorRoleKey(actor: IdentityApiEnv["Variables"]["actor"]): RoleKey | null {
+  return actor ? parseRoleKey(actor.roleKey) : null;
+}
+
+function assignmentAuthority(actor: IdentityApiEnv["Variables"]["actor"]): RoleAssignmentAuthority {
+  const roleKey = actorRoleKey(actor);
+  return roleKey ? { type: "actor", roleKey } : { type: "system" };
+}
+
+function canAssignRequestedRole(actor: IdentityApiEnv["Variables"]["actor"], roleKey: GrantableRoleKey) {
+  const roleKeyForActor = actorRoleKey(actor);
+  return !actor || (roleKeyForActor ? canAssignRole(roleKeyForActor, roleKey) : false);
 }
 
 export function membershipRoutes(services: MembershipServices) {
@@ -46,9 +69,12 @@ export function membershipRoutes(services: MembershipServices) {
     ) {
       return c.json(forbidden(), 403);
     }
-    const roleKey = parseRoleKey(body.roleKey);
+    const roleKey = parseGrantableRoleKey(body.roleKey);
     if (!roleKey) {
       return c.json(invalidRoleKey(), 400);
+    }
+    if (!canAssignRequestedRole(c.var.actor, roleKey)) {
+      return c.json(forbidden(), 403);
     }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
@@ -58,6 +84,7 @@ export function membershipRoutes(services: MembershipServices) {
         userId: body.userId,
         accountId: body.accountId,
         roleKey,
+        assignmentAuthority: assignmentAuthority(c.var.actor),
       },
       context: c.get("context"),
     });
@@ -77,13 +104,16 @@ export function membershipRoutes(services: MembershipServices) {
       return c.json(forbidden(), 403);
     }
     const body = await c.req.json();
-    const roleKey = parseRoleKey(body.roleKey);
+    const roleKey = parseGrantableRoleKey(body.roleKey);
     if (!roleKey) {
       return c.json(invalidRoleKey(), 400);
     }
+    if (!canAssignRequestedRole(c.var.actor, roleKey)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
-      command: { type: "ChangeMembershipRole", roleKey },
+      command: { type: "ChangeMembershipRole", roleKey, assignmentAuthority: assignmentAuthority(c.var.actor) },
       context: c.get("context"),
     });
     return c.json({ id: membershipId, version: result.version, status: result.state.status });
