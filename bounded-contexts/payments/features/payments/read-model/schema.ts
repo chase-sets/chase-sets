@@ -203,6 +203,32 @@ CREATE INDEX IF NOT EXISTS payments_provider_webhook_events_received_idx
 
 export const paymentsPaymentSchemaMigrations = [
   {
+    migrationId: "20260703_payments_payment_pages_checkout_columns",
+    description: "Add checkout handoff, payout, refund, and dispute columns to existing payment page read models.",
+    statements: [
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS balance_credit_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_policy_version text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_quote_fingerprint text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS payment_method_category text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS saved_checkout_instrument_id text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payouts jsonb NOT NULL DEFAULT '[]'::jsonb`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_payment_kind text NOT NULL DEFAULT 'payment-intent'`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_redirect_url text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS source_context text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS source_reference_id text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS refunded_at timestamptz NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS refunded_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS disputed_at timestamptz NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS last_stream_version bigint NOT NULL DEFAULT 0`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS payments_payment_pages_source_idx
+  ON payments_payment_pages (source_context, source_reference_id)
+  WHERE source_context IS NOT NULL AND source_reference_id IS NOT NULL`,
+    ],
+  },
+  {
     migrationId: "20260703_payments_payment_orders_lookup",
     description: "Backfill payment-to-order lookup rows and index order-scoped payment reads.",
     statements: [
