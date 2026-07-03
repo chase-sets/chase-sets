@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Button, ButtonGroup, LinkButton, PageStepper, type PageStepperItem } from "../components/actions";
 import { Switch } from "../components/forms";
 import { useChaseMotion } from "../theme/provider";
+import { minWidthQuery } from "../theme/tokens";
 import { useMediaQuery } from "../hooks";
 import { cx } from "../utils/cx";
 import { Card } from "../components/data-display";
@@ -72,7 +73,7 @@ export function CommerceSheet({
   mobileHeight = "expanded",
   ...rest
 }: CommerceSheetProps) {
-  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const isDesktop = useMediaQuery(minWidthQuery("lg"));
 
   if (isDesktop) {
     return (
@@ -108,7 +109,7 @@ export function ResponsiveEditSheet({
   mobileHeight = "full",
   ...rest
 }: ResponsiveEditSheetProps) {
-  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const isDesktop = useMediaQuery(minWidthQuery("lg"));
 
   if (isDesktop) {
     return (
@@ -142,7 +143,7 @@ export function ResponsiveSupportSheet({
   mobileModal = true,
   ...rest
 }: ResponsiveSupportSheetProps) {
-  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const isDesktop = useMediaQuery(minWidthQuery("lg"));
 
   if (isDesktop) {
     return (
@@ -274,7 +275,7 @@ export function NotificationCenterSheet({
   onProductAlertDelete,
   ...rest
 }: NotificationCenterSheetProps) {
-  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const isDesktop = useMediaQuery(minWidthQuery("lg"));
   const hasNotifications = notifications.length > 0;
   const unreadLabel = unreadCount === 1 ? "1 unread" : `${unreadCount} unread`;
   const footer =
