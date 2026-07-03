@@ -115,7 +115,8 @@ export function buildShippingAddressProjectionHandlers(db: PgQueryable): Project
              email = $12,
              is_default = $13,
              updated_at = $14
-         WHERE shipping_address_id = $1`,
+         WHERE shipping_address_id = $1
+           AND account_id = $15`,
         [
           data.shippingAddressId,
           data.label,
@@ -131,6 +132,7 @@ export function buildShippingAddressProjectionHandlers(db: PgQueryable): Project
           data.address.email,
           data.isDefault,
           data.updatedAt,
+          data.accountId,
         ],
       );
     },
@@ -163,8 +165,9 @@ export function buildShippingAddressProjectionHandlers(db: PgQueryable): Project
          SET is_archived = true,
              is_default = false,
              updated_at = $2
-         WHERE shipping_address_id = $1`,
-        [data.shippingAddressId, data.archivedAt],
+         WHERE shipping_address_id = $1
+           AND account_id = $3`,
+        [data.shippingAddressId, data.archivedAt, data.accountId],
       );
       if (data.promotedDefaultShippingAddressId) {
         await clearDefault(db, data.accountId, data.promotedDefaultShippingAddressId);

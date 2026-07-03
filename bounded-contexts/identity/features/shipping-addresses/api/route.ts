@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { createId, type AccountId, type ShippingAddressId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import { hasPermission } from "../../../support/request-support/permissions";
+import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import type { ShippingAddressServices } from "./runtime";
 import type { ShippingAddressSnapshot } from "../domain/domain";
 
@@ -58,10 +59,15 @@ function canAccessAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId
   if (!actor) {
     return false;
   }
-  if (hasPermission(actor, "accounts.manage")) {
+  if (actor.roleKey === PLATFORM_ADMIN_ROLE_KEY) {
     return true;
   }
-  return !write && actor.accountId === accountId && hasPermission(actor, "accounts.view");
+  if (actor.accountId !== accountId) {
+    return false;
+  }
+  return write
+    ? hasPermission(actor, "accounts.manage")
+    : hasPermission(actor, "accounts.view") || hasPermission(actor, "accounts.manage");
 }
 
 function forbidden() {
