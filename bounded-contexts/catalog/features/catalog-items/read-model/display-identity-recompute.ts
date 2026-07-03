@@ -149,12 +149,15 @@ export async function processCatalogItemDisplayIdentityRecomputeBatch(
       }
 
       const result = await resolveAndPersistCatalogItemDisplayIdentity(db, item, new Date().toISOString());
-      await publishDisplayIdentityIfChanged(commandHandler, context, result);
+      const published = await publishDisplayIdentityIfNeeded(commandHandler, context, result);
+      if (published) {
+        await markDisplayIdentityPublished(db, result);
+      }
       await options.afterPersist?.(row.catalog_item_id);
       await markDisplayIdentityWorkCompleted(db, row.catalog_item_id);
 
       processed += 1;
-      if (result.changed) {
+      if (published) {
         changed += 1;
       } else {
         unchanged += 1;
@@ -235,13 +238,13 @@ async function loadDisplayIdentityItem(db: PgQueryable, itemId: string): Promise
   return result.rows[0] ?? null;
 }
 
-async function publishDisplayIdentityIfChanged(
+async function publishDisplayIdentityIfNeeded(
   commandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>,
   context: EventStoreContext,
   result: PersistedDisplayIdentityResult,
-): Promise<void> {
-  if (!result.changed) {
-    return;
+): Promise<boolean> {
+  if (!result.publicationRequired) {
+    return false;
   }
 
   const { identity } = result;
@@ -262,6 +265,21 @@ async function publishDisplayIdentityIfChanged(
     },
     context,
   });
+
+  return true;
+}
+
+async function markDisplayIdentityPublished(db: PgQueryable, result: PersistedDisplayIdentityResult): Promise<void> {
+  await db.query(
+    `UPDATE catalog_item_display_identities
+     SET last_published_display_identity_hash = $3,
+       last_published_at = $4,
+       updated_at = now()
+     WHERE catalog_item_id = $1
+       AND language_code = $2
+       AND display_identity_hash = $3`,
+    [result.identity.catalogItemId, result.identity.languageCode, result.identity.hash, result.resolvedAt],
+  );
 }
 
 async function markDisplayIdentityWorkRunning(db: PgQueryable, itemId: string): Promise<void> {

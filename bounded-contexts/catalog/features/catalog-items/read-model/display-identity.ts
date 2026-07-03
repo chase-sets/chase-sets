@@ -39,6 +39,7 @@ export type ResolvedDisplayIdentity = Readonly<{
 export type PersistedDisplayIdentityResult = Readonly<{
   identity: ResolvedDisplayIdentity;
   changed: boolean;
+  publicationRequired: boolean;
   resolvedAt: string;
 }>;
 
@@ -113,6 +114,7 @@ type ExistingDisplayIdentityHashRow = Readonly<{
   catalog_item_id: string;
   language_code: string;
   display_identity_hash: string;
+  last_published_display_identity_hash: string | null;
 }>;
 
 export async function resolveCatalogItemDisplayIdentity(
@@ -209,14 +211,15 @@ export async function resolveAndPersistCatalogItemDisplayIdentities<TItem extend
       }
 
       const resolvedAtValue = resolvedAtForItem(item);
-      const changed =
-        existingHashes.get(displayIdentityKey(identity.catalogItemId, identity.languageCode)) !== identity.hash;
+      const existing = existingHashes.get(displayIdentityKey(identity.catalogItemId, identity.languageCode));
+      const changed = existing?.displayIdentityHash !== identity.hash;
 
       return [
         identity.catalogItemId,
         {
           identity,
           changed,
+          publicationRequired: existing?.lastPublishedDisplayIdentityHash !== identity.hash,
           resolvedAt: resolvedAtValue,
         },
       ];
@@ -299,13 +302,17 @@ export async function resolveAndPersistCatalogItemDisplayIdentity(
   resolvedAt: string,
 ): Promise<PersistedDisplayIdentityResult> {
   const identity = await resolveCatalogItemDisplayIdentity(db, item);
-  const existing = await db.query<{ display_identity_hash: string }>(
-    `SELECT display_identity_hash
+  const existing = await db.query<{
+    display_identity_hash: string;
+    last_published_display_identity_hash: string | null;
+  }>(
+    `SELECT display_identity_hash, last_published_display_identity_hash
      FROM catalog_item_display_identities
      WHERE catalog_item_id = $1 AND language_code = $2`,
     [identity.catalogItemId, identity.languageCode],
   );
   const changed = existing.rows[0]?.display_identity_hash !== identity.hash;
+  const publicationRequired = existing.rows[0]?.last_published_display_identity_hash !== identity.hash;
 
   await db.query(
     `INSERT INTO catalog_item_display_identities (
@@ -345,27 +352,36 @@ export async function resolveAndPersistCatalogItemDisplayIdentity(
     ],
   );
 
-  return { identity, changed, resolvedAt };
+  return { identity, changed, publicationRequired, resolvedAt };
 }
 
 async function loadExistingDisplayIdentityHashes(
   db: PgQueryable,
   identities: readonly ResolvedDisplayIdentity[],
-): Promise<Map<string, string>> {
+): Promise<Map<string, { displayIdentityHash: string; lastPublishedDisplayIdentityHash: string | null }>> {
   const catalogItemIds = [...new Set(identities.map((identity) => identity.catalogItemId))];
   if (catalogItemIds.length === 0) {
     return new Map();
   }
 
   const existing = await db.query<ExistingDisplayIdentityHashRow>(
-    `SELECT catalog_item_id, language_code, display_identity_hash
+    `SELECT catalog_item_id,
+       language_code,
+       display_identity_hash,
+       last_published_display_identity_hash
      FROM catalog_item_display_identities
      WHERE catalog_item_id = ANY($1)`,
     [catalogItemIds],
   );
 
   return new Map(
-    existing.rows.map((row) => [displayIdentityKey(row.catalog_item_id, row.language_code), row.display_identity_hash]),
+    existing.rows.map((row) => [
+      displayIdentityKey(row.catalog_item_id, row.language_code),
+      {
+        displayIdentityHash: row.display_identity_hash,
+        lastPublishedDisplayIdentityHash: row.last_published_display_identity_hash,
+      },
+    ]),
   );
 }
 
