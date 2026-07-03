@@ -76,6 +76,7 @@
       "sourceContextNames": ["catalog"],
       "ownedTables": [
         "catalog_source_observations",
+        "catalog_source_observation_integration_scope_summaries",
         "catalog_merge_candidates",
         "catalog_merge_candidate_observations"
       ],

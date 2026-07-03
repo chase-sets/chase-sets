@@ -6,12 +6,13 @@ import contextManifest from "./context.json";
 import { buildCatalogAuthoringApi } from "./support/authoring-support";
 import type { CatalogHostPorts, CatalogServices } from "./support/authoring-support";
 import { createCatalogServices } from "./support/authoring-support";
-import { catalogAuthoringSchemaSql } from "./support/authoring-support";
+import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "./support/authoring-support";
 import { seedCatalogDatabase } from "./support/authoring-support";
 
 export const module = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
   manifest: contextManifest,
   schemaSql: catalogAuthoringSchemaSql,
+  schemaMigrations: catalogAuthoringSchemaMigrations,
   createServices: (pool, ports, options) => createCatalogServices(pool, ports, options),
   buildApis: (services) => [buildCatalogAuthoringApi(services)],
   projectionHandlerSets: (services) => services.projectors,

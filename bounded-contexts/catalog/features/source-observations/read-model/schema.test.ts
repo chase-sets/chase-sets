@@ -1,7 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { catalogSourceObservationSchemaSql } from "./schema";
+import { catalogSourceObservationSchemaMigrations, catalogSourceObservationSchemaSql } from "./schema";
 
 describe("catalogSourceObservationSchemaSql", () => {
+  it("creates source-observation integration scope summary storage without boot-time backfill/index rebuilds", () => {
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "CREATE TABLE IF NOT EXISTS catalog_source_observation_integration_scope_summaries",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "PRIMARY KEY (provider_key, language_code, product_line_id, series_id, expansion_id)",
+    );
+    expect(catalogSourceObservationSchemaSql).not.toContain(
+      "INSERT INTO catalog_source_observation_integration_scope_summaries",
+    );
+    expect(catalogSourceObservationSchemaSql).not.toContain(
+      "CREATE INDEX IF NOT EXISTS catalog_source_observation_integration_scope_summaries_lookup_idx",
+    );
+  });
+
+  it("backfills and indexes source-observation integration scope summaries through ledgered migrations", () => {
+    expect(catalogSourceObservationSchemaMigrations).toEqual([
+      expect.objectContaining({
+        migrationId: "20260703_catalog_source_observation_integration_scope_summaries",
+        statements: [
+          expect.stringContaining("INSERT INTO catalog_source_observation_integration_scope_summaries"),
+          expect.stringContaining(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_lookup_idx",
+          ),
+          expect.stringContaining(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_source_observation_integration_scope_summaries_latest_idx",
+          ),
+        ],
+      }),
+    ]);
+  });
+
   it("persists Catalog Merge Candidates with review, provenance, and promotion-planning shape", () => {
     expect(catalogSourceObservationSchemaSql).toContain("CREATE TABLE IF NOT EXISTS catalog_merge_candidates");
     expect(catalogSourceObservationSchemaSql).toContain("identity_fingerprint text NOT NULL");

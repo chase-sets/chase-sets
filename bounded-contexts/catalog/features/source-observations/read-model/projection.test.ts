@@ -77,9 +77,10 @@ describe("Source Observation projections", () => {
       null,
       "2026-05-28T14:05:00.000Z",
     ]);
-    expect(query.mock.calls[0]?.[0]).toContain("ON CONFLICT (observation_id) DO UPDATE");
-    expect(query.mock.calls[0]?.[0]).toContain("promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id");
-    expect(query.mock.calls[0]?.[0]).toContain("promoted_reference_record_id = EXCLUDED.promoted_reference_record_id");
+    const insertCall = findQueryCall(query, "INSERT INTO catalog_source_observations");
+    expect(insertCall[0]).toContain("ON CONFLICT (observation_id) DO UPDATE");
+    expect(insertCall[0]).toContain("promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id");
+    expect(insertCall[0]).toContain("promoted_reference_record_id = EXCLUDED.promoted_reference_record_id");
   });
 
   it("upserts changed observations so a new change can repair a missing row", async () => {
@@ -92,13 +93,11 @@ describe("Source Observation projections", () => {
       timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
     } as never);
 
-    expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO catalog_source_observations");
-    expect(query.mock.calls[0]?.[0]).toContain("ON CONFLICT (observation_id) DO UPDATE");
-    expect(query.mock.calls[0]?.[0]).not.toContain("promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id");
-    expect(query.mock.calls[0]?.[0]).not.toContain(
-      "promoted_reference_record_id = EXCLUDED.promoted_reference_record_id",
-    );
-    expect(query.mock.calls[0]?.[1]?.[14]).toBe("changed");
+    const insertCall = findQueryCall(query, "INSERT INTO catalog_source_observations");
+    expect(insertCall[0]).toContain("ON CONFLICT (observation_id) DO UPDATE");
+    expect(insertCall[0]).not.toContain("promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id");
+    expect(insertCall[0]).not.toContain("promoted_reference_record_id = EXCLUDED.promoted_reference_record_id");
+    expect(insertCall[1]?.[14]).toBe("changed");
   });
 
   it("projects Reference Record promotion targets separately from Catalog Item targets", async () => {
@@ -126,7 +125,7 @@ describe("Source Observation projections", () => {
       "sha256:reference",
       "2026-06-19T10:00:01.000Z",
     ]);
-    expect(query.mock.calls[0]?.[0]).toContain("promoted_catalog_item_id = NULL");
+    expect(findQueryCall(query, "promoted_reference_record_id = $2")[0]).toContain("promoted_catalog_item_id = NULL");
   });
 
   it("projects deferrals without removing the observation from review", async () => {
@@ -162,7 +161,89 @@ describe("Source Observation projections", () => {
         timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
       } as never),
     ).rejects.toThrow("Source observation source profile version cannot use the retired legacy marker.");
-    expect(query).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO catalog_source_observations"),
+      expect.anything(),
+    );
+  });
+
+  it("refreshes integration scope summaries for observation record, change, refresh, promotion, rejection, and deferral", async () => {
+    const cases = [
+      {
+        eventType: "catalog.source-observation.recorded",
+        event: {
+          streamId: "catalog.source-observation-tcgdex_en_base1_043",
+          data: observationData(),
+          timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
+        },
+      },
+      {
+        eventType: "catalog.source-observation.changed",
+        event: {
+          streamId: "catalog.source-observation-tcgdex_en_base1_043",
+          data: observationData({ sourceRecordHash: "new-hash" }),
+          timing: { recordedAt: "2026-05-28T14:06:00.000Z" },
+        },
+      },
+      {
+        eventType: "catalog.source-observation.refreshed",
+        event: {
+          streamId: "catalog.source-observation-tcgdex_en_base1_043",
+          data: {
+            ...observationData(),
+            status: "changed",
+            statusReason: "Provider payload changed.",
+            promotedCatalogItemId: null,
+            promotedReferenceRecordId: null,
+            promotedAt: null,
+          },
+          timing: { recordedAt: "2026-05-28T14:07:00.000Z" },
+        },
+      },
+      {
+        eventType: "catalog.source-observation.promoted",
+        event: {
+          streamId: "catalog.source-observation-tcgdex_en_base1_043",
+          data: {
+            catalogItemId: "cat_1",
+            promotedAt: "2026-05-28T14:08:00.000Z",
+            promotionProfileKey: "pokemon-tcg",
+            promotionProfileVersion: "2026.06.03",
+            promotionPlanFingerprint: "sha256:promotion",
+          },
+          timing: { recordedAt: "2026-05-28T14:08:01.000Z" },
+        },
+      },
+      {
+        eventType: "catalog.source-observation.rejected",
+        event: {
+          streamId: "catalog.source-observation-tcgdex_en_base1_043",
+          data: { reason: "Duplicate provider record." },
+          timing: { recordedAt: "2026-05-28T14:09:00.000Z" },
+        },
+      },
+      {
+        eventType: "catalog.source-observation.deferred",
+        event: {
+          streamId: "catalog.source-observation-tcgdex_en_base1_043",
+          data: { reason: "Needs better evidence.", reviewStatus: "observed" },
+          timing: { recordedAt: "2026-05-28T14:10:00.000Z" },
+        },
+      },
+    ] as const;
+
+    for (const { eventType, event } of cases) {
+      const query = sourceObservationScopeAwareQuery();
+      const handlers = buildSourceObservationProjectionHandlers({ query });
+
+      await handlers[eventType]?.(event as never);
+
+      const sql = query.mock.calls.map(([statement]) => String(statement)).join("\n");
+      expect(sql).toContain("DELETE FROM catalog_source_observation_integration_scope_summaries");
+      expect(sql).toContain("INSERT INTO catalog_source_observation_integration_scope_summaries");
+      expect(sql).toContain("FROM catalog_source_observations");
+      expect(sql).toContain("GROUP BY");
+    }
   });
 });
 
@@ -192,4 +273,29 @@ function observationData(
     sourcePayload: { id: "base1-43" },
     ...overrides,
   };
+}
+
+function sourceObservationScopeAwareQuery() {
+  return vi.fn(async (sql: string, _params?: readonly unknown[]) => {
+    if (sql.includes("SELECT provider_key") && sql.includes("WHERE observation_id = $1")) {
+      return {
+        rows: [
+          {
+            provider_key: "tcgdex",
+            language_code: "en",
+            product_line_id: "pokemon",
+            series_id: "base",
+            expansion_id: "base1",
+          },
+        ],
+      };
+    }
+    return { rows: [] };
+  });
+}
+
+function findQueryCall(query: ReturnType<typeof vi.fn>, sqlFragment: string): [string, readonly unknown[] | undefined] {
+  const call = query.mock.calls.find(([sql]) => String(sql).includes(sqlFragment));
+  expect(call, `Expected a query containing ${sqlFragment}`).toBeDefined();
+  return call as [string, readonly unknown[] | undefined];
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { catalogCatalogItemSchemaSql } from "../../features/catalog-items/read-model/schema";
-import { catalogAuthoringSchemaSql } from "../../support/authoring-support/schema";
+import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "../../support/authoring-support/schema";
 
 describe("catalog item schema migrations", () => {
   it("adds compatibility columns before creating indexes that depend on them", () => {
@@ -22,5 +22,15 @@ describe("catalog authoring schema composition", () => {
     expect(catalogAuthoringSchemaSql).toContain("catalog_source_observation_alias_candidates");
     expect(catalogAuthoringSchemaSql).toContain("catalog_item_aliases");
     expect(catalogAuthoringSchemaSql).toContain("catalog_reference_record_aliases");
+  });
+
+  it("includes source-observation scope-summary concurrent index migrations", () => {
+    expect(catalogAuthoringSchemaMigrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          migrationId: "20260703_catalog_source_observation_integration_scope_summaries",
+        }),
+      ]),
+    );
   });
 });

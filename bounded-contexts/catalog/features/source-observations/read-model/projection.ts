@@ -4,6 +4,10 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SourceObservationNormalized, SourceObservationStatus } from "../domain/domain";
 import { buildCatalogMergeCandidateProjectionHandlers } from "./catalog-merge-candidate-projection";
+import {
+  readSourceObservationIntegrationScopeKey,
+  rebuildSourceObservationIntegrationScopeSummaries,
+} from "./integration-scope-summary";
 
 const SOURCE_OBSERVATION_STREAM_PREFIX = "catalog.source-observation-";
 
@@ -33,30 +37,34 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
     "catalog.source-observation.recorded": async (event) => {
       const data = event.data as ObservationProjectionData;
 
-      await upsertObservation(db, {
-        data,
-        status: "observed",
-        statusReason: null,
-        promotedCatalogItemId: null,
-        promotedReferenceRecordId: null,
-        promotedAt: null,
-        updatedAt: event.timing.recordedAt,
-        writePromotionState: true,
-      });
+      await projectObservationScopeChange(db, data.observationId, event.timing.recordedAt, () =>
+        upsertObservation(db, {
+          data,
+          status: "observed",
+          statusReason: null,
+          promotedCatalogItemId: null,
+          promotedReferenceRecordId: null,
+          promotedAt: null,
+          updatedAt: event.timing.recordedAt,
+          writePromotionState: true,
+        }),
+      );
     },
     "catalog.source-observation.changed": async (event) => {
       const data = event.data as ObservationProjectionData;
 
-      await upsertObservation(db, {
-        data,
-        status: "changed",
-        statusReason: null,
-        promotedCatalogItemId: null,
-        promotedReferenceRecordId: null,
-        promotedAt: null,
-        updatedAt: event.timing.recordedAt,
-        writePromotionState: false,
-      });
+      await projectObservationScopeChange(db, data.observationId, event.timing.recordedAt, () =>
+        upsertObservation(db, {
+          data,
+          status: "changed",
+          statusReason: null,
+          promotedCatalogItemId: null,
+          promotedReferenceRecordId: null,
+          promotedAt: null,
+          updatedAt: event.timing.recordedAt,
+          writePromotionState: false,
+        }),
+      );
     },
     "catalog.source-observation.refreshed": async (event) => {
       const data = event.data as ObservationProjectionData & {
@@ -67,16 +75,18 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         promotedAt: string | null;
       };
 
-      await upsertObservation(db, {
-        data,
-        status: data.status,
-        statusReason: data.statusReason,
-        promotedCatalogItemId: data.promotedCatalogItemId,
-        promotedReferenceRecordId: data.promotedReferenceRecordId ?? null,
-        promotedAt: data.promotedAt,
-        updatedAt: event.timing.recordedAt,
-        writePromotionState: true,
-      });
+      await projectObservationScopeChange(db, data.observationId, event.timing.recordedAt, () =>
+        upsertObservation(db, {
+          data,
+          status: data.status,
+          statusReason: data.statusReason,
+          promotedCatalogItemId: data.promotedCatalogItemId,
+          promotedReferenceRecordId: data.promotedReferenceRecordId ?? null,
+          promotedAt: data.promotedAt,
+          updatedAt: event.timing.recordedAt,
+          writePromotionState: true,
+        }),
+      );
     },
     "catalog.source-observation.promoted": async (event) => {
       const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
@@ -88,27 +98,29 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         promotionPlanFingerprint?: string;
       };
 
-      await db.query(
-        `UPDATE catalog_source_observations
-         SET status = 'promoted',
-             promoted_catalog_item_id = $2,
-             promoted_reference_record_id = NULL,
-             promoted_at = $3,
-             status_reason = NULL,
-             promotion_profile_key = $4,
-             promotion_profile_version = $5,
-             promotion_plan_fingerprint = $6,
-             updated_at = $7
-         WHERE observation_id = $1`,
-        [
-          observationId,
-          data.catalogItemId,
-          data.promotedAt,
-          requireProjectionProfileMarker(data.promotionProfileKey, "Promotion profile key").toLowerCase(),
-          requireProjectionProfileMarker(data.promotionProfileVersion, "Promotion profile version"),
-          requireProjectionProfileMarker(data.promotionPlanFingerprint, "Promotion plan fingerprint"),
-          event.timing.recordedAt,
-        ],
+      await projectObservationScopeChange(db, observationId, event.timing.recordedAt, () =>
+        db.query(
+          `UPDATE catalog_source_observations
+             SET status = 'promoted',
+                 promoted_catalog_item_id = $2,
+                 promoted_reference_record_id = NULL,
+                 promoted_at = $3,
+                 status_reason = NULL,
+                 promotion_profile_key = $4,
+                 promotion_profile_version = $5,
+                 promotion_plan_fingerprint = $6,
+                 updated_at = $7
+             WHERE observation_id = $1`,
+          [
+            observationId,
+            data.catalogItemId,
+            data.promotedAt,
+            requireProjectionProfileMarker(data.promotionProfileKey, "Promotion profile key").toLowerCase(),
+            requireProjectionProfileMarker(data.promotionProfileVersion, "Promotion profile version"),
+            requireProjectionProfileMarker(data.promotionPlanFingerprint, "Promotion plan fingerprint"),
+            event.timing.recordedAt,
+          ],
+        ),
       );
     },
     "catalog.source-observation.reference-promoted": async (event) => {
@@ -121,27 +133,29 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         promotionPlanFingerprint?: string;
       };
 
-      await db.query(
-        `UPDATE catalog_source_observations
-         SET status = 'promoted',
-             promoted_catalog_item_id = NULL,
-             promoted_reference_record_id = $2,
-             promoted_at = $3,
-             status_reason = NULL,
-             promotion_profile_key = $4,
-             promotion_profile_version = $5,
-             promotion_plan_fingerprint = $6,
-             updated_at = $7
-         WHERE observation_id = $1`,
-        [
-          observationId,
-          data.referenceRecordId,
-          data.promotedAt,
-          requireProjectionProfileMarker(data.promotionProfileKey, "Reference promotion profile key").toLowerCase(),
-          requireProjectionProfileMarker(data.promotionProfileVersion, "Reference promotion profile version"),
-          requireProjectionProfileMarker(data.promotionPlanFingerprint, "Reference promotion plan fingerprint"),
-          event.timing.recordedAt,
-        ],
+      await projectObservationScopeChange(db, observationId, event.timing.recordedAt, () =>
+        db.query(
+          `UPDATE catalog_source_observations
+             SET status = 'promoted',
+                 promoted_catalog_item_id = NULL,
+                 promoted_reference_record_id = $2,
+                 promoted_at = $3,
+                 status_reason = NULL,
+                 promotion_profile_key = $4,
+                 promotion_profile_version = $5,
+                 promotion_plan_fingerprint = $6,
+                 updated_at = $7
+             WHERE observation_id = $1`,
+          [
+            observationId,
+            data.referenceRecordId,
+            data.promotedAt,
+            requireProjectionProfileMarker(data.promotionProfileKey, "Reference promotion profile key").toLowerCase(),
+            requireProjectionProfileMarker(data.promotionProfileVersion, "Reference promotion profile version"),
+            requireProjectionProfileMarker(data.promotionPlanFingerprint, "Reference promotion plan fingerprint"),
+            event.timing.recordedAt,
+          ],
+        ),
       );
     },
     "catalog.source-observation.promotion-plan-recorded": async (event) => {
@@ -204,26 +218,30 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
       const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
       const data = event.data as { reason: string };
 
-      await db.query(
-        `UPDATE catalog_source_observations
-         SET status = 'rejected',
-             status_reason = $2,
-             updated_at = $3
-         WHERE observation_id = $1`,
-        [observationId, data.reason, event.timing.recordedAt],
+      await projectObservationScopeChange(db, observationId, event.timing.recordedAt, () =>
+        db.query(
+          `UPDATE catalog_source_observations
+             SET status = 'rejected',
+                 status_reason = $2,
+                 updated_at = $3
+             WHERE observation_id = $1`,
+          [observationId, data.reason, event.timing.recordedAt],
+        ),
       );
     },
     "catalog.source-observation.deferred": async (event) => {
       const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
       const data = event.data as { reason: string; reviewStatus: "observed" | "changed" };
 
-      await db.query(
-        `UPDATE catalog_source_observations
-         SET status = $2,
-             status_reason = $3,
-             updated_at = $4
-         WHERE observation_id = $1`,
-        [observationId, data.reviewStatus, data.reason, event.timing.recordedAt],
+      await projectObservationScopeChange(db, observationId, event.timing.recordedAt, () =>
+        db.query(
+          `UPDATE catalog_source_observations
+             SET status = $2,
+                 status_reason = $3,
+                 updated_at = $4
+             WHERE observation_id = $1`,
+          [observationId, data.reviewStatus, data.reason, event.timing.recordedAt],
+        ),
       );
     },
   };
@@ -327,6 +345,18 @@ async function upsertObservation(
       input.updatedAt,
     ],
   );
+}
+
+async function projectObservationScopeChange(
+  db: PgQueryable,
+  observationId: string,
+  updatedAt: string,
+  writeObservation: () => Promise<unknown>,
+): Promise<void> {
+  const previousScopeKey = await readSourceObservationIntegrationScopeKey(db, observationId);
+  await writeObservation();
+  const nextScopeKey = await readSourceObservationIntegrationScopeKey(db, observationId);
+  await rebuildSourceObservationIntegrationScopeSummaries(db, [previousScopeKey, nextScopeKey], updatedAt);
 }
 
 function requireProjectionProfileMarker(value: string | null | undefined, label: string): string {
