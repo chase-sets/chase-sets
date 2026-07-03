@@ -18,6 +18,14 @@ const baseOptions = {
   doctlPath: "doctl",
   checkedAt: "2026-06-28T09:30:00.000Z",
 };
+const noRestorePointForks = JSON.stringify([
+  {
+    id: "db-prod-1",
+    name: "chase-sets-production-postgres",
+    status: "online",
+    createdAt: "2026-01-01T00:00:00Z",
+  },
+]);
 
 describe("production database restore point", () => {
   it("creates a DigitalOcean database fork restore point", async () => {
@@ -28,6 +36,9 @@ describe("production database restore point", () => {
         calls.push({ command, args });
         if (args[1] === "fork") {
           return { stdout: "" };
+        }
+        if (args[1] === "list" && args.includes("--output")) {
+          return { stdout: noRestorePointForks };
         }
         if (args[1] === "list") {
           return {
@@ -45,6 +56,10 @@ describe("production database restore point", () => {
 
     expect(result.passesRestorePointGate).toBe(true);
     expect(calls).toEqual([
+      {
+        command: "doctl",
+        args: ["databases", "list", "--output", "json"],
+      },
       {
         command: "doctl",
         args: ["databases", "fork", "cs-prod-rp-aaaaaaaa-12345-2", "--restore-from-cluster-id", "db-prod-1"],
@@ -94,7 +109,10 @@ describe("production database restore point", () => {
     failure.stderr = "Error: database fork quota exceeded\n";
     failure.stdout = '{"id":""}';
 
-    const result = await createProductionDbRestorePoint(baseOptions, async () => {
+    const result = await createProductionDbRestorePoint(baseOptions, async (_command, args) => {
+      if (args[1] === "list") {
+        return { stdout: noRestorePointForks };
+      }
       throw failure;
     });
 
@@ -108,7 +126,108 @@ describe("production database restore point", () => {
       "exit code: 2",
       "stderr: Error: database fork quota exceeded",
       'stdout: {"id":""}',
+      "Run the Platform Production Restore Point Cleanup workflow or dry-run/apply scripts before retrying production deploy; the cleanup helper keeps the default 24-hour guard unless an operator explicitly overrides it.",
     ]);
+    expect(result.record.failure).toMatchObject({ type: "restore-point-quota-limit" });
+    expect(result.record.remediation.workflow).toBe(".github/workflows/platform-production-restore-point-cleanup.yml");
+  });
+
+  it("preflights stale restore-point forks before attempting a new fork", async () => {
+    const calls = [];
+    const result = await createProductionDbRestorePoint(
+      { ...baseOptions, checkedAt: "2026-07-02T12:00:00.000Z" },
+      async (command, args) => {
+        calls.push({ command, args });
+        return {
+          stdout: JSON.stringify([
+            {
+              id: "db-old-restore",
+              name: "cs-prod-rp-191808d7-28563063323-1",
+              status: "online",
+              createdAt: "2026-07-01T03:37:18Z",
+            },
+          ]),
+        };
+      },
+    );
+
+    expect(result.passesRestorePointGate).toBe(false);
+    expect(calls).toEqual([{ command: "doctl", args: ["databases", "list", "--output", "json"] }]);
+    expect(result.record).toMatchObject({
+      result: "failure",
+      restorePoint: {
+        name: "cs-prod-rp-aaaaaaaa-12345-2",
+        status: "preflight-failed",
+      },
+      restorePointPreflight: {
+        status: "cleanup-required",
+        prefix: "cs-prod-rp-",
+        minAgeHours: 24,
+        cleanupCandidates: [
+          {
+            id: "db-old-restore",
+            name: "cs-prod-rp-191808d7-28563063323-1",
+          },
+        ],
+      },
+      remediation: {
+        workflow: ".github/workflows/platform-production-restore-point-cleanup.yml",
+      },
+    });
+    expect(result.record.errors).toContain(
+      "Restore-point preflight found 1 old cs-prod-rp- fork(s) eligible for the default 24-hour cleanup guard.",
+    );
+  });
+
+  it("does not block on stale restore-point forks held for an active incident", async () => {
+    const calls = [];
+    const result = await createProductionDbRestorePoint(
+      {
+        ...baseOptions,
+        checkedAt: "2026-07-02T12:00:00.000Z",
+        preflightHoldNames: ["cs-prod-rp-held-incident"],
+      },
+      {
+        now: () => Date.parse("2026-07-02T12:00:00.000Z"),
+        execFile: async (command, args) => {
+          calls.push({ command, args });
+          if (args[1] === "list" && args.includes("--output")) {
+            return {
+              stdout: JSON.stringify([
+                {
+                  id: "db-held-restore",
+                  name: "cs-prod-rp-held-incident",
+                  status: "online",
+                  createdAt: "2026-07-01T03:37:18Z",
+                },
+              ]),
+            };
+          }
+          if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
+            return {
+              stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-07-02T12:00:01Z\n",
+            };
+          }
+          if (args[1] === "get") {
+            return {
+              stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tonline\t2026-07-02T12:01:00Z\n",
+            };
+          }
+          throw new Error(`Unexpected doctl call: ${args.join(" ")}`);
+        },
+      },
+    );
+
+    expect(result.passesRestorePointGate).toBe(true);
+    expect(result.record.restorePointPreflight).toMatchObject({
+      status: "pass",
+      held: [{ id: "db-held-restore", name: "cs-prod-rp-held-incident" }],
+      cleanupCandidates: [],
+    });
+    expect(calls.map((call) => call.args[1])).toEqual(["list", "fork", "list", "get"]);
   });
 
   it("fails with a typed timeout record when the fork stays unavailable", async () => {
@@ -133,6 +252,9 @@ describe("production database restore point", () => {
           if (args[1] === "fork") {
             return { stdout: "" };
           }
+          if (args[1] === "list" && args.includes("--output")) {
+            return { stdout: noRestorePointForks };
+          }
           if (args[1] === "list") {
             return {
               stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
@@ -153,6 +275,7 @@ describe("production database restore point", () => {
 
     expect(result.passesRestorePointGate).toBe(false);
     expect(calls.map((call) => call.args)).toEqual([
+      ["databases", "list", "--output", "json"],
       ["databases", "fork", "cs-prod-rp-aaaaaaaa-12345-2", "--restore-from-cluster-id", "db-prod-1"],
       ["databases", "list", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
@@ -210,6 +333,9 @@ describe("production database restore point", () => {
       {
         execFile: async (command, args) => {
           calls.push({ command, args });
+          if (args[1] === "list") {
+            return { stdout: noRestorePointForks };
+          }
           if (args[1] === "fork") {
             throw failure;
           }
@@ -228,6 +354,7 @@ describe("production database restore point", () => {
 
     expect(result.passesRestorePointGate).toBe(false);
     expect(calls.map((call) => call.args)).toEqual([
+      ["databases", "list", "--output", "json"],
       ["databases", "fork", "cs-prod-rp-c051382b-28617834359-1", "--restore-from-cluster-id", "db-prod-1"],
       ["databases", "get", liveForkId, "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "delete", liveForkId, "--force"],
@@ -286,6 +413,9 @@ describe("production database restore point", () => {
           if (args[1] === "fork") {
             return { stdout: "" };
           }
+          if (args[1] === "list" && args.includes("--output")) {
+            return { stdout: noRestorePointForks };
+          }
           if (args[1] === "list") {
             return {
               stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
@@ -338,6 +468,9 @@ describe("production database restore point", () => {
         execFile: async (_command, args) => {
           if (args[1] === "fork") {
             return { stdout: "" };
+          }
+          if (args[1] === "list" && args.includes("--output")) {
+            return { stdout: noRestorePointForks };
           }
           if (args[1] === "list") {
             return {
@@ -515,6 +648,9 @@ describe("production database restore point", () => {
       skipReason: "pitr",
       forkTimeoutMs: 90_000,
       forkPollIntervalMs: 5_000,
+      preflightPrefix: "cs-prod-rp-",
+      preflightMinAgeHours: 24,
+      preflightHoldNames: [],
     });
   });
 
