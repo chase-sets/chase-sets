@@ -114,13 +114,12 @@ function sellerBestListingJoinSql(sellerAccountSql: string) {
     FROM marketplace_listing_pages AS listing
     INNER JOIN marketplace_supply_items AS item
       ON item.item_id = listing.inventory_item_id
-    LEFT JOIN (
-      SELECT item_id, SUM(quantity)::integer AS held_quantity
-      FROM marketplace_supply_holds
-      WHERE status = 'active'
-      GROUP BY item_id
-    ) AS active_holds
-      ON active_holds.item_id = item.item_id
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(supply_hold.quantity), 0)::integer AS held_quantity
+      FROM marketplace_supply_holds AS supply_hold
+      WHERE supply_hold.item_id = item.item_id
+        AND supply_hold.status = 'active'
+    ) AS active_holds ON TRUE
     WHERE listing.account_id = ${sellerAccountSql}
       AND listing.status = 'active'
       AND listing.product_id = offer.product_id

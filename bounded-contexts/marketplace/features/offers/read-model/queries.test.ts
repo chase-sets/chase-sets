@@ -130,6 +130,10 @@ describe("marketplace offer read-model queries", () => {
     expect(selectCall?.sql).toContain("listing.account_id = $1");
     expect(selectCall?.sql).toContain("listing.status = 'active'");
     expect(selectCall?.sql).toContain("listing.product_id = offer.product_id");
+    expect(selectCall?.sql).toContain("LEFT JOIN LATERAL");
+    expect(selectCall?.sql).toContain("supply_hold.item_id = item.item_id");
+    expect(selectCall?.sql).toContain("supply_hold.status = 'active'");
+    expect(selectCall?.sql).not.toContain("GROUP BY item_id");
     expect(selectCall?.sql).toContain("seller_offer.seller_available_quantity >= seller_offer.quantity_requested");
     expect(selectCall?.params).toEqual(["acc_seller", ["cat_air_balloon::form:raw|condition:damaged"], 50, 0]);
   });
