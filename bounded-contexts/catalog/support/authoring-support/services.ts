@@ -15,6 +15,7 @@ import { createFieldRuntime } from "../../features/fields/api/runtime";
 import { createProductContentRuntime } from "../../features/product-contents/api/runtime";
 import { createProductMeasureRuntime } from "../../features/product-measures/api/runtime";
 import { createReferenceDataRuntime } from "../../features/reference-data/api/runtime";
+import { createCatalogScopeRegistryRuntime } from "../../features/scope-registry/api/runtime";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../features/source-observations/api/provider-integration-profile-store";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
@@ -39,6 +40,7 @@ export type CatalogServices = Readonly<{
   items: ReturnType<typeof createCatalogItemRuntime>;
   productContents: ReturnType<typeof createProductContentRuntime>;
   productMeasures: ReturnType<typeof createProductMeasureRuntime>;
+  scopeRegistry: ReturnType<typeof createCatalogScopeRegistryRuntime>;
   providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
   catalogAliases: ReturnType<typeof createCatalogAliasRuntime>;
@@ -79,6 +81,7 @@ export function createCatalogServices(
   const items = createCatalogItemRuntime(deps);
   const productContents = createProductContentRuntime(deps);
   const productMeasures = createProductMeasureRuntime(deps);
+  const scopeRegistry = createCatalogScopeRegistryRuntime(deps);
   const providerIntegrationProfiles = createCatalogProviderIntegrationProfileVersionStore(db);
   const catalogAliases = createCatalogAliasRuntime(deps, {
     catalogItemCommandHandler: items.commandHandler,
@@ -107,6 +110,7 @@ export function createCatalogServices(
     items,
     productContents,
     productMeasures,
+    scopeRegistry,
     providerIntegrationProfiles,
     sourceObservations,
     catalogAliases,
@@ -122,6 +126,7 @@ export function createCatalogServices(
       ...items.projectors,
       ...productContents.projectors,
       ...productMeasures.projectors,
+      ...scopeRegistry.projectors,
       ...sourceObservations.projectors,
       ...catalogAliases.projectors,
     ],
