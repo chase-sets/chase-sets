@@ -102,17 +102,41 @@ describe("Access Admin detail pages", () => {
   });
 
   it("gives API key details the shared breadcrumb and action structure", () => {
-    const html = renderToString(<ApiKeyDetailPage data={apiKey} />);
+    const html = renderToString(
+      <ApiKeyDetailPage
+        data={apiKey}
+        oneTimeSecret={{
+          apiKeyId: "key_live_ops",
+          keyPrefix: "key_rotated_",
+          secret: "key_rotated_full_secret_value",
+          action: "rotated",
+        }}
+      />,
+    );
 
     expect(html).toContain('href="/access/api-keys"');
     expect(html).toContain("API Keys");
     expect(html).toContain("Ops Console");
     expect(html).toContain("Rotate");
     expect(html).toContain("Revoke");
+    expect(html).toContain("API key secret rotated");
+    expect(html).toContain("key_rotated_full_secret_value");
+    expect(html).toContain("Copy");
+    expect(html).toContain("shown only once");
   });
 
   it("surfaces user contact-method and auth-method management controls", () => {
-    const html = renderToString(<UserDetailPage data={user} />);
+    const html = renderToString(
+      <UserDetailPage
+        data={user}
+        oneTimeSecret={{
+          apiKeyId: "key_user_created",
+          keyPrefix: "key_user_",
+          secret: "key_user_created_full_secret_value",
+          action: "created",
+        }}
+      />,
+    );
 
     expect(html).toContain("Create API Key");
     expect(html).toContain("API Key Name");
@@ -124,5 +148,6 @@ describe("Access Admin detail pages", () => {
     expect(html).toContain("Disable");
     expect(html).toContain("alex@example.com");
     expect(html).toContain("password");
+    expect(html).toContain("key_user_created_full_secret_value");
   });
 });

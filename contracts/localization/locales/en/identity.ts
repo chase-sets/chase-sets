@@ -116,6 +116,13 @@ export const identityEnglishTranslations = {
   "identity.features.apiKeys.ui.apiKeyDetailPage.updated.at": "Updated At",
   "identity.features.apiKeys.ui.apiKeyDetailPage.user": "User",
   "identity.features.apiKeys.ui.apiKeyDetailPage.user.id": "User ID",
+  "identity.features.apiKeys.ui.apiKeySecretReveal.copied": "Copied",
+  "identity.features.apiKeys.ui.apiKeySecretReveal.copy": "Copy",
+  "identity.features.apiKeys.ui.apiKeySecretReveal.created.title": "API key secret created",
+  "identity.features.apiKeys.ui.apiKeySecretReveal.full.secret": "Full secret",
+  "identity.features.apiKeys.ui.apiKeySecretReveal.rotated.title": "API key secret rotated",
+  "identity.features.apiKeys.ui.apiKeySecretReveal.warning":
+    "Copy this full secret now. It is shown only once and cannot be recovered after you leave or reload this page.",
   "identity.features.apiKeys.ui.apiKeyListPage.api.keys": "API Keys",
   "identity.features.apiKeys.ui.apiKeyListPage.create": "Create",
   "identity.features.apiKeys.ui.apiKeyListPage.name": "Name",

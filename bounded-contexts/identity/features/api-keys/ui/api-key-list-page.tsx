@@ -2,8 +2,9 @@ import { t } from "@chase-sets/localization";
 import { HiddenInput, Form, Button, Combobox, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
-import type { ApiKey } from "./contracts";
+import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
+import { ApiKeySecretReveal } from "./api-key-secret-reveal";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
@@ -33,9 +34,11 @@ export function buildApiKeyUserPickerItems(users: readonly User[]) {
 export function ApiKeyListPage({
   initialData,
   users,
+  oneTimeSecret,
 }: {
   initialData: PaginatedListResponse<ApiKey>;
   users: readonly User[];
+  oneTimeSecret?: OneTimeApiKeySecret | null;
 }) {
   const userItems = buildApiKeyUserPickerItems(users);
 
@@ -45,21 +48,24 @@ export function ApiKeyListPage({
       items={initialData.items}
       columns={columns}
       actions={
-        <Form spacing="none" method="post">
-          <Stack direction="row" align="end" gap={2}>
-            <HiddenInput type="hidden" name="intent" value="create" readOnly />
-            <Combobox
-              name="userId"
-              label={t("identity.features.apiKeys.ui.apiKeyListPage.user")}
-              items={userItems}
-              required
-            />
-            <TextInput name="name" label={t("identity.features.apiKeys.ui.apiKeyListPage.name")} required />
-            <Button type="submit" tone="primary">
-              {t("identity.features.apiKeys.ui.apiKeyListPage.create")}
-            </Button>
-          </Stack>
-        </Form>
+        <Stack gap={3}>
+          <ApiKeySecretReveal secret={oneTimeSecret} />
+          <Form spacing="none" method="post">
+            <Stack direction="row" align="end" gap={2}>
+              <HiddenInput type="hidden" name="intent" value="create" readOnly />
+              <Combobox
+                name="userId"
+                label={t("identity.features.apiKeys.ui.apiKeyListPage.user")}
+                items={userItems}
+                required
+              />
+              <TextInput name="name" label={t("identity.features.apiKeys.ui.apiKeyListPage.name")} required />
+              <Button type="submit" tone="primary">
+                {t("identity.features.apiKeys.ui.apiKeyListPage.create")}
+              </Button>
+            </Stack>
+          </Form>
+        </Stack>
       }
       emptyMessage={t("identity.features.apiKeys.ui.apiKeyListPage.no.api.keys.yet")}
       getHref={(row) => `/access/api-keys/${row.api_key_id}`}

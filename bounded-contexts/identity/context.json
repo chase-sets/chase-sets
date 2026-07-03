@@ -379,65 +379,6 @@
       }
     },
     {
-      "id": "identity.admin-api-key-list-fresh-read",
-      "owner": "identity",
-      "risk": "critical",
-      "freshnessSlo": {
-        "flowClass": "important-self-refresh",
-        "p95Ms": 2500,
-        "p99Ms": 5000
-      },
-      "source": {
-        "routeId": "api-keys",
-        "actions": ["Create API key"],
-        "command": "CreateApiKey",
-        "helperUses": ["navigateAfterWrite"]
-      },
-      "destination": {
-        "routeId": "api-keys",
-        "apiContextName": "identity",
-        "apiRoutePath": "/api-keys",
-        "readModelTables": ["identity_api_keys"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "API-key create remains covered for API-key list freshness because the source list route owns the create form and can refresh API-key list data through the API-key projection freshness route."
-        }
-      },
-      "proof": {
-        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
-      }
-    },
-    {
-      "id": "identity.admin-api-key-create-detail-fresh-read",
-      "owner": "identity",
-      "risk": "critical",
-      "freshnessSlo": {
-        "flowClass": "important-self-refresh",
-        "p95Ms": 2500,
-        "p99Ms": 5000
-      },
-      "source": {
-        "routeId": "api-keys",
-        "actions": ["Create API key"],
-        "command": "CreateApiKey",
-        "helperUses": ["navigateAfterWrite"]
-      },
-      "destination": {
-        "routeId": "api-keys-detail",
-        "apiContextName": "identity",
-        "apiRoutePath": "/api-keys/:id",
-        "helperUses": ["loadAfterWrite"],
-        "readModelTables": ["identity_api_keys"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "API-key create redirects carry the Identity API-key command receipt to the new detail route so the detail loader reads after the API-key projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity API-key API can return committed command-side state."
-        }
-      },
-      "proof": {
-        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
-      }
-    },
-    {
       "id": "identity.admin-api-key-detail-fresh-read",
       "owner": "identity",
       "risk": "critical",
@@ -772,35 +713,55 @@
       }
     },
     {
-      "id": "identity.api-key-list-browser-fresh-read",
+      "id": "identity.api-key-list-secret-snapshot",
       "owner": "identity",
       "risk": "critical",
-      "strategy": "fresh-read",
+      "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/identity/features/api-keys/ui/api-key-list-page.tsx:H2df726441e2a#1",
         "route-action:bounded-contexts/identity/routes/admin/api-keys.tsx"
       ],
       "visibleDestination": {
         "routeId": "api-keys",
-        "apiContextName": "identity",
-        "apiRoutePath": "/api-keys",
-        "readModelTables": ["identity_api_keys"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "API-key create forms redirect with Identity command receipts and reload list pages through the API-key projection freshness route."
-        }
+        "description": "The admin API-key list create action returns the newly generated plaintext secret as same-page action data exactly once, with API-key id and prefix, instead of redirecting or waiting for a projected list read."
       },
       "proof": {
-        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+        "authoritativeResponse": "bounded-contexts/identity/features/api-keys/api/route.ts creates and hashes the secret in one request, stores only the hash, and returns the plaintext only in the create response; bounded-contexts/identity/routes/admin/api-keys.tsx passes that response through as transient action data.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
+          "bounded-contexts/identity/tests/admin-api-key-list-page.test.tsx"
+        ]
       }
     },
     {
-      "id": "identity.api-key-detail-browser-fresh-read",
+      "id": "identity.api-key-detail-rotate-secret-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/api-keys/ui/api-key-detail-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/identity/routes/admin/api-keys-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "api-keys-detail",
+        "description": "The admin API-key detail rotate action returns the replacement plaintext secret as same-page action data exactly once, with API-key id and prefix, instead of redirecting or re-fetching the secret."
+      },
+      "proof": {
+        "authoritativeResponse": "bounded-contexts/identity/features/api-keys/api/route.ts rotates and hashes the secret in one request, stores only the hash, and returns the plaintext only in the rotate response; bounded-contexts/identity/routes/admin/api-keys-detail.tsx passes that response through as transient action data.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
+          "bounded-contexts/identity/tests/admin-detail-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "identity.api-key-detail-revoke-browser-fresh-read",
       "owner": "identity",
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/identity/features/api-keys/ui/api-key-detail-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/identity/features/api-keys/ui/api-key-detail-page.tsx:H2df726441e2a#2",
         "route-action:bounded-contexts/identity/routes/admin/api-keys-detail.tsx"
       ],
@@ -811,7 +772,7 @@
         "readModelTables": ["identity_api_keys"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "API-key rotate and revoke forms redirect with Identity command receipts and reload detail pages through the API-key projection freshness route."
+          "behavior": "API-key revoke forms redirect with Identity command receipts and reload detail pages through the API-key projection freshness route."
         }
       },
       "proof": {
@@ -819,13 +780,34 @@
       }
     },
     {
-      "id": "identity.account-security-api-key-browser-fresh-read",
+      "id": "identity.account-security-api-key-secret-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-security",
+        "description": "Marketplace account security create and rotate API-key actions return the plaintext secret as same-page action data exactly once, with API-key id and prefix, instead of redirecting or re-fetching the secret."
+      },
+      "proof": {
+        "authoritativeResponse": "The Identity API-key create and rotate API routes generate the plaintext once, store only the hash, and return the plaintext only in the mutation response; the marketplace account-security route passes that response through as transient action data.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
+          "bounded-contexts/identity/tests/account-security-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "identity.account-security-api-key-revoke-browser-fresh-read",
       "owner": "identity",
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#3",
         "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#4",
         "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
       ],
@@ -836,7 +818,7 @@
         "readModelTables": ["identity_api_keys"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account security API-key forms redirect with Identity command receipts and reload the security page through the API-key projection freshness route."
+          "behavior": "Account security API-key revoke forms redirect with Identity command receipts and reload the security page through the API-key projection freshness route."
         }
       },
       "proof": {

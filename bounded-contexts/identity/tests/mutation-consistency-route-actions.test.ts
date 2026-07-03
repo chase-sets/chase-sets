@@ -214,18 +214,6 @@ describe("Identity mutation consistency route actions", () => {
         expectedPath: "/access/accounts/acc_1",
       },
       {
-        action: apiKeysAction,
-        request: formRequest("/access/api-keys", { intent: "create", userId: "usr_identity", name: "Ops" }),
-        params: {},
-        expectedPath: "/access/api-keys/identity_written",
-      },
-      {
-        action: apiKeyDetailAction,
-        request: formRequest("/access/api-keys/key_1", { intent: "rotate" }),
-        params: { id: "key_1" },
-        expectedPath: "/access/api-keys/key_1",
-      },
-      {
         action: invitationsAction,
         request: formRequest("/access/invitations", {
           intent: "create",
@@ -286,16 +274,6 @@ describe("Identity mutation consistency route actions", () => {
       {
         action: userDetailAction,
         request: formRequest("/access/users/usr_identity", {
-          intent: "create-api-key",
-          userId: "usr_wrong",
-          apiKeyName: "Ops",
-        }),
-        params: { id: "usr_identity" },
-        expectedPath: "/access/api-keys/identity_written",
-      },
-      {
-        action: userDetailAction,
-        request: formRequest("/access/users/usr_identity", {
           intent: "add-contact-method",
           contactMethodType: "email",
           contactMethodValue: "alex@example.com",
@@ -341,12 +319,6 @@ describe("Identity mutation consistency route actions", () => {
         expectedPath: "/account",
       },
       {
-        action: accountSecurityAction,
-        request: formRequest("/account/security", { intent: "create-api-key", name: "Storefront" }),
-        params: {},
-        expectedPath: "/account/security",
-      },
-      {
         action: accountTeamAction,
         request: formRequest("/account/team", {
           intent: "create-invitation",
@@ -383,6 +355,93 @@ describe("Identity mutation consistency route actions", () => {
 
       expectLocationPath(location, testCase.expectedPath);
       expect(readFreshWriteToken(`https://chasesets.test${location}`)?.commitPosition).toBe("77");
+    }
+  });
+
+  it("returns API-key create and rotate secrets as transient action data without redirecting", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/auth/session")) {
+          return jsonResponse({ actor });
+        }
+
+        return jsonResponse(
+          {
+            id: "key_identity_written",
+            version: 7,
+            status: "active",
+            keyPrefix: "key_identity",
+            secret: "key_identity_full_secret_value",
+          },
+          200,
+          commitHeaders("78"),
+        );
+      }),
+    );
+
+    const cases = [
+      {
+        action: apiKeysAction,
+        request: formRequest("/access/api-keys", { intent: "create", userId: "usr_identity", name: "Ops" }),
+        params: {},
+        status: 201,
+        actionName: "created",
+      },
+      {
+        action: apiKeyDetailAction,
+        request: formRequest("/access/api-keys/key_1", { intent: "rotate" }),
+        params: { id: "key_1" },
+        status: 200,
+        actionName: "rotated",
+      },
+      {
+        action: userDetailAction,
+        request: formRequest("/access/users/usr_identity", {
+          intent: "create-api-key",
+          userId: "usr_wrong",
+          apiKeyName: "Ops",
+        }),
+        params: { id: "usr_identity" },
+        status: 201,
+        actionName: "created",
+      },
+      {
+        action: accountSecurityAction,
+        request: formRequest("/account/security", { intent: "create-api-key", name: "Storefront" }),
+        params: {},
+        status: 201,
+        actionName: "created",
+      },
+      {
+        action: accountSecurityAction,
+        request: formRequest("/account/security", { intent: "rotate-api-key", apiKeyId: "key_1" }),
+        params: {},
+        status: 200,
+        actionName: "rotated",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const response = (await testCase.action({
+        request: testCase.request,
+        params: testCase.params,
+        context: undefined,
+      } as never)) as Response;
+      const body = (await response.json()) as {
+        oneTimeSecret?: { apiKeyId?: string; keyPrefix?: string; secret?: string; action?: string };
+      };
+
+      expect(response.status).toBe(testCase.status);
+      expect(response.headers.get("Location")).toBeNull();
+      expect(body.oneTimeSecret).toEqual({
+        apiKeyId: "key_identity_written",
+        keyPrefix: "key_identity",
+        secret: "key_identity_full_secret_value",
+        action: testCase.actionName,
+      });
     }
   });
 

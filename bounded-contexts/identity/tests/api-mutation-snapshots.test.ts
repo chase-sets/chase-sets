@@ -635,6 +635,17 @@ describe("Identity API mutation snapshots", () => {
       keyPrefix: "key_secret_1",
     });
 
+    const listed = await requestJson(app, "/api-keys");
+    expect(listed.response.status).toBe(200);
+    expect(JSON.stringify(listed.body)).not.toContain("key_secret_1_value");
+    expect(JSON.stringify(listed.body)).not.toContain("secret");
+
+    const detail = await requestJson(app, "/api-keys/key_existing");
+    expect(detail.response.status).toBe(200);
+    expect(detail.body).toMatchObject({ api_key_id: "key_existing", user_id: actor.userId });
+    expect(JSON.stringify(detail.body)).not.toContain("key_secret_1_value");
+    expect(JSON.stringify(detail.body)).not.toContain("secret");
+
     const resolved = await requestJson(app, "/api-keys/resolve", {
       method: "POST",
       body: JSON.stringify({ secret: "key_secret_1_value" }),

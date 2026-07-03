@@ -1,11 +1,18 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { ApiKey } from "../../support/request-support/api-client";
 import { ApiKeyDetailPage } from "../../features/api-keys/ui/api-key-detail-page";
 import { createIdentityRequestApiClient, requestWithoutFreshWrite } from "../../support/route-support/identity-request";
 import { IdentityApiError } from "../../support/request-support/api-client";
+import {
+  oneTimeSecretFromMutation,
+  type ApiKeySecretMutationResult,
+  type OneTimeApiKeySecret,
+} from "../../features/api-keys/api/one-time-secret";
+
+type ApiKeyActionData = Readonly<{ oneTimeSecret: OneTimeApiKeySecret }>;
 
 function identityApiErrorStatus(error: unknown) {
   return error instanceof IdentityApiError ? error.status : null;
@@ -63,7 +70,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
   let result: unknown = null;
 
   if (intent === "rotate") {
-    result = await api.rotateApiKey(apiKeyId);
+    const rotated = await api.rotateApiKey<ApiKeySecretMutationResult>(apiKeyId);
+    return Response.json({ oneTimeSecret: oneTimeSecretFromMutation(rotated, "rotated") } satisfies ApiKeyActionData);
   }
 
   if (intent === "revoke") {
@@ -79,5 +87,6 @@ export const meta: MetaFunction = () => [
 
 export default function ApiKeyDetailRoute() {
   const data = useLoaderData<typeof loader>();
-  return <ApiKeyDetailPage data={data.data} />;
+  const actionData = useActionData<typeof action>() as ApiKeyActionData | undefined;
+  return <ApiKeyDetailPage data={data.data} oneTimeSecret={actionData?.oneTimeSecret} />;
 }

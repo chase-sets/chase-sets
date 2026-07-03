@@ -1,9 +1,16 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Inline } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Inline, Stack } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
-import type { ApiKey } from "./contracts";
+import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
+import { ApiKeySecretReveal } from "./api-key-secret-reveal";
 
-export function ApiKeyDetailPage({ data }: { data: ApiKey }) {
+export function ApiKeyDetailPage({
+  data,
+  oneTimeSecret,
+}: {
+  data: ApiKey;
+  oneTimeSecret?: OneTimeApiKeySecret | null;
+}) {
   const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
   return (
     <AdminDetailPage
@@ -14,24 +21,27 @@ export function ApiKeyDetailPage({ data }: { data: ApiKey }) {
       title={data.name}
       status={data.status}
       actions={
-        <Inline gap={2}>
-          {data.status === "active" ? (
-            <>
-              <Form spacing="none" method="post">
-                <HiddenInput type="hidden" name="intent" value="rotate" readOnly />
-                <Button type="submit" tone="secondary">
-                  {t("identity.features.apiKeys.ui.apiKeyDetailPage.rotate")}
-                </Button>
-              </Form>
-              <Form spacing="none" method="post">
-                <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
-                <Button type="submit" tone="danger">
-                  {t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke")}
-                </Button>
-              </Form>
-            </>
-          ) : null}
-        </Inline>
+        <Stack gap={3}>
+          <ApiKeySecretReveal secret={oneTimeSecret} />
+          <Inline gap={2}>
+            {data.status === "active" ? (
+              <>
+                <Form spacing="none" method="post">
+                  <HiddenInput type="hidden" name="intent" value="rotate" readOnly />
+                  <Button type="submit" tone="secondary">
+                    {t("identity.features.apiKeys.ui.apiKeyDetailPage.rotate")}
+                  </Button>
+                </Form>
+                <Form spacing="none" method="post">
+                  <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
+                  <Button type="submit" tone="danger">
+                    {t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke")}
+                  </Button>
+                </Form>
+              </>
+            ) : null}
+          </Inline>
+        </Stack>
       }
       sections={[
         { label: t("identity.features.apiKeys.ui.apiKeyDetailPage.api.key.id"), value: data.api_key_id },

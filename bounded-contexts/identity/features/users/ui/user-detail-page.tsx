@@ -2,6 +2,8 @@ import { t } from "@chase-sets/localization";
 import { HiddenInput, Form, Button, Inline, NativeSelect, Stack, Text, TextInput } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { User } from "./contracts";
+import type { OneTimeApiKeySecret } from "../../api-keys/ui/contracts";
+import { ApiKeySecretReveal } from "../../api-keys/ui/api-key-secret-reveal";
 
 const authMethodItems = [
   { value: "password", label: "password" },
@@ -11,7 +13,7 @@ const authMethodItems = [
   { value: "social-login", label: "social-login" },
 ];
 
-export function UserDetailPage({ data }: { data: User }) {
+export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSecret?: OneTimeApiKeySecret | null }) {
   return (
     <AdminDetailPage
       breadcrumbs={[
@@ -22,6 +24,7 @@ export function UserDetailPage({ data }: { data: User }) {
       status={data.status}
       actions={
         <Stack gap={3}>
+          <ApiKeySecretReveal secret={oneTimeSecret} />
           <Inline gap={2}>
             <Form spacing="none" method="post">
               <Stack direction="row" align="end" gap={2}>
