@@ -1,11 +1,4 @@
-import type { LoaderFunctionArgs } from "react-router";
 import { chaseSetsLogoSvg } from "@chase-sets/design-system";
+import { createFaviconLoader } from "@chase-sets/platform-runtime/web-assets";
 
-export function loader(_args: LoaderFunctionArgs) {
-  return new Response(chaseSetsLogoSvg, {
-    headers: {
-      "Cache-Control": "public, max-age=86400",
-      "Content-Type": "image/svg+xml; charset=utf-8",
-    },
-  });
-}
+export const loader = createFaviconLoader(chaseSetsLogoSvg);

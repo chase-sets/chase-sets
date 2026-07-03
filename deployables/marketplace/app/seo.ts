@@ -1,28 +1,15 @@
 import { t } from "@chase-sets/localization";
+import { buildCanonicalUrl, buildRobotsTxt, shouldIndexFromEnv } from "@chase-sets/platform-runtime/seo";
+
 const DEFAULT_MARKETPLACE_DESCRIPTION = t("marketplace.app.seo.browse.the.chase.sets.marketplace.with");
 export const MARKETPLACE_PRODUCTION_ORIGIN = "https://marketplace.chasesets.com";
 
 export function shouldIndexMarketplace(env: Partial<Record<"CHASE_SETS_MARKETPLACE_INDEXING", string>> = process.env) {
-  const value = env.CHASE_SETS_MARKETPLACE_INDEXING?.trim().toLowerCase();
-  return !["0", "false", "no", "off"].includes(value ?? "");
-}
-
-export function buildCanonicalUrl({
-  origin,
-  pathname,
-  search = "",
-}: {
-  origin: string;
-  pathname: string;
-  search?: string;
-}) {
-  return new URL(`${pathname}${search}`, origin).toString();
+  return shouldIndexFromEnv("CHASE_SETS_MARKETPLACE_INDEXING", env);
 }
 
 export function buildMarketplaceRobotsTxt(input: { origin: string; shouldIndex: boolean }) {
-  return input.shouldIndex
-    ? ["User-agent: *", "Allow: /", `Sitemap: ${input.origin}/sitemap.xml`].join("\n")
-    : ["User-agent: *", "Disallow: /"].join("\n");
+  return buildRobotsTxt(input);
 }
 
 export function buildMarketplaceCrawlPosture(input: { origin: string; shouldIndex: boolean }) {
@@ -37,6 +24,8 @@ export function buildMarketplaceCrawlPosture(input: { origin: string; shouldInde
     merchantFeedSubmissionAllowed: productionOrigin && input.shouldIndex,
   };
 }
+
+export { buildCanonicalUrl };
 
 export function buildMarketplaceMeta({
   title,

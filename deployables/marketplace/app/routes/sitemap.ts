@@ -1,11 +1,8 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { createDiscoveryRequestApiClient } from "@chase-sets/discovery/server";
+import { buildSitemapXml } from "@chase-sets/platform-runtime/seo";
 
 const STABLE_PUBLIC_PATHS = ["/", "/search"];
-
-function escapeXml(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { origin } = new URL(request.url);
@@ -15,23 +12,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
     .then((result) => (Array.isArray(result.items) ? result.items : []))
     .catch(() => []);
   const staticUrls = STABLE_PUBLIC_PATHS.map((path) => ({ path, updated_at: null }));
-  const urls = [...staticUrls, ...dynamicUrls]
-    .map((entry) => {
-      const loc = escapeXml(new URL(entry.path, origin).toString());
-      const lastmod = entry.updated_at
-        ? `<lastmod>${escapeXml(new Date(entry.updated_at).toISOString())}</lastmod>`
-        : "";
-
-      return `<url><loc>${loc}</loc>${lastmod}</url>`;
-    })
-    .join("");
-
-  const body = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    urls,
-    "</urlset>",
-  ].join("");
+  const body = buildSitemapXml(
+    origin,
+    [...staticUrls, ...dynamicUrls].map((entry) => ({
+      path: entry.path,
+      updatedAt: entry.updated_at,
+    })),
+  );
 
   return new Response(body, {
     headers: {

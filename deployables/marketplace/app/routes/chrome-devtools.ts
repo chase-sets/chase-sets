@@ -1,10 +1,3 @@
-import type { LoaderFunctionArgs } from "react-router";
+import { createChromeDevtoolsLoader } from "@chase-sets/platform-runtime/web-assets";
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Cache-Control": "no-store",
-    },
-  });
-}
+export const loader = createChromeDevtoolsLoader();

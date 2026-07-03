@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
 import { useEffect, type ReactNode } from "react";
 import { EmptyState, LinkButton, Page } from "@chase-sets/design-system";
+import { buildCanonicalUrl } from "@chase-sets/platform-runtime/seo";
 import type { LoaderFunctionArgs } from "react-router";
 import {
   isRouteErrorResponse,
@@ -21,18 +22,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     origin: new URL(request.url).origin,
   };
-}
-
-export function buildCanonicalUrl({
-  origin,
-  pathname,
-  search = "",
-}: {
-  origin: string;
-  pathname: string;
-  search?: string;
-}) {
-  return new URL(`${pathname}${search}`, origin).toString();
 }
 
 export function Layout({ children }: { children: ReactNode }) {

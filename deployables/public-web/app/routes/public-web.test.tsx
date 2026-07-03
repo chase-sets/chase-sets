@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { resolvePublicRouteConfigRecords } from "../host";
 import { buildCanonicalUrl } from "../seo";
 import { loader as manifestLoader } from "./manifest";
+import { loader as healthReadyLoader } from "./health-ready";
 import PublicNotFoundRoute from "./not-found";
 import { loader as notFoundLoader } from "./not-found";
 import { loader as orderProtectionRedirectLoader } from "./order-protection-redirect";
@@ -99,6 +100,21 @@ describe("public web deployable", () => {
     expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
     expect(body.name).toBe("Chase Sets");
     expect(body.icons).toEqual([]);
+  });
+
+  it("serves public web readiness", async () => {
+    const health = healthReadyLoader({
+      request: new Request("https://public.example/health/ready"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(health.headers.get("Content-Type")).toContain("application/json");
+    await expect(health.json()).resolves.toMatchObject({
+      ok: true,
+      service: "public-web",
+      origin: "https://public.example",
+    });
   });
 
   it("does not offer marketplace browse recovery on not found pages", () => {
