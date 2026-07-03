@@ -23,6 +23,7 @@ import {
 } from "@chase-sets/http/provider-errors";
 
 const STRIPE_API_VERSION = "2026-03-25.dahlia";
+const STRIPE_METADATA_VALUE_MAX_LENGTH = 500;
 
 export type StripePaymentProcessorGatewayOptions = Readonly<{
   secretKey: string;
@@ -197,18 +198,39 @@ function toFormBody(entries: Record<string, string>) {
   return params;
 }
 
+function boundedOrderIdsMetadataValue(orderIds: readonly string[]) {
+  const included: string[] = [];
+
+  for (const orderId of orderIds) {
+    const nextValue = [...included, orderId].join(",");
+    if (nextValue.length > STRIPE_METADATA_VALUE_MAX_LENGTH) {
+      break;
+    }
+    included.push(orderId);
+  }
+
+  return {
+    orderIds: included.join(","),
+    truncated: included.length < orderIds.length,
+  };
+}
+
 function paymentMetadataEntries(
   input: Pick<CreateProcessorPaymentInput, "paymentId" | "buyerAccountId" | "orderIds" | "paymentMethodCategory">,
   extra: Readonly<Record<string, string | null | undefined>> = {},
+  prefix = "metadata",
 ) {
+  const orderIdsMetadata = boundedOrderIdsMetadataValue(input.orderIds);
   return {
-    "metadata[payment_id]": input.paymentId,
-    "metadata[buyer_account_id]": input.buyerAccountId,
-    "metadata[order_ids]": input.orderIds.join(","),
-    "metadata[payment_method_category]": input.paymentMethodCategory,
-    "metadata[explicit_payment_method_selection]": "true",
+    [`${prefix}[payment_id]`]: input.paymentId,
+    [`${prefix}[buyer_account_id]`]: input.buyerAccountId,
+    [`${prefix}[order_ids]`]: orderIdsMetadata.orderIds,
+    [`${prefix}[order_count]`]: String(input.orderIds.length),
+    ...(orderIdsMetadata.truncated ? { [`${prefix}[order_ids_truncated]`]: "true" } : {}),
+    [`${prefix}[payment_method_category]`]: input.paymentMethodCategory,
+    [`${prefix}[explicit_payment_method_selection]`]: "true",
     ...Object.fromEntries(
-      Object.entries(extra).flatMap(([key, value]) => (value?.trim() ? [[`metadata[${key}]`, value.trim()]] : [])),
+      Object.entries(extra).flatMap(([key, value]) => (value?.trim() ? [[`${prefix}[${key}]`, value.trim()]] : [])),
     ),
   };
 }
@@ -218,7 +240,7 @@ function stripeMetadataValue(value: string | number | boolean | null | undefined
     return null;
   }
   const normalized = String(value).trim();
-  return normalized.length > 0 ? normalized.slice(0, 500) : null;
+  return normalized.length > 0 ? normalized.slice(0, STRIPE_METADATA_VALUE_MAX_LENGTH) : null;
 }
 
 function marketplaceRiskMetadataEntries(
@@ -1016,11 +1038,7 @@ export function createStripePaymentProcessorGateway(
             "line_items[0][price_data][unit_amount]": String(amount),
             "line_items[0][price_data][product_data][name]": input.description,
             "payment_intent_data[transfer_group]": `payment:${input.paymentId}`,
-            "payment_intent_data[metadata][payment_id]": input.paymentId,
-            "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,
-            "payment_intent_data[metadata][order_ids]": input.orderIds.join(","),
-            "payment_intent_data[metadata][payment_method_category]": input.paymentMethodCategory,
-            "payment_intent_data[metadata][explicit_payment_method_selection]": "true",
+            ...paymentMetadataEntries(input, {}, "payment_intent_data[metadata]"),
             ...(input.savedCheckoutInstrument
               ? {
                   "payment_intent_data[metadata][saved_checkout_instrument_id]":

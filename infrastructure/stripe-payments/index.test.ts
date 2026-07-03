@@ -90,6 +90,68 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("bounds order id metadata for many-order Checkout Session create requests", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "cs_many_orders",
+            client_secret: "cs_many_orders_secret",
+            status: "open",
+            payment_status: "unpaid",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const orderIds = Array.from({ length: 50 }, (_, index) => `ord_${String(index + 1).padStart(26, "0")}` as never);
+
+    await gateway.createPaymentSession({
+      paymentId: "pay_many_orders" as never,
+      buyerAccountId: "acc_buyer_many" as never,
+      orderIds,
+      amount: "123.45",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Many-order payment",
+      returnUrl: "https://marketplace.test/account/payments/pay_many_orders",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const snapshot = formSnapshot(init.body);
+    const metadataEntries = Object.entries(snapshot).filter(
+      ([key]) => key.startsWith("metadata[") || key.startsWith("payment_intent_data[metadata]"),
+    );
+
+    expect(metadataEntries.length).toBeGreaterThan(0);
+    for (const [key, value] of metadataEntries) {
+      expect(value.length, key).toBeLessThanOrEqual(500);
+    }
+    expect(snapshot).toMatchObject({
+      "metadata[payment_id]": "pay_many_orders",
+      "metadata[buyer_account_id]": "acc_buyer_many",
+      "metadata[order_count]": "50",
+      "metadata[order_ids_truncated]": "true",
+      "payment_intent_data[metadata][payment_id]": "pay_many_orders",
+      "payment_intent_data[metadata][buyer_account_id]": "acc_buyer_many",
+      "payment_intent_data[metadata][order_count]": "50",
+      "payment_intent_data[metadata][order_ids_truncated]": "true",
+    });
+    expect(snapshot["metadata[order_ids]"]?.split(",")).toEqual(
+      snapshot["payment_intent_data[metadata][order_ids]"]?.split(","),
+    );
+    expect(snapshot["metadata[order_ids]"]?.split(",").length).toBeLessThan(orderIds.length);
+
+    vi.unstubAllGlobals();
+  });
+
   it("retrieves payment reconciliation state by local payment metadata", async () => {
     const fetchMock = vi.fn(
       async () =>
