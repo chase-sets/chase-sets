@@ -90,7 +90,8 @@ describe("platform runtime Postgres concurrency guards", () => {
 
     await pools.platform.query(
       `UPDATE ${durableJobTables.jobsTable}
-       SET claimed_until = now() - interval '1 second'
+       SET claimed_until = now() - interval '1 second',
+           next_eligible_at = now() - interval '1 second'
        WHERE job_id = $1`,
       ["job_expired_claim"],
     );

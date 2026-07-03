@@ -1234,6 +1234,8 @@ export function integrationJobRow(input: {
     error_message: null,
     claim_owner_id: null,
     claimed_until: null,
+    attempt_count: 0,
+    next_eligible_at: "2026-05-28T00:00:00.000Z",
     created_at: "2026-05-28T00:00:00.000Z",
     started_at: null,
     completed_at: null,
@@ -1278,6 +1280,8 @@ export function createIntegrationJobClaimHandoffHarness(
     error_message: null as string | null,
     claim_owner_id: null as string | null,
     claimed_until: null as string | null,
+    attempt_count: 0,
+    next_eligible_at: "2026-05-20T00:00:00.000Z",
     created_at: "2026-05-20T00:00:00.000Z",
     started_at: null as string | null,
     completed_at: null as string | null,
@@ -1287,13 +1291,18 @@ export function createIntegrationJobClaimHandoffHarness(
   const deps = {
     db: {
       query: async <T>(sql: string, values: readonly unknown[] = []) => {
-        if (sql.includes("UPDATE catalog_source_observation_integration_durable_jobs AS job")) {
+        if (
+          sql.includes("UPDATE catalog_source_observation_integration_durable_jobs AS job") &&
+          sql.includes("SET status = 'running'")
+        ) {
           if (job.status !== "queued") {
             return { rowCount: 0, rows: [] as T[] };
           }
           job.status = "running";
           job.claim_owner_id = String(values[0]);
           job.claimed_until = "2026-05-20T00:02:00.000Z";
+          job.attempt_count += 1;
+          job.next_eligible_at = "2026-05-20T00:04:00.000Z";
           job.started_at ??= "2026-05-20T00:00:00.000Z";
           return { rowCount: 1, rows: [job] as T[] };
         }
