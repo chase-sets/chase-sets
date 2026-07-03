@@ -102,3 +102,10 @@ check "observability_cloud_init_size" {
     error_message = "Rendered observability cloud-init user_data must stay below DigitalOcean's 64 KB Droplet API limit."
   }
 }
+
+check "observability_stack_file_classification" {
+  assert {
+    condition     = length(local.unclassified_stack_files) == 0
+    error_message = "Every file under infrastructure/observability/stack must be deployed by the observability Terraform root or listed in local.stack_file_exclusions with a comment."
+  }
+}
