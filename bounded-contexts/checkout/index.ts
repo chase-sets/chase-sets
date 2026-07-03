@@ -17,12 +17,13 @@ import {
   type CheckoutHostPorts,
   type CheckoutServices,
 } from "./support/runtime-support/services";
-import { checkoutSchemaSql } from "./support/runtime-support/schema";
+import { checkoutSchemaMigrations, checkoutSchemaSql } from "./support/runtime-support/schema";
 import { seedCheckoutDatabase } from "./support/runtime-support/seed";
 
 export const module = defineBoundedContextModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts>({
   manifest: contextManifest,
   schemaSql: checkoutSchemaSql,
+  schemaMigrations: checkoutSchemaMigrations,
   createServices: (pool, options) => createCheckoutServices(pool, options),
   buildApis: (services) => [buildCheckoutApi(services)],
   projectionHandlerSets: (services) => services.projectors,

@@ -1,4 +1,4 @@
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import type { BcApiModule, BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import {
   eventCorePostgresSchemaSql,
   type PgPoolClient,
@@ -198,11 +198,11 @@ export async function waitForDatabase(
 }
 
 export async function bootstrapContextDatabase(
-  module: Pick<BcApiModule, "contextName" | "schemaSql">,
+  module: Pick<BcApiModule, "contextName" | "schemaSql" | "schemaMigrations">,
   pool: PgTransactionalPool,
 ): Promise<void> {
   await waitForDatabase(pool, module.contextName);
-  await applyContextSchema(pool, composeModuleSchemaSql(module));
+  await applyContextSchema(pool, composeModuleSchemaSql(module), module.schemaMigrations ?? []);
 }
 
 export function composeModuleSchemaSql(module: Pick<BcApiModule, "schemaSql">): string {
@@ -244,7 +244,11 @@ export function composeSchemaSql(modules: readonly Pick<BcApiModule, "schemaSql"
   return schemaParts.join("\n\n");
 }
 
-export async function applyContextSchema(pool: PgTransactionalPool, schemaSql: string): Promise<void> {
+export async function applyContextSchema(
+  pool: PgTransactionalPool,
+  schemaSql: string,
+  moduleSchemaMigrations: readonly BcSchemaMigration[] = [],
+): Promise<void> {
   const client = await pool.connect();
   let releaseError: unknown;
   let lockAcquired = false;
@@ -254,7 +258,7 @@ export async function applyContextSchema(pool: PgTransactionalPool, schemaSql: s
     lockAcquired = true;
     await client.query(createSchemaMigrationsTableSql());
     await client.query(schemaSql);
-    for (const migration of contextSchemaMigrations) {
+    for (const migration of [...contextSchemaMigrations, ...moduleSchemaMigrations]) {
       await applySchemaMigration(client, migration);
     }
   } catch (error) {

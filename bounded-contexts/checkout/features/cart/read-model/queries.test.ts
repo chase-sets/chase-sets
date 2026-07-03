@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
-import { listCartLines } from "./queries";
+import { CART_SELLER_OPTIONS_PER_LINE_LIMIT, listCartLines } from "./queries";
 
 type CartLinePage = Readonly<{
   buyer_account_id: string;
@@ -73,13 +73,16 @@ class CartReadModelDb implements PgQueryable {
   ) {}
 
   public lastSql = "";
+  public lastValues: readonly unknown[] = [];
 
   async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
     this.lastSql = sql;
+    this.lastValues = values;
     const buyerAccountId = String(values[0]);
+    const sellerOptionsLimit = Number(values[1]);
     const rows = this.lines
       .filter((line) => line.buyer_account_id === buyerAccountId)
       .sort(
@@ -98,6 +101,7 @@ class CartReadModelDb implements PgQueryable {
             (left, right) =>
               Number(left.price_amount) - Number(right.price_amount) || left.listing_id.localeCompare(right.listing_id),
           )
+          .slice(0, Number.isFinite(sellerOptionsLimit) ? sellerOptionsLimit : this.options.length)
           .map((option) => {
             const account = this.accounts.find((entry) => entry.account_id === option.seller_account_id);
             return {
@@ -319,6 +323,25 @@ describe("listCartLines seller_options join", () => {
     expect(row?.seller_options).toEqual([]);
   });
 
+  it("bounds seller options per cart line to the documented top-N price candidates", async () => {
+    const options = Array.from({ length: CART_SELLER_OPTIONS_PER_LINE_LIMIT + 3 }, (_, index) =>
+      option({
+        listing_id: `lst_${String(index).padStart(2, "0")}`,
+        price_amount: String(index + 1).padStart(2, "0") + ".00",
+      }),
+    );
+    const db = new CartReadModelDb([line()], options);
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row?.seller_options).toHaveLength(CART_SELLER_OPTIONS_PER_LINE_LIMIT);
+    expect(row?.seller_options.at(0)).toMatchObject({ listing_id: "lst_00", price_amount: "01.00" });
+    expect(row?.seller_options.at(-1)).toMatchObject({
+      listing_id: `lst_${String(CART_SELLER_OPTIONS_PER_LINE_LIMIT - 1).padStart(2, "0")}`,
+      price_amount: String(CART_SELLER_OPTIONS_PER_LINE_LIMIT).padStart(2, "0") + ".00",
+    });
+  });
+
   it("exposes selected listing snapshot fields independently of current seller options", async () => {
     const db = new CartReadModelDb(
       [
@@ -438,7 +461,8 @@ describe("listCartLines seller_options join", () => {
     await listCartLines(db, "acc_buyer");
 
     expect(db.lastSql).toContain("LEFT JOIN LATERAL");
-    expect(db.lastSql).toContain("FROM checkout_marketplace_seller_options o");
+    expect(db.lastValues).toEqual(["acc_buyer", CART_SELLER_OPTIONS_PER_LINE_LIMIT]);
+    expect(db.lastSql).toContain("FROM checkout_marketplace_seller_options option");
     // Seller identity (display name / slug) is resolved through the identity-maintained
     // seller-accounts join table, with the denormalized columns as a fallback.
     expect(db.lastSql).toContain("LEFT JOIN checkout_seller_accounts seller");
@@ -454,9 +478,10 @@ describe("listCartLines seller_options join", () => {
     expect(db.lastSql).toContain(
       "line.selected_listing_snapshot_captured_at::text AS selected_listing_snapshot_captured_at",
     );
-    expect(db.lastSql).toContain("o.product_id = line.product_id");
-    expect(db.lastSql).toContain("o.status = 'active'");
-    expect(db.lastSql).toContain("ORDER BY o.price_amount ASC");
+    expect(db.lastSql).toContain("option.product_id = line.product_id");
+    expect(db.lastSql).toContain("option.status = 'active'");
+    expect(db.lastSql).toContain("ORDER BY option.price_amount ASC, option.listing_id ASC");
+    expect(db.lastSql).toContain("LIMIT $2");
     // available_quantity must be holds-accurate: capped by the listing quantity
     // cap, reduced by active holds, and backed by the marketplace cap while
     // inventory supply counters are still catching up.

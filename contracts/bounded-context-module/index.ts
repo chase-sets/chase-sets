@@ -371,6 +371,12 @@ export const ENVIRONMENT_DATA_PROFILES = [
 
 export type EnvironmentDataProfile = (typeof ENVIRONMENT_DATA_PROFILES)[number];
 
+export type BcSchemaMigration = Readonly<{
+  readonly migrationId: string;
+  readonly description: string;
+  readonly statements: readonly string[];
+}>;
+
 export type BcSeedOptions = Readonly<{
   enabledDataProfiles: readonly EnvironmentDataProfile[];
   environmentName?: string | null;
@@ -391,6 +397,7 @@ export interface BcApiModule<
   readonly routePrefix: string;
   readonly streamPrefix: string;
   readonly schemaSql: string;
+  readonly schemaMigrations?: readonly BcSchemaMigration[];
   readonly apiMounts: readonly BcApiMount[];
   readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
@@ -412,6 +419,7 @@ export type DefineBoundedContextModuleInput<
 > = Readonly<{
   manifest: BcContextManifest;
   schemaSql: string;
+  schemaMigrations?: readonly BcSchemaMigration[];
   createServices: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["createServices"];
   buildApis: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["buildApis"];
   projectionHandlerSets?: BcApiModule<
@@ -447,6 +455,7 @@ export function defineBoundedContextModule<
     routePrefix: input.manifest.apiBasePath,
     streamPrefix: input.manifest.streamPrefix,
     schemaSql: input.schemaSql,
+    ...(input.schemaMigrations ? { schemaMigrations: input.schemaMigrations } : {}),
     apiMounts: (input.manifest.apiMounts ?? []) as readonly BcApiMount[],
     anonymousRoutes: (input.manifest.anonymousRoutes ?? []) as readonly BcAnonymousRoute[],
     ...(input.manifest.projectionGroups

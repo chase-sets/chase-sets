@@ -128,6 +128,7 @@ export async function bootstrapApiModule<TServices, TPool extends PgTransactiona
     {
       contextName: options.databaseLabel ?? completionLabel,
       schemaSql: module.schemaSql,
+      schemaMigrations: module.schemaMigrations,
     },
     pool,
   );

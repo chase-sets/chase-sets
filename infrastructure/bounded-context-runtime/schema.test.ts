@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  bootstrapApiModule,
   bootstrapContextDatabase,
   composeModuleSchemaSql,
   eventSubscriptionSchemaSql,
@@ -52,6 +53,16 @@ describe("bounded context runtime schema", () => {
     const module = {
       contextName: "example",
       schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      schemaMigrations: [
+        {
+          migrationId: "20260703_example_pages_concurrent_indexes",
+          description: "Create example indexes concurrently.",
+          statements: [
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_id_idx ON example_pages (id);",
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_name_idx ON example_pages (name);",
+          ],
+        },
+      ],
     };
     await bootstrapContextDatabase(module, pool);
     await bootstrapContextDatabase(module, pool);
@@ -72,8 +83,68 @@ describe("bounded context runtime schema", () => {
     expect(
       queryLog.filter((entry) => entry.sql.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_")),
     ).toHaveLength(9);
+    expect(
+      queryLog.filter((entry) => entry.sql.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_")),
+    ).toHaveLength(2);
     expect(appliedMigrations).toEqual(
-      new Set(["20260628_event_store_context_columns_backfill", "20260628_event_store_events_concurrent_indexes"]),
+      new Set([
+        "20260628_event_store_context_columns_backfill",
+        "20260628_event_store_events_concurrent_indexes",
+        "20260703_example_pages_concurrent_indexes",
+      ]),
+    );
+  });
+
+  it("carries module schema migrations through API bootstrap", async () => {
+    const appliedMigrations = new Set<string>();
+    const queryLog: { sql: string; values: readonly unknown[] | undefined }[] = [];
+    const client = {
+      query: vi.fn(async (sql: string, values?: readonly unknown[]) => {
+        queryLog.push({ sql, values });
+        if (sql.includes("pg_try_advisory_lock")) {
+          return { rows: [{ acquired: true }] };
+        }
+        if (sql.includes(`SELECT 1 FROM ${SCHEMA_MIGRATIONS_TABLE}`)) {
+          return { rows: appliedMigrations.has(String(values?.[0])) ? [{ "?column?": 1 }] : [] };
+        }
+        if (sql.includes(`INSERT INTO ${SCHEMA_MIGRATIONS_TABLE}`)) {
+          appliedMigrations.add(String(values?.[0]));
+        }
+        return { rows: [] };
+      }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn(async () => ({ rows: [] })),
+      connect: vi.fn(async () => client),
+    };
+    const module = {
+      contextName: "example",
+      routePrefix: "/api/example",
+      streamPrefix: "example.",
+      schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      schemaMigrations: [
+        {
+          migrationId: "20260703_example_api_bootstrap_index",
+          description: "Create an example index through API bootstrap.",
+          statements: ["CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_id_idx ON example_pages (id);"],
+        },
+      ],
+      apiMounts: [],
+      createServices: vi.fn(() => ({ ready: true })),
+      buildApis: vi.fn(() => []),
+    };
+
+    const services = await bootstrapApiModule(module as never, pool as never, {}, { completionLabel: "example" });
+
+    expect(services).toEqual({ ready: true });
+    expect(appliedMigrations).toContain("20260703_example_api_bootstrap_index");
+    expect(queryLog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sql: "CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_id_idx ON example_pages (id);",
+        }),
+      ]),
     );
   });
 });
