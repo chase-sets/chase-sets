@@ -5,6 +5,7 @@ import {
   composeModuleSchemaSql,
   eventSubscriptionSchemaSql,
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING,
+  SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES,
   SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
   SCHEMA_MIGRATIONS_TABLE,
 } from "./index";
@@ -186,6 +187,137 @@ describe("bounded context runtime schema", () => {
       expect(lockAttempts).toBeGreaterThan(30);
       expect(client.release).toHaveBeenCalledWith(expect.any(Error));
       expect(client.query).not.toHaveBeenCalledWith("SELECT pg_advisory_unlock($1::bigint)", expect.anything());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries PostgreSQL lock_timeout failures during schema application on a fresh client", async () => {
+    vi.useFakeTimers();
+    try {
+      const appliedMigrations = new Set<string>();
+      const queryLog: { clientIndex: number; sql: string; values: readonly unknown[] | undefined }[] = [];
+      let schemaAttempts = 0;
+      const clients = [0, 1].map((clientIndex) => ({
+        query: vi.fn(async (sql: string, values?: readonly unknown[]) => {
+          queryLog.push({ clientIndex, sql, values });
+          if (sql.includes("pg_try_advisory_lock")) {
+            return { rows: [{ acquired: true }] };
+          }
+          if (sql.includes(`SELECT 1 FROM ${SCHEMA_MIGRATIONS_TABLE}`)) {
+            return { rows: appliedMigrations.has(String(values?.[0])) ? [{ "?column?": 1 }] : [] };
+          }
+          if (sql.includes("CREATE TABLE IF NOT EXISTS event_store_events")) {
+            schemaAttempts += 1;
+            if (schemaAttempts === 1) {
+              const error = new Error("canceling statement due to lock timeout") as Error & { code: string };
+              error.code = "55P03";
+              throw error;
+            }
+          }
+          if (sql.includes(`INSERT INTO ${SCHEMA_MIGRATIONS_TABLE}`)) {
+            appliedMigrations.add(String(values?.[0]));
+          }
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      }));
+      let connectCount = 0;
+      const pool = {
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(async () => clients[connectCount++] ?? clients[1]),
+      };
+      const module = {
+        contextName: "example",
+        schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      };
+
+      const bootstrap = bootstrapContextDatabase(module, pool);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await bootstrap;
+
+      expect(pool.connect).toHaveBeenCalledTimes(2);
+      expect(schemaAttempts).toBe(2);
+      expect(clients[0].query).toHaveBeenCalledWith("RESET lock_timeout");
+      expect(clients[0].query).toHaveBeenCalledWith("SELECT pg_advisory_unlock($1::bigint)", expect.anything());
+      expect(clients[0].release).toHaveBeenCalledWith(expect.objectContaining({ code: "55P03" }));
+      expect(clients[1].release).toHaveBeenCalledWith(undefined);
+      expect(
+        queryLog.filter((entry) => entry.sql.includes("pg_try_advisory_lock")).map((entry) => entry.clientIndex),
+      ).toEqual([0, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry non-lock-timeout schema failures", async () => {
+    const error = new Error("syntax error at or near broken");
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_try_advisory_lock")) {
+          return { rows: [{ acquired: true }] };
+        }
+        if (sql.includes("CREATE TABLE IF NOT EXISTS event_store_events")) {
+          throw error;
+        }
+        return { rows: [] };
+      }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn(async () => ({ rows: [] })),
+      connect: vi.fn(async () => client),
+    };
+    const module = {
+      contextName: "example",
+      schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+    };
+
+    await expect(bootstrapContextDatabase(module, pool)).rejects.toThrow(error);
+
+    expect(pool.connect).toHaveBeenCalledTimes(1);
+    expect(client.release).toHaveBeenCalledWith(error);
+  });
+
+  it("fails with deploy-useful diagnostics after schema application lock_timeout retries are exhausted", async () => {
+    vi.useFakeTimers();
+    try {
+      const clients = Array.from({ length: SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES }, (_entry, clientIndex) => ({
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("pg_try_advisory_lock")) {
+            return { rows: [{ acquired: true }] };
+          }
+          if (sql.includes("CREATE TABLE IF NOT EXISTS event_store_events")) {
+            const error = new Error(
+              `canceling statement due to lock timeout on attempt ${clientIndex + 1}`,
+            ) as Error & { code: string };
+            error.code = "55P03";
+            throw error;
+          }
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      }));
+      let connectCount = 0;
+      const pool = {
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(async () => clients[connectCount++]),
+      };
+      const module = {
+        contextName: "example",
+        schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      };
+
+      const bootstrap = expect(bootstrapContextDatabase(module, pool)).rejects.toThrow(
+        /Schema bootstrap hit PostgreSQL lock_timeout 5 times/,
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      await bootstrap;
+
+      expect(pool.connect).toHaveBeenCalledTimes(SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES);
+      for (const client of clients) {
+        expect(client.release).toHaveBeenCalledWith(expect.objectContaining({ code: "55P03" }));
+      }
     } finally {
       vi.useRealTimers();
     }

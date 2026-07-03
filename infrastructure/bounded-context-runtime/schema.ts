@@ -11,6 +11,7 @@ const SCHEMA_BOOTSTRAP_LOCK_INITIAL_RETRY_DELAY_MS = 500;
 const SCHEMA_BOOTSTRAP_LOCK_MAX_RETRY_DELAY_MS = 5_000;
 export const SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 600_000;
 export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING = "5s";
+export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES = 5;
 const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
 const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
 export const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
@@ -253,6 +254,34 @@ export async function applyContextSchema(
   schemaSql: string,
   moduleSchemaMigrations: readonly BcSchemaMigration[] = [],
 ): Promise<void> {
+  let lastLockTimeoutError: unknown;
+  for (let attempt = 1; attempt <= SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES; attempt += 1) {
+    try {
+      await applyContextSchemaOnce(pool, schemaSql, moduleSchemaMigrations);
+      return;
+    } catch (error) {
+      if (!isPostgresLockTimeoutError(error)) {
+        throw error;
+      }
+
+      lastLockTimeoutError = error;
+      if (attempt < SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES) {
+        await sleep(DATABASE_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  throw new Error(
+    `Schema bootstrap hit PostgreSQL lock_timeout ${SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES} times while applying idempotent schema SQL. Another database session may be holding a relation lock; retry the deploy after the lock clears or inspect active database sessions if this persists.`,
+    { cause: lastLockTimeoutError },
+  );
+}
+
+async function applyContextSchemaOnce(
+  pool: PgTransactionalPool,
+  schemaSql: string,
+  moduleSchemaMigrations: readonly BcSchemaMigration[],
+): Promise<void> {
   const client = await pool.connect();
   let operationError: unknown;
   let cleanupError: unknown;
@@ -289,6 +318,22 @@ export async function applyContextSchema(
   if (cleanupError) {
     throw cleanupError;
   }
+}
+
+function isPostgresLockTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const errorLike = error as { code?: unknown; message?: unknown; cause?: unknown };
+  if (
+    errorLike.code === "55P03" ||
+    (typeof errorLike.message === "string" && errorLike.message.includes("canceling statement due to lock timeout"))
+  ) {
+    return true;
+  }
+
+  return isPostgresLockTimeoutError(errorLike.cause);
 }
 
 async function acquireSchemaBootstrapLock(client: PgPoolClient): Promise<void> {

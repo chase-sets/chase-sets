@@ -114,8 +114,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `pricing:pricing-inventory-input-projection` | Pricing | **inventory** | push-enabled | 1/1 |
 | `pricing:pricing-market-input-projection` | Pricing | **marketplace** | push-enabled | 1/1 |
 | `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
-| `public-presence:public-presence-waitlist-projection` | Public Presence | public-presence | push-eligible | 0/1 |
-| `public-presence:public-presence-waitlist-transactional-email-projection` | Public Presence | public-presence | push-eligible | 0/1 |
+| `public-presence:public-presence-waitlist-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
+| `public-presence:public-presence-waitlist-transactional-email-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
 | `settlement:settlement-account-risk-source-projection` | Settlement | **identity**, **marketplace** | push-enabled | 2/2 |
 | `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
 | `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
@@ -123,7 +123,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 
-Totals: 70 `push-enabled`, 14 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 72 `push-enabled`, 12 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (68)
 
@@ -195,7 +195,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-list-fresh-read` | platform-operations | important | exact wait | push-accelerated |
-| `public-presence.waitlist-signup-to-admin-review` | public-presence | critical | exact wait | poll-bounded until wave 3 |
+| `public-presence.waitlist-signup-to-admin-review` | public-presence | critical | exact wait | push wake enabled |
 | `marketplace.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `settlement.payout-readiness-self-refresh` | settlement | critical | exact wait | push-accelerated |
 | `settlement.payout-request-to-detail` | settlement | critical | exact wait | push-accelerated |
@@ -207,7 +207,7 @@ Wave membership lives in the registry; this report records the enablement timeli
 - **Wave 1 (`checkout`, `marketplace`, `ordering`, `payments`)** — staging-enabled. `checkout` since 2026-06-10 (push-loop evidence in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md)); the wave-1 remainder enabled 2026-06-11 on the back of that evidence. The direct listener URLs and the connection budget in `infrastructure/digitalocean/platform/locals.tf` cover the wave-1 hot path plus the direct-listened `identity` and `inventory` staging dependencies.
 - **Production follow** — production stays inert (`PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false`) until the production gates pass: a green steady-state production proof canary per the #1237 miss analysis and hold-then-gate action set in the SLO/load-proof doc, plus #1243 topology parity evidence. Flipping is a deliberate operator decision via the [rollout-controls runbook](../runbooks/push-wake-rollout-controls.md), not a registry side effect.
 - **Wave 2 (`catalog`, `fulfillment`, `identity`, `inventory`)** — `catalog` is staging-enabled for Source Observation import/review freshness and Catalog-sourced consumer projections; `identity` is staging-enabled and direct-listened for User presentation preference and account/security freshness; `inventory` is staging-enabled and direct-listened for reservation outcome and supply freshness consumed by Ordering, Marketplace, Pricing, and Inventory. `fulfillment` remains eligible. The remaining high-volume contexts still need the listener/connection-budget expansion decision and wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
-- **Wave 3 (`discovery`, `platform-operations`, `public-presence`, `settlement`)** — `settlement` is staging-enabled for seller payout-readiness freshness, and `platform-operations` is staging-enabled for admin platform-feedback lifecycle freshness. The remaining wave-3 contexts are eligible and follow wave 2 with owner approval.
+- **Wave 3 (`discovery`, `platform-operations`, `public-presence`, `settlement`)** — `settlement` is staging-enabled for seller payout-readiness freshness, `platform-operations` is staging-enabled for admin platform-feedback lifecycle freshness, and `public-presence` is staging-enabled for waitlist signup-to-admin-review freshness. The remaining wave-3 contexts are eligible and follow wave 2 with owner approval.
 - **Wave 4 (`auth`, `commercial-terms`, `experience`, `insights`, `notifications`, `pricing`, `tax`)** — deferred or not currently source-enabled. Newly inventoried Auth and Commercial Terms self-owned projections/routes are classified here but remain relay-disabled until owner approval and the production-gate evidence path is ready.
 
 ## Documented Polling Exceptions

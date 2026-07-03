@@ -526,7 +526,11 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "public-presence",
     owner: "Public Presence",
-    rolloutState: "eligible",
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-3-expansion",
     rolloutWave: "wave-3-platform-expansion",
     priorityLane: "bulk",
