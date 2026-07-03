@@ -9,6 +9,7 @@ import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
 const docsOnlyPatterns = [/^docs\//, /^artifacts\//, /^\.codex\//, /^README\.md$/, /^AGENTS\.md$/, /^.*\.md$/];
+const platformApiParityDocPatterns = [/^docs\/api\/marketplace\.openapi\.json$/];
 
 const workflowPatterns = [/^\.github\/workflows\//, /^\.github\/actions\//];
 const terraformPatterns = [/^infrastructure\/digitalocean\//];
@@ -74,6 +75,10 @@ function matchesAny(filePath, patterns) {
 }
 
 function isDocsOnlyFile(filePath) {
+  if (matchesAny(filePath, platformApiParityDocPatterns)) {
+    return false;
+  }
+
   return matchesAny(filePath, docsOnlyPatterns);
 }
 
@@ -151,6 +156,10 @@ function workspaceForFile(filePath, workspaces, baseDir) {
   });
 }
 
+function platformApiWorkspaceName(workspaces) {
+  return workspaces.find((workspace) => workspace.root === "deployables" && workspace.dirName === "platform-api")?.name;
+}
+
 export function classifyChanges({
   changedFiles,
   workspaces = listWorkspacePackages({ repoRoot: rootDir }),
@@ -171,6 +180,7 @@ export function classifyChanges({
   const selectedE2eSuiteIds = new Set();
   const exposurePostureCategories = new Set();
   let nonDocumentationChanged = false;
+  const platformApiWorkspace = platformApiWorkspaceName(workspaces);
 
   for (const filePath of normalizedFiles) {
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
@@ -181,6 +191,17 @@ export function classifyChanges({
 
     for (const suiteId of e2eSuiteIdsForChangedFile(filePath)) {
       selectedE2eSuiteIds.add(suiteId);
+    }
+
+    if (matchesAny(filePath, platformApiParityDocPatterns)) {
+      nonDocumentationChanged = true;
+      if (platformApiWorkspace) {
+        directlyTestOnlyAffectedWorkspaces.add(platformApiWorkspace);
+        const existing = testOnlyFilesByWorkspace.get(platformApiWorkspace) ?? [];
+        existing.push(filePath);
+        testOnlyFilesByWorkspace.set(platformApiWorkspace, existing);
+      }
+      continue;
     }
 
     const workspace = workspaceForFile(filePath, workspaces, baseDir);
@@ -257,7 +278,8 @@ export function classifyChanges({
   const dockerImageRequired = runtimeChanged || dockerChanged;
   const terraformRequired = terraformChanged || deploymentScriptChanged;
   const deployRequired = dockerImageRequired || terraformRequired;
-  const localChecksRequired = nonDocumentationChanged || workflowChanged || scriptOrConfigChanged;
+  const docsOnly = normalizedFiles.length > 0 && !nonDocumentationChanged;
+  const localChecksRequired = docsOnly || nonDocumentationChanged || workflowChanged || scriptOrConfigChanged;
   const e2eSuiteIds = orderE2eSuiteIds(selectedE2eSuiteIds);
   const workspaceByName = new Map(workspaces.map((workspace) => [workspace.name, workspace]));
 
@@ -299,7 +321,7 @@ export function classifyChanges({
     ].sort(),
     directlyRuntimeAffectedWorkspaces: [...directlyRuntimeAffectedWorkspaces].sort(),
     directlyTestOnlyAffectedWorkspaces: [...directlyTestOnlyAffectedWorkspaces].sort(),
-    docsOnly: normalizedFiles.length > 0 && !nonDocumentationChanged,
+    docsOnly,
     localChecksRequired,
     typecheckRequired: affectedWorkspaces.length > 0 || rootRuntimeChanged || rootTestTypecheckChanged,
     unitTestsRequired,

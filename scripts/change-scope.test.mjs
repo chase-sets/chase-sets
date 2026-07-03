@@ -49,11 +49,38 @@ describe("change-scope", () => {
     });
 
     expect(scope.docsOnly).toBe(true);
+    expect(scope.localChecksRequired).toBe(true);
     expect(scope.deployRequired).toBe(false);
     expect(scope.dockerImageRequired).toBe(false);
     expect(scope.terraformRequired).toBe(false);
     expect(scope.exposurePostureChanged).toBe(false);
     expect(scope.affectedWorkspaces).toEqual([]);
+  });
+
+  it("maps marketplace OpenAPI docs to platform-api parity coverage", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["docs/api/marketplace.openapi.json"],
+      workspaces: [
+        {
+          ...workspace(baseDir, "deployables", "platform-api", "@test/platform-api"),
+          packageJson: {
+            name: "@test/platform-api",
+            dependencies: {},
+            scripts: { test: "vitest run" },
+          },
+        },
+      ],
+    });
+
+    expect(scope.docsOnly).toBe(false);
+    expect(scope.localChecksRequired).toBe(true);
+    expect(scope.affectedWorkspaces).toEqual(["@test/platform-api"]);
+    expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual(["@test/platform-api"]);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.buildRequired).toBe(false);
+    expect(scope.deployRequired).toBe(false);
   });
 
   it("expands affected workspaces through workspace dependents", () => {
@@ -325,6 +352,18 @@ describe("change-scope", () => {
 
     expect(deployableUtilityScope.e2eTestsRequired).toBe(false);
     expect(deployableUtilityScope.e2eSuiteIds).toEqual([]);
+
+    const deployableSpecScope = classifyChanges({
+      baseDir,
+      changedFiles: ["deployables/marketplace/e2e/item-detail.spec.ts"],
+      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+    });
+
+    expect(deployableSpecScope.runtimeAffectedWorkspaces).toEqual([]);
+    expect(deployableSpecScope.unitTestsRequired).toBe(true);
+    expect(deployableSpecScope.buildRequired).toBe(false);
+    expect(deployableSpecScope.e2eTestsRequired).toBe(true);
+    expect(deployableSpecScope.e2eSuiteIds).toEqual(["marketplace_browse"]);
   });
 
   it("routes root browser runtime changes to browser E2E suites", () => {
@@ -542,7 +581,7 @@ describe("change-scope", () => {
     expect(scope.e2eSuiteIds).toEqual(["admin_platform"]);
   });
 
-  it("routes bounded-context marketplace routes by owned journey and excludes admin routes", () => {
+  it("routes bounded-context marketplace and admin routes by owned journey", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const marketplaceAccountScope = classifyChanges({
       baseDir,
@@ -563,18 +602,12 @@ describe("change-scope", () => {
 
     const adminScope = classifyChanges({
       baseDir,
-      changedFiles: [
-        "bounded-contexts/identity/routes/admin/users.tsx",
-        "bounded-contexts/support/routes/admin/support-queue.tsx",
-      ],
-      workspaces: [
-        workspace(baseDir, "bounded-contexts", "identity", "@test/identity"),
-        workspace(baseDir, "bounded-contexts", "support", "@test/support"),
-      ],
+      changedFiles: ["bounded-contexts/identity/routes/admin/users.tsx"],
+      workspaces: [workspace(baseDir, "bounded-contexts", "identity", "@test/identity")],
     });
 
-    expect(adminScope.e2eTestsRequired).toBe(false);
-    expect(adminScope.e2eSuiteIds).toEqual([]);
+    expect(adminScope.e2eTestsRequired).toBe(true);
+    expect(adminScope.e2eSuiteIds).toEqual(["admin_access"]);
   });
 
   it("routes milestone-25 decomposed routes to their owning E2E suites", () => {

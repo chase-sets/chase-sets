@@ -125,6 +125,63 @@ const contextSuiteOwnership = new Map([
   ["settlement", ["marketplace_account", "marketplace_seller"]],
 ]);
 
+const marketplaceContextRouteSuiteOwnership = new Map([
+  ["auth", ["marketplace_account"]],
+  ["discovery", ["marketplace_browse"]],
+  ["fulfillment", ["marketplace_account"]],
+  ["identity", ["marketplace_account"]],
+  ["inventory", ["marketplace_seller"]],
+  ["marketplace", ["marketplace_account", "marketplace_seller"]],
+  ["payments", ["marketplace_account", "marketplace_checkout"]],
+  ["platform-operations", ["marketplace_account"]],
+  ["pricing", ["marketplace_seller"]],
+  ["public-presence", ["marketplace_browse"]],
+  ["settlement", ["marketplace_account", "marketplace_seller"]],
+]);
+
+const adminContextRouteSuiteOwnership = new Map([
+  ["auth", ["admin_auth", "admin_access"]],
+  ["catalog", ["catalog_admin_modeling"]],
+  ["commercial-terms", ["admin_commerce"]],
+  ["discovery", ["admin_growth"]],
+  ["identity", ["admin_access"]],
+  ["ordering", ["admin_commerce"]],
+  ["platform-operations", ["admin_support", "admin_platform"]],
+  ["public-presence", ["admin_growth"]],
+]);
+
+const e2eSpecSuiteOwnership = [
+  { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
+  { pattern: /^deployables\/marketplace\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/(?:account-payment|buy-funnel-redesign|sell-checkout-session)\.spec\.ts$/,
+    suites: ["marketplace_checkout"],
+  },
+  { pattern: /^deployables\/admin-web\/e2e\/access-/, suites: ["admin_access"] },
+  { pattern: /^deployables\/admin-web\/e2e\/auth-shell-rbac\.spec\.ts$/, suites: ["admin_auth"] },
+  { pattern: /^deployables\/admin-web\/e2e\/catalog-integrations\.spec\.ts$/, suites: ["catalog_admin_integrations"] },
+  { pattern: /^deployables\/admin-web\/e2e\/catalog-modeling\.spec\.ts$/, suites: ["catalog_admin_modeling"] },
+  { pattern: /^deployables\/admin-web\/e2e\/commerce-/, suites: ["admin_commerce"] },
+  { pattern: /^deployables\/admin-web\/e2e\/growth-/, suites: ["admin_growth"] },
+  { pattern: /^deployables\/admin-web\/e2e\/support-/, suites: ["admin_support"] },
+  {
+    pattern: /^deployables\/admin-web\/e2e\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
+    suites: ["admin_platform"],
+  },
+];
+
+export const e2eNoSuiteExclusions = Object.freeze([
+  {
+    pattern:
+      /^deployables\/marketplace\/app\/routes\/(?:chrome-devtools|favicon|favicon-svg|health-ready|manifest|robots|service-worker|sitemap)\./,
+    reason: "Marketplace technical endpoint with static/runtime health coverage instead of browser journey coverage.",
+  },
+  {
+    pattern: /^deployables\/admin-web\/e2e\/catalog-staging-provider-sync\.uat\.spec\.ts$/,
+    reason: "Manual staging UAT spec; it is intentionally outside the CI grep suite catalog.",
+  },
+]);
+
 const marketplaceRouteSuiteOwnership = [
   {
     pattern:
@@ -245,6 +302,10 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["catalog_admin_integrations"],
   },
   {
+    pattern: /^bounded-contexts\/catalog\/routes\/admin\/integrations-/,
+    suites: ["catalog_admin_integrations"],
+  },
+  {
     pattern: /^bounded-contexts\/catalog\/routes\/admin\/dimensions(?:-detail)?\./,
     suites: ["catalog_admin_modeling"],
   },
@@ -253,8 +314,8 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["catalog_admin_modeling"],
   },
   {
-    pattern: /^bounded-contexts\/[^/]+\/routes\/admin\//,
-    suites: [],
+    pattern: /^bounded-contexts\/catalog\/routes\/admin\//,
+    suites: ["catalog_admin_modeling"],
   },
   {
     pattern: /^bounded-contexts\/identity\/routes\/marketplace\//,
@@ -267,6 +328,46 @@ const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/platform-operations\/routes\/marketplace\//,
     suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/auth\/routes\/marketplace\//,
+    suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/auth\/routes\/(?:access-admin|catalog-admin)\//,
+    suites: ["admin_auth", "admin_access"],
+  },
+  {
+    pattern: /^bounded-contexts\/checkout\/routes\//,
+    suites: ["marketplace_checkout"],
+  },
+  {
+    pattern: /^bounded-contexts\/discovery\/routes\/(?:search|public-|account-product-alerts)/,
+    suites: ["marketplace_browse"],
+  },
+  {
+    pattern: /^bounded-contexts\/identity\/routes\/admin\//,
+    suites: ["admin_access"],
+  },
+  {
+    pattern: /^bounded-contexts\/marketplace\/routes\/account-(?:listing|listings|offer)/,
+    suites: ["marketplace_account", "marketplace_seller"],
+  },
+  {
+    pattern: /^bounded-contexts\/ordering\/routes\/account-(?:purchase|sale)/,
+    suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/payments\/routes\/marketplace\/account-payment(?:-methods|-new)/,
+    suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/pricing\/routes\/marketplace\/account-repricing/,
+    suites: ["marketplace_seller"],
+  },
+  {
+    pattern: /^bounded-contexts\/settlement\/routes\/marketplace\//,
+    suites: ["marketplace_account", "marketplace_seller"],
   },
   {
     pattern: /^bounded-contexts\/marketplace\/routes\/account-listing\./,
@@ -337,6 +438,37 @@ export function e2eSuiteById(suiteId) {
   return e2eSuites.find((suite) => suite.id === suiteId);
 }
 
+export function isE2eSpecFile(filePath) {
+  return /^deployables\/(?:marketplace|admin-web)\/e2e\/.*\.spec\.ts$/.test(normalizeFilePath(filePath));
+}
+
+export function isRouteFile(filePath) {
+  const normalized = normalizeFilePath(filePath);
+  if (/\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(normalized)) {
+    return false;
+  }
+
+  return (
+    /^deployables\/(?:marketplace|admin-web)\/app\/routes\/.*\.(?:ts|tsx|js|jsx)$/.test(normalized) ||
+    /^bounded-contexts\/[^/]+\/routes\/.*\.(?:ts|tsx|js|jsx)$/.test(normalized)
+  );
+}
+
+export function e2eNoSuiteExclusionForChangedFile(filePath) {
+  const normalized = normalizeFilePath(filePath);
+  return e2eNoSuiteExclusions.find((exclusion) => exclusion.pattern.test(normalized)) ?? null;
+}
+
+function e2eSpecSuiteIdsForChangedFile(filePath) {
+  for (const specOwnership of e2eSpecSuiteOwnership) {
+    if (specOwnership.pattern.test(filePath)) {
+      return specOwnership.suites;
+    }
+  }
+
+  return e2eNoSuiteExclusionForChangedFile(filePath) ? [] : allBrowserSuiteIds;
+}
+
 function isTestOnlyOrDocumentationFile(filePath) {
   return (
     /\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(filePath) ||
@@ -346,6 +478,10 @@ function isTestOnlyOrDocumentationFile(filePath) {
 }
 
 function marketplaceDeployableSuiteIdsForChangedFile(filePath) {
+  if (e2eNoSuiteExclusionForChangedFile(filePath)) {
+    return [];
+  }
+
   if (isTestOnlyOrDocumentationFile(filePath)) {
     return [];
   }
@@ -371,6 +507,13 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
   }
 
   if (/(?:^|\/)routes\//.test(filePath)) {
+    if (/^bounded-contexts\/[^/]+\/routes\/marketplace\//.test(filePath)) {
+      return marketplaceContextRouteSuiteOwnership.get(contextName) ?? [];
+    }
+    if (/^bounded-contexts\/[^/]+\/routes\/(?:admin|access-admin|catalog-admin)\//.test(filePath)) {
+      return adminContextRouteSuiteOwnership.get(contextName) ?? [];
+    }
+
     return [];
   }
 
@@ -379,6 +522,10 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
 
 export function e2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
+
+  if (isE2eSpecFile(normalized)) {
+    return e2eSpecSuiteIdsForChangedFile(normalized);
+  }
 
   if (isBrowserRuntimeFile(normalized)) {
     return allBrowserSuiteIds;
