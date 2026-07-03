@@ -9,6 +9,7 @@ import {
   getBlockedStreamStore,
   getCheckpointStore,
   getCheckpointWriteCountStore,
+  getPoisonEventStore,
   getReadAllCalls,
   resetMockPoolState,
   sourceEventsByPool,
@@ -303,6 +304,85 @@ describe("bounded context subscription runner", () => {
 
     await resumedRunner.runOnce();
     expect(resumedPositions).toEqual(["2"]);
+  });
+
+  it("treats retryable Postgres handler failures as transient without blocking the stream", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_retry" }, "catalog.item-cat_retry"),
+    ]);
+
+    let attempts = 0;
+    const appliedPositions: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          attempts += 1;
+          if (attempts === 1) {
+            throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+          }
+          appliedPositions.push(event.globalPosition);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+
+    await expect(runner.runOnce()).rejects.toThrow("deadlock detected");
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("transient");
+    expect(getBlockedStreamStore(targetPool).size).toBe(0);
+    expect(getPoisonEventStore(targetPool).size).toBe(0);
+
+    await expect(runner.runOnce()).resolves.toMatchObject({
+      processed: 1,
+      lastGlobalPosition: "1",
+      state: "running",
+      blockedStreams: 0,
+      poisonEvents: 0,
+    });
+    expect(appliedPositions).toEqual(["1"]);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("applied");
+    expect(getCheckpointStore(targetPool).get(projectionKey)).toBe("1");
+  });
+
+  it("keeps deterministic Postgres handler failures on the poison path", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_bad" }, "catalog.item-cat_bad"),
+    ]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" });
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+
+    await expect(runner.runOnce()).resolves.toMatchObject({
+      processed: 1,
+      lastGlobalPosition: "1",
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("poison");
+    expect(getBlockedStreamStore(targetPool).get(`${projectionKey}:catalog.item-cat_bad`)).toBeDefined();
+    expect(getPoisonEventStore(targetPool).has(`${projectionKey}:evt_1`)).toBe(true);
   });
 
   it("blocks only the poisoned stream while continuing unrelated subscription streams", async () => {

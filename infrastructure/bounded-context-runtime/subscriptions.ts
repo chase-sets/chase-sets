@@ -16,6 +16,7 @@ import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
+  isPgRetryableTransientError,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { runInProjectionDbContext, withProjectionTransaction } from "./projection-transactions";
@@ -546,7 +547,11 @@ export function createSubscriptionRunner(
                 continue;
               }
             } catch (error) {
-              if (errorPolicy === "global-strict" || isTransientProjectionError(error)) {
+              if (
+                errorPolicy === "global-strict" ||
+                isTransientProjectionError(error) ||
+                isPgRetryableTransientError(error)
+              ) {
                 const failureResult = await recordSubscriptionApplicationFailure(
                   targetPool,
                   checkpointKey,

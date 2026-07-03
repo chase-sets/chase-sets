@@ -22,6 +22,8 @@ export type PgTransactionalPool = PgQueryable &
     connect: () => Promise<PgPoolClient>;
   }>;
 
+export const POSTGRES_RETRYABLE_TRANSIENT_CODES = new Set(["40001", "40P01", "55P03", "57014"]);
+
 export async function withPgTransaction<T>(
   pool: PgTransactionalPool,
   work: (client: PgPoolClient) => Promise<T>,
@@ -99,4 +101,14 @@ export function isPgConnectionLevelError(error: unknown): boolean {
     message.includes("connection is not queryable") ||
     message.includes("terminating connection")
   );
+}
+
+export function isPgRetryableTransientError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const candidate = error as Readonly<{ code?: unknown }>;
+  const code = typeof candidate.code === "string" ? candidate.code.toUpperCase() : "";
+  return POSTGRES_RETRYABLE_TRANSIENT_CODES.has(code) || isPgConnectionLevelError(error);
 }

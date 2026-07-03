@@ -436,6 +436,17 @@ export function createEventCoreMock() {
 export function createEventCorePostgresMock() {
   return {
     withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
+    isPgRetryableTransientError: (error: unknown) => {
+      if (typeof error !== "object" || error === null) {
+        return false;
+      }
+      const candidate = error as { code?: unknown; message?: unknown };
+      const code = typeof candidate.code === "string" ? candidate.code.toUpperCase() : "";
+      if (["40001", "40P01", "55P03", "57014", "ECONNRESET"].includes(code)) {
+        return true;
+      }
+      return typeof candidate.message === "string" && candidate.message.toLowerCase().includes("connection terminated");
+    },
     createPostgresEventStore: ({ pool }: { pool: object }) => ({
       readAll: async ({
         afterGlobalPosition,
