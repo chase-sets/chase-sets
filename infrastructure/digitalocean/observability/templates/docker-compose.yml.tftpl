@@ -3,9 +3,12 @@ services:
     image: $${CADDY_IMAGE}
     restart: unless-stopped
     depends_on:
-      - grafana
-      - otel-collector
-      - prometheus
+      grafana:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      prometheus:
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
@@ -17,6 +20,12 @@ services:
   grafana:
     image: $${GRAFANA_IMAGE}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_SECURITY_ADMIN_USER: "$${GRAFANA_ADMIN_USER}"

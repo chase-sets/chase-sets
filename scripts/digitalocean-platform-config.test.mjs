@@ -21,6 +21,10 @@ const observabilityCloudInit = readFileSync(
   resolve("infrastructure/digitalocean/observability/templates/cloud-init.yml.tftpl"),
   "utf8",
 );
+const observabilityDockerCompose = readFileSync(
+  resolve("infrastructure/digitalocean/observability/templates/docker-compose.yml.tftpl"),
+  "utf8",
+);
 const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
 const environmentDnsMain = readFileSync(resolve("infrastructure/digitalocean/environment-dns/main.tf"), "utf8");
@@ -2057,12 +2061,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain('port_range       = "80"');
     expect(observabilityMain).toContain('port_range       = "443"');
     expect(observabilityLocals).toContain("../../observability/stack");
-    expect(observabilityLocals).toContain("grafana/dashboards/projection-wake-pipeline.json");
+    expect(observabilityLocals).toContain('fileset(local.stack_source_dir, "**/*")');
+    expect(observabilityLocals).not.toContain("grafana/dashboards/projection-wake-pipeline.json");
     expect(observabilityLocals).toContain('encoding    = "gz+b64"');
     expect(observabilityLocals).toContain("content     = base64gzip(content)");
     expect(observabilityLocals).toContain("cloud_init_user_data = templatefile");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Token");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Query");
+    expect(observabilityDockerCompose).toContain("condition: service_healthy");
+    expect(observabilityDockerCompose).toContain("http://127.0.0.1:3000/api/health");
+    expect(observabilityCloudInit).toContain("docker compose logs --tail=120 grafana");
     expect(observabilityCloudInit).toContain("docker compose up -d --remove-orphans");
     expect(observabilityOutputs).toContain('output "app_platform_otlp_headers"');
     // The canary-evidence promotion gate was removed in #2507, so the host no

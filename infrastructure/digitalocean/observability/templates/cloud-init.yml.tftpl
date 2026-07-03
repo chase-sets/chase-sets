@@ -68,6 +68,7 @@ runcmd:
     RemainAfterExit=yes
     WorkingDirectory=/opt/chase-sets-observability
     ExecStart=/usr/bin/docker compose up -d --remove-orphans
+    ExecStartPost=/bin/bash -lc 'for attempt in $(seq 1 36); do status=$(docker inspect --format "{{.State.Health.Status}}" chase-sets-observability-grafana-1 2>/dev/null || true); if [ "$status" = "healthy" ]; then exit 0; fi; sleep 5; done; docker compose ps; docker compose logs --tail=120 grafana; exit 1'
     ExecStop=/usr/bin/docker compose down
     TimeoutStartSec=0
 
