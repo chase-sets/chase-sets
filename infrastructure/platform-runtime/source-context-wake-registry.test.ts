@@ -38,6 +38,7 @@ describe("source-context wake registry", () => {
       "ordering",
       "payments",
       "platform-operations",
+      "public-presence",
       "settlement",
     ]);
     expect(listSourceContextWakeRelayConfigs()).toMatchObject([
@@ -84,6 +85,13 @@ describe("source-context wake registry", () => {
         priorityLane: "standard",
       },
       {
+        sourceContextName: "public-presence",
+        rolloutState: "staging-enabled",
+        rolloutWave: "wave-3-platform-expansion",
+        relayFanOutEnabled: true,
+        priorityLane: "bulk",
+      },
+      {
         sourceContextName: "settlement",
         rolloutState: "staging-enabled",
         rolloutWave: "wave-3-platform-expansion",
@@ -95,9 +103,9 @@ describe("source-context wake registry", () => {
 
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: inventory.contextNames.length,
-      activeEntryCount: 9,
-      enabledEventStoreWakeContextCount: 9,
-      enabledRelayFanOutContextCount: 9,
+      activeEntryCount: 10,
+      enabledEventStoreWakeContextCount: 10,
+      enabledRelayFanOutContextCount: 10,
     });
   });
 
@@ -184,6 +192,11 @@ describe("source-context wake registry", () => {
         sourceContextName: "platform-operations",
         relayFanOutEnabled: true,
         priorityLane: "standard",
+      },
+      {
+        sourceContextName: "public-presence",
+        relayFanOutEnabled: true,
+        priorityLane: "bulk",
       },
       {
         sourceContextName: "settlement",
