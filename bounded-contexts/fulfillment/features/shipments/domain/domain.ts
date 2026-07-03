@@ -150,6 +150,20 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   exceptionRaisedAt: null,
 };
 
+function labelStatusFromRefundStatus(refundStatus: string): PostageLabelStatus {
+  if (refundStatus === "refunded") {
+    return "voided";
+  }
+  if (refundStatus === "rejected") {
+    return "void-rejected";
+  }
+  return "void-requested";
+}
+
+function shipmentStatusFromRefundStatus(refundStatus: string): ShipmentStatus {
+  return refundStatus === "rejected" ? "label-attached" : "awaiting-label";
+}
+
 export type CreateShipmentCommand = Readonly<{
   type: "CreateShipment";
   shipmentId: ShipmentId;
@@ -229,6 +243,13 @@ export type VoidShipmentLabelCommand = Readonly<{
   voidedAt: string;
 }>;
 
+export type RecordShipmentLabelRefundStatusCommand = Readonly<{
+  type: "RecordShipmentLabelRefundStatus";
+  refundStatus: string;
+  refundReference?: string | null;
+  resolvedAt: string;
+}>;
+
 export type CancelShipmentCommand = Readonly<{
   type: "CancelShipment";
   cancelledAt: string;
@@ -267,6 +288,7 @@ export type FulfillmentShipmentCommand =
   | AttachShipmentLabelCommand
   | RecordShipmentLabelPurchaseFailedCommand
   | VoidShipmentLabelCommand
+  | RecordShipmentLabelRefundStatusCommand
   | CancelShipmentCommand
   | DispatchShipmentCommand
   | RecordShipmentDeliveryCommand
@@ -382,6 +404,16 @@ export type ShipmentLabelVoidedEvent = DomainEvent<
   }>
 >;
 
+export type ShipmentLabelRefundStatusRecordedEvent = DomainEvent<
+  "fulfillment.shipment.label-refund-status-recorded",
+  Readonly<{
+    shipmentId: ShipmentId;
+    refundStatus: string;
+    refundReference: string | null;
+    resolvedAt: string;
+  }>
+>;
+
 export type ShipmentCancelledEvent = DomainEvent<
   "fulfillment.shipment.cancelled",
   Readonly<{
@@ -442,6 +474,7 @@ export type FulfillmentShipmentEvent =
   | ShipmentLabelAttachedEvent
   | ShipmentLabelPurchaseFailedEvent
   | ShipmentLabelVoidedEvent
+  | ShipmentLabelRefundStatusRecordedEvent
   | ShipmentCancelledEvent
   | ShipmentDispatchedEvent
   | ShipmentDeliveredEvent
@@ -628,6 +661,7 @@ export const decideFulfillmentShipment: AggregateDecider<
       assert(state.shipmentId !== null, "Shipment must be created first.");
       assert(state.packageStatus === "packed", "Shipments must be packed before a label can be attached.");
       assert(state.status === "awaiting-label", "Only shipments awaiting a label can attach one.");
+      assert(command.postageAmountCents != null, "Postage amount must be known before a label can be attached.");
       return [
         {
           type: "fulfillment.shipment.label-attached",
@@ -644,14 +678,11 @@ export const decideFulfillmentShipment: AggregateDecider<
             postageProviderLabelId: normalizeOptionalText(command.postageProviderLabelId),
             postageRateId: normalizeOptionalText(command.postageRateId),
             postageServiceLevel: normalizeOptionalText(command.postageServiceLevel),
-            postageAmountCents:
-              command.postageAmountCents == null
-                ? null
-                : ensureNonNegativeInteger(
-                    command.postageAmountCents,
-                    "Postage amount must be a non-negative whole number of cents.",
-                  ),
-            postageCurrency: normalizeOptionalText(command.postageCurrency),
+            postageAmountCents: ensureNonNegativeInteger(
+              command.postageAmountCents,
+              "Postage amount must be a known non-negative whole number of cents.",
+            ),
+            postageCurrency: normalizeRequiredText(command.postageCurrency ?? "", "Postage currency is required."),
             addressOverrideAudit: command.addressOverrideAudit
               ? {
                   originalSenderSnapshot: normalizeAddressSnapshot(
@@ -727,6 +758,29 @@ export const decideFulfillmentShipment: AggregateDecider<
           },
         },
       ];
+    case "RecordShipmentLabelRefundStatus": {
+      assert(state.shipmentId !== null, "Shipment must be created first.");
+      if (state.labelStatus === "voided" || state.labelStatus === "void-rejected") {
+        return [];
+      }
+      assert(state.labelStatus === "void-requested", "Only requested label voids can record refund status.");
+      const refundStatus = normalizeRequiredText(command.refundStatus, "Label refund status is required.");
+      assert(
+        refundStatus === "refunded" || refundStatus === "rejected",
+        "Label refund status must be refunded or rejected.",
+      );
+      return [
+        {
+          type: "fulfillment.shipment.label-refund-status-recorded",
+          data: {
+            shipmentId: state.shipmentId,
+            refundStatus,
+            refundReference: normalizeOptionalText(command.refundReference),
+            resolvedAt: ensureIsoTimestamp(command.resolvedAt, "Label refund status must record a timestamp."),
+          },
+        },
+      ];
+    }
     case "CancelShipment":
       assert(state.shipmentId !== null, "Shipment must be created first.");
       assert(state.orderId !== null, "Shipment must reference an order before cancellation.");
@@ -965,11 +1019,19 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
     case "fulfillment.shipment.label-voided":
       return {
         ...state,
-        status: "awaiting-label",
-        labelStatus: event.data.refundStatus === "refunded" ? "voided" : "void-requested",
+        status: shipmentStatusFromRefundStatus(event.data.refundStatus),
+        labelStatus: labelStatusFromRefundStatus(event.data.refundStatus),
         labelRefundStatus: event.data.refundStatus,
         labelRefundReference: event.data.refundReference,
         labelVoidedAt: event.data.voidedAt,
+      };
+    case "fulfillment.shipment.label-refund-status-recorded":
+      return {
+        ...state,
+        status: shipmentStatusFromRefundStatus(event.data.refundStatus),
+        labelStatus: labelStatusFromRefundStatus(event.data.refundStatus),
+        labelRefundStatus: event.data.refundStatus,
+        labelRefundReference: event.data.refundReference,
       };
     case "fulfillment.shipment.cancelled":
       return {

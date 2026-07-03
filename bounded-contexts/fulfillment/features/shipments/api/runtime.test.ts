@@ -805,6 +805,48 @@ describe("fulfillment shipment runtime", () => {
     expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
   });
 
+  it("marks stale provider-submitted label voids failed for operator review", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(),
+      voidLabel: vi.fn(),
+    };
+    const db = createPostageOperationDb();
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    await recordFulfillmentPostageLabelOperationPending(db as never, {
+      operationKey: "shipment:shp_1:void-label:2026-04-02T00:15:00.000Z",
+      operationKind: "void-label",
+      shipmentId: "shp_1",
+      providerName: "sandbox-usps",
+      providerMode: "test",
+      idempotencyKey: "shipment:shp_1:void-label:2026-04-02T00:15:00.000Z",
+      request: {
+        providerShipmentId: "sandbox_shipment_1",
+        providerLabelId: "sandbox_label_1",
+        trackingIdentifier: "940000000000000000",
+      },
+      createdAt: "2026-04-02T00:15:00.000Z",
+    });
+
+    await expect(
+      services.reconcileStalePostageLabelVoids({
+        staleBefore: "2026-04-03T00:20:00.000Z",
+      }),
+    ).resolves.toMatchObject({ checked: 1, failed: 1 });
+
+    expect(db.readOperation()).toMatchObject({
+      status: "failed",
+      error_message: "Postage label void request is stale without a terminal provider refund status.",
+    });
+  });
+
   it("rejects parcel-required shipments when a label override attempts Letter Mail", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const postageLabelProvider: PostageLabelProvider = {
@@ -1306,6 +1348,88 @@ describe("fulfillment shipment runtime", () => {
     );
   });
 
+  it("validates the aggregate before submitting provider label voids", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(),
+      voidLabel: vi.fn(async () => ({
+        providerName: "sandbox-usps",
+        providerMode: "test" as const,
+        refundReference: "sandbox_refund_1",
+        refundStatus: "submitted",
+        voidedAt: "2026-04-02T00:15:00.000Z",
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              createPackedShipmentRow({
+                status: "label-attached",
+                label_status: "purchased",
+                tracking_identifier: "940000000000000000",
+                postage_provider_shipment_id: "sandbox_shipment_1",
+                postage_provider_label_id: "sandbox_label_1",
+              }),
+            ],
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "sandbox_label_1",
+        trackingIdentifier: "940000000000000000",
+        postageProviderShipmentId: "sandbox_shipment_1",
+        postageProviderLabelId: "sandbox_label_1",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        attachedAt: "2026-04-02T00:10:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "DispatchShipment",
+        dispatchedAt: "2026-04-02T00:12:00.000Z",
+      },
+      context,
+    });
+
+    await expect(services.voidLabel({ shipmentId: "shp_1", sellerAccountId: "acc_seller" }, context)).rejects.toThrow(
+      "Only attached labels can be voided before dispatch.",
+    );
+
+    expect(postageLabelProvider.voidLabel).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO fulfillment_postage_label_operations"),
+      expect.anything(),
+    );
+  });
+
   it("purchases Letter Mail postage from the committed package plan weight", async () => {
     const { eventStore } = createInMemoryEventStore();
     const postageLabelProvider: PostageLabelProvider = {
@@ -1797,6 +1921,8 @@ describe("fulfillment shipment runtime", () => {
         postageProviderMode: "production",
         postageProviderShipmentId: "shp_provider_1",
         postageProviderLabelId: "pl_1",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
         attachedAt: "2026-05-30T11:55:00.000Z",
       },
       context,
@@ -1828,7 +1954,7 @@ describe("fulfillment shipment runtime", () => {
     );
   });
 
-  it("records EasyPost refund webhooks against the matched shipment without changing shipment state", async () => {
+  it("applies refunded EasyPost refund webhooks to requested label voids", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const postageWebhookGateway: PostageProviderWebhookGateway = {
       processPostageProviderWebhook: vi.fn(async () => ({
@@ -1853,9 +1979,14 @@ describe("fulfillment shipment runtime", () => {
               {
                 shipment_id: "shp_1",
                 seller_account_id: "acc_seller",
-                status: "label-attached",
+                status: "awaiting-label",
+                label_status: "void-requested",
+                label_refund_status: "submitted",
+                label_voided_at: "2026-05-30T11:58:00.000Z",
                 tracking_identifier: "940000000000000000",
                 postage_provider_shipment_id: "shp_provider_1",
+                matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
+                matched_void_operation_status: "provider-succeeded",
               },
             ],
           };
@@ -1866,6 +1997,9 @@ describe("fulfillment shipment runtime", () => {
         }
         if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
           return { rows: [{ provider_event_id: "evt_refund_1" }], rowCount: 1 };
+        }
+        if (sql.includes("SET status = 'succeeded'")) {
+          return { rows: [], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -1883,6 +2017,36 @@ describe("fulfillment shipment runtime", () => {
         forAccountId: "acc_seller" as never,
       },
     };
+    await seedPackedShipmentAggregate(services, context);
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "pl_1",
+        labelDocumentUrl: "https://labels.easypost.test/pl_1.pdf",
+        trackingIdentifier: "940000000000000000",
+        postageProviderName: "easypost",
+        postageProviderMode: "production",
+        postageProviderShipmentId: "shp_provider_1",
+        postageProviderLabelId: "pl_1",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        attachedAt: "2026-05-30T11:55:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "VoidShipmentLabel",
+        refundStatus: "submitted",
+        refundReference: "rfnd_provider_1",
+        voidedAt: "2026-05-30T11:58:00.000Z",
+      },
+      context,
+    });
 
     await expect(
       services.processPostageProviderWebhook(
@@ -1899,10 +2063,12 @@ describe("fulfillment shipment runtime", () => {
       providerEventId: "evt_refund_1",
       eventKind: "refund-status",
       shipmentId: "shp_1",
-      processingResult: "recorded",
+      processingResult: "refund-refunded",
     });
 
-    expect(readAllEvents()).toEqual([]);
+    expect(readAllEvents().map((event) => event.eventType)).toContain(
+      "fulfillment.shipment.label-refund-status-recorded",
+    );
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO fulfillment_postage_provider_events"),
       expect.arrayContaining([
@@ -1914,7 +2080,262 @@ describe("fulfillment shipment runtime", () => {
         "shp_1",
         "940000000000000000",
         "refunded",
-        "recorded",
+        "refund-refunded",
+      ]),
+    );
+  });
+
+  it("applies rejected refund webhooks to requested label voids", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const postageWebhookGateway: PostageProviderWebhookGateway = {
+      processPostageProviderWebhook: vi.fn(async () => ({
+        providerEventId: "evt_refund_rejected_1",
+        providerName: "easypost",
+        providerMode: "production" as const,
+        eventKind: "refund-status" as const,
+        providerObjectReference: "rfnd_provider_1",
+        providerShipmentId: "shp_provider_1",
+        trackingIdentifier: "940000000000000000",
+        status: "rejected",
+        occurredAt: "2026-05-30T12:00:02.000Z",
+        receivedAt: "2026-05-30T12:00:04.000Z",
+        payload: { id: "evt_refund_rejected_1" },
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_1",
+                seller_account_id: "acc_seller",
+                status: "awaiting-label",
+                label_status: "void-requested",
+                label_refund_status: "submitted",
+                label_voided_at: "2026-05-30T11:58:00.000Z",
+                tracking_identifier: "940000000000000000",
+                postage_provider_shipment_id: "shp_provider_1",
+                matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
+                matched_void_operation_status: "provider-succeeded",
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM fulfillment_postage_provider_events")) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("SET status = 'failed'")) {
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
+          return { rows: [{ provider_event_id: "evt_refund_rejected_1" }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageWebhookGateway,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "pl_1",
+        labelDocumentUrl: "https://labels.easypost.test/pl_1.pdf",
+        trackingIdentifier: "940000000000000000",
+        postageProviderName: "easypost",
+        postageProviderMode: "production",
+        postageProviderShipmentId: "shp_provider_1",
+        postageProviderLabelId: "pl_1",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        attachedAt: "2026-05-30T11:55:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "VoidShipmentLabel",
+        refundStatus: "submitted",
+        refundReference: "rfnd_provider_1",
+        voidedAt: "2026-05-30T11:58:00.000Z",
+      },
+      context,
+    });
+
+    await expect(
+      services.processPostageProviderWebhook(
+        {
+          rawBody: "{}",
+          method: "POST",
+          path: "/api/fulfillment/provider/postage/webhooks",
+          headers: new Headers(),
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      providerEventId: "evt_refund_rejected_1",
+      eventKind: "refund-status",
+      shipmentId: "shp_1",
+      processingResult: "refund-rejected",
+    });
+
+    const refundEvent = readAllEvents().find(
+      (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
+    );
+    expect(refundEvent?.payload).toMatchObject({
+      refundStatus: "rejected",
+      refundReference: "rfnd_provider_1",
+    });
+  });
+
+  it("surfaces rejected refund webhooks after a replacement label without mutating the new label", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const postageWebhookGateway: PostageProviderWebhookGateway = {
+      processPostageProviderWebhook: vi.fn(async () => ({
+        providerEventId: "evt_refund_after_rebuy_1",
+        providerName: "easypost",
+        providerMode: "production" as const,
+        eventKind: "refund-status" as const,
+        providerObjectReference: "rfnd_provider_1",
+        providerShipmentId: "old_provider_shipment_1",
+        trackingIdentifier: "940000000000000000",
+        status: "rejected",
+        occurredAt: "2026-05-30T12:10:00.000Z",
+        receivedAt: "2026-05-30T12:10:04.000Z",
+        payload: { id: "evt_refund_after_rebuy_1" },
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_1",
+                seller_account_id: "acc_seller",
+                status: "label-attached",
+                label_status: "purchased",
+                label_refund_status: null,
+                label_voided_at: null,
+                tracking_identifier: "940000000000000001",
+                postage_provider_shipment_id: "new_provider_shipment_1",
+                matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
+                matched_void_operation_status: "provider-succeeded",
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM fulfillment_postage_provider_events")) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("SET status = 'failed'")) {
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
+          return { rows: [{ provider_event_id: "evt_refund_after_rebuy_1" }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageWebhookGateway,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "old_pl_1",
+        trackingIdentifier: "940000000000000000",
+        postageProviderShipmentId: "old_provider_shipment_1",
+        postageProviderLabelId: "old_pl_1",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        attachedAt: "2026-05-30T11:55:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "VoidShipmentLabel",
+        refundStatus: "submitted",
+        refundReference: "rfnd_provider_1",
+        voidedAt: "2026-05-30T11:58:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "new_pl_1",
+        trackingIdentifier: "940000000000000001",
+        postageProviderShipmentId: "new_provider_shipment_1",
+        postageProviderLabelId: "new_pl_1",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        attachedAt: "2026-05-30T12:05:00.000Z",
+      },
+      context,
+    });
+    const eventCountBeforeWebhook = readAllEvents().length;
+
+    await expect(
+      services.processPostageProviderWebhook(
+        {
+          rawBody: "{}",
+          method: "POST",
+          path: "/api/fulfillment/provider/postage/webhooks",
+          headers: new Headers(),
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      providerEventId: "evt_refund_after_rebuy_1",
+      eventKind: "refund-status",
+      shipmentId: "shp_1",
+      processingResult: "refund-rejected-after-rebuy",
+    });
+
+    expect(readAllEvents()).toHaveLength(eventCountBeforeWebhook);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE fulfillment_postage_label_operations"),
+      expect.arrayContaining([
+        "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
+        "Postage label refund was rejected after a replacement label was purchased.",
       ]),
     );
   });

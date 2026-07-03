@@ -2,6 +2,20 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  function labelStatusFromRefundStatus(refundStatus: string) {
+    if (refundStatus === "refunded") {
+      return "voided";
+    }
+    if (refundStatus === "rejected") {
+      return "void-rejected";
+    }
+    return "void-requested";
+  }
+
+  function shipmentStatusFromRefundStatus(refundStatus: string) {
+    return refundStatus === "rejected" ? "label-attached" : "awaiting-label";
+  }
+
   return {
     "fulfillment.shipment.created": async (event) => {
       const data = event.data as {
@@ -383,18 +397,41 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
         refundReference: string | null;
         voidedAt: string;
       };
-      const labelStatus = data.refundStatus === "refunded" ? "voided" : "void-requested";
+      const labelStatus = labelStatusFromRefundStatus(data.refundStatus);
+      const shipmentStatus = shipmentStatusFromRefundStatus(data.refundStatus);
 
       await db.query(
         `UPDATE fulfillment_shipment_pages
-         SET status = 'awaiting-label',
-             label_status = $2,
-             label_refund_status = $3,
-             label_refund_reference = $4,
-             label_voided_at = $5,
-             updated_at = $5
-         WHERE shipment_id = $1`,
-        [data.shipmentId, labelStatus, data.refundStatus, data.refundReference, data.voidedAt],
+         SET status = $2,
+              label_status = $3,
+              label_refund_status = $4,
+              label_refund_reference = $5,
+              label_voided_at = $6,
+              updated_at = $6
+          WHERE shipment_id = $1`,
+        [data.shipmentId, shipmentStatus, labelStatus, data.refundStatus, data.refundReference, data.voidedAt],
+      );
+    },
+    "fulfillment.shipment.label-refund-status-recorded": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        refundStatus: string;
+        refundReference: string | null;
+        resolvedAt: string;
+      };
+      const labelStatus = labelStatusFromRefundStatus(data.refundStatus);
+      const shipmentStatus = shipmentStatusFromRefundStatus(data.refundStatus);
+
+      await db.query(
+        `UPDATE fulfillment_shipment_pages
+         SET status = $2,
+             label_status = $3,
+             label_refund_status = $4,
+             label_refund_reference = $5,
+             updated_at = $6
+         WHERE shipment_id = $1
+           AND label_status = 'void-requested'`,
+        [data.shipmentId, shipmentStatus, labelStatus, data.refundStatus, data.refundReference, data.resolvedAt],
       );
     },
     "fulfillment.shipment.cancelled": async (event) => {

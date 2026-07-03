@@ -1155,6 +1155,10 @@ function createScheduledJobRunners(
             staleAfterMs?: number;
             limit?: number;
           }) => Promise<{ checked: number; attached: number; voided: number; failed: number }>;
+          reconcileStalePostageLabelVoids?: (params?: {
+            staleAfterMs?: number;
+            limit?: number;
+          }) => Promise<{ checked: number; failed: number }>;
         };
       }
     | undefined;
@@ -1265,6 +1269,27 @@ function createScheduledJobRunners(
           });
           logger.info("Fulfillment postage label purchase reconciliation completed.", {
             type: "fulfillment.postage-label-purchase-reconciliation",
+            result,
+          });
+          return result.checked;
+        },
+      ),
+    );
+  }
+
+  if (fulfillment?.shipments?.reconcileStalePostageLabelVoids) {
+    runners.push(
+      createScheduledJobRunner(
+        "fulfillment.postage-label-void-reconciliation",
+        5 * 60 * 1000,
+        controlPlane,
+        async () => {
+          const result = await fulfillment.shipments!.reconcileStalePostageLabelVoids!({
+            staleAfterMs: 24 * 60 * 60 * 1000,
+            limit: 100,
+          });
+          logger.info("Fulfillment postage label void reconciliation completed.", {
+            type: "fulfillment.postage-label-void-reconciliation",
             result,
           });
           return result.checked;

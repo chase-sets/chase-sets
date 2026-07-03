@@ -22,7 +22,13 @@ export type ShipmentExceptionType =
 
 export type ShippingMethod = "standard" | "expedited" | "priority" | "insured";
 
-export type PostageLabelStatus = "not-purchased" | "purchased" | "void-requested" | "voided" | "purchase-error";
+export type PostageLabelStatus =
+  | "not-purchased"
+  | "purchased"
+  | "void-requested"
+  | "voided"
+  | "void-rejected"
+  | "purchase-error";
 
 export type ShipmentLineId = TypedUlid<"spl">;
 

@@ -224,6 +224,8 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
           carrierName: "UPS",
           labelReference,
           trackingIdentifier,
+          postageAmountCents: 599,
+          postageCurrency: "USD",
           attachedAt: new Date().toISOString(),
         },
         context,
