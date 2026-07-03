@@ -3,7 +3,8 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
 import {
   SettlementApiError,
   type SettlementPayoutPreview,
@@ -37,6 +38,37 @@ const ACCOUNT_PAYOUTS_POST_WRITE_TELEMETRY = {
   routeTemplate: "/account/payouts",
 } as const satisfies PlatformPostWriteTelemetry;
 
+function currentAccountPath(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
+}
+
+function accountAccessRequired(returnTo: string) {
+  return {
+    accountAccessRequired: {
+      returnTo,
+      title: t("settlement.routes.marketplace.accountPayouts.account.access.required.title"),
+      description: t("settlement.routes.marketplace.accountPayouts.account.access.required.description"),
+    },
+    wallet: {
+      account_id: "",
+      pending_balance_amount: "0.00",
+      available_balance_amount: "0.00",
+      total_credited_amount: "0.00",
+      total_debited_amount: "0.00",
+      currency_code: "usd",
+      opened_at: null,
+      updated_at: "1970-01-01T00:00:00.000Z",
+    },
+    payouts: { items: [], total: 0, count: 0 },
+    payoutReadiness: null,
+    canRequestPayouts: false,
+    canSetupPayouts: false,
+    canReconcilePayouts: false,
+    setupNotice: null,
+  };
+}
+
 function normalizeQuickAmount(formData: FormData) {
   return resolvePayoutAmountSelection({
     amount: String(formData.get("amount") ?? ""),
@@ -48,18 +80,31 @@ function normalizeQuickAmount(formData: FormData) {
 export async function loader({ request }: LoaderFunctionArgs) {
   const requestUrl = new URL(request.url);
   if (requestUrl.searchParams.get("setup") === "returned" || requestUrl.searchParams.get("setup") === "refresh") {
-    await requireActorFromAuthApi({
+    const setupActorResult = await resolveRequiredActorFromAuthApi({
       request,
       permission: "payouts.setup",
     });
+    if (setupActorResult.kind === "signed-out") {
+      throw setupActorResult.response;
+    }
+    if (setupActorResult.kind === "forbidden") {
+      return accountAccessRequired(currentAccountPath(request));
+    }
     await createSettlementRequestApiClient(request).refreshPayoutSetup();
     return redirect("/account/payouts?setup=updated");
   }
 
-  const actor = await requireActorFromAuthApi({
+  const actorResult = await resolveRequiredActorFromAuthApi({
     request,
     permission: "payouts.view",
   });
+  if (actorResult.kind === "signed-out") {
+    throw actorResult.response;
+  }
+  if (actorResult.kind === "forbidden") {
+    return accountAccessRequired(currentAccountPath(request));
+  }
+  const actor = actorResult.actor;
   const settlementApi = createSettlementRequestApiClient(request);
 
   const [wallet, payouts, payoutReadiness] = await Promise.all([
@@ -68,6 +113,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     settlementApi.getPayoutReadiness(),
   ]);
   return {
+    accountAccessRequired: null,
     wallet,
     payouts,
     payoutReadiness,
@@ -178,6 +224,16 @@ export default function MarketplaceAccountPayoutsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData() as PayoutActionData | undefined;
 
+  if (data.accountAccessRequired) {
+    return (
+      <AccountAccessRequiredPage
+        title={data.accountAccessRequired.title}
+        description={data.accountAccessRequired.description}
+        returnTo={data.accountAccessRequired.returnTo}
+      />
+    );
+  }
+
   return (
     <SettlementPayoutListPage
       wallet={data.wallet as SettlementWalletRow}
@@ -191,5 +247,40 @@ export default function MarketplaceAccountPayoutsRoute() {
       showOperations={data.canReconcilePayouts}
       setupNotice={actionData?.setupNotice ?? data.setupNotice}
     />
+  );
+}
+
+function AccountAccessRequiredPage({
+  title,
+  description,
+  returnTo,
+}: {
+  title: string;
+  description: string;
+  returnTo: string;
+}) {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("settlement.routes.marketplace.accountPayouts.account.access")}
+        title={title}
+        description={description}
+      />
+      <PageSection title={t("settlement.routes.marketplace.accountPayouts.next.step")}>
+        <Card>
+          <Stack gap={3}>
+            <Text>{t("settlement.routes.marketplace.accountPayouts.use.an.account.with.payout.access")}</Text>
+            <Stack direction="row" gap={2}>
+              <LinkButton href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>
+                {t("settlement.routes.marketplace.accountPayouts.use.a.different.account")}
+              </LinkButton>
+              <LinkButton href="/account" tone="secondary">
+                {t("settlement.routes.marketplace.accountPayouts.view.account")}
+              </LinkButton>
+            </Stack>
+          </Stack>
+        </Card>
+      </PageSection>
+    </Page>
   );
 }

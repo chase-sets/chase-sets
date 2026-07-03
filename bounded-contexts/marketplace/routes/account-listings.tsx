@@ -1,10 +1,11 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { type FreshWriteReadErrorClassification, type ListResponse } from "@chase-sets/http/responses";
+import { Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
 import {
   loadAfterWrite,
   navigateAfterWriteFromSourcesWithCompactToken,
@@ -42,6 +43,36 @@ const ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY = {
   routeId: "account-listings",
   routeTemplate: "/account/listings",
 } as const satisfies PlatformPostWriteTelemetry;
+
+function currentAccountPath(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
+}
+
+function accountAccessRequired(returnTo: string) {
+  return {
+    accountAccessRequired: {
+      returnTo,
+      title: t("marketplace.routes.accountListings.account.access.required.title"),
+      description: t("marketplace.routes.accountListings.account.access.required.description"),
+    },
+    listings: emptyListResponse<MarketplaceListingListItem>(),
+    feeLockReport: emptyListResponse<MarketplaceListingFeeLockReportEntry>(),
+    listingAvailability: {
+      account_id: "",
+      status: "available" as const,
+      disabled_reason_category: null,
+      available_again_on: null,
+      disabled_at: null,
+      enabled_at: null,
+      updated_at: "1970-01-01T00:00:00.000Z",
+    },
+    inventoryItems: [],
+    hasListingStockLocation: false,
+    claimError: null,
+    createForm: null,
+  };
+}
 
 function marketplaceApiErrorStatus(error: unknown) {
   return error instanceof MarketplaceApiError ? error.status : null;
@@ -297,7 +328,14 @@ async function navigateToAccountListingsAfterWriteFromSources(
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const actor = await requireActorFromAuthApi({ request, permission: "listings.view" });
+  const actorResult = await resolveRequiredActorFromAuthApi({ request, permission: "listings.view" });
+  if (actorResult.kind === "signed-out") {
+    throw actorResult.response;
+  }
+  if (actorResult.kind === "forbidden") {
+    return accountAccessRequired(currentAccountPath(request));
+  }
+  const actor = actorResult.actor;
   const resolvedRequest = await resolveMarketplacePostWriteRequest(request);
   const marketplaceApi = createMarketplaceRequestApiClient(resolvedRequest);
   const searchParams = new URL(resolvedRequest.url).searchParams;
@@ -399,6 +437,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       : null;
 
   return {
+    accountAccessRequired: null,
     listings,
     feeLockReport,
     listingAvailability,
@@ -578,6 +617,16 @@ export default function MarketplaceAccountListingsRoute() {
   const rootData = useRouteLoaderData("root") as { actor?: { accountId?: string } | null } | undefined;
   const accountId = rootData?.actor?.accountId ?? null;
 
+  if (data.accountAccessRequired) {
+    return (
+      <AccountAccessRequiredPage
+        title={data.accountAccessRequired.title}
+        description={data.accountAccessRequired.description}
+        returnTo={data.accountAccessRequired.returnTo}
+      />
+    );
+  }
+
   return (
     <MarketplaceAccountListingsRealtimeView
       key={[
@@ -593,6 +642,41 @@ export default function MarketplaceAccountListingsRoute() {
       actionData={actionData}
       accountId={accountId}
     />
+  );
+}
+
+function AccountAccessRequiredPage({
+  title,
+  description,
+  returnTo,
+}: {
+  title: string;
+  description: string;
+  returnTo: string;
+}) {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("marketplace.routes.accountListings.account.access")}
+        title={title}
+        description={description}
+      />
+      <PageSection title={t("marketplace.routes.accountListings.next.step")}>
+        <Card>
+          <Stack gap={3}>
+            <Text>{t("marketplace.routes.accountListings.use.an.account.with.listing.access")}</Text>
+            <Stack direction="row" gap={2}>
+              <LinkButton href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>
+                {t("marketplace.routes.accountListings.use.a.different.account")}
+              </LinkButton>
+              <LinkButton href="/account" tone="secondary">
+                {t("marketplace.routes.accountListings.view.account")}
+              </LinkButton>
+            </Stack>
+          </Stack>
+        </Card>
+      </PageSection>
+    </Page>
   );
 }
 

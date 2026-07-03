@@ -5,7 +5,8 @@ import { redirect, useActionData, useLoaderData, useRevalidator, useRouteLoaderD
 import { navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
 import {
   SettlementApiError,
   createSettlementApiClient,
@@ -95,6 +96,40 @@ function setupRouteForMode(mode: PayoutSetupMode, setupNotice?: "updated", retur
   return `${url.pathname}${url.search}`;
 }
 
+function currentAccountPath(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
+}
+
+function accountAccessRequired(returnTo: string) {
+  return {
+    accountAccessRequired: {
+      returnTo,
+      title: t("settlement.routes.marketplace.accountPayoutSetup.account.access.required.title"),
+      description: t("settlement.routes.marketplace.accountPayoutSetup.account.access.required.description"),
+    },
+    payoutReadiness: {
+      account_id: "",
+      status: "not-started" as const,
+      missing_requirements: [],
+      provider_reference: null,
+      onboarding_status: "not-started" as const,
+      transfer_capability_status: "inactive" as const,
+      payout_capability_status: "inactive" as const,
+      payout_destination_status: "missing" as const,
+      payout_account_dashboard: "unknown" as const,
+      losses_collector: "unknown" as const,
+      fees_collector: "unknown" as const,
+      requirements_collector: "unknown" as const,
+      updated_at: null,
+    },
+    mode: "setup" as const,
+    returnTo: null,
+    stripePublishableKey: null,
+    setupNotice: null,
+  };
+}
+
 function returnToWithPayoutFreshness(
   returnTo: string | null,
   refreshResult: SettlementPayoutSetupRefreshResult,
@@ -133,10 +168,16 @@ export function resolvePayoutSetupMode(
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actorResult = await resolveRequiredActorFromAuthApi({
     request,
     permission: "payouts.setup",
   });
+  if (actorResult.kind === "signed-out") {
+    throw actorResult.response;
+  }
+  if (actorResult.kind === "forbidden") {
+    return accountAccessRequired(currentAccountPath(request));
+  }
   const requestUrl = new URL(request.url);
   const settlementApi = createSettlementRequestApiClient(request);
   const payoutReadiness = await settlementApi.getPayoutReadiness();
@@ -144,6 +185,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const returnTo = safeAccountReturnTo(requestUrl.searchParams.get("returnTo"));
 
   return {
+    accountAccessRequired: null,
     payoutReadiness,
     mode,
     returnTo,
@@ -195,6 +237,21 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountPayoutSetupRoute() {
   const data = useLoaderData<typeof loader>();
+
+  if (data.accountAccessRequired) {
+    return (
+      <AccountAccessRequiredPage
+        title={data.accountAccessRequired.title}
+        description={data.accountAccessRequired.description}
+        returnTo={data.accountAccessRequired.returnTo}
+      />
+    );
+  }
+
+  return <AuthorizedPayoutSetupRoute data={data} />;
+}
+
+function AuthorizedPayoutSetupRoute({ data }: { data: Awaited<ReturnType<typeof loader>> }) {
   const rootData = useRouteLoaderData("root") as MarketplaceRootData | undefined;
   const actionData = useActionData() as PayoutSetupActionData | undefined;
   const revalidator = useRevalidator();
@@ -237,5 +294,40 @@ export default function MarketplaceAccountPayoutSetupRoute() {
       providerErrorMessage={providerErrorMessage ?? actionData?.error ?? null}
       onProviderExit={handleProviderExit}
     />
+  );
+}
+
+function AccountAccessRequiredPage({
+  title,
+  description,
+  returnTo,
+}: {
+  title: string;
+  description: string;
+  returnTo: string;
+}) {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("settlement.routes.marketplace.accountPayoutSetup.account.access")}
+        title={title}
+        description={description}
+      />
+      <PageSection title={t("settlement.routes.marketplace.accountPayoutSetup.next.step")}>
+        <Card>
+          <Stack gap={3}>
+            <Text>{t("settlement.routes.marketplace.accountPayoutSetup.use.an.account.with.payout.setup.access")}</Text>
+            <Stack direction="row" gap={2}>
+              <LinkButton href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>
+                {t("settlement.routes.marketplace.accountPayoutSetup.use.a.different.account")}
+              </LinkButton>
+              <LinkButton href="/account" tone="secondary">
+                {t("settlement.routes.marketplace.accountPayoutSetup.view.account")}
+              </LinkButton>
+            </Stack>
+          </Stack>
+        </Card>
+      </PageSection>
+    </Page>
   );
 }

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFreshWriteToken } from "@chase-sets/http/responses";
 
-const { mockCreateSettlementRequestApiClient, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
-  mockCreateSettlementRequestApiClient: vi.fn(),
-  mockRequireActorFromAuthApi: vi.fn(),
-}));
+const { mockCreateSettlementRequestApiClient, mockRequireActorFromAuthApi, mockResolveRequiredActorFromAuthApi } =
+  vi.hoisted(() => ({
+    mockCreateSettlementRequestApiClient: vi.fn(),
+    mockRequireActorFromAuthApi: vi.fn(),
+    mockResolveRequiredActorFromAuthApi: vi.fn(),
+  }));
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(
@@ -14,6 +16,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   return {
     ...actual,
     requireActorFromAuthApi: mockRequireActorFromAuthApi,
+    resolveRequiredActorFromAuthApi: mockResolveRequiredActorFromAuthApi,
   };
 });
 
@@ -28,7 +31,7 @@ vi.mock("../../support/request-support/api-client", async () => {
   };
 });
 
-import { action as accountPayoutsAction } from "./account-payouts";
+import { action as accountPayoutsAction, loader as accountPayoutsLoader } from "./account-payouts";
 
 function settlementActor(permissions: readonly string[]) {
   return {
@@ -48,6 +51,56 @@ function formRequest(form: URLSearchParams) {
 describe("settlement account payouts route action", () => {
   afterEach(() => {
     vi.resetAllMocks();
+  });
+
+  it("returns an account access state instead of throwing 403 for signed-in actors without payout access", async () => {
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "forbidden",
+      actor: settlementActor(["accounts.view"]),
+      requiredPermission: "payouts.view",
+    });
+    const walletRead = vi.fn();
+    mockCreateSettlementRequestApiClient.mockReturnValue({
+      getWallet: walletRead,
+      listPayouts: vi.fn(),
+      getPayoutReadiness: vi.fn(),
+    });
+
+    const result = await accountPayoutsLoader({
+      request: new Request("http://localhost/account/payouts"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      accountAccessRequired: {
+        returnTo: "/account/payouts",
+      },
+    });
+    expect(walletRead).not.toHaveBeenCalled();
+  });
+
+  it("returns an account access state for setup-return refreshes when the signed-in actor lacks setup access", async () => {
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "forbidden",
+      actor: settlementActor(["accounts.view"]),
+      requiredPermission: "payouts.setup",
+    });
+    const refreshPayoutSetup = vi.fn();
+    mockCreateSettlementRequestApiClient.mockReturnValue({ refreshPayoutSetup });
+
+    const result = await accountPayoutsLoader({
+      request: new Request("http://localhost/account/payouts?setup=returned"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      accountAccessRequired: {
+        returnTo: "/account/payouts?setup=returned",
+      },
+    });
+    expect(refreshPayoutSetup).not.toHaveBeenCalled();
   });
 
   it("returns the payout setup readiness snapshot after self-refresh", async () => {

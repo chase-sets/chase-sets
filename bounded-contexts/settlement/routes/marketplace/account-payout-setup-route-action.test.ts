@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 
-const { mockCreateSettlementRequestApiClient, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
-  mockCreateSettlementRequestApiClient: vi.fn(),
-  mockRequireActorFromAuthApi: vi.fn(),
-}));
+const { mockCreateSettlementRequestApiClient, mockRequireActorFromAuthApi, mockResolveRequiredActorFromAuthApi } =
+  vi.hoisted(() => ({
+    mockCreateSettlementRequestApiClient: vi.fn(),
+    mockRequireActorFromAuthApi: vi.fn(),
+    mockResolveRequiredActorFromAuthApi: vi.fn(),
+  }));
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(
@@ -15,6 +17,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   return {
     ...actual,
     requireActorFromAuthApi: mockRequireActorFromAuthApi,
+    resolveRequiredActorFromAuthApi: mockResolveRequiredActorFromAuthApi,
   };
 });
 
@@ -29,7 +32,7 @@ vi.mock("../../support/request-support/api-client", async () => {
   };
 });
 
-import { action as accountPayoutSetupAction } from "./account-payout-setup";
+import { action as accountPayoutSetupAction, loader as accountPayoutSetupLoader } from "./account-payout-setup";
 
 async function readResolvedFreshWriteToken(url: URL) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
@@ -65,6 +68,29 @@ function formRequest(form: URLSearchParams, url = "http://localhost/account/payo
 describe("settlement account payout setup route action", () => {
   afterEach(() => {
     vi.resetAllMocks();
+  });
+
+  it("returns an account access state instead of throwing 403 for signed-in actors without payout setup access", async () => {
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "forbidden",
+      actor: { accountId: "acc_platform", permissions: ["accounts.view"] },
+      requiredPermission: "payouts.setup",
+    });
+    const getPayoutReadiness = vi.fn();
+    mockCreateSettlementRequestApiClient.mockReturnValue({ getPayoutReadiness });
+
+    const result = await accountPayoutSetupLoader({
+      request: new Request("http://localhost/account/payouts/setup?mode=manage"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      accountAccessRequired: {
+        returnTo: "/account/payouts/setup?mode=manage",
+      },
+    });
+    expect(getPayoutReadiness).not.toHaveBeenCalled();
   });
 
   it("returns refreshed payout readiness without waiting for the setup loader projection", async () => {

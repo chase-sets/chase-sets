@@ -5,7 +5,12 @@ import {
   appendFreshWriteToken,
   decodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
-import { AuthResolutionError, isTransientAuthResolutionError, resolveActorFromAuthApi } from "./auth";
+import {
+  AuthResolutionError,
+  isTransientAuthResolutionError,
+  resolveActorFromAuthApi,
+  resolveRequiredActorFromAuthApi,
+} from "./auth";
 
 describe("platform auth actor resolution", () => {
   it("targets Auth freshness when resolving the current actor after a browser auth write", async () => {
@@ -83,6 +88,54 @@ describe("platform auth actor resolution", () => {
         fetch,
       }),
     ).resolves.toBeNull();
+  });
+
+  it("returns a forbidden account state instead of throwing when a signed-in actor lacks the required permission", async () => {
+    const fetch: typeof globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          actor: {
+            sessionId: "sess_1",
+            tenantId: "tnt_1",
+            userId: "usr_1",
+            accountId: "acc_1",
+            membershipId: "mbr_1",
+            roleKey: "platform-admin",
+            permissions: ["accounts.view"],
+          },
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      );
+
+    await expect(
+      resolveRequiredActorFromAuthApi({
+        request: new Request("http://localhost/account/payouts"),
+        permission: "payouts.view",
+        fetch,
+      }),
+    ).resolves.toMatchObject({
+      kind: "forbidden",
+      requiredPermission: "payouts.view",
+      actor: {
+        accountId: "acc_1",
+      },
+    });
+  });
+
+  it("returns the existing sign-in redirect response when a required actor is signed out", async () => {
+    const fetch: typeof globalThis.fetch = async () => new Response(null, { status: 401 });
+
+    const result = await resolveRequiredActorFromAuthApi({
+      request: new Request("http://localhost/account/listings?inventoryItemId=inv_1"),
+      permission: "listings.view",
+      fetch,
+    });
+
+    expect(result.kind).toBe("signed-out");
+    expect(result.kind === "signed-out" ? result.response.status : null).toBe(302);
+    expect(result.kind === "signed-out" ? result.response.headers.get("Location") : null).toBe(
+      "/sign-in?returnTo=%2Faccount%2Flistings%3FinventoryItemId%3Dinv_1",
+    );
   });
 
   it("raises typed errors for transient auth gateway failures", async () => {

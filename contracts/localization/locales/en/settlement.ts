@@ -517,16 +517,35 @@ export const settlementEnglishTranslations = {
   "settlement.routes.marketplace.accountPayout.payout.preparing": "Preparing payout",
   "settlement.routes.marketplace.accountPayout.payout.preparing.description":
     "We're preparing your payout details. Try again in a moment.",
+  "settlement.routes.marketplace.accountPayoutSetup.account.access": "Account access",
+  "settlement.routes.marketplace.accountPayoutSetup.account.access.required.description":
+    "This signed-in account can browse the marketplace, but it is not authorized to complete payout setup.",
+  "settlement.routes.marketplace.accountPayoutSetup.account.access.required.title":
+    "Use a payout-enabled account for setup",
+  "settlement.routes.marketplace.accountPayoutSetup.next.step": "Next step",
   "settlement.routes.marketplace.accountPayoutSetup.payout.setup.marketplace": "Payout Setup | Marketplace",
   "settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.could.not":
     "Payout setup status could not be refreshed.",
   "settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.was.refreshed":
     "Payout setup status was refreshed.",
+  "settlement.routes.marketplace.accountPayoutSetup.use.a.different.account": "Use a different account",
+  "settlement.routes.marketplace.accountPayoutSetup.use.an.account.with.payout.setup.access":
+    "Choose an account with payout setup access to continue. If this is the wrong account, use a different sign-in and return to this page.",
+  "settlement.routes.marketplace.accountPayoutSetup.view.account": "View account",
   "settlement.routes.marketplace.accountPayoutOperations.payout.operations.marketplace":
     "Payout Operations | Marketplace",
+  "settlement.routes.marketplace.accountPayouts.account.access": "Account access",
+  "settlement.routes.marketplace.accountPayouts.account.access.required.description":
+    "This signed-in account can browse the marketplace, but it is not authorized to view or request payouts.",
+  "settlement.routes.marketplace.accountPayouts.account.access.required.title": "Use a payout-enabled account",
+  "settlement.routes.marketplace.accountPayouts.next.step": "Next step",
   "settlement.routes.marketplace.accountPayouts.payout.setup.status.was.refreshed":
     "Payout setup status was refreshed.",
   "settlement.routes.marketplace.accountPayouts.payouts.marketplace": "Payouts | Marketplace",
+  "settlement.routes.marketplace.accountPayouts.use.a.different.account": "Use a different account",
+  "settlement.routes.marketplace.accountPayouts.use.an.account.with.payout.access":
+    "Choose an account with payout access to continue. If this is the wrong account, use a different sign-in and return to this page.",
+  "settlement.routes.marketplace.accountPayouts.view.account": "View account",
   "settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to":
     "You do not have permission to request payouts.",
   "settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.2":
