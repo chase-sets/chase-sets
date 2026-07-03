@@ -43,6 +43,22 @@ export type SettlementProviderIdempotencyKeyRow = Readonly<{
   created_at: string;
 }>;
 
+export type SettlementProviderOperationRow = Readonly<{
+  operation_key: string;
+  provider_name: string;
+  operation_kind: string;
+  account_id: string | null;
+  payout_id: string | null;
+  idempotency_key: string;
+  request_json: unknown;
+  status: string;
+  provider_object_reference: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}>;
+
 export type SettlementReconciliationRunRow = Readonly<{
   reconciliation_run_id: string;
   kind: string;
@@ -122,6 +138,26 @@ export async function getPayoutByProviderPayoutReference(
     `${payoutSelect}
      WHERE provider_payout_reference = $1`,
     [providerPayoutReference],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function getPayoutByProviderOperationReference(
+  db: PgQueryable,
+  providerObjectReference: string,
+): Promise<SettlementPayoutRow | null> {
+  const result = await db.query<SettlementPayoutRow>(
+    `${payoutSelect}
+     WHERE payout_id = (
+       SELECT payout_id
+       FROM settlement_provider_operations
+       WHERE provider_object_reference = $1
+         AND payout_id IS NOT NULL
+       ORDER BY completed_at DESC NULLS LAST, updated_at DESC, operation_key DESC
+       LIMIT 1
+     )`,
+    [providerObjectReference],
   );
 
   return result.rows[0] ?? null;
@@ -426,6 +462,34 @@ export async function recordSettlementProviderOperationFailed(
        AND status = 'pending'`,
     [operation.operationKey, operation.errorMessage, timestamp],
   );
+}
+
+export async function listSettlementProviderOperationsForPayout(
+  db: PgQueryable,
+  payoutId: string,
+): Promise<SettlementProviderOperationRow[]> {
+  const result = await db.query<SettlementProviderOperationRow>(
+    `SELECT
+       operation_key,
+       provider_name,
+       operation_kind,
+       account_id,
+       payout_id,
+       idempotency_key,
+       request_json,
+       status,
+       provider_object_reference,
+       error_message,
+       created_at,
+       updated_at,
+       completed_at
+     FROM settlement_provider_operations
+     WHERE payout_id = $1
+     ORDER BY created_at ASC, operation_key ASC`,
+    [payoutId],
+  );
+
+  return result.rows;
 }
 
 export async function listSettlementProviderIdempotencyKeys(

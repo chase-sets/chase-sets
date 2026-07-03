@@ -122,6 +122,125 @@ function createPayoutReadiness(
   } as unknown as PayoutReadinessServices;
 }
 
+function createPayoutProviderOperationDb(payoutRows: () => Record<string, unknown>[]) {
+  const operations = new Map<string, Record<string, unknown>>();
+  const processedProviderEvents = new Set<string>();
+  const db = {
+    query: async (sql: string, values?: readonly unknown[]) => {
+      if (sql.includes("FROM settlement_wallet_pages")) {
+        return {
+          rows: [
+            {
+              account_id: "acc_seller",
+              currency_code: "usd",
+              pending_balance_amount: "0.00",
+              available_balance_amount: "20.00",
+              total_credited_amount: "20.00",
+              total_debited_amount: "0.00",
+              opened_at: "2026-04-02T00:00:00.000Z",
+              updated_at: "2026-04-02T00:00:00.000Z",
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes("INSERT INTO settlement_provider_operations")) {
+        operations.set(String(values?.[0]), {
+          operation_key: values?.[0],
+          provider_name: values?.[1],
+          operation_kind: values?.[2],
+          account_id: values?.[3],
+          payout_id: values?.[4],
+          idempotency_key: values?.[5],
+          request_json: JSON.parse(String(values?.[6] ?? "{}")),
+          status: "pending",
+          provider_object_reference: null,
+          error_message: null,
+          created_at: values?.[7],
+          updated_at: values?.[7],
+          completed_at: null,
+        });
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("UPDATE settlement_provider_operations") && sql.includes("status = 'succeeded'")) {
+        const existing = operations.get(String(values?.[0]));
+        if (existing) {
+          operations.set(String(values?.[0]), {
+            ...existing,
+            status: "succeeded",
+            provider_object_reference: values?.[1],
+            error_message: null,
+            completed_at: values?.[2],
+            updated_at: values?.[2],
+          });
+        }
+        return { rows: [], rowCount: existing ? 1 : 0 };
+      }
+
+      if (sql.includes("UPDATE settlement_provider_operations") && sql.includes("status = 'failed'")) {
+        const existing = operations.get(String(values?.[0]));
+        if (existing?.status === "pending") {
+          operations.set(String(values?.[0]), {
+            ...existing,
+            status: "failed",
+            error_message: values?.[1],
+            completed_at: values?.[2],
+            updated_at: values?.[2],
+          });
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("FROM settlement_provider_operations")) {
+        if (sql.includes("WHERE payout_id = $1")) {
+          return {
+            rows: [...operations.values()].filter((operation) => operation.payout_id === values?.[0]),
+            rowCount: operations.size,
+          };
+        }
+      }
+
+      if (sql.includes("settlement_money_movement_webhook_events")) {
+        const providerEventId = String(values?.[0] ?? "");
+        if (processedProviderEvents.has(providerEventId)) {
+          return { rows: [], rowCount: 0 };
+        }
+        processedProviderEvents.add(providerEventId);
+        return { rows: [{ provider_event_id: providerEventId }], rowCount: 1 };
+      }
+
+      if (sql.includes("INSERT INTO settlement_provider_idempotency_keys")) {
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("FROM settlement_payout_pages")) {
+        const rows = payoutRows();
+        if (sql.includes("WHERE provider_payout_reference = $1")) {
+          const matched = rows.filter((row) => row.provider_payout_reference === values?.[0]);
+          return { rows: matched, rowCount: matched.length };
+        }
+        if (sql.includes("WHERE payout_id = (")) {
+          const operation = [...operations.values()].find((entry) => entry.provider_object_reference === values?.[0]);
+          const matched = rows.filter((row) => row.payout_id === operation?.payout_id);
+          return { rows: matched, rowCount: matched.length };
+        }
+        if (values?.[0] && values?.[1] && sql.includes("AND account_id = $2")) {
+          const matched = rows.filter((row) => row.payout_id === values[0] && row.account_id === values[1]);
+          return { rows: matched, rowCount: matched.length };
+        }
+        return { rows, rowCount: rows.length };
+      }
+
+      return { rows: [], rowCount: 0 };
+    },
+  };
+
+  return { db, operations };
+}
+
 describe("settlement payout runtime", () => {
   it("records provider-health checks as settlement operation liveness telemetry", async () => {
     const operationEvents: Record<string, unknown>[] = [];
@@ -259,6 +378,8 @@ describe("settlement payout runtime", () => {
 
     expect(payoutEvents.map((event) => event.eventType)).toEqual([
       "settlement.payout.requested",
+      "settlement.payout.provider-references-recorded",
+      "settlement.payout.provider-references-recorded",
       "settlement.payout.in-transit-recorded",
       "settlement.payout.failed",
     ]);
@@ -724,10 +845,7 @@ describe("settlement payout runtime", () => {
     expect(readAllEvents()).toHaveLength(0);
   });
 
-  it.each([
-    ["transfer", createFakeMoneyMovementGateway({ failTransfer: true })],
-    ["payout", createFakeMoneyMovementGateway({ failPayout: true })],
-  ])("reverses the wallet when provider %s submission fails", async (_kind, gateway) => {
+  it("leaves a payout recoverable without reversal when payout creation fails transiently after transfer succeeds", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {
       query: async (sql: string) => {
@@ -757,6 +875,7 @@ describe("settlement payout runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
     });
+    const gateway = createFakeMoneyMovementGateway({ failPayout: true });
     const payouts = createPayoutRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
@@ -764,6 +883,86 @@ describe("settlement payout runtime", () => {
       wallets,
       payoutReadiness: createPayoutReadiness("ready"),
       moneyMovementGateway: gateway,
+    });
+    await seedAvailableWallet(wallets);
+
+    const requested = await payouts.requestPayout(
+      {
+        accountId: "acc_seller" as never,
+        amount: "12.50",
+      },
+      context,
+    );
+
+    expect(requested.payout).toMatchObject({
+      payout_id: requested.payoutId,
+      status: "requested",
+      provider_transfer_reference: `tr_${requested.payoutId}`,
+      provider_payout_reference: null,
+    });
+    expect(
+      readAllEvents()
+        .filter((event) => event.eventType.startsWith("settlement.payout."))
+        .map((event) => event.eventType),
+    ).toEqual(["settlement.payout.requested", "settlement.payout.provider-references-recorded"]);
+    expect(
+      readAllEvents()
+        .filter(
+          (event) =>
+            event.eventType === "settlement.wallet.ledger-entry-posted" &&
+            ["payout", "payout-reversal"].includes((event.payload as { kind?: string }).kind ?? ""),
+        )
+        .map((event) => event.payload),
+    ).toEqual([expect.objectContaining({ kind: "payout", direction: "debit" })]);
+  });
+
+  it("reverses the wallet when a terminal provider transfer decline fails payout submission", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const fakeGateway = createFakeMoneyMovementGateway();
+    const terminalDeclineGateway = {
+      ...fakeGateway,
+      async transferPlatformBalanceToConnectedAccount() {
+        throw Object.assign(new Error("Provider transfer declined."), {
+          statusCode: 400,
+          code: "invalid_transfer",
+        });
+      },
+    } satisfies typeof fakeGateway;
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: terminalDeclineGateway,
     });
     await seedAvailableWallet(wallets);
 
@@ -800,6 +999,157 @@ describe("settlement payout runtime", () => {
       expect.objectContaining({ kind: "payout", direction: "debit" }),
       expect.objectContaining({ kind: "payout-reversal", direction: "credit" }),
     ]);
+  });
+
+  it("converges a stale requested provider-paid payout through recorded provider operations", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    let payoutRow: Record<string, unknown> | null = null;
+    const { db } = createPayoutProviderOperationDb(() => (payoutRow ? [payoutRow] : []));
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const fakeGateway = createFakeMoneyMovementGateway();
+    let payoutCreateCount = 0;
+    const payoutIdempotencyKeys: string[] = [];
+    const gateway = {
+      ...fakeGateway,
+      async createConnectedAccountPayout(input: Parameters<typeof fakeGateway.createConnectedAccountPayout>[0]) {
+        payoutCreateCount += 1;
+        payoutIdempotencyKeys.push(input.idempotencyKey);
+        if (payoutCreateCount === 1) {
+          throw Object.assign(new Error("Provider payout request timed out."), { code: "timeout" });
+        }
+        return {
+          providerPayoutReference: `po_${input.payoutId}`,
+          providerStatus: "paid",
+        };
+      },
+    } satisfies typeof fakeGateway;
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: gateway,
+    });
+    await seedAvailableWallet(wallets);
+
+    const requested = await payouts.requestPayout({ accountId: "acc_seller" as never, amount: "12.50" }, context);
+    payoutRow = {
+      payout_id: requested.payoutId,
+      account_id: "acc_seller",
+      amount: "12.50",
+      currency_code: "usd",
+      destination_reference: null,
+      note: null,
+      status: "requested",
+      provider_transfer_reference: requested.payout.provider_transfer_reference,
+      provider_payout_reference: null,
+      provider_status: null,
+      provider_failure_code: null,
+      provider_failure_message: null,
+      requested_at: "2026-04-02T00:00:00.000Z",
+      updated_at: "2026-04-02T00:00:00.000Z",
+      sent_at: null,
+      completed_at: null,
+      failed_at: null,
+      failure_reason: null,
+      last_provider_event_at: null,
+      last_reconciled_at: null,
+      retry_count: 0,
+      next_retry_at: null,
+      retry_reason: null,
+    };
+
+    const result = await payouts.reconcilePayoutsNeedingAttention({ accountId: "acc_seller", limit: 1 }, context);
+
+    expect(result).toMatchObject({ checked: 1, reconciled: 1, ignored: 0, skipped: 0, errors: [] });
+    expect(
+      readAllEvents()
+        .filter((event) => event.eventType.startsWith("settlement.payout."))
+        .map((event) => event.eventType),
+    ).toContain("settlement.payout.completed");
+    expect(
+      readAllEvents().filter(
+        (event) =>
+          event.eventType === "settlement.wallet.ledger-entry-posted" &&
+          (event.payload as { kind?: string }).kind === "payout-reversal",
+      ),
+    ).toHaveLength(0);
+    expect(payoutIdempotencyKeys).toEqual([
+      `settlement:payout:${requested.payoutId}:payout`,
+      `settlement:payout:${requested.payoutId}:payout`,
+    ]);
+  });
+
+  it("correlates payout webhooks through recorded provider operation references", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    let payoutRow: Record<string, unknown> | null = null;
+    const { db } = createPayoutProviderOperationDb(() => (payoutRow ? [payoutRow] : []));
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const gateway = createFakeMoneyMovementGateway();
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: gateway,
+    });
+    await seedAvailableWallet(wallets);
+    const requested = await payouts.requestPayout({ accountId: "acc_seller" as never, amount: "12.50" }, context);
+    payoutRow = {
+      payout_id: requested.payoutId,
+      account_id: "acc_seller",
+      amount: "12.50",
+      currency_code: "usd",
+      destination_reference: null,
+      note: null,
+      status: "requested",
+      provider_transfer_reference: null,
+      provider_payout_reference: null,
+      provider_status: null,
+      provider_failure_code: null,
+      provider_failure_message: null,
+      requested_at: "2026-04-02T00:00:00.000Z",
+      updated_at: "2026-04-02T00:00:00.000Z",
+      sent_at: null,
+      completed_at: null,
+      failed_at: null,
+      failure_reason: null,
+      last_provider_event_at: null,
+      last_reconciled_at: null,
+      retry_count: 0,
+      next_retry_at: null,
+      retry_reason: null,
+    };
+
+    const result = await payouts.processMoneyMovementWebhook(
+      {
+        rawBody: JSON.stringify({
+          kind: "payout-completed",
+          providerEventId: "evt_provider_paid",
+          providerPayoutReference: `po_${requested.payoutId}`,
+          providerStatus: "paid",
+        }),
+        signatureHeader: null,
+      },
+      context,
+    );
+
+    expect(result).toEqual({ received: true, ignored: false });
+    expect(
+      readAllEvents()
+        .filter((event) => event.eventType.startsWith("settlement.payout."))
+        .map((event) => event.eventType),
+    ).toContain("settlement.payout.completed");
   });
 
   it("does not reverse a payout when the wallet debit never committed", async () => {
@@ -927,7 +1277,15 @@ describe("settlement payout runtime", () => {
       db: db as never,
       wallets,
       payoutReadiness: createPayoutReadiness("ready"),
-      moneyMovementGateway: createFakeMoneyMovementGateway({ failPayout: true }),
+      moneyMovementGateway: {
+        ...createFakeMoneyMovementGateway(),
+        async transferPlatformBalanceToConnectedAccount() {
+          throw Object.assign(new Error("Provider transfer declined."), {
+            statusCode: 400,
+            code: "invalid_transfer",
+          });
+        },
+      },
     });
 
     await expect(
@@ -958,7 +1316,7 @@ describe("settlement payout runtime", () => {
       provider_payout_reference: null,
       provider_status: "failed",
       provider_failure_code: null,
-      provider_failure_message: "Provider payout failed.",
+      provider_failure_message: "Provider transfer declined.",
       requested_at: "2026-04-02T00:00:00.000Z",
       updated_at: "2026-04-02T00:00:00.000Z",
       sent_at: null,

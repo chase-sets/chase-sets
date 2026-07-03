@@ -73,6 +73,14 @@ export type MarkPayoutInTransitCommand = Readonly<{
   sentAt: string;
 }>;
 
+export type RecordPayoutProviderReferencesCommand = Readonly<{
+  type: "RecordPayoutProviderReferences";
+  providerTransferReference?: string | null;
+  providerPayoutReference?: string | null;
+  providerStatus?: string | null;
+  recordedAt: string;
+}>;
+
 export type CompletePayoutCommand = Readonly<{
   type: "CompletePayout";
   providerStatus?: string | null;
@@ -90,6 +98,7 @@ export type FailPayoutCommand = Readonly<{
 
 export type PayoutCommand =
   | RequestPayoutCommand
+  | RecordPayoutProviderReferencesCommand
   | MarkPayoutInTransitCommand
   | CompletePayoutCommand
   | FailPayoutCommand;
@@ -119,6 +128,17 @@ export type PayoutInTransitEvent = DomainEvent<
   }>
 >;
 
+export type PayoutProviderReferencesRecordedEvent = DomainEvent<
+  "settlement.payout.provider-references-recorded",
+  Readonly<{
+    payoutId: PayoutId;
+    providerTransferReference: string | null;
+    providerPayoutReference: string | null;
+    providerStatus: string | null;
+    recordedAt: string;
+  }>
+>;
+
 export type PayoutCompletedEvent = DomainEvent<
   "settlement.payout.completed",
   Readonly<{
@@ -143,7 +163,12 @@ export type PayoutFailedEvent = DomainEvent<
   }>
 >;
 
-export type PayoutEvent = PayoutRequestedEvent | PayoutInTransitEvent | PayoutCompletedEvent | PayoutFailedEvent;
+export type PayoutEvent =
+  | PayoutRequestedEvent
+  | PayoutProviderReferencesRecordedEvent
+  | PayoutInTransitEvent
+  | PayoutCompletedEvent
+  | PayoutFailedEvent;
 
 export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEvent> = (state, command) => {
   switch (command.type) {
@@ -166,6 +191,38 @@ export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEv
           },
         },
       ];
+    case "RecordPayoutProviderReferences": {
+      assert(state.payoutId !== null, "Payout must be requested first.");
+      assert(
+        state.status === "requested" || state.status === "in-transit",
+        "Only active payouts can record provider references.",
+      );
+      const providerTransferReference = normalizeOptionalText(command.providerTransferReference);
+      const providerPayoutReference = normalizeOptionalText(command.providerPayoutReference);
+      const providerStatus = normalizeOptionalText(command.providerStatus);
+      if (
+        (providerTransferReference === null || providerTransferReference === state.providerTransferReference) &&
+        (providerPayoutReference === null || providerPayoutReference === state.providerPayoutReference) &&
+        (providerStatus === null || providerStatus === state.providerStatus)
+      ) {
+        return [];
+      }
+      return [
+        {
+          type: "settlement.payout.provider-references-recorded",
+          data: {
+            payoutId: state.payoutId,
+            providerTransferReference,
+            providerPayoutReference,
+            providerStatus,
+            recordedAt: ensureIsoTimestamp(
+              command.recordedAt,
+              "Provider reference recording must include a timestamp.",
+            ),
+          },
+        },
+      ];
+    }
     case "MarkPayoutInTransit":
       assert(state.payoutId !== null, "Payout must be requested first.");
       if (state.status === "in-transit") {
@@ -254,6 +311,13 @@ export const evolvePayout: AggregateEvolver<PayoutState, PayoutEvent> = (state, 
         completedAt: null,
         failedAt: null,
         failureReason: null,
+      };
+    case "settlement.payout.provider-references-recorded":
+      return {
+        ...state,
+        providerTransferReference: event.data.providerTransferReference ?? state.providerTransferReference,
+        providerPayoutReference: event.data.providerPayoutReference ?? state.providerPayoutReference,
+        providerStatus: event.data.providerStatus ?? state.providerStatus,
       };
     case "settlement.payout.in-transit-recorded":
       return {

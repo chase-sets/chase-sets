@@ -66,6 +66,39 @@ export function buildPayoutProjectionHandlers(db: PgQueryable): ProjectorHandler
         ],
       );
     },
+    "settlement.payout.provider-references-recorded": async (event) => {
+      const data = event.data as {
+        payoutId: string;
+        providerTransferReference?: string | null;
+        providerPayoutReference?: string | null;
+        providerStatus?: string | null;
+        recordedAt: string;
+      };
+
+      await db.query(
+        `UPDATE settlement_payout_pages
+         SET provider_transfer_reference = COALESCE($2, provider_transfer_reference),
+             provider_payout_reference = COALESCE($3, provider_payout_reference),
+             provider_status = COALESCE($4, provider_status),
+             provider_failure_code = NULL,
+             provider_failure_message = NULL,
+             updated_at = $5,
+             last_provider_event_at = $5,
+             retry_reason = NULL,
+             next_retry_at = NULL,
+             last_stream_version = $6
+         WHERE payout_id = $1
+           AND last_stream_version < $6`,
+        [
+          data.payoutId,
+          data.providerTransferReference ?? null,
+          data.providerPayoutReference ?? null,
+          data.providerStatus ?? null,
+          data.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    },
     "settlement.payout.in-transit-recorded": async (event) => {
       const data = event.data as {
         payoutId: string;
