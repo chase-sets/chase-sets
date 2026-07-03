@@ -2,9 +2,9 @@
 
 Durable jobs are the platform pattern for user- or operator-triggered work that can outlive one HTTP request, API process, worker process, or deployment.
 
-## Push-Driven Migration Note
+## Production Push Posture
 
-Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md). Durable job event notifications and waits ride the [platform work-signal composite](./work-signal-composite.md) (versioned `durable-job.event` envelopes plus shared waiters with bounded fallback), while context-owned durable job and event tables remain the source of truth and SSE replay keeps its existing contract. Request paths must continue to enqueue or observe durable work instead of streaming long-running work inline.
+Durable job event waits use composite-backed notifications with bounded fallback in every environment, while production projection wake acceleration remains off until the rollout controls are deliberately promoted. Phase status lives in the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md).
 
 Use this pattern when a workflow:
 
@@ -103,10 +103,13 @@ Retention belongs outside hot execution. Workers run the `durable-jobs.retention
 
 Scheduled jobs can remain scheduled triggers, but a manual operator trigger should enqueue a durable job when it needs visible progress or provider durability.
 
-## Current Migrations
+## Current Durable Job Surfaces
+
+The code source of truth is each owning context's `durableJobSchemaSql(...)` tables plus its `createDurableJobEventStream(...)` route. Keep this list current when a context adds a new durable job schema or SSE surface.
 
 - Platform Projection Operations persist `platform_projection_operation_events` and expose `/api/platform/projections/operations/:operationId/events`.
 - Inventory Import Batch create and commit persist `inventory_import_batch_jobs` and stream `/api/inventory/import-batches/jobs/:jobId/events`.
+- Discovery Google Shopping full, incremental, and diagnostics sync jobs persist `discovery_google_shopping_sync_jobs` and stream `/api/marketplace/google-shopping/sync/jobs/:jobId/events`.
 - Pricing Recommendation refresh/apply/dismiss persists `pricing_recommendation_jobs` and streams `/api/marketplace/account/recommendation-jobs/:jobId/events`.
 - Settlement manual payout reconciliation persists `settlement_payout_reconciliation_jobs` and streams `/api/settlement/payouts/reconciliation/jobs/:jobId/events`.
 - Catalog Source Observation import, reapply, promote, and reject already use durable context-owned job tables and SSE.
