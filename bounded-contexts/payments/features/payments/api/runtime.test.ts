@@ -179,6 +179,9 @@ function createOrderInputDb(
   options: Readonly<{ savedCheckoutInstrumentRows?: readonly Record<string, unknown>[] }> = {},
 ) {
   const reservations = new Map<string, Record<string, unknown>>();
+  const savedCheckoutInstrumentRows = [...(options.savedCheckoutInstrumentRows ?? [])].map((row) => ({ ...row }));
+  const savedCheckoutSetupSessions = new Map<string, Record<string, unknown>>();
+  const providerCustomers = new Map<string, Record<string, unknown>>();
   const sourceReservationKey = (sourceContext: unknown, sourceReferenceId: unknown) =>
     typeof sourceContext === "string" && typeof sourceReferenceId === "string"
       ? `${sourceContext}:${sourceReferenceId}`
@@ -204,11 +207,175 @@ function createOrderInputDb(
     created_at: createdAt,
     updated_at: createdAt,
   });
+  const sortSavedCheckoutInstrumentRows = (rows: readonly Record<string, unknown>[]) =>
+    [...rows].sort((left, right) => {
+      if (Boolean(left.is_default) !== Boolean(right.is_default)) {
+        return Boolean(left.is_default) ? -1 : 1;
+      }
+      const readiness = String(left.readiness).localeCompare(String(right.readiness));
+      if (readiness !== 0) {
+        return readiness;
+      }
+      const updated = String(right.updated_at).localeCompare(String(left.updated_at));
+      if (updated !== 0) {
+        return updated;
+      }
+      return String(left.instrument_id).localeCompare(String(right.instrument_id));
+    });
+  const savedCheckoutInstrumentRow = (params: readonly unknown[]) => ({
+    instrument_id: params[0],
+    account_id: params[1],
+    payment_method_category: params[2],
+    provider: params[3],
+    provider_customer_reference: params[4],
+    provider_reference: params[5],
+    display_label: params[6],
+    confirmation_experience: params[7],
+    readiness: params[8],
+    allow_redisplay: params[9],
+    consent_id: params[10],
+    consent_text: params[11],
+    is_default: Boolean(params[12]),
+    removed_at: params[13],
+    created_at: params[14],
+    updated_at: params[14],
+  });
 
   return {
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("INSERT INTO payments_provider_customers")) {
+        const key = `${params?.[0]}:${params?.[1]}`;
+        const existing = providerCustomers.get(key);
+        const row = {
+          account_id: params?.[0],
+          provider: params?.[1],
+          provider_customer_reference: params?.[2],
+          display_name: params?.[3] ?? existing?.display_name ?? null,
+          email: params?.[4] ?? existing?.email ?? null,
+          created_at: existing?.created_at ?? params?.[5],
+          updated_at: params?.[5],
+        };
+        providerCustomers.set(key, row);
+        return { rows: [row] };
+      }
+
+      if (sql.includes("FROM payments_provider_customers")) {
+        return { rows: [providerCustomers.get(`${params?.[0]}:${params?.[1]}`)].filter(Boolean) };
+      }
+
+      if (sql.includes("INSERT INTO payments_saved_checkout_setup_sessions")) {
+        const row = {
+          setup_reference_id: params?.[0],
+          account_id: params?.[1],
+          provider: params?.[2],
+          provider_customer_reference: params?.[3],
+          processor_setup_reference: params?.[4],
+          processor_client_secret: params?.[5],
+          processor_redirect_url: params?.[6],
+          processor_status: params?.[7],
+          consent_id: params?.[8],
+          consent_text: params?.[9],
+          completed_at: null,
+          created_at: params?.[10],
+          updated_at: params?.[10],
+        };
+        savedCheckoutSetupSessions.set(String(row.setup_reference_id), row);
+        return { rows: [row] };
+      }
+
+      if (sql.includes("FROM payments_saved_checkout_setup_sessions")) {
+        const row = [...savedCheckoutSetupSessions.values()].find((session) =>
+          sql.includes("processor_setup_reference = $1")
+            ? session.processor_setup_reference === params?.[0]
+            : session.setup_reference_id === params?.[0],
+        );
+        return { rows: row ? [row] : [] };
+      }
+
+      if (sql.includes("UPDATE payments_saved_checkout_setup_sessions")) {
+        for (const session of savedCheckoutSetupSessions.values()) {
+          if (session.processor_setup_reference === params?.[0]) {
+            session.processor_status = params?.[1];
+            session.completed_at ??= params?.[2];
+            session.updated_at = params?.[2];
+          }
+        }
+        return { rows: [] };
+      }
+
+      if (sql.includes("INSERT INTO payments_saved_checkout_instruments")) {
+        if (params?.[12] === true) {
+          for (const row of savedCheckoutInstrumentRows) {
+            if (row.account_id === params[1]) {
+              row.is_default = false;
+              row.updated_at = params[14];
+            }
+          }
+        }
+        const existing = savedCheckoutInstrumentRows.find(
+          (row) => row.provider === params?.[3] && row.provider_reference === params?.[5],
+        );
+        if (existing) {
+          Object.assign(existing, {
+            account_id: params?.[1],
+            payment_method_category: params?.[2],
+            provider_customer_reference: params?.[4],
+            display_label: params?.[6],
+            confirmation_experience: params?.[7],
+            readiness: params?.[8],
+            allow_redisplay: params?.[9],
+            consent_id: params?.[10] ?? existing.consent_id,
+            consent_text: params?.[11] ?? existing.consent_text,
+            is_default: Boolean(params?.[12]),
+            removed_at: params?.[13],
+            updated_at: params?.[14],
+          });
+          return { rows: [existing] };
+        }
+        const row = savedCheckoutInstrumentRow(params ?? []);
+        savedCheckoutInstrumentRows.push(row);
+        return { rows: [row] };
+      }
+
+      if (sql.includes("UPDATE payments_saved_checkout_instruments") && sql.includes("is_default = instrument_id")) {
+        for (const row of savedCheckoutInstrumentRows) {
+          if (row.account_id === params?.[0] && row.readiness !== "removed") {
+            row.is_default = row.instrument_id === params?.[1];
+            row.updated_at = params?.[2];
+          }
+        }
+        return { rows: [] };
+      }
+
+      if (sql.includes("UPDATE payments_saved_checkout_instruments") && sql.includes("readiness = 'removed'")) {
+        for (const row of savedCheckoutInstrumentRows) {
+          if (row.account_id === params?.[0] && row.instrument_id === params?.[1]) {
+            row.readiness = "removed";
+            row.is_default = false;
+            row.removed_at = params?.[2];
+            row.updated_at = params?.[2];
+          }
+        }
+        return { rows: [] };
+      }
+
+      if (sql.includes("INSERT INTO payments_saved_checkout_instrument_audit")) {
+        return { rows: [] };
+      }
+
       if (sql.includes("FROM payments_saved_checkout_instruments")) {
-        return { rows: [...(options.savedCheckoutInstrumentRows ?? [])] };
+        if (sql.includes("WHERE provider = $1")) {
+          return {
+            rows: savedCheckoutInstrumentRows.filter(
+              (row) => row.provider === params?.[0] && row.provider_reference === params?.[1],
+            ),
+          };
+        }
+        const accountRows = savedCheckoutInstrumentRows.filter((row) => row.account_id === params?.[0]);
+        if (sql.includes("instrument_id = $2")) {
+          return { rows: accountRows.filter((row) => row.instrument_id === params?.[1]) };
+        }
+        return { rows: sortSavedCheckoutInstrumentRows(accountRows) };
       }
 
       if (sql.includes("INSERT INTO payments_payment_creation_reservations")) {
@@ -283,6 +450,7 @@ function createOrderInputDb(
 
       return { rows: [] };
     }),
+    readSavedCheckoutInstruments: () => sortSavedCheckoutInstrumentRows(savedCheckoutInstrumentRows),
   };
 }
 
@@ -903,6 +1071,199 @@ describe("payment runtime", () => {
     });
   });
 
+  it("uses the buyer's chosen default saved checkout instrument for fast-path payment creation", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const db = createOrderInputDb({
+      savedCheckoutInstrumentRows: [
+        {
+          instrument_id: "sci_card_1",
+          account_id: "acc_buyer",
+          payment_method_category: "card",
+          provider: "stripe",
+          provider_customer_reference: "cus_buyer",
+          provider_reference: "pm_card_1",
+          display_label: "Visa ending in 4242",
+          confirmation_experience: "off-session-token",
+          readiness: "ready",
+          allow_redisplay: "always",
+          consent_id: "consent_1",
+          consent_text: "Save for future checkout.",
+          removed_at: null,
+          is_default: false,
+          created_at: "2026-04-29T00:00:00.000Z",
+          updated_at: "2026-04-29T00:00:00.000Z",
+        },
+        {
+          instrument_id: "sci_card_2",
+          account_id: "acc_buyer",
+          payment_method_category: "card",
+          provider: "stripe",
+          provider_customer_reference: "cus_buyer",
+          provider_reference: "pm_card_2",
+          display_label: "Mastercard ending in 4444",
+          confirmation_experience: "off-session-token",
+          readiness: "ready",
+          allow_redisplay: "always",
+          consent_id: "consent_2",
+          consent_text: "Save for future checkout.",
+          removed_at: null,
+          is_default: true,
+          created_at: "2026-04-30T00:00:00.000Z",
+          updated_at: "2026-04-30T00:00:00.000Z",
+        },
+      ],
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+        savedCheckoutInstrumentId: "sci_card_2",
+      },
+      context,
+    );
+
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        savedCheckoutInstrument: expect.objectContaining({
+          instrumentId: "sci_card_2",
+          providerReference: "pm_card_2",
+          displayLabel: "Mastercard ending in 4444",
+        }),
+      }),
+    );
+  });
+
+  it("makes the first consent-saved checkout instrument default", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    processorGateway.retrieveSetupSessionResult.mockResolvedValue({
+      processorName: "stripe",
+      processorSetupReference: "cs_setup",
+      processorStatus: "complete",
+      setupIntentReference: "seti_setup",
+      savedPaymentMethod: {
+        processorName: "stripe",
+        providerCustomerReference: "cus_buyer",
+        providerReference: "pm_card_1",
+        paymentMethodCategory: "card",
+        displayLabel: "Visa ending in 4242",
+        readiness: "ready",
+        allowRedisplay: "always",
+        removed: false,
+      },
+    } as never);
+    const db = createOrderInputDb();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const setupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+
+    const instrument = await services.reconcileSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        setupReference: setupSession.setup_reference_id,
+      },
+      context,
+    );
+
+    expect(instrument).toMatchObject({
+      provider_reference: "pm_card_1",
+      is_default: true,
+    });
+    expect(db.readSavedCheckoutInstruments()).toEqual([
+      expect.objectContaining({ provider_reference: "pm_card_1", is_default: true }),
+    ]);
+  });
+
+  it("preserves the existing default when a second checkout instrument is consent-saved", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    processorGateway.retrieveSetupSessionResult
+      .mockResolvedValueOnce({
+        processorName: "stripe",
+        processorSetupReference: "cs_setup",
+        processorStatus: "complete",
+        setupIntentReference: "seti_setup",
+        savedPaymentMethod: {
+          processorName: "stripe",
+          providerCustomerReference: "cus_buyer",
+          providerReference: "pm_card_1",
+          paymentMethodCategory: "card",
+          displayLabel: "Visa ending in 4242",
+          readiness: "ready",
+          allowRedisplay: "always",
+          removed: false,
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        processorName: "stripe",
+        processorSetupReference: "cs_setup",
+        processorStatus: "complete",
+        setupIntentReference: "seti_setup",
+        savedPaymentMethod: {
+          processorName: "stripe",
+          providerCustomerReference: "cus_buyer",
+          providerReference: "pm_card_2",
+          paymentMethodCategory: "card",
+          displayLabel: "Mastercard ending in 4444",
+          readiness: "ready",
+          allowRedisplay: "always",
+          removed: false,
+        },
+      } as never);
+    const db = createOrderInputDb();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const firstSetupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+    await services.reconcileSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        setupReference: firstSetupSession.setup_reference_id,
+      },
+      context,
+    );
+    const secondSetupSession = await services.createSavedCheckoutSetupSession({ accountId: "acc_buyer" as never });
+
+    const secondInstrument = await services.reconcileSavedCheckoutSetupSession(
+      {
+        accountId: "acc_buyer" as never,
+        setupReference: secondSetupSession.setup_reference_id,
+      },
+      context,
+    );
+
+    expect(secondInstrument).toMatchObject({
+      provider_reference: "pm_card_2",
+      is_default: false,
+    });
+    expect(db.readSavedCheckoutInstruments()).toEqual([
+      expect.objectContaining({ provider_reference: "pm_card_1", is_default: true }),
+      expect.objectContaining({ provider_reference: "pm_card_2", is_default: false }),
+    ]);
+  });
+
   it("publishes support-safe checkout affordance facts after saved instrument changes", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const services = createPaymentRuntime({
@@ -953,7 +1314,7 @@ describe("payment runtime", () => {
           confirmationExperience: "off-session-token",
           readiness: "ready",
           checkoutEligible: true,
-          isDefault: false,
+          isDefault: true,
           removedAt: null,
         },
       ],
