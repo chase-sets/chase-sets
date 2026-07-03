@@ -176,7 +176,7 @@ describe("platform worker config", () => {
     expect(getPlatformWorkerContextsForRuntimeProfile("landing")).not.toContain("ordering");
   });
 
-  it("loads the landing runtime profile without full-platform context URLs or wake runners", () => {
+  it("loads the landing runtime profile without full-platform context URLs while keeping wake runners active", () => {
     process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.DATABASE_URL_CHECKOUT = "postgresql://localhost/checkout";
@@ -185,8 +185,8 @@ describe("platform worker config", () => {
 
     expect(config.runtimeProfile).toBe("landing");
     expect(config.contextDatabaseUrls.checkout).toBeUndefined();
-    expect(config.projectionWakeScheduler.enabled).toBe(false);
-    expect(config.projectionWakeRelay.enabled).toBe(false);
+    expect(config.projectionWakeScheduler.enabled).toBe(true);
+    expect(config.projectionWakeRelay.enabled).toBe(true);
   });
 
   it("rejects unknown runtime profiles", () => {
