@@ -130,6 +130,7 @@ class ProjectionDb implements PgQueryable {
     }
 
     if (
+      sql.includes("SELECT pg_advisory_xact_lock") ||
       sql.includes("realtime_projection_outbox_topics") ||
       sql.includes("realtime_projection_topic_heads") ||
       sql.includes("SELECT pg_notify")

@@ -191,8 +191,8 @@ describe("realtime SSE routes", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("MIN(outbox_id)")) {
-          return { rows: [{ min_outbox_id: "2" }] };
+        if (sql.includes("pruned_through_outbox_id")) {
+          return { rows: [{ pruned_through_outbox_id: "0" }] };
         }
 
         if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {

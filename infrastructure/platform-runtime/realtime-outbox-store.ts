@@ -20,12 +20,14 @@ import { emitPostgresWorkSignalNotification } from "./work-signal-composite";
 const REALTIME_OUTBOX_TABLE = "realtime_projection_outbox";
 const REALTIME_OUTBOX_TOPIC_TABLE = "realtime_projection_outbox_topics";
 const REALTIME_TOPIC_HEAD_TABLE = "realtime_projection_topic_heads";
+const REALTIME_OUTBOX_RETENTION_TABLE = "realtime_projection_outbox_retention";
 const REALTIME_NOTIFY_CHANNEL = "realtime_projection_patch";
 const DEFAULT_BATCH_SIZE = 100;
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_MAX_PATCH_CHANGE_COUNT = 500;
 const DEFAULT_MAX_PATCH_PAYLOAD_BYTES = 64 * 1_024;
 const RETENTION_SWEEP_ADVISORY_LOCK_KEY = "8873012201";
+const REALTIME_OUTBOX_APPEND_ADVISORY_LOCK_KEY = "-5927634652584768510";
 
 export const realtimeProjectionNotifyChannel = REALTIME_NOTIFY_CHANNEL;
 export const defaultRealtimeRetentionMs = DEFAULT_RETENTION_MS;
@@ -136,6 +138,12 @@ CREATE INDEX IF NOT EXISTS ${REALTIME_OUTBOX_TOPIC_TABLE}_outbox_idx
 CREATE TABLE IF NOT EXISTS ${REALTIME_TOPIC_HEAD_TABLE} (
   topic text PRIMARY KEY,
   outbox_id bigint NOT NULL REFERENCES ${REALTIME_OUTBOX_TABLE} (outbox_id) ON DELETE CASCADE,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ${REALTIME_OUTBOX_RETENTION_TABLE} (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  pruned_through_outbox_id bigint NOT NULL DEFAULT 0 CHECK (pruned_through_outbox_id >= 0),
   updated_at timestamptz NOT NULL
 );`;
 
@@ -323,6 +331,7 @@ export async function recordRealtimeProjectionPatch(
   assertRealtimePatchSizeLimits(input, payloadJson);
 
   await runRealtimeProjectionTransaction(db as PgQueryable | PgTransactionalPool, async (tx) => {
+    await tx.query("SELECT pg_advisory_xact_lock($1::bigint)", [REALTIME_OUTBOX_APPEND_ADVISORY_LOCK_KEY]);
     const upserted = await tx.query<{ outbox_id: string | number | bigint }>(
       `INSERT INTO ${REALTIME_OUTBOX_TABLE} (
            source_global_position,
@@ -672,7 +681,25 @@ export async function pruneExpiredRealtimePatchesWithAdvisoryLock(
        DELETE FROM ${REALTIME_OUTBOX_TABLE}
        WHERE expires_at <= now()
          AND (SELECT acquired FROM lock)
-       RETURNING 1
+       RETURNING outbox_id
+     ),
+     watermark AS (
+       INSERT INTO ${REALTIME_OUTBOX_RETENTION_TABLE} (
+         singleton,
+         pruned_through_outbox_id,
+         updated_at
+       )
+       SELECT true,
+              MAX(outbox_id),
+              now()
+       FROM deleted
+       HAVING MAX(outbox_id) IS NOT NULL
+       ON CONFLICT (singleton) DO UPDATE SET
+         pruned_through_outbox_id = GREATEST(
+           ${REALTIME_OUTBOX_RETENTION_TABLE}.pruned_through_outbox_id,
+           EXCLUDED.pruned_through_outbox_id
+         ),
+         updated_at = EXCLUDED.updated_at
      ),
      unlocked AS (
        SELECT CASE
@@ -761,14 +788,14 @@ async function isCursorExpired(db: PgQueryable, afterOutboxId: string): Promise<
     return false;
   }
 
-  const result = await db.query<{ min_outbox_id: string | null }>(
-    `SELECT MIN(outbox_id)::text AS min_outbox_id
-     FROM ${REALTIME_OUTBOX_TABLE}
-     WHERE expires_at > now()`,
+  const result = await db.query<{ pruned_through_outbox_id: string | null }>(
+    `SELECT pruned_through_outbox_id::text AS pruned_through_outbox_id
+     FROM ${REALTIME_OUTBOX_RETENTION_TABLE}
+     WHERE singleton = true`,
   );
-  const minOutboxId = result.rows[0]?.min_outbox_id;
+  const prunedThroughOutboxId = result.rows[0]?.pruned_through_outbox_id ?? "0";
 
-  return minOutboxId !== null && BigInt(afterOutboxId) < BigInt(minOutboxId) - 1n;
+  return BigInt(afterOutboxId) < BigInt(prunedThroughOutboxId);
 }
 
 async function readContextHead(db: PgQueryable): Promise<string> {
