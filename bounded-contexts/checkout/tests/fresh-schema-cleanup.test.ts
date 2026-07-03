@@ -5,6 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import { checkoutCatalogProjectionSchemaSql } from "../features/cart/integrations/catalog/catalog-schema";
 import { checkoutInventorySupplySchemaSql } from "../features/cart/integrations/inventory/inventory-schema";
+import {
+  checkoutMarketplaceSellerOptionsSchemaMigrations,
+  checkoutMarketplaceSellerOptionsSchemaSql,
+} from "../features/cart/integrations/marketplace/marketplace-schema";
 import { checkoutCartSchemaSql } from "../features/cart/read-model/schema";
 import { checkoutSellListSchemaSql } from "../features/sell-list/read-model/schema";
 import { checkoutSessionSchemaSql } from "../features/sessions/read-model/schema";
@@ -111,6 +115,35 @@ describe("fresh checkout read-model schemas", () => {
     );
     expect(itemEvolution).toBeGreaterThanOrEqual(0);
     expect(itemEvolution).toBeLessThan(itemAccountIndex);
+  });
+
+  it("keeps hot seller-option projection indexes as concurrent schema migrations", () => {
+    const statements = checkoutMarketplaceSellerOptionsSchemaMigrations.flatMap((migration) => migration.statements);
+
+    expect(checkoutMarketplaceSellerOptionsSchemaSql).not.toContain(
+      "checkout_marketplace_seller_options_inventory_item_idx",
+    );
+    expect(checkoutMarketplaceSellerOptionsSchemaSql).not.toContain(
+      "checkout_marketplace_seller_options_catalog_item_idx",
+    );
+    expect(checkoutMarketplaceSellerOptionsSchemaSql).not.toContain(
+      "checkout_marketplace_seller_options_seller_availability_idx",
+    );
+    expect(statements).toEqual([
+      expect.stringContaining(
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_inventory_item_idx",
+      ),
+      expect.stringContaining(
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_catalog_item_idx",
+      ),
+      expect.stringContaining(
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_seller_availability_idx",
+      ),
+    ]);
+    expect(statements[0]).toContain("ON checkout_marketplace_seller_options (inventory_item_id)");
+    expect(statements[1]).toContain("ON checkout_marketplace_seller_options (catalog_catalog_item_id)");
+    expect(statements[2]).toContain("ON checkout_marketplace_seller_options (seller_account_id, status)");
+    expect(statements[2]).toContain("WHERE status IN ('active', 'seller-unavailable')");
   });
 
   it("uses the fresh Sell List confirmation read model without execution receipts", () => {

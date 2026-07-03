@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const checkoutMarketplaceSellerOptionsSchemaSql = `
 CREATE TABLE IF NOT EXISTS checkout_marketplace_seller_options (
   listing_id text PRIMARY KEY,
@@ -25,3 +27,20 @@ CREATE INDEX IF NOT EXISTS checkout_marketplace_seller_options_product_idx
 ALTER TABLE checkout_marketplace_seller_options
   ADD COLUMN IF NOT EXISTS product_measure_snapshot jsonb NULL;
 `;
+
+export const checkoutMarketplaceSellerOptionsSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260703_checkout_seller_options_hot_update_indexes",
+    description: "Create checkout seller-option indexes for hot projection update predicates.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_inventory_item_idx
+  ON checkout_marketplace_seller_options (inventory_item_id)
+  WHERE inventory_item_id IS NOT NULL;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_catalog_item_idx
+  ON checkout_marketplace_seller_options (catalog_catalog_item_id);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_seller_availability_idx
+  ON checkout_marketplace_seller_options (seller_account_id, status)
+  WHERE status IN ('active', 'seller-unavailable');`,
+    ],
+  },
+];

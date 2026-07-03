@@ -1,6 +1,8 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 
+export const CART_SELLER_OPTIONS_PER_LINE_LIMIT = 25;
+
 export type CheckoutCartLineRow = Readonly<{
   buyer_account_id: string;
   line_id: string;
@@ -212,22 +214,40 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
          ),
          '[]'::json
        ) AS seller_options
-       FROM checkout_marketplace_seller_options o
+       FROM (
+         SELECT
+           option.listing_id,
+           option.seller_account_id,
+           option.seller_slug,
+           option.seller_display_name,
+           option.seller_average_rating,
+           option.seller_review_count,
+           option.price_amount,
+           option.listing_quantity_cap,
+           option.supply_total_quantity,
+           option.active_held_quantity,
+           option.product_summary,
+           option.product_measure_snapshot
+         FROM checkout_marketplace_seller_options option
+         WHERE option.product_id = line.product_id
+           AND option.status = 'active'
+           AND LEAST(
+             option.listing_quantity_cap,
+             GREATEST(
+               COALESCE(option.supply_total_quantity, option.listing_quantity_cap) -
+                 COALESCE(option.active_held_quantity, 0),
+               0
+             )
+           ) > 0
+         ORDER BY option.price_amount ASC, option.listing_id ASC
+         LIMIT $2
+       ) o
        LEFT JOIN checkout_seller_accounts seller
          ON seller.account_id = o.seller_account_id
-       WHERE o.product_id = line.product_id
-         AND o.status = 'active'
-         AND LEAST(
-           o.listing_quantity_cap,
-           GREATEST(
-             COALESCE(o.supply_total_quantity, o.listing_quantity_cap) - COALESCE(o.active_held_quantity, 0),
-             0
-           )
-         ) > 0
      ) opt ON true
      WHERE line.buyer_account_id = $1
      ORDER BY line.updated_at DESC, line.line_id ASC`,
-    [buyerAccountId],
+    [buyerAccountId, CART_SELLER_OPTIONS_PER_LINE_LIMIT],
   );
 
   return result.rows.map(mapCartLineRow);

@@ -1,5 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+function buyerAccountIdFromCartStream(streamId: string): string {
+  return extractIdFromStreamId(streamId, "checkout.cart-");
+}
 
 export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -125,13 +130,15 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
     },
     "checkout.cart.line-quantity-set": async (event) => {
       const data = event.data as { lineId: string; quantity: number };
+      const buyerAccountId = buyerAccountIdFromCartStream(event.streamId);
 
       await db.query(
         `UPDATE checkout_cart_line_pages
-         SET quantity = $2,
-             updated_at = $3
-         WHERE line_id = $1`,
-        [data.lineId, data.quantity, event.timing.recordedAt],
+         SET quantity = $3,
+             updated_at = $4
+         WHERE buyer_account_id = $1
+           AND line_id = $2`,
+        [buyerAccountId, data.lineId, data.quantity, event.timing.recordedAt],
       );
     },
     "checkout.cart.line-fulfillment-set": async (event) => {
@@ -151,23 +158,26 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
         availabilityState: string;
       };
       const selectedListing = data.selectedListingSnapshot ?? null;
+      const buyerAccountId = buyerAccountIdFromCartStream(event.streamId);
 
       await db.query(
         `UPDATE checkout_cart_line_pages
-         SET fulfillment_mode = $2,
-             locked_listing_id = $3,
-             selected_listing_id = $4,
-             selected_listing_seller_account_id = $5,
-             selected_listing_seller_display_name = $6,
-             selected_listing_seller_slug = $7,
-             selected_listing_price_amount = $8,
-             selected_listing_snapshot_source = $9,
-             selected_listing_snapshot_captured_at = $10,
-             seller_preference_id = $11,
-             availability_state = $12,
-             updated_at = $13
-         WHERE line_id = $1`,
+         SET fulfillment_mode = $3,
+             locked_listing_id = $4,
+             selected_listing_id = $5,
+             selected_listing_seller_account_id = $6,
+             selected_listing_seller_display_name = $7,
+             selected_listing_seller_slug = $8,
+             selected_listing_price_amount = $9,
+             selected_listing_snapshot_source = $10,
+             selected_listing_snapshot_captured_at = $11,
+             seller_preference_id = $12,
+             availability_state = $13,
+             updated_at = $14
+         WHERE buyer_account_id = $1
+           AND line_id = $2`,
         [
+          buyerAccountId,
           data.lineId,
           data.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
           data.lockedListingId,
@@ -186,11 +196,13 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
     },
     "checkout.cart.line-removed": async (event) => {
       const data = event.data as { lineId: string };
+      const buyerAccountId = buyerAccountIdFromCartStream(event.streamId);
 
       await db.query(
         `DELETE FROM checkout_cart_line_pages
-         WHERE line_id = $1`,
-        [data.lineId],
+         WHERE buyer_account_id = $1
+           AND line_id = $2`,
+        [buyerAccountId, data.lineId],
       );
     },
     "checkout.cart.checked-out": async (event) => {

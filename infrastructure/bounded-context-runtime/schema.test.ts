@@ -52,6 +52,16 @@ describe("bounded context runtime schema", () => {
     const module = {
       contextName: "example",
       schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      schemaMigrations: [
+        {
+          migrationId: "20260703_example_pages_concurrent_indexes",
+          description: "Create example indexes concurrently.",
+          statements: [
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_id_idx ON example_pages (id);",
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_name_idx ON example_pages (name);",
+          ],
+        },
+      ],
     };
     await bootstrapContextDatabase(module, pool);
     await bootstrapContextDatabase(module, pool);
@@ -72,8 +82,15 @@ describe("bounded context runtime schema", () => {
     expect(
       queryLog.filter((entry) => entry.sql.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_")),
     ).toHaveLength(9);
+    expect(
+      queryLog.filter((entry) => entry.sql.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_")),
+    ).toHaveLength(2);
     expect(appliedMigrations).toEqual(
-      new Set(["20260628_event_store_context_columns_backfill", "20260628_event_store_events_concurrent_indexes"]),
+      new Set([
+        "20260628_event_store_context_columns_backfill",
+        "20260628_event_store_events_concurrent_indexes",
+        "20260703_example_pages_concurrent_indexes",
+      ]),
     );
   });
 });

@@ -234,6 +234,13 @@ describe("defineBoundedContextModule", () => {
     const module = defineBoundedContextModule({
       manifest,
       schemaSql: "select 1;",
+      schemaMigrations: [
+        {
+          migrationId: "20260703_example_index",
+          description: "Create example index concurrently.",
+          statements: ["CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_id_idx ON example_pages (id);"],
+        },
+      ],
       createServices: () => services,
       buildApis: (createdServices) => [`api:${createdServices.db}`],
       projectionHandlerSets: () => [],
@@ -246,6 +253,12 @@ describe("defineBoundedContextModule", () => {
       routePrefix: "/api/inventory",
       streamPrefix: "inventory.",
       schemaSql: "select 1;",
+      schemaMigrations: [
+        expect.objectContaining({
+          migrationId: "20260703_example_index",
+          statements: ["CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_id_idx ON example_pages (id);"],
+        }),
+      ],
       apiMounts: manifest.apiMounts,
       anonymousRoutes: manifest.anonymousRoutes,
       projectionGroups: manifest.projectionGroups,
