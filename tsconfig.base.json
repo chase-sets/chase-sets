@@ -616,6 +616,9 @@
       "@chase-sets/platform-runtime/projection-wake-scheduler": [
         "./infrastructure/platform-runtime/projection-wake-scheduler.ts"
       ],
+      "@chase-sets/platform-runtime/pwa": [
+        "./infrastructure/platform-runtime/pwa.ts"
+      ],
       "@chase-sets/platform-runtime/realtime": [
         "./infrastructure/platform-runtime/realtime.ts"
       ],
@@ -628,6 +631,9 @@
       "@chase-sets/platform-runtime/runtime-profiles": [
         "./infrastructure/platform-runtime/runtime-profiles.ts"
       ],
+      "@chase-sets/platform-runtime/seo": [
+        "./infrastructure/platform-runtime/seo.ts"
+      ],
       "@chase-sets/platform-runtime/source-context-wake-registry": [
         "./infrastructure/platform-runtime/source-context-wake-registry.ts"
       ],
@@ -636,6 +642,9 @@
       ],
       "@chase-sets/platform-runtime/web": [
         "./infrastructure/platform-runtime/web.ts"
+      ],
+      "@chase-sets/platform-runtime/web-assets": [
+        "./infrastructure/platform-runtime/web-assets.ts"
       ],
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
