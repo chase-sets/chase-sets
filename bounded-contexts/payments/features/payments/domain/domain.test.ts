@@ -327,14 +327,20 @@ describe("payments payment domain", () => {
       refundedAt: "2026-04-01T00:03:00.000Z",
     });
 
-    expect(refundEvents[0]?.data).toMatchObject({
+    expect(refundEvents[0]?.type).toBe("payments.payment-refunded");
+    if (refundEvents[0]?.type !== "payments.payment-refunded") {
+      throw new Error("Expected refund provider fact.");
+    }
+    const refundEvent = refundEvents[0];
+
+    expect(refundEvent.data).toMatchObject({
       orderIds: ["ord_a"],
       amount: "10.00",
       refundedAmount: "10.00",
       orderRefundAmounts: [{ orderId: "ord_a", amount: "10.00" }],
       sellerPayouts: [expect.objectContaining({ sellerAccountId: "acc_seller_a" })],
     });
-    expect(refundEvents[0]?.data.sellerPayouts).toHaveLength(1);
+    expect(refundEvent.data.sellerPayouts).toHaveLength(1);
   });
 
   it("allows disputes after refunds but forbids captures after terminal provider states", () => {
