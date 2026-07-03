@@ -179,6 +179,7 @@
     { "routePath": "/api/auth/passkeys/challenge", "methods": ["POST"] },
     { "routePath": "/api/auth/passkeys/register", "methods": ["POST"] },
     { "routePath": "/api/auth/passkeys/sign-in", "methods": ["POST"] },
+    { "routePath": "/api/auth/invitations/acceptance-link/request", "methods": ["POST"] },
     { "routePath": "/api/auth/invitations/accept", "methods": ["POST"] },
     { "routePath": "/api/auth/guest-checkout/start", "methods": ["POST"] },
     { "routePath": "/api/auth/guest-checkout/claim-link/request", "methods": ["POST"] },
@@ -664,6 +665,7 @@
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-with-passkey",
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/exit",
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/start",
+        "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/acceptance-link/request",
         "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/accept",
         "api-route:bounded-contexts/auth/support/api-support/magic-link-routes.ts:POST /magic-link/consume",
         "api-route:bounded-contexts/auth/support/api-support/magic-link-routes.ts:POST /magic-link/request",
@@ -683,6 +685,7 @@
         "authoritativeResponse": "Each API handler returns the result produced by the command it just executed, including authResult, session tokens, challenge token ids and expirations, guest token or claim context, account-selection results, or sign-out status generated in the same handler after durable writes.",
         "tests": [
           "bounded-contexts/auth/support/api-support/guest-checkout-routes.test.ts",
+          "bounded-contexts/auth/support/api-support/invitation-routes.test.ts",
           "bounded-contexts/auth/support/api-support/magic-link-routes.test.ts",
           "bounded-contexts/auth/support/api-support/passkey-routes.test.ts",
           "bounded-contexts/auth/support/api-support/phone-code-routes.test.ts",

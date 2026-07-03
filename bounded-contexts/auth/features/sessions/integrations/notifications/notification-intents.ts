@@ -14,6 +14,13 @@ export type PhoneCodeRequestedNotificationIntentInput = Readonly<{
   idempotencyKey: string;
 }>;
 
+export type InvitationAcceptanceLinkRequestedNotificationIntentInput = Readonly<{
+  email: string;
+  invitationLink: string;
+  correlationId: string;
+  idempotencyKey: string;
+}>;
+
 export function mapGuestCheckoutClaimLinkRequestedToNotification(
   input: GuestCheckoutClaimLinkRequestedNotificationIntentInput,
 ): NotificationMessage {
@@ -68,6 +75,41 @@ export function mapPhoneCodeRequestedToNotification(
         channel: "sms",
         to: { e164: input.phone },
         body: `Your Chase Sets code is ${input.code}. It expires soon.`,
+      },
+    ],
+    idempotencyKey: input.idempotencyKey,
+    correlationId: input.correlationId,
+    actor: {
+      userId: null,
+      accountId: null,
+    },
+  };
+}
+
+export function mapInvitationAcceptanceLinkRequestedToNotification(
+  input: InvitationAcceptanceLinkRequestedNotificationIntentInput,
+): NotificationMessage {
+  return {
+    messageType: "auth.invitation-acceptance-link.requested",
+    criticality: "security",
+    title: "Accept your Chase Sets invitation",
+    body: "Use this secure link to accept your Chase Sets invitation.",
+    templateId: "auth_invitation_acceptance_link",
+    templateVersion: 1,
+    locale: "en",
+    templateData: {
+      invitationLink: input.invitationLink,
+    },
+    channels: [
+      {
+        channel: "email",
+        to: [{ email: input.email }],
+        subject: "Accept your Chase Sets invitation",
+        templateId: "auth_invitation_acceptance_link",
+        templateVersion: 1,
+        templateData: {
+          invitationLink: input.invitationLink,
+        },
       },
     ],
     idempotencyKey: input.idempotencyKey,

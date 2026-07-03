@@ -155,7 +155,10 @@ function createServices(
         email: "invitee@example.com",
         roleKey: "owner",
         status: "pending",
-        expiresAt: "2026-07-01T00:00:00.000Z",
+        expiresAt: "2027-07-01T00:00:00.000Z",
+        acceptanceTokenHash: "hashed:invite_token",
+        acceptanceTokenExpiresAt: "2027-06-01T00:00:00.000Z",
+        acceptanceTokenConsumedAt: null,
         acceptedByUserId: null,
       })),
       getPendingInvitationByEmail: vi.fn(async () => null),
@@ -302,7 +305,7 @@ describe("Identity API mutation snapshots", () => {
 
     const acceptedInvitation = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
       method: "POST",
-      body: JSON.stringify({ userId: "usr_1", accountId: "acc_1", roleKey: "owner" }),
+      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
     });
     expect(acceptedInvitation.response.status).toBe(200);
     expect(acceptedInvitation.body.snapshots).toEqual(
@@ -690,7 +693,7 @@ describe("Identity API mutation snapshots", () => {
 
     const invitationAccept = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
       method: "POST",
-      body: JSON.stringify({ userId: "usr_1", accountId: "acc_1", roleKey: "platform-admin" }),
+      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
     });
 
     expect(invitationAccept.response.status).toBe(200);
@@ -716,7 +719,10 @@ describe("Identity API mutation snapshots", () => {
           email: "invitee@example.com",
           roleKey: "platform-admin",
           status: "pending",
-          expiresAt: "2026-07-01T00:00:00.000Z",
+          expiresAt: "2027-07-01T00:00:00.000Z",
+          acceptanceTokenHash: "hashed:invite_token",
+          acceptanceTokenExpiresAt: "2027-06-01T00:00:00.000Z",
+          acceptanceTokenConsumedAt: null,
           acceptedByUserId: null,
         })) as unknown as IdentityServices["invitations"]["getInvitationState"],
       },
@@ -731,7 +737,7 @@ describe("Identity API mutation snapshots", () => {
     const app = buildApp(services);
     const invitationAccept = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
       method: "POST",
-      body: JSON.stringify({ userId: "usr_1", accountId: "acc_1", roleKey: "platform-admin" }),
+      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
     });
 
     expect(invitationAccept.response.status).toBe(403);
