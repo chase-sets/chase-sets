@@ -98,19 +98,53 @@ describe("postgres event store", () => {
     expect(queries[0].sql).toContain("global_position > $1::bigint");
     expect(queries[0].sql).toContain("tenant_id = $2");
     expect(queries[0].sql).toContain("event_type = ANY($3::text[])");
-    expect(queries[0].sql).toContain("stream_context_name = ANY($4::text[])");
-    expect(queries[0].sql).toContain("stream_category = ANY($5::text[])");
-    expect(queries[0].sql).toContain("(stream_id LIKE $6 || '%' OR stream_id LIKE $7 || '%')");
+    expect(queries[0].sql).toContain(
+      "((stream_context_name = $4 AND stream_id LIKE $5 || '%') OR (stream_context_name = $6 AND stream_id LIKE $7 || '%'))",
+    );
+    expect(queries[0].sql).not.toContain("stream_category = ANY");
     expect(queries[0].sql).toContain("LIMIT $8");
     expect(queries[0].params).toEqual([
       "42",
       "tenant_1",
       ["catalog.catalog-item.published"],
-      ["catalog"],
-      ["catalog.item", "catalog.category"],
+      "catalog",
       "catalog.item-",
+      "catalog",
       "catalog.category-",
       25,
+    ]);
+  });
+
+  it("keeps mixed stream-prefix shapes local to each OR arm", async () => {
+    const queries: { sql: string; params: readonly unknown[] }[] = [];
+    const store = createPostgresEventStore({
+      pool: {
+        query: async (sql: string, params: readonly unknown[] = []) => {
+          queries.push({ sql, params });
+          return { rows: [] };
+        },
+      } as never,
+    });
+
+    await store.readAll({
+      afterGlobalPosition: "10" as never,
+      eventTypes: ["identity.account.created"],
+      streamPrefixes: ["marketplace.review-", "identity."],
+      limit: 50,
+    });
+
+    expect(queries[0].sql).toContain(
+      "((stream_context_name = $3 AND stream_id LIKE $4 || '%') OR (stream_context_name = $5 AND stream_id LIKE $6 || '%'))",
+    );
+    expect(queries[0].sql).not.toContain("stream_category = ANY");
+    expect(queries[0].params).toEqual([
+      "10",
+      ["identity.account.created"],
+      "marketplace",
+      "marketplace.review-",
+      "identity",
+      "identity.",
+      50,
     ]);
   });
 

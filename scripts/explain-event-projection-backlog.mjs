@@ -51,24 +51,10 @@ function buildExplainQuery(input) {
     predicates.push(`event_type = ANY($${params.length}::text[])`);
   }
 
-  const contextNames = normalizedStreamContextNames(input.streamPrefixes);
-  if (contextNames.length > 0) {
-    params.push(contextNames);
-    predicates.push(`stream_context_name = ANY($${params.length}::text[])`);
-  }
-
-  const categories = normalizedStreamCategories(input.streamPrefixes);
-  if (categories.length > 0) {
-    params.push(categories);
-    predicates.push(`stream_category = ANY($${params.length}::text[])`);
-  }
-
   if (input.streamPrefixes.length > 0) {
-    const prefixPredicates = input.streamPrefixes.map((prefix) => {
-      params.push(prefix);
-      return `stream_id LIKE $${params.length} || '%'`;
-    });
-    predicates.push(`(${prefixPredicates.join(" OR ")})`);
+    const streamPrefixFilter = buildStreamPrefixFilterSql(input.streamPrefixes, params.length + 1);
+    params.push(...streamPrefixFilter.params);
+    predicates.push(streamPrefixFilter.predicate);
   }
 
   return {
@@ -95,26 +81,30 @@ function readCsv(value) {
     : [];
 }
 
-function normalizedStreamContextNames(streamPrefixes) {
-  return [
-    ...new Set(
-      streamPrefixes
-        .map((prefix) => {
-          const separatorIndex = prefix.indexOf(".");
-          return separatorIndex > 0 ? prefix.slice(0, separatorIndex) : null;
-        })
-        .filter(Boolean),
-    ),
-  ];
+function buildStreamPrefixFilterSql(streamPrefixes, nextParamIndex) {
+  const params = [];
+  const predicates = [...new Set(streamPrefixes)].map((prefix) => {
+    const contextName = normalizedStreamPrefixContextName(prefix);
+    if (contextName) {
+      const contextParam = nextParamIndex + params.length;
+      params.push(contextName);
+      const prefixParam = nextParamIndex + params.length;
+      params.push(prefix);
+      return `(stream_context_name = $${contextParam} AND stream_id LIKE $${prefixParam} || '%')`;
+    }
+
+    const prefixParam = nextParamIndex + params.length;
+    params.push(prefix);
+    return `(stream_id LIKE $${prefixParam} || '%')`;
+  });
+
+  return {
+    predicate: `(${predicates.join(" OR ")})`,
+    params,
+  };
 }
 
-function normalizedStreamCategories(streamPrefixes) {
-  return [
-    ...new Set(
-      streamPrefixes
-        .filter((prefix) => prefix.endsWith("-"))
-        .map((prefix) => prefix.slice(0, -1))
-        .filter(Boolean),
-    ),
-  ];
+function normalizedStreamPrefixContextName(prefix) {
+  const separatorIndex = prefix.indexOf(".");
+  return separatorIndex > 0 ? prefix.slice(0, separatorIndex) : null;
 }

@@ -333,6 +333,29 @@ describeDb("postgres event store real database integration", () => {
     ]);
   });
 
+  it("keeps mixed stream-prefix filters and dashed aggregate ids visible in global reads", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+
+    await appendEvents(store, "marketplace.review-rev_1", "tenant_a", [
+      ["marketplace.review.created", { reviewId: "rev_1" }],
+    ]);
+    await appendEvents(store, "identity.account-acct_1", "tenant_a", [
+      ["identity.account.created", { accountId: "acct_1" }],
+    ]);
+    await appendEvents(store, "commerce.order-ord-123", "tenant_a", [
+      ["commerce.order.created", { orderId: "ord-123" }],
+    ]);
+
+    await expect(store.readAll({ streamPrefixes: ["marketplace.review-", "identity."], limit: 10 })).resolves.toEqual([
+      expect.objectContaining({ streamId: "marketplace.review-rev_1" }),
+      expect.objectContaining({ streamId: "identity.account-acct_1" }),
+    ]);
+
+    await expect(store.readAll({ streamPrefixes: ["commerce.order-"], limit: 10 })).resolves.toEqual([
+      expect.objectContaining({ streamId: "commerce.order-ord-123" }),
+    ]);
+  });
+
   it("does not expose a later committed append while a lower global position is in flight", async () => {
     const store = createPostgresEventStore({ pool: schema.pool, createEventId });
     const lowPositionClient = await beginUncommittedAppendWithGlobalLock(schema.pool);
