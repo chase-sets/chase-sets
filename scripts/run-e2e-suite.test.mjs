@@ -1,6 +1,20 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { batchE2eSuiteIds, e2eSuiteIdsForChangedFile } from "./e2e-suites.mjs";
+import {
+  batchE2eSuiteIds,
+  e2eNoSuiteExclusionForChangedFile,
+  e2eSuiteIdsForChangedFile,
+  isRouteFile,
+} from "./e2e-suites.mjs";
 import { buildSuiteGrep, parseSuiteArgs } from "./run-e2e-suite.mjs";
+
+function walkFiles(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = join(dir, entry.name);
+    return entry.isDirectory() ? walkFiles(entryPath) : [entryPath.replace(/\\/g, "/")];
+  });
+}
 
 describe("run e2e suite", () => {
   it("accepts comma-separated and positional suite ids", () => {
@@ -67,6 +81,25 @@ describe("run e2e suite", () => {
 
   it("routes the marketplace index route to browse coverage", () => {
     expect(e2eSuiteIdsForChangedFile("deployables/marketplace/app/routes/index.tsx")).toEqual(["marketplace_browse"]);
+  });
+
+  it("routes deployable Playwright spec changes to their owning suites", () => {
+    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/item-detail.spec.ts")).toEqual([
+      "marketplace_browse",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/critical-flows.spec.ts")).toEqual([
+      "marketplace_browse",
+      "marketplace_account",
+      "marketplace_checkout",
+      "marketplace_seller",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/access-api-keys.spec.ts")).toEqual(["admin_access"]);
+    expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts")).toEqual(
+      [],
+    );
+    expect(
+      e2eNoSuiteExclusionForChangedFile("deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts"),
+    ).toMatchObject({ reason: expect.stringContaining("Manual staging UAT") });
   });
 
   it("routes shared auth changes to marketplace and admin auth coverage", () => {
@@ -195,5 +228,21 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/features/api-keys/ui/api-key-detail-page.tsx")).toEqual(
       ["admin_access"],
     );
+  });
+
+  it("keeps route E2E ownership complete or explicitly excluded", () => {
+    const routeFiles = [
+      ...walkFiles("bounded-contexts"),
+      ...walkFiles("deployables/marketplace/app/routes"),
+      ...walkFiles("deployables/admin-web/app/routes"),
+    ]
+      .filter(isRouteFile)
+      .sort();
+
+    const unownedRoutes = routeFiles.filter(
+      (filePath) => e2eSuiteIdsForChangedFile(filePath).length === 0 && !e2eNoSuiteExclusionForChangedFile(filePath),
+    );
+
+    expect(unownedRoutes).toEqual([]);
   });
 });
