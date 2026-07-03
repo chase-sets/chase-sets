@@ -8,6 +8,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
         paymentId: string;
         buyerAccountId: string;
         orderIds: string[];
+        orderRefundCaps?: unknown;
         amount: string;
         balanceCreditAmount: string;
         processorAmount: string;
@@ -36,10 +37,10 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
         `WITH source_conflict AS (
          SELECT payment_id
          FROM payments_payment_pages
-         WHERE $23::text IS NOT NULL
-           AND $24::text IS NOT NULL
-           AND source_context = $23
-           AND source_reference_id = $24
+         WHERE $24::text IS NOT NULL
+           AND $25::text IS NOT NULL
+           AND source_context = $24
+           AND source_reference_id = $25
            AND payment_id <> $1
          ORDER BY created_at ASC, payment_id ASC
          LIMIT 1
@@ -49,6 +50,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            payment_id,
            buyer_account_id,
            order_ids,
+           order_refund_caps,
            amount,
            balance_credit_amount,
            processor_amount,
@@ -80,15 +82,17 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            cancelled_at,
            refunded_at,
            refunded_amount,
+           order_refunded_amounts,
            disputed_at,
            last_stream_version
          )
          SELECT
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-confirmation', NULL, NULL, $25, $25, NULL, NULL, NULL, NULL, 0, NULL, $26
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'pending-confirmation', NULL, NULL, $26, $26, NULL, NULL, NULL, NULL, 0, '[]'::jsonb, NULL, $27
          WHERE NOT EXISTS (SELECT 1 FROM source_conflict)
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              order_ids = EXCLUDED.order_ids,
+             order_refund_caps = EXCLUDED.order_refund_caps,
              amount = EXCLUDED.amount,
              balance_credit_amount = EXCLUDED.balance_credit_amount,
              processor_amount = EXCLUDED.processor_amount,
@@ -131,6 +135,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
           data.paymentId,
           data.buyerAccountId,
           JSON.stringify(data.orderIds),
+          JSON.stringify(Array.isArray(data.orderRefundCaps) ? data.orderRefundCaps : []),
           data.amount,
           data.balanceCreditAmount,
           data.processorAmount,
@@ -248,6 +253,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
         processorStatus: string;
         refundedAt: string;
         refundedAmount: string;
+        refundedOrderAmounts?: unknown;
       };
 
       await db.query(
@@ -258,11 +264,19 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
              failure_message = NULL,
              refunded_at = $3,
              refunded_amount = $4,
+             order_refunded_amounts = $5,
              updated_at = $3,
-             last_stream_version = $5
+             last_stream_version = $6
          WHERE payment_id = $1
-           AND last_stream_version < $5`,
-        [data.paymentId, data.processorStatus, data.refundedAt, data.refundedAmount, event.streamVersion],
+           AND last_stream_version < $6`,
+        [
+          data.paymentId,
+          data.processorStatus,
+          data.refundedAt,
+          data.refundedAmount,
+          JSON.stringify(Array.isArray(data.refundedOrderAmounts) ? data.refundedOrderAmounts : []),
+          event.streamVersion,
+        ],
       );
     },
     "payments.payment-disputed": async (event) => {

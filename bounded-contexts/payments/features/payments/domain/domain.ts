@@ -15,12 +15,32 @@ import {
   type CurrencyCode,
   type PaymentProcessorName,
   type PaymentStatus,
+  type RefundId,
 } from "../../../support/runtime-support/common";
+
+export type OrderMoneyAmount = Readonly<{
+  orderId: OrderId;
+  amount: string;
+}>;
+
+export type PaymentRefundRequest = Readonly<{
+  refundId: RefundId;
+  orderIds: readonly OrderId[];
+  amount: string;
+}>;
+
+export type IssuedPaymentRefund = Readonly<{
+  refundId: RefundId | null;
+  processorRefundReference: string | null;
+  orderIds: readonly OrderId[];
+  amount: string;
+}>;
 
 export type PaymentState = Readonly<{
   paymentId: PaymentId | null;
   buyerAccountId: AccountId | null;
   orderIds: readonly OrderId[];
+  orderRefundCaps: readonly OrderMoneyAmount[];
   amount: string | null;
   balanceCreditAmount: string;
   processorAmount: string | null;
@@ -51,6 +71,9 @@ export type PaymentState = Readonly<{
   cancelledAt: string | null;
   refundedAt: string | null;
   refundedAmount: string;
+  refundedOrderAmounts: readonly OrderMoneyAmount[];
+  refundRequests: readonly PaymentRefundRequest[];
+  issuedRefunds: readonly IssuedPaymentRefund[];
   disputedAt: string | null;
 }>;
 
@@ -67,6 +90,7 @@ export const initialPaymentState: PaymentState = {
   paymentId: null,
   buyerAccountId: null,
   orderIds: [],
+  orderRefundCaps: [],
   amount: null,
   balanceCreditAmount: "0.00",
   processorAmount: null,
@@ -97,6 +121,9 @@ export const initialPaymentState: PaymentState = {
   cancelledAt: null,
   refundedAt: null,
   refundedAmount: "0.00",
+  refundedOrderAmounts: [],
+  refundRequests: [],
+  issuedRefunds: [],
   disputedAt: null,
 };
 
@@ -117,6 +144,7 @@ export type CreatePaymentCommand = Readonly<{
   sellerNetAmount: string;
   sellerPayoutAmount?: string;
   sellerPayouts?: readonly SellerPayoutComponent[];
+  orderRefundCaps?: readonly OrderMoneyAmount[];
   currencyCode: CurrencyCode;
   processorName: PaymentProcessorName;
   processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
@@ -156,10 +184,21 @@ export type CancelPaymentCommand = Readonly<{
 
 export type RecordPaymentRefundCommand = Readonly<{
   type: "RecordPaymentRefund";
+  refundId?: RefundId | null;
+  orderIds?: readonly OrderId[] | null;
   processorStatus: string;
   processorRefundReference: string | null;
   amount: string | null;
+  refundedAmount?: string | null;
   refundedAt: string;
+}>;
+
+export type RequestPaymentRefundCommand = Readonly<{
+  type: "RequestPaymentRefund";
+  refundId: RefundId;
+  orderIds: readonly OrderId[];
+  amount: string;
+  requestedAt: string;
 }>;
 
 export type RecordPaymentDisputeCommand = Readonly<{
@@ -177,6 +216,7 @@ export type PaymentCommand =
   | RecordPaymentCaptureCommand
   | RecordPaymentFailureCommand
   | CancelPaymentCommand
+  | RequestPaymentRefundCommand
   | RecordPaymentRefundCommand
   | RecordPaymentDisputeCommand;
 
@@ -198,6 +238,7 @@ export type PaymentCreatedEvent = DomainEvent<
     sellerNetAmount: string;
     sellerPayoutAmount: string;
     sellerPayouts: SellerPayoutComponent[];
+    orderRefundCaps: OrderMoneyAmount[];
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
@@ -280,14 +321,28 @@ export type PaymentCancelledEvent = DomainEvent<
   }>
 >;
 
+export type PaymentRefundRequestedEvent = DomainEvent<
+  "payments.payment-refund-requested",
+  Readonly<{
+    paymentId: PaymentId;
+    refundId: RefundId;
+    orderIds: OrderId[];
+    amount: string;
+    requestedAt: string;
+  }>
+>;
+
 export type PaymentRefundedEvent = DomainEvent<
   "payments.payment-refunded",
   Readonly<{
     paymentId: PaymentId;
+    refundId: RefundId | null;
     orderIds: OrderId[];
     buyerAccountId: AccountId;
     amount: string;
     refundedAmount: string;
+    orderRefundAmounts: OrderMoneyAmount[];
+    refundedOrderAmounts: OrderMoneyAmount[];
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
@@ -321,6 +376,7 @@ export type PaymentEvent =
   | PaymentCapturedEvent
   | PaymentFailedEvent
   | PaymentCancelledEvent
+  | PaymentRefundRequestedEvent
   | PaymentRefundedEvent
   | PaymentDisputedEvent;
 
@@ -353,11 +409,140 @@ function normalizeSellerPayoutComponents(components: readonly SellerPayoutCompon
   }));
 }
 
+function arraysEqual(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function moneyToCents(value: string) {
+  return Math.round(Number.parseFloat(value) * 100);
+}
+
+function centsToMoney(cents: number) {
+  return (cents / 100).toFixed(2);
+}
+
+function addMoney(left: string, right: string) {
+  return centsToMoney(moneyToCents(left) + moneyToCents(right));
+}
+
+function sumMoney(entries: readonly string[]) {
+  return centsToMoney(entries.reduce((sum, value) => sum + moneyToCents(value), 0));
+}
+
+function normalizeOrderMoneyAmounts(entries: readonly OrderMoneyAmount[], fieldName: string): OrderMoneyAmount[] {
+  const amounts = new Map<string, number>();
+  for (const entry of entries) {
+    const orderId = normalizeRequiredText(entry.orderId, `${fieldName} must include an order.`) as OrderId;
+    const amount = normalizeMoneyAmount(entry.amount, {
+      fieldName,
+      allowZero: true,
+    });
+    amounts.set(orderId, (amounts.get(orderId) ?? 0) + moneyToCents(amount));
+  }
+  return [...amounts.entries()].map(([orderId, amount]) => ({
+    orderId: orderId as OrderId,
+    amount: centsToMoney(amount),
+  }));
+}
+
+function moneyForOrder(entries: readonly OrderMoneyAmount[], orderId: OrderId) {
+  return entries.find((entry) => entry.orderId === orderId)?.amount ?? "0.00";
+}
+
+function refundableCapsForState(state: PaymentState): OrderMoneyAmount[] {
+  if (state.orderRefundCaps.length > 0) {
+    return [...state.orderRefundCaps];
+  }
+  if (!state.amount) {
+    return [];
+  }
+  return state.orderIds.map((orderId) => ({
+    orderId,
+    amount: state.orderIds.length === 1 ? state.amount! : state.amount!,
+  }));
+}
+
+function requestedAmountForOrder(state: PaymentState, orderId: OrderId, excludingRefundId?: RefundId | null) {
+  return sumMoney(
+    state.refundRequests
+      .filter((request) => request.refundId !== excludingRefundId && request.orderIds.includes(orderId))
+      .map((request) => request.amount),
+  );
+}
+
+function remainingRefundableAmountForOrder(state: PaymentState, orderId: OrderId, excludingRefundId?: RefundId | null) {
+  const cap = moneyForOrder(refundableCapsForState(state), orderId);
+  const refunded = moneyForOrder(state.refundedOrderAmounts, orderId);
+  const requested = requestedAmountForOrder(state, orderId, excludingRefundId);
+  return centsToMoney(Math.max(0, moneyToCents(cap) - moneyToCents(refunded) - moneyToCents(requested)));
+}
+
+function assertRefundOrdersBelongToPayment(state: PaymentState, orderIds: readonly OrderId[]) {
+  for (const orderId of orderIds) {
+    assert(state.orderIds.includes(orderId), "Refund order must belong to the payment.");
+  }
+}
+
+function allocateRefundAmountToOrders(
+  state: PaymentState,
+  orderIds: readonly OrderId[],
+  amount: string,
+): OrderMoneyAmount[] {
+  let remainingCents = moneyToCents(amount);
+  const allocations: OrderMoneyAmount[] = [];
+  for (const orderId of orderIds) {
+    if (remainingCents <= 0) {
+      break;
+    }
+    const cap = moneyForOrder(refundableCapsForState(state), orderId);
+    const refunded = moneyForOrder(state.refundedOrderAmounts, orderId);
+    const availableCents = Math.max(0, moneyToCents(cap) - moneyToCents(refunded));
+    const allocationCents = Math.min(remainingCents, availableCents);
+    if (allocationCents > 0) {
+      allocations.push({ orderId, amount: centsToMoney(allocationCents) });
+      remainingCents -= allocationCents;
+    }
+  }
+  assert(remainingCents === 0, "Refund amount cannot exceed the remaining refundable order amount.");
+  return allocations;
+}
+
+function mergeRefundedOrderAmounts(
+  current: readonly OrderMoneyAmount[],
+  additions: readonly OrderMoneyAmount[],
+): OrderMoneyAmount[] {
+  const totals = new Map(current.map((entry) => [entry.orderId, moneyToCents(entry.amount)]));
+  for (const addition of additions) {
+    totals.set(addition.orderId, (totals.get(addition.orderId) ?? 0) + moneyToCents(addition.amount));
+  }
+  return [...totals.entries()].map(([orderId, amount]) => ({ orderId, amount: centsToMoney(amount) }));
+}
+
+function filterSellerPayoutsForOrders(
+  sellerPayouts: readonly SellerPayoutComponent[],
+  orderIds: readonly OrderId[],
+): SellerPayoutComponent[] {
+  const orderSet = new Set(orderIds);
+  return sellerPayouts.filter((payout) => orderSet.has(payout.orderId));
+}
+
+function findIssuedRefund(state: PaymentState, refundId: RefundId | null, processorRefundReference: string | null) {
+  return state.issuedRefunds.find(
+    (refund) =>
+      (refundId !== null && refund.refundId === refundId) ||
+      (processorRefundReference !== null && refund.processorRefundReference === processorRefundReference),
+  );
+}
+
 export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, PaymentEvent> = (state, command) => {
   switch (command.type) {
     case "CreatePayment":
       assert(state.paymentId === null, "Payment has already been created.");
       const sellerPayouts = normalizeSellerPayoutComponents(command.sellerPayouts ?? []);
+      const orderRefundCaps = normalizeOrderMoneyAmounts(
+        command.orderRefundCaps ?? command.orderIds.map((orderId) => ({ orderId, amount: command.amount })),
+        "Order refundable amount",
+      );
       const sellerPayoutAmount = normalizeMoneyAmount(
         command.sellerPayoutAmount ??
           sellerPayouts.reduce((sum, component) => sum + Number.parseFloat(component.sellerPayoutAmount), 0).toFixed(2),
@@ -404,6 +589,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
             }),
             sellerPayoutAmount,
             sellerPayouts,
+            orderRefundCaps,
             currencyCode: normalizeCurrencyCode(command.currencyCode),
             processorName: normalizeProcessorName(command.processorName),
             processorPaymentKind: command.processorPaymentKind,
@@ -521,19 +707,86 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
           },
         },
       ];
-    case "RecordPaymentRefund": {
+    case "RequestPaymentRefund": {
       assert(state.paymentId !== null, "Payment must be created first.");
-      if (state.status === "refunded") {
-        return [];
-      }
       assert(
-        state.status === "captured" || state.status === "partially-refunded" || state.status === "disputed",
+        state.status === "captured" || state.status === "partially-refunded",
         "Only captured payments can be refunded.",
       );
-      assert(command.amount !== null, "Refund webhook must include the cumulative refunded amount.");
-      const cumulativeRefundedAmount = normalizeMoneyAmount(command.amount, {
+      const orderIds = normalizeOrderIds(command.orderIds);
+      assertRefundOrdersBelongToPayment(state, orderIds);
+      const amount = normalizeMoneyAmount(command.amount, {
         fieldName: "Refund amount",
       });
+      const existingRequest = state.refundRequests.find((request) => request.refundId === command.refundId);
+      if (existingRequest) {
+        assert(
+          arraysEqual(existingRequest.orderIds, orderIds) && existingRequest.amount === amount,
+          "Refund request does not match the existing payment refund request.",
+        );
+        return [];
+      }
+      const remainingPaymentAmount = subtractMoney(
+        subtractMoney(state.amount!, state.refundedAmount),
+        sumMoney(state.refundRequests.map((request) => request.amount)),
+      );
+      assert(
+        compareMoney(amount, remainingPaymentAmount) <= 0,
+        "Refund amount cannot exceed the remaining refundable payment amount.",
+      );
+      const orderRemainingAmount = sumMoney(
+        orderIds.map((orderId) => remainingRefundableAmountForOrder(state, orderId, command.refundId)),
+      );
+      assert(
+        compareMoney(amount, orderRemainingAmount) <= 0,
+        "Refund amount cannot exceed the remaining refundable order amount.",
+      );
+      return [
+        {
+          type: "payments.payment-refund-requested",
+          data: {
+            paymentId: state.paymentId,
+            refundId: command.refundId,
+            orderIds,
+            amount,
+            requestedAt: ensureIsoTimestamp(command.requestedAt, "Payment refund request must include a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordPaymentRefund": {
+      assert(state.paymentId !== null, "Payment must be created first.");
+      assert(
+        state.status === "captured" ||
+          state.status === "partially-refunded" ||
+          state.status === "refunded" ||
+          state.status === "disputed",
+        "Only captured payments can be refunded.",
+      );
+      assert(command.amount !== null, "Refund webhook must include the refunded amount.");
+      const refundId = command.refundId ?? null;
+      const processorRefundReference = normalizeOptionalText(command.processorRefundReference);
+      const refundAmount = normalizeMoneyAmount(command.amount, {
+        fieldName: "Refund amount",
+      });
+      const orderIds = normalizeOrderIds(command.orderIds ?? []);
+      assert(orderIds.length > 0, "Refund webhook must include refunded orders.");
+      assertRefundOrdersBelongToPayment(state, orderIds);
+
+      const existingIssuedRefund = findIssuedRefund(state, refundId, processorRefundReference);
+      if (existingIssuedRefund) {
+        assert(
+          arraysEqual(existingIssuedRefund.orderIds, orderIds) && existingIssuedRefund.amount === refundAmount,
+          "Refund provider update does not match the existing issued refund.",
+        );
+        return [];
+      }
+
+      const cumulativeRefundedAmount = command.refundedAmount
+        ? normalizeMoneyAmount(command.refundedAmount, {
+            fieldName: "Cumulative refunded amount",
+          })
+        : addMoney(state.refundedAmount, refundAmount);
       assert(
         compareMoney(cumulativeRefundedAmount, state.amount!) <= 0,
         "Refunded amount cannot exceed the captured payment amount.",
@@ -545,21 +798,31 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       if (compareMoney(cumulativeRefundedAmount, state.refundedAmount) === 0) {
         return [];
       }
-      const refundAmount = subtractMoney(cumulativeRefundedAmount, state.refundedAmount);
+      if (command.refundedAmount) {
+        assert(
+          compareMoney(subtractMoney(cumulativeRefundedAmount, state.refundedAmount), refundAmount) === 0,
+          "Cumulative refunded amount must match the refund delta.",
+        );
+      }
+      const orderRefundAmounts = allocateRefundAmountToOrders(state, orderIds, refundAmount);
+      const refundedOrderAmounts = mergeRefundedOrderAmounts(state.refundedOrderAmounts, orderRefundAmounts);
       return [
         {
           type: "payments.payment-refunded",
           data: {
             paymentId: state.paymentId,
-            orderIds: [...state.orderIds],
+            refundId,
+            orderIds,
             buyerAccountId: state.buyerAccountId!,
             amount: refundAmount,
             refundedAmount: cumulativeRefundedAmount,
+            orderRefundAmounts,
+            refundedOrderAmounts,
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
-            sellerPayouts: [...state.sellerPayouts],
-            processorRefundReference: normalizeOptionalText(command.processorRefundReference),
+            sellerPayouts: filterSellerPayoutsForOrders(state.sellerPayouts, orderIds),
+            processorRefundReference,
             processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
             refundedAt: ensureIsoTimestamp(command.refundedAt, "Payment refund must include a timestamp."),
           },
@@ -617,6 +880,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         paymentId: event.data.paymentId,
         buyerAccountId: event.data.buyerAccountId,
         orderIds: [...event.data.orderIds],
+        orderRefundCaps: normalizeOrderMoneyAmounts(event.data.orderRefundCaps ?? [], "Order refundable amount"),
         amount: event.data.amount,
         balanceCreditAmount: event.data.balanceCreditAmount,
         processorAmount: event.data.processorAmount,
@@ -647,6 +911,9 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         cancelledAt: null,
         refundedAt: null,
         refundedAmount: "0.00",
+        refundedOrderAmounts: [],
+        refundRequests: [],
+        issuedRefunds: [],
         disputedAt: null,
       };
     case "payments.payment-authorized":
@@ -679,6 +946,21 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         status: "cancelled",
         cancelledAt: event.data.cancelledAt,
       };
+    case "payments.payment-refund-requested":
+      if (state.refundRequests.some((request) => request.refundId === event.data.refundId)) {
+        return state;
+      }
+      return {
+        ...state,
+        refundRequests: [
+          ...state.refundRequests,
+          {
+            refundId: event.data.refundId,
+            orderIds: [...event.data.orderIds],
+            amount: event.data.amount,
+          },
+        ],
+      };
     case "payments.payment-refunded":
       return {
         ...state,
@@ -688,6 +970,21 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         failureMessage: null,
         refundedAt: event.data.refundedAt,
         refundedAmount: event.data.refundedAmount,
+        refundedOrderAmounts: normalizeOrderMoneyAmounts(
+          event.data.refundedOrderAmounts ??
+            mergeRefundedOrderAmounts(state.refundedOrderAmounts, event.data.orderRefundAmounts ?? []),
+          "Order refunded amount",
+        ),
+        refundRequests: state.refundRequests.filter((request) => request.refundId !== event.data.refundId),
+        issuedRefunds: [
+          ...state.issuedRefunds,
+          {
+            refundId: event.data.refundId ?? null,
+            processorRefundReference: event.data.processorRefundReference ?? null,
+            orderIds: [...event.data.orderIds],
+            amount: event.data.amount,
+          },
+        ],
       };
     case "payments.payment-disputed":
       return {

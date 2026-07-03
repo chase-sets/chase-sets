@@ -20,6 +20,7 @@ import {
   normalizeRequiredText,
   PaymentsDomainError,
   subtractMoney,
+  type RefundId,
 } from "../../../support/runtime-support/common";
 import { checkoutUnavailableReasonLabel } from "./reason-codes";
 import type {
@@ -81,6 +82,7 @@ import {
   type PaymentState,
   type SellerPayoutComponent,
 } from "../domain/domain";
+import { decideRefund, evolveRefund, initialRefundState, type RefundEvent } from "../../refunds/domain/domain";
 import {
   marketplaceCheckoutFeePaymentMethodCategories,
   marketplaceCheckoutFeePolicy,
@@ -314,6 +316,44 @@ function buildSellerPayoutComponents(
         }),
       },
     ];
+  });
+}
+
+function moneyToCents(value: string) {
+  return Math.round(Number.parseFloat(value) * 100);
+}
+
+function centsToMoney(cents: number) {
+  return (cents / 100).toFixed(2);
+}
+
+function buildOrderRefundCaps(
+  orders: readonly Readonly<{
+    order_id: string;
+    total_amount: string;
+  }>[],
+  marketplaceCheckoutFeeAmount: string,
+) {
+  const checkoutFeeCents = moneyToCents(marketplaceCheckoutFeeAmount);
+  const orderTotals = orders.map((order) => ({
+    orderId: order.order_id as OrderId,
+    totalCents: moneyToCents(order.total_amount),
+  }));
+  const totalCents = orderTotals.reduce((sum, order) => sum + order.totalCents, 0);
+  let allocatedCheckoutFeeCents = 0;
+
+  return orderTotals.map((order, index) => {
+    const checkoutFeeAllocation =
+      checkoutFeeCents <= 0 || totalCents <= 0
+        ? 0
+        : index === orderTotals.length - 1
+          ? checkoutFeeCents - allocatedCheckoutFeeCents
+          : Math.floor((order.totalCents * checkoutFeeCents) / totalCents);
+    allocatedCheckoutFeeCents += checkoutFeeAllocation;
+    return {
+      orderId: order.orderId,
+      amount: centsToMoney(order.totalCents + checkoutFeeAllocation),
+    };
   });
 }
 
@@ -703,6 +743,13 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     evolve: evolvePayment,
     decide: decidePayment,
   });
+  const { commandHandler: refundCommandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<RefundEvent>(),
+    initialState: () => initialRefundState,
+    evolve: evolveRefund,
+    decide: decideRefund,
+  });
 
   const publicConfig = deps.processorGateway.getPublicConfiguration();
 
@@ -747,6 +794,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       payment_id: state.paymentId,
       buyer_account_id: state.buyerAccountId,
       order_ids: state.orderIds,
+      order_refund_caps: state.orderRefundCaps,
       amount: state.amount,
       balance_credit_amount: state.balanceCreditAmount,
       processor_amount: state.processorAmount,
@@ -784,6 +832,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       cancelled_at: state.cancelledAt,
       refunded_at: state.refundedAt,
       refunded_amount: state.refundedAmount,
+      order_refunded_amounts: state.refundedOrderAmounts,
       disputed_at: state.disputedAt,
     };
   }
@@ -1346,6 +1395,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const sellerNetAmount = sumFeeAmounts(orders, "seller_net_amount");
       const sellerPayoutAmount = sumFeeAmounts(orders, "seller_payout_amount");
       const sellerPayouts = buildSellerPayoutComponents(orders);
+      const orderRefundCaps = buildOrderRefundCaps(orders, marketplaceCheckoutFeeAmount);
       const paymentId = createId("pay") as PaymentId;
       const createdAt = new Date().toISOString();
       const createAgenticPaymentSession = deps.processorGateway.createAgenticPaymentSession?.bind(
@@ -1507,6 +1557,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           sellerNetAmount,
           sellerPayoutAmount,
           sellerPayouts,
+          orderRefundCaps,
           currencyCode,
           processorName: processorPayment.processorName,
           processorPaymentKind: processorPayment.processorPaymentKind,
@@ -1551,6 +1602,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         payment_id: paymentId,
         buyer_account_id: accountId,
         order_ids: orderIds,
+        order_refund_caps: orderRefundCaps,
         amount: paymentAmount,
         balance_credit_amount: balanceCreditAmount,
         processor_amount: processorAmount,
@@ -1582,6 +1634,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         cancelled_at: null,
         refunded_at: null,
         refunded_amount: "0.00",
+        order_refunded_amounts: [],
         disputed_at: null,
         processor_publishable_key: publicConfig.publishableKey,
         provider_events: [],
@@ -2022,14 +2075,30 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           });
           break;
         case "payment-refunded":
+          if (webhookEvent.refundId) {
+            await refundCommandHandler({
+              streamId: `payments.refund-${webhookEvent.refundId}`,
+              command: {
+                type: "RecordRefundIssued",
+                processorRefundReference:
+                  webhookEvent.processorRefundReference ?? webhookEvent.providerObjectReference ?? "",
+                processorStatus: webhookEvent.processorStatus,
+                issuedAt: webhookEvent.occurredAt,
+              },
+              context,
+            });
+          }
           await commandHandler({
             streamId,
             command: {
               type: "RecordPaymentRefund",
+              refundId: webhookEvent.refundId ? (webhookEvent.refundId as RefundId) : null,
+              orderIds: webhookEvent.orderIds ?? [],
               processorStatus: webhookEvent.processorStatus,
               processorRefundReference:
                 webhookEvent.processorRefundReference ?? webhookEvent.providerObjectReference ?? null,
               amount: webhookEvent.amount ?? null,
+              refundedAmount: webhookEvent.refundedAmount ?? null,
               refundedAt: webhookEvent.occurredAt,
             },
             context,

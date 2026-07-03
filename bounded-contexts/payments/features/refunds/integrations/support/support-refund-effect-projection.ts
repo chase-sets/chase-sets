@@ -15,6 +15,31 @@ function minMoney(left: string, right: string) {
   return Math.min(Number.parseFloat(left), Number.parseFloat(right)).toFixed(2);
 }
 
+function moneyToCents(value: string) {
+  return Math.round(Number.parseFloat(value) * 100);
+}
+
+function centsToMoney(cents: number) {
+  return (cents / 100).toFixed(2);
+}
+
+function orderMoneyAmount(entries: readonly { orderId: string; amount: string }[] | undefined, orderId: string) {
+  return entries?.find((entry) => entry.orderId === orderId)?.amount ?? "0.00";
+}
+
+function remainingRefundableOrderAmount(
+  payment: Readonly<{
+    order_refund_caps: readonly { orderId: string; amount: string }[];
+    order_refunded_amounts: readonly { orderId: string; amount: string }[];
+  }>,
+  orderId: string,
+  fallbackCap: string,
+) {
+  const cap = payment.order_refund_caps.length > 0 ? orderMoneyAmount(payment.order_refund_caps, orderId) : fallbackCap;
+  const refunded = orderMoneyAmount(payment.order_refunded_amounts, orderId);
+  return centsToMoney(Math.max(0, moneyToCents(cap) - moneyToCents(refunded)));
+}
+
 export function createPaymentsSupportRefundEffectId(supportRequestId: string): string {
   return `sre_${supportRequestId.replace(/^sup_/, "")}`;
 }
@@ -152,7 +177,35 @@ export function buildPaymentsSupportRefundEffectHandlers(
         return;
       }
 
-      const amount = minMoney(requestedAmount, orderInput.total_amount);
+      const remainingOrderAmount = remainingRefundableOrderAmount(payment, data.orderId, orderInput.total_amount);
+      const amount = minMoney(minMoney(requestedAmount, orderInput.total_amount), remainingOrderAmount);
+      if (compareMoney(amount, "0.00") <= 0) {
+        await db.query(
+          `INSERT INTO payments_support_refund_effects (
+             support_request_id,
+             refund_effect_id,
+             order_id,
+             payment_id,
+             resolution_type,
+             requested_amount,
+             status,
+             failure_message,
+             created_at,
+             updated_at
+           ) VALUES ($1, $2, $3, $4, $5, NULL, 'skipped', $6, $7, $7)
+           ON CONFLICT (support_request_id) DO NOTHING`,
+          [
+            data.supportRequestId,
+            createPaymentsSupportRefundEffectId(data.supportRequestId),
+            data.orderId,
+            payment.payment_id,
+            data.resolution.resolutionType,
+            "Order has no remaining refundable amount.",
+            data.resolution.resolvedAt,
+          ],
+        );
+        return;
+      }
       const claimed = await claimSupportRefundEffect(db, {
         supportRequestId: data.supportRequestId,
         orderId: data.orderId,

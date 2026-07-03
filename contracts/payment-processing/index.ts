@@ -178,8 +178,11 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   processorPaymentKind: ProcessorPaymentKind;
   processorPaymentReference: string;
   providerObjectReference?: string | null;
+  refundId?: string | null;
   processorRefundReference?: string | null;
+  orderIds?: readonly OrderId[] | null;
   amount?: string | null;
+  refundedAmount?: string | null;
   currencyCode?: PaymentCurrencyCode | null;
   internalPaymentId?: PaymentId | null;
   processorStatus: string;

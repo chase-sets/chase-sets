@@ -61,6 +61,7 @@ type StripePaymentIntentResponse = Readonly<{
 type StripeChargeResponse = Readonly<{
   id: string;
   payment_intent?: string | Readonly<{ id?: string | null }> | null;
+  amount_refunded?: number | null;
   metadata?: Readonly<Record<string, string | null | undefined>> | null;
 }>;
 
@@ -148,6 +149,13 @@ function paymentKindForStripeObject(reference: string) {
 
 function metadataPaymentId(object: StripeWebhookObject) {
   return normalizeOptionalText(object.metadata?.payment_id ?? null);
+}
+
+function metadataOrderIds(object: StripeWebhookObject) {
+  return (normalizeOptionalText(object.metadata?.order_ids ?? null) ?? "")
+    .split(",")
+    .map((orderId) => orderId.trim())
+    .filter(Boolean);
 }
 
 function encodeBasicAuth(secretKey: string) {
@@ -704,9 +712,17 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         failureMessage,
         occurredAt,
       };
-    case "charge.refunded": {
+    case "charge.refunded":
+      return null;
+    case "refund.created":
+    case "refund.updated": {
+      if (processorStatus === "failed" || processorStatus === "canceled" || processorStatus === "cancelled") {
+        return null;
+      }
       const refundPaymentReference =
-        normalizeOptionalText(paymentObject.payment_intent ?? null) ?? processorPaymentReference;
+        normalizeOptionalText(paymentObject.payment_intent ?? null) ??
+        normalizeOptionalText(paymentObject.charge ?? null) ??
+        processorPaymentReference;
       return {
         eventId: event.id,
         kind: "payment-refunded",
@@ -714,8 +730,11 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         processorPaymentKind: paymentKindForStripeObject(refundPaymentReference),
         processorPaymentReference: refundPaymentReference,
         providerObjectReference: processorPaymentReference,
-        processorRefundReference: null,
-        amount: minorUnitsToMoney(paymentObject.amount_refunded ?? null),
+        refundId: normalizeOptionalText(paymentObject.metadata?.refund_id ?? null),
+        processorRefundReference: processorPaymentReference,
+        orderIds: metadataOrderIds(paymentObject) as PaymentProcessorWebhookEvent["orderIds"],
+        amount: minorUnitsToMoney(paymentObject.amount ?? null),
+        refundedAmount: minorUnitsToMoney(paymentObject.amount_refunded ?? null),
         currencyCode: paymentObject.currency?.toLowerCase() === "usd" ? "usd" : null,
         internalPaymentId,
         processorStatus,
@@ -1210,6 +1229,29 @@ export function createStripePaymentProcessorGateway(
           return {
             ...mapped,
             savedPaymentMethod: await retrievePaymentIntentPaymentMethod(paymentIntentReference),
+          };
+        }
+      }
+
+      if (mapped.kind === "payment-refunded") {
+        const object = event.data?.object;
+        const chargeReference =
+          normalizeOptionalText(object?.charge ?? null) ??
+          (mapped.processorPaymentReference.startsWith("ch_") ? mapped.processorPaymentReference : null);
+        if (chargeReference && (!mapped.refundedAmount || mapped.processorPaymentReference.startsWith("ch_"))) {
+          const charge = await stripeRequest<StripeChargeResponse>(
+            `/v1/charges/${encodeURIComponent(chargeReference)}`,
+            { method: "GET" },
+          );
+          const paymentIntentReference = paymentIntentReferenceFromCharge(charge);
+          return {
+            ...mapped,
+            processorPaymentKind: paymentIntentReference ? "payment-intent" : mapped.processorPaymentKind,
+            processorPaymentReference: paymentIntentReference ?? mapped.processorPaymentReference,
+            refundedAmount: mapped.refundedAmount ?? minorUnitsToMoney(charge.amount_refunded ?? null),
+            internalPaymentId:
+              mapped.internalPaymentId ??
+              (metadataPaymentId(charge as StripeWebhookObject) as PaymentProcessorWebhookEvent["internalPaymentId"]),
           };
         }
       }

@@ -519,16 +519,30 @@ describe("Stripe payment processor gateway", () => {
     });
   });
 
-  it("correlates charge refund and dispute webhooks through PaymentIntent references", async () => {
+  it("ignores aggregate charge refunds and correlates refund and dispute webhooks through PaymentIntent references", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "ch_123",
+            payment_intent: "pi_123",
+            amount_refunded: 400,
+            metadata: { payment_id: "pay_123" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
     const gateway = createStripePaymentProcessorGateway({
       secretKey: "sk_test",
       publishableKey: "pk_test",
       webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
       webhookToleranceSeconds: 1_000,
     });
     const now = Math.floor(Date.now() / 1000);
-    const refundBody = JSON.stringify({
-      id: "evt_refund",
+    const chargeRefundBody = JSON.stringify({
+      id: "evt_charge_refund",
       type: "charge.refunded",
       created: now,
       data: {
@@ -539,6 +553,26 @@ describe("Stripe payment processor gateway", () => {
           amount_refunded: 400,
           currency: "usd",
           metadata: { payment_id: "pay_123" },
+        },
+      },
+    });
+    const refundBody = JSON.stringify({
+      id: "evt_refund",
+      type: "refund.updated",
+      created: now,
+      data: {
+        object: {
+          id: "re_123",
+          status: "succeeded",
+          payment_intent: "pi_123",
+          charge: "ch_123",
+          amount: 400,
+          currency: "usd",
+          metadata: {
+            payment_id: "pay_123",
+            refund_id: "rfd_123",
+            order_ids: "ord_1",
+          },
         },
       },
     });
@@ -559,6 +593,12 @@ describe("Stripe payment processor gateway", () => {
 
     await expect(
       gateway.parseWebhook({
+        rawBody: chargeRefundBody,
+        signatureHeader: signature(chargeRefundBody, "whsec_test", now),
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      gateway.parseWebhook({
         rawBody: refundBody,
         signatureHeader: signature(refundBody, "whsec_test", now),
       }),
@@ -566,9 +606,13 @@ describe("Stripe payment processor gateway", () => {
       eventId: "evt_refund",
       kind: "payment-refunded",
       processorPaymentReference: "pi_123",
-      providerObjectReference: "ch_123",
+      providerObjectReference: "re_123",
+      processorRefundReference: "re_123",
+      refundId: "rfd_123",
+      orderIds: ["ord_1"],
       internalPaymentId: "pay_123",
       amount: "4.00",
+      refundedAmount: "4.00",
     });
     await expect(
       gateway.parseWebhook({
@@ -584,9 +628,14 @@ describe("Stripe payment processor gateway", () => {
       failureCode: "charge.dispute.created",
       failureMessage: "needs_response",
     });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://stripe.test/v1/charges/ch_123",
+      expect.objectContaining({ method: "GET" }),
+    );
+    vi.unstubAllGlobals();
   });
 
-  it("does not default charge refund webhooks without cumulative refunded amount to the charge amount", async () => {
+  it("does not default charge refund webhooks into payment refund facts", async () => {
     const gateway = createStripePaymentProcessorGateway({
       secretKey: "sk_test",
       publishableKey: "pk_test",
@@ -615,10 +664,6 @@ describe("Stripe payment processor gateway", () => {
         rawBody: refundBody,
         signatureHeader: signature(refundBody, "whsec_test", now),
       }),
-    ).resolves.toMatchObject({
-      eventId: "evt_refund_missing_amount",
-      kind: "payment-refunded",
-      amount: null,
-    });
+    ).resolves.toBeNull();
   });
 });
