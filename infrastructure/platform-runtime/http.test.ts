@@ -23,12 +23,15 @@ import {
   readOffsetPageParams,
   redirectAfterWrite,
   redirectAfterWriteWithCompactToken,
+  PLATFORM_INTERNAL_AUTH_SECRET_ENV,
   resolveClientAddress,
   resolveInternalApiOrigin,
   resolvePublicRequestOrigin,
+  resolvePlatformInternalAuthSecret,
   resolvePostWriteTokenRequest,
   resolveRequestApiBaseUrl,
   trustForwardedHeaders,
+  verifyPlatformInternalAuthSecret,
   UnresolvedPostWriteTokenError,
 } from "./http";
 import { registerPostWriteConsistencyRecorder } from "./post-write-consistency";
@@ -71,6 +74,31 @@ describe("resolveInternalApiOrigin", () => {
         [CHASE_SETS_INTERNAL_API_ORIGIN_ENV]: "http://api.internal:8080/",
       }),
     ).toBe("http://api.internal:8080");
+  });
+
+  it("reports invalid internal API origins with the env var name", () => {
+    expect(() =>
+      resolveInternalApiOrigin({
+        [CHASE_SETS_INTERNAL_API_ORIGIN_ENV]: "not a url",
+      }),
+    ).toThrow(`${CHASE_SETS_INTERNAL_API_ORIGIN_ENV} must be a valid absolute URL.`);
+  });
+});
+
+describe("platform internal auth secret", () => {
+  it("verifies the internal auth secret through the timing-safe helper", () => {
+    expect(verifyPlatformInternalAuthSecret("server-secret", "server-secret")).toBe(true);
+    expect(verifyPlatformInternalAuthSecret("server-secret", "different-secret")).toBe(false);
+    expect(verifyPlatformInternalAuthSecret(null, "server-secret")).toBe(false);
+  });
+
+  it("requires an explicit secret for production-like callers independent of NODE_ENV", () => {
+    expect(() =>
+      resolvePlatformInternalAuthSecret({
+        requireExplicitInProduction: true,
+        productionLike: true,
+      }),
+    ).toThrow(`${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required`);
   });
 });
 

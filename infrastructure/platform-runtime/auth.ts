@@ -45,7 +45,12 @@ function normalizeBaseUrl(baseUrl: string) {
 }
 
 function normalizeAuthApiBaseUrl(baseUrl: string) {
-  const url = new URL(baseUrl);
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch (error) {
+    throw new Error("authApiBaseUrl must be a valid absolute URL.", { cause: error });
+  }
   if (url.pathname === "" || url.pathname === "/") {
     url.pathname = "/api/auth";
   } else if (url.pathname === "/api/identity") {

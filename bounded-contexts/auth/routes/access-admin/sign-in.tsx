@@ -26,6 +26,8 @@ export default function AccessAdminSignInRoute() {
         errorMessage={actionData && "error" in actionData ? actionData.error : null}
         notice={actionData && "status" in actionData ? actionData : null}
         action={authFormActionFromLocation(location)}
+        initialIdentifier={searchParams.get("signInIdentifier")}
+        initialMethod={searchParams.get("signInMethod")}
         returnTo={returnTo}
         signInMethods={adminAuthHostConfig.signInMethods}
         allowManualMagicLinkTokenEntry={adminAuthHostConfig.allowManualMagicLinkTokenEntry}

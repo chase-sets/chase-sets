@@ -265,6 +265,7 @@ describe("platform api config", () => {
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
     process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
     process.env.CATALOG_ASSET_S3_REGION = "nyc3";
@@ -322,6 +323,7 @@ describe("platform api config", () => {
 
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
 
     expect(loadBootstrapConfig().dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
   });
@@ -330,6 +332,7 @@ describe("platform api config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.DEPLOYMENT_ENVIRONMENT = "Production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
     process.env.CATALOG_ASSET_S3_BUCKET = "assets";
     process.env.CATALOG_ASSET_S3_REGION = "nyc3";
@@ -372,6 +375,7 @@ describe("platform api config", () => {
 
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
 
     expect(() => loadBootstrapConfig()).toThrow(
       "representative-commerce-state is not allowed when DEPLOYMENT_ENVIRONMENT=production.",
@@ -615,6 +619,7 @@ describe("platform api config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
 
     expect(() => loadConfig()).toThrow(
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
@@ -795,6 +800,16 @@ describe("platform api config", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.EASYPOST_API_KEY = "EZAK_live";
+
+    expect(() => loadConfig()).toThrow(
+      `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
+    );
+  });
+
+  it("requires an internal auth secret for production deployment posture without NODE_ENV=production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
 
     expect(() => loadConfig()).toThrow(
       `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
@@ -1007,6 +1022,7 @@ describe("platform api config", () => {
     process.env.NODE_ENV = "production";
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.REALTIME_STREAM_LIMITER = "local";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
 
     expect(() => loadConfig()).toThrow(
       "REALTIME_STREAM_LIMITER=postgres, REALTIME_WAKE_SIGNAL_ENABLED=true, and PLATFORM_CONTROL_DATABASE_URL are required for horizontally scalable SSE in production.",

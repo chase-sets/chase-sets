@@ -75,6 +75,36 @@ describe("sign-in page two-step journey", () => {
     expect(passwordForm?.getAttribute("action")).toBe(action);
   });
 
+  it("hydrates an identifier submitted before client-side state is ready", () => {
+    render(<SignInPage initialIdentifier="buyer@example.com" returnTo="/account/sell-list" />);
+
+    expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use Passkey" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Passkey" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByLabelText(/Email or phone/)).toBeNull();
+  });
+
+  it("can hydrate the password method from an identifier GET fallback", () => {
+    render(<SignInPage initialIdentifier="buyer@example.com" initialMethod="password" returnTo="/account/sell-list" />);
+
+    expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Password" }).getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector('input[name="password"]')).toBeTruthy();
+  });
+
+  it("preserves return targets when the identifier form falls back to a GET submit", () => {
+    render(<SignInPage returnTo="/account/sell-list" />);
+
+    const identifier = screen.getByLabelText(/Email or phone/);
+    const form = identifier.closest("form");
+    if (!form) {
+      throw new Error("Expected identifier field to belong to a form.");
+    }
+
+    expect(new FormData(form).get("returnTo")).toBe("/account/sell-list");
+    expect(new FormData(form).get("signInMethod")).toBe("password");
+  });
+
   it("can render an admin Google Workspace SSO entry point", () => {
     render(
       <SignInPage
