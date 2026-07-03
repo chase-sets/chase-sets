@@ -435,7 +435,13 @@ export function createNotificationDeliveryId(
     return message.idempotencyKey;
   }
 
-  return `${message.idempotencyKey}:${channel.channel}:${index + 1}`;
+  return [
+    "notification-delivery",
+    "v1",
+    encodeURIComponent(message.idempotencyKey),
+    encodeURIComponent(channel.channel),
+    String(index + 1),
+  ].join(":");
 }
 
 function isChannelEnabled(
