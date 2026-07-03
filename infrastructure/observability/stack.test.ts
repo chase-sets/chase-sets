@@ -68,7 +68,7 @@ describe("observability stack contracts", () => {
       "UCP signature verification failures",
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
-      "Checkout launch observability alert events",
+      "Checkout observability alert events",
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "Checkout side-effect boundary violation",
@@ -106,7 +106,7 @@ describe("observability stack contracts", () => {
     );
   });
 
-  it("keeps Grafana alert rule UIDs within the provisioning limit", () => {
+  it("keeps Grafana alert rule UIDs unique and within the provisioning limit", () => {
     const alertingDir = join(root, "stack", "grafana", "provisioning", "alerting");
     const uids = readdirSync(alertingDir)
       .filter((fileName) => fileName.endsWith(".yml"))
@@ -120,9 +120,19 @@ describe("observability stack contracts", () => {
       });
 
     expect(uids.length).toBeGreaterThan(0);
+    expect(new Set(uids.map(({ uid }) => uid)).size).toBe(uids.length);
     for (const { fileName, uid } of uids) {
       expect(uid.length, `${fileName}: ${uid}`).toBeLessThanOrEqual(40);
     }
+  });
+
+  it("retires stale Grafana alert imports before provisioning replacement rules", () => {
+    const platformApiAlerts = readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml");
+
+    expect(platformApiAlerts).toContain("deleteRules:");
+    expect(platformApiAlerts).toContain("uid: checkout-operator-alert-events");
+    expect(platformApiAlerts).toContain("uid: checkout-observability-alert-events");
+    expect(platformApiAlerts).not.toContain("- uid: checkout-operator-alert-events");
   });
 
   it("keeps the Checkout dashboard aligned with the typed observability profiles", () => {
