@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../runtime-support/services";
+import { AUTH_GUEST_CHECKOUT_PERMISSIONS, AUTH_GUEST_CHECKOUT_ROLE_KEY } from "../runtime-support/runtime";
 import { registerGuestCheckoutRoutes } from "./guest-checkout-routes";
 import type { AuthApiEnv } from "./support";
 
@@ -72,8 +73,8 @@ function createServices(options: { existingUser?: { user_id: string } | null }) 
 function createGuestActor() {
   return createAccountUserTestActor({
     accountId: "acc_guest",
-    roleKey: "guest-buyer",
-    permissions: ["guest-checkout.manage"],
+    roleKey: AUTH_GUEST_CHECKOUT_ROLE_KEY,
+    permissions: AUTH_GUEST_CHECKOUT_PERMISSIONS,
   });
 }
 

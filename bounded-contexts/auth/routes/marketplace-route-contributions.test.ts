@@ -27,6 +27,18 @@ function marketplaceRoutes() {
   );
 }
 
+function anonymousRoutes() {
+  const manifest = JSON.parse(readFileSync(join(authRoot, "context.json"), "utf8")) as {
+    anonymousRoutes?: Array<{
+      routePath?: string;
+      methods?: string[];
+      match?: string;
+    }>;
+  };
+
+  return manifest.anonymousRoutes ?? [];
+}
+
 describe("Auth marketplace route contributions", () => {
   it("declares the Auth-owned guest checkout exit route", () => {
     expect(marketplaceRoutes()).toEqual(
@@ -49,6 +61,26 @@ describe("Auth marketplace route contributions", () => {
           routePath: "sign-in/magic",
           fileExport: "./routes/marketplace/sign-in-magic",
           sourceContext: "auth",
+        }),
+      ]),
+    );
+  });
+
+  it("declares Auth-owned anonymous API routes", () => {
+    expect(anonymousRoutes()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          routePath: "/api/auth/session",
+          methods: ["GET", "HEAD"],
+        }),
+        expect.objectContaining({
+          routePath: "/api/auth/guest-checkout/start",
+          methods: ["POST"],
+        }),
+        expect.objectContaining({
+          routePath: "/api/auth/social/",
+          methods: ["GET", "HEAD"],
+          match: "prefix",
         }),
       ]),
     );

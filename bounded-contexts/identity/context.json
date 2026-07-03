@@ -206,6 +206,7 @@
       ]
     }
   ],
+  "anonymousRoutes": [{ "routePath": "/api/identity/api-keys/resolve", "methods": ["POST"] }],
   "readAfterWriteRouteInventory": [
     {
       "id": "identity.admin-account-detail-fresh-read",

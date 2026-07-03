@@ -21,6 +21,12 @@ const manifest: BcContextManifest = {
       requiresAuth: true,
     },
   ],
+  anonymousRoutes: [
+    {
+      routePath: "/api/inventory/public",
+      methods: ["GET"],
+    },
+  ],
   eventSubscriptions: [
     {
       sourceContextName: "catalog",
@@ -241,6 +247,7 @@ describe("defineBoundedContextModule", () => {
       streamPrefix: "inventory.",
       schemaSql: "select 1;",
       apiMounts: manifest.apiMounts,
+      anonymousRoutes: manifest.anonymousRoutes,
       projectionGroups: manifest.projectionGroups,
       seedProfiles: ["scenario-seed"],
     });

@@ -56,6 +56,7 @@ import {
 import {
   createIdentityAuthMiddleware,
   createPlatformActorMiddleware,
+  type AnonymousRouteDeclaration,
   type PlatformActorResolver,
   type TenantContextEnv,
 } from "./middleware/auth-context";
@@ -260,6 +261,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
           },
         }
       : options.ucp;
+  const resolveActor = options.resolveActor ?? (async () => null);
+  const anonymousRoutes = resolveAuthIdentityAnonymousRoutes(runtime);
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
@@ -293,7 +296,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     );
   }
 
-  const platformActorMiddleware = createPlatformActorMiddleware(options.resolveActor ?? (async () => null));
+  const platformActorMiddleware = createPlatformActorMiddleware(resolveActor);
   app.use("/api/platform/projections", platformActorMiddleware);
   app.use("/api/platform/projections/*", platformActorMiddleware);
   app.route(
@@ -315,7 +318,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       createUcpOAuthRoutes({
         auth: identityServices.auth,
         linkedPlatformAuthorizations: identityServices.identity.linkedPlatformAuthorizations,
-        resolveActor: options.resolveActor ?? (async () => null),
+        resolveActor,
       }),
     );
     app.use("/ucp/v1/*", platformActorMiddleware);
@@ -327,7 +330,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       "/api/realtime",
       createRealtimeRoutes({
         stores: realtimeStores,
-        resolveActor: options.resolveActor ?? (async () => null),
+        resolveActor,
         observer: options.realtimeObserver,
         wakeSignal: options.realtimeWakeSignal,
         streamLimiter: options.realtimeStreamLimiter,
@@ -365,6 +368,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       .map((mount) => mount.mountPath),
     createIdentityAuthMiddleware(identityServices, {
       internalAuthSecret: options.internalAuthSecret,
+      anonymousRoutes,
+      resolveActor,
     }),
   );
 
@@ -396,6 +401,15 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   mountApiRouters(app, apiMounts);
 
   return app;
+}
+
+function resolveAuthIdentityAnonymousRoutes(runtime: ApiHostRuntime): readonly AnonymousRouteDeclaration[] {
+  return runtime.mountedContexts
+    .filter((entry) => entry.contextName === "auth" || entry.contextName === "identity")
+    .flatMap((entry) => {
+      const module = entry.module as Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }>;
+      return module.anonymousRoutes ?? [];
+    });
 }
 
 async function catalogApiPermissionMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
