@@ -1,5 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
 
 // Charter scope: this spec owns the buy-funnel redesign verification (milestone
 // #33, issue #1858). It exercises the REDESIGNED surfaces — cart, checkout
@@ -46,21 +47,6 @@ async function expectPageOk(page: Page, path: string) {
   return response!;
 }
 
-async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
-  await page.context().addCookies([
-    {
-      name: "chase_sets_session",
-      value: sessionToken,
-      url: origin,
-      httpOnly: true,
-      sameSite: "Lax",
-      secure: origin.startsWith("https://"),
-    },
-  ]);
-  const sessionCookie = (await page.context().cookies(origin)).find((c) => c.name === "chase_sets_session");
-  expect(sessionCookie, "browser context should store the auth session cookie").toBeTruthy();
-}
-
 function marketplaceAccountFor(testInfo: TestInfo) {
   if (configuredMarketplaceAccount.email) {
     if (!configuredMarketplaceAccount.password) {
@@ -92,27 +78,11 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   const credentials = marketplaceAccountFor(testInfo);
 
   if (credentials.shouldRegister) {
-    const response = await page.request.post(`${origin}/api/auth/register`, {
-      data: {
-        displayName: credentials.displayName,
-        email: credentials.email,
-        password: credentials.password,
-      },
-    });
-    expect(response.status(), "marketplace registration should start a session").toBe(201);
-    const body = (await response.json()) as { sessionToken?: string };
-    expect(body.sessionToken, "marketplace registration should return a session token").toBeTruthy();
-    await addSessionCookie(page, origin, body.sessionToken!);
+    await registerOrSignInSyntheticAccount(page, origin, credentials);
     return;
   }
 
-  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-    data: { email: credentials.email, password: credentials.password },
-  });
-  expect(response.status(), "password sign-in should start a session").toBe(200);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
+  await signInWithPassword(page, origin, credentials);
 }
 
 async function waitForAccountRoute(page: Page, routePath: string) {

@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
 
 // Charter scope: this spec owns the payment-confirmation composition wiring real
 // browsers exercise on the decomposed `account/payments/:paymentId` (signed-in) and
@@ -61,22 +62,6 @@ async function gotoExpectingNotFound(page: Page, path: string) {
   return response!;
 }
 
-async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
-  await page.context().addCookies([
-    {
-      name: "chase_sets_session",
-      value: sessionToken,
-      url: origin,
-      httpOnly: true,
-      sameSite: "Lax",
-      secure: origin.startsWith("https://"),
-    },
-  ]);
-
-  const sessionCookie = (await page.context().cookies(origin)).find((cookie) => cookie.name === "chase_sets_session");
-  expect(sessionCookie, "browser context should store the auth session cookie").toBeTruthy();
-}
-
 function marketplaceAccountFor(testInfo: TestInfo) {
   if (configuredMarketplaceAccount.email) {
     if (!configuredMarketplaceAccount.password) {
@@ -105,17 +90,12 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   const origin = new URL(page.url()).origin;
   const credentials = marketplaceAccountFor(testInfo);
 
-  const path = credentials.shouldRegister ? "/api/auth/register" : "/api/auth/password-sign-in";
-  const response = await page.request.post(`${origin}${path}`, {
-    data: credentials.shouldRegister
-      ? { displayName: credentials.displayName, email: credentials.email, password: credentials.password }
-      : { email: credentials.email, password: credentials.password },
-  });
+  if (credentials.shouldRegister) {
+    await registerOrSignInSyntheticAccount(page, origin, credentials);
+    return;
+  }
 
-  expect(response.status(), "marketplace auth should start a session").toBe(credentials.shouldRegister ? 201 : 200);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "marketplace auth should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
+  await signInWithPassword(page, origin, credentials);
 }
 
 test.describe("marketplace account payment", () => {

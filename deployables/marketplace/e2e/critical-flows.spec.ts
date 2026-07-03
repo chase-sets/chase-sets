@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
@@ -95,57 +96,6 @@ function marketplaceAccountFor(testInfo: TestInfo) {
   };
 }
 
-async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
-  await page.context().addCookies([
-    {
-      name: "chase_sets_session",
-      value: sessionToken,
-      url: origin,
-      httpOnly: true,
-      sameSite: "Lax",
-      secure: origin.startsWith("https://"),
-    },
-  ]);
-
-  const sessionCookie = (await page.context().cookies(origin)).find((cookie) => cookie.name === "chase_sets_session");
-  expect(sessionCookie, "browser context should store the auth session cookie").toBeTruthy();
-}
-
-async function signInWithConfiguredPassword(
-  page: Page,
-  origin: string,
-  credentials: ReturnType<typeof marketplaceAccountFor>,
-) {
-  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-    data: {
-      email: credentials.email,
-      password: credentials.password,
-    },
-  });
-
-  expect(response.status(), "password sign-in should start a session").toBe(200);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
-  return body.sessionToken!;
-}
-
-async function registerSyntheticAccount(page: Page, origin: string, account: ReturnType<typeof marketplaceAccountFor>) {
-  const response = await page.request.post(`${origin}/api/auth/register`, {
-    data: {
-      displayName: account.displayName,
-      email: account.email,
-      password: account.password,
-    },
-  });
-
-  expect(response.status(), "marketplace registration should start a session").toBe(201);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "marketplace registration should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
-  return body.sessionToken!;
-}
-
 async function authenticateAccount(page: Page, testInfo: TestInfo) {
   await expectPageOk(page, "/");
   const origin = new URL(page.url()).origin;
@@ -154,13 +104,13 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   if (credentials.shouldRegister) {
     return {
       ...credentials,
-      sessionToken: await registerSyntheticAccount(page, origin, credentials),
+      sessionToken: await registerOrSignInSyntheticAccount(page, origin, credentials),
     };
   }
 
   return {
     ...credentials,
-    sessionToken: await signInWithConfiguredPassword(page, origin, credentials),
+    sessionToken: await signInWithPassword(page, origin, credentials),
   };
 }
 
@@ -347,7 +297,7 @@ test.describe("marketplace critical flows", () => {
     const secondContext = await browser.newContext({ baseURL: origin });
     try {
       const secondPage = await secondContext.newPage();
-      await signInWithConfiguredPassword(secondPage, origin, account);
+      await signInWithPassword(secondPage, origin, account);
       await expectAccountRouteReady(secondPage, accountCriticalRoutes[0]);
       await expect(secondPage.locator('[data-color-mode="dark"]').first()).toBeVisible();
       await expect(secondPage.locator('[data-reduced-motion="true"]').first()).toBeVisible();
