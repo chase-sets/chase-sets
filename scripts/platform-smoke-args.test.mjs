@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
 import { resolveSyntheticWaitlistEmail } from "./platform-smoke-email.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
+
+const platformSmokeSource = readFileSync(new URL("./platform-smoke.mjs", import.meta.url), "utf8");
 
 describe("platform smoke CLI args", () => {
   it("uses positional URLs directly", () => {
@@ -114,5 +117,13 @@ describe("platform smoke URL resolution", () => {
       marketplaceRootUrl: "https://staging.test",
       redirectUrl: "https://legacy.test",
     });
+  });
+});
+
+describe("platform smoke waitlist freshness", () => {
+  it("forwards the waitlist write receipt to the admin projection read", () => {
+    expect(platformSmokeSource).toContain("waitlistSignupResponse.headers.get(commitReceiptHeader)");
+    expect(platformSmokeSource).toContain("[readAfterWriteHeader]: waitlistCommitReceipt");
+    expect(platformSmokeSource).toContain('[readTargetContextHeader]: "public-presence"');
   });
 });
