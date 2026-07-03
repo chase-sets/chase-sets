@@ -41,6 +41,8 @@ describe("realtime outbox", () => {
     expect(realtimeOutboxSchemaSql).toContain("payload_projection text NOT NULL");
     expect(realtimeOutboxSchemaSql).toContain("payload_kind text NOT NULL");
     expect(realtimeOutboxSchemaSql).toContain("payload_bytes integer NOT NULL");
+    expect(realtimeOutboxSchemaSql).toContain("realtime_projection_outbox_retention");
+    expect(realtimeOutboxSchemaSql).toContain("pruned_through_outbox_id bigint NOT NULL DEFAULT 0");
   });
 
   it("exposes partition maintenance metadata for time-bucketed outbox retention", () => {
@@ -138,9 +140,10 @@ describe("realtime outbox", () => {
       },
     });
 
-    expect(calls[0].sql).toContain("ON CONFLICT");
-    expect(calls[0].sql).toContain("RETURNING outbox_id");
-    expect(calls[0].params).toEqual([
+    expect(calls[0].sql).toContain("pg_advisory_xact_lock");
+    expect(calls[1].sql).toContain("ON CONFLICT");
+    expect(calls[1].sql).toContain("RETURNING outbox_id");
+    expect(calls[1].params).toEqual([
       "12",
       "discovery-market",
       "listing:list_1",
@@ -164,17 +167,17 @@ describe("realtime outbox", () => {
       "discovery",
       expect.any(Number),
     ]);
-    expect(calls[1].sql).toContain("DELETE FROM realtime_projection_outbox_topics");
-    expect(calls[1].params).toEqual(["42"]);
-    expect(calls[2].sql).toContain("DELETE FROM realtime_projection_topic_heads");
-    expect(calls[2].params).toEqual(["42", ["listing:list_1", "public:market"]]);
-    expect(calls[3].sql).toContain("INSERT INTO realtime_projection_outbox_topics");
+    expect(calls[2].sql).toContain("DELETE FROM realtime_projection_outbox_topics");
+    expect(calls[2].params).toEqual(["42"]);
+    expect(calls[3].sql).toContain("DELETE FROM realtime_projection_topic_heads");
     expect(calls[3].params).toEqual(["42", ["listing:list_1", "public:market"]]);
-    expect(calls[4].sql).toContain("INSERT INTO realtime_projection_topic_heads");
-    expect(calls[4].params).toEqual(["42", ["listing:list_1", "public:market"], "2026-04-28T00:00:00.000Z"]);
-    expect(calls[5].sql).toContain("pg_notify");
-    expect(calls[5].params?.[0]).toBe(realtimeProjectionNotifyChannel);
-    const wakeEnvelope = parseWorkSignalEnvelope(String(calls[5].params?.[1]));
+    expect(calls[4].sql).toContain("INSERT INTO realtime_projection_outbox_topics");
+    expect(calls[4].params).toEqual(["42", ["listing:list_1", "public:market"]]);
+    expect(calls[5].sql).toContain("INSERT INTO realtime_projection_topic_heads");
+    expect(calls[5].params).toEqual(["42", ["listing:list_1", "public:market"], "2026-04-28T00:00:00.000Z"]);
+    expect(calls[6].sql).toContain("pg_notify");
+    expect(calls[6].params?.[0]).toBe(realtimeProjectionNotifyChannel);
+    const wakeEnvelope = parseWorkSignalEnvelope(String(calls[6].params?.[1]));
     expect(wakeEnvelope).toMatchObject({
       schemaVersion: 1,
       payloadVersion: 1,
@@ -381,8 +384,8 @@ describe("realtime outbox", () => {
           };
         }
 
-        if (sql.includes("MIN(outbox_id)")) {
-          return { rows: [{ min_outbox_id: "5" }] };
+        if (sql.includes("pruned_through_outbox_id")) {
+          return { rows: [{ pruned_through_outbox_id: "0" }] };
         }
 
         return { rows: [] };
@@ -472,8 +475,8 @@ describe("realtime outbox", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("MIN(outbox_id)")) {
-          return { rows: [{ min_outbox_id: "10" }] };
+        if (sql.includes("pruned_through_outbox_id")) {
+          return { rows: [{ pruned_through_outbox_id: "10" }] };
         }
 
         if (sql.includes("MAX(outbox_id)")) {
@@ -494,6 +497,56 @@ describe("realtime outbox", () => {
       topicLags: [],
       messages: [],
     });
+  });
+
+  it("does not expire a cursor because of a benign sequence gap", async () => {
+    const db = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("DELETE FROM realtime_projection_outbox")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("pruned_through_outbox_id")) {
+          return { rows: [{ pruned_through_outbox_id: "0" }] };
+        }
+
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id")) {
+          expect(params).toEqual(["4", ["account:account_1:offers"], 100]);
+          return {
+            rows: [
+              {
+                outbox_id: "10",
+                payload_json: JSON.stringify({
+                  kind: "projection.patch",
+                  context: "marketplace",
+                  projection: "marketplace-offers",
+                  topics: ["account:account_1:offers"],
+                  changes: [
+                    {
+                      op: "summary",
+                      entity: "marketplace.offerSummary",
+                      id: "account_1",
+                      value: { active_offer_count: 1 },
+                    },
+                  ],
+                }),
+                payload_bytes: "1",
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      },
+    };
+
+    const result = await readRealtimePatches([{ contextName: "marketplace", db }], ["account:account_1:offers"], {
+      marketplace: "4",
+    });
+
+    expect(result.expiredContexts).toEqual([]);
+    expect(result.cursor).toEqual({ marketplace: "10" });
+    expect(result.messages.map((message) => message.outboxId)).toEqual(["10"]);
   });
 
   it("limits large replay batches and reports remaining per-topic lag", async () => {

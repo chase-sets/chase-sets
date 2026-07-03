@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -175,6 +175,70 @@ describe("realtime outbox Postgres integration", () => {
     expect(replay.messages.map((message) => message.payload.changes[0].op)).toEqual(["summary", "remove"]);
   });
 
+  it("does not expose a later realtime patch while an earlier outbox id is still in flight", async () => {
+    const firstClient = await pools.realtime.connect();
+    let firstClientReleased = false;
+    await firstClient.query("BEGIN");
+    await recordRealtimeProjectionPatch(
+      firstClient,
+      patchInput({
+        sourceGlobalPosition: "1",
+        patchKey: "listing:first",
+        listingId: "first",
+        recordedAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    );
+
+    const secondWrite = recordRealtimeProjectionPatch(
+      pools.realtime,
+      patchInput({
+        sourceGlobalPosition: "2",
+        patchKey: "listing:second",
+        listingId: "second",
+        recordedAt: new Date(Date.now() - 30_000).toISOString(),
+      }),
+    );
+
+    try {
+      await expect(hasSettledWithin(secondWrite, 50)).resolves.toBe(false);
+      await expect(
+        readRealtimePatches(
+          [{ contextName: "discovery", db: pools.realtime }],
+          ["listing:first", "listing:second"],
+          {},
+          10,
+          {
+            pruneExpired: false,
+          },
+        ),
+      ).resolves.toMatchObject({
+        messages: [],
+        cursor: {},
+      });
+
+      await firstClient.query("COMMIT");
+      firstClient.release();
+      firstClientReleased = true;
+      await secondWrite;
+
+      const replay = await readRealtimePatches(
+        [{ contextName: "discovery", db: pools.realtime }],
+        ["listing:first", "listing:second"],
+        {},
+        10,
+        { pruneExpired: false },
+      );
+
+      expect(replay.expiredContexts).toEqual([]);
+      expect(replay.messages.map((message) => message.outboxId)).toEqual(["1", "2"]);
+      expect(replay.messages.map((message) => message.payload.changes[0].id)).toEqual(["first", "second"]);
+      expect(replay.cursor).toEqual({ discovery: "2" });
+    } finally {
+      await cleanupOpenClient(firstClient, firstClientReleased);
+      await secondWrite.catch(() => undefined);
+    }
+  });
+
   it("prunes expired rows and cascades topic index rows", async () => {
     await recordRealtimeProjectionPatch(pools.realtime, {
       sourceGlobalPosition: "1",
@@ -212,3 +276,56 @@ describe("realtime outbox Postgres integration", () => {
     expect(remainingHeads.rows[0]?.count).toBe("0");
   });
 });
+
+function patchInput(
+  input: Readonly<{
+    sourceGlobalPosition: string;
+    patchKey: string;
+    listingId: string;
+    recordedAt: string;
+  }>,
+): Parameters<typeof recordRealtimeProjectionPatch>[1] {
+  return {
+    sourceGlobalPosition: input.sourceGlobalPosition,
+    projectionName: "discovery-market-projection",
+    patchKey: input.patchKey,
+    topics: [`listing:${input.listingId}`],
+    recordedAt: input.recordedAt,
+    retentionMs: 30 * 24 * 60 * 60 * 1000,
+    patch: {
+      kind: "projection.patch",
+      context: "discovery",
+      projection: "discovery-market-projection",
+      topics: [`listing:${input.listingId}`],
+      changes: [
+        {
+          op: "upsert",
+          entity: "discovery.marketListing",
+          id: input.listingId,
+          value: { listing_id: input.listingId, status: "active" },
+        },
+      ],
+    },
+  };
+}
+
+async function hasSettledWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  return Promise.race([
+    promise.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+}
+
+async function cleanupOpenClient(client: PgPoolClient, released: boolean): Promise<void> {
+  if (released) {
+    return;
+  }
+
+  await client.query("ROLLBACK").catch(() => undefined);
+  client.release();
+}
