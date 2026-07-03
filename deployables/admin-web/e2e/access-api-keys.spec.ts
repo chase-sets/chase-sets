@@ -1,13 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { CHASE_SETS_READ_AFTER_WRITE_HEADER, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
-
-type ApiKeySnapshot = Readonly<{
-  api_key_id: string;
-  name: string;
-  key_prefix: string;
-  status: string;
-}>;
 
 test.describe("access admin api keys", () => {
   test("operator creates, rotates, and revokes an API key @admin-access", async ({ page }) => {
@@ -25,55 +17,84 @@ test.describe("access admin api keys", () => {
     await page.getByRole("combobox", { name: "User" }).click();
     await page.getByRole("option").first().click();
     await page.getByRole("textbox", { name: "Name" }).fill(apiKeyName);
-    await page.getByRole("button", { name: "Create" }).click();
-    await expect(page).toHaveURL(/\/access\/api-keys\/key_[^/?]+(?:\?|$)/);
-    const apiKeyId = new URL(page.url()).pathname.split("/").pop();
-    if (!apiKeyId) {
-      throw new Error("Created API key route should include the new key id.");
-    }
+    await clickApiKeySecretAction(page, {
+      buttonName: "Create",
+      responseUrlIncludes: "/access/api-keys",
+      status: 201,
+    });
+    await expect(page).toHaveURL(/\/access\/api-keys(?:\?|$)/);
+    await expectAdminPageReady(page, { heading: "API Keys" });
+    const createdSecret = await expectOneTimeSecretPanel(page, "API key secret created");
+
+    const detailHref = await page.getByRole("link", { name: "View key" }).getAttribute("href");
+    expect(detailHref, "Created API key reveal should link to the persisted key detail.").toMatch(
+      /^\/access\/api-keys\/key_[^/?]+$/,
+    );
+    const apiKeyId = detailHref!.split("/").pop()!;
+    await page.getByRole("link", { name: "View key" }).click();
+    await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
     await expectAdminPageReady(page, { heading: apiKeyName });
     await expect(page.getByText("active").first()).toBeVisible();
+    await expect(page.getByText(createdSecret, { exact: true })).toHaveCount(0);
 
-    const beforeRotate = await waitForApiKeySnapshot(page, apiKeyId, ({ status }) => status === "active");
-    await expect(page.getByText(beforeRotate.key_prefix)).toBeVisible();
-    await clickApiKeyAction(page, apiKeyId, "Rotate");
+    await clickApiKeySecretAction(page, {
+      buttonName: "Rotate",
+      responseUrlIncludes: `/access/api-keys/${apiKeyId}`,
+      status: 200,
+    });
     await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
+    const rotatedSecret = await expectOneTimeSecretPanel(page, "API key secret rotated");
+
     await page.goto(`/access/api-keys/${apiKeyId}`, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: apiKeyName });
     await expect(page.getByText("active").first()).toBeVisible();
+    await expect(page.getByText(rotatedSecret, { exact: true })).toHaveCount(0);
 
-    await clickApiKeyAction(page, apiKeyId, "Revoke");
+    await clickApiKeyRedirectAction(page, apiKeyId, "Revoke");
     await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
     await page.goto(`/access/api-keys/${apiKeyId}`, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: apiKeyName });
   });
 });
 
-async function waitForApiKeySnapshot(page: Page, apiKeyId: string, predicate: (snapshot: ApiKeySnapshot) => boolean) {
-  const origin = new URL(page.url()).origin;
-  let snapshot: ApiKeySnapshot | null = null;
-  await expect
-    .poll(
-      async () => {
-        const response = await page.request.get(`${origin}/api/identity/api-keys/${apiKeyId}`, {
-          headers: freshReadHeaders(page),
-        });
-        if (response.status() !== 200) {
-          return false;
-        }
-
-        snapshot = (await response.json()) as ApiKeySnapshot;
-        return predicate(snapshot);
-      },
-      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
-    )
-    .toBe(true);
-
-  expect(snapshot, "API key snapshot should be available").toBeTruthy();
-  return snapshot!;
+async function clickApiKeySecretAction(
+  page: Page,
+  options: Readonly<{
+    buttonName: "Create" | "Rotate";
+    responseUrlIncludes: string;
+    status: number;
+  }>,
+) {
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (candidate) => candidate.request().method() === "POST" && candidate.url().includes(options.responseUrlIncludes),
+    ),
+    page.getByRole("button", { name: options.buttonName }).click(),
+  ]);
+  expect(response.status(), `${options.buttonName} form post should return one-time secret`).toBe(options.status);
+  await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
 }
 
-async function clickApiKeyAction(page: Page, apiKeyId: string, name: "Rotate" | "Revoke") {
+async function expectOneTimeSecretPanel(page: Page, heading: string) {
+  await expect(page.getByText(heading)).toBeVisible();
+  await expect(
+    page.getByText(
+      "Copy this full secret now. It is shown only once and cannot be recovered after you leave or reload this page.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByText("Full secret", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy" })).toBeVisible();
+
+  const secretLocator = page.getByText(/^key_[A-Za-z0-9_]{20,}$/).first();
+  await expect(secretLocator).toBeVisible();
+  const secret = (await secretLocator.textContent())?.trim() ?? "";
+  expect(secret, "One-time plaintext secret should include more than the stored prefix").toMatch(
+    /^key_[A-Za-z0-9_]{20,}$/,
+  );
+  return secret;
+}
+
+async function clickApiKeyRedirectAction(page: Page, apiKeyId: string, name: "Revoke") {
   const [response] = await Promise.all([
     page.waitForResponse(
       (candidate) =>
@@ -83,14 +104,4 @@ async function clickApiKeyAction(page: Page, apiKeyId: string, name: "Rotate" | 
   ]);
   expect(response.status(), `${name} form post should redirect successfully`).toBeLessThan(400);
   await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
-}
-
-function freshReadHeaders(page: Page) {
-  const token = new URL(page.url()).searchParams.get("afterWrite");
-  return token
-    ? {
-        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: token,
-        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "identity",
-      }
-    : undefined;
 }

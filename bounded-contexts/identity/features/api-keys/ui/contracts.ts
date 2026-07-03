@@ -9,3 +9,5 @@ export type ApiKey = Readonly<{
   last_used_at: string | null;
   updated_at: string;
 }>;
+
+export type { OneTimeApiKeySecret } from "../api/one-time-secret";

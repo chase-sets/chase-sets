@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type { ApiKey } from "./contracts";
+import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import {
   HiddenInput,
@@ -16,8 +16,17 @@ import {
   Stack,
   TextInput,
 } from "@chase-sets/design-system";
+import { ApiKeySecretReveal } from "./api-key-secret-reveal";
 
-export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly ApiKey[] }) {
+export function SecurityPage({
+  user,
+  apiKeys,
+  oneTimeSecret,
+}: {
+  user: User;
+  apiKeys: readonly ApiKey[];
+  oneTimeSecret?: OneTimeApiKeySecret | null;
+}) {
   const enabledMethods = user.auth_methods.length
     ? user.auth_methods.join(", ")
     : t("identity.features.apiKeys.ui.accountSecurityPage.no.interactive.methods.enabled");
@@ -87,6 +96,7 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
           </Stack>
         }
       />
+      <ApiKeySecretReveal secret={oneTimeSecret} />
       <MarketplaceDashboardPanel
         title={t("identity.features.apiKeys.ui.accountSecurityPage.account.protection")}
         description={t("identity.features.apiKeys.ui.accountSecurityPage.account.protection.description")}

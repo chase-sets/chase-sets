@@ -1,13 +1,18 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { User } from "../../support/request-support/api-client";
 import { UserDetailPage } from "../../features/users/ui/user-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
+import {
+  oneTimeSecretFromMutation,
+  type ApiKeySecretMutationResult,
+  type OneTimeApiKeySecret,
+} from "../../features/api-keys/api/one-time-secret";
 
-type ApiKeyMutationResult = Readonly<{ id?: unknown }>;
+type UserDetailActionData = Readonly<{ oneTimeSecret: OneTimeApiKeySecret }>;
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
@@ -41,15 +46,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
   }
 
   if (intent === "create-api-key") {
-    const created = await api.createApiKey<ApiKeyMutationResult>({
+    const created = await api.createApiKey<ApiKeySecretMutationResult>({
       userId,
       name: String(formData.get("apiKeyName") ?? ""),
     });
-    if (typeof created.id !== "string" || !created.id.trim()) {
-      throw new Response("API key create did not return an id.", { status: 502 });
-    }
-
-    return redirect(navigateAfterWrite(created, `/access/api-keys/${created.id}`));
+    return Response.json(
+      { oneTimeSecret: oneTimeSecretFromMutation(created, "created") } satisfies UserDetailActionData,
+      {
+        status: 201,
+      },
+    );
   }
 
   if (intent === "add-contact-method") {
@@ -79,5 +85,6 @@ export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.users
 
 export default function UserDetailRoute() {
   const data = useLoaderData<typeof loader>();
-  return <UserDetailPage data={data.data} />;
+  const actionData = useActionData<typeof action>() as UserDetailActionData | undefined;
+  return <UserDetailPage data={data.data} oneTimeSecret={actionData?.oneTimeSecret} />;
 }

@@ -41,10 +41,20 @@ describe("Access API key list page", () => {
           offset: 0,
         }}
         users={users}
+        oneTimeSecret={{
+          apiKeyId: "key_created",
+          keyPrefix: "key_created_",
+          secret: "key_created_full_secret_value",
+          action: "created",
+        }}
       />,
     );
 
     expect(document.querySelector('input[name="userId"]')).toBeTruthy();
     expect(screen.getAllByRole("combobox", { name: "User" }).length).toBeGreaterThan(0);
+    expect(screen.getByText("API key secret created")).toBeTruthy();
+    expect(screen.getByText("key_created_full_secret_value")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /copy/i })).toBeTruthy();
+    expect(screen.getByText(/shown only once/i)).toBeTruthy();
   });
 });

@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -10,6 +10,13 @@ import {
   createIdentityRequestApiClient,
   requireActorFromIdentityApi,
 } from "../../support/route-support/identity-request";
+import {
+  oneTimeSecretFromMutation,
+  type ApiKeySecretMutationResult,
+  type OneTimeApiKeySecret,
+} from "../../features/api-keys/api/one-time-secret";
+
+type SecurityActionData = Readonly<{ oneTimeSecret: OneTimeApiKeySecret }>;
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({
@@ -47,14 +54,21 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   if (intent === "create-api-key") {
-    result = await api.createApiKey({
+    const created = await api.createApiKey<ApiKeySecretMutationResult>({
       userId: actor.userId,
       name: String(formData.get("name") ?? ""),
     });
+    return Response.json(
+      { oneTimeSecret: oneTimeSecretFromMutation(created, "created") } satisfies SecurityActionData,
+      {
+        status: 201,
+      },
+    );
   }
 
   if (intent === "rotate-api-key") {
-    result = await api.rotateApiKey(String(formData.get("apiKeyId") ?? ""));
+    const rotated = await api.rotateApiKey<ApiKeySecretMutationResult>(String(formData.get("apiKeyId") ?? ""));
+    return Response.json({ oneTimeSecret: oneTimeSecretFromMutation(rotated, "rotated") } satisfies SecurityActionData);
   }
 
   if (intent === "revoke-api-key") {
@@ -69,5 +83,6 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountSecurityRoute() {
   const data = useLoaderData<typeof loader>();
-  return <SecurityPage user={data.user} apiKeys={data.apiKeys} />;
+  const actionData = useActionData<typeof action>() as SecurityActionData | undefined;
+  return <SecurityPage user={data.user} apiKeys={data.apiKeys} oneTimeSecret={actionData?.oneTimeSecret} />;
 }
