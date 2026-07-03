@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const discoverySearchSchemaSql = `CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS discovery_search_catalog_items (
@@ -219,3 +221,16 @@ CREATE INDEX IF NOT EXISTS discovery_search_product_contents_search_text_idx
 
 CREATE INDEX IF NOT EXISTS discovery_search_product_contents_search_text_simple_idx
   ON discovery_search_product_contents USING gin (search_text_simple);`;
+
+export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260703_discovery_search_keyset_indexes",
+    description: "Create Discovery search composite indexes for status-filtered keyset sorts.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_status_title_catalog_item_idx
+  ON discovery_search_items (status, title, catalog_item_id);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_status_updated_catalog_item_idx
+  ON discovery_search_items (status, updated_at DESC, catalog_item_id DESC);`,
+    ],
+  },
+];

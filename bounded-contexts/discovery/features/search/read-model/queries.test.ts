@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import { searchDiscoveryItems } from "./queries";
+import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
 
 function encodeCursor(input: { id: string; title: string; updatedAt: string; rank?: number; baseMatch?: boolean }) {
   return Buffer.from(
@@ -39,6 +40,37 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 }
 
 describe("searchDiscoveryItems cursor paging", () => {
+  it("keeps keyset sort queries aligned with ledgered composite indexes", async () => {
+    const statements = discoverySearchSchemaMigrations.flatMap((migration) => migration.statements);
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, {
+      sort: "newest",
+      cursor: encodeCursor({
+        id: "cat_002",
+        title: "Bulbasaur",
+        updatedAt: "2026-05-16T00:00:00.000Z",
+      }),
+      limit: 24,
+    });
+
+    const listCall = calls.find((call) => call.sql.includes("FROM discovery_search_items"));
+    expect(listCall?.sql).toContain("WHERE status = $1 AND (updated_at, catalog_item_id) <");
+    expect(listCall?.sql).toContain("ORDER BY updated_at DESC, catalog_item_id DESC");
+    expect(discoverySearchSchemaSql).not.toContain("discovery_search_items_status_title_catalog_item_idx");
+    expect(discoverySearchSchemaSql).not.toContain("discovery_search_items_status_updated_catalog_item_idx");
+    expect(statements).toEqual([
+      expect.stringContaining(
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_status_title_catalog_item_idx",
+      ),
+      expect.stringContaining(
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_status_updated_catalog_item_idx",
+      ),
+    ]);
+    expect(statements[0]).toContain("ON discovery_search_items (status, title, catalog_item_id)");
+    expect(statements[1]).toContain("ON discovery_search_items (status, updated_at DESC, catalog_item_id DESC)");
+  });
+
   it.each([
     {
       sort: "title_asc",
