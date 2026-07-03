@@ -36,7 +36,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.faq.description":
     "Short answers about marketplace availability, founding seller fees, order processing, shipping, and order protection.",
   "publicPresence.faq.fees.answer":
-    "Listings created during beta keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any checkout fee before payment.",
+    "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any checkout fee before payment.",
   "publicPresence.faq.fees.question": "What do sellers pay during beta?",
   "publicPresence.faq.launch.answer":
     "Chase Sets is not open for marketplace checkout yet. Request access to tell us whether buying, selling, or both matters most for your account.",
@@ -52,7 +52,7 @@ export const publicPresenceEnglishTranslations = {
     "Chase Sets is in prelaunch. Public policies cover privacy, support, marketplace availability, checkout, fees, refunds, returns, and order protection while public checkout remains gated.",
   "publicPresence.footer.title": "Chase Sets prelaunch",
   "publicPresence.home.description":
-    "Request early access to the seller-first beta for 0% seller fee locks, no separate seller processing fee, bulk-friendly listing, and buyer-visible totals.",
+    "Request early access to the seller-first beta for 0% fees on beta listings, no separate seller processing fee, bulk-friendly listing, and buyer-visible totals.",
   "publicPresence.home.discordCta": "Join the founders circle on Discord",
   "publicPresence.home.eyebrow": "Chase the cards. Complete the sets. Keep the margin.",
   "publicPresence.home.finalCta.action": "Request early access",
@@ -70,7 +70,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.heroHighlight.launch.label": "Buyer totals",
   "publicPresence.home.heroHighlight.launch.value": "Costs visible before payment",
   "publicPresence.home.heroHighlight.lowValue.label": "0% beta seller fees",
-  "publicPresence.home.heroHighlight.lowValue.value": "Locked while unchanged",
+  "publicPresence.home.heroHighlight.lowValue.value": "Keep 100% of the sale",
   "publicPresence.home.heroHighlight.workflow.label": "No seller processing fee",
   "publicPresence.home.heroHighlight.workflow.value": "$0 separate line",
   "publicPresence.home.heroImageAlt":
@@ -104,26 +104,26 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.paths.sell.action": "I plan to sell cards",
   "publicPresence.home.paths.sell.badge": "For founding sellers",
   "publicPresence.home.paths.sell.description":
-    "Bring early supply with beta fee-lock visibility, no separate seller processing line, and workflows built for repeat card work.",
+    "Bring early supply with 0% fees on beta listings, no separate seller processing line, and workflows built for repeat card work.",
   "publicPresence.home.paths.sell.point.bulk": "Bulk listing and pricing context reduce one-card-at-a-time work.",
-  "publicPresence.home.paths.sell.point.feeLock": "Beta listings keep 0% seller fees while unchanged.",
+  "publicPresence.home.paths.sell.point.feeLock": "Beta-created listings keep 100% of the sale.",
   "publicPresence.home.paths.sell.point.offers":
     "Offer acceptance and matched-offer review help turn demand into sale-ready work.",
   "publicPresence.home.paths.sell.title": "I want to sell cards",
   "publicPresence.home.paths.title": "Pick the workflow you want prioritized",
   "publicPresence.home.sellerEconomics.badge": "Founding seller economics",
   "publicPresence.home.sellerEconomics.description":
-    "Built for cards other marketplaces make hard to sell profitably: seller fee locks, no separate seller processing line, repeat listing work, and buyer-visible order costs.",
+    "Built for cards other marketplaces make hard to sell profitably: 0% beta listing fees, no separate seller processing line, repeat listing work, and buyer-visible order costs.",
   "publicPresence.home.sellerEconomics.lock.description":
-    "Create listings during beta and keep the 0% seller fee on those listings until they sell. The lock holds while the listing stays unchanged after beta ends.",
-  "publicPresence.home.sellerEconomics.lock.point.beta": "0% seller fee on listings created during beta.",
+    "Create listings during beta and keep the 0% seller fee on those listings until they sell.",
+  "publicPresence.home.sellerEconomics.lock.point.beta": "0% fees on every listing you create during beta.",
   "publicPresence.home.sellerEconomics.lock.point.change":
-    "Change a listing after beta and the current fee schedule applies before it goes live again.",
+    "Fine print: change a beta listing after beta ends and the current fee schedule applies before it goes live again. Full rules stay on /sales-fees.",
   "publicPresence.home.sellerEconomics.lock.point.processing":
     "No separate seller payment-processing fee like 2.9% plus $0.30.",
-  "publicPresence.home.sellerEconomics.lock.title": "Create during beta. Keep the seller fee lock.",
+  "publicPresence.home.sellerEconomics.lock.title": "Create during beta. Keep 100% of the sale.",
   "publicPresence.home.sellerEconomics.math.description":
-    "Example for a beta-created listing before shipping, taxes, rebates, or later listing changes.",
+    "Example for a beta-created listing before shipping, taxes, or rebates.",
   "publicPresence.home.sellerEconomics.math.item": "Buyer item price",
   "publicPresence.home.sellerEconomics.math.item.value": "$10.00",
   "publicPresence.home.sellerEconomics.math.processingFee": "Seller payment-processing fee",
@@ -136,7 +136,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.math.total": "Seller net before shipping",
   "publicPresence.home.sellerEconomics.math.total.value": "$10.00",
   "publicPresence.home.sellerEconomics.title": "A concrete reason for sellers to join early",
-  "publicPresence.home.title": "Sell cards without giving up margin.",
+  "publicPresence.home.title": "Keep 100% of every beta-listing sale.",
   "publicPresence.home.trust.description":
     "Chase Sets is still prelaunch. The trust proof available now is public policy clarity, visible support, no live transaction pressure, and payment plans that keep totals visible before money moves.",
   "publicPresence.home.trust.payment.description":
@@ -220,7 +220,7 @@ export const publicPresenceEnglishTranslations = {
     "The marketplace is designed around better margins for bulk cards, raw cards, graded cards, chase cards, and collectible inventory at every price point. Removing separate seller payment-processing fees is especially important for budget cards.",
   "publicPresence.info.sellerFees.lowValue.title": "Marketplace margins",
   "publicPresence.info.sellerFees.predictable.body":
-    "Listings created during beta keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees such as 2.9% plus $0.30 to sellers.",
+    "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees such as 2.9% plus $0.30 to sellers.",
   "publicPresence.info.sellerFees.predictable.title": "0% beta seller fee lock",
   "publicPresence.info.sellerFees.prelaunch.body":
     "Marketplace checkout opens at launch. If a beta listing is changed after beta ends, the current fee schedule applies before it goes live again.",

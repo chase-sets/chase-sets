@@ -29,7 +29,7 @@ const publicPresencePromoBarSeedMessages: readonly Readonly<{
   {
     id: "pbm_seed_beta_listing_fees",
     title: "0% seller fees on beta listings.",
-    description: "Beta-created listings keep the seller fee lock while unchanged after beta ends.",
+    description: "Beta-created listings keep 0% seller fees until they sell.",
     href: "/sales-fees",
     linkLabel: "Seller fees",
     tone: "info",
