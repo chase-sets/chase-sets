@@ -158,7 +158,7 @@ describe("settlement payment source projection", () => {
     expect(wallets.postEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "acc_seller",
-        ledgerEntryId: "led_refund_pay_1_ord_1",
+        ledgerEntryId: "led_refund_pay_1_ord_1_1",
         kind: "refund",
         direction: "debit",
         amount: "8.00",

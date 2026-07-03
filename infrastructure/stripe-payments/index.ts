@@ -623,7 +623,7 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         processorPaymentReference: refundPaymentReference,
         providerObjectReference: processorPaymentReference,
         processorRefundReference: null,
-        amount: minorUnitsToMoney(paymentObject.amount_refunded ?? paymentObject.amount ?? null),
+        amount: minorUnitsToMoney(paymentObject.amount_refunded ?? null),
         currencyCode: paymentObject.currency?.toLowerCase() === "usd" ? "usd" : null,
         internalPaymentId,
         processorStatus,

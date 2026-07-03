@@ -67,10 +67,11 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            failed_at,
            cancelled_at,
            refunded_at,
+           refunded_amount,
            disputed_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-confirmation', NULL, NULL, $25, $25, NULL, NULL, NULL, NULL, NULL, $26
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-confirmation', NULL, NULL, $25, $25, NULL, NULL, NULL, NULL, 0, NULL, $26
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -220,20 +221,22 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
         paymentId: string;
         processorStatus: string;
         refundedAt: string;
+        refundedAmount: string;
       };
 
       await db.query(
         `UPDATE payments_payment_pages
          SET processor_status = $2,
-             status = 'refunded',
+             status = CASE WHEN amount = $4::numeric THEN 'refunded' ELSE 'partially-refunded' END,
              failure_code = NULL,
              failure_message = NULL,
              refunded_at = $3,
+             refunded_amount = $4,
              updated_at = $3,
-             last_stream_version = $4
+             last_stream_version = $5
          WHERE payment_id = $1
-           AND last_stream_version < $4`,
-        [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion],
+           AND last_stream_version < $5`,
+        [data.paymentId, data.processorStatus, data.refundedAt, data.refundedAmount, event.streamVersion],
       );
     },
     "payments.payment-disputed": async (event) => {

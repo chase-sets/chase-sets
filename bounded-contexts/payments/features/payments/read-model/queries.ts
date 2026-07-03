@@ -41,6 +41,7 @@ export type PaymentDetailRow = Readonly<{
   failed_at: string | null;
   cancelled_at: string | null;
   refunded_at: string | null;
+  refunded_amount: string;
   disputed_at: string | null;
 }>;
 
@@ -117,6 +118,7 @@ function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
   return {
     ...row,
     amount: String(row.amount),
+    refunded_amount: String(row.refunded_amount),
     order_ids: Array.isArray(row.order_ids)
       ? row.order_ids.filter((value): value is string => typeof value === "string")
       : [],
@@ -167,6 +169,7 @@ const paymentSelect = `
     failed_at,
     cancelled_at,
     refunded_at,
+    refunded_amount::text AS refunded_amount,
     disputed_at
   FROM payments_payment_pages
 `;
@@ -201,7 +204,7 @@ export async function getPaymentById(db: PgQueryable, paymentId: string): Promis
 export async function getCapturedPaymentByOrderId(db: PgQueryable, orderId: string): Promise<PaymentDetailRow | null> {
   const result = await db.query<PaymentPageRow>(
     `${paymentSelect}
-     WHERE status = 'captured'
+     WHERE status IN ('captured', 'partially-refunded')
        AND order_ids @> $1::jsonb
      ORDER BY captured_at DESC NULLS LAST, payment_id DESC
      LIMIT 1`,

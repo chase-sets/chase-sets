@@ -46,9 +46,14 @@ class PaymentSummaryProjectionDb implements PgQueryable {
       const streamVersion = Number(values[3]);
       const existing = this.summaries.get(paymentId);
       if (existing && existing.last_stream_version < streamVersion) {
+        const status = sql.includes("CASE WHEN amount = $2::numeric")
+          ? existing.amount === String(values[1])
+            ? "refunded"
+            : "partially-refunded"
+          : String(values[1]);
         this.summaries.set(paymentId, {
           ...existing,
-          status: String(values[1]),
+          status,
           updated_at: String(values[2]),
           last_stream_version: streamVersion,
         });
@@ -139,5 +144,50 @@ describe("checkout payment summary projection", () => {
     );
 
     expect(db.summaries.has("pay_missing")).toBe(false);
+  });
+
+  it("mirrors partial refund status until the cumulative refund reaches the payment amount", async () => {
+    const db = new PaymentSummaryProjectionDb();
+    const handlers = buildCheckoutPaymentSummaryProjectionHandlers(db);
+
+    await handlers["payments.payment-created"]!(
+      event("payments.payment-created", 1, {
+        paymentId: "pay_1",
+        buyerAccountId: "acc_buyer",
+        orderIds: ["ord_1"],
+        amount: "27.29",
+        currencyCode: "usd",
+        createdAt: "2026-06-29T00:00:00.000Z",
+      }),
+    );
+    await handlers["payments.payment-refunded"]!(
+      event("payments.payment-refunded", 2, {
+        paymentId: "pay_1",
+        amount: "4.00",
+        refundedAmount: "4.00",
+        refundedAt: "2026-06-29T00:01:00.000Z",
+      }),
+    );
+
+    expect(db.summaries.get("pay_1")).toMatchObject({
+      status: "partially-refunded",
+      updated_at: "2026-06-29T00:01:00.000Z",
+      last_stream_version: 2,
+    });
+
+    await handlers["payments.payment-refunded"]!(
+      event("payments.payment-refunded", 3, {
+        paymentId: "pay_1",
+        amount: "23.29",
+        refundedAmount: "27.29",
+        refundedAt: "2026-06-29T00:02:00.000Z",
+      }),
+    );
+
+    expect(db.summaries.get("pay_1")).toMatchObject({
+      status: "refunded",
+      updated_at: "2026-06-29T00:02:00.000Z",
+      last_stream_version: 3,
+    });
   });
 });

@@ -12,6 +12,7 @@ type PaymentCreatedPayload = Readonly<{
 
 type PaymentStatusPayload = Readonly<{
   paymentId: string;
+  refundedAmount?: string;
   capturedAt?: string;
   failedAt?: string;
   cancelledAt?: string;
@@ -42,6 +43,24 @@ async function updatePaymentStatus(
       WHERE payment_id = $1
         AND last_stream_version < $4`,
     [data.paymentId, status, updatedAt, event.streamVersion],
+  );
+}
+
+async function updatePaymentRefundStatus(db: PgQueryable, event: Readonly<{ streamVersion: number; data: unknown }>) {
+  const data = event.data as PaymentStatusPayload;
+  const updatedAt = timestampForStatus(data);
+  if (!updatedAt || !data.refundedAmount) {
+    return;
+  }
+
+  await db.query(
+    `UPDATE checkout_payment_summary_pages
+        SET status = CASE WHEN amount = $2::numeric THEN 'refunded' ELSE 'partially-refunded' END,
+            updated_at = $3,
+            last_stream_version = $4
+      WHERE payment_id = $1
+        AND last_stream_version < $4`,
+    [data.paymentId, data.refundedAmount, updatedAt, event.streamVersion],
   );
 }
 
@@ -86,7 +105,7 @@ export function buildCheckoutPaymentSummaryProjectionHandlers(db: PgQueryable): 
     "payments.payment-captured": (event) => updatePaymentStatus(db, event, "captured"),
     "payments.payment-failed": (event) => updatePaymentStatus(db, event, "failed"),
     "payments.payment-cancelled": (event) => updatePaymentStatus(db, event, "cancelled"),
-    "payments.payment-refunded": (event) => updatePaymentStatus(db, event, "refunded"),
+    "payments.payment-refunded": (event) => updatePaymentRefundStatus(db, event),
     "payments.payment-disputed": (event) => updatePaymentStatus(db, event, "disputed"),
   };
 }

@@ -111,6 +111,9 @@ function existingPaymentRow() {
     captured_at: null,
     failed_at: null,
     cancelled_at: null,
+    refunded_at: null,
+    refunded_amount: "0.00",
+    disputed_at: null,
   };
 }
 
