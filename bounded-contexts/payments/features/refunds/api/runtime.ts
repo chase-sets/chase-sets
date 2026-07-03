@@ -43,10 +43,15 @@ type RefundRuntimeDeps = Readonly<{
   notificationOutbox?: NotificationOutbox;
 }>;
 
+function arraysEqual(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 export type RefundServices = Readonly<{
   commandHandler: CommandHandler<RefundCommand, RefundState, RefundEvent>;
   issueRefund: (
     params: Readonly<{
+      refundId?: RefundId;
       paymentId: PaymentId;
       orderIds: readonly string[];
       amount: string;
@@ -59,7 +64,7 @@ export type RefundServices = Readonly<{
 
 export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<RefundEvent>(),
     initialState: () => initialRefundState,
@@ -78,15 +83,11 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
         throw new PaymentsDomainError("Only captured payments can be refunded.");
       }
 
-      const refundId = createId("rfd") as RefundId;
+      const refundId = params.refundId ?? (createId("rfd") as RefundId);
       const requestedAt = new Date().toISOString();
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Refund amount",
       });
-      const remainingRefundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
-      if (compareMoney(amount, remainingRefundableAmount) > 0) {
-        throw new PaymentsDomainError("Refund amount cannot exceed the remaining refundable payment amount.");
-      }
       const orderIds = [...new Set(params.orderIds.map((orderId) => orderId.trim()).filter(Boolean))];
       if (orderIds.length === 0) {
         throw new PaymentsDomainError("Refund must reference at least one order.");
@@ -95,18 +96,43 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
       if (invalidOrderId) {
         throw new PaymentsDomainError("Refund order must belong to the payment.");
       }
+      const reason = normalizeRequiredText(params.reason, "Refund reason is required.");
+      const currencyCode = payment.currency_code as CurrencyCode;
+      const processorName = payment.processor_name as PaymentProcessorName;
+      const refundStreamId = `payments.refund-${refundId}`;
+      if (params.refundId) {
+        const existingRefund = await repository.load(refundStreamId);
+        if (existingRefund.state.status === "issued") {
+          if (
+            existingRefund.state.paymentId !== params.paymentId ||
+            !arraysEqual(existingRefund.state.orderIds, orderIds) ||
+            existingRefund.state.amount !== amount ||
+            existingRefund.state.currencyCode !== currencyCode ||
+            existingRefund.state.reason !== reason ||
+            existingRefund.state.processorName !== processorName
+          ) {
+            throw new PaymentsDomainError("Refund request does not match the existing refund.");
+          }
+          return { refundId, version: existingRefund.version };
+        }
+      }
+
+      const remainingRefundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
+      if (compareMoney(amount, remainingRefundableAmount) > 0) {
+        throw new PaymentsDomainError("Refund amount cannot exceed the remaining refundable payment amount.");
+      }
 
       const requested = await commandHandler({
-        streamId: `payments.refund-${refundId}`,
+        streamId: refundStreamId,
         command: {
           type: "RequestRefund",
           refundId,
           paymentId: params.paymentId,
           orderIds: orderIds as OrderId[],
           amount,
-          currencyCode: payment.currency_code as CurrencyCode,
-          reason: normalizeRequiredText(params.reason, "Refund reason is required."),
-          processorName: payment.processor_name as PaymentProcessorName,
+          currencyCode,
+          reason,
+          processorName,
           requestedAt,
         },
         context,
@@ -120,12 +146,12 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
           processorPaymentReference: payment.processor_payment_reference,
           orderIds: orderIds as OrderId[],
           amount,
-          currencyCode: payment.currency_code as CurrencyCode,
+          currencyCode,
           reason: params.reason,
         });
       } catch (error) {
         const failed = await commandHandler({
-          streamId: `payments.refund-${refundId}`,
+          streamId: refundStreamId,
           command: {
             type: "RecordRefundFailure",
             processorStatus: "failed",
@@ -140,7 +166,7 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
       }
 
       const issued = await commandHandler({
-        streamId: `payments.refund-${refundId}`,
+        streamId: refundStreamId,
         command: {
           type: "RecordRefundIssued",
           processorRefundReference: processorRefund.processorRefundReference,

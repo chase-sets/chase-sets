@@ -13,7 +13,7 @@ describe("payments support refund effect projection", () => {
           return { rows: [{ order_id: "ord_1", total_amount: "12.00" }] };
         }
         if (sql.includes("INSERT INTO payments_support_refund_effects")) {
-          return { rowCount: 1, rows: [{ support_request_id: "sup_01ABC" }] };
+          return { rowCount: 1, rows: [{ support_request_id: "sup_01ABC", refund_id: "rfd_support" }] };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -52,12 +52,14 @@ describe("payments support refund effect projection", () => {
       "sup_01ABC",
       "sre_01ABC",
       "ord_1",
+      "pay_1",
+      expect.any(String),
       "partial-refund",
       "1.00",
       "2026-05-31T14:00:00.000Z",
     ]);
     expect(issueRefund).toHaveBeenCalledWith(
-      expect.objectContaining({ paymentId: "pay_1", amount: "1.00" }),
+      expect.objectContaining({ refundId: "rfd_support", paymentId: "pay_1", amount: "1.00" }),
       expect.objectContaining({ tenantId: "tnt_test" }),
     );
   });

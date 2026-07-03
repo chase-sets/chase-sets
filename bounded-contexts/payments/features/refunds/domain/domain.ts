@@ -131,27 +131,50 @@ export type RefundFailedEvent = DomainEvent<
 
 export type RefundEvent = RefundRequestedEvent | RefundIssuedEvent | RefundFailedEvent;
 
+function arraysEqual(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 export const decideRefund: AggregateDecider<RefundState, RefundCommand, RefundEvent> = (state, command) => {
   switch (command.type) {
-    case "RequestRefund":
-      assert(state.refundId === null, "Refund has already been requested.");
+    case "RequestRefund": {
+      const orderIds = normalizeOrderIds(command.orderIds);
+      const amount = normalizeMoneyAmount(command.amount, {
+        fieldName: "Refund amount",
+      });
+      const currencyCode = normalizeCurrencyCode(command.currencyCode);
+      const reason = normalizeRequiredText(command.reason, "Refund reason is required.");
+      const processorName = normalizeProcessorName(command.processorName);
+      const requestedAt = ensureIsoTimestamp(command.requestedAt, "Refund request must include a timestamp.");
+      if (state.refundId !== null) {
+        assert(
+          state.refundId === command.refundId &&
+            state.paymentId === command.paymentId &&
+            arraysEqual(state.orderIds, orderIds) &&
+            state.amount === amount &&
+            state.currencyCode === currencyCode &&
+            state.reason === reason &&
+            state.processorName === processorName,
+          "Refund request does not match the existing refund.",
+        );
+        return [];
+      }
       return [
         {
           type: "payments.refund-requested",
           data: {
             refundId: command.refundId,
             paymentId: command.paymentId,
-            orderIds: normalizeOrderIds(command.orderIds),
-            amount: normalizeMoneyAmount(command.amount, {
-              fieldName: "Refund amount",
-            }),
-            currencyCode: normalizeCurrencyCode(command.currencyCode),
-            reason: normalizeRequiredText(command.reason, "Refund reason is required."),
-            processorName: normalizeProcessorName(command.processorName),
-            requestedAt: ensureIsoTimestamp(command.requestedAt, "Refund request must include a timestamp."),
+            orderIds,
+            amount,
+            currencyCode,
+            reason,
+            processorName,
+            requestedAt,
           },
         },
       ];
+    }
     case "RecordRefundIssued":
       assert(state.refundId !== null, "Refund must be requested first.");
       if (state.status === "issued") {
