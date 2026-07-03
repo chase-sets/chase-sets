@@ -1,11 +1,10 @@
 import type { LoaderFunctionArgs } from "react-router";
+import { buildRobotsTxt } from "@chase-sets/platform-runtime/seo";
 import { resolvePublicOrigin, shouldIndexPublicWeb } from "../seo";
 
 export function loader(_args: LoaderFunctionArgs) {
   const origin = resolvePublicOrigin();
-  const body = shouldIndexPublicWeb()
-    ? ["User-agent: *", "Allow: /", `Sitemap: ${origin}/sitemap.xml`].join("\n")
-    : ["User-agent: *", "Disallow: /"].join("\n");
+  const body = buildRobotsTxt({ origin, shouldIndex: shouldIndexPublicWeb() });
 
   return new Response(body, {
     headers: {

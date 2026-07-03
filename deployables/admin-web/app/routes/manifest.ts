@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs } from "react-router";
+import { createWebManifestLoader } from "@chase-sets/platform-runtime/pwa";
 
 function buildAdminManifest() {
   return {
@@ -42,11 +42,4 @@ function buildAdminManifest() {
   } as const;
 }
 
-export function loader(_args: LoaderFunctionArgs) {
-  return Response.json(buildAdminManifest(), {
-    headers: {
-      "Cache-Control": "public, max-age=3600",
-      "Content-Type": "application/manifest+json; charset=utf-8",
-    },
-  });
-}
+export const loader = createWebManifestLoader(buildAdminManifest);

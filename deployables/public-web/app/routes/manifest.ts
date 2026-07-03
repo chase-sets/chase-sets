@@ -1,5 +1,5 @@
 import { publicPresenceT as t } from "@chase-sets/public-presence/web";
-import type { LoaderFunctionArgs } from "react-router";
+import { createWebManifestLoader } from "@chase-sets/platform-runtime/pwa";
 
 function buildPublicManifest() {
   return {
@@ -17,11 +17,4 @@ function buildPublicManifest() {
   } as const;
 }
 
-export function loader(_args: LoaderFunctionArgs) {
-  return Response.json(buildPublicManifest(), {
-    headers: {
-      "Cache-Control": "public, max-age=3600",
-      "Content-Type": "application/manifest+json; charset=utf-8",
-    },
-  });
-}
+export const loader = createWebManifestLoader(buildPublicManifest);

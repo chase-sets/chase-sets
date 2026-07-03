@@ -1,3 +1,5 @@
+import { buildCanonicalUrl as buildPlatformCanonicalUrl, shouldIndexFromEnv } from "@chase-sets/platform-runtime/seo";
+
 export const PUBLIC_WEB_CANONICAL_ORIGIN = "https://chasesets.com";
 
 export function resolvePublicOrigin() {
@@ -5,18 +7,17 @@ export function resolvePublicOrigin() {
 }
 
 export function shouldIndexPublicWeb() {
-  const value = process.env.CHASE_SETS_PUBLIC_INDEXING?.trim().toLowerCase();
-  return !["0", "false", "no", "off"].includes(value ?? "");
+  return shouldIndexFromEnv("CHASE_SETS_PUBLIC_INDEXING");
 }
 
 export function buildCanonicalUrl({
   origin,
   pathname,
-  search: _search = "",
+  search = "",
 }: {
   origin: string;
   pathname: string;
   search?: string;
 }) {
-  return new URL(pathname, origin).toString();
+  return buildPlatformCanonicalUrl({ origin, pathname, search, includeSearch: false });
 }

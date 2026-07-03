@@ -1,10 +1,3 @@
-import type { LoaderFunctionArgs } from "react-router";
+import { createWebReadyLoader } from "@chase-sets/platform-runtime/web-assets";
 
-export function loader({ request }: LoaderFunctionArgs) {
-  return Response.json({
-    ok: true,
-    service: "marketplace",
-    checkedAt: new Date().toISOString(),
-    origin: new URL(request.url).origin,
-  });
-}
+export const loader = createWebReadyLoader("marketplace");
