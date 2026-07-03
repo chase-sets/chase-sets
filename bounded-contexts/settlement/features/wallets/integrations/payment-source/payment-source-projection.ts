@@ -207,7 +207,7 @@ async function debitSellerRefunds(
       wallets,
       {
         accountId: payout.sellerAccountId as AccountId,
-        ledgerEntryId: `led_refund_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+        ledgerEntryId: `led_refund_${data.paymentId}_${payout.orderId}_${event.streamVersion}` as LedgerEntryId,
         kind: "refund",
         direction: "debit",
         amount: debitAmount,
@@ -495,6 +495,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
         amount: string;
         currencyCode: string;
         processorStatus: string;
+        refundedAmount?: string;
         sellerPayouts?: unknown;
         refundedAt: string;
       };
@@ -509,12 +510,14 @@ export function buildSettlementPaymentInputProjectionHandlers(
         [data.paymentId],
       );
       const paymentAmount = existing.rows[0]?.amount ?? data.amount;
+      const paymentStatus =
+        data.refundedAmount && compareMoney(data.refundedAmount, paymentAmount) < 0 ? "partially-refunded" : "refunded";
       const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts ?? existing.rows[0]?.seller_payouts);
 
       await db.query(
         `UPDATE settlement_payment_sources
          SET processor_status = $2,
-             status = 'refunded',
+             status = $5,
              failure_code = NULL,
              failure_message = NULL,
              refunded_at = $3,
@@ -522,7 +525,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
              last_stream_version = $4
          WHERE payment_id = $1
            AND last_stream_version < $4`,
-        [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion],
+        [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion, paymentStatus],
       );
 
       await debitSellerRefunds(

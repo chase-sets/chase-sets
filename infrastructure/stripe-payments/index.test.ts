@@ -542,4 +542,40 @@ describe("Stripe payment processor gateway", () => {
       failureMessage: "needs_response",
     });
   });
+
+  it("does not default charge refund webhooks without cumulative refunded amount to the charge amount", async () => {
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const refundBody = JSON.stringify({
+      id: "evt_refund_missing_amount",
+      type: "charge.refunded",
+      created: now,
+      data: {
+        object: {
+          id: "ch_123",
+          status: "succeeded",
+          payment_intent: "pi_123",
+          amount: 1000,
+          currency: "usd",
+          metadata: { payment_id: "pay_123" },
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody: refundBody,
+        signatureHeader: signature(refundBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_refund_missing_amount",
+      kind: "payment-refunded",
+      amount: null,
+    });
+  });
 });

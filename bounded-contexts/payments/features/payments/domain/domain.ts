@@ -3,6 +3,7 @@ import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed
 import {
   assert,
   assertNever,
+  compareMoney,
   ensureIsoTimestamp,
   normalizeCurrencyCode,
   normalizeMoneyAmount,
@@ -10,6 +11,7 @@ import {
   normalizeOrderIds,
   normalizeProcessorName,
   normalizeRequiredText,
+  subtractMoney,
   type CurrencyCode,
   type PaymentProcessorName,
   type PaymentStatus,
@@ -48,6 +50,7 @@ export type PaymentState = Readonly<{
   failedAt: string | null;
   cancelledAt: string | null;
   refundedAt: string | null;
+  refundedAmount: string;
   disputedAt: string | null;
 }>;
 
@@ -93,6 +96,7 @@ export const initialPaymentState: PaymentState = {
   failedAt: null,
   cancelledAt: null,
   refundedAt: null,
+  refundedAmount: "0.00",
   disputedAt: null,
 };
 
@@ -283,6 +287,7 @@ export type PaymentRefundedEvent = DomainEvent<
     orderIds: OrderId[];
     buyerAccountId: AccountId;
     amount: string;
+    refundedAmount: string;
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
@@ -437,6 +442,9 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       }
       assert(state.status !== "cancelled", "Cancelled payments cannot be captured.");
       assert(state.status !== "failed", "Failed payments cannot be captured.");
+      assert(state.status !== "partially-refunded", "Refunded payments cannot be captured.");
+      assert(state.status !== "refunded", "Refunded payments cannot be captured.");
+      assert(state.status !== "disputed", "Disputed payments cannot be captured.");
       return [
         {
           type: "payments.payment-captured",
@@ -518,12 +526,26 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       if (state.status === "refunded") {
         return [];
       }
-      assert(state.status === "captured" || state.status === "disputed", "Only captured payments can be refunded.");
-      const refundAmount = command.amount
-        ? normalizeMoneyAmount(command.amount, {
-            fieldName: "Refund amount",
-          })
-        : state.amount!;
+      assert(
+        state.status === "captured" || state.status === "partially-refunded" || state.status === "disputed",
+        "Only captured payments can be refunded.",
+      );
+      assert(command.amount !== null, "Refund webhook must include the cumulative refunded amount.");
+      const cumulativeRefundedAmount = normalizeMoneyAmount(command.amount, {
+        fieldName: "Refund amount",
+      });
+      assert(
+        compareMoney(cumulativeRefundedAmount, state.amount!) <= 0,
+        "Refunded amount cannot exceed the captured payment amount.",
+      );
+      assert(
+        compareMoney(cumulativeRefundedAmount, state.refundedAmount) >= 0,
+        "Refunded amount cannot move backwards.",
+      );
+      if (compareMoney(cumulativeRefundedAmount, state.refundedAmount) === 0) {
+        return [];
+      }
+      const refundAmount = subtractMoney(cumulativeRefundedAmount, state.refundedAmount);
       return [
         {
           type: "payments.payment-refunded",
@@ -532,6 +554,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
             orderIds: [...state.orderIds],
             buyerAccountId: state.buyerAccountId!,
             amount: refundAmount,
+            refundedAmount: cumulativeRefundedAmount,
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
@@ -553,7 +576,13 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       ) {
         return [];
       }
-      assert(state.status === "captured" || state.status === "disputed", "Only captured payments can be disputed.");
+      assert(
+        state.status === "captured" ||
+          state.status === "partially-refunded" ||
+          state.status === "refunded" ||
+          state.status === "disputed",
+        "Only captured payments can be disputed.",
+      );
       return [
         {
           type: "payments.payment-disputed",
@@ -617,6 +646,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         failedAt: null,
         cancelledAt: null,
         refundedAt: null,
+        refundedAmount: "0.00",
         disputedAt: null,
       };
     case "payments.payment-authorized":
@@ -653,10 +683,11 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
       return {
         ...state,
         processorStatus: event.data.processorStatus,
-        status: "refunded",
+        status: event.data.refundedAmount === state.amount ? "refunded" : "partially-refunded",
         failureCode: null,
         failureMessage: null,
         refundedAt: event.data.refundedAt,
+        refundedAmount: event.data.refundedAmount,
       };
     case "payments.payment-disputed":
       return {

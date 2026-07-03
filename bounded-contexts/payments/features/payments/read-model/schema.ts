@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   failed_at timestamptz NULL,
   cancelled_at timestamptz NULL,
   refunded_at timestamptz NULL,
+  refunded_amount numeric(12, 2) NOT NULL DEFAULT 0,
   disputed_at timestamptz NULL,
   last_stream_version bigint NOT NULL DEFAULT 0
 );

@@ -1171,6 +1171,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         failed_at: null,
         cancelled_at: null,
         refunded_at: null,
+        refunded_amount: "0.00",
         disputed_at: null,
         processor_publishable_key: publicConfig.publishableKey,
         provider_events: [],

@@ -10,9 +10,11 @@ import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-se
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
+  compareMoney,
   normalizeMoneyAmount,
   normalizeRequiredText,
   PaymentsDomainError,
+  subtractMoney,
   type CurrencyCode,
   type PaymentProcessorName,
   type RefundId,
@@ -72,7 +74,7 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
       if (!payment) {
         throw new PaymentsDomainError("Payment not found.");
       }
-      if (payment.status !== "captured") {
+      if (payment.status !== "captured" && payment.status !== "partially-refunded") {
         throw new PaymentsDomainError("Only captured payments can be refunded.");
       }
 
@@ -81,6 +83,10 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Refund amount",
       });
+      const remainingRefundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
+      if (compareMoney(amount, remainingRefundableAmount) > 0) {
+        throw new PaymentsDomainError("Refund amount cannot exceed the remaining refundable payment amount.");
+      }
       const orderIds = [...new Set(params.orderIds.map((orderId) => orderId.trim()).filter(Boolean))];
       if (orderIds.length === 0) {
         throw new PaymentsDomainError("Refund must reference at least one order.");
@@ -106,8 +112,9 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
         context,
       });
 
+      let processorRefund: Awaited<ReturnType<PaymentProcessorGateway["createRefund"]>>;
       try {
-        const processorRefund = await deps.processorGateway.createRefund({
+        processorRefund = await deps.processorGateway.createRefund({
           refundId,
           paymentId: params.paymentId,
           processorPaymentReference: payment.processor_payment_reference,
@@ -116,18 +123,6 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
           currencyCode: payment.currency_code as CurrencyCode,
           reason: params.reason,
         });
-        const issued = await commandHandler({
-          streamId: `payments.refund-${refundId}`,
-          command: {
-            type: "RecordRefundIssued",
-            processorRefundReference: processorRefund.processorRefundReference,
-            processorStatus: processorRefund.processorStatus,
-            issuedAt: new Date().toISOString(),
-          },
-          context,
-        });
-
-        return { refundId, version: issued.version };
       } catch (error) {
         const failed = await commandHandler({
           streamId: `payments.refund-${refundId}`,
@@ -143,6 +138,19 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
 
         return { refundId, version: failed.version || requested.version };
       }
+
+      const issued = await commandHandler({
+        streamId: `payments.refund-${refundId}`,
+        command: {
+          type: "RecordRefundIssued",
+          processorRefundReference: processorRefund.processorRefundReference,
+          processorStatus: processorRefund.processorStatus,
+          issuedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { refundId, version: issued.version };
     },
     projectors: [
       createProjectionHandlerSet({
