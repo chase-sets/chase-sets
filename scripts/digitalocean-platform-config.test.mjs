@@ -308,8 +308,8 @@ function hotRelaySourceContextsFromRegistry(source) {
 }
 
 function directListenerSourceContextsFromRegistry(source) {
-  return [...new Set([...hotRelaySourceContextsFromRegistry(source), "identity"])].sort((left, right) =>
-    left.localeCompare(right),
+  return [...new Set([...hotRelaySourceContextsFromRegistry(source), "identity", "public-presence"])].sort(
+    (left, right) => left.localeCompare(right),
   );
 }
 
@@ -653,15 +653,21 @@ describe("DigitalOcean platform configuration", () => {
     expectTerraformAssignment(
       platformLocals,
       "worker_projection_wake_relay_enabled",
-      'local.is_staging ? "true" : "false"',
+      '(local.is_staging || local.is_production) ? "true" : "false"',
     );
     expectTerraformAssignment(
       platformLocals,
       "event_store_wake_notifications_enabled",
-      'local.is_staging ? "true" : "false"',
+      '(local.is_staging || local.is_production) ? "true" : "false"',
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "projection_wake_source_contexts",
+      'local.is_production ? "public-presence" : "*"',
     );
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"')).toBe(3);
+    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"')).toBe(3);
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_inventory_import_concurrency)");

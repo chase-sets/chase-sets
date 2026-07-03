@@ -177,10 +177,12 @@ locals {
   # full-DML App Platform bindings. The list covers the checkout hot path plus
   # direct-listened dependencies whose staging proofs require live notification
   # latency: Inventory reservation outcomes and Identity presentation
-  # preferences. Previews intentionally omit listener URLs: push rollout never
-  # targets preview environments and the relay falls back to catch-up-only
-  # behavior.
-  worker_listener_source_contexts = ["checkout", "identity", "inventory", "marketplace", "ordering", "payments"]
+  # preferences. Public Presence is included so production landing smoke can
+  # prove the waitlist signup-to-admin-review projection path without enabling
+  # every staging-enabled source context in production. Previews intentionally
+  # omit listener URLs: push rollout never targets preview environments and the
+  # relay falls back to catch-up-only behavior.
+  worker_listener_source_contexts = ["checkout", "identity", "inventory", "marketplace", "ordering", "payments", "public-presence"]
   api_waiter_contexts             = ["catalog", "discovery", "inventory", "marketplace"]
   wake_listener_contexts          = distinct(concat(local.worker_listener_source_contexts, local.api_waiter_contexts))
   wake_listener_database_users = (local.is_production || local.is_staging) ? {
@@ -237,11 +239,13 @@ locals {
 
   # The source-context wake registry is environment-global, so push rollout is
   # environment-gated here: staging runs the full push loop for the enabled
-  # wave-1 contexts, while production and previews keep both the relay and
-  # write-side event-store wake emission killed until the production
-  # enablement gates (#1243/#1244/#1237) pass.
-  worker_projection_wake_relay_enabled   = local.is_staging ? "true" : "false"
-  event_store_wake_notifications_enabled = local.is_staging ? "true" : "false"
+  # source contexts, production runs only the Public Presence waitlist smoke
+  # source, and previews keep both the relay and write-side event-store wake
+  # emission killed until the production enablement gates (#1243/#1244/#1237)
+  # pass.
+  worker_projection_wake_relay_enabled   = (local.is_staging || local.is_production) ? "true" : "false"
+  event_store_wake_notifications_enabled = (local.is_staging || local.is_production) ? "true" : "false"
+  projection_wake_source_contexts        = local.is_production ? "public-presence" : "*"
 
   # --- Push-wake connection budget (#1244, #1243, #1236) ---------------------
   # Plan-time model of worst-case DigitalOcean managed Postgres backend demand

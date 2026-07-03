@@ -139,6 +139,7 @@ describe("source-context wake registry", () => {
 
   it("creates write-side and relay configs from the same source-context entry", () => {
     delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
+    delete process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS;
 
     expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" })).toMatchObject({
       enabled: true,
@@ -208,7 +209,9 @@ describe("source-context wake registry", () => {
 
   it("honors the deployment-level event-store wake emission kill switch", () => {
     const previousValue = process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
+    const previousSourceContexts = process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS;
     try {
+      delete process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS;
       for (const disabledValue of ["false", "0", "off", "no", "typo"]) {
         process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED = disabledValue;
         expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" })).toMatchObject(
@@ -222,11 +225,29 @@ describe("source-context wake registry", () => {
       expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" })).toMatchObject({
         enabled: true,
       });
+
+      process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS = "public-presence";
+      expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" })).toMatchObject({
+        enabled: false,
+      });
+      expect(
+        createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "public-presence" }),
+      ).toMatchObject({
+        enabled: true,
+      });
+      expect(listSourceContextWakeRelayConfigs().map((config) => config.sourceContextName)).toEqual([
+        "public-presence",
+      ]);
     } finally {
       if (previousValue === undefined) {
         delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
       } else {
         process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED = previousValue;
+      }
+      if (previousSourceContexts === undefined) {
+        delete process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS;
+      } else {
+        process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS = previousSourceContexts;
       }
     }
   });
