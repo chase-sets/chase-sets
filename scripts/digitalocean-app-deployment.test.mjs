@@ -10,6 +10,7 @@ import {
   appPlatformChanges,
   captureRollbackTarget,
   collectDeploymentDiagnostics,
+  destructiveChangesApprovalFingerprint,
   destructiveResourceChanges,
   deployApp,
   deploymentForDiagnostics,
@@ -357,6 +358,9 @@ describe("digitalocean-app-deployment", () => {
       approvedDestructiveChangeAddressesFromText(`
 # Production Destructive Change Approval
 
+Approval state: active
+Plan fingerprint: sha256:${"a".repeat(64)}
+
 ## Approved Destructive Changes
 
 - \`digitalocean_database_db.contexts["experience"]\`
@@ -380,6 +384,35 @@ The resources are retired by a reviewed context merge.
         allowedDestructiveAddresses: ['digitalocean_database_db.contexts["experience"]'],
       }),
     ).toThrow("destructive changes not covered by the reviewed override marker");
+  });
+
+  it("blocks active destructive approvals that do not match the current plan fingerprint", () => {
+    const plan = planFor([resourceChange('digitalocean_database_db.contexts["experience"]', ["delete"])]);
+
+    expect(() =>
+      assertNoDestructiveChanges(plan, {
+        destructiveChangeApproval: {
+          state: "active",
+          planFingerprint: `sha256:${"b".repeat(64)}`,
+          addresses: ['digitalocean_database_db.contexts["experience"]'],
+        },
+      }),
+    ).toThrow("approval plan fingerprint does not match the current Terraform plan");
+  });
+
+  it("allows active destructive approvals only when resources and plan fingerprint match", () => {
+    const plan = planFor([resourceChange('digitalocean_database_db.contexts["experience"]', ["delete"])]);
+    const destructiveChanges = destructiveResourceChanges(plan);
+
+    expect(
+      assertNoDestructiveChanges(plan, {
+        destructiveChangeApproval: {
+          state: "active",
+          planFingerprint: destructiveChangesApprovalFingerprint(destructiveChanges),
+          addresses: ['digitalocean_database_db.contexts["experience"]'],
+        },
+      }),
+    ).toEqual(destructiveChanges);
   });
 
   it("allows only destructive Terraform changes named by a resource-scoped marker", () => {
@@ -411,17 +444,12 @@ The resources are retired by a reviewed context merge.
     ]);
   });
 
-  it("scopes the production context-merge approval marker to the retired resources", () => {
+  it("keeps the checked-in production destructive approval in no-active-approval state", () => {
     const approvalText = readFileSync(resolve(".github/deployment/production-destructive-change-approved.md"), "utf8");
 
-    expect(approvedDestructiveChangeAddressesFromText(approvalText)).toEqual([
-      'digitalocean_database_db.contexts["experience"]',
-      'digitalocean_database_db.contexts["insights"]',
-      'digitalocean_database_db.contexts["support"]',
-      'digitalocean_database_user.contexts["experience"]',
-      'digitalocean_database_user.contexts["insights"]',
-      'digitalocean_database_user.contexts["support"]',
-    ]);
+    expect(approvedDestructiveChangeAddressesFromText(approvalText)).toEqual([]);
+    expect(approvalText).toContain("Approval state: no-active-approval");
+    expect(approvalText).not.toContain('digitalocean_database_db.contexts["experience"]');
   });
 
   it("reads Terraform JSON plan output for app-change detection", async () => {

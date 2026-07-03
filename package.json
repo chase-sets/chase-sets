@@ -166,7 +166,6 @@
     "test:platform": "pnpm --filter @chase-sets/app-platform-api run test",
     "check:structure": "node ./scripts/check-structure.mjs",
     "check:structure:ci": "STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT=violation pnpm run check:structure",
-    "check:structure:budget": "node ./scripts/structure-metrics-budget.mjs",
     "test:typecheck": "tsc -p ./tsconfig.tests.json --noEmit",
     "check:github-actions-runtime": "node ./scripts/check-github-actions-runtime.mjs",
     "check:postage-adapters": "node ./scripts/check-postage-adapter-boundaries.mjs",
