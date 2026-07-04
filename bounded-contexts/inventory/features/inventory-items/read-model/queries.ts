@@ -37,6 +37,7 @@ export type InventoryItemDetailRow = InventoryItemListRow &
   }>;
 
 type BaseInventoryItemRow = Readonly<{
+  total_count: number;
   item_id: string;
   account_id: string;
   catalog_catalog_item_id: string;
@@ -114,6 +115,7 @@ function enrichInventoryItemRows(
   catalogItems: ReadonlyMap<string, CatalogItemSummaryRow>,
 ): InventoryItemListRow[] {
   return rows.map((row) => {
+    const { total_count: _totalCount, ...itemRow } = row;
     const catalogItem = catalogItems.get(row.catalog_catalog_item_id);
     const selectedOptions = Array.isArray(row.selected_options)
       ? (row.selected_options as InventorySelectedOptionEntry[])
@@ -124,7 +126,7 @@ function enrichInventoryItemRows(
         : null;
 
     return {
-      ...row,
+      ...itemRow,
       language_code: catalogItem?.language_code ?? null,
       item_title: catalogItem?.title ?? null,
       item_subtitle: catalogItem?.subtitle ?? null,
@@ -158,16 +160,11 @@ export async function listInventoryItems(
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
 
-  const [countResult, itemsResult] = await Promise.all([
-    db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
-       FROM inventory_items
-       WHERE account_id = $1`,
-      [params.accountId],
-    ),
-    db.query<BaseInventoryItemRow>(
-      `WITH paged_items AS (
-         SELECT *
+  const itemsResult = await db.query<BaseInventoryItemRow>(
+    `WITH paged_items AS (
+         SELECT
+           *,
+           COUNT(*) OVER()::integer AS total_count
          FROM inventory_items
          WHERE account_id = $1
          ORDER BY updated_at DESC, item_id ASC
@@ -175,6 +172,7 @@ export async function listInventoryItems(
          OFFSET $3
        )
        SELECT
+         item.total_count,
          item.item_id,
          item.account_id,
          item.catalog_catalog_item_id,
@@ -203,9 +201,8 @@ export async function listInventoryItems(
          ON true
        ORDER BY item.updated_at DESC, item.item_id ASC
        `,
-      [params.accountId, limit, offset],
-    ),
-  ]);
+    [params.accountId, limit, offset],
+  );
 
   const catalogItems = await loadCatalogItemSummaries(db, [
     ...new Set(itemsResult.rows.map((row) => row.catalog_catalog_item_id)),
@@ -214,7 +211,7 @@ export async function listInventoryItems(
 
   return {
     items,
-    total: Number(countResult.rows[0]?.count ?? 0),
+    total: Number(itemsResult.rows[0]?.total_count ?? 0),
   };
 }
 
