@@ -1863,7 +1863,9 @@ describe("DigitalOcean platform configuration", () => {
       expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     }
 
-    expect(requiredJob).toContain('full_battery_required="${{ needs[\'change-scope\'].outputs.full_battery_required }}"');
+    expect(requiredJob).toContain(
+      "full_battery_required=\"${{ needs['change-scope'].outputs.full_battery_required }}\"",
+    );
     expect(requiredJob).toContain('require_heavy_job "DB Profile Tests"');
     expect(requiredJob).toContain('require_heavy_job "E2E Tests"');
     expect(requiredJob).toContain('require_heavy_job "Build"');
