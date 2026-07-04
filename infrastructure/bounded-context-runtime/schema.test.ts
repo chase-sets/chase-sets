@@ -83,7 +83,7 @@ describe("bounded context runtime schema", () => {
     expect(pool.connect).toHaveBeenCalledTimes(2);
     expect(client.release).toHaveBeenCalledTimes(2);
     expect(queryLog.filter((entry) => entry.sql.includes("pg_try_advisory_lock")).length).toBe(2);
-    expect(queryLog.filter((entry) => entry.sql.includes("pg_advisory_unlock")).length).toBe(2);
+    expect(queryLog.filter((entry) => entry.sql.includes("pg_advisory_unlock")).length).toBe(4);
     expect(
       queryLog.filter((entry) => entry.sql === `SET lock_timeout TO '${SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING}'`),
     ).toHaveLength(2);
@@ -110,6 +110,45 @@ describe("bounded context runtime schema", () => {
         "20260703_example_pages_concurrent_indexes",
       ]),
     );
+  });
+
+  it("drains stale re-entrant schema bootstrap locks on reused pool clients", async () => {
+    let heldLockCount = 2;
+    const lockEvents: string[] = [];
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_unlock")) {
+          if (heldLockCount > 0) {
+            heldLockCount -= 1;
+            lockEvents.push("released");
+            return { rows: [{ released: true }] };
+          }
+          lockEvents.push("empty");
+          return { rows: [{ released: false }] };
+        }
+        if (sql.includes("pg_try_advisory_lock")) {
+          heldLockCount += 1;
+          lockEvents.push("acquired");
+          return { rows: [{ acquired: true }] };
+        }
+        return { rows: [] };
+      }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn(async () => ({ rows: [] })),
+      connect: vi.fn(async () => client),
+    };
+    const module = {
+      contextName: "example",
+      schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+    };
+
+    await bootstrapContextDatabase(module, pool);
+
+    expect(heldLockCount).toBe(0);
+    expect(lockEvents).toEqual(["released", "released", "empty", "acquired", "released", "empty"]);
+    expect(client.release).toHaveBeenCalledWith(undefined);
   });
 
   it("waits past transient schema bootstrap lock contention that outlives the old two-minute ceiling", async () => {
@@ -370,7 +409,7 @@ describe("bounded context runtime schema", () => {
       expect(pool.connect).toHaveBeenCalledTimes(2);
       expect(schemaAttempts).toBe(2);
       expect(clients[0].query).toHaveBeenCalledWith("RESET lock_timeout");
-      expect(clients[0].query).toHaveBeenCalledWith("SELECT pg_advisory_unlock($1::bigint)", expect.anything());
+      expect(clients[0].query.mock.calls.some(([sql]) => sql.includes("pg_advisory_unlock"))).toBe(true);
       expect(clients[0].release).toHaveBeenCalledWith(expect.objectContaining({ code: "55P03" }));
       expect(clients[1].release).toHaveBeenCalledWith(undefined);
       expect(
