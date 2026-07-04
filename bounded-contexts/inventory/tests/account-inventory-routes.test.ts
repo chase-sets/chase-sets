@@ -100,6 +100,112 @@ describe("marketplace inventory routes", () => {
     expect(result.locations.items).toEqual([]);
   });
 
+  it("keeps the account inventory route loadable when item reads fail temporarily", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/inventory/storage-locations")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "query_wait_timeout",
+                message: "Inventory list query waited too long for a database connection.",
+              },
+            },
+            500,
+          ),
+        );
+      }),
+    );
+
+    const result = await inventoryLoader({
+      request: new Request("http://localhost/account/inventory"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.items.items).toEqual([]);
+    expect(result.locations.items).toEqual([]);
+    expect(result.loadError).toBe("Inventory items are taking longer than expected. Reload this page in a moment.");
+  });
+
+  it("bounds the account inventory item read before the route load budget is exhausted", async () => {
+    vi.useFakeTimers();
+    const itemReadSignals: AbortSignal[] = [];
+
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+
+          if (url.includes("/api/auth/session")) {
+            return Promise.resolve(
+              jsonResponse({
+                actor: {
+                  sessionId: "ses_1",
+                  tenantId: "tnt_identity",
+                  userId: "usr_1",
+                  accountId: "acc_1",
+                  membershipId: "mbr_1",
+                  roleKey: "owner",
+                  permissions: ["inventory.view", "inventory.manage"],
+                },
+              }),
+            );
+          }
+
+          if (url.includes("/api/inventory/storage-locations")) {
+            return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+          }
+
+          if (init?.signal) {
+            itemReadSignals.push(init.signal);
+          }
+          return new Promise<Response>(() => undefined);
+        }),
+      );
+
+      const resultPromise = inventoryLoader({
+        request: new Request("http://localhost/account/inventory"),
+        params: {},
+        context: undefined,
+      } as never);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(result.items.items).toEqual([]);
+      expect(result.locations.items).toEqual([]);
+      expect(result.loadError).toBe("Inventory items are taking longer than expected. Reload this page in a moment.");
+      expect(itemReadSignals[0]?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("loads Sell List inventory create draft from safe query parameters", async () => {
     vi.stubGlobal(
       "fetch",
