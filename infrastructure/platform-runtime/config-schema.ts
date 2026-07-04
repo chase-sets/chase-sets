@@ -7,6 +7,7 @@ import { ENVIRONMENT_DATA_PROFILES } from "@chase-sets/bounded-context-module";
 export type PlatformPoolConfig = Readonly<{
   max: number;
   idleTimeoutMillis: number;
+  idleInTransactionSessionTimeoutMillis?: number;
   connectionTimeoutMillis: number;
 }>;
 
@@ -368,6 +369,8 @@ export function loadPoolConfig(): PlatformPoolConfig {
   return {
     max: getPositiveNumberEnv("DATABASE_POOL_MAX", 10),
     idleTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_IDLE_TIMEOUT_MS", 30_000),
+    idleInTransactionSessionTimeoutMillis:
+      getOptionalPositiveNumberEnv("DATABASE_POOL_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS", Number.NaN) ?? undefined,
     connectionTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS", 5_000),
   };
 }

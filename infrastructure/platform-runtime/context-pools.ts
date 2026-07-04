@@ -35,6 +35,7 @@ export function createContextPools<TContextName extends string, TConfig extends 
   config: TConfig,
 ): ContextPools<TContextName> {
   const poolsByDatabaseUrl = new Map<string, PgTransactionalPool>();
+  const poolOptions = { ...contextRegistry.defaultPool, ...config.pool };
   const resolvePool = (databaseUrl: string) => {
     const existingPool = poolsByDatabaseUrl.get(databaseUrl);
 
@@ -42,7 +43,7 @@ export function createContextPools<TContextName extends string, TConfig extends 
       return existingPool;
     }
 
-    const pool = createPgPool(databaseUrl, config.pool ?? contextRegistry.defaultPool);
+    const pool = createPgPool(databaseUrl, poolOptions);
     poolsByDatabaseUrl.set(databaseUrl, pool);
     return pool;
   };

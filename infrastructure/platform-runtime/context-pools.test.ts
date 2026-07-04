@@ -50,6 +50,46 @@ describe("context pools", () => {
     }
   });
 
+  it("merges runtime pool overrides over registry defaults", async () => {
+    const pools = createContextPools(
+      {
+        ...testContextRegistry,
+        defaultPool: {
+          max: 10,
+          idleTimeoutMillis: 30_000,
+          idleInTransactionSessionTimeoutMillis: 15_000,
+          connectionTimeoutMillis: 5_000,
+        },
+      },
+      {
+        sharedDatabaseUrl: "postgresql://localhost/shared",
+        controlDatabaseUrl: "postgresql://localhost/control",
+        contextDatabaseUrls: {},
+        pool: {
+          max: 3,
+        },
+      },
+    );
+
+    try {
+      const poolOptions = pools.auth as unknown as {
+        options: {
+          max?: number;
+          idleTimeoutMillis?: number;
+          idle_in_transaction_session_timeout?: number;
+          connectionTimeoutMillis?: number;
+        };
+      };
+
+      expect(poolOptions.options.max).toBe(3);
+      expect(poolOptions.options.idleTimeoutMillis).toBe(30_000);
+      expect(poolOptions.options.idle_in_transaction_session_timeout).toBe(15_000);
+      expect(poolOptions.options.connectionTimeoutMillis).toBe(5_000);
+    } finally {
+      await closeContextPools(pools);
+    }
+  });
+
   it("uses a separate work-signal pool when a direct waiter URL is configured", async () => {
     const pools = createContextPools(testContextRegistry, {
       sharedDatabaseUrl: "postgresql://localhost/shared",
