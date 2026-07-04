@@ -42,7 +42,7 @@ Active GitHub native merge queue settings for `main`:
 | Required check | `PR Required` |
 | Check response timeout | `60 minutes` |
 
-`.github/workflows/platform-pr.yml` must run on `pull_request`, `merge_group`, and `push` to `main` so `PR Required` is evaluated for both pull request heads and merge queue synthetic commits.
+`.github/workflows/platform-pr.yml` must run on `pull_request` and `merge_group` so `PR Required` is evaluated for both pull request heads and merge queue synthetic commits. Non-blocking coverage telemetry intentionally lives in `.github/workflows/platform-coverage.yml`, which runs daily against `main` and can be dispatched manually for a specific ref; merge groups do not wait on coverage artifacts.
 
 Current repository evidence from June 1, 2026:
 
