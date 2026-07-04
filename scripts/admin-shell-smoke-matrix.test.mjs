@@ -214,6 +214,16 @@ describe("admin shell smoke matrix", () => {
     expect(platformSmoke).toContain("SMOKE_ADMIN_TOPOLOGY");
   });
 
+  it("carries waitlist write freshness into production smoke admin reads", () => {
+    expect(platformSmoke).toContain("waitlistSignupResponse.headers.get(commitReceiptHeader)");
+    expect(platformSmoke).toContain("createReadAfterWriteReceiptFromCommitReceipt(waitlistCommitReceipt)");
+    expect(platformSmoke).toContain("[readAfterWriteHeader]: waitlistReadAfterWriteReceipt");
+    expect(platformSmoke).toContain('[readTargetContextHeader]: "public-presence"');
+    expect(platformSmoke.indexOf("const waitlistReadAfterWriteReceipt")).toBeGreaterThan(
+      platformSmoke.indexOf("await expectEventually("),
+    );
+  });
+
   it("keeps the matrix explicit about link, download, SSE, and durable-job evidence", () => {
     expect(ADMIN_SHELL_SMOKE_MATRIX.map((row) => row.kind)).toEqual(
       expect.arrayContaining(["content-managed-link", "cross-section-link", "api-topology"]),

@@ -561,7 +561,7 @@ async function main() {
     await expectRedirect("legacy staging redirect", `${redirectUrl}/`, new URL(landingUrl).host);
   }
 
-  let waitlistReadAfterWriteReceipt = null;
+  let waitlistCommitReceipt = null;
   if (writeWaitlist) {
     const smokePagePath = createSmokePagePath();
 
@@ -585,12 +585,11 @@ async function main() {
         },
       }),
     });
-    const waitlistCommitReceipt = waitlistSignupResponse.headers.get(commitReceiptHeader);
+    waitlistCommitReceipt = waitlistSignupResponse.headers.get(commitReceiptHeader);
     if (!waitlistCommitReceipt) {
       throw new Error(`waitlist signup did not return ${commitReceiptHeader}.`);
     }
-    waitlistReadAfterWriteReceipt = createReadAfterWriteReceiptFromCommitReceipt(waitlistCommitReceipt);
-    if (!waitlistReadAfterWriteReceipt) {
+    if (!createReadAfterWriteReceiptFromCommitReceipt(waitlistCommitReceipt)) {
       throw new Error(`waitlist signup returned malformed ${commitReceiptHeader}.`);
     }
   }
@@ -622,18 +621,18 @@ async function main() {
       await expectEventually(
         "admin waitlist list",
         async () => {
+          const waitlistReadAfterWriteReceipt = createReadAfterWriteReceiptFromCommitReceipt(waitlistCommitReceipt);
+          if (!waitlistReadAfterWriteReceipt) {
+            throw new Error(`waitlist signup returned malformed ${commitReceiptHeader}.`);
+          }
           const waitlistResponse = await expectOk(
             "admin waitlist list",
             `${adminUrl}/api/public-presence/admin/waitlist?search=${encodeURIComponent(syntheticEmail)}`,
             {
               headers: {
                 Authorization: `Bearer ${authBody.sessionToken}`,
-                ...(waitlistReadAfterWriteReceipt
-                  ? {
-                      [readAfterWriteHeader]: waitlistReadAfterWriteReceipt,
-                      [readTargetContextHeader]: "public-presence",
-                    }
-                  : {}),
+                [readAfterWriteHeader]: waitlistReadAfterWriteReceipt,
+                [readTargetContextHeader]: "public-presence",
               },
             },
           );
