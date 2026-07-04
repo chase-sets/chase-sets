@@ -398,6 +398,7 @@ jobs:
       TF_VAR_facebook_social_login_client_secret: ""
       TF_VAR_notification_email_provider: noop
       TF_VAR_alert_emails: "[]"
+      DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -420,6 +421,10 @@ jobs:
           sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+          (
+            cd "$tmp"
+            node "$GITHUB_WORKSPACE/scripts/digitalocean-app-deployment.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
+          )
 
       - name: Terraform init catalog assets without remote backend
         working-directory: infrastructure/digitalocean/catalog-assets
