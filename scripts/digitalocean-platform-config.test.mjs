@@ -891,6 +891,10 @@ describe("DigitalOcean platform configuration", () => {
     const productionSmokeStep = workflowSteps(deployProductionJob, "Smoke check").at(-1);
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
     const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
+    const diagnosticsStep = workflowStep(
+      deployProductionJob,
+      "Capture post-cutover production App Platform diagnostics",
+    );
     const rollbackStep = workflowStep(deployProductionJob, "Roll back production App Platform image");
     const releaseHealthStep = workflowSteps(platformProductionWorkflow, "Write release health summary").at(-1);
     const uploadStep = workflowSteps(platformProductionWorkflow, "Upload release health summary").at(-1);
@@ -906,12 +910,18 @@ describe("DigitalOcean platform configuration", () => {
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
     const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
     const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
+    const stage1Index = deployProductionJob.indexOf("- name: Stage 1 production canary");
+    const diagnosticsIndex = deployProductionJob.indexOf(
+      "- name: Capture post-cutover production App Platform diagnostics",
+    );
     const rollbackIndex = deployProductionJob.indexOf("- name: Roll back production App Platform image");
     const markerIndex = deployProductionJob.indexOf("- name: Mark production release");
 
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
     expect(smokeIndex).toBeLessThan(rollbackIndex);
+    expect(stage1Index).toBeLessThan(diagnosticsIndex);
+    expect(diagnosticsIndex).toBeLessThan(rollbackIndex);
     expect(rollbackIndex).toBeLessThan(markerIndex);
 
     expect(captureStep).toContain("terraform output -raw app_id");
@@ -932,6 +942,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(readinessStep).toContain("ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}");
     expect(readinessStep).toContain("pnpm run rollback:readiness");
     expect(readinessStep).toContain('echo "result=${result}" >> "$GITHUB_OUTPUT"');
+
+    expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
+    expect(diagnosticsStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(diagnosticsStep).toContain(
+      'app_id="$(terraform output -raw app_id 2>/dev/null || printf \'%s\' "${{ steps.rollback_target.outputs.rollback_app_id }}")"',
+    );
+    expect(diagnosticsStep).toContain(
+      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true',
+    );
 
     expect(rollbackStep).toContain(
       "if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'",
