@@ -884,8 +884,34 @@ jobs:
           curl --fail --silent --show-error --head --retry 12 --retry-delay 10 --retry-all-errors \
             "${catalog_asset_public_base_url}/" >/dev/null
 
-      - name: Install Playwright Chromium for staging critical flows
+      - name: Resolve Playwright Chromium version
+        id: staging-playwright-chromium
         if: env.SHOULD_DEPLOY != 'false'
+        run: |
+          set -euo pipefail
+          version="$(pnpm exec playwright --version | awk '{print $2}')"
+          if [ -z "$version" ]; then
+            echo "Could not resolve Playwright version from pnpm-lock.yaml." >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright Chromium for staging critical flows
+        id: staging-playwright-chromium-cache
+        if: env.SHOULD_DEPLOY != 'false'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+
+      - name: Install Playwright Chromium for staging critical flows
+        if: >-
+          env.SHOULD_DEPLOY != 'false'
+          && steps.staging-playwright-chromium-cache.outputs.cache-hit != 'true'
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Staging marketplace critical flows
@@ -901,6 +927,7 @@ jobs:
           MARKETPLACE_E2E_SEARCH_QUERY: ${{ vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || '' }}
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: |
           set -euo pipefail
           admin_domain="$(terraform output -raw admin_domain)"

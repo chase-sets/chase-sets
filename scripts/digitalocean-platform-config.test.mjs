@@ -2288,14 +2288,55 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("gates production promotion on staging marketplace critical flows", () => {
+    const stagingPlaywrightVersionStep = workflowStep(
+      platformProductionWorkflow,
+      "Resolve Playwright Chromium version",
+    );
+    const stagingPlaywrightCacheStep = workflowStep(
+      platformProductionWorkflow,
+      "Cache Playwright Chromium for staging critical flows",
+    );
+    const stagingPlaywrightInstallStep = workflowStep(
+      platformProductionWorkflow,
+      "Install Playwright Chromium for staging critical flows",
+    );
     const stagingCriticalFlowStep = workflowStep(platformProductionWorkflow, "Staging marketplace critical flows");
     const stagingBuyNowProbesStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
     const stagingBuyNowEvidenceStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
     const stagingMoneySmokeStep = workflowStep(platformProductionWorkflow, "Staging Stripe money smoke");
     const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging deployed");
 
-    expect(platformProductionWorkflow).toContain("Install Playwright Chromium for staging critical flows");
+    expect(stagingPlaywrightVersionStep).toContain("id: staging-playwright-chromium");
+    expect(stagingPlaywrightVersionStep).toContain("pnpm exec playwright --version");
+    expect(stagingPlaywrightVersionStep).toContain('echo "version=${version}" >> "$GITHUB_OUTPUT"');
+    expect(stagingPlaywrightCacheStep).toContain(
+      "uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0",
+    );
+    expect(stagingPlaywrightCacheStep).toContain("id: staging-playwright-chromium-cache");
+    expect(stagingPlaywrightCacheStep).toContain("path: ~/.cache/ms-playwright");
+    expect(stagingPlaywrightCacheStep).toContain(
+      "key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}",
+    );
+    expect(stagingPlaywrightCacheStep).toContain("playwright-chromium-${{ runner.os }}-");
+    expect(stagingPlaywrightInstallStep).toContain("if: >-");
+    expect(stagingPlaywrightInstallStep).toContain(
+      "steps.staging-playwright-chromium-cache.outputs.cache-hit != 'true'",
+    );
+    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright");
+    expect(stagingPlaywrightInstallStep).toContain("pnpm exec playwright install --with-deps chromium");
+    expect(platformProductionWorkflow.indexOf("- name: Resolve Playwright Chromium version")).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
+    );
+    expect(
+      platformProductionWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
+    ).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Install Playwright Chromium for staging critical flows"),
+    );
+    expect(
+      platformProductionWorkflow.indexOf("- name: Install Playwright Chromium for staging critical flows"),
+    ).toBeLessThan(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows"));
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
+    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright");
     expect(stagingCriticalFlowStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
     expect(stagingCriticalFlowStep).toContain('ADMIN_WEB_URL="https://${admin_domain}"');
     expect(stagingCriticalFlowStep).toContain('MARKETPLACE_WEB_URL="https://${marketplace_domain}"');
