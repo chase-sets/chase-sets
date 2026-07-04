@@ -131,6 +131,23 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
       readOption(argv, "--production-restore-point-remediation") ??
       readEnv("PRODUCTION_RESTORE_POINT_REMEDIATION", env) ??
       null,
+    productionRestorePointPreMigrateStateKey:
+      readOption(argv, "--production-restore-point-pre-migrate-state-key") ??
+      readEnv("PRODUCTION_RESTORE_POINT_PRE_MIGRATE_STATE_KEY", env) ??
+      null,
+    productionRestorePointPreMigrateStateFingerprint:
+      readOption(argv, "--production-restore-point-pre-migrate-state-fingerprint") ??
+      readEnv("PRODUCTION_RESTORE_POINT_PRE_MIGRATE_STATE_FINGERPRINT", env) ??
+      null,
+    productionRestorePointReused: normalizeBoolean(
+      readOption(argv, "--production-restore-point-reused") ??
+        readEnv("PRODUCTION_RESTORE_POINT_REUSED", env) ??
+        "false",
+    ),
+    productionRestorePointReusedClusterId:
+      readOption(argv, "--production-restore-point-reused-cluster-id") ??
+      readEnv("PRODUCTION_RESTORE_POINT_REUSED_CLUSTER_ID", env) ??
+      null,
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
@@ -274,6 +291,10 @@ export function buildReleaseHealthRecord(input) {
         createdAt: emptyToNull(input.productionRestorePointCreatedAt),
         bypassed: Boolean(input.productionRestorePointBypassed),
         remediation: emptyToNull(input.productionRestorePointRemediation),
+        preMigrateStateKey: emptyToNull(input.productionRestorePointPreMigrateStateKey),
+        preMigrateStateFingerprint: emptyToNull(input.productionRestorePointPreMigrateStateFingerprint),
+        reused: Boolean(input.productionRestorePointReused),
+        reusedClusterId: emptyToNull(input.productionRestorePointReusedClusterId),
       },
     },
   };

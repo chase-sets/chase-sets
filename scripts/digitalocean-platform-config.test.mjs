@@ -413,6 +413,18 @@ describe("DigitalOcean platform configuration", () => {
       "node ../../../scripts/digitalocean-app-deployment.mjs postgres-cluster-id tfplan",
     );
     expect(restorePointStep).toContain("Using production database cluster id from Terraform plan.");
+    expect(restorePointStep).toContain("git fetch origin production");
+    expect(restorePointStep).toContain('pre_migrate_state_key="production-marker:${production_marker_commit}"');
+    expect(restorePointStep).toContain('--pre-migrate-state-key "$pre_migrate_state_key"');
+  });
+
+  it("reaps production restore-point forks on a six-hour cleanup window", () => {
+    expect(platformProductionRestorePointCleanupWorkflow).toContain('cron: "17 3,9,15,21 * * *"');
+    expect(platformProductionRestorePointCleanupWorkflow).toContain('default: "6"');
+    expect(platformProductionRestorePointCleanupWorkflow).toContain(
+      `min_age_hours="\${{ github.event.inputs.min_age_hours || '6' }}"`,
+    );
+    expect(platformProductionRestorePointCleanupWorkflow).toContain("PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES");
   });
 
   it("wires shared Catalog provider runtime config through Catalog API, worker, and bootstrap components without checked-in secrets", () => {

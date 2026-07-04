@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { appendFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,7 @@ const execFile = promisify(execFileCallback);
 export const PRODUCTION_DB_RESTORE_POINT_VERSION = "production-db-restore-point/v1";
 export const DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS = 75 * 60 * 1000;
 export const DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS = 30 * 1000;
+export const DEFAULT_PRODUCTION_DB_RESTORE_POINT_REUSE_FRESHNESS_HOURS = 6;
 
 const DATABASE_AVAILABLE_STATUSES = new Set(["online"]);
 const DATABASE_FAILURE_STATUSES = new Set(["error", "errored", "failed"]);
@@ -33,6 +35,10 @@ export function parseProductionDbRestorePointArgs(argv, env = process.env) {
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env),
     sourceClusterId: readOption(argv, "--source-cluster-id") ?? readEnv("PRODUCTION_DATABASE_CLUSTER_ID", env),
     releaseCommit: readOption(argv, "--release-commit") ?? readEnv("RELEASE_COMMIT", env),
+    preMigrateStateKey:
+      readOption(argv, "--pre-migrate-state-key") ??
+      readEnv("PRODUCTION_DB_RESTORE_POINT_PRE_MIGRATE_STATE_KEY", env) ??
+      readEnv("PRODUCTION_DB_RESTORE_POINT_STATE_KEY", env),
     workflowRunId: readOption(argv, "--workflow-run-id") ?? readEnv("GITHUB_RUN_ID", env),
     workflowRunAttempt: readOption(argv, "--workflow-run-attempt") ?? readEnv("GITHUB_RUN_ATTEMPT", env),
     releaseMode: readOption(argv, "--release-mode") ?? readEnv("RELEASE_MODE", env) ?? "normal",
@@ -69,6 +75,12 @@ export function parseProductionDbRestorePointArgs(argv, env = process.env) {
         String(DEFAULT_MIN_AGE_HOURS),
       "PRODUCTION_DB_RESTORE_POINT_PREFLIGHT_MIN_AGE_HOURS",
     ),
+    reuseFreshnessHours: parseNumber(
+      readOption(argv, "--reuse-freshness-hours") ??
+        readEnv("PRODUCTION_DB_RESTORE_POINT_REUSE_FRESHNESS_HOURS", env) ??
+        String(DEFAULT_PRODUCTION_DB_RESTORE_POINT_REUSE_FRESHNESS_HOURS),
+      "PRODUCTION_DB_RESTORE_POINT_REUSE_FRESHNESS_HOURS",
+    ),
     preflightHoldNames: parseHoldNames([
       ...readRepeatedOptions(argv, "--preflight-hold-name"),
       readEnv("PRODUCTION_DB_RESTORE_POINT_PREFLIGHT_HOLD_NAMES", env),
@@ -79,8 +91,15 @@ export function parseProductionDbRestorePointArgs(argv, env = process.env) {
 }
 
 export function buildRestorePointName(input) {
-  const shortSha = String(input.releaseCommit ?? "unknown").slice(0, 8);
-  return `cs-prod-rp-${shortSha}-${input.workflowRunId ?? "run"}-${input.workflowRunAttempt ?? "1"}`;
+  const fingerprint = buildPreMigrateStateFingerprint(input.preMigrateStateKey ?? input.releaseCommit ?? "unknown");
+  return `cs-prod-rp-${fingerprint}-${input.workflowRunId ?? "run"}-${input.workflowRunAttempt ?? "1"}`;
+}
+
+export function buildPreMigrateStateFingerprint(preMigrateStateKey) {
+  return createHash("sha256")
+    .update(String(preMigrateStateKey ?? "").trim())
+    .digest("hex")
+    .slice(0, 16);
 }
 
 export async function createDigitalOceanDatabaseFork(options, exec) {
@@ -203,6 +222,8 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
   const normalizedDependencies = normalizeDependencies(dependencies);
   const exec = normalizedDependencies.execFile;
   const errors = validateOptions(options);
+  const preMigrateStateKey = emptyToNull(options.preMigrateStateKey);
+  const preMigrateStateFingerprint = preMigrateStateKey ? buildPreMigrateStateFingerprint(preMigrateStateKey) : null;
   const baseRecord = {
     schemaVersion: PRODUCTION_DB_RESTORE_POINT_VERSION,
     checkedAt: options.checkedAt,
@@ -211,6 +232,10 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     workflowRunId: options.workflowRunId ?? "",
     workflowRunAttempt: options.workflowRunAttempt ?? "",
     sourceClusterId: options.sourceClusterId ?? "",
+    preMigrateState: {
+      key: preMigrateStateKey,
+      fingerprint: preMigrateStateFingerprint,
+    },
     restorePoint: {
       type: "digitalocean-database-fork",
       clusterId: null,
@@ -218,6 +243,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
       status: null,
       createdAt: null,
     },
+    restorePointReuse: restorePointReuseNotAttempted(options, preMigrateStateFingerprint),
     restorePointCleanup: restorePointCleanupNotRequired(),
     restorePointPreflight: restorePointPreflightNotAttempted(options),
     skip: {
@@ -265,12 +291,59 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     return { record, passesRestorePointGate: true };
   }
 
-  const restorePointName = buildRestorePointName(options);
+  const restorePointName = buildRestorePointName({ ...options, preMigrateStateKey });
+  const reuse = await findReusableRestorePointFork(
+    {
+      doctlPath: options.doctlPath,
+      prefix: options.preflightPrefix ?? DEFAULT_RESTORE_POINT_PREFIX,
+      preMigrateStateFingerprint,
+      checkedAt: options.checkedAt,
+      freshnessHours: options.reuseFreshnessHours ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_REUSE_FRESHNESS_HOURS,
+    },
+    exec,
+  );
+
+  if (reuse.record.status === "failed") {
+    return {
+      record: {
+        ...baseRecord,
+        restorePoint: {
+          ...baseRecord.restorePoint,
+          name: restorePointName,
+          status: "reuse-check-failed",
+        },
+        restorePointReuse: reuse.record,
+        errors: reuse.record.errors,
+      },
+      passesRestorePointGate: false,
+    };
+  }
+
+  if (reuse.fork) {
+    return {
+      record: {
+        ...baseRecord,
+        restorePoint: {
+          type: "digitalocean-database-fork",
+          clusterId: reuse.fork.id,
+          name: reuse.fork.name,
+          status: reuse.fork.status,
+          createdAt: reuse.fork.createdAt,
+        },
+        restorePointReuse: reuse.record,
+        result: "success",
+        errors: [],
+      },
+      passesRestorePointGate: true,
+    };
+  }
+
+  const restorePointBaseRecord = { ...baseRecord, restorePointReuse: reuse.record };
   const preflight = await preflightRestorePointForkLifecycle(options, exec);
   if (preflight.status !== "pass") {
     return {
       record: {
-        ...baseRecord,
+        ...restorePointBaseRecord,
         restorePoint: {
           ...baseRecord.restorePoint,
           name: restorePointName,
@@ -321,7 +394,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
       });
       return {
         record: {
-          ...baseRecord,
+          ...restorePointBaseRecord,
           restorePointPreflight: preflight,
           restorePoint: {
             ...baseRecord.restorePoint,
@@ -346,7 +419,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     const quotaFailure = isLikelyDigitalOceanQuotaFailure(error);
     return {
       record: {
-        ...baseRecord,
+        ...restorePointBaseRecord,
         restorePointPreflight: preflight,
         restorePoint: {
           ...baseRecord.restorePoint,
@@ -383,7 +456,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     );
     return {
       record: {
-        ...baseRecord,
+        ...restorePointBaseRecord,
         restorePointPreflight: preflight,
         restorePoint: {
           ...baseRecord.restorePoint,
@@ -421,7 +494,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     );
     return {
       record: {
-        ...baseRecord,
+        ...restorePointBaseRecord,
         restorePointPreflight: preflight,
         restorePoint: {
           type: "digitalocean-database-fork",
@@ -459,7 +532,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     });
     return {
       record: {
-        ...baseRecord,
+        ...restorePointBaseRecord,
         restorePointPreflight: preflight,
         restorePoint: {
           type: "digitalocean-database-fork",
@@ -500,7 +573,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
     });
     return {
       record: {
-        ...baseRecord,
+        ...restorePointBaseRecord,
         restorePointPreflight: preflight,
         restorePoint: {
           type: "digitalocean-database-fork",
@@ -522,7 +595,7 @@ export async function createProductionDbRestorePoint(options, dependencies = {})
 
   fork = availability.fork;
   const record = {
-    ...baseRecord,
+    ...restorePointBaseRecord,
     restorePointPreflight: preflight,
     restorePoint: {
       type: "digitalocean-database-fork",
@@ -716,6 +789,9 @@ function validateOptions(options) {
   if (!options.bypass && !options.skip && !isNonEmptyString(options.sourceClusterId)) {
     errors.push("PRODUCTION_DATABASE_CLUSTER_ID is required.");
   }
+  if (!options.bypass && !options.skip && !isNonEmptyString(options.preMigrateStateKey)) {
+    errors.push("PRODUCTION_DB_RESTORE_POINT_PRE_MIGRATE_STATE_KEY is required.");
+  }
   if (options.bypass && options.skip) {
     errors.push("PRODUCTION_DB_RESTORE_POINT_BYPASS and PRODUCTION_DB_RESTORE_POINT_SKIP cannot both be true.");
   }
@@ -734,6 +810,10 @@ function validateOptions(options) {
   if (!isPositiveNumber(options.forkPollIntervalMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS)) {
     errors.push("PRODUCTION_DB_RESTORE_POINT_FORK_POLL_SECONDS must be greater than zero.");
   }
+  const reuseFreshnessHours = options.reuseFreshnessHours ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_REUSE_FRESHNESS_HOURS;
+  if (!Number.isFinite(reuseFreshnessHours) || reuseFreshnessHours < 0) {
+    errors.push("PRODUCTION_DB_RESTORE_POINT_REUSE_FRESHNESS_HOURS must be zero or greater.");
+  }
   return errors;
 }
 
@@ -749,6 +829,10 @@ function githubOutputsForRecord(record) {
     restore_point_preflight_status: record.restorePointPreflight?.status ?? "",
     restore_point_remediation: record.remediation?.summary ?? record.restorePointPreflight?.remediation?.summary ?? "",
     restore_point_bypassed: String(record.bypass.allowed),
+    restore_point_pre_migrate_state_key: record.preMigrateState?.key ?? "",
+    restore_point_pre_migrate_state_fingerprint: record.preMigrateState?.fingerprint ?? "",
+    restore_point_reused: String(Boolean(record.restorePointReuse?.reused)),
+    restore_point_reused_cluster_id: record.restorePointReuse?.reusedClusterId ?? "",
   };
 }
 
@@ -836,15 +920,90 @@ function restorePointPreflightNotAttempted(options = {}) {
   };
 }
 
+function restorePointReuseNotAttempted(options = {}, preMigrateStateFingerprint = null) {
+  return {
+    attempted: false,
+    status: "not-attempted",
+    reused: false,
+    reusedClusterId: null,
+    prefix: options.preflightPrefix ?? DEFAULT_RESTORE_POINT_PREFIX,
+    preMigrateStateFingerprint,
+    freshnessHours: options.reuseFreshnessHours ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_REUSE_FRESHNESS_HOURS,
+    cutoff: null,
+    candidates: [],
+    errors: [],
+  };
+}
+
 function restorePointCleanupRemediation() {
   return {
     summary:
-      "Run the Platform Production Restore Point Cleanup workflow or dry-run/apply scripts before retrying production deploy; the cleanup helper keeps the default 24-hour guard unless an operator explicitly overrides it.",
+      "Run the Platform Production Restore Point Cleanup workflow or dry-run/apply scripts before retrying production deploy; the cleanup helper keeps the default 6-hour guard unless an operator explicitly overrides it.",
     workflow: RESTORE_POINT_CLEANUP_WORKFLOW,
     helper: RESTORE_POINT_CLEANUP_HELPER,
     applyHelper:
-      "node ./scripts/production-db-restore-point-cleanup.mjs --min-age-hours 24 --apply --out artifacts/release-health/production-db-restore-point-cleanup.json",
+      "node ./scripts/production-db-restore-point-cleanup.mjs --min-age-hours 6 --apply --out artifacts/release-health/production-db-restore-point-cleanup.json",
   };
+}
+
+async function findReusableRestorePointFork(options, exec) {
+  const base = {
+    attempted: true,
+    status: "unknown",
+    reused: false,
+    reusedClusterId: null,
+    prefix: options.prefix,
+    preMigrateStateFingerprint: options.preMigrateStateFingerprint,
+    freshnessHours: options.freshnessHours,
+    cutoff: null,
+    candidates: [],
+    errors: [],
+  };
+
+  if (!isNonEmptyString(options.preMigrateStateFingerprint)) {
+    return {
+      record: {
+        ...base,
+        status: "failed",
+        errors: ["Restore-point reuse requires a pre-migrate state fingerprint."],
+      },
+      fork: null,
+    };
+  }
+
+  try {
+    const cutoff = new Date(new Date(options.checkedAt).getTime() - options.freshnessHours * 60 * 60 * 1000);
+    const namePrefix = `${options.prefix}${options.preMigrateStateFingerprint}-`;
+    const candidates = (await listDatabaseClusters(options.doctlPath, exec))
+      .filter((cluster) => cluster.name.startsWith(namePrefix))
+      .filter((cluster) => isDatabaseAvailable(cluster.status))
+      .filter((cluster) => {
+        const createdAt = Date.parse(cluster.createdAt);
+        return Number.isFinite(createdAt) && createdAt >= cutoff.getTime();
+      })
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+    const fork = candidates[0] ?? null;
+    return {
+      record: {
+        ...base,
+        status: fork ? "reused" : "none",
+        reused: Boolean(fork),
+        reusedClusterId: fork?.id ?? null,
+        cutoff: cutoff.toISOString(),
+        candidates: candidates.map(toRestorePointSummary),
+      },
+      fork,
+    };
+  } catch (error) {
+    return {
+      record: {
+        ...base,
+        status: "failed",
+        errors: describeDoctlFailure(error, "doctl database list failed during restore-point reuse lookup."),
+      },
+      fork: null,
+    };
+  }
 }
 
 function toRestorePointSummary(cluster) {

@@ -1773,8 +1773,23 @@ jobs:
           PRODUCTION_DB_RESTORE_POINT_SKIP: ${{ needs.resolve-release.outputs.production_restore_point_required == 'true' && 'false' || 'true' }}
           PRODUCTION_DB_RESTORE_POINT_SKIP_REASON: ${{ needs.resolve-release.outputs.production_recovery_mode == 'pitr' && needs.resolve-release.outputs.production_recovery_reason || '' }}
           PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: ${{ vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
+          PRODUCTION_DB_RESTORE_POINT_PRE_MIGRATE_STATE_KEY: ${{ vars.PRODUCTION_DB_RESTORE_POINT_PRE_MIGRATE_STATE_KEY || '' }}
         run: |
           set -euo pipefail
+          pre_migrate_state_key="${PRODUCTION_DB_RESTORE_POINT_PRE_MIGRATE_STATE_KEY:-}"
+          if [ -z "$pre_migrate_state_key" ]; then
+            git fetch origin production || true
+            production_marker_commit="$(git rev-parse --verify origin/production 2>/dev/null || true)"
+            if [ -n "$production_marker_commit" ]; then
+              pre_migrate_state_key="production-marker:${production_marker_commit}"
+              echo "Using production marker commit as restore-point pre-migrate state key."
+            fi
+          fi
+          if [ -z "$pre_migrate_state_key" ] && [ "$PRODUCTION_DB_RESTORE_POINT_BYPASS" != "true" ] && [ "$PRODUCTION_DB_RESTORE_POINT_SKIP" != "true" ]; then
+            echo "Production marker did not resolve; refusing to continue without a pre-migrate restore-point state key." >&2
+            exit 1
+          fi
+
           source_cluster_id="$(terraform output -raw postgres_cluster_id 2>/dev/null || true)"
           if [ -z "$source_cluster_id" ]; then
             database_cluster_address="$(
@@ -1808,6 +1823,7 @@ jobs:
           cd ../../..
           node ./scripts/production-db-restore-point.mjs \
             --source-cluster-id "$source_cluster_id" \
+            --pre-migrate-state-key "$pre_migrate_state_key" \
             --out artifacts/release-health/production-db-restore-point.json \
             --github-output "$GITHUB_OUTPUT"
 
@@ -2447,6 +2463,10 @@ jobs:
           PRODUCTION_RESTORE_POINT_CREATED_AT: ${{ steps.production_restore_point.outputs.restore_point_created_at || '' }}
           PRODUCTION_RESTORE_POINT_BYPASSED: ${{ steps.production_restore_point.outputs.restore_point_bypassed || 'false' }}
           PRODUCTION_RESTORE_POINT_REMEDIATION: ${{ steps.production_restore_point.outputs.restore_point_remediation || '' }}
+          PRODUCTION_RESTORE_POINT_PRE_MIGRATE_STATE_KEY: ${{ steps.production_restore_point.outputs.restore_point_pre_migrate_state_key || '' }}
+          PRODUCTION_RESTORE_POINT_PRE_MIGRATE_STATE_FINGERPRINT: ${{ steps.production_restore_point.outputs.restore_point_pre_migrate_state_fingerprint || '' }}
+          PRODUCTION_RESTORE_POINT_REUSED: ${{ steps.production_restore_point.outputs.restore_point_reused || 'false' }}
+          PRODUCTION_RESTORE_POINT_REUSED_CLUSTER_ID: ${{ steps.production_restore_point.outputs.restore_point_reused_cluster_id || '' }}
         run: node ./scripts/release-health.mjs
 
       - name: Upload release health summary
@@ -2517,7 +2537,7 @@ jobs:
 
           Next steps:
           1. Inspect the failed job logs and uploaded release-health artifacts.
-          2. If the failure is at Create production database restore point or mentions DigitalOcean database quota/limit errors, run the Platform Production Restore Point Cleanup workflow or \`node ./scripts/production-db-restore-point-cleanup.mjs --out artifacts/release-health/production-db-restore-point-cleanup.json\` first; apply cleanup only after reviewing candidates and preserving the default 24-hour guard unless an operator explicitly approves a lower age.
+          2. If the failure is at Create production database restore point or mentions DigitalOcean database quota/limit errors, run the Platform Production Restore Point Cleanup workflow or \`node ./scripts/production-db-restore-point-cleanup.mjs --min-age-hours 6 --out artifacts/release-health/production-db-restore-point-cleanup.json\` first; apply cleanup only after reviewing candidates and passing \`--hold-name\` for any restore-point fork still referenced by an in-flight run.
           3. Link the fix-forward PR, rollback-readiness evidence, cleanup artifact, or emergency release reference here.
           4. Close this issue only after the replacement deploy or accepted no-op signal is documented.
           EOF

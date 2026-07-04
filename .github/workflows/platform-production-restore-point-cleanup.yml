@@ -2,7 +2,7 @@ name: Platform Production Restore Point Cleanup
 
 on:
   schedule:
-    - cron: "17 9 * * *"
+    - cron: "17 3,9,15,21 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -16,7 +16,7 @@ on:
       min_age_hours:
         description: Minimum restore-point age before cleanup can select it.
         required: false
-        default: "24"
+        default: "6"
         type: string
       hold_names:
         description: Comma-separated restore-point cluster names or ids to retain.
@@ -58,7 +58,7 @@ jobs:
           mkdir -p artifacts/release-health
 
           dry_run="${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run || 'true' }}"
-          min_age_hours="${{ github.event.inputs.min_age_hours || '24' }}"
+          min_age_hours="${{ github.event.inputs.min_age_hours || '6' }}"
           apply_arg=""
           if [ "$dry_run" = "false" ]; then
             apply_arg="--apply"
