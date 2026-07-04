@@ -26,6 +26,7 @@ export const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID = "739134880509551001";
 
 export type SchemaBootstrapOptions = Readonly<{
+  lockAcquisitionTimeoutMs?: number;
   lockTimeoutMs?: number;
   lockTimeoutRetryBudgetMs?: number;
   lockTimeoutRetryBaseDelayMs?: number;
@@ -337,7 +338,7 @@ async function applyContextSchemaOnce(
   let lockAcquired = false;
 
   try {
-    await acquireSchemaBootstrapLock(client);
+    await acquireSchemaBootstrapLock(client, options);
     lockAcquired = true;
     await client.query(`SET lock_timeout TO '${schemaBootstrapLockTimeoutSetting(options)}'`);
     await client.query(createSchemaMigrationsTableSql());
@@ -415,9 +416,14 @@ function isPostgresLockTimeoutError(error: unknown): boolean {
   return isPostgresLockTimeoutError(errorLike.cause);
 }
 
-async function acquireSchemaBootstrapLock(client: PgPoolClient): Promise<void> {
+async function acquireSchemaBootstrapLock(client: PgPoolClient, options: SchemaBootstrapOptions): Promise<void> {
+  const waitTimeoutMs = positiveIntegerMsOrDefault(
+    options.lockAcquisitionTimeoutMs,
+    SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
+    "lockAcquisitionTimeoutMs",
+  );
   const startedAt = Date.now();
-  const deadlineAt = startedAt + SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS;
+  const deadlineAt = startedAt + waitTimeoutMs;
   let attempts = 0;
   let retryDelayMs = SCHEMA_BOOTSTRAP_LOCK_INITIAL_RETRY_DELAY_MS;
 
@@ -442,7 +448,7 @@ async function acquireSchemaBootstrapLock(client: PgPoolClient): Promise<void> {
 
   const elapsedMs = Date.now() - startedAt;
   throw new Error(
-    `Schema bootstrap lock was not acquired within ${SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS}ms ` +
+    `Schema bootstrap lock was not acquired within ${waitTimeoutMs}ms ` +
       `after ${attempts} attempts (elapsed ${elapsedMs}ms, advisory lock ${SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID}). ` +
       "Another deploy may still be applying schema changes; retry after the older bootstrap finishes or inspect active database sessions if this persists.",
   );
