@@ -2222,6 +2222,24 @@ jobs:
           echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
           echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
 
+      - name: Capture post-cutover production App Platform diagnostics
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || printf '%s' "${{ steps.rollback_target.outputs.rollback_app_id }}")"
+          if [ -z "$app_id" ]; then
+            echo "No production App Platform app id was available; skipping post-cutover diagnostics."
+            exit 0
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true
+
       - name: Roll back production App Platform image
         id: production_rollback
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'
