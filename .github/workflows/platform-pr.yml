@@ -21,6 +21,7 @@ jobs:
     outputs:
       affected_workspaces: ${{ steps.scope.outputs.affected_workspaces }}
       build: ${{ steps.scope.outputs.build }}
+      changed_files_json: ${{ steps.scope.outputs.changed_files_json }}
       db_tests: ${{ steps.scope.outputs.db_tests }}
       deploy: ${{ steps.scope.outputs.deploy }}
       docker_image: ${{ steps.scope.outputs.docker_image }}
@@ -89,6 +90,8 @@ jobs:
         run: pnpm run verify:metadata
 
       - name: Run static checks
+        env:
+          CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}
         run: pnpm run verify:static
 
   typecheck:
