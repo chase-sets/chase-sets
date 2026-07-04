@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -103,7 +103,7 @@ describe("createPgPool", () => {
     await pool.end();
   });
 
-  it("passes idle-in-transaction timeout through Postgres startup options", async () => {
+  it("does not pass idle-in-transaction timeout as a startup parameter", async () => {
     const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets", {
       idleInTransactionSessionTimeoutMillis: 15_000,
     }) as unknown as {
@@ -112,7 +112,47 @@ describe("createPgPool", () => {
     };
 
     expect(pool.options.idle_in_transaction_session_timeout).toBeUndefined();
-    expect(pool.options.options).toBe("-c idle_in_transaction_session_timeout=15000");
+    expect(pool.options.options).toBeUndefined();
+    await pool.end();
+  });
+
+  it("sets idle-in-transaction timeout after Postgres clients connect", async () => {
+    const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets", {
+      idleInTransactionSessionTimeoutMillis: 15_000,
+    }) as unknown as {
+      emit: (event: string, client: unknown) => boolean;
+      end: () => Promise<void>;
+    };
+    const client = createFakeClient();
+
+    pool.emit("connect", client);
+    await vi.waitFor(() =>
+      expect(client.query).toHaveBeenCalledWith("SELECT set_config('idle_in_transaction_session_timeout', $1, false)", [
+        "15000ms",
+      ]),
+    );
+
+    await pool.end();
+  });
+
+  it("reports idle-in-transaction session setup failures through the active client hook", async () => {
+    const setupError = new Error("provider rejected session setting");
+    const reported: unknown[] = [];
+    const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets", {
+      idleInTransactionSessionTimeoutMillis: 15_000,
+      onActiveClientError: ({ error }) => {
+        reported.push(error);
+      },
+    }) as unknown as {
+      emit: (event: string, client: unknown) => boolean;
+      end: () => Promise<void>;
+    };
+    const client = createFakeClient();
+    client.query.mockRejectedValueOnce(setupError);
+
+    pool.emit("connect", client);
+    await vi.waitFor(() => expect(reported).toEqual([setupError]));
+
     await pool.end();
   });
 
@@ -140,7 +180,7 @@ describe("createPgPool", () => {
       emit: (event: string, client: unknown) => boolean;
       end: () => Promise<void>;
     };
-    const client = new EventEmitter();
+    const client = createFakeClient();
 
     pool.emit("connect", client);
     expect(() => client.emit("error", connectionError)).not.toThrow();
@@ -160,7 +200,7 @@ describe("createPgPool", () => {
       emit: (event: string, client: unknown) => boolean;
       end: () => Promise<void>;
     };
-    const client = new EventEmitter();
+    const client = createFakeClient();
 
     pool.emit("connect", client);
     expect(() => client.emit("error", connectionError)).not.toThrow();
@@ -179,4 +219,10 @@ function writeCaFile(contents: string): { caPath: string; cleanup: () => void } 
     caPath,
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
   };
+}
+
+function createFakeClient(): EventEmitter & { query: ReturnType<typeof vi.fn> } {
+  const client = new EventEmitter() as EventEmitter & { query: ReturnType<typeof vi.fn> };
+  client.query = vi.fn(async () => undefined);
+  return client;
 }
