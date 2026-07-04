@@ -561,13 +561,13 @@ async function findExistingImportTargetItem(
        item.total_quantity,
        COALESCE(active_holds.held_quantity, 0)::integer AS held_quantity
      FROM inventory_items AS item
-     LEFT JOIN (
+     LEFT JOIN LATERAL (
        SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM inventory_holds
-       WHERE status = 'active'
-       GROUP BY item_id
+       WHERE inventory_holds.item_id = item.item_id
+         AND status = 'active'
      ) AS active_holds
-       ON active_holds.item_id = item.item_id
+       ON true
      WHERE item.account_id = $1
        AND item.catalog_catalog_item_id = $2
        AND item.product_id = $3
