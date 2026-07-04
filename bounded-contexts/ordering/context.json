@@ -247,7 +247,7 @@
     }
   ],
   "apiDeployables": ["platform-api"],
-  "sourceRuntimeDeployables": ["platform-api"],
+  "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
