@@ -66,7 +66,7 @@ Platform API exposes read consistency controls for critical freshness changes:
 - `READ_CONSISTENCY_TIMEOUT_MS`: global freshness wait timeout, default `2500`.
 - `READ_CONSISTENCY_POLL_INTERVAL_MS`: global polling interval, default `75`.
 - `READ_CONSISTENCY_EXACT_DEPENDENCY_MODE`: `enabled` by default; set to `target-context` only as an incident rollback that keeps receipt-based gating active while disabling exact-dependency narrowing.
-- `READ_CONSISTENCY_ROUTE_TUNING_JSON`: JSON array of route-specific overrides. Each entry requires `mountPath` and `routePath`, and may include `targetContextName`, `timeoutMs`, `pollIntervalMs`, and `exactDependencyMode`. Platform defaults include Checkout session route tuning first; env entries are applied after those defaults so an equally specific operator override wins by the runtime route-tuning tie breaker.
+- `READ_CONSISTENCY_ROUTE_TUNING_JSON`: JSON array of route-specific overrides. Each entry requires `mountPath` and `routePath`, and may include `targetContextName`, `timeoutMs`, `pollIntervalMs`, and `exactDependencyMode`. Platform defaults include critical route tuning first; equally specific env entries do not override those defaults. Use a more specific `targetContextName` entry for an intentional operator override.
 
 Example scoped rollback for guest Buy Now:
 
