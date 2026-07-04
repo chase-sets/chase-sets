@@ -2401,16 +2401,14 @@ describe("DigitalOcean platform configuration", () => {
       "uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0",
     );
     expect(stagingPlaywrightCacheStep).toContain("id: staging-playwright-chromium-cache");
-    expect(stagingPlaywrightCacheStep).toContain("path: ~/.cache/ms-playwright");
+    expect(stagingPlaywrightCacheStep).toContain("path: /home/runner/.cache/ms-playwright");
     expect(stagingPlaywrightCacheStep).toContain(
       "key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}",
     );
     expect(stagingPlaywrightCacheStep).toContain("playwright-chromium-${{ runner.os }}-");
-    expect(stagingPlaywrightInstallStep).toContain("if: >-");
-    expect(stagingPlaywrightInstallStep).toContain(
-      "steps.staging-playwright-chromium-cache.outputs.cache-hit != 'true'",
-    );
-    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright");
+    expect(stagingPlaywrightInstallStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(stagingPlaywrightInstallStep).not.toContain("cache-hit != 'true'");
+    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
     expect(stagingPlaywrightInstallStep).toContain("pnpm exec playwright install --with-deps chromium");
     expect(platformProductionWorkflow.indexOf("- name: Resolve Playwright Chromium version")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
@@ -2424,7 +2422,7 @@ describe("DigitalOcean platform configuration", () => {
       platformProductionWorkflow.indexOf("- name: Install Playwright Chromium for staging critical flows"),
     ).toBeLessThan(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows"));
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
-    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright");
+    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
     expect(stagingCriticalFlowStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
     expect(stagingCriticalFlowStep).toContain('ADMIN_WEB_URL="https://${admin_domain}"');
     expect(stagingCriticalFlowStep).toContain('MARKETPLACE_WEB_URL="https://${marketplace_domain}"');
@@ -2441,6 +2439,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("AWS_SECRET_ACCESS_KEY");
     expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");
     expect(stagingBuyNowProbesStep).toContain("GUEST_BUY_NOW_PROBE_SEARCH_QUERY");
+    expect(stagingBuyNowProbesStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
     expect(stagingBuyNowProbesStep).toContain("vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
     expect(stagingBuyNowProbesStep).toContain("'air balloon'");
     expect(stagingBuyNowProbesStep).not.toContain("vars.MARKETPLACE_E2E_SEARCH_QUERY");

@@ -135,6 +135,7 @@ const formConditionProductSchema = {
 } satisfies InventoryProductSchema;
 
 class ImportBatchDb implements PgQueryable {
+  public readonly queries: Array<{ sql: string; values: readonly unknown[] }> = [];
   public readonly batches = new Map<string, StoredBatch>();
   public rows: StoredRow[] = [];
   public readonly locations = new Map<string, StoredLocation>();
@@ -145,6 +146,8 @@ class ImportBatchDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    this.queries.push({ sql, values });
+
     if (sql.includes("FROM inventory_import_account_sku_mappings")) {
       const accountId = String(values[0]);
       const normalizedSellerSku = String(values[1]);
@@ -1094,6 +1097,12 @@ describe("inventory import batch runtime", () => {
     expect(firstCommit.rows[0]?.committed_inventory_item_id).toBe(itemIds[0]);
     expect(firstCommit.rows[0]?.committed_listing_id).toBeDefined();
     expect(secondCommit.rows[0]).toMatchObject(firstCommit.rows[0] ?? {});
+    const existingTargetQuery = db.queries.find(
+      (query) => query.sql.includes("FROM inventory_items AS item") && query.sql.includes("inventory_holds"),
+    );
+    expect(existingTargetQuery?.sql).toContain("LEFT JOIN LATERAL");
+    expect(existingTargetQuery?.sql).toContain("WHERE inventory_holds.item_id = item.item_id");
+    expect(existingTargetQuery?.sql).not.toContain("GROUP BY item_id");
   });
 
   it("marks mixed imports committed after accepted rows commit while preserving rejected rows", async () => {
