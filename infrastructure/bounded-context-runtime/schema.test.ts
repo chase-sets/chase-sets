@@ -4,6 +4,7 @@ import {
   bootstrapContextDatabase,
   composeModuleSchemaSql,
   eventSubscriptionSchemaSql,
+  SCHEMA_BOOTSTRAP_LOCK_QUERY_TIMEOUT_MS,
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS,
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING,
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES,
@@ -228,6 +229,95 @@ describe("bounded context runtime schema", () => {
       await bootstrapRejected;
       expect(lockAttempts).toBeGreaterThan(100);
       expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries stalled schema bootstrap lock queries on a fresh client", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-04T00:00:00.000Z"));
+    try {
+      const clients = [
+        {
+          query: vi.fn((sql: string): Promise<Readonly<{ rows: { acquired?: boolean }[] }>> => {
+            if (sql.includes("pg_try_advisory_lock")) {
+              return new Promise(() => undefined);
+            }
+            return Promise.resolve({ rows: [] });
+          }),
+          release: vi.fn(),
+        },
+        {
+          query: vi.fn(async (sql: string) => {
+            if (sql.includes("pg_try_advisory_lock")) {
+              return { rows: [{ acquired: true }] };
+            }
+            return { rows: [] };
+          }),
+          release: vi.fn(),
+        },
+      ];
+      let connectCount = 0;
+      const pool = {
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(async () => clients[connectCount++] ?? clients[1]),
+      };
+      const module = {
+        contextName: "example",
+        schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      };
+
+      const bootstrap = bootstrapContextDatabase(module, pool, {
+        lockQueryTimeoutMs: 1_000,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+      await bootstrap;
+
+      expect(pool.connect).toHaveBeenCalledTimes(2);
+      expect(clients[0].release).toHaveBeenCalledWith(expect.any(Error));
+      expect(clients[1].release).toHaveBeenCalledWith(undefined);
+      expect(SCHEMA_BOOTSTRAP_LOCK_QUERY_TIMEOUT_MS).toBeLessThan(180_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries PostgreSQL query_wait_timeout failures during schema bootstrap lock acquisition", async () => {
+    vi.useFakeTimers();
+    try {
+      const clients = [0, 1].map((clientIndex) => ({
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("pg_try_advisory_lock")) {
+            if (clientIndex === 0) {
+              const error = new Error("query_wait_timeout") as Error & { code: string; severity: string };
+              error.code = "08P01";
+              error.severity = "FATAL";
+              throw error;
+            }
+            return { rows: [{ acquired: true }] };
+          }
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      }));
+      let connectCount = 0;
+      const pool = {
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(async () => clients[connectCount++] ?? clients[1]),
+      };
+      const module = {
+        contextName: "example",
+        schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      };
+
+      const bootstrap = bootstrapContextDatabase(module, pool);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await bootstrap;
+
+      expect(pool.connect).toHaveBeenCalledTimes(2);
+      expect(clients[0].release).toHaveBeenCalledWith(expect.objectContaining({ code: "08P01" }));
+      expect(clients[1].release).toHaveBeenCalledWith(undefined);
     } finally {
       vi.useRealTimers();
     }

@@ -44,6 +44,7 @@ async function bootstrap() {
       runtimeProfile: config.runtimeProfile,
       schemaBootstrap: {
         lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
+        lockTimeoutRetryBudgetMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
       },
     });
 

@@ -10,6 +10,7 @@ const DATABASE_MAX_RETRIES = 30;
 const SCHEMA_BOOTSTRAP_LOCK_INITIAL_RETRY_DELAY_MS = 500;
 const SCHEMA_BOOTSTRAP_LOCK_MAX_RETRY_DELAY_MS = 5_000;
 export const SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 600_000;
+export const SCHEMA_BOOTSTRAP_LOCK_QUERY_TIMEOUT_MS = 15_000;
 export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING = "5s";
 export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES = 8;
 export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS = 600_000;
@@ -27,6 +28,7 @@ const SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID = "739134880509551001";
 
 export type SchemaBootstrapOptions = Readonly<{
   lockAcquisitionTimeoutMs?: number;
+  lockQueryTimeoutMs?: number;
   lockTimeoutMs?: number;
   lockTimeoutRetryBudgetMs?: number;
   lockTimeoutRetryBaseDelayMs?: number;
@@ -286,7 +288,7 @@ export async function applyContextSchema(
       await applyContextSchemaOnce(pool, schemaSql, moduleSchemaMigrations, options);
       return;
     } catch (error) {
-      if (!isPostgresLockTimeoutError(error)) {
+      if (!isPostgresSchemaBootstrapRetryableError(error)) {
         throw error;
       }
 
@@ -400,7 +402,7 @@ function nonNegativeIntegerMsOrDefault(value: number | undefined, defaultValue: 
   return value;
 }
 
-function isPostgresLockTimeoutError(error: unknown): boolean {
+function isPostgresSchemaBootstrapRetryableError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
   }
@@ -413,7 +415,19 @@ function isPostgresLockTimeoutError(error: unknown): boolean {
     return true;
   }
 
-  return isPostgresLockTimeoutError(errorLike.cause);
+  if (
+    errorLike.code === "08P01" &&
+    typeof errorLike.message === "string" &&
+    errorLike.message.includes("query_wait_timeout")
+  ) {
+    return true;
+  }
+
+  if (error instanceof SchemaBootstrapLockQueryTimeoutError) {
+    return true;
+  }
+
+  return isPostgresSchemaBootstrapRetryableError(errorLike.cause);
 }
 
 async function acquireSchemaBootstrapLock(client: PgPoolClient, options: SchemaBootstrapOptions): Promise<void> {
@@ -426,13 +440,15 @@ async function acquireSchemaBootstrapLock(client: PgPoolClient, options: SchemaB
   const deadlineAt = startedAt + waitTimeoutMs;
   let attempts = 0;
   let retryDelayMs = SCHEMA_BOOTSTRAP_LOCK_INITIAL_RETRY_DELAY_MS;
+  const queryTimeoutMs = positiveIntegerMsOrDefault(
+    options.lockQueryTimeoutMs,
+    SCHEMA_BOOTSTRAP_LOCK_QUERY_TIMEOUT_MS,
+    "lockQueryTimeoutMs",
+  );
 
   while (Date.now() < deadlineAt) {
     attempts += 1;
-    const result = await client.query<Readonly<{ acquired: boolean }>>(
-      "SELECT pg_try_advisory_lock($1::bigint) AS acquired",
-      [SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID],
-    );
+    const result = await querySchemaBootstrapLock(client, queryTimeoutMs);
     if (result.rows[0]?.acquired === true) {
       return;
     }
@@ -452,6 +468,43 @@ async function acquireSchemaBootstrapLock(client: PgPoolClient, options: SchemaB
       `after ${attempts} attempts (elapsed ${elapsedMs}ms, advisory lock ${SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID}). ` +
       "Another deploy may still be applying schema changes; retry after the older bootstrap finishes or inspect active database sessions if this persists.",
   );
+}
+
+async function querySchemaBootstrapLock(
+  client: PgPoolClient,
+  queryTimeoutMs: number,
+): Promise<Readonly<{ rows: readonly Readonly<{ acquired: boolean }>[] }>> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const lockQuery = client.query<Readonly<{ acquired: boolean }>>(
+    "SELECT pg_try_advisory_lock($1::bigint) AS acquired",
+    [SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID],
+  );
+  lockQuery.catch(() => undefined);
+
+  try {
+    return await Promise.race([
+      lockQuery,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(new SchemaBootstrapLockQueryTimeoutError(queryTimeoutMs, SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID));
+        }, queryTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+class SchemaBootstrapLockQueryTimeoutError extends Error {
+  constructor(queryTimeoutMs: number, advisoryLockId: string) {
+    super(
+      `Schema bootstrap advisory lock query exceeded ${queryTimeoutMs}ms before returning ` +
+        `(advisory lock ${advisoryLockId}). The connection will be discarded and retried.`,
+    );
+    this.name = "SchemaBootstrapLockQueryTimeoutError";
+  }
 }
 
 function createSchemaMigrationsTableSql(): string {
