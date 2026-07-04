@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -117,6 +118,41 @@ describe("createPgPool", () => {
 
     expect(() => pool.emit("error", idleError)).not.toThrow();
     expect(reported).toEqual([idleError]);
+    await pool.end();
+  });
+
+  it("absorbs active checked-out client errors by default", async () => {
+    const connectionError = new Error("Connection terminated unexpectedly");
+    const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets") as unknown as {
+      emit: (event: string, client: unknown) => boolean;
+      end: () => Promise<void>;
+    };
+    const client = new EventEmitter();
+
+    pool.emit("connect", client);
+    expect(() => client.emit("error", connectionError)).not.toThrow();
+
+    await pool.end();
+  });
+
+  it("notifies the active client error hook without letting hook failures escape", async () => {
+    const connectionError = new Error("Connection terminated unexpectedly");
+    const reported: unknown[] = [];
+    const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets", {
+      onActiveClientError: ({ error }) => {
+        reported.push(error);
+        throw new Error("observer failed");
+      },
+    }) as unknown as {
+      emit: (event: string, client: unknown) => boolean;
+      end: () => Promise<void>;
+    };
+    const client = new EventEmitter();
+
+    pool.emit("connect", client);
+    expect(() => client.emit("error", connectionError)).not.toThrow();
+
+    expect(reported).toEqual([connectionError]);
     await pool.end();
   });
 });
