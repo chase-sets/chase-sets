@@ -1770,6 +1770,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(staticStep).toContain("pnpm run verify:static");
   });
 
+  it("fails pre-merge production plans with unapproved destructive changes", () => {
+    const productionPlanStep = workflowStep(platformPrWorkflow, "Terraform plan production platform");
+    const deployProductionPlanStep = workflowSteps(platformProductionWorkflow, "Terraform plan").at(-1);
+
+    expect(platformPrWorkflow).toContain(
+      "DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md",
+    );
+    expect(productionPlanStep).toContain('cd "$tmp"');
+    expect(productionPlanStep).toContain(
+      'node "$GITHUB_WORKSPACE/scripts/digitalocean-app-deployment.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"',
+    );
+    expect(deployProductionPlanStep).toContain(
+      "node ../../../scripts/digitalocean-app-deployment.mjs assert-no-destructive-changes tfplan",
+    );
+  });
+
   it("keeps non-blocking coverage off merge groups and on a daily workflow", () => {
     const fastCoverageStep = workflowStep(platformCoverageWorkflow, "Run fast coverage");
     const dbCoverageStep = workflowStep(platformCoverageWorkflow, "Run DB coverage");
