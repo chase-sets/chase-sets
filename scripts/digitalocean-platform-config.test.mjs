@@ -232,9 +232,10 @@ function workflowSteps(source, stepName) {
 }
 
 function workflowJob(source, jobName) {
-  const start = source.indexOf(`  ${jobName}:`);
-  expect(start).not.toBe(-1);
+  const match = new RegExp(`(^|\\n)  ${jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`).exec(source);
+  expect(match).not.toBeNull();
 
+  const start = match.index + match[1].length;
   const rest = source.slice(start + 1);
   const next = rest.search(/\n  [A-Za-z0-9_-]+:/);
   return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
@@ -1831,6 +1832,46 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPrWorkflow).toContain("changed_files_json: ${{ steps.scope.outputs.changed_files_json }}");
     expect(staticStep).toContain("CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}");
     expect(staticStep).toContain("pnpm run verify:static");
+  });
+
+  it("keeps PR fast-lane checks separate from merge-group full battery", () => {
+    const fullBatteryStep = workflowStep(platformPrWorkflow, "Resolve full battery lane");
+    const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
+    const e2eJob = workflowJob(platformPrWorkflow, "e2e-tests");
+    const buildJob = workflowJob(platformPrWorkflow, "build");
+    const dockerJob = workflowJob(platformPrWorkflow, "docker-image");
+    const terraformPreviewJob = workflowJob(platformPrWorkflow, "terraform-preview-plan");
+    const terraformStagingJob = workflowJob(platformPrWorkflow, "terraform-staging-plan");
+    const terraformProductionJob = workflowJob(platformPrWorkflow, "terraform-production-plan");
+    const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
+
+    expect(platformPrWorkflow).toContain("full_battery_required: ${{ steps.full-battery.outputs.required }}");
+    expect(fullBatteryStep).toContain('"${{ github.event_name }}" = "merge_group"');
+    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-ci')");
+    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-pr-battery')");
+    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
+
+    for (const job of [
+      dbProfileJob,
+      e2eJob,
+      buildJob,
+      dockerJob,
+      terraformPreviewJob,
+      terraformStagingJob,
+      terraformProductionJob,
+    ]) {
+      expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
+    }
+
+    expect(requiredJob).toContain('full_battery_required="${{ needs[\'change-scope\'].outputs.full_battery_required }}"');
+    expect(requiredJob).toContain('require_heavy_job "DB Profile Tests"');
+    expect(requiredJob).toContain('require_heavy_job "E2E Tests"');
+    expect(requiredJob).toContain('require_heavy_job "Build"');
+    expect(requiredJob).toContain('require_heavy_job "Docker Image Build"');
+    expect(requiredJob).toContain('require_heavy_job "Terraform Preview Plan"');
+    expect(requiredJob).toContain('require_heavy_job "Terraform Staging Plan"');
+    expect(requiredJob).toContain('require_heavy_job "Terraform Production Plan"');
+    expect(requiredJob).toContain('require_job "Workflow Lint"');
   });
 
   it("fails pre-merge production plans with unapproved destructive changes", () => {
