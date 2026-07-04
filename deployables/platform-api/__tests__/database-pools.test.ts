@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -35,11 +36,22 @@ describe("platform api database pools", () => {
       expect(pools.contextWaiters.catalog).not.toBe(pools.catalog);
       expect(pools.contextWaiters.auth).toBe(pools.auth);
       const options = (
-        pools.auth as unknown as { options: { idle_in_transaction_session_timeout?: number; options?: string } }
+        pools.auth as unknown as {
+          emit: (event: string, client: unknown) => boolean;
+          options: { idle_in_transaction_session_timeout?: number; options?: string };
+        }
       ).options;
 
       expect(options.idle_in_transaction_session_timeout).toBeUndefined();
-      expect(options.options).toBe("-c idle_in_transaction_session_timeout=15000");
+      expect(options.options).toBeUndefined();
+      const client = createFakeClient();
+      (pools.auth as unknown as { emit: (event: string, client: unknown) => boolean }).emit("connect", client);
+      await vi.waitFor(() =>
+        expect(client.query).toHaveBeenCalledWith(
+          "SELECT set_config('idle_in_transaction_session_timeout', $1, false)",
+          ["15000ms"],
+        ),
+      );
       expect(runtime.mountedContexts.length).toBeGreaterThan(0);
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "auth")?.pool).toBe(pools.auth);
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "catalog")?.pool).toBe(pools.catalog);
@@ -85,3 +97,9 @@ describe("platform api database pools", () => {
     }
   });
 });
+
+function createFakeClient(): EventEmitter & { query: ReturnType<typeof vi.fn> } {
+  const client = new EventEmitter() as EventEmitter & { query: ReturnType<typeof vi.fn> };
+  client.query = vi.fn(async () => undefined);
+  return client;
+}

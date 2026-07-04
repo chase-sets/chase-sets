@@ -76,7 +76,6 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
     ssl: resolvePgPoolSslConfig(normalizedConnectionString),
     max: options.max,
     idleTimeoutMillis: options.idleTimeoutMillis,
-    options: resolvePgStartupOptions(options),
     connectionTimeoutMillis: options.connectionTimeoutMillis,
   });
 
@@ -89,12 +88,12 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
   });
 
   pool.on("connect", (client: PgActiveClient) => {
+    void configurePgClientSession(client, options).catch((error: unknown) => {
+      reportActiveClientError(options, error);
+    });
+
     client.on("error", (error: unknown) => {
-      try {
-        options.onActiveClientError?.({ error });
-      } catch {
-        // Active checked-out client errors must never crash the process.
-      }
+      reportActiveClientError(options, error);
     });
   });
 
@@ -103,6 +102,7 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
 
 type PgActiveClient = pg.PoolClient & {
   on: (event: "error", listener: (error: unknown) => void) => void;
+  query: (queryText: string, values?: readonly unknown[]) => Promise<unknown>;
 };
 
 function verifyingSslConfig(connectionString: URL, env: PgPoolSslEnv): Extract<PgPoolSslConfig, object> {
@@ -112,12 +112,22 @@ function verifyingSslConfig(connectionString: URL, env: PgPoolSslEnv): Extract<P
   return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
 }
 
-function resolvePgStartupOptions(options: PgPoolOptions): string | undefined {
+async function configurePgClientSession(client: PgActiveClient, options: PgPoolOptions): Promise<void> {
   if (options.idleInTransactionSessionTimeoutMillis === undefined) {
-    return undefined;
+    return;
   }
 
-  return `-c idle_in_transaction_session_timeout=${options.idleInTransactionSessionTimeoutMillis}`;
+  await client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, false)", [
+    `${options.idleInTransactionSessionTimeoutMillis}ms`,
+  ]);
+}
+
+function reportActiveClientError(options: PgPoolOptions, error: unknown): void {
+  try {
+    options.onActiveClientError?.({ error });
+  } catch {
+    // Active checked-out client errors must never crash the process.
+  }
 }
 
 function isLocalDatabaseHost(hostname: string): boolean {
