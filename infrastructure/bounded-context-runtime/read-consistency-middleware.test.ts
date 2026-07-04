@@ -510,7 +510,7 @@ describe("bounded context read consistency middleware", () => {
     expect(refreshSession.mock.calls.length).toBeLessThanOrEqual(3);
   });
 
-  it("prefers later equally specific route tuning entries so environment overrides can replace defaults", async () => {
+  it("prefers earlier equally specific route tuning entries so critical defaults stay pinned", async () => {
     const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
     const receipt = encodeFreshWriteReceipt({
       observedAtMs: Date.now(),
@@ -590,14 +590,111 @@ describe("bounded context read consistency middleware", () => {
     );
 
     expect(refreshSession).toHaveBeenCalledTimes(1);
-    expect(refreshCart).not.toHaveBeenCalled();
+    expect(refreshCart).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
       status: 503,
       body: {
         error: {
           code: "projection_freshness_timeout",
-          waitMode: "exact-dependency",
-          dependencies: [{ targetContextName: "checkout", projectionName: "checkout.session-projection" }],
+          waitMode: "target-context",
+        },
+      },
+    });
+  });
+
+  it("allows target-context-scoped route tuning to override generic critical defaults", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+    });
+    const refreshSession = vi.fn(async () => ({
+      lastGlobalPosition: "1",
+      state: "behind",
+      lastError: null,
+    }));
+    const refreshCart = vi.fn(async () => ({
+      lastGlobalPosition: "1",
+      state: "behind",
+      lastError: null,
+    }));
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      [
+        {
+          contextName: "checkout",
+          mountPath: "/api/marketplace",
+          readFreshnessRoutes: [
+            {
+              routePath: "/account/checkout-sessions/:sessionId",
+              dependencies: [{ readModelTable: "checkout_session_pages" }],
+            },
+          ],
+        },
+      ],
+      [
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.session-projection",
+          ownedTables: ["checkout_session_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshSession }],
+        },
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.cart-projection",
+          ownedTables: ["checkout_cart_line_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshCart }],
+        },
+      ],
+      {
+        timeoutMs: 0,
+        pollIntervalMs: 1,
+        routeTuning: [
+          {
+            mountPath: "/api/marketplace",
+            routePath: "/account/checkout-sessions/:sessionId",
+            exactDependencyMode: "enabled",
+          },
+          {
+            mountPath: "/api/marketplace",
+            routePath: "/account/checkout-sessions/:sessionId",
+            targetContextName: "checkout",
+            exactDependencyMode: "target-context",
+          },
+        ],
+      },
+    );
+
+    const result = await middlewares[0](
+      {
+        req: {
+          method: "GET",
+          path: "/api/marketplace/account/checkout-sessions/chk_1",
+          header: (name: string) => {
+            if (name === CHASE_SETS_READ_AFTER_WRITE_HEADER) {
+              return receipt;
+            }
+            return name === CHASE_SETS_READ_TARGET_CONTEXT_HEADER ? "checkout" : undefined;
+          },
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => undefined,
+    );
+
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(refreshCart).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      status: 503,
+      body: {
+        error: {
+          code: "projection_freshness_timeout",
+          waitMode: "target-context",
         },
       },
     });

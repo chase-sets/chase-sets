@@ -914,7 +914,7 @@ function resolveRouteTuningForRequest(
       return routeSpecificityScore;
     }
 
-    return right.index - left.index;
+    return left.index - right.index;
   });
 
   return {
