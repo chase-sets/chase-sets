@@ -170,10 +170,10 @@ describe("platform worker config", () => {
       "catalog",
       "fulfillment",
       "identity",
+      "ordering",
       "platform-operations",
       "public-presence",
     ]);
-    expect(getPlatformWorkerContextsForRuntimeProfile("landing")).not.toContain("ordering");
   });
 
   it("loads the landing runtime profile without full-platform context URLs while keeping wake runners active", () => {

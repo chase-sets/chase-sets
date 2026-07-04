@@ -28,6 +28,24 @@ const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
 } as const;
 
 describe("platform worker projection wake interest graph", () => {
+  it("boots the landing worker with source-only contexts required by active subscriptions", () => {
+    const runtime = createPlatformWorkerHost("landing");
+
+    expect(runtime.mountedContexts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ contextName: "ordering", mountRole: "source-only" }),
+        expect.objectContaining({ contextName: "platform-operations", mountRole: "active" }),
+        expect.objectContaining({ contextName: "public-presence", mountRole: "active" }),
+      ]),
+    );
+    expect(runtime.projectionGroups.map((group) => `${group.targetContextName}:${group.projectionName}`)).toEqual(
+      expect.arrayContaining([
+        "platform-operations:support-order-source-projection",
+        "public-presence:public-presence-waitlist-projection",
+      ]),
+    );
+  });
+
   it("wires ordering.order.created to the Inventory order reservation workflow checkpoint", () => {
     const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
 
@@ -132,17 +150,7 @@ describe("platform worker projection wake interest graph", () => {
 });
 
 function buildPlatformWorkerProjectionWakeRelayInterestIndex(disabledProjectionKeys: readonly string[] = []) {
-  const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
-    pools: Object.fromEntries(workerContextRegistry.map((entry) => [entry.contextName, createUnusedPool()])),
-    hostPorts: {
-      processorGateway: createFakePaymentProcessorGateway(),
-      moneyMovementGateway: createFakeMoneyMovementGateway(),
-      operationsRecorder: { record: () => undefined },
-      postageLabelProvider: createSandboxPostageLabelProvider(),
-      draftListingCreator: { createDraftListings: async () => [] },
-      notificationAdapter: { send: async () => undefined },
-    },
-  });
+  const runtime = createPlatformWorkerHost();
 
   return buildProjectionInterestIndex({
     projectionGroups: runtime.projectionGroups,
@@ -158,6 +166,21 @@ function buildPlatformWorkerProjectionWakeRelayInterestIndex(disabledProjectionK
       }),
       ...listProjectionInterestOverridesForPushMigration(),
     ],
+  });
+}
+
+function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public" = "public") {
+  return createWorkerHost(workerContextRegistry, "platform-worker", {
+    pools: Object.fromEntries(workerContextRegistry.map((entry) => [entry.contextName, createUnusedPool()])),
+    hostPorts: {
+      processorGateway: createFakePaymentProcessorGateway(),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      operationsRecorder: { record: () => undefined },
+      postageLabelProvider: createSandboxPostageLabelProvider(),
+      draftListingCreator: { createDraftListings: async () => [] },
+      notificationAdapter: { send: async () => undefined },
+    },
+    runtimeProfile,
   });
 }
 
