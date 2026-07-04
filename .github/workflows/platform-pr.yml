@@ -650,17 +650,27 @@ jobs:
       always() &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(github.event.pull_request.labels.*.name, 'preview') &&
-      needs['change-scope'].outputs.deploy == 'true' &&
-      needs.static.result == 'success' &&
-      needs.typecheck.result == 'success' &&
-      needs['unit-tests'].result == 'success' &&
-      (needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success') &&
-      needs['e2e-tests'].result == 'success' &&
-      needs.build.result == 'success' &&
-      needs['docker-image'].result == 'success' &&
+      needs['change-scope'].result == 'success' &&
+      (needs['change-scope'].outputs.deploy == 'true' ||
+       contains(github.event.pull_request.labels.*.name, 'preview')) &&
+      (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') &&
+      (needs['change-scope'].outputs.typecheck != 'true' || needs.typecheck.result == 'success') &&
+      (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.db_tests != 'true' ||
+       needs['db-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.e2e_tests != 'true' ||
+       needs['e2e-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.build != 'true' ||
+       needs.build.result == 'success') &&
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.docker_image != 'true' ||
+       needs['docker-image'].result == 'success') &&
       (needs['change-scope'].outputs.workflow_lint != 'true' || needs['workflow-lint'].result == 'success') &&
-      (needs['change-scope'].outputs.terraform != 'true' ||
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.terraform != 'true' ||
        (needs['terraform-preview-plan'].result == 'success' &&
         needs['terraform-staging-plan'].result == 'success' &&
         needs['terraform-production-plan'].result == 'success'))
@@ -1094,10 +1104,13 @@ jobs:
           require_heavy_job "Terraform Production Plan" "${{ needs['terraform-production-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
 
           preview_result="${{ needs['preview-deploy-smoke'].result }}"
-          preview_required="${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'preview') && needs['change-scope'].outputs.deploy == 'true' }}"
+          preview_required="${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (needs['change-scope'].outputs.deploy == 'true' || contains(github.event.pull_request.labels.*.name, 'preview')) }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             if [ "$preview_required" = "true" ] && [ "$preview_result" != "success" ]; then
-              echo "Preview deployment and smoke must pass when the preview label is present." >&2
+              echo "Preview deployment and smoke must pass for same-repository deploy-scoped PRs and manual preview-label PRs." >&2
+              exit 1
+            elif [ "$preview_required" != "true" ] && [ "$preview_result" != "skipped" ] && [ "$preview_result" != "success" ]; then
+              echo "Preview deployment had an unexpected result when it was not required: ${preview_result}." >&2
               exit 1
             fi
           elif [ "$preview_result" != "skipped" ] && [ "$preview_result" != "success" ]; then

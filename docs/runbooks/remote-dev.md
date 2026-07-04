@@ -88,10 +88,11 @@ pnpm run remote-dev -- prune-expired --force
 
 The session name is generated from branch, short SHA, and a random suffix. Pass `--name <slug>` to choose one.
 
-GitHub Actions can create label-gated App Platform PR previews through
-`.github/workflows/platform-pr.yml`. Add the `preview` label to create or
-refresh one same-repository PR preview; closing the PR destroys the App
-Platform preview through `.github/workflows/platform-preview-cleanup.yml`.
+GitHub Actions creates App Platform PR previews through
+`.github/workflows/platform-pr.yml` for same-repository deploy-scoped PRs. Add
+the `preview` label to create or refresh one same-repository PR preview for
+non-deploy-scoped review; closing the PR destroys the App Platform preview
+through `.github/workflows/platform-preview-cleanup.yml`.
 Forked PRs do not receive DigitalOcean credentials. Remote dev sessions remain
 manual operator-owned Droplets for branch-level HTTPS review or remote Codex
 work when a disposable VM is more useful than App Platform.
