@@ -27,6 +27,19 @@ const platformApiContextNames = getApiHostContextNames(apiContextRegistry, "plat
 
 type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
 
+const contentionBootstrapOptions = {
+  lockTimeoutMs: 100,
+  lockTimeoutRetryBudgetMs: 2_000,
+  lockTimeoutRetryBaseDelayMs: 25,
+  lockTimeoutRetryMaxDelayMs: 50,
+  lockTimeoutRetryJitterMs: 0,
+} as const;
+
+const exhaustedContentionBootstrapOptions = {
+  ...contentionBootstrapOptions,
+  lockTimeoutRetryBudgetMs: 350,
+} as const;
+
 const listingPhotoStorage: ListingPhotoStorage = {
   async putObject(input) {
     return {
@@ -42,6 +55,44 @@ function requireDatabaseBaseUrl(): string {
   }
 
   return databaseBaseUrl;
+}
+
+function requireCatalogContext() {
+  const catalogContext = apiContextRegistry.find((context) => context.contextName === "catalog");
+  if (!catalogContext) {
+    throw new Error("Expected catalog context in platform-api registry.");
+  }
+
+  return catalogContext;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function holdSchemaMigrationsTableLock(pool: PlatformApiTestPools["catalog"]): Promise<() => Promise<void>> {
+  const client = await pool.connect();
+  let released = false;
+  try {
+    await client.query("BEGIN");
+    await client.query(`LOCK TABLE ${SCHEMA_MIGRATIONS_TABLE} IN ACCESS EXCLUSIVE MODE`);
+  } catch (error) {
+    client.release(error);
+    throw error;
+  }
+
+  return async () => {
+    if (released) {
+      return;
+    }
+
+    released = true;
+    try {
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
+    }
+  };
 }
 
 describe("platform api bootstrap", () => {
@@ -151,10 +202,7 @@ describe("platform api bootstrap", () => {
   }, 300_000);
 
   it("records context schema migrations once during concurrent bootstrap", async () => {
-    const catalogContext = apiContextRegistry.find((context) => context.contextName === "catalog");
-    if (!catalogContext) {
-      throw new Error("Expected catalog context in platform-api registry.");
-    }
+    const catalogContext = requireCatalogContext();
 
     await Promise.all([
       bootstrapContextDatabase(catalogContext.module, pools.catalog),
@@ -186,6 +234,41 @@ describe("platform api bootstrap", () => {
 
     expect(migrationsAfterThirdBoot.rows.map((row) => row.migration_id)).toEqual(migrationIds);
   }, 120_000);
+
+  it("recovers when bootstrap-touched table locks release within the retry budget", async () => {
+    const catalogContext = requireCatalogContext();
+    await bootstrapContextDatabase(catalogContext.module, pools.catalog);
+    const unlockSchemaMigrationsTable = await holdSchemaMigrationsTableLock(pools.catalog);
+    const delayedUnlock = sleep(250).then(unlockSchemaMigrationsTable);
+
+    try {
+      await expect(
+        bootstrapContextDatabase(catalogContext.module, pools.catalog, contentionBootstrapOptions),
+      ).resolves.toBeUndefined();
+    } finally {
+      await unlockSchemaMigrationsTable();
+      await delayedUnlock;
+    }
+
+    const migrations = await pools.catalog.query<Readonly<{ migration_count: string }>>(
+      `SELECT COUNT(*) AS migration_count FROM ${SCHEMA_MIGRATIONS_TABLE}`,
+    );
+    expect(Number(migrations.rows[0]?.migration_count ?? 0)).toBeGreaterThan(0);
+  }, 30_000);
+
+  it("fails closed when bootstrap-touched table locks exhaust the retry budget", async () => {
+    const catalogContext = requireCatalogContext();
+    await bootstrapContextDatabase(catalogContext.module, pools.catalog);
+    const unlockSchemaMigrationsTable = await holdSchemaMigrationsTableLock(pools.catalog);
+
+    try {
+      await expect(
+        bootstrapContextDatabase(catalogContext.module, pools.catalog, exhaustedContentionBootstrapOptions),
+      ).rejects.toThrow(/Schema bootstrap hit PostgreSQL lock_timeout for \d+ attempts over \d+ms/);
+    } finally {
+      await unlockSchemaMigrationsTable();
+    }
+  }, 30_000);
 
   it("limits long-lived environment bootstrap to critical and integration data", async () => {
     const runtime = createPlatformApiHost({

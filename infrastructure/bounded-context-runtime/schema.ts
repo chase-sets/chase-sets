@@ -25,6 +25,14 @@ export const SCHEMA_MIGRATIONS_TABLE = "bounded_context_schema_migrations";
 export const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID = "739134880509551001";
 
+export type SchemaBootstrapOptions = Readonly<{
+  lockTimeoutMs?: number;
+  lockTimeoutRetryBudgetMs?: number;
+  lockTimeoutRetryBaseDelayMs?: number;
+  lockTimeoutRetryMaxDelayMs?: number;
+  lockTimeoutRetryJitterMs?: number;
+}>;
+
 const eventStoreEventsBackfillSql = `UPDATE event_store_events
 SET stream_context_name = split_part(stream_id, '.', 1),
     stream_category = regexp_replace(stream_id, '-[^-]*$', '')
@@ -209,9 +217,10 @@ export async function waitForDatabase(
 export async function bootstrapContextDatabase(
   module: Pick<BcApiModule, "contextName" | "schemaSql" | "schemaMigrations">,
   pool: PgTransactionalPool,
+  options: SchemaBootstrapOptions = {},
 ): Promise<void> {
   await waitForDatabase(pool, module.contextName);
-  await applyContextSchema(pool, composeModuleSchemaSql(module), module.schemaMigrations ?? []);
+  await applyContextSchema(pool, composeModuleSchemaSql(module), module.schemaMigrations ?? [], options);
 }
 
 export function composeModuleSchemaSql(module: Pick<BcApiModule, "schemaSql">): string {
@@ -257,16 +266,23 @@ export async function applyContextSchema(
   pool: PgTransactionalPool,
   schemaSql: string,
   moduleSchemaMigrations: readonly BcSchemaMigration[] = [],
+  options: SchemaBootstrapOptions = {},
 ): Promise<void> {
   const startedAt = Date.now();
-  const deadlineAt = startedAt + SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS;
+  const deadlineAt =
+    startedAt +
+    positiveIntegerMsOrDefault(
+      options.lockTimeoutRetryBudgetMs,
+      SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS,
+      "lockTimeoutRetryBudgetMs",
+    );
   let lastLockTimeoutError: unknown;
   let attempts = 0;
 
   while (Date.now() < deadlineAt) {
     attempts += 1;
     try {
-      await applyContextSchemaOnce(pool, schemaSql, moduleSchemaMigrations);
+      await applyContextSchemaOnce(pool, schemaSql, moduleSchemaMigrations, options);
       return;
     } catch (error) {
       if (!isPostgresLockTimeoutError(error)) {
@@ -276,7 +292,7 @@ export async function applyContextSchema(
       lastLockTimeoutError = error;
       const remainingBudgetMs = deadlineAt - Date.now();
       if (remainingBudgetMs > 0) {
-        await sleep(Math.min(schemaBootstrapLockTimeoutRetryDelayMs(attempts), remainingBudgetMs));
+        await sleep(Math.min(schemaBootstrapLockTimeoutRetryDelayMs(attempts, options), remainingBudgetMs));
       }
     }
   }
@@ -288,12 +304,24 @@ export async function applyContextSchema(
   );
 }
 
-function schemaBootstrapLockTimeoutRetryDelayMs(attempt: number): number {
-  const baseDelayMs = Math.min(
-    SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_MAX_DELAY_MS,
-    SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1),
+function schemaBootstrapLockTimeoutRetryDelayMs(attempt: number, options: SchemaBootstrapOptions): number {
+  const baseDelaySettingMs = positiveIntegerMsOrDefault(
+    options.lockTimeoutRetryBaseDelayMs,
+    SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BASE_DELAY_MS,
+    "lockTimeoutRetryBaseDelayMs",
   );
-  const jitterMs = (attempt * 137) % SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_JITTER_MS;
+  const maxDelaySettingMs = positiveIntegerMsOrDefault(
+    options.lockTimeoutRetryMaxDelayMs,
+    SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_MAX_DELAY_MS,
+    "lockTimeoutRetryMaxDelayMs",
+  );
+  const jitterSettingMs = nonNegativeIntegerMsOrDefault(
+    options.lockTimeoutRetryJitterMs,
+    SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_JITTER_MS,
+    "lockTimeoutRetryJitterMs",
+  );
+  const baseDelayMs = Math.min(maxDelaySettingMs, baseDelaySettingMs * 2 ** Math.max(0, attempt - 1));
+  const jitterMs = jitterSettingMs > 0 ? (attempt * 137) % jitterSettingMs : 0;
   return baseDelayMs + jitterMs;
 }
 
@@ -301,6 +329,7 @@ async function applyContextSchemaOnce(
   pool: PgTransactionalPool,
   schemaSql: string,
   moduleSchemaMigrations: readonly BcSchemaMigration[],
+  options: SchemaBootstrapOptions,
 ): Promise<void> {
   const client = await pool.connect();
   let operationError: unknown;
@@ -310,7 +339,7 @@ async function applyContextSchemaOnce(
   try {
     await acquireSchemaBootstrapLock(client);
     lockAcquired = true;
-    await client.query(`SET lock_timeout TO '${SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING}'`);
+    await client.query(`SET lock_timeout TO '${schemaBootstrapLockTimeoutSetting(options)}'`);
     await client.query(createSchemaMigrationsTableSql());
     await client.query(schemaSql);
     for (const migration of [...contextSchemaMigrations, ...moduleSchemaMigrations]) {
@@ -338,6 +367,36 @@ async function applyContextSchemaOnce(
   if (cleanupError) {
     throw cleanupError;
   }
+}
+
+function schemaBootstrapLockTimeoutSetting(options: SchemaBootstrapOptions): string {
+  if (options.lockTimeoutMs === undefined) {
+    return SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING;
+  }
+
+  return `${positiveIntegerMsOrDefault(options.lockTimeoutMs, 0, "lockTimeoutMs")}ms`;
+}
+
+function positiveIntegerMsOrDefault(value: number | undefined, defaultValue: number, label: string): number {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer number of milliseconds.`);
+  }
+
+  return value;
+}
+
+function nonNegativeIntegerMsOrDefault(value: number | undefined, defaultValue: number, label: string): number {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative integer number of milliseconds.`);
+  }
+
+  return value;
 }
 
 function isPostgresLockTimeoutError(error: unknown): boolean {
