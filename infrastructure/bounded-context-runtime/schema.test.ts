@@ -4,6 +4,7 @@ import {
   bootstrapContextDatabase,
   composeModuleSchemaSql,
   eventSubscriptionSchemaSql,
+  SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS,
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING,
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES,
   SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
@@ -250,11 +251,12 @@ describe("bounded context runtime schema", () => {
     }
   });
 
-  it("survives schema application lock_timeout contention beyond the old retry ceiling", async () => {
+  it("survives schema application lock_timeout contention beyond the fixed retry ceiling", async () => {
     vi.useFakeTimers();
     try {
       let schemaAttempts = 0;
-      const clients = Array.from({ length: 7 }, (_entry, clientIndex) => ({
+      const lockTimeoutAttempts = SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES + 4;
+      const clients = Array.from({ length: lockTimeoutAttempts + 1 }, (_entry, clientIndex) => ({
         query: vi.fn(async (sql: string) => {
           if (sql.includes("pg_try_advisory_lock")) {
             return { rows: [{ acquired: true }] };
@@ -264,7 +266,7 @@ describe("bounded context runtime schema", () => {
           }
           if (sql.includes("CREATE TABLE IF NOT EXISTS event_store_events")) {
             schemaAttempts += 1;
-            if (schemaAttempts <= 6) {
+            if (schemaAttempts <= lockTimeoutAttempts) {
               const error = new Error(
                 `canceling statement due to lock timeout on attempt ${schemaAttempts}`,
               ) as Error & { code: string };
@@ -287,15 +289,15 @@ describe("bounded context runtime schema", () => {
       };
 
       const bootstrap = bootstrapContextDatabase(module, pool);
-      await vi.advanceTimersByTimeAsync(120_000);
+      await vi.advanceTimersByTimeAsync(SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS - 1);
       await bootstrap;
 
-      expect(pool.connect).toHaveBeenCalledTimes(7);
-      expect(schemaAttempts).toBe(7);
-      expect(clients.slice(0, 6).map((client) => client.release.mock.calls[0]?.[0])).toEqual(
-        Array.from({ length: 6 }, () => expect.objectContaining({ code: "55P03" })),
+      expect(pool.connect).toHaveBeenCalledTimes(lockTimeoutAttempts + 1);
+      expect(schemaAttempts).toBe(lockTimeoutAttempts + 1);
+      expect(clients.slice(0, lockTimeoutAttempts).map((client) => client.release.mock.calls[0]?.[0])).toEqual(
+        Array.from({ length: lockTimeoutAttempts }, () => expect.objectContaining({ code: "55P03" })),
       );
-      expect(clients[6].release).toHaveBeenCalledWith(undefined);
+      expect(clients[lockTimeoutAttempts].release).toHaveBeenCalledWith(undefined);
     } finally {
       vi.useRealTimers();
     }
@@ -333,7 +335,7 @@ describe("bounded context runtime schema", () => {
   it("fails with deploy-useful diagnostics after schema application lock_timeout retries are exhausted", async () => {
     vi.useFakeTimers();
     try {
-      const clients = Array.from({ length: SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES }, (_entry, clientIndex) => ({
+      const clients = Array.from({ length: 50 }, (_entry, clientIndex) => ({
         query: vi.fn(async (sql: string) => {
           if (sql.includes("pg_try_advisory_lock")) {
             return { rows: [{ acquired: true }] };
@@ -360,13 +362,13 @@ describe("bounded context runtime schema", () => {
       };
 
       const bootstrap = expect(bootstrapContextDatabase(module, pool)).rejects.toThrow(
-        /Schema bootstrap hit PostgreSQL lock_timeout 8 times/,
+        /Schema bootstrap hit PostgreSQL lock_timeout for \d+ attempts over 600000ms/,
       );
-      await vi.advanceTimersByTimeAsync(120_000);
+      await vi.advanceTimersByTimeAsync(SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS + 1);
       await bootstrap;
 
-      expect(pool.connect).toHaveBeenCalledTimes(SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES);
-      for (const client of clients) {
+      expect(pool.connect.mock.calls.length).toBeGreaterThan(SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES);
+      for (const client of clients.slice(0, pool.connect.mock.calls.length)) {
         expect(client.release).toHaveBeenCalledWith(expect.objectContaining({ code: "55P03" }));
       }
     } finally {
