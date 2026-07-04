@@ -39,6 +39,7 @@ const environmentDnsVariables = readFileSync(
 );
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
+const platformPreviewCleanupWorkflow = readFileSync(resolve(".github/workflows/platform-preview-cleanup.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 const platformDigitalOceanDriftDigestWorkflow = readFileSync(
   resolve(".github/workflows/platform-digitalocean-drift-digest.yml"),
@@ -2020,6 +2021,7 @@ describe("DigitalOcean platform configuration", () => {
     for (const destructiveWorkflow of [
       platformPrWorkflow,
       platformProductionWorkflow,
+      platformPreviewCleanupWorkflow,
       platformStagingResetWorkflow,
       platformDatabaseRestoreDrillWorkflow,
       platformProductionRestorePointCleanupWorkflow,
@@ -2035,6 +2037,32 @@ describe("DigitalOcean platform configuration", () => {
     expect(digitaloceanPlatformRunbook).toContain("`DIGITALOCEAN_REGISTRY_TOKEN`");
     expect(digitaloceanPlatformRunbook).toContain(
       "Spaces and Terraform-state least privilege remain separate follow-up work.",
+    );
+  });
+
+  it("cleans preview environments on PR close and with a daily closed-PR sweep", () => {
+    expect(platformPreviewCleanupWorkflow).toContain("pull_request_target:");
+    expect(platformPreviewCleanupWorkflow).toContain("types:\n      - closed");
+    expect(platformPreviewCleanupWorkflow).toContain('cron: "17 10 * * *"');
+    expect(platformPreviewCleanupWorkflow).toContain("workflow_dispatch:");
+    expect(platformPreviewCleanupWorkflow).toContain("discover-preview-cleanup:");
+    expect(platformPreviewCleanupWorkflow).toContain("node ./scripts/digitalocean-preview-cleanup-sweep.mjs discover");
+    expect(platformPreviewCleanupWorkflow).toContain(
+      "--out artifacts/release-health/platform-preview-cleanup-sweep.json",
+    );
+    expect(platformPreviewCleanupWorkflow).toContain("target_count: ${{ steps.targets.outputs.target_count }}");
+    expect(platformPreviewCleanupWorkflow).toContain("if: needs.discover-preview-cleanup.outputs.target_count != '0'");
+    expect(platformPreviewCleanupWorkflow).toContain(
+      "matrix: ${{ fromJSON(needs.discover-preview-cleanup.outputs.matrix) }}",
+    );
+    expect(platformPreviewCleanupWorkflow).toContain("group: platform-preview-pr-${{ matrix.pr_number }}");
+    expect(platformPreviewCleanupWorkflow).toContain("TF_VAR_preview_identifier: pr-${{ matrix.pr_number }}");
+    expect(platformPreviewCleanupWorkflow).toContain(
+      "TF_VAR_platform_image_tag: pr-${{ matrix.pr_number }}-${{ matrix.image_sha }}",
+    );
+    expect(platformPreviewCleanupWorkflow).toContain("ref: ${{ matrix.checkout_ref }}");
+    expect(platformPreviewCleanupWorkflow).toContain(
+      "-backend-config=key=platform/previews/pr-${{ matrix.pr_number }}.tfstate",
     );
   });
 
