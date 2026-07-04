@@ -18,7 +18,9 @@ permissions:
   checks: read
 
 concurrency:
-  group: platform-deploy-staging
+  # Staging reset rebuilds and pushes the platform image. Share this lane with
+  # registry cleanup so DigitalOcean GC cannot overlap registry writes.
+  group: platform-registry-mutation
   cancel-in-progress: false
 
 jobs:
@@ -26,6 +28,9 @@ jobs:
     name: Reset Staging
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
     environment: staging
     env:
       TF_IN_AUTOMATION: "true"

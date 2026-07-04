@@ -7,7 +7,7 @@ import {
 } from "./digitalocean-registry-cleanup.mjs";
 
 describe("digitalocean-registry-cleanup", () => {
-  it("selects only old unprotected registry tags for deletion", () => {
+  it("keeps release tags, protected digests, and the latest SHA/tree tags", () => {
     const now = new Date("2026-05-15T12:00:00.000Z");
 
     expect(
@@ -16,18 +16,22 @@ describe("digitalocean-registry-cleanup", () => {
           { tag: "current-staging", updated_at: "2026-04-01T00:00:00.000Z" },
           { tag: "current-production", updated_at: "2026-04-01T00:00:00.000Z" },
           { tag: "release-20260515-abcdef12", updated_at: "2026-04-01T00:00:00.000Z" },
-          { tag: "recent-main", updated_at: "2026-05-01T00:00:00.000Z" },
+          { tag: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", updated_at: "2026-05-14T00:00:00.000Z" },
+          { tag: "tree-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", updated_at: "2026-05-13T00:00:00.000Z" },
+          { tag: "cccccccccccccccccccccccccccccccccccccccc", updated_at: "2026-05-12T00:00:00.000Z" },
           { tag: "old-main", updated_at: "2026-03-01T00:00:00.000Z" },
           { tag: "digest-protected", digest: "sha256:keep", updated_at: "2026-03-01T00:00:00.000Z" },
+          { tag: "digest-alias", digest: "sha256:keep", updated_at: "2026-03-01T00:00:00.000Z" },
         ],
         {
           now,
           retentionDays: 30,
+          retainRecentShaTreeTags: 2,
           protectedTags: ["current-staging", "current-production"],
           protectedDigests: ["sha256:keep"],
         },
       ),
-    ).toEqual(["old-main"]);
+    ).toEqual(["cccccccccccccccccccccccccccccccccccccccc", "old-main"]);
   });
 
   it("fetches protected image tags from named App Platform specs", async () => {
@@ -65,6 +69,7 @@ describe("digitalocean-registry-cleanup", () => {
       {
         repository: "chase-sets-platform",
         retentionDays: 7,
+        retainRecentShaTreeTags: 1,
         dryRun: true,
         appNames: ["chase-sets-staging-platform"],
         protectedTags: ["manual-keep"],
@@ -82,9 +87,11 @@ describe("digitalocean-registry-cleanup", () => {
           if (args[0] === "registry" && args[1] === "repository" && args[2] === "list-tags") {
             return JSON.stringify([
               { tag: "current-staging", digest: "sha256:current", updated_at: "2026-03-01T00:00:00.000Z" },
+              { tag: "current-staging-alias", digest: "sha256:current", updated_at: "2026-03-01T00:00:00.000Z" },
               { tag: "manual-keep", updated_at: "2026-03-01T00:00:00.000Z" },
               { tag: "release-20260515-abcdef12", updated_at: "2026-03-01T00:00:00.000Z" },
-              { tag: "recent-main", updated_at: "2026-05-14T00:00:00.000Z" },
+              { tag: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", updated_at: "2026-05-14T00:00:00.000Z" },
+              { tag: "tree-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", updated_at: "2026-05-13T00:00:00.000Z" },
               { tag: "old-main", digest: "sha256:old", updated_at: "2026-03-01T00:00:00.000Z" },
             ]);
           }
@@ -99,9 +106,17 @@ describe("digitalocean-registry-cleanup", () => {
       mode: "dry-run",
       repository: "chase-sets-platform",
       retentionDays: 7,
+      retainRecentShaTreeTags: 1,
       protectedAppNames: ["chase-sets-staging-platform"],
       protectedTags: ["current-staging", "manual-keep"],
-      selectedDeletionTags: [{ name: "old-main", digest: "sha256:old", updatedAt: "2026-03-01T00:00:00.000Z" }],
+      protectedDigests: ["sha256:current"],
+      retainedRecentShaTreeTags: [
+        { name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", digest: null, updatedAt: "2026-05-14T00:00:00.000Z" },
+      ],
+      selectedDeletionTags: [
+        { name: "tree-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", digest: null, updatedAt: "2026-05-13T00:00:00.000Z" },
+        { name: "old-main", digest: "sha256:old", updatedAt: "2026-03-01T00:00:00.000Z" },
+      ],
       deletedTags: [],
       failedTags: [],
       garbageCollection: { status: "skipped", reason: "dry-run" },

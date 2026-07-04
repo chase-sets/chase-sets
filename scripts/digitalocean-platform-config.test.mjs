@@ -1252,7 +1252,9 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}",
     );
     expect(platformProductionWorkflow).toContain("pull-requests: read");
-    expect(platformProductionWorkflow).toContain("concurrency:\n  group: platform-deploy\n  cancel-in-progress: false");
+    expect(platformProductionWorkflow).toContain(
+      "concurrency:\n  # Platform deploy builds, pushes, verifies, and release-tags DOCR images.\n  # Share this lane with registry cleanup so DigitalOcean GC cannot overlap\n  # registry-pushing deploy paths.\n  group: platform-registry-mutation\n  cancel-in-progress: false",
+    );
     expect(platformProductionWorkflow).toContain("emergency_release:");
     expect(platformProductionWorkflow).toContain(
       "description: Bypass an active production release lock for an audited fix-forward or revert.",
@@ -1607,6 +1609,30 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain('export SMOKE_ADMIN_TOPOLOGY="public-marketplace"');
     expect(platformProductionWorkflow).toContain('export SMOKE_ADMIN_TOPOLOGY="production-platform-disabled"');
     expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
+  });
+
+  it("guards scheduled registry cleanup against queued or active platform deploys", () => {
+    const deployLaneStep = workflowStep(platformRegistryCleanupWorkflow, "Check deploy lane");
+    const cleanupStep = workflowStep(platformRegistryCleanupWorkflow, "Cleanup registry tags");
+
+    expect(platformRegistryCleanupWorkflow).toContain("actions: read");
+    expect(platformRegistryCleanupWorkflow).toContain("group: platform-registry-mutation");
+    expect(platformProductionWorkflow).toContain("group: platform-registry-mutation");
+    expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
+    expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
+    expect(platformProductionWorkflow).toContain("release-tags DOCR images");
+    expect(platformStagingResetWorkflow).toContain("Staging reset rebuilds and pushes the platform image");
+    expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
+    expect(deployLaneStep).toContain('const statuses = ["queued", "in_progress", "waiting", "requested", "pending"];');
+    expect(deployLaneStep).toContain('reason: "deploy-lane-active"');
+    expect(deployLaneStep).toContain('result: "deferred"');
+    expect(cleanupStep).toContain("if: steps.deploy_lane.outputs.deferred != 'true'");
+    expect(cleanupStep).toContain("--retain-recent-sha-tree-tags=25");
+    expect(cleanupStep).not.toContain("--retention-days=7");
+    expect(digitaloceanPlatformRunbook).toContain(
+      "Platform Deploy, Platform Staging Reset, and Platform Registry Cleanup share the `platform-registry-mutation` GitHub Actions concurrency group",
+    );
   });
 
   it("captures App Platform diagnostics when staging Terraform apply fails", () => {
