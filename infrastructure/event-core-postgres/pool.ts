@@ -76,7 +76,7 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
     ssl: resolvePgPoolSslConfig(normalizedConnectionString),
     max: options.max,
     idleTimeoutMillis: options.idleTimeoutMillis,
-    idle_in_transaction_session_timeout: options.idleInTransactionSessionTimeoutMillis,
+    options: resolvePgStartupOptions(options),
     connectionTimeoutMillis: options.connectionTimeoutMillis,
   });
 
@@ -110,6 +110,14 @@ function verifyingSslConfig(connectionString: URL, env: PgPoolSslEnv): Extract<P
   const ca = caPath ? readFileSync(caPath, "utf8") : undefined;
 
   return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
+}
+
+function resolvePgStartupOptions(options: PgPoolOptions): string | undefined {
+  if (options.idleInTransactionSessionTimeoutMillis === undefined) {
+    return undefined;
+  }
+
+  return `-c idle_in_transaction_session_timeout=${options.idleInTransactionSessionTimeoutMillis}`;
 }
 
 function isLocalDatabaseHost(hostname: string): boolean {

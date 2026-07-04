@@ -103,15 +103,16 @@ describe("createPgPool", () => {
     await pool.end();
   });
 
-  it("passes idle-in-transaction timeout to Postgres clients", async () => {
+  it("passes idle-in-transaction timeout through Postgres startup options", async () => {
     const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets", {
       idleInTransactionSessionTimeoutMillis: 15_000,
     }) as unknown as {
-      options: { idle_in_transaction_session_timeout?: number };
+      options: { idle_in_transaction_session_timeout?: number; options?: string };
       end: () => Promise<void>;
     };
 
-    expect(pool.options.idle_in_transaction_session_timeout).toBe(15_000);
+    expect(pool.options.idle_in_transaction_session_timeout).toBeUndefined();
+    expect(pool.options.options).toBe("-c idle_in_transaction_session_timeout=15000");
     await pool.end();
   });
 
