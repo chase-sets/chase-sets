@@ -51,6 +51,8 @@ export interface InventoryApiClientOptions {
   fetch?: typeof globalThis.fetch;
   headers?: HeadersInit | (() => HeadersInit);
   credentials?: RequestCredentials;
+  requestTimeoutMs?: number;
+  recoverTransportErrorsAsGatewayTimeout?: boolean;
 }
 
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
@@ -66,17 +68,77 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return attachResponseMetadata(await response.json(), response) as T;
 }
 
+function timeoutFetchSignal(timeoutMs: number, upstreamSignal?: AbortSignal) {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  let removeUpstreamListener: (() => void) | null = null;
+  const timeoutResponse = new Promise<Response>((resolve) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      resolve(gatewayTimeoutResponse());
+    }, timeoutMs);
+  });
+
+  if (upstreamSignal) {
+    const abortFromUpstream = () => controller.abort();
+    if (upstreamSignal.aborted) {
+      controller.abort();
+    } else {
+      upstreamSignal.addEventListener("abort", abortFromUpstream, { once: true });
+      removeUpstreamListener = () => upstreamSignal.removeEventListener("abort", abortFromUpstream);
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    wait: (request: Promise<Response>) => Promise.race([request, timeoutResponse]),
+    cleanup: () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      removeUpstreamListener?.();
+    },
+  };
+}
+
+function gatewayTimeoutResponse() {
+  return new Response(null, {
+    status: 504,
+    statusText: "Gateway Timeout",
+  });
+}
+
 export function createInventoryApiClient({
   baseUrl = DEFAULT_BASE_URL,
   fetch = globalThis.fetch,
   headers: initialHeaders,
   credentials = "include",
+  requestTimeoutMs,
+  recoverTransportErrorsAsGatewayTimeout = false,
 }: InventoryApiClientOptions = {}) {
-  const configuredFetch: typeof globalThis.fetch = (input, init = {}) =>
-    fetch(input, {
-      ...init,
-      credentials: init.credentials ?? credentials,
-    });
+  const configuredFetch: typeof globalThis.fetch = async (input, init = {}) => {
+    const timeout =
+      typeof requestTimeoutMs === "number" && Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0
+        ? timeoutFetchSignal(requestTimeoutMs, init.signal ?? undefined)
+        : null;
+
+    try {
+      const request = fetch(input, {
+        ...init,
+        credentials: init.credentials ?? credentials,
+        ...(timeout ? { signal: timeout.signal } : {}),
+      });
+      return await (timeout ? timeout.wait(request) : request);
+    } catch (error) {
+      if (recoverTransportErrorsAsGatewayTimeout) {
+        return gatewayTimeoutResponse();
+      }
+
+      throw error;
+    } finally {
+      timeout?.cleanup();
+    }
+  };
   const client = honoClientResource(
     hc<InventoryApiApp>(baseUrl, {
       fetch: configuredFetch,
