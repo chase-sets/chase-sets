@@ -12,6 +12,7 @@ const SCHEMA_BOOTSTRAP_LOCK_MAX_RETRY_DELAY_MS = 5_000;
 export const SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 600_000;
 export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING = "5s";
 export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES = 8;
+export const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS = 600_000;
 const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BASE_DELAY_MS = 1_000;
 const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_MAX_DELAY_MS = 15_000;
 const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_JITTER_MS = 500;
@@ -257,8 +258,13 @@ export async function applyContextSchema(
   schemaSql: string,
   moduleSchemaMigrations: readonly BcSchemaMigration[] = [],
 ): Promise<void> {
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS;
   let lastLockTimeoutError: unknown;
-  for (let attempt = 1; attempt <= SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES; attempt += 1) {
+  let attempts = 0;
+
+  while (Date.now() < deadlineAt) {
+    attempts += 1;
     try {
       await applyContextSchemaOnce(pool, schemaSql, moduleSchemaMigrations);
       return;
@@ -268,14 +274,16 @@ export async function applyContextSchema(
       }
 
       lastLockTimeoutError = error;
-      if (attempt < SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES) {
-        await sleep(schemaBootstrapLockTimeoutRetryDelayMs(attempt));
+      const remainingBudgetMs = deadlineAt - Date.now();
+      if (remainingBudgetMs > 0) {
+        await sleep(Math.min(schemaBootstrapLockTimeoutRetryDelayMs(attempts), remainingBudgetMs));
       }
     }
   }
 
+  const elapsedMs = Date.now() - startedAt;
   throw new Error(
-    `Schema bootstrap hit PostgreSQL lock_timeout ${SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES} times while applying idempotent schema SQL. Another database session may be holding a relation lock; retry the deploy after the lock clears or inspect active database sessions if this persists.`,
+    `Schema bootstrap hit PostgreSQL lock_timeout for ${attempts} attempts over ${elapsedMs}ms while applying idempotent schema SQL. Another database session may be holding a relation lock; retry the deploy after the lock clears or inspect active database sessions if this persists.`,
     { cause: lastLockTimeoutError },
   );
 }
