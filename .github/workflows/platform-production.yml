@@ -43,6 +43,10 @@ permissions:
   checks: read
   pull-requests: read
 
+concurrency:
+  group: platform-deploy
+  cancel-in-progress: false
+
 jobs:
   resolve-release:
     name: Resolve Release
@@ -2449,8 +2453,7 @@ jobs:
         contains(fromJSON('["failure", "cancelled"]'), needs.build-image.result) ||
         contains(fromJSON('["failure", "cancelled"]'), needs.deploy-staging.result) ||
         contains(fromJSON('["failure", "cancelled"]'), needs.deploy-production.result) ||
-        contains(fromJSON('["failure", "cancelled"]'), needs.record-staging-release-health.result) ||
-        needs.deploy-production.outputs.superseded == 'true'
+        contains(fromJSON('["failure", "cancelled"]'), needs.record-staging-release-health.result)
       )
     permissions:
       contents: read
@@ -2466,28 +2469,19 @@ jobs:
           DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
           RECORD_STAGING_HEALTH_RESULT: ${{ needs.record-staging-release-health.result }}
           RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
-          SUPERSEDED: ${{ needs.deploy-production.outputs.superseded || 'false' }}
-          SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit }}
         run: |
           set -euo pipefail
 
           release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
           release_short="${release_commit:0:12}"
-          if [ "${SUPERSEDED}" = "true" ]; then
-            title="Incident: Platform Deploy superseded before production for ${release_short}"
-            incident_kind="production-superseded"
-          else
-            title="Incident: Platform Deploy failed for ${release_short}"
-            incident_kind="production-deploy-failure"
-          fi
+          title="Incident: Platform Deploy failed for ${release_short}"
 
           body="$(cat <<EOF
           Automated production deploy incident signal.
 
-          - Kind: ${incident_kind}
+          - Kind: production-deploy-failure
           - Workflow run: ${RUN_URL}
           - Release commit: ${release_commit}
-          - Superseded by commit: ${SUPERSEDED_BY_COMMIT:-none}
           - Resolve Release: ${RESOLVE_RELEASE_RESULT}
           - Build Release Image: ${BUILD_IMAGE_RESULT}
           - Deploy Staging: ${DEPLOY_STAGING_RESULT}
