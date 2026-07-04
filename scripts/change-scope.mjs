@@ -308,9 +308,6 @@ export function classifyChanges({
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
       return typeof workspace?.packageJson.scripts?.["test:db"] === "string";
     }) || [...directlyTestOnlyAffectedWorkspaces].some(workspaceRequiresDbForTestOnlyChange);
-  const coverageFastRequired = unitTestsRequired;
-  const coverageSummaryRequired = coverageFastRequired || dbTestsRequired;
-
   return {
     changedFiles: normalizedFiles,
     affectedWorkspaces,
@@ -326,8 +323,6 @@ export function classifyChanges({
     typecheckRequired: affectedWorkspaces.length > 0 || rootRuntimeChanged || rootTestTypecheckChanged,
     unitTestsRequired,
     dbTestsRequired,
-    coverageFastRequired,
-    coverageSummaryRequired,
     e2eSuiteIds,
     e2eTestsRequired: e2eSuiteIds.length > 0,
     buildRequired: runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged,
@@ -395,8 +390,6 @@ export function toOutputMap(scope) {
     typecheck: String(scope.typecheckRequired),
     unit_tests: String(scope.unitTestsRequired),
     db_tests: String(scope.dbTestsRequired),
-    coverage_fast: String(scope.coverageFastRequired),
-    coverage_summary: String(scope.coverageSummaryRequired),
     e2e_tests: String(scope.e2eTestsRequired),
     e2e_suites: scope.e2eSuiteIds.join(","),
     e2e_suites_json: JSON.stringify(scope.e2eSuiteIds),

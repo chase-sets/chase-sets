@@ -102,8 +102,6 @@ describe("change-scope", () => {
     expect(scope.affectedWorkspaces).toEqual(["@test/primitives", "@test/catalog", "@test/public-web"]);
     expect(scope.typecheckRequired).toBe(true);
     expect(scope.unitTestsRequired).toBe(true);
-    expect(scope.coverageFastRequired).toBe(true);
-    expect(scope.coverageSummaryRequired).toBe(true);
     expect(scope.buildRequired).toBe(true);
     expect(scope.deployRequired).toBe(true);
     expect(scope.exposurePostureCategories).toEqual([]);
@@ -252,8 +250,6 @@ describe("change-scope", () => {
     expect(scope.runtimeAffectedWorkspaces).toEqual([]);
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.dbTestsRequired).toBe(true);
-    expect(scope.coverageFastRequired).toBe(true);
-    expect(scope.coverageSummaryRequired).toBe(true);
     expect(scope.buildRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
   });
@@ -278,8 +274,6 @@ describe("change-scope", () => {
 
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.dbTestsRequired).toBe(false);
-    expect(scope.coverageFastRequired).toBe(true);
-    expect(scope.coverageSummaryRequired).toBe(true);
   });
 
   it("narrows E2E requirements to marketplace-facing user journey surfaces", () => {
@@ -402,8 +396,6 @@ describe("change-scope", () => {
     expect(scope.localChecksRequired).toBe(true);
     expect(scope.typecheckRequired).toBe(true);
     expect(scope.unitTestsRequired).toBe(false);
-    expect(scope.coverageFastRequired).toBe(false);
-    expect(scope.coverageSummaryRequired).toBe(false);
     expect(scope.buildRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
   });
@@ -457,8 +449,6 @@ describe("change-scope", () => {
     expect(scope.runtimeAffectedWorkspaces).toEqual([]);
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.dbTestsRequired).toBe(false);
-    expect(scope.coverageFastRequired).toBe(true);
-    expect(scope.coverageSummaryRequired).toBe(true);
     expect(scope.buildRequired).toBe(false);
     expect(scope.deployRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
@@ -480,8 +470,8 @@ describe("change-scope", () => {
       "admin_support,admin_platform",
       "admin_auth,admin_access",
     ]);
-    expect(toOutputMap(scope).coverage_fast).toBe("true");
-    expect(toOutputMap(scope).coverage_summary).toBe("true");
+    expect(toOutputMap(scope)).not.toHaveProperty("coverage_fast");
+    expect(toOutputMap(scope)).not.toHaveProperty("coverage_summary");
     expect(toOutputMap(scope).exposure_posture_changed).toBe("false");
   });
 
@@ -668,10 +658,6 @@ describe("change-scope", () => {
 
     expect(scope.workflowLintRequired).toBe(true);
     expect(scope.localChecksRequired).toBe(true);
-    expect(scope.coverageFastRequired).toBe(false);
-    expect(scope.coverageSummaryRequired).toBe(false);
-    expect(toOutputMap(scope).coverage_fast).toBe("false");
-    expect(toOutputMap(scope).coverage_summary).toBe("false");
     expect(scope.deployRequired).toBe(false);
   });
 

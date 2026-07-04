@@ -1,0 +1,166 @@
+name: Platform Coverage
+
+on:
+  schedule:
+    - cron: "41 9 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to measure.
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-coverage-${{ github.event.inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage-fast:
+    name: Fast Coverage (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    outputs:
+      fast_status: ${{ steps.coverage.outputs.fast_status }}
+      unit_status: ${{ steps.coverage.outputs.unit_status }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Run fast coverage
+        id: coverage
+        run: |
+          set +e
+          timeout 8m node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 -- --coverage --coverage.reporter=text --coverage.reporter=lcov
+          test_status=$?
+          if [ "$test_status" -ne 0 ]; then
+            echo "Non-DB coverage finished with status ${test_status}; keeping coverage non-blocking."
+          fi
+          echo "fast_status=${test_status}" >> "$GITHUB_OUTPUT"
+
+          timeout 8m node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 -- --coverage --coverage.reporter=text --coverage.reporter=lcov
+          unit_status=$?
+          if [ "$unit_status" -ne 0 ]; then
+            echo "DB-profile unit coverage finished with status ${unit_status}; keeping coverage non-blocking."
+          fi
+          echo "unit_status=${unit_status}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload fast coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-fast-artifacts
+          path: |
+            bounded-contexts/*/coverage
+            contracts/*/coverage
+            deployables/*/coverage
+            infrastructure/*/coverage
+            packages/*/coverage
+          if-no-files-found: ignore
+          retention-days: 7
+
+  coverage-db:
+    name: DB Coverage (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    outputs:
+      db_status: ${{ steps.coverage.outputs.db_status }}
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Run DB coverage
+        id: coverage
+        run: |
+          set +e
+          timeout 8m node ./scripts/run-workspaces.mjs test:db --concurrency=2 -- --coverage --coverage.reporter=text --coverage.reporter=lcov
+          db_status=$?
+          if [ "$db_status" -ne 0 ]; then
+            echo "DB coverage finished with status ${db_status}; keeping coverage non-blocking."
+          fi
+          echo "db_status=${db_status}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DB coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-db-artifacts
+          path: |
+            bounded-contexts/*/coverage
+            contracts/*/coverage
+            deployables/*/coverage
+            infrastructure/*/coverage
+            packages/*/coverage
+          if-no-files-found: ignore
+          retention-days: 7
+
+  coverage-summary:
+    name: Coverage Summary (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - coverage-fast
+      - coverage-db
+    if: always()
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: coverage-*-artifacts
+          merge-multiple: true
+
+      - name: Summarize aggregate coverage
+        run: |
+          set -euo pipefail
+          statuses=(
+            "--status=non-db:${{ needs['coverage-fast'].outputs.fast_status || 'not-run' }}"
+            "--status=db-profile-unit:${{ needs['coverage-fast'].outputs.unit_status || 'not-run' }}"
+            "--status=db:${{ needs['coverage-db'].outputs.db_status || 'not-run' }}"
+          )
+
+          node ./scripts/coverage-summary.mjs "${statuses[@]}"
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-summary-artifacts
+          path: |
+            artifacts/coverage
+          if-no-files-found: ignore
+          retention-days: 7

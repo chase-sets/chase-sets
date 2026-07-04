@@ -39,6 +39,7 @@ const environmentDnsVariables = readFileSync(
 );
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
+const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformPreviewCleanupWorkflow = readFileSync(resolve(".github/workflows/platform-preview-cleanup.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 const platformDigitalOceanDriftDigestWorkflow = readFileSync(
@@ -1759,6 +1760,53 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPrWorkflow).toContain(
       'gh api --method POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"',
     );
+  });
+
+  it("keeps non-blocking coverage off merge groups and on a daily workflow", () => {
+    const fastCoverageStep = workflowStep(platformCoverageWorkflow, "Run fast coverage");
+    const dbCoverageStep = workflowStep(platformCoverageWorkflow, "Run DB coverage");
+    const coverageSummaryStep = workflowStep(platformCoverageWorkflow, "Summarize aggregate coverage");
+
+    expect(platformPrWorkflow).not.toContain("coverage-fast:");
+    expect(platformPrWorkflow).not.toContain("coverage-db:");
+    expect(platformPrWorkflow).not.toContain("coverage-summary:");
+    expect(platformPrWorkflow).not.toContain("Fast Coverage (non-blocking)");
+    expect(platformPrWorkflow).not.toContain("DB Coverage (non-blocking)");
+    expect(platformPrWorkflow).not.toContain("Coverage Summary (non-blocking)");
+    expect(platformPrWorkflow).not.toContain("coverage_fast:");
+    expect(platformPrWorkflow).not.toContain("coverage_summary:");
+
+    expect(platformCoverageWorkflow).toContain("name: Platform Coverage");
+    expect(platformCoverageWorkflow).toContain('cron: "41 9 * * *"');
+    expect(platformCoverageWorkflow).toContain("workflow_dispatch:");
+    expect(platformCoverageWorkflow).toContain("ref:");
+    expect(platformCoverageWorkflow).toContain("default: main");
+    expect(platformCoverageWorkflow).toContain("group: platform-coverage-${{ github.event.inputs.ref || github.ref }}");
+    expect(platformCoverageWorkflow).toContain("name: Fast Coverage (non-blocking)");
+    expect(platformCoverageWorkflow).toContain("name: DB Coverage (non-blocking)");
+    expect(platformCoverageWorkflow).toContain("name: Coverage Summary (non-blocking)");
+    expect(platformCoverageWorkflow).toContain("continue-on-error: true");
+    expect(platformCoverageWorkflow).toContain("coverage-fast-artifacts");
+    expect(platformCoverageWorkflow).toContain("coverage-db-artifacts");
+    expect(platformCoverageWorkflow).toContain("coverage-summary-artifacts");
+    expect(platformCoverageWorkflow).toContain("retention-days: 7");
+    expect(platformCoverageWorkflow).toContain(
+      "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0",
+    );
+
+    expect(fastCoverageStep).toContain("node ./scripts/run-workspaces.mjs test --exclude-test-profile=db");
+    expect(fastCoverageStep).toContain("node ./scripts/run-workspaces.mjs test:unit --test-profile=db");
+    expect(fastCoverageStep).toContain("--coverage --coverage.reporter=text --coverage.reporter=lcov");
+    expect(dbCoverageStep).toContain("node ./scripts/run-workspaces.mjs test:db --concurrency=2");
+    expect(dbCoverageStep).toContain("--coverage --coverage.reporter=text --coverage.reporter=lcov");
+    expect(coverageSummaryStep).toContain(
+      "--status=non-db:${{ needs['coverage-fast'].outputs.fast_status || 'not-run' }}",
+    );
+    expect(coverageSummaryStep).toContain(
+      "--status=db-profile-unit:${{ needs['coverage-fast'].outputs.unit_status || 'not-run' }}",
+    );
+    expect(coverageSummaryStep).toContain("--status=db:${{ needs['coverage-db'].outputs.db_status || 'not-run' }}");
+    expect(coverageSummaryStep).toContain('node ./scripts/coverage-summary.mjs "${statuses[@]}"');
   });
 
   it("gates the release image push behind a runtime boot smoke", () => {
