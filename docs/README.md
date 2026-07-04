@@ -124,7 +124,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Staging Representative Commerce State](./runbooks/staging-representative-commerce-state.md): staging-only representative marketplace data refresh policy and verification.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
-- [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform, DNS operations, and production deployment workflow.
+- [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): current App Platform staging/production workflow, DNS operations, and production deployment workflow; [ADR 0018](./adr/0018-doks-compute-runtime.md) records the pre-launch DOKS compute migration decision.
 - [Admin Shell Smoke Matrix](./runbooks/admin-shell-smoke-matrix.md): admin shell, actor, link, API topology, download, SSE, and durable-job release evidence matrix.
 - [Admin Workflows Staging QA](./runbooks/admin-workflows-staging-qa.md): support-safe admin actor matrix, evidence rules, and representative state checks for deployed staging QA.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
@@ -167,6 +167,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0015: Deployables As Runtime Composition Roots](./adr/0015-deployables-as-runtime-composition-roots.md)
 - [ADR 0016: Profiled Production Topology](./adr/0016-profiled-production-topology.md)
 - [ADR 0017: Database Provisioning Is Separate From Runtime Activation](./adr/0017-database-provisioning-runtime-activation.md)
+- [ADR 0018: DOKS Compute Runtime](./adr/0018-doks-compute-runtime.md)
 
 ## Generated Markdown
 
