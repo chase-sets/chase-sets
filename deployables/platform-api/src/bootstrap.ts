@@ -11,6 +11,8 @@ import { apiContextRegistry } from "./generated/api-context-registry";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } from "./test-support/provider-gateways";
 
+const DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 1_800_000;
+
 async function bootstrap() {
   const config = loadBootstrapConfig();
   const pools = createPlatformApiPools(config);
@@ -40,6 +42,9 @@ async function bootstrap() {
       enabledDataProfiles: config.dataProfiles ?? [],
       environmentName: config.deploymentEnvironment ?? null,
       runtimeProfile: config.runtimeProfile,
+      schemaBootstrap: {
+        lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
+      },
     });
 
     if (config.platformAdmin) {

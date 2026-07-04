@@ -12,6 +12,7 @@ export {
   SCHEMA_MIGRATIONS_TABLE,
   waitForDatabase,
 } from "./schema";
+export type { SchemaBootstrapOptions } from "./schema";
 export {
   allEnvironmentDataProfiles,
   countEventsWithPrefix,

@@ -581,6 +581,55 @@ describe("platform host api registry", () => {
     expect(identitySeed).toHaveBeenCalledTimes(1);
     expect(marketplaceSeed).not.toHaveBeenCalled();
   });
+
+  it("forwards schema bootstrap options while seeding mounted contexts", async () => {
+    vi.useFakeTimers();
+    try {
+      const query = vi.fn(async () => ({ rows: [] }));
+      const client = {
+        query: vi.fn(async (sql: string) => ({
+          rows: sql.includes("pg_try_advisory_lock") ? [{ acquired: false }] : [],
+        })),
+        release: vi.fn(),
+      };
+      const contendedPool = {
+        query,
+        connect: vi.fn(async () => client),
+      };
+      const registry = [
+        {
+          contextName: "identity",
+          packageName: "@test/identity",
+          manifest: {
+            contextName: "identity",
+            apiDeployables: ["platform-api"],
+          },
+          module: createModule("identity"),
+        },
+      ] as const satisfies ApiContextRegistry;
+      const runtime = createApiHost(registry, "platform-api", {
+        pools: {
+          identity: contendedPool as never,
+        },
+      });
+
+      const seed = seedApiHostIfEmpty(registry, "platform-api", runtime, {
+        enabledDataProfiles: productionLikeDataProfiles,
+        environmentName: "staging",
+        schemaBootstrap: {
+          lockAcquisitionTimeoutMs: 1,
+        },
+      });
+      const seedRejected = expect(seed).rejects.toThrow(/Schema bootstrap lock was not acquired within 1ms/);
+      await vi.advanceTimersByTimeAsync(2);
+
+      await seedRejected;
+      expect(contendedPool.connect).toHaveBeenCalledTimes(1);
+      expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("platform host worker registry", () => {

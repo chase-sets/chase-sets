@@ -9,6 +9,7 @@ import {
   seedProfilesOverlap,
   syncContextProjectionGroups,
   type MountedContextRuntimeEntry,
+  type SchemaBootstrapOptions,
 } from "../bounded-context-runtime/index";
 import type {
   BcApiModule,
@@ -306,7 +307,11 @@ function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module"
   return Boolean(context.module.seed && seedProfilesOverlap(context.module.seedProfiles, options));
 }
 
-export type ApiHostSeedOptions = BcSeedOptions & Readonly<{ runtimeProfile?: ApiHostRuntimeProfile }>;
+export type ApiHostSeedOptions = BcSeedOptions &
+  Readonly<{
+    runtimeProfile?: ApiHostRuntimeProfile;
+    schemaBootstrap?: SchemaBootstrapOptions;
+  }>;
 
 export async function seedApiHostIfEmpty(
   registry: ApiContextRegistry,
@@ -321,7 +326,7 @@ export async function seedApiHostIfEmpty(
   const runFullDrain = shouldRunFullBootstrapDrain(options);
 
   for (const context of runtime.mountedContexts) {
-    await bootstrapContextDatabase(context.module, context.pool);
+    await bootstrapContextDatabase(context.module, context.pool, options.schemaBootstrap);
   }
 
   for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile)) {

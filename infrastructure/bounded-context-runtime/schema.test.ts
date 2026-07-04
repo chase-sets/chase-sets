@@ -193,6 +193,46 @@ describe("bounded context runtime schema", () => {
     }
   });
 
+  it("honors caller-provided schema bootstrap lock acquisition budgets", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-03T00:00:00.000Z"));
+    try {
+      let lockAttempts = 0;
+      const client = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("pg_try_advisory_lock")) {
+            lockAttempts += 1;
+            return { rows: [{ acquired: false }] };
+          }
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      };
+      const pool = {
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(async () => client),
+      };
+      const module = {
+        contextName: "example",
+        schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
+      };
+
+      const bootstrap = bootstrapContextDatabase(module, pool, {
+        lockAcquisitionTimeoutMs: 1_800_000,
+      });
+      const bootstrapRejected = expect(bootstrap).rejects.toThrow(
+        /Schema bootstrap lock was not acquired within 1800000ms after \d+ attempts \(elapsed 1800000ms, advisory lock 739134880509551001\)/,
+      );
+      await vi.advanceTimersByTimeAsync(1_800_001);
+
+      await bootstrapRejected;
+      expect(lockAttempts).toBeGreaterThan(100);
+      expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retries PostgreSQL lock_timeout failures during schema application on a fresh client", async () => {
     vi.useFakeTimers();
     try {
