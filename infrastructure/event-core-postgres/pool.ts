@@ -7,9 +7,14 @@ export type PgPoolOptions = Readonly<{
   idleTimeoutMillis?: number;
   connectionTimeoutMillis?: number;
   onIdleClientError?: (event: PgPoolIdleClientErrorEvent) => void;
+  onActiveClientError?: (event: PgPoolActiveClientErrorEvent) => void;
 }>;
 
 export type PgPoolIdleClientErrorEvent = Readonly<{
+  error: unknown;
+}>;
+
+export type PgPoolActiveClientErrorEvent = Readonly<{
   error: unknown;
 }>;
 
@@ -81,8 +86,22 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
     }
   });
 
+  pool.on("connect", (client: PgActiveClient) => {
+    client.on("error", (error: unknown) => {
+      try {
+        options.onActiveClientError?.({ error });
+      } catch {
+        // Active checked-out client errors must never crash the process.
+      }
+    });
+  });
+
   return pool as unknown as PgTransactionalPool;
 }
+
+type PgActiveClient = pg.PoolClient & {
+  on: (event: "error", listener: (error: unknown) => void) => void;
+};
 
 function verifyingSslConfig(connectionString: URL, env: PgPoolSslEnv): Extract<PgPoolSslConfig, object> {
   const caPath = connectionString.searchParams.get("sslrootcert") ?? env.PGSSLROOTCERT;
