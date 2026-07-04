@@ -1762,6 +1762,14 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("passes changed files into static checks for PR-scoped structure guards", () => {
+    const staticStep = workflowStep(platformPrWorkflow, "Run static checks");
+
+    expect(platformPrWorkflow).toContain("changed_files_json: ${{ steps.scope.outputs.changed_files_json }}");
+    expect(staticStep).toContain("CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}");
+    expect(staticStep).toContain("pnpm run verify:static");
+  });
+
   it("keeps non-blocking coverage off merge groups and on a daily workflow", () => {
     const fastCoverageStep = workflowStep(platformCoverageWorkflow, "Run fast coverage");
     const dbCoverageStep = workflowStep(platformCoverageWorkflow, "Run DB coverage");
