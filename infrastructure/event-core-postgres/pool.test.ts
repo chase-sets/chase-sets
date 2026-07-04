@@ -103,6 +103,18 @@ describe("createPgPool", () => {
     await pool.end();
   });
 
+  it("passes idle-in-transaction timeout to Postgres clients", async () => {
+    const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets", {
+      idleInTransactionSessionTimeoutMillis: 15_000,
+    }) as unknown as {
+      options: { idle_in_transaction_session_timeout?: number };
+      end: () => Promise<void>;
+    };
+
+    expect(pool.options.idle_in_transaction_session_timeout).toBe(15_000);
+    await pool.end();
+  });
+
   it("notifies the idle client error hook without letting hook failures escape", async () => {
     const idleError = new Error("Connection terminated unexpectedly");
     const reported: unknown[] = [];

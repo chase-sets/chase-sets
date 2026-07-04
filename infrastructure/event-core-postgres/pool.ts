@@ -5,6 +5,7 @@ import type { PgTransactionalPool } from "./types";
 export type PgPoolOptions = Readonly<{
   max?: number;
   idleTimeoutMillis?: number;
+  idleInTransactionSessionTimeoutMillis?: number;
   connectionTimeoutMillis?: number;
   onIdleClientError?: (event: PgPoolIdleClientErrorEvent) => void;
   onActiveClientError?: (event: PgPoolActiveClientErrorEvent) => void;
@@ -75,6 +76,7 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
     ssl: resolvePgPoolSslConfig(normalizedConnectionString),
     max: options.max,
     idleTimeoutMillis: options.idleTimeoutMillis,
+    idle_in_transaction_session_timeout: options.idleInTransactionSessionTimeoutMillis,
     connectionTimeoutMillis: options.connectionTimeoutMillis,
   });
 

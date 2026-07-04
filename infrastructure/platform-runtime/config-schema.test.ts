@@ -3,6 +3,7 @@ import {
   PLATFORM_DATA_PROFILES,
   getBooleanEnv,
   getReadConsistencyExactDependencyModeEnv,
+  loadPoolConfig,
   loadReadConsistencyRouteTuningEnv,
   resolveEnumEnv,
 } from "./config-schema";
@@ -45,6 +46,16 @@ describe("platform runtime config schema", () => {
       "scenario-seed",
       "representative-commerce-state",
     ]);
+  });
+
+  it("loads the optional idle-in-transaction pool timeout", () => {
+    process.env.DATABASE_POOL_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS = "15000";
+
+    expect(loadPoolConfig()).toEqual(
+      expect.objectContaining({
+        idleInTransactionSessionTimeoutMillis: 15_000,
+      }),
+    );
   });
 
   it("loads read consistency exact dependency mode from environment", () => {

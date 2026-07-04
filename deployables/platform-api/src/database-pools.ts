@@ -12,6 +12,8 @@ import {
 } from "./config";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
+const PLATFORM_IDLE_TRANSACTION_TIMEOUT_MS = 15_000;
+
 export function createPlatformApiPools(
   config: PlatformApiBaseConfig,
 ): ContextPools<ApiHostContextName<typeof apiContextRegistry>> {
@@ -21,6 +23,7 @@ export function createPlatformApiPools(
     defaultPool: {
       max: 10,
       idleTimeoutMillis: 30_000,
+      idleInTransactionSessionTimeoutMillis: PLATFORM_IDLE_TRANSACTION_TIMEOUT_MS,
       connectionTimeoutMillis: 5_000,
     },
     resolveControlDatabaseUrl: ({ config, contextNames, resolveContextDatabaseUrl }) => {
