@@ -1238,6 +1238,7 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}",
     );
     expect(platformProductionWorkflow).toContain("pull-requests: read");
+    expect(platformProductionWorkflow).toContain("concurrency:\n  group: platform-deploy\n  cancel-in-progress: false");
     expect(platformProductionWorkflow).toContain("emergency_release:");
     expect(platformProductionWorkflow).toContain(
       "description: Bypass an active production release lock for an audited fix-forward or revert.",
@@ -1370,8 +1371,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("issues: write");
     expect(platformProductionWorkflow).toContain("gh issue create");
     expect(platformProductionWorkflow).toContain("Incident: Platform Deploy failed for");
-    expect(platformProductionWorkflow).toContain("Incident: Platform Deploy superseded before production for");
-    expect(platformProductionWorkflow).toContain("needs.deploy-production.outputs.superseded == 'true'");
+    expect(platformProductionWorkflow).not.toContain("Incident: Platform Deploy superseded before production for");
+    expect(platformProductionWorkflow).not.toContain("Kind: production-superseded");
+    expect(workflowJob(platformProductionWorkflow, "notify-production-deploy-incident")).not.toContain(
+      "needs.deploy-production.outputs.superseded == 'true'",
+    );
+    expect(workflowJob(platformProductionWorkflow, "notify-production-deploy-incident")).toContain(
+      'contains(fromJSON(\'["failure", "cancelled"]\'), needs.deploy-production.result)',
+    );
     expect(platformProductionWorkflow).toContain(
       'contains(fromJSON(\'["failure", "cancelled"]\'), needs.deploy-production.result)',
     );
