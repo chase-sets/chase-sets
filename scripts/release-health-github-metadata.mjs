@@ -21,6 +21,7 @@ export function buildReleaseHealthGithubMetadata(input) {
   const timeline = Array.isArray(input.timeline) ? input.timeline : [];
   const reviews = Array.isArray(input.reviews) ? input.reviews : [];
   const mergeGroupRuns = Array.isArray(input.mergeGroupRuns) ? input.mergeGroupRuns : [];
+  const branchRules = Array.isArray(input.branchRules) ? input.branchRules : [];
   const releaseCommit = normalizeString(input.releaseCommit);
   const queueQueuedAt =
     firstTimelineTimestamp(timeline, "added_to_merge_queue") ?? input.sourceWorkflowCreatedAt ?? null;
@@ -39,6 +40,7 @@ export function buildReleaseHealthGithubMetadata(input) {
     queueMergedAt,
     queueDequeuedAt,
     queueFailureReason: queueDequeuedAt ? queueFailureReason(timeline) : null,
+    queueBatchSize: mergeQueueBatchSize(branchRules),
     mergeSha: normalizeCommitSha(mergedEvent?.commit_id) ?? normalizeCommitSha(pull?.merge_commit_sha) ?? releaseCommit,
   };
 }
@@ -59,11 +61,12 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
 
   const pulls = await request(`/commits/${options.releaseCommit}/pulls`);
   const pull = Array.isArray(pulls) ? pulls[0] : null;
-  const [pullDetails, reviews, timeline, runs] = await Promise.all([
+  const [pullDetails, reviews, timeline, runs, branchRules] = await Promise.all([
     pull?.number ? request(`/pulls/${pull.number}`) : null,
     pull?.number ? request(`/pulls/${pull.number}/reviews?per_page=100`) : [],
     pull?.number ? request(`/issues/${pull.number}/timeline?per_page=100`) : [],
     request(`/actions/runs?head_sha=${encodeURIComponent(options.releaseCommit)}&event=merge_group&per_page=10`),
+    request(`/rules/branches/main?per_page=100`).catch(() => []),
   ]);
 
   return buildReleaseHealthGithubMetadata({
@@ -73,6 +76,7 @@ export async function collectReleaseHealthGithubMetadata(options, dependencies =
     reviews,
     timeline,
     mergeGroupRuns: runs?.workflow_runs ?? [],
+    branchRules,
   });
 }
 
@@ -87,6 +91,7 @@ export function formatGithubOutput(metadata) {
     queue_merged_at: metadata.queueMergedAt,
     queue_dequeued_at: metadata.queueDequeuedAt,
     queue_failure_reason: metadata.queueFailureReason,
+    queue_batch_size: metadata.queueBatchSize,
     merge_sha: metadata.mergeSha,
   };
 
@@ -166,6 +171,12 @@ function queueFailureReason(timeline) {
   const removed = firstTimelineEvent(timeline, "removed_from_merge_queue");
   const reason = normalizeString(removed?.reason) ?? normalizeString(removed?.dismissed_reason);
   return reason ?? "removed-from-merge-queue";
+}
+
+function mergeQueueBatchSize(branchRules) {
+  const mergeQueueRule = branchRules.find((rule) => rule?.type === "merge_queue");
+  const value = Number.parseInt(String(mergeQueueRule?.parameters?.max_entries_to_merge ?? ""), 10);
+  return Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function firstTimelineTimestamp(timeline, eventName) {

@@ -1347,6 +1347,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-github-metadata.mjs");
     expect(platformProductionWorkflow).toContain('--release-commit "$release_commit"');
     expect(platformProductionWorkflow).toContain('echo "queue_merge_group_started_at="');
+    expect(platformProductionWorkflow).toContain('echo "queue_batch_size=1"');
     expect(platformProductionWorkflow).toContain('echo "merge_sha=${release_commit}"');
     expect(platformProductionWorkflow).toContain('git rev-list --count "origin/production..${release_commit}"');
     expect(platformProductionWorkflow).toContain('echo "drift_commits=${drift_commits}"');
@@ -1367,6 +1368,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}",
     );
+    expect(platformProductionWorkflow).toContain(
+      "QUEUE_BATCH_SIZE: ${{ steps.release_health_metadata.outputs.queue_batch_size || '1' }}",
+    );
+    expect(platformProductionWorkflow).not.toContain('QUEUE_BATCH_SIZE: "1"');
     expect(platformProductionWorkflow).toContain(
       "QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}",
     );
