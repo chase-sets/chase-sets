@@ -1896,6 +1896,37 @@ describe("DigitalOcean platform configuration", () => {
     expect(smokeIndex).toBeLessThan(pushIndex);
   });
 
+  it("boot-smokes the merge queue App Platform image with deploy-time web component semantics", () => {
+    const dockerImageJob = workflowJob(platformPrWorkflow, "docker-image");
+    const buildStep = workflowStep(platformPrWorkflow, "Build App Platform image");
+    const smokeStep = workflowStep(platformPrWorkflow, "Boot smoke App Platform image");
+    const releaseSmokeStep = workflowStep(platformProductionWorkflow, "Boot smoke release image");
+
+    expect(dockerImageJob).toContain("if: needs['change-scope'].outputs.docker_image == 'true'");
+    expect(buildStep).toContain("--load \\");
+    expect(buildStep).toContain("--tag chase-sets-platform:pr-validation");
+
+    expect(smokeStep).toContain("if: github.event_name == 'merge_group'");
+    expect(smokeStep).toContain("PLATFORM_IMAGE: chase-sets-platform:pr-validation");
+    expect(smokeStep).toContain("-e NODE_ENV=production");
+    expect(smokeStep).toContain("-e PORT=8080");
+    expect(smokeStep).toContain('pnpm --filter "$workspace" run start');
+    expect(smokeStep).toContain('boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready 18080');
+    expect(smokeStep).toContain('boot_smoke public-web "@chase-sets/app-public-web" / 18081');
+
+    for (const deployTimeSemantics of [
+      'boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready 18080',
+      'boot_smoke public-web "@chase-sets/app-public-web" / 18081',
+    ]) {
+      expect(releaseSmokeStep).toContain(deployTimeSemantics);
+      expect(smokeStep).toContain(deployTimeSemantics);
+    }
+
+    const buildIndex = platformPrWorkflow.indexOf("- name: Build App Platform image");
+    const smokeIndex = platformPrWorkflow.indexOf("- name: Boot smoke App Platform image");
+    expect(buildIndex).toBeLessThan(smokeIndex);
+  });
+
   it("deploys App Platform releases by the verified image digest", () => {
     const stagingImageStep = workflowStep(platformProductionWorkflow, "Build and push App Platform image");
     const productionImageStep = workflowStep(platformProductionWorkflow, "Verify promoted App Platform image");
