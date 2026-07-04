@@ -166,7 +166,15 @@ export async function listInventoryItems(
       [params.accountId],
     ),
     db.query<BaseInventoryItemRow>(
-      `SELECT
+      `WITH paged_items AS (
+         SELECT *
+         FROM inventory_items
+         WHERE account_id = $1
+         ORDER BY updated_at DESC, item_id ASC
+         LIMIT $2
+         OFFSET $3
+       )
+       SELECT
          item.item_id,
          item.account_id,
          item.catalog_catalog_item_id,
@@ -183,20 +191,18 @@ export async function listInventoryItems(
          item.acquisition_cost_amount::text AS acquisition_cost_amount,
          item.created_at,
          item.updated_at
-       FROM inventory_items AS item
+       FROM paged_items AS item
        INNER JOIN inventory_storage_locations AS location
          ON location.storage_location_id = item.storage_location_id
-       LEFT JOIN (
-         SELECT item_id, SUM(quantity)::integer AS held_quantity
+       LEFT JOIN LATERAL (
+         SELECT SUM(quantity)::integer AS held_quantity
          FROM inventory_holds
-         WHERE status = 'active'
-         GROUP BY item_id
+         WHERE inventory_holds.item_id = item.item_id
+           AND status = 'active'
        ) AS active_holds
-         ON active_holds.item_id = item.item_id
-       WHERE item.account_id = $1
+         ON true
        ORDER BY item.updated_at DESC, item.item_id ASC
-       LIMIT $2
-       OFFSET $3`,
+       `,
       [params.accountId, limit, offset],
     ),
   ]);
@@ -269,13 +275,13 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
      FROM inventory_items AS item
      INNER JOIN inventory_storage_locations AS location
        ON location.storage_location_id = item.storage_location_id
-     LEFT JOIN (
-       SELECT item_id, SUM(quantity)::integer AS held_quantity
+     LEFT JOIN LATERAL (
+       SELECT SUM(quantity)::integer AS held_quantity
        FROM inventory_holds
-       WHERE status = 'active'
-       GROUP BY item_id
+       WHERE inventory_holds.item_id = item.item_id
+         AND status = 'active'
      ) AS active_holds
-       ON active_holds.item_id = item.item_id
+       ON true
      WHERE item.item_id = $1
        AND item.account_id = $2`,
     [itemId, accountId],
@@ -329,13 +335,13 @@ export async function getInventoryHoldableItem(
        COALESCE(active_holds.held_quantity, 0)::integer AS held_quantity,
        item.total_quantity - COALESCE(active_holds.held_quantity, 0)::integer AS available_quantity
      FROM inventory_items AS item
-     LEFT JOIN (
-       SELECT item_id, SUM(quantity)::integer AS held_quantity
+     LEFT JOIN LATERAL (
+       SELECT SUM(quantity)::integer AS held_quantity
        FROM inventory_holds
-       WHERE status = 'active'
-       GROUP BY item_id
+       WHERE inventory_holds.item_id = item.item_id
+         AND status = 'active'
      ) AS active_holds
-       ON active_holds.item_id = item.item_id
+       ON true
      WHERE item.item_id = $1
        AND item.account_id = $2`,
     [params.itemId, params.accountId],
@@ -363,13 +369,13 @@ export async function getInventoryItemForListingStock(
        COALESCE(active_holds.held_quantity, 0)::integer AS held_quantity,
        item.total_quantity - COALESCE(active_holds.held_quantity, 0)::integer AS available_quantity
      FROM inventory_items AS item
-     LEFT JOIN (
-       SELECT item_id, SUM(quantity)::integer AS held_quantity
+     LEFT JOIN LATERAL (
+       SELECT SUM(quantity)::integer AS held_quantity
        FROM inventory_holds
-       WHERE status = 'active'
-       GROUP BY item_id
+       WHERE inventory_holds.item_id = item.item_id
+         AND status = 'active'
      ) AS active_holds
-       ON active_holds.item_id = item.item_id
+       ON true
      WHERE item.account_id = $1
        AND item.item_id = $2
        AND item.catalog_catalog_item_id = $3
