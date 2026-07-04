@@ -78,13 +78,15 @@ describe("context pools", () => {
           max?: number;
           idleTimeoutMillis?: number;
           idle_in_transaction_session_timeout?: number;
+          options?: string;
           connectionTimeoutMillis?: number;
         };
       };
 
       expect(poolOptions.options.max).toBe(3);
       expect(poolOptions.options.idleTimeoutMillis).toBe(30_000);
-      expect(poolOptions.options.idle_in_transaction_session_timeout).toBe(15_000);
+      expect(poolOptions.options.idle_in_transaction_session_timeout).toBeUndefined();
+      expect(poolOptions.options.options).toBe("-c idle_in_transaction_session_timeout=15000");
       expect(poolOptions.options.connectionTimeoutMillis).toBe(5_000);
     } finally {
       await closeContextPools(pools);

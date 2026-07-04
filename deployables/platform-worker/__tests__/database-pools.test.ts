@@ -18,9 +18,12 @@ describe("platform worker database pools", () => {
     } as unknown as PlatformWorkerConfig);
 
     try {
-      expect(
-        (pools.control as unknown as { options: { idle_in_transaction_session_timeout?: number } }).options,
-      ).toEqual(expect.objectContaining({ idle_in_transaction_session_timeout: 15_000 }));
+      const options = (
+        pools.control as unknown as { options: { idle_in_transaction_session_timeout?: number; options?: string } }
+      ).options;
+
+      expect(options.idle_in_transaction_session_timeout).toBeUndefined();
+      expect(options.options).toBe("-c idle_in_transaction_session_timeout=15000");
     } finally {
       await closePlatformWorkerPools(pools);
     }

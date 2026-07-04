@@ -34,9 +34,12 @@ describe("platform api database pools", () => {
       expect(pools.workSignal).not.toBe(pools.control);
       expect(pools.contextWaiters.catalog).not.toBe(pools.catalog);
       expect(pools.contextWaiters.auth).toBe(pools.auth);
-      expect((pools.auth as unknown as { options: { idle_in_transaction_session_timeout?: number } }).options).toEqual(
-        expect.objectContaining({ idle_in_transaction_session_timeout: 15_000 }),
-      );
+      const options = (
+        pools.auth as unknown as { options: { idle_in_transaction_session_timeout?: number; options?: string } }
+      ).options;
+
+      expect(options.idle_in_transaction_session_timeout).toBeUndefined();
+      expect(options.options).toBe("-c idle_in_transaction_session_timeout=15000");
       expect(runtime.mountedContexts.length).toBeGreaterThan(0);
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "auth")?.pool).toBe(pools.auth);
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "catalog")?.pool).toBe(pools.catalog);
