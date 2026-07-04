@@ -1609,6 +1609,23 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
   });
 
+  it("guards scheduled registry cleanup against queued or active platform deploys", () => {
+    const deployLaneStep = workflowStep(platformRegistryCleanupWorkflow, "Check deploy lane");
+    const cleanupStep = workflowStep(platformRegistryCleanupWorkflow, "Cleanup registry tags");
+
+    expect(platformRegistryCleanupWorkflow).toContain("actions: read");
+    expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
+    expect(deployLaneStep).toContain('const statuses = ["queued", "in_progress", "waiting", "requested", "pending"];');
+    expect(deployLaneStep).toContain('reason: "deploy-lane-active"');
+    expect(deployLaneStep).toContain('result: "deferred"');
+    expect(cleanupStep).toContain("if: steps.deploy_lane.outputs.deferred != 'true'");
+    expect(cleanupStep).toContain("--retain-recent-sha-tree-tags=25");
+    expect(cleanupStep).not.toContain("--retention-days=7");
+    expect(digitaloceanPlatformRunbook).toContain(
+      "Before deleting tags or starting GC, the workflow checks queued and in-progress Platform Deploy and Platform Staging Reset runs",
+    );
+  });
+
   it("captures App Platform diagnostics when staging Terraform apply fails", () => {
     const diagnosticsStep = workflowStep(platformProductionWorkflow, "Capture App Platform deploy diagnostics");
     const diagnosticsIndex = platformProductionWorkflow.indexOf("- name: Capture App Platform deploy diagnostics");

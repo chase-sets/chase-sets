@@ -28,6 +28,7 @@ jobs:
     environment: staging
     permissions:
       contents: read
+      actions: read
       issues: write
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}
@@ -46,7 +47,93 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check deploy lane
+        id: deploy_lane
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLEANUP_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run || 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+
+          node <<'NODE'
+          const { spawnSync } = require("node:child_process");
+          const fs = require("node:fs");
+
+          const repository = process.env.GITHUB_REPOSITORY;
+          const currentRunId = String(process.env.GITHUB_RUN_ID);
+          const workflows = ["platform-production.yml", "platform-staging-reset.yml"];
+          const statuses = ["queued", "in_progress", "waiting", "requested", "pending"];
+          const blockers = [];
+
+          function ghApi(path) {
+            const result = spawnSync("gh", ["api", path], { encoding: "utf8" });
+            if (result.status !== 0) {
+              throw new Error(result.stderr || result.stdout || `gh api ${path} failed`);
+            }
+            return JSON.parse(result.stdout || "{}");
+          }
+
+          for (const workflow of workflows) {
+            for (const status of statuses) {
+              const response = ghApi(
+                `repos/${repository}/actions/workflows/${workflow}/runs?status=${status}&per_page=100`,
+              );
+              for (const run of response.workflow_runs ?? []) {
+                if (String(run.id) === currentRunId) {
+                  continue;
+                }
+                blockers.push({
+                  workflow,
+                  id: run.id,
+                  status: run.status,
+                  event: run.event,
+                  headSha: run.head_sha,
+                  url: run.html_url,
+                });
+              }
+            }
+          }
+
+          const outputPath = process.env.GITHUB_OUTPUT;
+          if (blockers.length === 0) {
+            fs.appendFileSync(outputPath, "deferred=false\n");
+            console.log("No queued or in-progress platform deploy runs found.");
+            process.exit(0);
+          }
+
+          const record = {
+            schemaVersion: "digitalocean-registry-cleanup/v1",
+            checkedAt: new Date().toISOString(),
+            mode: process.env.CLEANUP_DRY_RUN === "true" ? "dry-run" : "apply",
+            repository: process.env.PLATFORM_IMAGE_REPOSITORY,
+            retentionDays: 7,
+            retainRecentShaTreeTags: 25,
+            protectedAppNames: ["chase-sets-staging-platform", "chase-sets-platform"],
+            protectedTags: [],
+            protectedDigests: [],
+            retainedRecentShaTreeTags: [],
+            selectedDeletionTags: [],
+            deletedTags: [],
+            failedTags: [],
+            garbageCollection: {
+              status: "skipped",
+              reason: "deploy-lane-active",
+            },
+            result: "deferred",
+            deployLaneBlockers: blockers,
+            errors: [],
+          };
+          fs.writeFileSync(
+            "artifacts/release-health/digitalocean-registry-cleanup.json",
+            `${JSON.stringify(record, null, 2)}\n`,
+          );
+          fs.appendFileSync(outputPath, "deferred=true\n");
+          console.log(`Deferring registry cleanup because ${blockers.length} platform deploy run(s) are queued or active.`);
+          NODE
+
       - name: Cleanup registry tags
+        if: steps.deploy_lane.outputs.deferred != 'true'
         run: |
           set -euo pipefail
           mkdir -p artifacts/release-health
@@ -60,7 +147,7 @@ jobs:
 
           node ./scripts/digitalocean-registry-cleanup.mjs cleanup \
             --repository="${PLATFORM_IMAGE_REPOSITORY}" \
-            --retention-days=7 \
+            --retain-recent-sha-tree-tags=25 \
             --app-name=chase-sets-staging-platform \
             --app-name=chase-sets-platform \
             --out artifacts/release-health/digitalocean-registry-cleanup.json \
@@ -84,12 +171,20 @@ jobs:
           console.log(`- Result: ${record.result}`);
           console.log(`- Mode: ${record.mode}`);
           console.log(`- Repository: ${record.repository}`);
-          console.log(`- Retention days: ${record.retentionDays}`);
+          console.log(`- Retained SHA/tree tags: ${record.retainedRecentShaTreeTags?.length ?? 0}/${record.retainRecentShaTreeTags ?? "unknown"}`);
           console.log(`- Protected App Platform tags: ${record.protectedTags?.length ?? 0}`);
+          console.log(`- Protected App Platform digests: ${record.protectedDigests?.length ?? 0}`);
           console.log(`- Cleanup candidates: ${record.selectedDeletionTags?.length ?? 0}`);
           console.log(`- Deleted tags: ${record.deletedTags?.length ?? 0}`);
           console.log(`- Failed deletes: ${record.failedTags?.length ?? 0}`);
           console.log(`- Garbage collection: ${record.garbageCollection?.status ?? "unknown"}`);
+          if (record.deployLaneBlockers?.length) {
+            console.log("");
+            console.log("### Deploy lane blockers");
+            for (const blocker of record.deployLaneBlockers) {
+              console.log(`- ${blocker.workflow} #${blocker.id}: ${blocker.status} (${blocker.url})`);
+            }
+          }
           if (record.errors?.length) {
             console.log("");
             console.log("### Errors");
@@ -124,4 +219,4 @@ jobs:
           github-token: ${{ github.token }}
           workflow-name: Platform Registry Cleanup
           alert-status: success
-          alert-summary: Platform registry cleanup completed successfully.
+          alert-summary: Platform registry cleanup completed successfully or deferred because the deploy lane was active.
