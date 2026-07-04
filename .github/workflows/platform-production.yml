@@ -834,6 +834,7 @@ jobs:
           fi
 
       - name: Smoke check
+        timeout-minutes: 12
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
@@ -855,6 +856,7 @@ jobs:
           SMOKE_UTM_CAMPAIGN: staging-main
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+          SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
           landing_domain="$(terraform output -raw landing_domain)"
@@ -2142,6 +2144,7 @@ jobs:
           fi
 
       - name: Smoke check
+        timeout-minutes: 15
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
@@ -2157,6 +2160,7 @@ jobs:
           SMOKE_UTM_CAMPAIGN: production-main
           SMOKE_FETCH_ATTEMPTS: "24"
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+          SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
           public_domain="$(terraform output -raw landing_domain)"

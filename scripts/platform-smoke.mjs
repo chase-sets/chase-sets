@@ -1,6 +1,7 @@
 import process from "node:process";
 import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
 import { resolveSyntheticWaitlistEmail } from "./platform-smoke-email.mjs";
+import { fetchWithTimeout } from "./platform-smoke-fetch.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import {
@@ -60,6 +61,7 @@ const adminGoogleWorkspaceHostedDomain = getSmokeEnv("SMOKE_ADMIN_GOOGLE_WORKSPA
 const nativeMcpAccountId = getSmokeEnv("SMOKE_NATIVE_MCP_ACCOUNT_ID") || null;
 const fetchAttempts = readPositiveIntegerEnv("SMOKE_FETCH_ATTEMPTS", 6);
 const fetchRetryDelayMs = readPositiveIntegerEnv("SMOKE_FETCH_RETRY_DELAY_MS", 5_000);
+const fetchTimeoutMs = readPositiveIntegerEnv("SMOKE_FETCH_TIMEOUT_MS", 15_000);
 const commitReceiptHeader = "Chase-Sets-Commit-Receipt";
 const readAfterWriteHeader = "Chase-Sets-Read-After-Write";
 const readTargetContextHeader = "Chase-Sets-Read-Target-Context";
@@ -102,6 +104,10 @@ function describeFetchError(error) {
   return `${error.message}${cause}`;
 }
 
+async function smokeFetch(label, input, init) {
+  return fetchWithTimeout(fetch, input, init, { label, timeoutMs: fetchTimeoutMs });
+}
+
 function createSmokePagePath() {
   const params = new URLSearchParams({
     utm_source: smokeUtmSource,
@@ -126,7 +132,7 @@ async function fetchWithRetry(label, input, init, isSuccess) {
 
   for (let attempt = 1; attempt <= fetchAttempts; attempt += 1) {
     try {
-      const response = await fetch(input, init);
+      const response = await smokeFetch(label, input, init);
       if (isSuccess(response)) {
         return response;
       }
