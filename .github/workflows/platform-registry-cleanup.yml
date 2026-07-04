@@ -17,7 +17,10 @@ on:
 permissions: {}
 
 concurrency:
-  group: platform-registry-cleanup
+  # DOCR garbage collection makes the registry read-only. Share this lane with
+  # deploy workflows that push or tag platform images so cleanup cannot enter
+  # the delete/GC window while a deploy can start registry writes.
+  group: platform-registry-mutation
   cancel-in-progress: false
 
 jobs:

@@ -44,7 +44,10 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: platform-deploy
+  # Platform deploy builds, pushes, verifies, and release-tags DOCR images.
+  # Share this lane with registry cleanup so DigitalOcean GC cannot overlap
+  # registry-pushing deploy paths.
+  group: platform-registry-mutation
   cancel-in-progress: false
 
 jobs:
