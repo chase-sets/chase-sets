@@ -232,9 +232,10 @@ function workflowSteps(source, stepName) {
 }
 
 function workflowJob(source, jobName) {
-  const start = source.indexOf(`  ${jobName}:`);
-  expect(start).not.toBe(-1);
+  const match = new RegExp(`(^|\\n)  ${jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`).exec(source);
+  expect(match).not.toBeNull();
 
+  const start = match.index + match[1].length;
   const rest = source.slice(start + 1);
   const next = rest.search(/\n  [A-Za-z0-9_-]+:/);
   return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
@@ -887,25 +888,41 @@ describe("DigitalOcean platform configuration", () => {
   it("captures rollback readiness before production cutover and rolls back failed post-cutover checks", () => {
     const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const stagingSmokeStep = workflowSteps(deployStagingJob, "Smoke check").at(-1);
+    const productionSmokeStep = workflowSteps(deployProductionJob, "Smoke check").at(-1);
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
     const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
+    const diagnosticsStep = workflowStep(
+      deployProductionJob,
+      "Capture post-cutover production App Platform diagnostics",
+    );
     const rollbackStep = workflowStep(deployProductionJob, "Roll back production App Platform image");
     const releaseHealthStep = workflowSteps(platformProductionWorkflow, "Write release health summary").at(-1);
     const uploadStep = workflowSteps(platformProductionWorkflow, "Upload release health summary").at(-1);
 
     expect(deployStagingJob).not.toContain("- name: Capture production rollback target");
     expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
+    expect(stagingSmokeStep).toContain("timeout-minutes: 12");
+    expect(stagingSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
+    expect(productionSmokeStep).toContain("timeout-minutes: 15");
+    expect(productionSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
 
     const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
     const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
     const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
+    const stage1Index = deployProductionJob.indexOf("- name: Stage 1 production canary");
+    const diagnosticsIndex = deployProductionJob.indexOf(
+      "- name: Capture post-cutover production App Platform diagnostics",
+    );
     const rollbackIndex = deployProductionJob.indexOf("- name: Roll back production App Platform image");
     const markerIndex = deployProductionJob.indexOf("- name: Mark production release");
 
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
     expect(smokeIndex).toBeLessThan(rollbackIndex);
+    expect(stage1Index).toBeLessThan(diagnosticsIndex);
+    expect(diagnosticsIndex).toBeLessThan(rollbackIndex);
     expect(rollbackIndex).toBeLessThan(markerIndex);
 
     expect(captureStep).toContain("terraform output -raw app_id");
@@ -926,6 +943,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(readinessStep).toContain("ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}");
     expect(readinessStep).toContain("pnpm run rollback:readiness");
     expect(readinessStep).toContain('echo "result=${result}" >> "$GITHUB_OUTPUT"');
+
+    expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
+    expect(diagnosticsStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(diagnosticsStep).toContain(
+      'app_id="$(terraform output -raw app_id 2>/dev/null || printf \'%s\' "${{ steps.rollback_target.outputs.rollback_app_id }}")"',
+    );
+    expect(diagnosticsStep).toContain(
+      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true',
+    );
 
     expect(rollbackStep).toContain(
       "if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'",
@@ -1806,6 +1832,48 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPrWorkflow).toContain("changed_files_json: ${{ steps.scope.outputs.changed_files_json }}");
     expect(staticStep).toContain("CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}");
     expect(staticStep).toContain("pnpm run verify:static");
+  });
+
+  it("keeps PR fast-lane checks separate from merge-group full battery", () => {
+    const fullBatteryStep = workflowStep(platformPrWorkflow, "Resolve full battery lane");
+    const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
+    const e2eJob = workflowJob(platformPrWorkflow, "e2e-tests");
+    const buildJob = workflowJob(platformPrWorkflow, "build");
+    const dockerJob = workflowJob(platformPrWorkflow, "docker-image");
+    const terraformPreviewJob = workflowJob(platformPrWorkflow, "terraform-preview-plan");
+    const terraformStagingJob = workflowJob(platformPrWorkflow, "terraform-staging-plan");
+    const terraformProductionJob = workflowJob(platformPrWorkflow, "terraform-production-plan");
+    const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
+
+    expect(platformPrWorkflow).toContain("full_battery_required: ${{ steps.full-battery.outputs.required }}");
+    expect(fullBatteryStep).toContain('"${{ github.event_name }}" = "merge_group"');
+    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-ci')");
+    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-pr-battery')");
+    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
+
+    for (const job of [
+      dbProfileJob,
+      e2eJob,
+      buildJob,
+      dockerJob,
+      terraformPreviewJob,
+      terraformStagingJob,
+      terraformProductionJob,
+    ]) {
+      expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
+    }
+
+    expect(requiredJob).toContain(
+      "full_battery_required=\"${{ needs['change-scope'].outputs.full_battery_required }}\"",
+    );
+    expect(requiredJob).toContain('require_heavy_job "DB Profile Tests"');
+    expect(requiredJob).toContain('require_heavy_job "E2E Tests"');
+    expect(requiredJob).toContain('require_heavy_job "Build"');
+    expect(requiredJob).toContain('require_heavy_job "Docker Image Build"');
+    expect(requiredJob).toContain('require_heavy_job "Terraform Preview Plan"');
+    expect(requiredJob).toContain('require_heavy_job "Terraform Staging Plan"');
+    expect(requiredJob).toContain('require_heavy_job "Terraform Production Plan"');
+    expect(requiredJob).toContain('require_job "Workflow Lint"');
   });
 
   it("fails pre-merge production plans with unapproved destructive changes", () => {

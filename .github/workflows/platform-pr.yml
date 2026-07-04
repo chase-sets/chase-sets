@@ -33,6 +33,7 @@ jobs:
       exposure_posture_categories: ${{ steps.scope.outputs.exposure_posture_categories }}
       exposure_posture_categories_json: ${{ steps.scope.outputs.exposure_posture_categories_json }}
       exposure_posture_changed: ${{ steps.scope.outputs.exposure_posture_changed }}
+      full_battery_required: ${{ steps.full-battery.outputs.required }}
       local_checks: ${{ steps.scope.outputs.local_checks }}
       terraform: ${{ steps.scope.outputs.terraform }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
@@ -72,6 +73,27 @@ jobs:
           fi
 
           node ./scripts/change-scope.mjs github-output --base="${base}" --head="${head}"
+
+      - name: Resolve full battery lane
+        id: full-battery
+        env:
+          FULL_BATTERY_LABEL: ${{ github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') || contains(github.event.pull_request.labels.*.name, 'full-pr-battery') || contains(github.event.pull_request.labels.*.name, 'preview')) }}
+        run: |
+          set -euo pipefail
+
+          required=false
+          reason=pr-fast-lane
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            required=true
+            reason=merge-group
+          elif [ "${FULL_BATTERY_LABEL}" = "true" ]; then
+            required=true
+            reason=label
+          fi
+
+          echo "required=${required}" >> "$GITHUB_OUTPUT"
+          echo "reason=${reason}" >> "$GITHUB_OUTPUT"
+          echo "Full battery required: ${required} (${reason})"
 
   static:
     name: Static Checks
@@ -133,7 +155,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.db_tests == 'true'
+    if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.db_tests == 'true'
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -165,7 +187,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: change-scope
-    if: needs['change-scope'].outputs.e2e_tests == 'true'
+    if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.e2e_tests == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -211,7 +233,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.build == 'true'
+    if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.build == 'true'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -227,7 +249,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: change-scope
-    if: needs['change-scope'].outputs.docker_image == 'true'
+    if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.docker_image == 'true'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -323,7 +345,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.terraform == 'true'
+    if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.terraform == 'true'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -420,7 +442,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.terraform == 'true'
+    if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.terraform == 'true'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -494,7 +516,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.terraform == 'true'
+    if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.terraform == 'true'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -1011,14 +1033,29 @@ jobs:
           require_job "Static Checks" "${{ needs.static.result }}" "${{ needs['change-scope'].outputs.local_checks }}"
           require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs['change-scope'].outputs.typecheck }}"
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests }}"
-          require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests }}"
-          require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests }}"
-          require_job "Build" "${{ needs.build.result }}" "${{ needs['change-scope'].outputs.build }}"
-          require_job "Docker Image Build" "${{ needs['docker-image'].result }}" "${{ needs['change-scope'].outputs.docker_image }}"
           require_job "Workflow Lint" "${{ needs['workflow-lint'].result }}" "${{ needs['change-scope'].outputs.workflow_lint }}"
-          require_job "Terraform Preview Plan" "${{ needs['terraform-preview-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
-          require_job "Terraform Staging Plan" "${{ needs['terraform-staging-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
-          require_job "Terraform Production Plan" "${{ needs['terraform-production-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
+
+          full_battery_required="${{ needs['change-scope'].outputs.full_battery_required }}"
+          require_heavy_job() {
+            local name="$1"
+            local result="$2"
+            local affected="$3"
+
+            if [ "$full_battery_required" = "true" ] && [ "$affected" = "true" ]; then
+              require_job "$name" "$result" "true"
+              return
+            fi
+
+            require_job "$name" "$result" "false"
+          }
+
+          require_heavy_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests }}"
+          require_heavy_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests }}"
+          require_heavy_job "Build" "${{ needs.build.result }}" "${{ needs['change-scope'].outputs.build }}"
+          require_heavy_job "Docker Image Build" "${{ needs['docker-image'].result }}" "${{ needs['change-scope'].outputs.docker_image }}"
+          require_heavy_job "Terraform Preview Plan" "${{ needs['terraform-preview-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
+          require_heavy_job "Terraform Staging Plan" "${{ needs['terraform-staging-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
+          require_heavy_job "Terraform Production Plan" "${{ needs['terraform-production-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
 
           preview_result="${{ needs['preview-deploy-smoke'].result }}"
           preview_required="${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'preview') && needs['change-scope'].outputs.deploy == 'true' }}"

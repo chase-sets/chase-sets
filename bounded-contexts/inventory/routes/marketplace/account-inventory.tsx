@@ -18,6 +18,11 @@ import { createInventoryRequestApiClient } from "../../support/request-support/a
 import { InventoryItemListPage } from "../../features/inventory-items/ui/inventory-item-list-page";
 
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
+const ACCOUNT_INVENTORY_READ_TIMEOUT_MS = 10_000;
+const TEMPORARY_INVENTORY_ITEMS_LOAD_ERROR =
+  "Inventory items are taking longer than expected. Reload this page in a moment.";
+const TEMPORARY_STORAGE_LOCATIONS_LOAD_ERROR =
+  "Storage locations are taking longer than expected. Reload this page in a moment.";
 
 function parseSelectedOptionsParam(value: string | null) {
   if (!value) {
@@ -71,17 +76,67 @@ function appendFeedback(destination: string, feedback: URLSearchParams) {
   return `${path}${query ? `?${query}` : ""}${hash ? `#${hash}` : ""}`;
 }
 
+function emptyListResponse<T>(): ListResponse<T> {
+  return { items: [], total: 0, count: 0 };
+}
+
+function isTemporaryInventoryReadError(error: unknown) {
+  if (error instanceof InventoryApiError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  }
+
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === "AbortError" || name === "TimeoutError";
+}
+
+async function loadAccountInventoryReadModels(api: ReturnType<typeof createInventoryRequestApiClient>) {
+  const [itemsRead, locationsRead] = await Promise.allSettled([
+    api.listItems(DEFAULT_ITEM_QUERY),
+    api.listStorageLocations(),
+  ]);
+  const loadErrors: string[] = [];
+  let items: ListResponse<InventoryItemListItem>;
+  let locations: ListResponse<InventoryStorageLocation>;
+
+  if (itemsRead.status === "fulfilled") {
+    items = itemsRead.value;
+  } else if (isTemporaryInventoryReadError(itemsRead.reason)) {
+    items = emptyListResponse();
+    loadErrors.push(TEMPORARY_INVENTORY_ITEMS_LOAD_ERROR);
+  } else {
+    throw itemsRead.reason;
+  }
+
+  if (locationsRead.status === "fulfilled") {
+    locations = locationsRead.value;
+  } else if (isTemporaryInventoryReadError(locationsRead.reason)) {
+    locations = emptyListResponse();
+    loadErrors.push(TEMPORARY_STORAGE_LOCATIONS_LOAD_ERROR);
+  } else {
+    throw locationsRead.reason;
+  }
+
+  return {
+    items,
+    locations,
+    loadError: loadErrors.length > 0 ? loadErrors.join(" ") : null,
+  };
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
     request,
     permission: "inventory.view",
   });
-  const api = createInventoryRequestApiClient(request);
+  const api = createInventoryRequestApiClient(request, {
+    requestTimeoutMs: ACCOUNT_INVENTORY_READ_TIMEOUT_MS,
+    recoverTransportErrorsAsGatewayTimeout: true,
+  });
   const url = new URL(request.url);
+  const readModels = await loadAccountInventoryReadModels(api);
 
   return {
-    items: await api.listItems(DEFAULT_ITEM_QUERY),
-    locations: await api.listStorageLocations(),
+    ...readModels,
     createItemDraft: {
       catalogItemId: url.searchParams.get("catalogItemId")?.trim() ?? "",
       selectedOptions: parseSelectedOptionsParam(url.searchParams.get("selectedOptions")),
@@ -156,7 +211,7 @@ export default function MarketplaceInventoryRoute() {
       locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
       createItemDraft={data.createItemDraft}
       currentPath={`${location.pathname}${location.search}`}
-      errorMessage={actionData?.error ?? null}
+      errorMessage={actionData?.error ?? data.loadError ?? null}
       feedbackPrompt={
         feedbackWorkflow ? (
           <PlatformFeedbackPrompt

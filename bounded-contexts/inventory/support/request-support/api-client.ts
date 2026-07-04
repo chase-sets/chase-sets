@@ -14,11 +14,15 @@ export type {
   InventoryListingStockSnapshot,
   InventoryStorageLocation,
 } from "../../client";
-import { createInventoryApiClient } from "../../client";
+import { createInventoryApiClient, type InventoryApiClientOptions } from "../../client";
 
-export function createInventoryRequestApiClient(request: Request) {
+export function createInventoryRequestApiClient(
+  request: Request,
+  options: Pick<InventoryApiClientOptions, "requestTimeoutMs" | "recoverTransportErrorsAsGatewayTimeout"> = {},
+) {
   return createInventoryApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/inventory"),
     fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "inventory" }),
+    ...options,
   });
 }
