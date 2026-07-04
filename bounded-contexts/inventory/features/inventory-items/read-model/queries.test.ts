@@ -3,7 +3,7 @@ import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres
 import { listInventoryItems, listNativeInventoryExportItems } from "./queries";
 
 describe("inventory item read model queries", () => {
-  it("lists account inventory by paging items before aggregating active holds", async () => {
+  it("lists account inventory through a single paged query before aggregating active holds", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const db: PgQueryable = {
       query: async <Row = Record<string, unknown>>(
@@ -12,14 +12,11 @@ describe("inventory item read model queries", () => {
       ): Promise<PgQueryResult<Row>> => {
         calls.push({ sql, values });
 
-        if (sql.includes("COUNT(*) AS count")) {
-          return { rows: [{ count: "1" } as Row], rowCount: 1 };
-        }
-
         if (sql.includes("WITH paged_items AS")) {
           return {
             rows: [
               {
+                total_count: 12,
                 item_id: "inv_1",
                 account_id: "acc_1",
                 catalog_catalog_item_id: "cat_1",
@@ -60,16 +57,20 @@ describe("inventory item read model queries", () => {
     const result = await listInventoryItems(db, { accountId: "acc_1", limit: 100, offset: 0 });
     const listQuery = calls.find((call) => call.sql.includes("WITH paged_items AS"));
 
-    expect(result.total).toBe(1);
+    expect(result.total).toBe(12);
     expect(result.items).toHaveLength(1);
     expect(listQuery?.values).toEqual(["acc_1", 100, 0]);
+    expect(listQuery?.sql).toContain("COUNT(*) OVER()::integer AS total_count");
     expect(listQuery?.sql).toContain("FROM inventory_items");
     expect(listQuery?.sql).toContain("WHERE account_id = $1");
     expect(listQuery?.sql).toContain("LIMIT $2");
     expect(listQuery?.sql).toContain("OFFSET $3");
     expect(listQuery?.sql).toContain("LEFT JOIN LATERAL");
     expect(listQuery?.sql).toContain("WHERE inventory_holds.item_id = item.item_id");
+    expect(listQuery?.sql).toContain("AND status = 'active'");
+    expect(listQuery?.sql).not.toContain("SELECT COUNT(*) AS count");
     expect(listQuery?.sql).not.toContain("GROUP BY item_id");
+    expect(result.items[0]).not.toHaveProperty("total_count");
   });
 
   it("returns an empty account inventory page without catalog enrichment work", async () => {
@@ -80,10 +81,6 @@ describe("inventory item read model queries", () => {
         values: readonly unknown[] = [],
       ): Promise<PgQueryResult<Row>> => {
         calls.push({ sql, values });
-
-        if (sql.includes("COUNT(*) AS count")) {
-          return { rows: [{ count: "0" } as Row], rowCount: 1 };
-        }
 
         if (sql.includes("WITH paged_items AS")) {
           return { rows: [], rowCount: 0 };
@@ -96,6 +93,8 @@ describe("inventory item read model queries", () => {
     const result = await listInventoryItems(db, { accountId: "acc_empty" });
 
     expect(result).toEqual({ items: [], total: 0 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sql).not.toContain("SELECT COUNT(*) AS count");
     expect(calls.some((call) => call.sql.includes("inventory_catalog_items"))).toBe(false);
   });
 
