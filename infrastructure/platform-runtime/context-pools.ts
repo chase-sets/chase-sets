@@ -35,7 +35,7 @@ export function createContextPools<TContextName extends string, TConfig extends 
   config: TConfig,
 ): ContextPools<TContextName> {
   const poolsByDatabaseUrl = new Map<string, PgTransactionalPool>();
-  const poolOptions = { ...contextRegistry.defaultPool, ...config.pool };
+  const poolOptions = mergePoolOptions(contextRegistry.defaultPool, config.pool);
   const resolvePool = (databaseUrl: string) => {
     const existingPool = poolsByDatabaseUrl.get(databaseUrl);
 
@@ -85,6 +85,20 @@ export function createContextPools<TContextName extends string, TConfig extends 
     control: controlPool,
     workSignal: resolvePool(config.workSignalDatabaseUrl ?? controlDatabaseUrl),
     contextWaiters,
+  };
+}
+
+function mergePoolOptions(
+  defaults: PgPoolOptions | undefined,
+  overrides: PgPoolOptions | undefined,
+): PgPoolOptions | undefined {
+  const definedOverrides = Object.fromEntries(
+    Object.entries(overrides ?? {}).filter(([, value]) => value !== undefined),
+  ) as PgPoolOptions;
+
+  return {
+    ...defaults,
+    ...definedOverrides,
   };
 }
 

@@ -67,6 +67,7 @@ describe("context pools", () => {
         contextDatabaseUrls: {},
         pool: {
           max: 3,
+          idleInTransactionSessionTimeoutMillis: undefined,
         },
       },
     );
