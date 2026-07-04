@@ -2274,6 +2274,10 @@ describe("DigitalOcean platform configuration", () => {
     const restoreStep = workflowStep(platformDatabaseRestoreDrillWorkflow, "Run staging database restore drill");
     const uploadStep = workflowStep(platformDatabaseRestoreDrillWorkflow, "Upload restore drill evidence");
 
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("Cadence decision (#4029)");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("keep the full restore drill monthly");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("about 29 wall-minutes");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("confirmed manual dispatch");
     expect(platformDatabaseRestoreDrillWorkflow).toContain('cron: "23 7 3 * *"');
     expect(platformDatabaseRestoreDrillWorkflow).toContain("workflow_dispatch:");
     expect(platformDatabaseRestoreDrillWorkflow).toContain("run staging database restore drill");

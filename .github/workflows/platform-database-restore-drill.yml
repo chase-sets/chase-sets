@@ -1,6 +1,11 @@
 name: Platform Database Restore Drill
 
 on:
+  # Cadence decision (#4029): keep the full restore drill monthly at an
+  # off-peak time because every run creates a managed Postgres fork and has
+  # historically cost about 29 wall-minutes. Infrastructure changes that need
+  # immediate proof should use the confirmed manual dispatch rather than making
+  # every merge group wait on destructive recovery machinery.
   schedule:
     - cron: "23 7 3 * *"
   workflow_dispatch:
