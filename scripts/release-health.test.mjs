@@ -55,6 +55,10 @@ describe("release health summary", () => {
       productionRestorePointCreatedAt: "2026-05-31T12:05:45.000Z",
       productionRestorePointBypassed: false,
       productionRestorePointRemediation: "Run restore-point cleanup before retrying production deploy.",
+      productionRestorePointPreMigrateStateKey: "production-marker:ffffffffffffffffffffffffffffffffffffffff",
+      productionRestorePointPreMigrateStateFingerprint: "0123456789abcdef",
+      productionRestorePointReused: true,
+      productionRestorePointReusedClusterId: "db-fork-1",
       ciRetryCount: 1,
       ciFlakyFailureCount: 1,
       ciTopFlakyJobs: [{ name: "Platform PR", retryCount: 1, flakyFailureCount: 1 }],
@@ -116,6 +120,10 @@ describe("release health summary", () => {
           createdAt: "2026-05-31T12:05:45.000Z",
           bypassed: false,
           remediation: "Run restore-point cleanup before retrying production deploy.",
+          preMigrateStateKey: "production-marker:ffffffffffffffffffffffffffffffffffffffff",
+          preMigrateStateFingerprint: "0123456789abcdef",
+          reused: true,
+          reusedClusterId: "db-fork-1",
         },
       },
       ci: {
@@ -506,6 +514,10 @@ describe("release health summary", () => {
       PRODUCTION_RESTORE_POINT_CREATED_AT: "2026-05-31T11:20:30.000Z",
       PRODUCTION_RESTORE_POINT_BYPASSED: "false",
       PRODUCTION_RESTORE_POINT_REMEDIATION: "Run restore-point cleanup before retrying production deploy.",
+      PRODUCTION_RESTORE_POINT_PRE_MIGRATE_STATE_KEY: "production-marker:ffffffffffffffffffffffffffffffffffffffff",
+      PRODUCTION_RESTORE_POINT_PRE_MIGRATE_STATE_FINGERPRINT: "0123456789abcdef",
+      PRODUCTION_RESTORE_POINT_REUSED: "true",
+      PRODUCTION_RESTORE_POINT_REUSED_CLUSTER_ID: "db-fork-2",
     });
 
     expect(options).toMatchObject({
@@ -562,6 +574,10 @@ describe("release health summary", () => {
       productionRestorePointCreatedAt: "2026-05-31T11:20:30.000Z",
       productionRestorePointBypassed: false,
       productionRestorePointRemediation: "Run restore-point cleanup before retrying production deploy.",
+      productionRestorePointPreMigrateStateKey: "production-marker:ffffffffffffffffffffffffffffffffffffffff",
+      productionRestorePointPreMigrateStateFingerprint: "0123456789abcdef",
+      productionRestorePointReused: true,
+      productionRestorePointReusedClusterId: "db-fork-2",
     });
   });
 

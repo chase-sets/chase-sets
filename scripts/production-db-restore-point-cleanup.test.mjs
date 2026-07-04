@@ -10,7 +10,7 @@ import {
 const baseOptions = {
   doctlPath: "doctl",
   prefix: "cs-prod-rp-",
-  minAgeHours: 24,
+  minAgeHours: 6,
   apply: false,
   checkedAt: "2026-06-29T12:00:00.000Z",
 };
@@ -105,7 +105,7 @@ describe("production restore-point cleanup", () => {
     expect(result.record).toMatchObject({
       mode: "dry-run",
       result: "success",
-      cutoff: "2026-06-28T12:00:00.000Z",
+      cutoff: "2026-06-29T06:00:00.000Z",
       restorePoints: {
         held: [],
         candidates: [{ id: "db-old-restore", name: "cs-prod-rp-abcdef12-28349079203-1" }],
@@ -189,5 +189,11 @@ describe("production restore-point cleanup", () => {
       apply: true,
       holdNames: ["db-cli-hold", "db-env-hold", "cs-prod-rp-held"],
     });
+  });
+
+  it("defaults cleanup selection to a six-hour restore-point age", () => {
+    const options = parseProductionDbRestorePointCleanupArgs(["--checked-at", "2026-06-29T12:00:00.000Z"], {});
+
+    expect(options.minAgeHours).toBe(6);
   });
 });

@@ -10,7 +10,7 @@ const execFile = promisify(execFileCallback);
 
 export const PRODUCTION_DB_RESTORE_POINT_CLEANUP_VERSION = "production-db-restore-point-cleanup/v1";
 export const DEFAULT_RESTORE_POINT_PREFIX = "cs-prod-rp-";
-export const DEFAULT_MIN_AGE_HOURS = 24;
+export const DEFAULT_MIN_AGE_HOURS = 6;
 
 export function parseProductionDbRestorePointCleanupArgs(argv, env = process.env) {
   return {
