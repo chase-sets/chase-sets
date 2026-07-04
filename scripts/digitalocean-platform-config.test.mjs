@@ -1970,7 +1970,9 @@ describe("DigitalOcean platform configuration", () => {
     const smokeStep = workflowStep(platformPrWorkflow, "Boot smoke App Platform image");
     const releaseSmokeStep = workflowStep(platformProductionWorkflow, "Boot smoke release image");
 
-    expect(dockerImageJob).toContain("if: needs['change-scope'].outputs.docker_image == 'true'");
+    expect(dockerImageJob).toContain(
+      "if: needs['change-scope'].outputs.full_battery_required == 'true' && needs['change-scope'].outputs.docker_image == 'true'",
+    );
     expect(buildStep).toContain("--load \\");
     expect(buildStep).toContain("--tag chase-sets-platform:pr-validation");
 
