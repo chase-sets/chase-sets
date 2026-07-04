@@ -887,6 +887,8 @@ describe("DigitalOcean platform configuration", () => {
   it("captures rollback readiness before production cutover and rolls back failed post-cutover checks", () => {
     const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const stagingSmokeStep = workflowSteps(deployStagingJob, "Smoke check").at(-1);
+    const productionSmokeStep = workflowSteps(deployProductionJob, "Smoke check").at(-1);
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
     const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
     const rollbackStep = workflowStep(deployProductionJob, "Roll back production App Platform image");
@@ -895,6 +897,10 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(deployStagingJob).not.toContain("- name: Capture production rollback target");
     expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
+    expect(stagingSmokeStep).toContain("timeout-minutes: 12");
+    expect(stagingSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
+    expect(productionSmokeStep).toContain("timeout-minutes: 15");
+    expect(productionSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
 
     const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
