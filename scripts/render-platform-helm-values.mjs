@@ -631,7 +631,7 @@ function envToken(contextName) {
   return contextName.replaceAll("-", "_").toUpperCase();
 }
 
-function renderYaml(value, indent = 0) {
+export function renderYaml(value, indent = 0) {
   if (Array.isArray(value)) {
     if (value.length === 0) {
       return "[]";
