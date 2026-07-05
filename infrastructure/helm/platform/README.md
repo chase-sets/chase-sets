@@ -118,6 +118,19 @@ pnpm run platform:helm-local-boot -- --namespace chase-sets-platform-local-boot
 
 The harness uses the Dockerized Helm image `alpine/helm:3.15.4`, so a local `helm` binary is not required. A reachable Kubernetes context is required for the non-dry-run proof.
 
+## Deployment Helper
+
+`platform:kubernetes-deployment` is the DOKS deploy workflow helper for issue #4049. It provides the command contract that replaces App Platform deploy/wait/diagnostics calls:
+
+```bash
+pnpm run platform:kubernetes-deployment -- plan --image registry.digitalocean.com/chase-sets/chase-sets-platform:<tag> --namespace staging --release chase-sets-staging
+pnpm run platform:kubernetes-deployment -- deploy --image registry.digitalocean.com/chase-sets/chase-sets-platform:<tag> --namespace staging --release chase-sets-staging
+pnpm run platform:kubernetes-deployment -- rollback --namespace staging --release chase-sets-staging
+pnpm run platform:kubernetes-deployment -- diagnostics --namespace staging --release chase-sets-staging
+```
+
+Deploy uses `helm upgrade --install --wait --atomic`, then waits for every rendered runtime Deployment through `kubectl rollout status`. Rollback uses `helm rollback --wait`, then reuses the same rollout waits. Diagnostics use Kubernetes resources, descriptions, and pod logs; they do not depend on App Platform state.
+
 ## Boundaries
 
 This scaffold intentionally does not own ingress controller installation, certificate issuer installation, external secrets, Argo Rollouts controller installation, live DOKS apply wiring, or App Platform removal.

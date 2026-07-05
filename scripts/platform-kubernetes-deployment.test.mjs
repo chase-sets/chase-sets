@@ -1,0 +1,290 @@
+import { EventEmitter } from "node:events";
+import { describe, expect, it } from "vitest";
+import {
+  buildDeploymentEvidence,
+  buildDiagnosticsCommands,
+  buildHelmRollbackArgs,
+  buildHelmUpgradeArgs,
+  deployPlatformToKubernetes,
+  parsePlatformImageRef,
+  platformKubernetesWorkloads,
+  rollbackPlatformOnKubernetes,
+} from "./platform-kubernetes-deployment.mjs";
+
+const sampleValues = {
+  components: {
+    "public-web": { enabled: true, kind: "service" },
+    marketplace: { enabled: true, kind: "service" },
+    "platform-worker": { enabled: true, kind: "worker" },
+    "platform-bootstrap": { enabled: true, kind: "job" },
+    disabled: { enabled: false, kind: "service" },
+  },
+};
+
+function successfulSpawn(calls) {
+  return (command, args, options) => {
+    calls.push({ command, args, options });
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit("close", 0));
+    return child;
+  };
+}
+
+describe("platform Kubernetes deployment", () => {
+  it("parses DigitalOcean platform image refs with tags or digests", () => {
+    expect(parsePlatformImageRef("registry.digitalocean.com/chase-sets/chase-sets-platform:abc123")).toEqual({
+      registry: "registry.digitalocean.com",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: "abc123",
+      digest: "",
+    });
+    expect(
+      parsePlatformImageRef(`registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"a".repeat(64)}`),
+    ).toEqual({
+      registry: "registry.digitalocean.com",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: "latest",
+      digest: `sha256:${"a".repeat(64)}`,
+    });
+    expect(() => parsePlatformImageRef("chase-sets-platform:abc123")).toThrow("Platform image must look like");
+  });
+
+  it("builds Helm upgrade arguments for atomic rollout-based deploys", () => {
+    expect(
+      buildHelmUpgradeArgs({
+        release: "staging-platform",
+        namespace: "staging",
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      }),
+    ).toEqual([
+      "upgrade",
+      "--install",
+      "staging-platform",
+      "infrastructure/helm/platform",
+      "--namespace",
+      "staging",
+      "--create-namespace",
+      "--wait",
+      "--timeout",
+      "12m",
+      "--atomic",
+      "--set-string",
+      "global.image.registry=registry.digitalocean.com",
+      "--set-string",
+      "global.image.registryName=chase-sets",
+      "--set-string",
+      "global.image.repository=chase-sets-platform",
+      "--set-string",
+      "global.image.tag=release-sha",
+      "--set-string",
+      "global.image.digest=",
+    ]);
+  });
+
+  it("builds Helm rollback arguments with an optional revision", () => {
+    expect(buildHelmRollbackArgs({ release: "staging-platform", namespace: "staging", timeout: "5m" })).toEqual([
+      "rollback",
+      "staging-platform",
+      "--namespace",
+      "staging",
+      "--wait",
+      "--timeout",
+      "5m",
+    ]);
+    expect(
+      buildHelmRollbackArgs({ release: "staging-platform", namespace: "staging", timeout: "5m", revision: "7" }),
+    ).toContain("7");
+  });
+
+  it("derives rollout workloads from the platform Helm values", () => {
+    expect(platformKubernetesWorkloads({ values: sampleValues, release: "proof" })).toEqual({
+      deployments: [
+        "proof-chase-sets-platform-public-web",
+        "proof-chase-sets-platform-marketplace",
+        "proof-chase-sets-platform-platform-worker",
+      ],
+      jobs: ["proof-chase-sets-platform-platform-bootstrap"],
+    });
+  });
+
+  it("deploys with Helm and waits for every runtime deployment", async () => {
+    const calls = [];
+    const result = await deployPlatformToKubernetes({
+      values: sampleValues,
+      release: "proof",
+      namespace: "staging",
+      timeout: "30s",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      spawn: successfulSpawn(calls),
+    });
+
+    expect(result).toMatchObject({
+      schemaVersion: "platform-kubernetes-deployment/v1",
+      action: "deploy",
+      result: "success",
+      release: "proof",
+      namespace: "staging",
+    });
+    expect(calls.map((call) => [call.command, call.args])).toEqual([
+      [
+        "helm",
+        buildHelmUpgradeArgs({
+          release: "proof",
+          namespace: "staging",
+          timeout: "30s",
+          image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        }),
+      ],
+      [
+        "kubectl",
+        [
+          "rollout",
+          "status",
+          "deployment/proof-chase-sets-platform-public-web",
+          "--namespace",
+          "staging",
+          "--timeout=30s",
+        ],
+      ],
+      [
+        "kubectl",
+        [
+          "rollout",
+          "status",
+          "deployment/proof-chase-sets-platform-marketplace",
+          "--namespace",
+          "staging",
+          "--timeout=30s",
+        ],
+      ],
+      [
+        "kubectl",
+        [
+          "rollout",
+          "status",
+          "deployment/proof-chase-sets-platform-platform-worker",
+          "--namespace",
+          "staging",
+          "--timeout=30s",
+        ],
+      ],
+    ]);
+  });
+
+  it("rolls back with Helm and reuses rollout status waits", async () => {
+    const calls = [];
+    await rollbackPlatformOnKubernetes({
+      values: sampleValues,
+      release: "proof",
+      namespace: "staging",
+      timeout: "30s",
+      revision: "3",
+      spawn: successfulSpawn(calls),
+    });
+
+    expect(calls[0]).toMatchObject({
+      command: "helm",
+      args: ["rollback", "proof", "3", "--namespace", "staging", "--wait", "--timeout", "30s"],
+    });
+    expect(calls.slice(1).every((call) => call.args[0] === "rollout")).toBe(true);
+  });
+
+  it("builds kubectl diagnostics without requiring App Platform state", () => {
+    expect(
+      buildDiagnosticsCommands({
+        values: sampleValues,
+        release: "proof",
+        namespace: "staging",
+        tailLines: 50,
+      }),
+    ).toEqual([
+      [
+        "kubectl",
+        ["get", "pods,jobs,deployments,events", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp"],
+      ],
+      ["kubectl", ["describe", "deployment", "proof-chase-sets-platform-public-web", "--namespace", "staging"]],
+      ["kubectl", ["describe", "deployment", "proof-chase-sets-platform-marketplace", "--namespace", "staging"]],
+      ["kubectl", ["describe", "deployment", "proof-chase-sets-platform-platform-worker", "--namespace", "staging"]],
+      ["kubectl", ["describe", "job", "proof-chase-sets-platform-platform-bootstrap", "--namespace", "staging"]],
+      [
+        "kubectl",
+        [
+          "logs",
+          "--namespace",
+          "staging",
+          "--selector",
+          "app.kubernetes.io/instance=proof,app.kubernetes.io/component=public-web",
+          "--all-containers",
+          "--tail",
+          "50",
+        ],
+      ],
+      [
+        "kubectl",
+        [
+          "logs",
+          "--namespace",
+          "staging",
+          "--selector",
+          "app.kubernetes.io/instance=proof,app.kubernetes.io/component=marketplace",
+          "--all-containers",
+          "--tail",
+          "50",
+        ],
+      ],
+      [
+        "kubectl",
+        [
+          "logs",
+          "--namespace",
+          "staging",
+          "--selector",
+          "app.kubernetes.io/instance=proof,app.kubernetes.io/component=platform-worker",
+          "--all-containers",
+          "--tail",
+          "50",
+        ],
+      ],
+      [
+        "kubectl",
+        [
+          "logs",
+          "--namespace",
+          "staging",
+          "--selector",
+          "app.kubernetes.io/instance=proof,app.kubernetes.io/component=platform-bootstrap",
+          "--all-containers",
+          "--tail",
+          "50",
+        ],
+      ],
+    ]);
+  });
+
+  it("builds release-health-friendly deployment evidence", () => {
+    expect(
+      buildDeploymentEvidence({
+        action: "rollback",
+        release: "proof",
+        namespace: "production",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:prior",
+        result: "success",
+        values: sampleValues,
+      }),
+    ).toMatchObject({
+      schemaVersion: "platform-kubernetes-deployment/v1",
+      action: "rollback",
+      release: "proof",
+      namespace: "production",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:prior",
+      result: "success",
+      workloads: {
+        deployments: expect.arrayContaining(["proof-chase-sets-platform-platform-worker"]),
+        jobs: ["proof-chase-sets-platform-platform-bootstrap"],
+      },
+    });
+  });
+});
