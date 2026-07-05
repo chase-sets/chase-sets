@@ -615,6 +615,12 @@ The workflow:
 15. Adds a matching `release-<yyyymmddHHMMSS>-<sha>` DOCR tag to the promoted image, creates the annotated Git release tag, and fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
 16. Writes a `release-health/v1` artifact with queue timing, exposure-posture categories, staging and production results, the canary result (Stage 1 production canary plus the proof-mode Buy Now and Settlement provider-health probes when they run), release-lock state, release attempt phase/reason, and recovery metadata. Staging failures and stale staging skips upload `staging-release-health`; production attempts upload `production-release-health` including the proof-mode probe evidence.
 
+### DOKS Rollouts Scaffold
+
+The Helm chart has an opt-in Argo Rollouts scaffold for `public-web` and `marketplace`, but App Platform remains the live deployment path until DOKS cutover. Do not treat the current Stage 1 production canary probes as traffic shifting; they are post-deploy synthetic checks against one released version.
+
+Proportional Rollouts are for beta-wave exposure control after Argo Rollouts, nginx ingress traffic routing, DOKS deployment helpers, and staging cutover proof are all in place. Until then, keep Playwright Buy Now freshness probes, settlement provider-health checks, and release-health records as CI-owned gates rather than Argo AnalysisRuns.
+
 ### Terraform Errored State Recovery
 
 When staging or production platform `terraform apply` fails after Terraform reports that it wrote `errored.tfstate`, the deploy workflow captures that file as a sensitive, recovery-only artifact named `sensitive-<environment>-terraform-errored-state-recovery-only` with 1-day retention. The workflow only writes presence/absence to the job summary and must never print the state contents.
