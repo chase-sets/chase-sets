@@ -13,6 +13,7 @@ const platformApiParityDocPatterns = [/^docs\/api\/marketplace\.openapi\.json$/]
 
 const workflowPatterns = [/^\.github\/workflows\//, /^\.github\/actions\//];
 const terraformPatterns = [/^infrastructure\/digitalocean\//];
+const planOnlyTerraformPatterns = [/^infrastructure\/digitalocean\/doks\//];
 const dockerPatterns = [/^Dockerfile$/, /^\.dockerignore$/];
 const rootRuntimePatterns = [
   /^package\.json$/,
@@ -171,6 +172,7 @@ export function classifyChanges({
   const testOnlyFilesByWorkspace = new Map();
   let workflowChanged = false;
   let terraformChanged = false;
+  let previewDeployTerraformChanged = false;
   let dockerChanged = false;
   let rootRuntimeChanged = false;
   let rootTestTypecheckChanged = false;
@@ -223,7 +225,9 @@ export function classifyChanges({
     }
 
     workflowChanged ||= matchesAny(filePath, workflowPatterns);
-    terraformChanged ||= matchesAny(filePath, terraformPatterns);
+    const terraformFileChanged = matchesAny(filePath, terraformPatterns);
+    terraformChanged ||= terraformFileChanged;
+    previewDeployTerraformChanged ||= terraformFileChanged && !matchesAny(filePath, planOnlyTerraformPatterns);
     dockerChanged ||= matchesAny(filePath, dockerPatterns);
     rootRuntimeChanged ||= matchesAny(filePath, rootRuntimePatterns);
     rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
@@ -277,7 +281,7 @@ export function classifyChanges({
   const runtimeChanged = runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged;
   const dockerImageRequired = runtimeChanged || dockerChanged;
   const terraformRequired = terraformChanged || deploymentScriptChanged;
-  const deployRequired = dockerImageRequired || terraformRequired;
+  const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged;
   const docsOnly = normalizedFiles.length > 0 && !nonDocumentationChanged;
   const localChecksRequired = docsOnly || nonDocumentationChanged || workflowChanged || scriptOrConfigChanged;
   const e2eSuiteIds = orderE2eSuiteIds(selectedE2eSuiteIds);

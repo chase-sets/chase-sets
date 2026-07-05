@@ -486,6 +486,7 @@ jobs:
       TF_VAR_spaces_access_id: pr-validation-access-id
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: production
+      TF_VAR_kubernetes_version: 1.33.1-do.4
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: pr-validation-production
       TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
@@ -547,6 +548,30 @@ jobs:
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
 
+      - name: Terraform init DOKS without remote backend
+        working-directory: infrastructure/digitalocean/doks
+        run: terraform init -backend=false
+
+      - name: Terraform format DOKS
+        working-directory: infrastructure/digitalocean/doks
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate DOKS
+        working-directory: infrastructure/digitalocean/doks
+        run: terraform validate
+
+      - name: Terraform plan production DOKS
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/doks/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+          (
+            cd "$tmp"
+            node "$GITHUB_WORKSPACE/scripts/digitalocean-app-deployment.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
+          )
+
   terraform-staging-plan:
     name: Terraform Staging Plan
     runs-on: ubuntu-latest
@@ -560,6 +585,7 @@ jobs:
       TF_VAR_spaces_access_id: pr-validation-access-id
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: staging
+      TF_VAR_kubernetes_version: 1.33.1-do.4
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: pr-validation-staging
       TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
@@ -638,6 +664,26 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           cp -R infrastructure/digitalocean/catalog-assets/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
+      - name: Terraform init DOKS without remote backend
+        working-directory: infrastructure/digitalocean/doks
+        run: terraform init -backend=false
+
+      - name: Terraform format DOKS
+        working-directory: infrastructure/digitalocean/doks
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate DOKS
+        working-directory: infrastructure/digitalocean/doks
+        run: terraform validate
+
+      - name: Terraform plan staging DOKS
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/doks/. "$tmp/"
           sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
