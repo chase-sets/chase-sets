@@ -7,9 +7,16 @@ metadata:
   name: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
   labels:
 {{ include "chase-sets-platform.labels" (dict "root" $ "name" $name) | nindent 4 }}
+  {{- if $component.job.hook.enabled }}
+  annotations:
+    "helm.sh/hook": {{ join "," $component.job.hook.events | quote }}
+    "helm.sh/hook-weight": {{ $component.job.hook.weight | quote }}
+    "helm.sh/hook-delete-policy": {{ join "," $component.job.hook.deletePolicy | quote }}
+  {{- end }}
 spec:
   suspend: {{ $component.job.suspend }}
   backoffLimit: {{ $component.job.backoffLimit }}
+  ttlSecondsAfterFinished: {{ $component.job.ttlSecondsAfterFinished }}
   template:
     metadata:
       labels:

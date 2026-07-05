@@ -35,4 +35,6 @@ docker run --rm -v "${PWD}:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -str
 
 ## Boundaries
 
-This scaffold intentionally does not own ingress, certificates, external secrets, rollout strategy, live DOKS apply wiring, App Platform removal, or bootstrap quiesce execution. The `platform-bootstrap` Job renders suspended by default so this slice can validate manifests without running bootstrap work.
+This scaffold intentionally does not own ingress, certificates, external secrets, rollout strategy, live DOKS apply wiring, or App Platform removal.
+
+`platform-bootstrap` renders as a Helm `pre-install,pre-upgrade` hook. Before running bootstrap it scales the worker Deployment targets to zero through the in-image `bootstrap-quiesce.mjs` wrapper, waits for those pods to drain, then runs the existing bootstrap command. If bootstrap fails, the wrapper restores the previous worker replica counts before returning the failing exit code so Helm aborts before new pods roll. During first install, missing worker Deployments are skipped because there is no outgoing version to quiesce yet.

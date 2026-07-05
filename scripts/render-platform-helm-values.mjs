@@ -188,6 +188,9 @@ export function buildPlatformHelmValues(options = {}) {
         create: true,
         name: "",
       },
+      rbac: {
+        create: true,
+      },
       podAnnotations: {},
       podLabels: {},
       nodeSelector: {},
@@ -249,8 +252,23 @@ function toHelmComponent(component) {
 
   if (component.terraformKind === "job") {
     result.job = {
-      suspend: true,
+      suspend: false,
       backoffLimit: 0,
+      ttlSecondsAfterFinished: 600,
+      hook: {
+        enabled: true,
+        events: ["pre-install", "pre-upgrade"],
+        weight: -20,
+        deletePolicy: ["before-hook-creation", "hook-succeeded"],
+      },
+      quiesce: {
+        enabled: true,
+        targetComponents: ["platform-worker"],
+        timeoutSeconds: 300,
+        pollIntervalMs: 2000,
+        restoreOnFailure: true,
+        ignoreMissingDeployments: true,
+      },
     };
   }
 
