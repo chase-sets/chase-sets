@@ -4,6 +4,8 @@
 
 Accepted for milestone #69
 
+Compute-runtime posture superseded by [ADR 0018: DOKS Compute Runtime](./0018-doks-compute-runtime.md). The deployable ownership model in this ADR remains accepted.
+
 ## Context
 
 Chase Sets is consolidating duplicate runtime components such as `admin-support-api` and `admin-support-worker` into profiled `platform-api` and `platform-worker` components. The consolidation must not move behavior ownership into deployables or imply that each bounded context deserves its own service boundary.
@@ -20,7 +22,7 @@ Deployables are runtime composition roots, not bounded-context ownership boundar
 
 - Keep separate support and full-platform deployables. Rejected because the duplicate API/worker families make production posture, cost, smoke checks, rollback, and connection budgeting harder to reason about.
 - Split one deployable per bounded context. Rejected because it would turn domain ownership into a runtime topology by default, multiplying images, App Platform components, secrets, health checks, and rollback paths without measured isolation need.
-- Move to Kubernetes or custom container orchestration first. Rejected because the current App Platform model can express the needed profiles with lower operational complexity.
+- Move to Kubernetes or custom container orchestration first. Rejected at milestone #69 because the App Platform model could express the then-needed profiles with lower operational complexity. Superseded for pre-launch compute/runtime planning by [ADR 0018](./0018-doks-compute-runtime.md), after deploy-lane stabilization and beta-clock sequencing changed the trade-off.
 
 ## Consequences
 

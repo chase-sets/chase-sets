@@ -1,6 +1,6 @@
 # DigitalOcean Platform Infrastructure
 
-This Terraform root manages preview, staging, and production platform infrastructure. The operational deployment workflow lives in [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md).
+This Terraform root manages preview, staging, and production platform infrastructure. The operational deployment workflow lives in [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md). [ADR 0018](../../../docs/adr/0018-doks-compute-runtime.md) records the accepted pre-launch decision to move compute/runtime orchestration from App Platform to DOKS after #101 deploy stabilization and #97 beta-clock start.
 
 This root owns:
 

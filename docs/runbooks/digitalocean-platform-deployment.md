@@ -1,6 +1,6 @@
 # DigitalOcean Platform Deployment Runbook
 
-This runbook covers DigitalOcean App Platform preview, staging, and production deployments.
+This runbook covers the current DigitalOcean App Platform preview, staging, and production deployments. [ADR 0018](../adr/0018-doks-compute-runtime.md) records the accepted pre-launch decision to migrate compute/runtime orchestration to DOKS after #101 deploy stabilization and #97 beta-clock start; until #103 replaces this runbook, App Platform remains the operating path.
 
 ## Architecture
 
