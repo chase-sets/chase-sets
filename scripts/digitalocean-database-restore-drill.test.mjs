@@ -5,8 +5,10 @@ import {
   STAGING_RESTORE_DRILL_PREFIX,
   buildStagingRestoreDrillName,
   databaseUrlForDatabase,
+  normalizeRestoreDrillDatabaseUrl,
   parseDigitalOceanDatabaseRestoreDrillArgs,
   performDigitalOceanDatabaseRestoreDrill,
+  resolveRestoreDrillDatabaseSsl,
 } from "./digitalocean-database-restore-drill.mjs";
 
 const baseOptions = {
@@ -307,12 +309,66 @@ describe("digitalocean database restore drill", () => {
       ),
     ).toBe("postgresql://doadmin:secret@fork.example.com:25060/chase_sets_staging_catalog?sslmode=require");
   });
+
+  it("uses DigitalOcean-compatible TLS settings for restored fork validation", async () => {
+    const configs = [];
+    const result = await performDigitalOceanDatabaseRestoreDrill(baseOptions, {
+      now: clock([0, 1000, 2000, 3000]),
+      execFile: async (_command, args) => {
+        if (args[1] === "fork") {
+          return { stdout: "" };
+        }
+        if (args[1] === "list") {
+          return {
+            stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
+          };
+        }
+        if (args[1] === "connection") {
+          return { stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n" };
+        }
+        if (args[1] === "delete") {
+          return { stdout: "" };
+        }
+        throw new Error(`Unexpected command: ${args.join(" ")}`);
+      },
+      Client: fakeClientClass({
+        onConstruct: (config) => configs.push(config),
+      }),
+    });
+
+    expect(result.passesRestoreDrillGate).toBe(true);
+    expect(configs).toHaveLength(2);
+    for (const config of configs) {
+      expect(config.connectionString).toContain("sslmode=require");
+      expect(config.connectionString).toContain("uselibpqcompat=true");
+      expect(config.ssl).toEqual({ rejectUnauthorized: false });
+    }
+  });
+
+  it("normalizes restore-drill TLS URLs without changing explicit compatibility settings", () => {
+    expect(normalizeRestoreDrillDatabaseUrl("postgresql://user:pass@example.com:25060/defaultdb?sslmode=require")).toBe(
+      "postgresql://user:pass@example.com:25060/defaultdb?sslmode=require&uselibpqcompat=true",
+    );
+    expect(
+      normalizeRestoreDrillDatabaseUrl(
+        "postgresql://user:pass@example.com:25060/defaultdb?sslmode=require&uselibpqcompat=false",
+      ),
+    ).toBe("postgresql://user:pass@example.com:25060/defaultdb?sslmode=require&uselibpqcompat=false");
+    expect(resolveRestoreDrillDatabaseSsl("postgresql://user:pass@example.com/defaultdb?sslmode=require")).toEqual({
+      rejectUnauthorized: false,
+    });
+    expect(resolveRestoreDrillDatabaseSsl("postgresql://user:pass@example.com/defaultdb?sslmode=verify-full")).toBe(
+      undefined,
+    );
+  });
 });
 
 function fakeClientClass(options = {}) {
   const queryOverrides = options.queryOverrides ?? {};
+  const onConstruct = options.onConstruct ?? (() => undefined);
   return class FakeClient {
     constructor(config) {
+      onConstruct(config);
       this.config = config;
       this.databaseName = decodeURIComponent(new URL(config.connectionString).pathname.slice(1));
     }
