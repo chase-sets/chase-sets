@@ -20,7 +20,7 @@ const publicPresencePromoBarSeedMessages: readonly Readonly<{
   {
     id: "pbm_seed_shipping_credit",
     title: "Earn 5% toward shipping on all orders.",
-    description: "Shipping credit stays visible before checkout so low-value card orders are easier to compare.",
+    description: "Shipping credit stays visible before checkout so budget card orders are easier to compare.",
     href: "/order-protection",
     linkLabel: "Order protection",
     tone: "success",

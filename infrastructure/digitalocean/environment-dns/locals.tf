@@ -20,4 +20,22 @@ locals {
   }
 
   catalog_asset_cdn_endpoint = "chase-sets-${var.environment}-catalog-assets.${var.data_region}.cdn.digitaloceanspaces.com."
+  doks_ingress_records = var.doks_ingress_dns_enabled ? {
+    apex = {
+      name = "@"
+      fqdn = local.environment_zone
+    }
+    www = {
+      name = "www"
+      fqdn = "www.${local.environment_zone}"
+    }
+    marketplace = {
+      name = "marketplace"
+      fqdn = "marketplace.${local.environment_zone}"
+    }
+    admin = {
+      name = "admin"
+      fqdn = "admin.${local.environment_zone}"
+    }
+  } : {}
 }
