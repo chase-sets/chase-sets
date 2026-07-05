@@ -41,6 +41,7 @@ const environmentDnsVariables = readFileSync(
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
+const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
 const platformPreviewCleanupWorkflow = readFileSync(resolve(".github/workflows/platform-preview-cleanup.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 const platformDigitalOceanDriftDigestWorkflow = readFileSync(
@@ -2153,6 +2154,19 @@ describe("DigitalOcean platform configuration", () => {
       dockerfile.indexOf('CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]'),
     );
     expect(dockerfile).not.toContain("chmod 777");
+  });
+
+  it("provides a confirmed CI path for live DOKS foundation proof", () => {
+    expect(platformDoksFoundationWorkflow).toContain("name: Platform DOKS Foundation Apply");
+    expect(platformDoksFoundationWorkflow).toContain('Type "apply doks foundation"');
+    expect(platformDoksFoundationWorkflow).toContain('if [ "${{ inputs.confirm }}" != "apply doks foundation" ]');
+    expect(platformDoksFoundationWorkflow).toContain("-backend-config=key=doks/${{ inputs.environment }}.tfstate");
+    expect(platformDoksFoundationWorkflow).toContain("TF_VAR_kubernetes_version: ${{ inputs.kubernetes_version }}");
+    expect(platformDoksFoundationWorkflow).toContain("terraform output -raw kubeconfig");
+    expect(platformDoksFoundationWorkflow).toContain("kubectl wait --for=condition=Ready nodes --all");
+    expect(platformDoksFoundationWorkflow).toContain("registry.digitalocean.com/chase-sets/chase-sets-platform");
+    expect(platformDoksFoundationWorkflow).toContain("kubectl create job platform-image-pull-proof");
+    expect(platformDoksFoundationWorkflow).toContain("platform-doks-foundation-${{ inputs.environment }}");
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
