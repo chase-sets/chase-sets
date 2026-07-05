@@ -1892,6 +1892,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewJob).toContain("needs['change-scope'].outputs.e2e_tests != 'true'");
     expect(previewJob).toContain("needs['e2e-tests'].result == 'success'");
     expect(previewJob).toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
+    expect(previewJob).toContain("id: preview_domains");
+    expect(previewJob).toContain('echo "landing_domain_ready=${landing_domain_ready}" >> "$GITHUB_OUTPUT"');
+    expect(previewJob).toContain("SMOKE_REQUIRE_LANDING: ${{ steps.preview_domains.outputs.landing_domain_ready");
+    expect(previewJob).toContain(
+      "Preview landing domain ${landing_domain} is not active yet; landing-only smoke will be skipped.",
+    );
+    expect(previewJob).toContain('pnpm run smoke:platform -- "https://${landing_domain}"');
 
     expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(requiredJob).toContain("needs['change-scope'].outputs.deploy == 'true'");

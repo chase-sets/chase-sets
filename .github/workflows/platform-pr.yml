@@ -955,6 +955,7 @@ jobs:
           node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
 
       - name: Wait for preview domains
+        id: preview_domains
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -972,11 +973,21 @@ jobs:
 
           node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
             "$app_id" \
-            "$landing_domain" \
             "$admin_domain" \
             "$marketplace_domain" \
             --timeout-seconds=1800 \
             --poll-seconds=30
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
+            "$app_id" \
+            "$landing_domain" \
+            --timeout-seconds=60 \
+            --poll-seconds=15 && landing_domain_ready=true || landing_domain_ready=false
+
+          echo "landing_domain_ready=${landing_domain_ready}" >> "$GITHUB_OUTPUT"
+          if [ "$landing_domain_ready" != "true" ]; then
+            echo "Preview landing domain ${landing_domain} is not active yet; landing-only smoke will be skipped."
+          fi
 
       - name: Smoke check
         working-directory: infrastructure/digitalocean/platform
@@ -986,6 +997,7 @@ jobs:
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_LANDING: ${{ steps.preview_domains.outputs.landing_domain_ready == 'true' && 'true' || 'false' }}
           SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_WAITLIST_EMAIL: ops+preview-pr-${{ github.event.pull_request.number }}@chasesets.com
           SMOKE_SOURCE: preview-smoke

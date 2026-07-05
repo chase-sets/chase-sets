@@ -40,6 +40,7 @@ const syntheticEmail = resolveSyntheticWaitlistEmail({ env: process.env, sandbox
 const adminEmail = getSmokeEnv("PLATFORM_ADMIN_EMAIL");
 const adminPassword = getSmokeEnv("PLATFORM_ADMIN_PASSWORD");
 const writeWaitlist = (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
+const requireLanding = readBooleanEnv("SMOKE_REQUIRE_LANDING", true);
 const requireAdmin = readBooleanEnv("SMOKE_REQUIRE_ADMIN", false);
 const requireAdminGoogleWorkspaceSso = readBooleanEnv("SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO", false);
 const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
@@ -528,10 +529,16 @@ async function main() {
     throw new Error("PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD are required when SMOKE_REQUIRE_ADMIN=true.");
   }
 
-  await expectOk("landing home", `${landingUrl}/`);
-  await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
-  if (requireNativeMcp) {
+  if (requireLanding) {
+    await expectOk("landing home", `${landingUrl}/`);
+    await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
+  } else {
+    console.warn("Skipping landing smoke; SMOKE_REQUIRE_LANDING is not true.");
+  }
+  if (requireNativeMcp && requireLanding) {
     await expectNativeMcpAuthenticationBoundary(landingUrl);
+  } else if (requireNativeMcp) {
+    console.warn("Skipping native MCP smoke; landing smoke is disabled.");
   } else {
     console.warn("Skipping native MCP smoke; SMOKE_REQUIRE_NATIVE_MCP is not true.");
   }
@@ -568,7 +575,12 @@ async function main() {
   }
 
   let waitlistCommitReceipt = null;
-  if (writeWaitlist) {
+  const writeLandingWaitlist = writeWaitlist && requireLanding;
+  if (writeWaitlist && !requireLanding) {
+    console.warn("Skipping waitlist smoke; landing smoke is disabled.");
+  }
+
+  if (writeLandingWaitlist) {
     const smokePagePath = createSmokePagePath();
 
     const waitlistSignupResponse = await expectOk("waitlist signup", `${landingUrl}/api/public-presence/waitlist`, {
@@ -623,7 +635,7 @@ async function main() {
       console.warn("Skipping authenticated native MCP smoke; no account id was available.");
     }
 
-    if (writeWaitlist) {
+    if (writeLandingWaitlist) {
       await expectEventually(
         "admin waitlist list",
         async () => {

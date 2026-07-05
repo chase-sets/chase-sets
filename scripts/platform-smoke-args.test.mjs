@@ -158,4 +158,10 @@ describe("platform smoke waitlist freshness", () => {
     expect(platformSmokeSource).toContain("[readAfterWriteHeader]: waitlistReadAfterWriteReceipt");
     expect(platformSmokeSource).toContain('[readTargetContextHeader]: "public-presence"');
   });
+
+  it("can intentionally skip landing-only smoke checks", () => {
+    expect(platformSmokeSource).toContain('const requireLanding = readBooleanEnv("SMOKE_REQUIRE_LANDING", true)');
+    expect(platformSmokeSource).toContain("Skipping landing smoke; SMOKE_REQUIRE_LANDING is not true.");
+    expect(platformSmokeSource).toContain("Skipping waitlist smoke; landing smoke is disabled.");
+  });
 });
