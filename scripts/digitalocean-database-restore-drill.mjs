@@ -18,6 +18,8 @@ export const DIGITALOCEAN_DATABASE_RESTORE_DRILL_VERSION = "digitalocean-databas
 export const STAGING_RESTORE_DRILL_PREFIX = "cs-stg-drill-";
 export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 75 * 60 * 1000;
 export const DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS = 30 * 1000;
+const STAGING_CONTEXT_DATABASE_PREFIX = "chase_sets_staging_";
+const STAGING_DATABASE_CONTEXT_TOKEN_OVERRIDES = new Map([["platform_ops", "platform-operations"]]);
 
 export const DEFAULT_STAGING_DATABASE_CHECKS = Object.freeze([
   { contextName: "auth", databaseName: "chase_sets_staging_auth", eventStoreTables: true },
@@ -154,11 +156,17 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
       record.errors.push(`Staging restore drill fork '${forkName}' did not report an available outcome.`);
     } else {
       const connectionUri = await readConnectionUri(options.doctlPath, fork.clusterId, exec);
+      const databaseChecks =
+        options.databaseChecks ??
+        (await discoverForkDatabaseChecks({
+          connectionUri,
+          ClientClass,
+        }));
       record = {
         ...record,
         validation: await validateForkDatabases({
           connectionUri,
-          databaseChecks: options.databaseChecks ?? DEFAULT_STAGING_DATABASE_CHECKS,
+          databaseChecks,
           ClientClass,
         }),
       };
@@ -225,6 +233,30 @@ export async function validateForkDatabases(options) {
     checkedDatabaseCount: checks.length,
     checks,
   };
+}
+
+export async function discoverForkDatabaseChecks(options) {
+  const normalizedConnectionString = normalizeRestoreDrillDatabaseUrl(options.connectionUri);
+  const client = new options.ClientClass({
+    connectionString: normalizedConnectionString,
+    ssl: resolveRestoreDrillDatabaseSsl(normalizedConnectionString),
+    application_name: "chase_sets_restore_drill_discovery",
+  });
+
+  try {
+    await client.connect();
+    const result = await client.query(
+      "SELECT datname AS database_name FROM pg_database WHERE datname LIKE $1 ORDER BY datname ASC",
+      [`${STAGING_CONTEXT_DATABASE_PREFIX}%`],
+    );
+    const checks = result.rows.map((row) => stagingDatabaseCheckFromName(row.database_name)).filter(Boolean);
+    if (checks.length === 0) {
+      throw new Error("No staging context databases were discovered on the restore drill fork.");
+    }
+    return checks;
+  } finally {
+    await client.end().catch(() => undefined);
+  }
 }
 
 async function validateForkDatabase(options) {
@@ -446,7 +478,7 @@ function parsePositiveSecondsAsMs(value, name) {
 
 function parseDatabaseChecks(value) {
   if (!value) {
-    return DEFAULT_STAGING_DATABASE_CHECKS;
+    return null;
   }
   return String(value)
     .split(",")
@@ -463,6 +495,20 @@ function parseDatabaseChecks(value) {
         eventStoreTables: eventStoreFlag !== "database-only",
       };
     });
+}
+
+function stagingDatabaseCheckFromName(databaseName) {
+  if (typeof databaseName !== "string" || !databaseName.startsWith(STAGING_CONTEXT_DATABASE_PREFIX)) {
+    return null;
+  }
+
+  const token = databaseName.slice(STAGING_CONTEXT_DATABASE_PREFIX.length);
+  const contextName = STAGING_DATABASE_CONTEXT_TOKEN_OVERRIDES.get(token) ?? token.replaceAll("_", "-");
+  return {
+    contextName,
+    databaseName,
+    eventStoreTables: contextName !== "control",
+  };
 }
 
 function describeFailure(error, fallback) {
