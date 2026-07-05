@@ -5,6 +5,7 @@ import {
   buildDiagnosticsCommands,
   buildHelmRollbackArgs,
   buildHelmUpgradeArgs,
+  buildKubernetesRollbackTarget,
   deployPlatformToKubernetes,
   parsePlatformImageRef,
   platformKubernetesWorkloads,
@@ -285,6 +286,39 @@ describe("platform Kubernetes deployment", () => {
         deployments: expect.arrayContaining(["proof-chase-sets-platform-platform-worker"]),
         jobs: ["proof-chase-sets-platform-platform-bootstrap"],
       },
+    });
+  });
+
+  it("builds release-health-friendly rollback targets without App Platform state", () => {
+    expect(
+      buildKubernetesRollbackTarget({
+        values: sampleValues,
+        release: "proof",
+        namespace: "production",
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        releaseTag: "release-20260705120000-abcdef12",
+        lastKnownGoodCommit: "a".repeat(40),
+        checkedAt: "2026-07-05T12:00:00.000Z",
+      }),
+    ).toEqual({
+      schemaVersion: "platform-kubernetes-rollback-target/v1",
+      capturedAt: "2026-07-05T12:00:00.000Z",
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: "release-20260705120000-abcdef12",
+      digest: "",
+      imageRef: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-20260705120000-abcdef12",
+      componentNames: [
+        "proof-chase-sets-platform-marketplace",
+        "proof-chase-sets-platform-platform-bootstrap",
+        "proof-chase-sets-platform-platform-worker",
+        "proof-chase-sets-platform-public-web",
+      ],
+      lastKnownGoodCommit: "a".repeat(40),
+      releaseTag: "release-20260705120000-abcdef12",
     });
   });
 });

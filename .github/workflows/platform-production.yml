@@ -1405,7 +1405,9 @@ jobs:
       TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
       TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
-      APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
       DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
       PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
       PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
@@ -1849,45 +1851,44 @@ jobs:
             --out artifacts/release-health/production-db-restore-point.json \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Wait for previous App Platform deployment
+      - name: Configure production Kubernetes context
         if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
+        working-directory: infrastructure/digitalocean/doks
         env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/production.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
 
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping deployment wait."
-            exit 0
-          fi
-
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
+          kubeconfig="${RUNNER_TEMP}/chase-sets-production.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig"
+          chmod 600 "$kubeconfig"
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          KUBECONFIG="$kubeconfig" kubectl config current-context
 
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'
         id: rollback_target
-        working-directory: infrastructure/digitalocean/platform
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
 
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "Production Terraform state did not expose an App Platform app id; refusing cutover without a rollback target." >&2
-            exit 1
-          fi
-
-          git -C ../../.. fetch origin production --tags
-          last_known_good_commit="$(git -C ../../.. rev-parse origin/production)"
+          git fetch origin production --tags
+          last_known_good_commit="$(git rev-parse origin/production)"
           release_tag="$(
-            git -C ../../.. tag --points-at "$last_known_good_commit" --list 'release-*' \
+            git tag --points-at "$last_known_good_commit" --list 'release-*' \
               | sort \
               | tail -n 1
           )"
@@ -1901,27 +1902,29 @@ jobs:
             exit 1
           fi
 
-          mkdir -p ../../../artifacts/release-health
-          target_path="../../../artifacts/release-health/production-rollback-target.json"
-          node ../../../scripts/digitalocean-app-deployment.mjs capture-rollback-target "$app_id" \
+          mkdir -p artifacts/release-health
+          target_path="artifacts/release-health/production-rollback-target.json"
+          node ./scripts/platform-kubernetes-deployment.mjs capture-rollback-target \
             --registry-name="$registry_name" \
             --repository="$PLATFORM_IMAGE_REPOSITORY" \
             --last-known-good-commit="$last_known_good_commit" \
             --release-tag="$release_tag" \
+            --namespace="$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release="$CHASE_SETS_HELM_RELEASE" \
             --out="$target_path" \
             --github-output="$GITHUB_OUTPUT"
 
           image_ref="$(jq -r '.imageRef // ""' "$target_path")"
           doctl registry login --expiry-seconds 3600
-          if docker buildx imagetools inspect "$image_ref" >/dev/null 2>&1; then
+          if [ -n "$image_ref" ] && docker buildx imagetools inspect "$image_ref" >/dev/null 2>&1; then
             image_exists=true
           else
             image_exists=false
           fi
 
           smoke_verified=false
-          if [ -n "$release_tag" ] && git -C ../../.. rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
-            tag_commit="$(git -C ../../.. rev-list -n 1 "$release_tag")"
+          if [ -n "$release_tag" ] && git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            tag_commit="$(git rev-list -n 1 "$release_tag")"
             if [ "$tag_commit" = "$last_known_good_commit" ]; then
               smoke_verified=true
             fi
@@ -1992,45 +1995,138 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Capture production App Platform deploy diagnostics
-        if: failure() && env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping production deployment diagnostics."
-            exit 0
-          fi
-
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true
-
-      - name: Wait for Terraform App Platform deployment
+      - name: Export production Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
         env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DEPLOYMENT_ENVIRONMENT: production
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
+          state_path="${RUNNER_TEMP}/platform-production.tfstate.json"
+          terraform -chdir=infrastructure/digitalocean/platform state pull > "$state_path"
+          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
+          const { execFileSync } = require("node:child_process");
+          const fs = require("node:fs");
 
-      - name: Deploy App Platform image
-        if: env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.app_changed != 'true'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
+          const resources = Array.isArray(state.resources) ? state.resources : [];
+          const resource = (type, name) =>
+            resources.find((candidate) => candidate.type === type && candidate.name === name);
+          const indexed = (item) =>
+            new Map((item?.instances ?? []).map((instance) => [String(instance.index_key ?? ""), instance.attributes ?? {}]));
+          const contextFromToken = (token) => token.toLowerCase().replaceAll("_", "-");
+
+          const cluster = resource("digitalocean_database_cluster", "postgres");
+          const databases = indexed(resource("digitalocean_database_db", "contexts"));
+          const contextUsers = indexed(resource("digitalocean_database_user", "contexts"));
+          const wakeUsers = indexed(resource("digitalocean_database_user", "wake_listeners"));
+          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
+          if (!clusterAttrs.host || !clusterAttrs.port) {
+            throw new Error("Production Terraform state does not contain a usable DigitalOcean database cluster.");
+          }
+
+          const secretSummary = JSON.parse(
+            execFileSync(process.execPath, [
+              "./scripts/platform-kubernetes-secret.mjs",
+              "--dry-run",
+              "--namespace",
+              process.env.CHASE_SETS_KUBERNETES_NAMESPACE,
+            ], { encoding: "utf8" }),
+          );
+
+          const urlFor = (contextName, users) => {
+            const database = databases.get(contextName);
+            const user = users.get(contextName);
+            if (!database?.name || !user?.name || !user?.password) {
+              throw new Error(`Production Terraform state is missing database/user data for '${contextName}'.`);
+            }
+            return `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
+              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
+          };
+
+          const lines = [];
+          const add = (name, value) => {
+            console.log(`::add-mask::${value}`);
+            lines.push(`${name}=${value}`);
+          };
+
+          for (const key of secretSummary.keys ?? []) {
+            let match = /^DATABASE_URL_([A-Z0-9_]+)_WAITER$/.exec(key);
+            if (match) {
+              add(key, urlFor(contextFromToken(match[1]), wakeUsers));
+              continue;
+            }
+
+            match = /^WORKER_LISTENER_DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
+            if (match) {
+              add(key, urlFor(contextFromToken(match[1]), wakeUsers));
+              continue;
+            }
+
+            match = /^DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
+            if (match) {
+              add(key, urlFor(contextFromToken(match[1]), contextUsers));
+              continue;
+            }
+
+            if (key === "PLATFORM_CONTROL_DATABASE_URL" || key === "PLATFORM_WORK_SIGNAL_DATABASE_URL") {
+              add(key, urlFor("control", contextUsers));
+            }
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Apply production Kubernetes runtime secrets
+        if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
+          export CATALOG_ASSET_S3_ACCESS_KEY_ID="${TF_VAR_spaces_access_id:-}"
+          export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="${TF_VAR_spaces_secret_key:-}"
+          export CHASE_SETS_DISCORD_INVITE_URL="${TF_VAR_discord_invite_url:-}"
+          export EASYPOST_API_KEY="${TF_VAR_easypost_api_key:-}"
+          export EASYPOST_WEBHOOK_SECRET="${TF_VAR_easypost_webhook_secret:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_facebook_social_login_client_id:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_facebook_social_login_client_secret:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_google_social_login_client_id:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_google_social_login_client_secret:-}"
+          export OTEL_EXPORTER_OTLP_HEADERS="${TF_VAR_observability_otlp_headers:-}"
+          export PLATFORM_ADMIN_EMAIL="${TF_VAR_platform_admin_email:-}"
+          export PLATFORM_ADMIN_PASSWORD="${TF_VAR_platform_admin_password:-}"
+          export PLATFORM_INTERNAL_AUTH_SECRET="${TF_VAR_platform_internal_auth_secret:-}"
+          export SCRYDEX_API_KEY="${TF_VAR_scrydex_api_key:-}"
+          export SCRYDEX_TEAM_ID="${TF_VAR_scrydex_team_id:-}"
+          export SES_AWS_ACCESS_KEY_ID="${TF_VAR_ses_aws_access_key_id:-}"
+          export SES_AWS_SECRET_ACCESS_KEY="${TF_VAR_ses_aws_secret_access_key:-}"
+          export SES_SOURCE_ARN="${TF_VAR_ses_source_arn:-}"
+          export STRIPE_CONNECT_WEBHOOK_SECRET="${TF_VAR_stripe_connect_webhook_secret:-}"
+          export STRIPE_PUBLISHABLE_KEY="${TF_VAR_stripe_publishable_key:-}"
+          export STRIPE_SECRET_KEY="${TF_VAR_stripe_secret_key:-}"
+          export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
+          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
+
+          node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+
+      - name: Deploy production Kubernetes release
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- deploy \
+            --image "$PLATFORM_IMAGE_REF" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Capture production Kubernetes deploy diagnostics
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" || true
 
       - name: Wait for production domains
         if: env.SHOULD_DEPLOY != 'false'
@@ -2040,7 +2136,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
           mapfile -t public_domains < <(terraform output -json public_domains | jq -r '.[]')
           mapfile -t marketplace_domains < <(terraform output -json marketplace_domains | jq -r '.[]')
           admin_domain="$(terraform output -raw admin_domain)"
@@ -2053,13 +2148,15 @@ jobs:
             exit 1
           fi
 
-          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
-            "$app_id" \
-            "${public_domains[@]}" \
-            "${marketplace_domains[@]}" \
-            "$admin_domain" \
-            --timeout-seconds=3600 \
-            --poll-seconds=30
+          wait_for_domain() {
+            local hostname="$1"
+            local url="https://${hostname}"
+            curl --fail --silent --show-error --head --retry 120 --retry-delay 30 --retry-all-errors --max-time 15 "$url" >/dev/null
+          }
+
+          for hostname in "${public_domains[@]}" "${marketplace_domains[@]}" "$admin_domain"; do
+            wait_for_domain "$hostname"
+          done
 
       # Post-deploy readiness gate (#1237): derive direct production database
       # URLs for the audited wave contexts from Terraform state (same pattern
@@ -2240,48 +2337,26 @@ jobs:
           echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
           echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
 
-      - name: Capture post-cutover production App Platform diagnostics
+      - name: Capture post-cutover production Kubernetes diagnostics
         if: failure() && env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" || true
 
-          app_id="$(terraform output -raw app_id 2>/dev/null || printf '%s' "${{ steps.rollback_target.outputs.rollback_app_id }}")"
-          if [ -z "$app_id" ]; then
-            echo "No production App Platform app id was available; skipping post-cutover diagnostics."
-            exit 0
-          fi
-
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true
-
-      - name: Roll back production App Platform image
+      - name: Roll back production Kubernetes release
         id: production_rollback
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id 2>/dev/null || printf '%s' "${{ steps.rollback_target.outputs.rollback_app_id }}")"
-          if [ -z "$app_id" ]; then
-            echo "Unable to resolve production App Platform app id for rollback." >&2
-            exit 1
-          fi
 
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
-          node ../../../scripts/digitalocean-app-deployment.mjs rollback-image "$app_id" \
-            --registry-name="${{ steps.rollback_target.outputs.rollback_registry_name }}" \
-            --repository="${{ steps.rollback_target.outputs.rollback_repository }}" \
-            --digest="${{ steps.rollback_target.outputs.rollback_image_digest }}" \
-            --tag="${{ steps.rollback_target.outputs.rollback_image_tag }}"
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
+          pnpm run platform:kubernetes-deployment -- rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           rollback_reference="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-automated-production-rollback"
           {
@@ -2293,12 +2368,12 @@ jobs:
           {
             echo "## Automated production rollback"
             echo
-            echo "A post-cutover production verification step failed. App Platform was rolled back to the previously captured known-good image."
+            echo "A post-cutover production verification step failed. Helm rolled the production Kubernetes release back to the previous revision."
             echo
             echo "- Target commit: ${{ steps.rollback_target.outputs.last_known_good_commit }}"
             echo "- Release tag: ${{ steps.rollback_target.outputs.rollback_release_tag }}"
             echo "- Image: ${{ steps.rollback_target.outputs.rollback_image_ref }}"
-            echo "- Components: ${{ steps.rollback_target.outputs.rollback_components }}"
+            echo "- Workloads: ${{ steps.rollback_target.outputs.rollback_components }}"
             echo "- Reference: ${rollback_reference}"
           } >> "$GITHUB_STEP_SUMMARY"
 
