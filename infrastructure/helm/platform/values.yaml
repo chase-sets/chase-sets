@@ -73,6 +73,17 @@ components:
       type: "ClusterIP"
       port: 8080
     healthPath: "/"
+    rollout:
+      enabled: false
+      canary:
+        canaryServiceSuffix: "canary"
+        trafficRouting:
+          nginx:
+            enabled: false
+            stableIngress: ""
+        steps:
+          - setWeight: 10
+          - pause: {}
   marketplace:
     enabled: true
     kind: "service"
@@ -119,6 +130,17 @@ components:
       type: "ClusterIP"
       port: 8080
     healthPath: "/health/ready"
+    rollout:
+      enabled: false
+      canary:
+        canaryServiceSuffix: "canary"
+        trafficRouting:
+          nginx:
+            enabled: false
+            stableIngress: ""
+        steps:
+          - setWeight: 10
+          - pause: {}
   admin-web:
     enabled: true
     kind: "service"

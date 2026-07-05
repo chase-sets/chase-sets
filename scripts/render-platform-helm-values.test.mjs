@@ -23,6 +23,12 @@ function componentEnvKeys(component) {
   return component.env.map((entry) => entry.name).sort();
 }
 
+function readChartFiles(relativePaths) {
+  return relativePaths.map((relativePath) =>
+    readFileSync(path.join(repoRoot, "infrastructure", "helm", "platform", relativePath), "utf8"),
+  );
+}
+
 describe("render platform Helm values", () => {
   it("keeps generated values current", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
@@ -68,6 +74,30 @@ describe("render platform Helm values", () => {
     );
   });
 
+  it("scaffolds Rollouts only for public buyer web components and keeps them disabled by default", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+
+    expect(values.components["public-web"].rollout).toMatchObject({
+      enabled: false,
+      canary: {
+        canaryServiceSuffix: "canary",
+        trafficRouting: {
+          nginx: {
+            enabled: false,
+            stableIngress: "",
+          },
+        },
+        steps: [{ setWeight: 10 }, { pause: {} }],
+      },
+    });
+    expect(values.components.marketplace.rollout).toEqual(values.components["public-web"].rollout);
+
+    expect(values.components["admin-web"].rollout).toBeUndefined();
+    expect(values.components["platform-api"].rollout).toBeUndefined();
+    expect(values.components["platform-worker"].rollout).toBeUndefined();
+    expect(values.components["platform-bootstrap"].rollout).toBeUndefined();
+  });
+
   it("keeps Helm env keys and counts aligned with DigitalOcean component env", () => {
     const terraformComponents = extractDigitalOceanPlatformComponents(sources);
     const values = buildPlatformHelmValues({ repoRoot });
@@ -102,21 +132,46 @@ describe("render platform Helm values", () => {
       "templates/ingress.yaml",
       "templates/job.yaml",
       "templates/rbac.yaml",
+      "templates/rollout.yaml",
       "templates/service.yaml",
       "templates/serviceaccount.yaml",
-    ].map((relativePath) =>
-      readFileSync(path.join(repoRoot, "infrastructure", "helm", "platform", relativePath), "utf8"),
-    );
-    const chartText = `${readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")}\n${chartFiles.join("\n")}`;
+    ];
+    const chartText = `${readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")}\n${readChartFiles(
+      chartFiles,
+    ).join("\n")}`;
+    const values = buildPlatformHelmValues({ repoRoot });
+    const rolloutStates = Object.values(values.components)
+      .map((component) => component.rollout?.enabled)
+      .filter((enabled) => enabled != null);
 
     expect(chartText).not.toMatch(/^kind: Secret$/m);
     expect(readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")).toContain("enabled: false");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
-    expect(chartText).not.toContain("strategy: canary");
+    expect(rolloutStates).toEqual([false, false]);
     expect(chartText).toContain("helm.sh/hook");
     expect(chartText).toContain("bootstrap-quiesce.mjs");
     expect(chartText).toContain("deployments/scale");
+  });
+
+  it("models the opt-in Argo Rollout contract for public-web and marketplace", () => {
+    const [helperTemplate, deploymentTemplate, rolloutTemplate, serviceTemplate] = readChartFiles([
+      "templates/_helpers.tpl",
+      "templates/deployment.yaml",
+      "templates/rollout.yaml",
+      "templates/service.yaml",
+    ]);
+
+    expect(deploymentTemplate).toContain("(not $rolloutEnabled)");
+    expect(rolloutTemplate).toContain("apiVersion: argoproj.io/v1alpha1");
+    expect(rolloutTemplate).toContain("kind: Rollout");
+    expect(rolloutTemplate).toContain("stableService:");
+    expect(rolloutTemplate).toContain("canaryService:");
+    expect(rolloutTemplate).toContain("trafficRouting:");
+    expect(rolloutTemplate).toContain("stableIngress:");
+    expect(serviceTemplate).toContain("chase-sets-platform.canaryServiceName");
+    expect(serviceTemplate).toContain("chase-sets.com/traffic-role: canary");
+    expect(helperTemplate).toContain("chase-sets-platform.canaryServiceName");
   });
 
   it("models bootstrap as a pre-rollout quiesce hook that restores workers on failure", () => {
