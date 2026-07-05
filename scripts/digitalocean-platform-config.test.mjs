@@ -2007,15 +2007,18 @@ describe("DigitalOcean platform configuration", () => {
     const buildStep = workflowStep(platformPrWorkflow, "Build App Platform image");
     const smokeStep = workflowStep(platformPrWorkflow, "Boot smoke App Platform image");
     const pushStep = workflowStep(platformPrWorkflow, "Push boot-smoked merge-group image");
+    const skippedPushStep = workflowStep(platformPrWorkflow, "Report skipped merge-group image push");
 
+    expect(dockerImageJob).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
     expect(dockerImageJob).toContain("DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets");
     expect(dockerImageJob).toContain("PLATFORM_IMAGE_REPOSITORY: chase-sets-platform");
     expect(dockerImageJob).toContain("digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f");
-    expect(dockerImageJob).toContain("if: github.event_name == 'merge_group'");
+    expect(dockerImageJob).toContain("if: github.event_name == 'merge_group' && env.DIGITALOCEAN_ACCESS_TOKEN != ''");
+    expect(dockerImageJob).toContain("token: ${{ env.DIGITALOCEAN_ACCESS_TOKEN }}");
     expect(buildStep).toContain("--load \\");
     expect(buildStep).not.toContain("--push");
 
-    expect(pushStep).toContain("if: github.event_name == 'merge_group'");
+    expect(pushStep).toContain("if: github.event_name == 'merge_group' && env.DIGITALOCEAN_ACCESS_TOKEN != ''");
     expect(pushStep).toContain("PLATFORM_IMAGE: chase-sets-platform:pr-validation");
     expect(pushStep).toContain("tree_tag=\"tree-$(git rev-parse 'HEAD^{tree}')\"");
     expect(pushStep).toContain("doctl registry login --expiry-seconds 3600");
@@ -2025,12 +2028,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(pushStep).toContain('docker tag "$PLATFORM_IMAGE" "$image"');
     expect(pushStep).toContain('docker push "$image"');
     expect(pushStep).not.toContain("TF_VAR_platform_image_tag");
+    expect(skippedPushStep).toContain("if: github.event_name == 'merge_group' && env.DIGITALOCEAN_ACCESS_TOKEN == ''");
+    expect(skippedPushStep).toContain("build and boot smoke still validated the image");
 
     const buildIndex = platformPrWorkflow.indexOf("- name: Build App Platform image");
     const smokeIndex = platformPrWorkflow.indexOf("- name: Boot smoke App Platform image");
     const pushIndex = platformPrWorkflow.indexOf("- name: Push boot-smoked merge-group image");
+    const skippedPushIndex = platformPrWorkflow.indexOf("- name: Report skipped merge-group image push");
     expect(buildIndex).toBeLessThan(smokeIndex);
     expect(smokeIndex).toBeLessThan(pushIndex);
+    expect(smokeIndex).toBeLessThan(skippedPushIndex);
   });
 
   it("deploys App Platform releases by the verified image digest", () => {
