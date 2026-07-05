@@ -292,12 +292,20 @@ function componentImageEntries(spec, repository = "") {
 }
 
 function imageIdentity(image) {
+  const { tag, digest } = imageRollbackReference(image);
   return JSON.stringify({
     registryType: image.registry_type ?? "",
     repository: image.repository ?? "",
-    tag: image.tag ?? "",
-    digest: image.digest ?? "",
+    tag,
+    digest,
   });
+}
+
+function imageRollbackReference(image) {
+  return {
+    tag: image.tag ?? image.deploy_on_push?.tag ?? "",
+    digest: image.digest ?? "",
+  };
 }
 
 function imageReference({ registryName, repository, tag, digest }) {
@@ -672,8 +680,7 @@ export function appRollbackTarget(app, options = {}) {
 
   const image = entries[0].image;
   const repository = image.repository ?? "";
-  const tag = image.tag ?? "";
-  const digest = image.digest ?? "";
+  const { tag, digest } = imageRollbackReference(image);
   if (!repository) {
     throw new Error("Rollback target image repository is missing from the App Platform spec.");
   }

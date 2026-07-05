@@ -98,6 +98,50 @@ describe("digitalocean-app-deployment", () => {
     });
   });
 
+  it("captures a uniform App Platform rollback target from deploy-on-push tags", () => {
+    const target = appRollbackTarget(
+      {
+        id: "app-id",
+        spec: {
+          name: "production-platform",
+          services: [
+            {
+              name: "public-web",
+              image: {
+                registry_type: "DOCR",
+                repository: "chase-sets-platform",
+                deploy_on_push: { enabled: true, tag: "release-rollback" },
+              },
+            },
+          ],
+          workers: [
+            {
+              name: "platform-worker",
+              image: {
+                registry_type: "DOCR",
+                repository: "chase-sets-platform",
+                deploy_on_push: { enabled: true, tag: "release-rollback" },
+              },
+            },
+          ],
+        },
+      },
+      {
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        checkedAt: "2026-06-28T01:02:03.000Z",
+      },
+    );
+
+    expect(target).toMatchObject({
+      repository: "chase-sets-platform",
+      tag: "release-rollback",
+      digest: "",
+      imageRef: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-rollback",
+      componentNames: ["platform-worker", "public-web"],
+    });
+  });
+
   it("refuses a mixed App Platform rollback target", () => {
     expect(() =>
       appRollbackTarget(
