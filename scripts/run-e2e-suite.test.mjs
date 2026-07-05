@@ -53,7 +53,7 @@ describe("run e2e suite", () => {
     expect(buildSuiteGrep(suites)).toBe("@marketplace-checkout|@marketplace-seller");
   });
 
-  it("batches selected suites for CI without changing suite order", () => {
+  it("balances selected suites for CI by estimated duration", () => {
     expect(
       batchE2eSuiteIds([
         "catalog_admin_integrations",
@@ -70,12 +70,12 @@ describe("run e2e suite", () => {
         "admin_access",
       ]),
     ).toEqual([
+      "catalog_admin_integrations,admin_auth",
+      "catalog_admin_modeling,admin_platform",
+      "marketplace_checkout,admin_support",
       "marketplace_browse,marketplace_account",
-      "marketplace_checkout,marketplace_seller",
-      "catalog_admin_integrations,catalog_admin_modeling",
-      "admin_growth,admin_commerce",
-      "admin_support,admin_platform",
-      "admin_auth,admin_access",
+      "admin_commerce,admin_access",
+      "marketplace_seller,admin_growth",
     ]);
   });
 
