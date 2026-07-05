@@ -114,19 +114,15 @@ describe("bounded context runtime schema", () => {
     );
   });
 
-  it("drains stale re-entrant schema bootstrap locks on reused pool clients", async () => {
+  it("clears stale schema bootstrap advisory locks on reused pool clients", async () => {
     let heldLockCount = 2;
     const lockEvents: string[] = [];
     const client = {
       query: vi.fn(async (sql: string) => {
-        if (sql.includes("pg_advisory_unlock")) {
-          if (heldLockCount > 0) {
-            heldLockCount -= 1;
-            lockEvents.push("released");
-            return { rows: [{ released: true }] };
-          }
-          lockEvents.push("empty");
-          return { rows: [{ released: false }] };
+        if (sql.includes("pg_advisory_unlock_all")) {
+          heldLockCount = 0;
+          lockEvents.push("released-all");
+          return { rows: [] };
         }
         if (sql.includes("pg_try_advisory_lock")) {
           heldLockCount += 1;
@@ -149,7 +145,7 @@ describe("bounded context runtime schema", () => {
     await bootstrapContextDatabase(module, pool);
 
     expect(heldLockCount).toBe(0);
-    expect(lockEvents).toEqual(["released", "released", "empty", "acquired", "released", "empty"]);
+    expect(lockEvents).toEqual(["released-all", "acquired", "released-all"]);
     expect(client.release).toHaveBeenCalledWith(true);
   });
 

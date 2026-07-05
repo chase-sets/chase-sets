@@ -341,7 +341,7 @@ async function applyContextSchemaOnce(
   let lockAcquired = false;
 
   try {
-    await drainSchemaBootstrapAdvisoryLock(client);
+    await releaseAllSchemaBootstrapAdvisoryLocks(client);
     await acquireSchemaBootstrapLock(client, options);
     lockAcquired = true;
     await client.query(`SET lock_timeout TO '${schemaBootstrapLockTimeoutSetting(options)}'`);
@@ -357,7 +357,7 @@ async function applyContextSchemaOnce(
       await client.query("RESET lock_timeout").catch((error: unknown) => {
         cleanupError ??= error;
       });
-      await drainSchemaBootstrapAdvisoryLock(client).catch((error: unknown) => {
+      await releaseAllSchemaBootstrapAdvisoryLocks(client).catch((error: unknown) => {
         cleanupError ??= error;
       });
     }
@@ -471,16 +471,8 @@ async function acquireSchemaBootstrapLock(client: PgPoolClient, options: SchemaB
   );
 }
 
-async function drainSchemaBootstrapAdvisoryLock(client: PgPoolClient): Promise<void> {
-  while (true) {
-    const result = await client.query<Readonly<{ released: boolean }>>(
-      "SELECT pg_advisory_unlock($1::bigint) AS released",
-      [SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID],
-    );
-    if (result.rows[0]?.released !== true) {
-      return;
-    }
-  }
+async function releaseAllSchemaBootstrapAdvisoryLocks(client: PgPoolClient): Promise<void> {
+  await client.query("SELECT pg_advisory_unlock_all()");
 }
 
 async function querySchemaBootstrapLock(
