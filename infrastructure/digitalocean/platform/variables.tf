@@ -387,13 +387,13 @@ variable "app_instance_size_slug" {
 variable "worker_instance_size_slug" {
   type        = string
   default     = ""
-  description = "Optional worker instance-size override. Empty uses the environment default: staging workers run larger than web/API for the full-context background processing footprint; other environments inherit app_instance_size_slug."
+  description = "Optional worker instance-size override. Empty uses the recorded environment default: staging keeps larger workers for wake-drill, representative-import, and deploy-handoff proof windows; other environments inherit app_instance_size_slug."
 }
 
 variable "worker_instance_count" {
   type        = number
   default     = 0
-  description = "Optional worker instance-count override. Zero uses the environment default: staging runs two workers for handoff capacity; preview and production run one until explicitly scaled."
+  description = "Optional worker instance-count override. Zero uses the recorded environment default: staging keeps two workers through DOKS migration proof; preview and production run one until explicitly scaled."
 
   validation {
     condition     = var.worker_instance_count >= 0 && var.worker_instance_count <= 10
