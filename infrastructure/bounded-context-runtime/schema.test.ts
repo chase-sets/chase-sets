@@ -82,6 +82,8 @@ describe("bounded context runtime schema", () => {
 
     expect(pool.connect).toHaveBeenCalledTimes(2);
     expect(client.release).toHaveBeenCalledTimes(2);
+    expect(client.release).toHaveBeenNthCalledWith(1, true);
+    expect(client.release).toHaveBeenNthCalledWith(2, true);
     expect(queryLog.filter((entry) => entry.sql.includes("pg_try_advisory_lock")).length).toBe(2);
     expect(queryLog.filter((entry) => entry.sql.includes("pg_advisory_unlock")).length).toBe(4);
     expect(
@@ -148,7 +150,7 @@ describe("bounded context runtime schema", () => {
 
     expect(heldLockCount).toBe(0);
     expect(lockEvents).toEqual(["released", "released", "empty", "acquired", "released", "empty"]);
-    expect(client.release).toHaveBeenCalledWith(undefined);
+    expect(client.release).toHaveBeenCalledWith(true);
   });
 
   it("waits past transient schema bootstrap lock contention that outlives the old two-minute ceiling", async () => {
@@ -188,7 +190,7 @@ describe("bounded context runtime schema", () => {
 
       expect(lockAttempts).toBe(31);
       expect(SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS).toBeGreaterThan(120_000);
-      expect(client.release).toHaveBeenCalledWith(undefined);
+      expect(client.release).toHaveBeenCalledWith(true);
     } finally {
       vi.useRealTimers();
     }
@@ -315,7 +317,7 @@ describe("bounded context runtime schema", () => {
 
       expect(pool.connect).toHaveBeenCalledTimes(2);
       expect(clients[0].release).toHaveBeenCalledWith(expect.any(Error));
-      expect(clients[1].release).toHaveBeenCalledWith(undefined);
+      expect(clients[1].release).toHaveBeenCalledWith(true);
       expect(SCHEMA_BOOTSTRAP_LOCK_QUERY_TIMEOUT_MS).toBeLessThan(180_000);
     } finally {
       vi.useRealTimers();
@@ -356,7 +358,7 @@ describe("bounded context runtime schema", () => {
 
       expect(pool.connect).toHaveBeenCalledTimes(2);
       expect(clients[0].release).toHaveBeenCalledWith(expect.objectContaining({ code: "08P01" }));
-      expect(clients[1].release).toHaveBeenCalledWith(undefined);
+      expect(clients[1].release).toHaveBeenCalledWith(true);
     } finally {
       vi.useRealTimers();
     }
@@ -411,7 +413,7 @@ describe("bounded context runtime schema", () => {
       expect(clients[0].query).toHaveBeenCalledWith("RESET lock_timeout");
       expect(clients[0].query.mock.calls.some(([sql]) => sql.includes("pg_advisory_unlock"))).toBe(true);
       expect(clients[0].release).toHaveBeenCalledWith(expect.objectContaining({ code: "55P03" }));
-      expect(clients[1].release).toHaveBeenCalledWith(undefined);
+      expect(clients[1].release).toHaveBeenCalledWith(true);
       expect(
         queryLog.filter((entry) => entry.sql.includes("pg_try_advisory_lock")).map((entry) => entry.clientIndex),
       ).toEqual([0, 1]);
@@ -466,7 +468,7 @@ describe("bounded context runtime schema", () => {
       expect(clients.slice(0, lockTimeoutAttempts).map((client) => client.release.mock.calls[0]?.[0])).toEqual(
         Array.from({ length: lockTimeoutAttempts }, () => expect.objectContaining({ code: "55P03" })),
       );
-      expect(clients[lockTimeoutAttempts].release).toHaveBeenCalledWith(undefined);
+      expect(clients[lockTimeoutAttempts].release).toHaveBeenCalledWith(true);
     } finally {
       vi.useRealTimers();
     }

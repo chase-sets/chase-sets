@@ -25,6 +25,7 @@ export const PROJECTION_GROUP_GENERATIONS_TABLE = "event_projection_group_genera
 export const SCHEMA_MIGRATIONS_TABLE = "bounded_context_schema_migrations";
 export const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SCHEMA_BOOTSTRAP_ADVISORY_LOCK_ID = "739134880509551001";
+const DISCARD_SCHEMA_BOOTSTRAP_CLIENT = true;
 
 export type SchemaBootstrapOptions = Readonly<{
   lockAcquisitionTimeoutMs?: number;
@@ -360,7 +361,8 @@ async function applyContextSchemaOnce(
         cleanupError ??= error;
       });
     }
-    client.release(operationError ?? cleanupError);
+    // Session advisory locks make concurrent index bootstrap possible; discard the client so no session state returns to app traffic.
+    client.release(operationError ?? cleanupError ?? DISCARD_SCHEMA_BOOTSTRAP_CLIENT);
   }
 
   if (operationError) {
