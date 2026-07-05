@@ -100,6 +100,7 @@ describe("render platform Helm values", () => {
     const chartText = `${readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")}\n${chartFiles.join("\n")}`;
 
     expect(chartText).not.toMatch(/^kind: Ingress$/m);
+    expect(chartText).not.toMatch(/^kind: Secret$/m);
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
     expect(chartText).not.toContain("strategy: canary");
