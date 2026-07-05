@@ -395,6 +395,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("https://assets.preview.${var.root_domain}");
     expect(platformLocals).toContain("catalog_asset_public_base_url");
     expect(platformOutputs).toContain('output "catalog_asset_public_base_url"');
+    expect(platformOutputs).toContain('output "catalog_asset_s3_bucket"');
+    expect(platformOutputs).toContain('output "catalog_asset_s3_endpoint"');
+    expect(platformOutputs).toContain('output "catalog_asset_s3_region"');
     expect(platformVariables).not.toContain('variable "catalog_asset_s3_bucket"');
     expect(platformVariables).not.toContain('variable "catalog_asset_public_base_url"');
 
@@ -996,7 +999,24 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStep).toContain(
       "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
     );
+    expect(deployStep).toContain(
+      "terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url",
+    );
+    expect(deployStep).toContain(
+      "terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket",
+    );
+    expect(deployStep).toContain(
+      "terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint",
+    );
+    expect(deployStep).toContain(
+      "terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_region",
+    );
+    expect(deployStep).toContain("Production catalog asset runtime env outputs are required");
     expect(deployStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
+    expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"');
+    expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}"');
+    expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}"');
+    expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}"');
     expect(deployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(deployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
 

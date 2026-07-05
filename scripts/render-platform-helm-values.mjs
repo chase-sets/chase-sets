@@ -186,6 +186,7 @@ export function buildPlatformHelmValues(options = {}) {
         pullPolicy: "IfNotPresent",
       },
       imagePullSecrets: [],
+      envOverrides: {},
       existingSecretName: "chase-sets-platform-runtime",
       serviceAccount: {
         create: true,

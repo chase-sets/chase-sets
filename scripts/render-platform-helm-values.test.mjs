@@ -52,6 +52,7 @@ describe("render platform Helm values", () => {
       hosts: [],
     });
     expect(values.global.imagePullSecrets).toEqual([]);
+    expect(values.global.envOverrides).toEqual({});
   });
 
   it("derives commands, ports, and source count expressions from the DigitalOcean app spec", () => {
@@ -155,6 +156,8 @@ describe("render platform Helm values", () => {
     expect(chartText).toContain("deployments/scale");
     expect(chartText).toContain("global.imagePullSecrets");
     expect(chartText).toContain("imagePullSecrets:");
+    expect(chartText).toContain("global.envOverrides");
+    expect(chartText).toContain("hasKey $envOverrides .name");
   });
 
   it("models the opt-in Argo Rollout contract for public-web and marketplace", () => {

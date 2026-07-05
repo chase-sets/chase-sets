@@ -39,6 +39,18 @@ output "catalog_asset_public_base_url" {
   value = local.catalog_asset_public_base_url
 }
 
+output "catalog_asset_s3_bucket" {
+  value = local.catalog_asset_s3_bucket
+}
+
+output "catalog_asset_s3_endpoint" {
+  value = local.catalog_asset_s3_endpoint
+}
+
+output "catalog_asset_s3_region" {
+  value = var.data_region
+}
+
 output "admin_domain" {
   value = local.admin_domain
 }

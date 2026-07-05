@@ -119,6 +119,40 @@ describe("platform Kubernetes deployment", () => {
     ).toEqual(expect.arrayContaining(["--set-string", "global.imagePullSecrets[0].name=registry-chase-sets"]));
   });
 
+  it("can pass non-secret runtime environment overrides to Helm", () => {
+    expect(
+      buildHelmUpgradeArgs({
+        release: "production-platform",
+        namespace: "production",
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          CATALOG_ASSET_S3_BUCKET: "chase-sets-production-catalog-assets",
+          CATALOG_ASSET_PUBLIC_BASE_URL: "https://assets.chasesets.com",
+        },
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        "--set-string",
+        "global.envOverrides.CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.chasesets.com",
+        "--set-string",
+        "global.envOverrides.CATALOG_ASSET_S3_BUCKET=chase-sets-production-catalog-assets",
+      ]),
+    );
+  });
+
+  it("rejects malformed runtime environment override names", () => {
+    expect(() =>
+      buildHelmUpgradeArgs({
+        release: "production-platform",
+        namespace: "production",
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: { "catalog.asset": "bad" },
+      }),
+    ).toThrow("Runtime env override name");
+  });
+
   it("builds Helm rollback arguments with an optional revision", () => {
     expect(buildHelmRollbackArgs({ release: "staging-platform", namespace: "staging", timeout: "5m" })).toEqual([
       "rollback",
