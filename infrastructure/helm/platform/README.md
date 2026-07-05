@@ -51,6 +51,19 @@ docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-set
 docker run --rm -v "${PWD}:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary platform-helm-rendered.yaml
 ```
 
+## Deployment Helper
+
+`platform:kubernetes-deployment` is the DOKS deploy workflow helper for issue #4049. It provides the command contract that replaces App Platform deploy/wait/diagnostics calls:
+
+```bash
+pnpm run platform:kubernetes-deployment -- plan --image registry.digitalocean.com/chase-sets/chase-sets-platform:<tag> --namespace staging --release chase-sets-staging
+pnpm run platform:kubernetes-deployment -- deploy --image registry.digitalocean.com/chase-sets/chase-sets-platform:<tag> --namespace staging --release chase-sets-staging
+pnpm run platform:kubernetes-deployment -- rollback --namespace staging --release chase-sets-staging
+pnpm run platform:kubernetes-deployment -- diagnostics --namespace staging --release chase-sets-staging
+```
+
+Deploy uses `helm upgrade --install --wait --atomic`, then waits for every rendered runtime Deployment through `kubectl rollout status`. Rollback uses `helm rollback --wait`, then reuses the same rollout waits. Diagnostics use Kubernetes resources, descriptions, and pod logs; they do not depend on App Platform state.
+
 ## Boundaries
 
 This scaffold intentionally does not own ingress, certificates, external secrets, rollout strategy, live DOKS apply wiring, or App Platform removal.

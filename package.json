@@ -32,6 +32,7 @@
     "dev:db:refresh": "node ./scripts/dev-system.mjs refresh",
     "remote-dev": "node ./scripts/remote-dev.mjs",
     "smoke:platform": "node ./scripts/platform-smoke.mjs",
+    "platform:kubernetes-deployment": "node ./scripts/platform-kubernetes-deployment.mjs",
     "ops": "node ./scripts/ops.mjs",
     "catalog:real-provider-proof": "node --experimental-strip-types ./scripts/run-catalog-real-provider-proof.mjs",
     "marketplace:easypost-refund-event-replay": "node ./scripts/easypost-refund-event-replay.mjs",
