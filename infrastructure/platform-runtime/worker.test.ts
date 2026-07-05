@@ -132,6 +132,171 @@ describe("worker runner loop", () => {
     );
   });
 
+  it("reschedules immediately after productive runner completion without waiting for the poll timer", async () => {
+    const calls: string[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const producer: WorkerRunner = {
+      name: "producer-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        calls.push("producer-projection");
+        return { processed: 1, lastGlobalPosition: "1" as never };
+      },
+    };
+    const follower: WorkerRunner = {
+      name: "follower-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        calls.push("follower-projection");
+        return { processed: 0, lastGlobalPosition: "1" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [producer, follower],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 60_000,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(
+        () => {
+          expect(calls).toEqual(["producer-projection", "follower-projection"]);
+        },
+        { timeout: 250 },
+      );
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("does not reschedule caught-up runner completion before the next poll timer", async () => {
+    const calls: string[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const runner: WorkerRunner = {
+      name: "caught-up-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        calls.push("caught-up-projection");
+        return { processed: 0, lastGlobalPosition: "1" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 60_000,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toHaveLength(1);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(calls).toHaveLength(1);
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("reschedules immediately after a runner claims wake-lane work without completing it", async () => {
+    const calls: string[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const wakeLane: WorkerRunner = {
+      name: "projection-wake-scheduler.hot.lane-1",
+      kind: "job",
+      rescheduleOnCompletion: () => true,
+      runOnce: async () => {
+        calls.push("projection-wake-scheduler.hot.lane-1");
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const standardLane: WorkerRunner = {
+      name: "projection-wake-scheduler.standard.lane-1",
+      kind: "job",
+      runOnce: async () => {
+        calls.push("projection-wake-scheduler.standard.lane-1");
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [wakeLane, standardLane],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 60_000,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(
+        () => {
+          expect(calls).toEqual(["projection-wake-scheduler.hot.lane-1", "projection-wake-scheduler.standard.lane-1"]);
+        },
+        { timeout: 250 },
+      );
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("reports reschedule predicate failures without breaking the runner loop", async () => {
+    const calls: string[] = [];
+    const failures: string[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const predicateFailure: WorkerRunner = {
+      name: "predicate-failure-projection",
+      kind: "projection-group",
+      rescheduleOnCompletion: () => {
+        throw new Error("reschedule predicate failed");
+      },
+      runOnce: async () => {
+        calls.push("predicate-failure-projection");
+        return { processed: 0, lastGlobalPosition: "1" as never };
+      },
+    };
+    const follower: WorkerRunner = {
+      name: "follower-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        calls.push("follower-projection");
+        return { processed: 0, lastGlobalPosition: "1" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [predicateFailure, follower],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      onError: (_error, runner) => failures.push(runner.name),
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toContain("follower-projection");
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(failures).toContain("predicate-failure-projection");
+    expect(new Set(failures)).toEqual(new Set(["predicate-failure-projection"]));
+  });
+
   it("prioritizes runners with outstanding backlog ahead of caught-up runners without duplicate same-runner execution", async () => {
     const calls: string[] = [];
     let releaseHighBacklogRunner: (() => void) | null = null;

@@ -461,6 +461,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
       // instance name; scale lane throughput with runnerCount, not worker
       // instance count.
       const laneRunnerName = `${PROJECTION_WAKE_SCHEDULER_RUNNER_PREFIX}.${laneConfig.lane}.lane-${index + 1}`;
+      let claimedWakeIntentLastRun = false;
       return {
         name: laneRunnerName,
         kind: "job",
@@ -469,8 +470,10 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
         // always find reserved wake-loop capacity even while standard/bulk
         // passes saturate the shared slots.
         reservedCapacity: laneConfig.lane === "hot",
+        rescheduleOnCompletion: () => claimedWakeIntentLastRun,
         runOnce: async (context) => {
           let processed = 0;
+          claimedWakeIntentLastRun = false;
 
           for (let claims = 0; claims < maxClaimsPerRun; claims += 1) {
             context?.throwIfLeaseLost?.();
@@ -488,6 +491,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
             if (!intent) {
               break;
             }
+            claimedWakeIntentLastRun = true;
 
             options.observer?.wakeIntentClaimed?.(
               createLifecycleEvent(options.workerId, laneRunnerName, intent, now()),
