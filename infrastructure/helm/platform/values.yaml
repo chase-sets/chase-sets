@@ -20,6 +20,15 @@ global:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+ingress:
+  enabled: false
+  className: "nginx"
+  clusterIssuer: ""
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: "chase-sets-platform-tls"
+  hosts: []
 components:
   public-web:
     enabled: true

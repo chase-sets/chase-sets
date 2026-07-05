@@ -197,6 +197,17 @@ export function buildPlatformHelmValues(options = {}) {
       tolerations: [],
       affinity: {},
     },
+    ingress: {
+      enabled: false,
+      className: "nginx",
+      clusterIssuer: "",
+      annotations: {},
+      tls: {
+        enabled: true,
+        secretName: "chase-sets-platform-tls",
+      },
+      hosts: [],
+    },
     components: Object.fromEntries(components.map((component) => [component.name, toHelmComponent(component)])),
   };
 }

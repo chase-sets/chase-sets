@@ -33,6 +33,7 @@ const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/cata
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
 const environmentDnsMain = readFileSync(resolve("infrastructure/digitalocean/environment-dns/main.tf"), "utf8");
 const environmentDnsLocals = readFileSync(resolve("infrastructure/digitalocean/environment-dns/locals.tf"), "utf8");
+const environmentDnsOutputs = readFileSync(resolve("infrastructure/digitalocean/environment-dns/outputs.tf"), "utf8");
 const environmentDnsVariables = readFileSync(
   resolve("infrastructure/digitalocean/environment-dns/variables.tf"),
   "utf8",
@@ -2169,6 +2170,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(environmentDnsLocals).toContain(
       'catalog_asset_cdn_endpoint = "chase-sets-${var.environment}-catalog-assets.${var.data_region}.cdn.digitaloceanspaces.com."',
     );
+    expect(environmentDnsVariables).toContain('variable "doks_ingress_dns_enabled"');
+    expect(environmentDnsVariables).toContain('variable "doks_ingress_target"');
+    expect(environmentDnsVariables).toContain("DOKS ingress load balancer IPv4 address");
+    expect(environmentDnsLocals).toContain("doks_ingress_records = var.doks_ingress_dns_enabled");
+    expect(environmentDnsLocals).toContain('fqdn = "marketplace.${local.environment_zone}"');
+    expect(environmentDnsMain).toContain('check "doks_ingress_dns_target"');
+    expect(environmentDnsMain).toContain('resource "digitalocean_record" "doks_ingress"');
+    expect(environmentDnsMain).toContain("for_each = local.doks_ingress_records");
+    expect(environmentDnsMain).toContain('type   = "A"');
+    expect(environmentDnsOutputs).toContain('output "doks_ingress_domains"');
     expect(platformProductionWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformStagingResetWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformProductionWorkflow).toContain("Reconcile staging App Platform alias DNS state");

@@ -388,6 +388,14 @@ jobs:
       - name: Validate platform runtime Secret contract
         run: node ./scripts/platform-kubernetes-secret.mjs --dry-run --namespace validation
 
+      - name: Validate platform ingress wait contract
+        run: |
+          node ./scripts/platform-ingress-wait.mjs \
+            --dry-run \
+            --url https://staging.chasesets.com/ \
+            --url https://admin.staging.chasesets.com/health/ready \
+            --url https://marketplace.staging.chasesets.com/health/ready
+
   terraform-preview-plan:
     name: Terraform Preview Plan
     runs-on: ubuntu-latest
