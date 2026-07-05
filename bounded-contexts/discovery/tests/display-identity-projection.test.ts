@@ -97,6 +97,27 @@ class DiscoveryProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (
+      sql.includes("UPDATE discovery_search_catalog_dimension_options") ||
+      sql.includes("UPDATE discovery_item_detail_catalog_dimension_options")
+    ) {
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (
+      sql.includes("SELECT catalog_item_id") &&
+      (sql.includes("discovery_search_catalog_items") || sql.includes("discovery_item_detail_catalog_items"))
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (
+      sql.includes("SELECT DISTINCT item.catalog_item_id") &&
+      (sql.includes("discovery_search_catalog_items") || sql.includes("discovery_item_detail_catalog_items"))
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (sql.includes("INSERT INTO discovery_slug_redirects")) {
       this.redirectWrites.push([...values]);
       return { rows: [], rowCount: 1 };
@@ -136,6 +157,27 @@ class DiscoveryProjectionDb implements PgQueryable {
 
     throw new Error(`Unexpected query: ${sql}`);
   }
+}
+
+function withQueryConcurrencyProbe(db: PgQueryable): { db: PgQueryable; getMaxActiveQueryCount: () => number } {
+  let activeQueryCount = 0;
+  let maxActiveQueryCount = 0;
+
+  return {
+    db: {
+      query: (async (sql: string, values?: readonly unknown[]) => {
+        activeQueryCount += 1;
+        maxActiveQueryCount = Math.max(maxActiveQueryCount, activeQueryCount);
+        try {
+          await Promise.resolve();
+          return await db.query(sql, values);
+        } finally {
+          activeQueryCount -= 1;
+        }
+      }) as PgQueryable["query"],
+    },
+    getMaxActiveQueryCount: () => maxActiveQueryCount,
+  };
 }
 
 function catalogItemRow(slug: string): Record<string, unknown> {
@@ -215,6 +257,28 @@ function metadataRevisionEvent(): TransportEvent {
   };
 }
 
+function dimensionOptionsReorderedEvent(): TransportEvent {
+  return {
+    id: "evt_dimension_options" as never,
+    type: "catalog.dimension.options-reordered",
+    streamId: "catalog.dimension-dim_condition" as never,
+    streamVersion: 4 as never,
+    globalPosition: 4 as never,
+    tenantId: "tnt_1" as never,
+    data: { optionIds: ["opt_lp", "opt_nm"] } as never,
+    metadata: {},
+    audit: {
+      performedByUserId: "usr_1" as never,
+      forAccountId: "acc_1" as never,
+    },
+    trace: {},
+    timing: {
+      occurredAt: "2026-06-06T23:30:00.000Z" as never,
+      recordedAt: "2026-06-06T23:30:00.000Z" as never,
+    },
+  };
+}
+
 describe("Discovery display identity projection", () => {
   it("updates search source and derived rows from Catalog display identity facts", async () => {
     const db = new DiscoveryProjectionDb();
@@ -276,5 +340,23 @@ describe("Discovery display identity projection", () => {
     });
     expect(db.redirectWrites).toHaveLength(0);
     expect(db.derivedWrites).toContain("detail");
+  });
+
+  it("serializes search projection same-client dimension option updates", async () => {
+    const probe = withQueryConcurrencyProbe(new DiscoveryProjectionDb());
+    const handlers = buildDiscoverySearchItemProjectionHandlers(probe.db);
+
+    await handlers["catalog.dimension.options-reordered"]?.(dimensionOptionsReorderedEvent());
+
+    expect(probe.getMaxActiveQueryCount()).toBe(1);
+  });
+
+  it("serializes item detail projection same-client dimension option updates", async () => {
+    const probe = withQueryConcurrencyProbe(new DiscoveryProjectionDb());
+    const handlers = buildDiscoveryItemDetailProjectionHandlers(probe.db);
+
+    await handlers["catalog.dimension.options-reordered"]?.(dimensionOptionsReorderedEvent());
+
+    expect(probe.getMaxActiveQueryCount()).toBe(1);
   });
 });

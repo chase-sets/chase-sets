@@ -374,28 +374,28 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
     ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
-  const [dimensionRows, choiceRows] = await Promise.all([
+  const dimensionRows =
     dimensionIds.length > 0
-      ? db
-          .query<DimensionDetailRow>(
+      ? (
+          await db.query<DimensionDetailRow>(
             `SELECT dimension_id, name, value_kind
            FROM discovery_item_detail_catalog_dimensions
            WHERE dimension_id = ANY($1)`,
             [dimensionIds],
           )
-          .then((result) => result.rows)
-      : Promise.resolve([] as DimensionDetailRow[]),
+        ).rows
+      : [];
+  const choiceRows =
     optionIds.length > 0
-      ? db
-          .query<ChoiceDetailRow>(
+      ? (
+          await db.query<ChoiceDetailRow>(
             `SELECT option_id, code, label_i18n, label, display_order, numeric_value::float8 AS numeric_value
            FROM discovery_item_detail_catalog_dimension_options
            WHERE option_id = ANY($1)`,
             [optionIds],
           )
-          .then((result) => result.rows)
-      : Promise.resolve([] as ChoiceDetailRow[]),
-  ]);
+        ).rows
+      : [];
 
   const dimensionMap = new Map(dimensionRows.map((row) => [row.dimension_id, row]));
   const choiceMap = new Map(choiceRows.map((row) => [row.option_id, row]));
@@ -465,14 +465,12 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
     });
   }
 
-  const [fieldNames, categoryRefs, blueprintNames, references] = await Promise.all([
-    loadNameMap(db, "discovery_item_detail_catalog_fields", "field_id", "name", fieldIds),
-    loadCategoryMap(db, categoryIds),
-    item.blueprint_id
-      ? loadNameMap(db, "discovery_item_detail_catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
-      : Promise.resolve(new Map<string, string>()),
-    loadReferenceRecordMap(db, ITEM_DETAIL_REFERENCE_RECORDS_TABLE, referenceIds),
-  ]);
+  const fieldNames = await loadNameMap(db, "discovery_item_detail_catalog_fields", "field_id", "name", fieldIds);
+  const categoryRefs = await loadCategoryMap(db, categoryIds);
+  const blueprintNames = item.blueprint_id
+    ? await loadNameMap(db, "discovery_item_detail_catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
+    : new Map<string, string>();
+  const references = await loadReferenceRecordMap(db, ITEM_DETAIL_REFERENCE_RECORDS_TABLE, referenceIds);
 
   const productSchema = item.blueprint_id ? await buildProductSchema(db, item.blueprint_id) : null;
 
@@ -563,16 +561,15 @@ async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId:
   );
   const itemIds = [
     ...(await findCatalogItemIdsByReferenceRecord(db, ITEM_DETAIL_CATALOG_ITEMS_TABLE, referenceRecordId)),
-    ...(
-      await Promise.all(
-        relatedRecordIds.map((recordId) =>
-          findCatalogItemIdsByReferenceRecord(db, ITEM_DETAIL_CATALOG_ITEMS_TABLE, recordId),
-        ),
-      )
-    ).flat(),
   ];
 
-  await Promise.all([...new Set(itemIds)].map((itemId) => refreshDiscoveryItemDetailPage(db, itemId)));
+  for (const recordId of relatedRecordIds) {
+    itemIds.push(...(await findCatalogItemIdsByReferenceRecord(db, ITEM_DETAIL_CATALOG_ITEMS_TABLE, recordId)));
+  }
+
+  for (const itemId of new Set(itemIds)) {
+    await refreshDiscoveryItemDetailPage(db, itemId);
+  }
 }
 
 async function applyCatalogItemDisplayIdentity(
@@ -1279,19 +1276,17 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const { optionIds } = event.data as { optionIds: string[] };
 
       const latestOptionOrders = new Map(optionIds.map((optionId, index) => [optionId, index] as const));
-      await Promise.all(
-        [...latestOptionOrders.entries()].map(([optionId, index]) =>
-          updateRow(db, {
-            table: "discovery_item_detail_catalog_dimension_options",
-            setColumns: ["display_order", "updated_at"],
-            values: { display_order: index, updated_at: event.timing.recordedAt },
-            where: {
-              columns: ["dimension_id", "option_id"],
-              values: { dimension_id: dimensionId, option_id: optionId },
-            },
-          }),
-        ),
-      );
+      for (const [optionId, index] of latestOptionOrders.entries()) {
+        await updateRow(db, {
+          table: "discovery_item_detail_catalog_dimension_options",
+          setColumns: ["display_order", "updated_at"],
+          values: { display_order: index, updated_at: event.timing.recordedAt },
+          where: {
+            columns: ["dimension_id", "option_id"],
+            values: { dimension_id: dimensionId, option_id: optionId },
+          },
+        });
+      }
 
       await refreshAllItems(db);
     },
