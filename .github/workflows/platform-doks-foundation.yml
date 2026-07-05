@@ -16,9 +16,8 @@ on:
         required: true
         type: string
       image_tag:
-        description: Platform image tag to use for the DOCR pull proof.
-        required: false
-        default: latest
+        description: Immutable platform image tag to use for the DOCR pull proof, such as a release-* tag or commit SHA.
+        required: true
         type: string
       confirm:
         description: Type "apply doks foundation" to confirm creating or updating DOKS infrastructure.
@@ -73,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=()
-          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY DIGITALOCEAN_ACCESS_TOKEN TF_VAR_kubernetes_version
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY DIGITALOCEAN_ACCESS_TOKEN TF_VAR_kubernetes_version PLATFORM_IMAGE_REF
           do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
@@ -82,6 +81,11 @@ jobs:
 
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required DOKS apply configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          if [ "${{ inputs.image_tag }}" = "latest" ]; then
+            echo "DOKS foundation proof requires an immutable image tag, not 'latest'." >&2
             exit 1
           fi
 
@@ -146,18 +150,42 @@ jobs:
             exit 1
           fi
 
+          doctl kubernetes cluster get "$cluster_id" --output json > artifacts/doks-foundation/cluster.json
+          kubectl get nodes -o json > artifacts/doks-foundation/nodes.json
+
+          collect_proof_diagnostics() {
+            mkdir -p artifacts/doks-foundation/image-pull-proof
+            kubectl get job platform-image-pull-proof -n "$proof_namespace" -o yaml \
+              > artifacts/doks-foundation/image-pull-proof/job.yaml 2>/dev/null || true
+            kubectl describe job platform-image-pull-proof -n "$proof_namespace" \
+              > artifacts/doks-foundation/image-pull-proof/job-describe.txt 2>&1 || true
+            kubectl get pods -n "$proof_namespace" -o wide \
+              > artifacts/doks-foundation/image-pull-proof/pods.txt 2>&1 || true
+            kubectl get pods -n "$proof_namespace" -o yaml \
+              > artifacts/doks-foundation/image-pull-proof/pods.yaml 2>/dev/null || true
+            kubectl describe pods -n "$proof_namespace" \
+              > artifacts/doks-foundation/image-pull-proof/pods-describe.txt 2>&1 || true
+            kubectl get events -n "$proof_namespace" --sort-by=.metadata.creationTimestamp \
+              > artifacts/doks-foundation/image-pull-proof/events.txt 2>&1 || true
+            kubectl logs job/platform-image-pull-proof -n "$proof_namespace" --all-containers \
+              > artifacts/doks-foundation/image-pull-proof/logs.txt 2>&1 || true
+          }
+
           kubectl create namespace "$proof_namespace" --dry-run=client -o yaml | kubectl apply -f -
           kubectl delete job platform-image-pull-proof -n "$proof_namespace" --ignore-not-found=true
           kubectl create job platform-image-pull-proof \
             -n "$proof_namespace" \
             --image="$PLATFORM_IMAGE_REF" \
             -- node --version
-          kubectl wait --for=condition=Complete job/platform-image-pull-proof -n "$proof_namespace" --timeout=5m
+          if ! kubectl wait --for=condition=Complete job/platform-image-pull-proof -n "$proof_namespace" --timeout=5m; then
+            echo "DOKS image-pull proof did not complete. Capturing job, pod, event, and log diagnostics." >&2
+            collect_proof_diagnostics
+            kubectl delete namespace "$proof_namespace" --wait=false || true
+            exit 1
+          fi
           kubectl logs job/platform-image-pull-proof -n "$proof_namespace"
           kubectl delete namespace "$proof_namespace" --wait=false
 
-          doctl kubernetes cluster get "$cluster_id" --output json > artifacts/doks-foundation/cluster.json
-          kubectl get nodes -o json > artifacts/doks-foundation/nodes.json
           jq -n \
             --arg environment "${{ inputs.environment }}" \
             --arg clusterId "$cluster_id" \

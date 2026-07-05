@@ -89,6 +89,24 @@ docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-set
 docker run --rm -v "${PWD}:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary platform-helm-rendered.yaml
 ```
 
+## Local Boot Proof
+
+Use the local boot harness to prove the chart workloads start through Kubernetes scheduling before a live DOKS cutover. The harness derives from `values.yaml`, swaps only local-dev-safe image, command, and secret placeholders, renders this chart with Helm, applies the manifest to a throwaway namespace, and waits for every rendered Deployment and Job.
+
+Dry-run the rendered local boot contract without touching a cluster:
+
+```bash
+pnpm run platform:helm-local-boot -- --dry-run
+```
+
+Run the proof against the current `kubectl` context:
+
+```bash
+pnpm run platform:helm-local-boot -- --namespace chase-sets-platform-local-boot
+```
+
+The harness uses the Dockerized Helm image `alpine/helm:3.15.4`, so a local `helm` binary is not required. A reachable Kubernetes context is required for the non-dry-run proof.
+
 ## Deployment Helper
 
 `platform:kubernetes-deployment` is the DOKS deploy workflow helper for issue #4049. It provides the command contract that replaces App Platform deploy/wait/diagnostics calls:
