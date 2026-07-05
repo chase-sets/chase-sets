@@ -82,6 +82,46 @@ describe("projection transactions", () => {
     ]);
   });
 
+  it("sets context-provided idle timeouts when pool metadata is unavailable", async () => {
+    const { calls, pool } = createRecordingPool();
+    const context = {
+      idleInTransactionSessionTimeoutMs: 15_000.2,
+      statementTimeoutMs: 12.2,
+      throwIfLeaseLost: () => undefined,
+    } satisfies ProjectionRunContext;
+
+    await withProjectionTransaction(pool, context, async (client) => {
+      await client.query("SELECT 1");
+    });
+
+    expect(calls).toEqual([
+      { sql: "BEGIN", values: undefined },
+      { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15001ms"] },
+      { sql: "SELECT set_config('statement_timeout', $1, true)", values: ["13ms"] },
+      { sql: "SELECT 1", values: undefined },
+      { sql: "COMMIT", values: undefined },
+    ]);
+  });
+
+  it("does not duplicate matching pool and context idle timeouts", async () => {
+    const { calls, pool } = createRecordingPool({ idleInTransactionSessionTimeoutMillis: 15_000 });
+    const context = {
+      idleInTransactionSessionTimeoutMs: 15_000,
+      throwIfLeaseLost: () => undefined,
+    } satisfies ProjectionRunContext;
+
+    await withProjectionTransaction(pool, context, async (client) => {
+      await client.query("SELECT 1");
+    });
+
+    expect(calls).toEqual([
+      { sql: "BEGIN", values: undefined },
+      { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15000ms"] },
+      { sql: "SELECT 1", values: undefined },
+      { sql: "COMMIT", values: undefined },
+    ]);
+  });
+
   it("skips invalid or disabled projection statement timeouts", async () => {
     for (const statementTimeoutMs of [undefined, 0, -1, Number.POSITIVE_INFINITY]) {
       const { calls, pool } = createRecordingPool();

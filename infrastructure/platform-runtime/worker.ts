@@ -132,6 +132,8 @@ type WorkerHostPools = Readonly<
   Record<string, PgTransactionalPool | Readonly<Record<string, PgTransactionalPool>> | undefined>
 >;
 
+export const DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS = 15_000;
+
 export type DurableJobLaneRunContext = Readonly<{
   workflowName: string;
   laneName: string;
@@ -157,6 +159,7 @@ type WorkerRunnerLoopOptions = Readonly<{
   reservedRunnerSlots?: number;
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
+  projectionTransactionIdleTimeoutMs?: number;
   pollIntervalMs: number;
   failureBackoffBaseMs?: number;
   failureBackoffMaxMs?: number;
@@ -285,6 +288,7 @@ export function collectWorkerRunners(
     projectionOperationClaimTtlMs?: number;
     projectionOperationLeaseTtlMs?: number;
     projectionOperationLeaseRenewIntervalMs?: number;
+    projectionTransactionIdleTimeoutMs?: number;
     projectionOperationStatementTimeoutMs?: number;
     projectionOperationCancelPollIntervalMs?: number;
     workSignalStore?: Pick<PostgresWorkSignalStore, "recordCheckpointReady" | "clearCheckpointReadiness">;
@@ -301,7 +305,12 @@ export function collectWorkerRunners(
     : undefined;
   const runners = [
     ...runtime.projectionGroups.map((group) =>
-      createProjectionGroupWorkerRunner(group, { onCheckpointsAdvanced, onCheckpointsReset }),
+      createProjectionGroupWorkerRunner(group, {
+        idleInTransactionSessionTimeoutMs:
+          options.projectionTransactionIdleTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
+        onCheckpointsAdvanced,
+        onCheckpointsReset,
+      }),
     ),
     createSubscriptionLedgerCompactionRunner(runtime),
     createProjectionGenerationRetentionRunner(runtime),
@@ -315,6 +324,8 @@ export function collectWorkerRunners(
           claimTtlMs: options.projectionOperationClaimTtlMs ?? 120_000,
           leaseTtlMs: options.projectionOperationLeaseTtlMs ?? 120_000,
           leaseRenewIntervalMs: options.projectionOperationLeaseRenewIntervalMs ?? 30_000,
+          idleInTransactionSessionTimeoutMs:
+            options.projectionTransactionIdleTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
           statementTimeoutMs: options.projectionOperationStatementTimeoutMs ?? 30_000,
           cancelPollIntervalMs: options.projectionOperationCancelPollIntervalMs ?? 5_000,
           onCheckpointsReset,
@@ -592,6 +603,8 @@ async function runLeasedRunner(
       ownerId: lease.ownerId,
       fencingToken: lease.fencingToken,
       signal: abortController.signal,
+      idleInTransactionSessionTimeoutMs:
+        options.projectionTransactionIdleTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
       throwIfLeaseLost,
     };
     const result = await runner.runOnce(runnerContext);
@@ -721,6 +734,7 @@ export function createCheckpointReadinessRecorder(
 export function createProjectionGroupWorkerRunner(
   group: ContextProjectionGroup,
   options: Readonly<{
+    idleInTransactionSessionTimeoutMs?: number;
     revisionStaleBehavior?: "reset" | "reject";
     onCheckpointsAdvanced?: (
       status: ContextProjectionGroupStatus,
@@ -730,6 +744,8 @@ export function createProjectionGroupWorkerRunner(
   }> = {},
 ): WorkerRunner {
   const revisionStaleBehavior = options.revisionStaleBehavior ?? "reset";
+  const idleInTransactionSessionTimeoutMs =
+    options.idleInTransactionSessionTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS;
   let rebuildingRevision: number | null = null;
 
   return {
@@ -738,15 +754,20 @@ export function createProjectionGroupWorkerRunner(
     priority: () => BigInt(group.getStatus().outstandingEventCount),
     projectionStatusSnapshot: () => group.getStatus(),
     runOnce: async (context) => {
+      const runContext: ProjectionRunContext = {
+        ...context,
+        idleInTransactionSessionTimeoutMs:
+          context?.idleInTransactionSessionTimeoutMs ?? idleInTransactionSessionTimeoutMs,
+      };
       try {
-        context?.throwIfLeaseLost?.();
+        runContext.throwIfLeaseLost?.();
         const status = await group.refreshStatus();
         if (status.revisionStale && revisionStaleBehavior === "reject") {
           throw new ProjectionGroupRevisionStaleError(group);
         }
         if (status.revisionStale && rebuildingRevision !== group.projectionRevision) {
-          context?.throwIfLeaseLost?.();
-          await resetProjectionGroup(group, context);
+          runContext.throwIfLeaseLost?.();
+          await resetProjectionGroup(group, runContext);
           rebuildingRevision = group.projectionRevision;
           if (options.onCheckpointsReset) {
             try {
@@ -763,7 +784,7 @@ export function createProjectionGroupWorkerRunner(
         let blockedStreams = 0;
         let poisonEvents = 0;
 
-        for (const result of await runSubscriptionRunnersByOrder(group.subscriptionRunners, context)) {
+        for (const result of await runSubscriptionRunnersByOrder(group.subscriptionRunners, runContext)) {
           processed += result.processed;
           lastGlobalPosition = maxGlobalPosition(lastGlobalPosition, result.lastGlobalPosition);
           blockedStreams += result.blockedStreams ?? 0;
@@ -771,7 +792,7 @@ export function createProjectionGroupWorkerRunner(
         }
 
         if (processed === 0 && blockedStreams === 0) {
-          context?.throwIfLeaseLost?.();
+          runContext.throwIfLeaseLost?.();
           await group.markRevisionSynced();
           rebuildingRevision = null;
         }
@@ -806,6 +827,7 @@ function createProjectionOperationWorkerRunner(
     claimTtlMs: number;
     leaseTtlMs: number;
     leaseRenewIntervalMs: number;
+    idleInTransactionSessionTimeoutMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
     onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
@@ -927,6 +949,7 @@ async function runProjectionOperationWithRenewedClaim(
     claimTtlMs: number;
     leaseTtlMs: number;
     leaseRenewIntervalMs: number;
+    idleInTransactionSessionTimeoutMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
     onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
@@ -1011,6 +1034,7 @@ async function runProjectionOperation(
     controlPlane: PlatformControlPlane;
     leaseTtlMs: number;
     leaseRenewIntervalMs: number;
+    idleInTransactionSessionTimeoutMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
     onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
@@ -1033,6 +1057,7 @@ async function runProjectionOperation(
         ownerId,
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
+        idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
         statementTimeoutMs: options.statementTimeoutMs,
         shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
         abortPollIntervalMs: options.cancelPollIntervalMs,
@@ -1064,6 +1089,7 @@ async function runProjectionOperation(
           ownerId,
           ttlMs: options.leaseTtlMs,
           renewIntervalMs: options.leaseRenewIntervalMs,
+          idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
           statementTimeoutMs: options.statementTimeoutMs,
           shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
           abortPollIntervalMs: options.cancelPollIntervalMs,
@@ -1099,6 +1125,7 @@ async function runProjectionOperation(
         ownerId,
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
+        idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
         statementTimeoutMs: options.statementTimeoutMs,
         shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
         abortPollIntervalMs: options.cancelPollIntervalMs,
@@ -1180,6 +1207,7 @@ export type RunWithRenewedLeaseInput = Readonly<{
   ownerId: string;
   ttlMs: number;
   renewIntervalMs: number;
+  idleInTransactionSessionTimeoutMs?: number;
   statementTimeoutMs?: number;
   shouldAbort?: () => Promise<boolean>;
   abortPollIntervalMs?: number;
@@ -1269,6 +1297,8 @@ export async function tryRunWithRenewedLease<T>(
       fencingToken: lease.fencingToken,
       operationId: typeof input.metadata?.operationId === "string" ? (input.metadata.operationId as string) : undefined,
       signal: abortController.signal,
+      idleInTransactionSessionTimeoutMs:
+        input.idleInTransactionSessionTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
       statementTimeoutMs: input.statementTimeoutMs,
       throwIfLeaseLost,
     });

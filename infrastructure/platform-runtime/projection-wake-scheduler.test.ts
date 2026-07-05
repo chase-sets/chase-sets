@@ -3,7 +3,7 @@ import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PlatformControlPlane } from "./control-plane";
-import { createWorkerRunnerLoop } from "./worker";
+import { createWorkerRunnerLoop, DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS } from "./worker";
 import {
   createProjectionWakeSchedulerRunners,
   createWorkSignalCleanupRunner,
@@ -84,12 +84,16 @@ describe("projection wake scheduler", () => {
     });
   });
 
-  it("passes statement timeouts into wake projection runs", async () => {
+  it("passes transaction timeouts into wake projection runs", async () => {
+    const runIdleTimeouts: Array<number | undefined> = [];
     const runStatementTimeouts: Array<number | undefined> = [];
     const projection = checkoutProjection({
       position: 90n,
       headPosition: 120n,
-      onRunContext: (context) => runStatementTimeouts.push(context?.statementTimeoutMs),
+      onRunContext: (context) => {
+        runIdleTimeouts.push(context?.idleInTransactionSessionTimeoutMs);
+        runStatementTimeouts.push(context?.statementTimeoutMs);
+      },
     });
     const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 102n, priorityLane: "hot" })]);
     const controlPlane = recordingControlPlane();
@@ -106,6 +110,7 @@ describe("projection wake scheduler", () => {
     const result = await runners[0].runOnce();
 
     expect(result).toMatchObject({ processed: 1 });
+    expect(runIdleTimeouts).toEqual([DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS]);
     expect(runStatementTimeouts).toEqual([12_345]);
   });
 
