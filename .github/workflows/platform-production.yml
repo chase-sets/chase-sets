@@ -1857,6 +1857,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           ../../../scripts/terraform-init-with-retry.sh \
@@ -1872,10 +1873,33 @@ jobs:
             -backend-config=use_lockfile=true
 
           kubeconfig="${RUNNER_TEMP}/chase-sets-production.kubeconfig"
-          terraform output -raw kubeconfig > "$kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
           chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure production Kubernetes context." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Production Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
-          KUBECONFIG="$kubeconfig" kubectl config current-context
+          echo "Configured production Kubernetes context: ${current_context}"
 
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'

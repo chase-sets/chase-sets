@@ -936,7 +936,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(kubeconfigStep).toContain("infrastructure/digitalocean/doks");
     expect(kubeconfigStep).toContain("-backend-config=key=doks/production.tfstate");
     expect(kubeconfigStep).toContain("terraform output -raw kubeconfig");
+    expect(kubeconfigStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(kubeconfigStep).toContain("Terraform DOKS kubeconfig output did not contain a usable current-context");
+    expect(kubeconfigStep).toContain('cluster_id="$(terraform output -raw cluster_id');
+    expect(kubeconfigStep).toContain('cluster_name="$(terraform output -raw cluster_name');
+    expect(kubeconfigStep).toContain('doctl kubernetes cluster kubeconfig show "$cluster_id"');
+    expect(kubeconfigStep).toContain('doctl kubernetes cluster kubeconfig show "$cluster_name"');
+    expect(kubeconfigStep).toContain("Production Kubernetes kubeconfig is present but has no current context");
     expect(kubeconfigStep).toContain("KUBECONFIG=");
+    expect(kubeconfigStep).toContain("Configured production Kubernetes context: ${current_context}");
     expect(captureStep).toContain("git fetch origin production --tags");
     expect(captureStep).toContain("last_known_good_commit");
     expect(captureStep).toContain("capture-rollback-target");
