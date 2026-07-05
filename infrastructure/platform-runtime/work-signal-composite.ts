@@ -471,11 +471,12 @@ const WORK_SIGNAL_ORIGIN_DISPOSITIONS: readonly WorkSignalOriginDisposition[] = 
   {
     origin: "projection-wake-intent",
     kind: "projection.wake-intent",
-    channel: "none (durable control-plane work-signal store rows)",
+    channel: "platform_projection_wake_intents",
     emitter: "projection wake relay fan-out into platform_projection_wake_intents",
-    waiter: "worker wake-intent scheduler claims durable rows on bounded intervals",
+    waiter: "worker wake-intent scheduler push dispatcher (composite waiter) nudges durable claim polling",
     disposition: "composite",
-    notes: "Durable store rows are the contract; claims and fallback polling replace per-process listeners.",
+    notes:
+      "Durable store rows remain the contract; NOTIFY is a best-effort scheduling hint and bounded polling remains the fallback.",
   },
   {
     origin: "projection-checkpoint-ready",

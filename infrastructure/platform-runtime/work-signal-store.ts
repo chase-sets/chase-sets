@@ -3,6 +3,10 @@ import { performance } from "node:perf_hooks";
 
 import type { ReadConsistencyWakeRequest, ReadConsistencyWorkSignalGateway } from "@chase-sets/bounded-context-runtime";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { emitPostgresWorkSignalNotification } from "./work-signal-composite";
+
+export const PROJECTION_WAKE_INTENT_WORK_SIGNAL_CHANNEL = "platform_projection_wake_intents";
+const PROJECTION_WAKE_INTENT_WORK_SIGNAL_SOURCE = "platform-runtime.work-signal-store";
 
 export const platformWorkSignalStoreSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_projection_wake_intents (
@@ -134,6 +138,21 @@ export type ProjectionWakeIntentRecord = Readonly<{
   updatedAt: Date;
   expiresAt: Date;
   completedAt: Date | null;
+}>;
+
+export type ProjectionWakeIntentWorkSignalPayload = Readonly<{
+  outcome: ProjectionWakeIntentEnqueueOutcome;
+  wakeIntentId: string;
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  checkpointKey: string;
+  requiredPosition: string;
+  requiredCursor: string | null;
+  priorityLane: WorkSignalPriorityLane;
+  origin: WorkSignalWakeOrigin;
+  state: ProjectionWakeIntentState;
+  nextEligibleAt: string;
 }>;
 
 export type CheckpointReadinessRecord = Readonly<{
@@ -687,6 +706,7 @@ export function createPostgresWorkSignalStore(
 
       const row = requireSingleRow(result.rows);
       const record = mapProjectionWakeIntentRow(row);
+      await tryEmitProjectionWakeIntentWorkSignal(db, record, row.enqueue_outcome, now);
       notifyProjectionWakeIntentEnqueued(options.observer, {
         outcome: row.enqueue_outcome,
         sourceContextName: record.sourceContextName,
@@ -1423,6 +1443,41 @@ function notifyProjectionWakeIntentEnqueued(
     observer?.projectionWakeIntentEnqueued?.(event);
   } catch {
     // Observability must never disrupt wake enqueue delivery.
+  }
+}
+
+async function tryEmitProjectionWakeIntentWorkSignal(
+  db: PgQueryable | PgTransactionalPool,
+  record: ProjectionWakeIntentRecord,
+  outcome: ProjectionWakeIntentEnqueueOutcome,
+  now: () => Date,
+): Promise<void> {
+  try {
+    await emitPostgresWorkSignalNotification<ProjectionWakeIntentWorkSignalPayload>(db, {
+      channel: PROJECTION_WAKE_INTENT_WORK_SIGNAL_CHANNEL,
+      now,
+      envelope: {
+        kind: "projection.wake-intent",
+        source: PROJECTION_WAKE_INTENT_WORK_SIGNAL_SOURCE,
+        correlationId: record.correlationId,
+        payload: {
+          outcome,
+          wakeIntentId: record.wakeIntentId,
+          sourceContextName: record.sourceContextName,
+          targetContextName: record.targetContextName,
+          projectionName: record.projectionName,
+          checkpointKey: record.checkpointKey,
+          requiredPosition: record.requiredPosition.toString(),
+          requiredCursor: record.requiredCursor,
+          priorityLane: record.priorityLane,
+          origin: record.origin,
+          state: record.state,
+          nextEligibleAt: record.nextEligibleAt.toISOString(),
+        },
+      },
+    });
+  } catch {
+    return;
   }
 }
 

@@ -7,25 +7,141 @@ import { createWorkerRunnerLoop, DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS 
 import {
   createProjectionWakeSchedulerRunners,
   createWorkSignalCleanupRunner,
+  startProjectionWakePushDispatcher,
   type ProjectionWakeIntentCompletedEvent,
   type ProjectionWakeIntentLifecycleEvent,
   type ProjectionWakeIntentRetryEvent,
   type ProjectionWakeSchedulerObserver,
 } from "./projection-wake-scheduler";
+import {
+  createWorkSignalEnvelope,
+  type PostgresWorkSignalNotification,
+  type PostgresWorkSignalWaiter,
+  type WaitForPostgresWorkSignalInput,
+  type WorkSignalWaitResult,
+} from "./work-signal-composite";
 import type {
   ClaimProjectionWakeIntentInput,
   CompleteProjectionWakeIntentInput,
   FailProjectionWakeIntentInput,
   ProjectionWakeIntentCompletionResult,
   ProjectionWakeIntentRecord,
+  ProjectionWakeIntentWorkSignalPayload,
   RecordCheckpointReadyInput,
   RenewProjectionWakeIntentInput,
 } from "./work-signal-store";
+import { PROJECTION_WAKE_INTENT_WORK_SIGNAL_CHANNEL } from "./work-signal-store";
 
 const NOW = new Date("2026-06-10T12:00:05.000Z");
 const CREATED_AT = new Date("2026-06-10T12:00:00.000Z");
 
 describe("projection wake scheduler", () => {
+  it("nudges a 60s-poll wake loop when a matching wake-intent notification arrives", async () => {
+    const calls: string[] = [];
+    const waiter = controllableWorkSignalWaiter();
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane: loopControlPlane(),
+      runners: [
+        {
+          name: "wake-claim-runner",
+          kind: "job",
+          runOnce: async () => {
+            calls.push("wake-claim-runner");
+            return { processed: 0, lastGlobalPosition: "0" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 60_000,
+    });
+    const dispatcher = startProjectionWakePushDispatcher({
+      waiter: waiter.waiter,
+      nudge: () => loop.nudge(),
+      waitTimeoutMs: 60_000,
+      targetContextNames: ["checkout"],
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toHaveLength(1);
+      });
+      waiter.notify(
+        wakeIntentNotification({
+          targetContextName: "checkout",
+          projectionName: "checkout-session-pages",
+          checkpointKey: "checkout-session-pages:checkout:v1",
+        }),
+      );
+      await vi.waitFor(
+        () => {
+          expect(calls).toHaveLength(2);
+        },
+        { timeout: 250 },
+      );
+    } finally {
+      await dispatcher.stop();
+      await loop.stop();
+    }
+  });
+
+  it("does not nudge on listener-unavailable results and leaves poll as the backstop", async () => {
+    const calls: string[] = [];
+    const waitResults: WorkSignalWaitResult[] = [];
+    let nudgeCount = 0;
+    const waiter = scriptedWorkSignalWaiter(["listener-unavailable"]);
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane: loopControlPlane(),
+      runners: [
+        {
+          name: "wake-claim-runner",
+          kind: "job",
+          runOnce: async () => {
+            calls.push("wake-claim-runner");
+            return { processed: 0, lastGlobalPosition: "0" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 50,
+    });
+    const dispatcher = startProjectionWakePushDispatcher({
+      waiter,
+      nudge: () => {
+        nudgeCount += 1;
+        loop.nudge();
+      },
+      waitTimeoutMs: 100,
+      targetContextNames: ["checkout"],
+      observer: {
+        waitEnded: (event) => waitResults.push(event.result),
+      },
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(waitResults).toContain("listener-unavailable");
+      });
+      expect(nudgeCount).toBe(0);
+      await vi.waitFor(
+        () => {
+          expect(calls.length).toBeGreaterThanOrEqual(2);
+        },
+        { timeout: 500 },
+      );
+    } finally {
+      await dispatcher.stop();
+      await loop.stop();
+    }
+  });
+
   it("claims lane-filtered intents for hosted targets and completes after a durable checkpoint advance", async () => {
     const projection = checkoutProjection({ position: 90n, headPosition: 120n });
     const store = recordingSchedulerStore([
@@ -976,6 +1092,110 @@ function recordingControlPlane(
   } as never;
 
   return state;
+}
+
+function controllableWorkSignalWaiter() {
+  let pending: Readonly<{
+    input: WaitForPostgresWorkSignalInput;
+    resolve: (result: WorkSignalWaitResult) => void;
+  }> | null = null;
+  let stopped = false;
+
+  const waiter: PostgresWorkSignalWaiter = {
+    wait: (input) => {
+      if (stopped || input.signal?.aborted) {
+        return Promise.resolve("aborted");
+      }
+
+      return new Promise<WorkSignalWaitResult>((resolve) => {
+        const finish = (result: WorkSignalWaitResult) => {
+          input.signal?.removeEventListener("abort", onAbort);
+          if (pending?.resolve === resolve) {
+            pending = null;
+          }
+          resolve(result);
+        };
+        const onAbort = () => finish("aborted");
+        pending = { input, resolve: finish };
+        input.signal?.addEventListener("abort", onAbort, { once: true });
+      });
+    },
+    stop: async () => {
+      stopped = true;
+      pending?.resolve("aborted");
+      pending = null;
+    },
+  };
+
+  return {
+    waiter,
+    notify: (notification: PostgresWorkSignalNotification) => {
+      if (pending?.input.matches(notification)) {
+        pending.resolve("notified");
+      }
+    },
+  };
+}
+
+function scriptedWorkSignalWaiter(results: readonly WorkSignalWaitResult[]): PostgresWorkSignalWaiter {
+  const remaining = [...results];
+  let pendingResolve: ((result: WorkSignalWaitResult) => void) | null = null;
+
+  return {
+    wait: (input) => {
+      if (input.signal?.aborted) {
+        return Promise.resolve("aborted");
+      }
+
+      const next = remaining.shift();
+      if (next) {
+        return Promise.resolve(next);
+      }
+
+      return new Promise<WorkSignalWaitResult>((resolve) => {
+        pendingResolve = resolve;
+        input.signal?.addEventListener(
+          "abort",
+          () => {
+            pendingResolve = null;
+            resolve("aborted");
+          },
+          { once: true },
+        );
+      });
+    },
+    stop: async () => {
+      pendingResolve?.("aborted");
+      pendingResolve = null;
+    },
+  };
+}
+
+function wakeIntentNotification(
+  payload: Partial<ProjectionWakeIntentWorkSignalPayload> = {},
+): PostgresWorkSignalNotification {
+  return {
+    channel: PROJECTION_WAKE_INTENT_WORK_SIGNAL_CHANNEL,
+    envelope: createWorkSignalEnvelope({
+      kind: "projection.wake-intent",
+      source: "test",
+      payload: {
+        outcome: "created",
+        wakeIntentId: "projection-wake-1",
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-pages",
+        checkpointKey: "checkout-session-pages:checkout:v1",
+        requiredPosition: "12",
+        requiredCursor: "catalog:12",
+        priorityLane: "hot",
+        origin: "relay",
+        state: "queued",
+        nextEligibleAt: NOW.toISOString(),
+        ...payload,
+      },
+    }),
+  };
 }
 
 function checkoutProjection(

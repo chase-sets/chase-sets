@@ -73,6 +73,7 @@ export type WorkerRunner = Readonly<{
 
 export type WorkerRunnerLoop = Readonly<{
   start: () => void;
+  nudge: () => void;
   stop: () => Promise<void>;
   status: () => Readonly<{
     workerId: string;
@@ -520,6 +521,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
 
   return {
     start: () => schedule(),
+    nudge: () => queueImmediateSchedule(),
     stop: async () => {
       stopped = true;
       if (timer) {

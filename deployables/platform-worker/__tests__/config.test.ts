@@ -78,6 +78,7 @@ const envNames = [
   "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS",
   "WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED",
   "WORKER_PROJECTION_WAKE_RELAY_ENABLED",
+  "WORKER_WAKE_PUSH_DISPATCH_ENABLED",
   "WORKER_WAKE_HOT_LANE_RUNNER_COUNT",
   "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT",
   "WORKER_WAKE_BULK_LANE_RUNNER_COUNT",
@@ -544,6 +545,7 @@ describe("platform worker config", () => {
 
     expect(config.projectionWakeScheduler).toMatchObject({
       enabled: true,
+      pushDispatchEnabled: true,
       hotLaneRunnerCount: 1,
       standardLaneRunnerCount: 1,
       bulkLaneRunnerCount: 1,
@@ -551,6 +553,17 @@ describe("platform worker config", () => {
     });
     expect(config.projectionWakeRelay.enabled).toBe(true);
     expect(config.projectionWakeDisabledProjections).toEqual([]);
+  });
+
+  it("loads the wake push dispatch kill switch without disabling wake polling", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.WORKER_WAKE_PUSH_DISPATCH_ENABLED = "false";
+
+    const config = loadConfig();
+
+    expect(config.projectionWakeScheduler.enabled).toBe(true);
+    expect(config.projectionWakeScheduler.pushDispatchEnabled).toBe(false);
+    expect(config.projectionWakeScheduler.pollIntervalMs).toBe(1_000);
   });
 
   it("loads the wake scheduler statement timeout", () => {
