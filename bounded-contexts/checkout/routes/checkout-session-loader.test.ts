@@ -16,6 +16,7 @@ import {
   mockGetCheckoutStatus,
   mockGetCheckoutSession,
   mockGetGuestCheckoutClaimContext,
+  mockListSellListShipFromAddresses,
   MockMarketplaceApiError,
   mockPreviewCheckoutFulfillment,
   mockPreviewCheckoutStatus,
@@ -401,6 +402,72 @@ describe("checkout web routes: checkout session loader", () => {
         wallet_credit: expect.objectContaining({ applied_amount: "0.00" }),
       }),
     );
+  });
+
+  it("does not carry checkout session freshness into ancillary signed-in account reads", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "orders.manage"],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "buy-now",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: null,
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: "rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot(),
+      order_ids: [],
+      order_write_commit_positions: [],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+      listCheckoutSavedPaymentInstruments: vi.fn(async () => ({ items: [] })),
+    });
+
+    const checkoutPath = appendFreshWriteToken("/checkout/buy/session/chk_1", {
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_checkout_session_started"],
+        },
+      ],
+    });
+
+    await checkoutSessionLoader({
+      request: new Request(`http://localhost${checkoutPath}`),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    const requestUrls = mockCreateCheckoutRequestApiClient.mock.calls.map(([request]) =>
+      request instanceof Request ? request.url : "",
+    );
+    expect(requestUrls[0]).toMatch(/(?:afterWrite|postWriteToken)=/);
+    expect(requestUrls.slice(1).every((url) => !/[?&](?:afterWrite|postWriteToken)=/.test(url))).toBe(true);
   });
 
   it("keeps the Payments fee quote fingerprint after payment-start commits orders and refreshes checkout", async () => {
