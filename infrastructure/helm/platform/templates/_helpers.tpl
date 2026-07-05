@@ -32,6 +32,13 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "chase-sets-platform.imagePullSecrets" -}}
+{{- with .Values.global.imagePullSecrets }}
+imagePullSecrets:
+{{ toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}
+
 {{- define "chase-sets-platform.componentName" -}}
 {{- printf "%s-%s" (include "chase-sets-platform.fullname" .root) .name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
@@ -99,6 +106,7 @@ serviceAccountName: {{ include "chase-sets-platform.bootstrapQuiesceServiceAccou
 {{- else }}
 serviceAccountName: {{ include "chase-sets-platform.serviceAccountName" $root }}
 {{- end }}
+{{ include "chase-sets-platform.imagePullSecrets" $root }}
 {{- with $root.Values.global.nodeSelector }}
 nodeSelector:
 {{ toYaml . | nindent 2 }}

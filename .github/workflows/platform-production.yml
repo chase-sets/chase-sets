@@ -2172,6 +2172,28 @@ jobs:
 
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
+      - name: Apply production Kubernetes registry pull secret
+        if: env.SHOULD_DEPLOY != 'false'
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry is required before production Kubernetes deploys can pull images." >&2
+            exit 1
+          fi
+
+          registry_pull_secret_name="registry-${registry_name}"
+          docker_config="$(mktemp)"
+          trap 'rm -f "$docker_config"' EXIT
+          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
+          kubectl create secret generic "$registry_pull_secret_name" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --from-file=.dockerconfigjson="$docker_config" \
+            --type=kubernetes.io/dockerconfigjson \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
+
       - name: Deploy production Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -2180,6 +2202,7 @@ jobs:
           set -euo pipefail
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
+            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"

@@ -900,6 +900,10 @@ describe("DigitalOcean platform configuration", () => {
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
     const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
     const runtimeSecretsStep = workflowStep(deployProductionJob, "Apply production Kubernetes runtime secrets");
+    const registryPullSecretStep = workflowStep(
+      deployProductionJob,
+      "Apply production Kubernetes registry pull secret",
+    );
     const deployStep = workflowStep(deployProductionJob, "Deploy production Kubernetes release");
     const diagnosticsStep = workflowStep(deployProductionJob, "Capture post-cutover production Kubernetes diagnostics");
     const rollbackStep = workflowStep(deployProductionJob, "Roll back production Kubernetes release");
@@ -917,6 +921,9 @@ describe("DigitalOcean platform configuration", () => {
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
     const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
     const runtimeSecretsIndex = deployProductionJob.indexOf("- name: Apply production Kubernetes runtime secrets");
+    const registryPullSecretIndex = deployProductionJob.indexOf(
+      "- name: Apply production Kubernetes registry pull secret",
+    );
     const deployIndex = deployProductionJob.indexOf("- name: Deploy production Kubernetes release");
     const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
     const stage1Index = deployProductionJob.indexOf("- name: Stage 1 production canary");
@@ -929,7 +936,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
     expect(applyIndex).toBeLessThan(runtimeSecretsIndex);
-    expect(runtimeSecretsIndex).toBeLessThan(deployIndex);
+    expect(runtimeSecretsIndex).toBeLessThan(registryPullSecretIndex);
+    expect(registryPullSecretIndex).toBeLessThan(deployIndex);
     expect(deployIndex).toBeLessThan(smokeIndex);
     expect(smokeIndex).toBeLessThan(rollbackIndex);
     expect(stage1Index).toBeLessThan(diagnosticsIndex);
@@ -976,10 +984,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(runtimeSecretsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
     expect(runtimeSecretsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
 
+    expect(registryPullSecretStep).toContain("doctl registry get --format Name --no-header");
+    expect(registryPullSecretStep).toContain("doctl registry docker-config --expiry-seconds 3600");
+    expect(registryPullSecretStep).toContain('kubectl create secret generic "$registry_pull_secret_name"');
+    expect(registryPullSecretStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(registryPullSecretStep).toContain('--from-file=.dockerconfigjson="$docker_config"');
+    expect(registryPullSecretStep).toContain("--type=kubernetes.io/dockerconfigjson");
+    expect(registryPullSecretStep).toContain('echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}"');
+
     expect(deployStep).toContain("pnpm run platform:kubernetes-deployment -- deploy");
     expect(deployStep).toContain(
       "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
     );
+    expect(deployStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
     expect(deployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(deployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
 

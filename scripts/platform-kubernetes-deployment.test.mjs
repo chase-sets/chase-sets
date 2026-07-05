@@ -107,6 +107,18 @@ describe("platform Kubernetes deployment", () => {
     ]);
   });
 
+  it("can pass a Kubernetes image pull secret to Helm", () => {
+    expect(
+      buildHelmUpgradeArgs({
+        release: "production-platform",
+        namespace: "production",
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        imagePullSecret: "registry-chase-sets",
+      }),
+    ).toEqual(expect.arrayContaining(["--set-string", "global.imagePullSecrets[0].name=registry-chase-sets"]));
+  });
+
   it("builds Helm rollback arguments with an optional revision", () => {
     expect(buildHelmRollbackArgs({ release: "staging-platform", namespace: "staging", timeout: "5m" })).toEqual([
       "rollback",
