@@ -1,9 +1,4 @@
-import {
-  isPgConnectionLevelError,
-  type PgPoolClient,
-  type PgQueryable,
-  type PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import { type PgQueryable, type PgTransactionalPool, withPgTransaction } from "@chase-sets/event-core-postgres";
 import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import {
   isRealtimeProjectionPatch,
@@ -307,8 +302,7 @@ export async function runRealtimeProjectionTransaction<T>(
     return work(db);
   }
 
-  const client = await db.connect();
-  return withPgTransaction(client, work);
+  return withPgTransaction(db, work);
 }
 
 export async function recordRealtimeProjectionPatch(
@@ -870,28 +864,6 @@ function parseRealtimeProjectionPatchJson(payloadJson: string): RealtimeProjecti
 function throwIfRealtimeReadAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new Error("Realtime replay read aborted.");
-  }
-}
-
-async function withPgTransaction<T>(client: PgPoolClient, work: (client: PgPoolClient) => Promise<T>): Promise<T> {
-  let releaseError: unknown;
-  try {
-    await client.query("BEGIN");
-    const result = await work(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
-    try {
-      await client.query("ROLLBACK");
-    } catch (rollbackError) {
-      releaseError = rollbackError;
-    }
-    if (releaseError === undefined && isPgConnectionLevelError(error)) {
-      releaseError = error;
-    }
-    throw error;
-  } finally {
-    client.release(releaseError);
   }
 }
 
