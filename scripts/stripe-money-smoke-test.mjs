@@ -445,6 +445,10 @@ export async function runEdgeCheck(baseUrl, options = {}) {
 
   const paymentSecret = readEnv("STRIPE_WEBHOOK_SECRET", env);
   const connectSecret = readEnv("STRIPE_CONNECT_WEBHOOK_SECRET", env);
+  const signedPaymentWebhookBody =
+    '{"id":"evt_payment_signed_smoke","type":"product.created","data":{"object":{"id":"prod_smoke"}}}';
+  const signedMoneyMovementWebhookBody =
+    '{"id":"evt_money_movement_signed_smoke","type":"product.created","data":{"object":{"id":"prod_smoke"}}}';
   let signedPaymentWebhookAccepted = false;
   let signedMoneyMovementWebhookAccepted = false;
 
@@ -453,10 +457,10 @@ export async function runEdgeCheck(baseUrl, options = {}) {
       `${baseUrl}${PAYMENTS_PROVIDER_WEBHOOK_PATH}`,
       {
         method: "POST",
-        body: paymentWebhookBody,
+        body: signedPaymentWebhookBody,
         headers: {
           "Content-Type": "application/json",
-          "Stripe-Signature": stripeSignature(paymentWebhookBody, paymentSecret),
+          "Stripe-Signature": stripeSignature(signedPaymentWebhookBody, paymentSecret),
         },
       },
       fetchImpl,
@@ -473,10 +477,10 @@ export async function runEdgeCheck(baseUrl, options = {}) {
       `${baseUrl}${SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH}`,
       {
         method: "POST",
-        body: moneyMovementWebhookBody,
+        body: signedMoneyMovementWebhookBody,
         headers: {
           "Content-Type": "application/json",
-          "Stripe-Signature": stripeSignature(moneyMovementWebhookBody, connectSecret),
+          "Stripe-Signature": stripeSignature(signedMoneyMovementWebhookBody, connectSecret),
         },
       },
       fetchImpl,
