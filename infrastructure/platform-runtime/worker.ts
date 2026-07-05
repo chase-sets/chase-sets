@@ -58,6 +58,7 @@ export type WorkerRunner = Readonly<{
   kind: "projector" | "projection-group" | "subscription" | "job";
   runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   priority?: () => bigint | number;
+  rescheduleOnCompletion?: (result: ProjectorRunResult) => boolean;
   /**
    * Reserved-capacity runners belong to the loop's critical class: only they
    * may occupy the loop's reserved slots (`reservedRunnerSlots`), which fill
@@ -166,6 +167,16 @@ type WorkerRunnerLoopOptions = Readonly<{
   observer?: WorkerRuntimeObserver;
   onError?: (error: unknown, runner: WorkerRunner) => void;
 }>;
+
+type LeasedRunnerOutcome = Readonly<
+  | {
+      leaseAcquired: false;
+    }
+  | {
+      leaseAcquired: true;
+      result?: ProjectorRunResult;
+    }
+>;
 
 export function createDurableJobLaneRunners(input: {
   workflowName: string;
@@ -355,17 +366,52 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let activeReservedSlotCount = 0;
   let activeSharedSlotCount = 0;
   let leaseMissCount = 0;
+  let scheduleQueued = false;
+  let scheduling = false;
+  let scheduleAgainAfterCurrentPass = false;
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
   const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
 
+  const queueImmediateSchedule = () => {
+    if (stopped) {
+      return;
+    }
+    if (scheduling) {
+      scheduleAgainAfterCurrentPass = true;
+      return;
+    }
+    if (scheduleQueued) {
+      return;
+    }
+
+    scheduleQueued = true;
+    const immediate = setImmediate(() => {
+      scheduleQueued = false;
+      schedule();
+    });
+    immediate.unref?.();
+  };
+
+  const scheduleTimer = () => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(schedule, options.pollIntervalMs);
+    timer.unref?.();
+  };
+
   const startRunner = (runner: WorkerRunner, slotPool: "reserved" | "shared") => {
     const runAbortController = new AbortController();
+    let completedResult: ProjectorRunResult | undefined;
+    let leaseAcquired = false;
     const promise = runLeasedRunner(options, runner, runAbortController.signal)
-      .then((leaseAcquired) => {
-        if (!leaseAcquired) {
+      .then((outcome) => {
+        if (!outcome.leaseAcquired) {
           leaseMissCount += 1;
           return;
         }
+        leaseAcquired = true;
+        completedResult = outcome.result;
         failedRunnerBackoffs.delete(runner.name);
       })
       .catch((error) => {
@@ -390,6 +436,15 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         } else {
           activeSharedSlotCount -= 1;
         }
+        if (leaseAcquired) {
+          try {
+            if (shouldRescheduleAfterCompletion(runner, completedResult)) {
+              queueImmediateSchedule();
+            }
+          } catch (error) {
+            options.onError?.(error, runner);
+          }
+        }
       });
     active.add(promise);
     activeAbortControllers.set(promise, runAbortController);
@@ -406,53 +461,61 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       return;
     }
 
+    scheduling = true;
     const now = Date.now();
-    // Reserved slots fill first and accept only reserved-capacity runners, so
-    // a critical runner always finds capacity no matter how busy the shared
-    // class is, and shared runners can never occupy the reserved slots.
-    for (
-      let attempts = 0;
-      attempts < reservedRunners.length && activeReservedSlotCount < reservedRunnerSlots;
-      attempts += 1
-    ) {
-      const selection = selectNextRunner(
-        reservedRunners,
-        activeRunnerNames,
-        failedRunnerBackoffs,
-        nextReservedRunnerIndex,
-        now,
-      );
-      if (!selection) {
-        break;
+    try {
+      // Reserved slots fill first and accept only reserved-capacity runners, so
+      // a critical runner always finds capacity no matter how busy the shared
+      // class is, and shared runners can never occupy the reserved slots.
+      for (
+        let attempts = 0;
+        attempts < reservedRunners.length && activeReservedSlotCount < reservedRunnerSlots;
+        attempts += 1
+      ) {
+        const selection = selectNextRunner(
+          reservedRunners,
+          activeRunnerNames,
+          failedRunnerBackoffs,
+          nextReservedRunnerIndex,
+          now,
+        );
+        if (!selection) {
+          break;
+        }
+        nextReservedRunnerIndex = (selection.index + 1) % reservedRunners.length;
+        startRunner(selection.runner, "reserved");
       }
-      nextReservedRunnerIndex = (selection.index + 1) % reservedRunners.length;
-      startRunner(selection.runner, "reserved");
+
+      // The shared slots keep the original fair rotation across every runner
+      // class, so reserved runners beyond their reservation compete equally and
+      // the shared class is never starved by the reservation itself.
+      for (
+        let attempts = 0;
+        attempts < options.runners.length && activeSharedSlotCount < sharedRunnerSlots;
+        attempts += 1
+      ) {
+        const selection = selectNextRunner(
+          options.runners,
+          activeRunnerNames,
+          failedRunnerBackoffs,
+          nextRunnerIndex,
+          now,
+        );
+        if (!selection) {
+          break;
+        }
+        nextRunnerIndex = (selection.index + 1) % options.runners.length;
+        startRunner(selection.runner, "shared");
+      }
+    } finally {
+      scheduling = false;
     }
 
-    // The shared slots keep the original fair rotation across every runner
-    // class, so reserved runners beyond their reservation compete equally and
-    // the shared class is never starved by the reservation itself.
-    for (
-      let attempts = 0;
-      attempts < options.runners.length && activeSharedSlotCount < sharedRunnerSlots;
-      attempts += 1
-    ) {
-      const selection = selectNextRunner(
-        options.runners,
-        activeRunnerNames,
-        failedRunnerBackoffs,
-        nextRunnerIndex,
-        now,
-      );
-      if (!selection) {
-        break;
-      }
-      nextRunnerIndex = (selection.index + 1) % options.runners.length;
-      startRunner(selection.runner, "shared");
+    scheduleTimer();
+    if (scheduleAgainAfterCurrentPass) {
+      scheduleAgainAfterCurrentPass = false;
+      queueImmediateSchedule();
     }
-
-    timer = setTimeout(schedule, options.pollIntervalMs);
-    timer.unref?.();
   };
 
   return {
@@ -476,6 +539,14 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       stopped,
     }),
   };
+}
+
+function shouldRescheduleAfterCompletion(runner: WorkerRunner, result?: ProjectorRunResult): boolean {
+  if (!result) {
+    return false;
+  }
+
+  return result.processed > 0 || runner.rescheduleOnCompletion?.(result) === true;
 }
 
 function clampReservedRunnerSlots(
@@ -534,9 +605,9 @@ async function runLeasedRunner(
   options: WorkerRunnerLoopOptions,
   runner: WorkerRunner,
   runSignal?: AbortSignal,
-): Promise<boolean> {
+): Promise<LeasedRunnerOutcome> {
   if (runSignal?.aborted) {
-    return true;
+    return { leaseAcquired: true };
   }
 
   const leaseName = createWorkerRunnerLeaseName(runner);
@@ -553,7 +624,7 @@ async function runLeasedRunner(
       runnerKind: runner.kind,
       leaseName,
     });
-    return false;
+    return { leaseAcquired: false };
   }
 
   let leaseActive = true;
@@ -646,9 +717,10 @@ async function runLeasedRunner(
         status: projectionStatusSnapshot as unknown as Record<string, unknown>,
       });
     }
+    return { leaseAcquired: true, result };
   } catch (error) {
     if (stoppedCooperatively()) {
-      return true;
+      return { leaseAcquired: true };
     }
     options.observer?.runnerFailed?.({
       ...leaseEvent(options.workerId, runner, lease),
@@ -671,7 +743,7 @@ async function runLeasedRunner(
     await options.controlPlane.releaseLease(lease);
   }
 
-  return true;
+  return { leaseAcquired: true };
 }
 
 export function createWorkerRunnerLeaseName(runner: Pick<WorkerRunner, "kind" | "name">): string {
