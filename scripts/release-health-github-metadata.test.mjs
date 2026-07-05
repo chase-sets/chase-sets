@@ -29,6 +29,7 @@ describe("release health GitHub metadata", () => {
         { event: "merged", created_at: "2026-06-01T03:18:45Z", commit_id: releaseCommit },
       ],
       mergeGroupRuns: [{ created_at: "2026-06-01T03:18:13Z" }],
+      branchRules: [{ type: "merge_queue", parameters: { max_entries_to_merge: 2 } }],
     });
 
     expect(metadata).toEqual({
@@ -41,6 +42,7 @@ describe("release health GitHub metadata", () => {
       queueMergedAt: "2026-06-01T03:18:45Z",
       queueDequeuedAt: null,
       queueFailureReason: null,
+      queueBatchSize: 2,
       mergeSha: releaseCommit,
     });
   });
@@ -96,6 +98,10 @@ describe("release health GitHub metadata", () => {
         `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
         { workflow_runs: [{ created_at: "2026-06-01T03:18:13Z" }] },
       ],
+      [
+        "/repos/chase-sets/chase-sets/rules/branches/main?per_page=100",
+        [{ type: "merge_queue", parameters: { max_entries_to_merge: 2 } }],
+      ],
     ]);
 
     const metadata = await collectReleaseHealthGithubMetadata(
@@ -113,6 +119,48 @@ describe("release health GitHub metadata", () => {
       `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
     );
     expect(metadata.queueMergeGroupStartedAt).toBe("2026-06-01T03:18:13Z");
+    expect(metadata.queueBatchSize).toBe(2);
+  });
+
+  it("keeps release timing metadata when branch rules are unavailable", async () => {
+    const responses = new Map([
+      [`/repos/chase-sets/chase-sets/commits/${releaseCommit}/pulls`, [{ number: 517 }]],
+      [
+        "/repos/chase-sets/chase-sets/pulls/517",
+        {
+          number: 517,
+          created_at: "2026-06-01T03:16:21Z",
+          draft: false,
+          merged_at: "2026-06-01T03:18:45Z",
+          merge_commit_sha: releaseCommit,
+        },
+      ],
+      ["/repos/chase-sets/chase-sets/pulls/517/reviews?per_page=100", []],
+      [
+        "/repos/chase-sets/chase-sets/issues/517/timeline?per_page=100",
+        [{ event: "added_to_merge_queue", created_at: "2026-06-01T03:17:55Z" }],
+      ],
+      [
+        `/repos/chase-sets/chase-sets/actions/runs?head_sha=${releaseCommit}&event=merge_group&per_page=10`,
+        { workflow_runs: [{ created_at: "2026-06-01T03:18:13Z" }] },
+      ],
+    ]);
+
+    const metadata = await collectReleaseHealthGithubMetadata(
+      { repository: "chase-sets/chase-sets", releaseCommit, token: "token" },
+      {
+        fetchImpl: async (url) => {
+          const path = new URL(url).pathname + new URL(url).search;
+          if (path.endsWith("/rules/branches/main?per_page=100")) {
+            return { ok: false, status: 404, json: async () => ({}) };
+          }
+          return { ok: true, json: async () => responses.get(path) };
+        },
+      },
+    );
+
+    expect(metadata.queueMergeGroupStartedAt).toBe("2026-06-01T03:18:13Z");
+    expect(metadata.queueBatchSize).toBeNull();
   });
 
   it("formats stable GitHub Actions outputs", () => {
@@ -127,8 +175,24 @@ describe("release health GitHub metadata", () => {
         queueMergedAt: "2026-06-01T03:18:45Z",
         queueDequeuedAt: null,
         queueFailureReason: null,
+        queueBatchSize: 2,
         mergeSha: releaseCommit,
       }),
     ).toContain("queue_merge_group_started_at=2026-06-01T03:18:13Z\n");
+    expect(
+      formatGithubOutput({
+        pullRequestNumber: 517,
+        prOpenedAt: "2026-06-01T03:16:21Z",
+        prReadyForReviewAt: "2026-06-01T03:16:21Z",
+        prApprovedAt: null,
+        queueQueuedAt: "2026-06-01T03:17:55Z",
+        queueMergeGroupStartedAt: "2026-06-01T03:18:13Z",
+        queueMergedAt: "2026-06-01T03:18:45Z",
+        queueDequeuedAt: null,
+        queueFailureReason: null,
+        queueBatchSize: 2,
+        mergeSha: releaseCommit,
+      }),
+    ).toContain("queue_batch_size=2\n");
   });
 });

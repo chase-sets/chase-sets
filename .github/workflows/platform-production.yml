@@ -1181,6 +1181,7 @@ jobs:
               echo "queue_merged_at=${committed_at}"
               echo "queue_dequeued_at="
               echo "queue_failure_reason="
+              echo "queue_batch_size=1"
               echo "merge_sha=${release_commit}"
             } >> "$GITHUB_OUTPUT"
           fi
@@ -1229,7 +1230,7 @@ jobs:
           PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}
           PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}
           PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}
-          QUEUE_BATCH_SIZE: "1"
+          QUEUE_BATCH_SIZE: ${{ steps.release_health_metadata.outputs.queue_batch_size || '1' }}
           QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}
           QUEUE_MERGE_GROUP_STARTED_AT: ${{ steps.release_health_metadata.outputs.queue_merge_group_started_at }}
           QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
@@ -2387,6 +2388,7 @@ jobs:
               echo "queue_merged_at=${committed_at}"
               echo "queue_dequeued_at="
               echo "queue_failure_reason="
+              echo "queue_batch_size=1"
               echo "merge_sha=${release_commit}"
             } >> "$GITHUB_OUTPUT"
           fi
@@ -2437,7 +2439,7 @@ jobs:
           PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}
           PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}
           PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}
-          QUEUE_BATCH_SIZE: "1"
+          QUEUE_BATCH_SIZE: ${{ steps.release_health_metadata.outputs.queue_batch_size || '1' }}
           QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}
           QUEUE_MERGE_GROUP_STARTED_AT: ${{ steps.release_health_metadata.outputs.queue_merge_group_started_at }}
           QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}

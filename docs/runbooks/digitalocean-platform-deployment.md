@@ -278,7 +278,7 @@ Preview and staging Terraform validation requires test-mode provider values:
 Deployment safety depends on GitHub repository settings as well as workflow code:
 
 - Protect `main` with required pull requests and a required `PR Required` status check from `.github/workflows/platform-pr.yml`.
-- Keep GitHub native merge queue enabled for `main` using the [Release Process Evolution](./release-process-evolution.md) queue policy. Start with one deployable pull request per merge group until release-health metrics prove larger batches are safe.
+- Keep GitHub native merge queue enabled for `main` using the [Release Process Evolution](./release-process-evolution.md) queue policy. Use a maximum merge/build group size of two deployable pull requests unless release-health metrics say to hold or decrease.
 - Protect or ruleset-match `production` so only the production workflow can move the deployed-release marker.
 - Restrict the `staging` GitHub Environment to deployments from `main`.
 - Restrict the `production` GitHub Environment to deployments from `main`.

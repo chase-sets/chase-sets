@@ -24,25 +24,28 @@ Queue admission requires:
 
 Queue behavior:
 
-- Start with a maximum batch size of one deployable pull request per merge group.
+- Batch deployable pull requests through GitHub native merge queue with a maximum group size of two.
 - Documentation-only and non-deployable changes may batch when the merge queue can still prove `PR Required`.
-- Increase batch size only when release-health metrics show low staging failure, low production smoke failure, low rollback/fix-forward rate, low canary abort rate, low queue wait, and low main-to-production drift.
+- Increase beyond two only when release-health metrics show low staging failure, low production smoke failure, low rollback/fix-forward rate, low canary abort rate, low queue wait, and low main-to-production drift.
+- If a batched merge group turns red, split and retry the batch to isolate the offending pull request before re-enqueueing healthy changes. This reduces deploy count on green paths but can add bisection time when a grouped PR fails `PR Required`.
 - Keep stale release behavior from the deployment workflow: if a queued automatic deployment starts after a newer `origin/main` exists, skip that stale deployment and let the newest release proceed.
 - Keep direct pushes disabled for normal work. Emergency release bypass must be explicit and audited.
 
-Active GitHub native merge queue settings for `main`:
+Required GitHub native merge queue settings for `main` after the #4022 operator action:
 
 | Setting | Value |
 | --- | --- |
 | Merge method | `SQUASH` |
 | Grouping strategy | `ALLGREEN` |
 | Minimum pull requests to merge | `1` |
-| Maximum pull requests to merge | `1` |
-| Maximum pull requests to build | `1` |
+| Maximum pull requests to merge | `2` |
+| Maximum pull requests to build | `2` |
 | Required check | `PR Required` |
 | Check response timeout | `60 minutes` |
 
 `.github/workflows/platform-pr.yml` must run on `pull_request` and `merge_group` so `PR Required` is evaluated for both pull request heads and merge queue synthetic commits. Non-blocking coverage telemetry intentionally lives in `.github/workflows/platform-coverage.yml`, which runs daily against `main` and can be dispatched manually for a specific ref; merge groups do not wait on coverage artifacts.
+
+Operator action for #4022: GitHub merge queue sizing is repository ruleset state, not workflow code. In the GitHub UI, edit repository ruleset `17097957` (`Require merge queue for main`) and set the merge queue rule for `refs/heads/main` to **Maximum pull requests to merge = 2** and **Maximum pull requests to build = 2**. API operators may instead `GET /repos/chase-sets/chase-sets/rulesets/17097957`, preserve the existing ruleset payload, and `PUT /repos/chase-sets/chase-sets/rulesets/17097957` with the `merge_queue` rule parameters `max_entries_to_merge: 2` and `max_entries_to_build: 2`; keep `min_entries_to_merge: 1`, `grouping_strategy: "ALLGREEN"`, `merge_method: "SQUASH"`, and `check_response_timeout_minutes: 60`.
 
 Current repository evidence from June 1, 2026:
 
@@ -201,7 +204,7 @@ Track these measures from the records:
 
 Use GitHub Actions summaries and artifacts first. Emit the same events to observability after production telemetry has stable cardinality limits.
 
-Release-health metadata is resolved from GitHub API evidence. The production workflow records the pull request open time, ready-for-review time, last approval time, merge queue entry time, merge-group workflow start time, merge time, dequeue failure when present, and final merge SHA. If GitHub metadata is temporarily unavailable, the workflow writes deterministic fallbacks and leaves unknown fields empty rather than blocking production recovery.
+Release-health metadata is resolved from GitHub API evidence. The production workflow records the pull request open time, ready-for-review time, last approval time, merge queue entry time, merge-group workflow start time, active merge queue maximum batch size, merge time, dequeue failure when present, and final merge SHA. If GitHub metadata is temporarily unavailable, the workflow writes deterministic fallbacks and leaves unknown fields empty rather than blocking production recovery.
 
 Profile-aware releases should populate `runtimeProfile` from the same topology evidence described in [Deployable Runtime Profiles](../architecture/deployable-runtime-profiles.md). The selected production mode, API profile, worker profile, and provisioned/active/exposed context counts let operators distinguish ordinary code deploys from capability exposure changes and database lifecycle changes.
 
