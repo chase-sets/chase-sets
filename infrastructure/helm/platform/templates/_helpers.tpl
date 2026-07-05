@@ -18,6 +18,10 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "chase-sets-platform.bootstrapQuiesceServiceAccountName" -}}
+{{- printf "%s-bootstrap-quiesce" (include "chase-sets-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "chase-sets-platform.image" -}}
 {{- $image := .Values.global.image -}}
 {{- $repository := printf "%s/%s/%s" $image.registry $image.registryName $image.repository -}}
@@ -57,12 +61,38 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
   value: {{ default "" .value | quote }}
   {{- end }}
 {{- end }}
+{{- if and (eq .component.kind "job") .component.job.quiesce.enabled }}
+- name: "CHASE_SETS_QUIESCE_DEPLOYMENTS"
+  value: {{ include "chase-sets-platform.quiesceDeployments" . | quote }}
+- name: "CHASE_SETS_QUIESCE_TIMEOUT_SECONDS"
+  value: {{ .component.job.quiesce.timeoutSeconds | quote }}
+- name: "CHASE_SETS_QUIESCE_POLL_INTERVAL_MS"
+  value: {{ .component.job.quiesce.pollIntervalMs | quote }}
+- name: "CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE"
+  value: {{ .component.job.quiesce.restoreOnFailure | quote }}
+- name: "CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS"
+  value: {{ .component.job.quiesce.ignoreMissingDeployments | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "chase-sets-platform.quiesceDeployments" -}}
+{{- $root := .root -}}
+{{- $names := list -}}
+{{- range .component.job.quiesce.targetComponents -}}
+{{- $names = append $names (include "chase-sets-platform.componentName" (dict "root" $root "name" .)) -}}
+{{- end -}}
+{{- join "," $names -}}
 {{- end -}}
 
 {{- define "chase-sets-platform.podSpec" -}}
 {{- $root := .root -}}
 {{- $component := .component -}}
+{{- $isQuiesceJob := and (eq $component.kind "job") $component.job.quiesce.enabled -}}
+{{- if $isQuiesceJob }}
+serviceAccountName: {{ include "chase-sets-platform.bootstrapQuiesceServiceAccountName" $root }}
+{{- else }}
 serviceAccountName: {{ include "chase-sets-platform.serviceAccountName" $root }}
+{{- end }}
 {{- with $root.Values.global.nodeSelector }}
 nodeSelector:
 {{ toYaml . | nindent 2 }}
@@ -83,7 +113,11 @@ containers:
       - "sh"
       - "-lc"
     args:
+      {{- if and (eq $component.kind "job") $component.job.quiesce.enabled }}
+      - {{ printf "node ./infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs -- %s" $component.command | quote }}
+      {{- else }}
       - {{ $component.command | quote }}
+      {{- end }}
     {{- if $component.port }}
     ports:
       - name: http

@@ -54,6 +54,9 @@ describe("render platform Helm values", () => {
     expect(values.components["platform-api"].source.instanceCountExpression).toBe("local.api_instances");
     expect(values.components["platform-worker"].source.instanceCountExpression).toBe("local.worker_instances");
     expect(values.components["platform-bootstrap"].source.instanceCountExpression).toBe("1");
+    expect(values.components["platform-bootstrap"].command).toBe(
+      "pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
+    );
   });
 
   it("keeps Helm env keys and counts aligned with DigitalOcean component env", () => {
@@ -85,8 +88,10 @@ describe("render platform Helm values", () => {
 
   it("keeps live deploy wiring out of the scaffold", () => {
     const chartFiles = [
+      "templates/_helpers.tpl",
       "templates/deployment.yaml",
       "templates/job.yaml",
+      "templates/rbac.yaml",
       "templates/service.yaml",
       "templates/serviceaccount.yaml",
     ].map((relativePath) =>
@@ -98,6 +103,32 @@ describe("render platform Helm values", () => {
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
     expect(chartText).not.toContain("strategy: canary");
-    expect(chartText).toContain("suspend: true");
+    expect(chartText).toContain("helm.sh/hook");
+    expect(chartText).toContain("bootstrap-quiesce.mjs");
+    expect(chartText).toContain("deployments/scale");
+  });
+
+  it("models bootstrap as a pre-rollout quiesce hook that restores workers on failure", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const bootstrap = values.components["platform-bootstrap"];
+
+    expect(bootstrap.job).toMatchObject({
+      suspend: false,
+      backoffLimit: 0,
+      hook: {
+        enabled: true,
+        events: ["pre-install", "pre-upgrade"],
+        weight: -20,
+        deletePolicy: ["before-hook-creation", "hook-succeeded"],
+      },
+      quiesce: {
+        enabled: true,
+        targetComponents: ["platform-worker"],
+        timeoutSeconds: 300,
+        pollIntervalMs: 2000,
+        restoreOnFailure: true,
+        ignoreMissingDeployments: true,
+      },
+    });
   });
 });
