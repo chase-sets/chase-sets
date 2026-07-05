@@ -10,6 +10,7 @@ import {
 const projectionDbContext = new AsyncLocalStorage<PgQueryable>();
 
 const DEFAULT_PROJECTION_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS = 15_000;
+const DEFAULT_PROJECTION_TRANSACTION_TIMEOUT_MS = 30_000;
 const MAX_STATEMENT_TIMEOUT_MS = 2_147_483_647;
 let nestedProjectionTransactionSequence = 0;
 
@@ -46,6 +47,13 @@ export async function withProjectionTransaction<T>(
 ): Promise<T> {
   context?.throwIfLeaseLost?.();
   return withPgTransaction(pool, async (client) => {
+    const startedAtMs = Date.now();
+    const transactionTimeoutMs = normalizeProjectionTransactionTimeoutMs(context?.transactionTimeoutMs);
+    const timeoutAwareClient = createTimeoutAwareProjectionClient(client, {
+      startedAtMs,
+      transactionTimeoutMs,
+      throwIfLeaseLost: context?.throwIfLeaseLost,
+    });
     const idleInTransactionSessionTimeoutMs = normalizeProjectionIdleInTransactionSessionTimeoutMs(
       context?.idleInTransactionSessionTimeoutMs,
       pool.idleInTransactionSessionTimeoutMillis,
@@ -54,18 +62,18 @@ export async function withProjectionTransaction<T>(
       idleInTransactionSessionTimeoutMs !== null &&
       pool.idleInTransactionSessionTimeoutMillis !== idleInTransactionSessionTimeoutMs
     ) {
-      await client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
+      await timeoutAwareClient.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
         `${idleInTransactionSessionTimeoutMs}ms`,
       ]);
     }
 
-    const statementTimeoutMs = normalizeProjectionStatementTimeoutMs(context?.statementTimeoutMs);
+    const statementTimeoutMs = normalizeProjectionStatementTimeoutMs(context?.statementTimeoutMs, transactionTimeoutMs);
     if (statementTimeoutMs !== null) {
-      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
+      await timeoutAwareClient.query("SELECT set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
     }
 
     context?.throwIfLeaseLost?.();
-    const result = await work(client);
+    const result = await work(timeoutAwareClient);
     context?.throwIfLeaseLost?.();
     return result;
   });
@@ -82,8 +90,23 @@ function normalizeProjectionIdleInTransactionSessionTimeoutMs(
   );
 }
 
-function normalizeProjectionStatementTimeoutMs(statementTimeoutMs: number | undefined): number | null {
-  return normalizePositiveIntegerMs(statementTimeoutMs);
+function normalizeProjectionTransactionTimeoutMs(transactionTimeoutMs: number | undefined): number | null {
+  return normalizePositiveIntegerMs(transactionTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_TIMEOUT_MS);
+}
+
+function normalizeProjectionStatementTimeoutMs(
+  statementTimeoutMs: number | undefined,
+  transactionTimeoutMs: number | null,
+): number | null {
+  const normalizedStatementTimeoutMs = normalizePositiveIntegerMs(statementTimeoutMs);
+  if (normalizedStatementTimeoutMs === null) {
+    return transactionTimeoutMs;
+  }
+  if (transactionTimeoutMs === null) {
+    return normalizedStatementTimeoutMs;
+  }
+
+  return Math.min(normalizedStatementTimeoutMs, transactionTimeoutMs);
 }
 
 function normalizePositiveIntegerMs(value: number | undefined): number | null {
@@ -124,6 +147,42 @@ function createNestedProjectionClient(scopedDb: PgQueryable): PgPoolClient {
     },
     release: () => undefined,
   };
+}
+
+function createTimeoutAwareProjectionClient(
+  client: PgQueryable,
+  options: Readonly<{
+    startedAtMs: number;
+    transactionTimeoutMs: number | null;
+    throwIfLeaseLost?: () => void;
+  }>,
+): PgQueryable {
+  return {
+    query: async <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) => {
+      throwIfProjectionTransactionExpired(options);
+      const result = await client.query<Row>(text, values);
+      throwIfProjectionTransactionExpired(options);
+      return result;
+    },
+  };
+}
+
+function throwIfProjectionTransactionExpired(
+  options: Readonly<{
+    startedAtMs: number;
+    transactionTimeoutMs: number | null;
+    throwIfLeaseLost?: () => void;
+  }>,
+): void {
+  options.throwIfLeaseLost?.();
+  if (options.transactionTimeoutMs === null) {
+    return;
+  }
+
+  const elapsedMs = Date.now() - options.startedAtMs;
+  if (elapsedMs > options.transactionTimeoutMs) {
+    throw new Error(`Projection transaction exceeded ${options.transactionTimeoutMs}ms.`);
+  }
 }
 
 function normalizeTransactionCommand(text: string): "BEGIN" | "COMMIT" | "ROLLBACK" | null {

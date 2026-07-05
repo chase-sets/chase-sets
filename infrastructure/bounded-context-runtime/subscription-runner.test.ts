@@ -719,7 +719,11 @@ describe("bounded context subscription runner", () => {
 
     await runner.runOnce();
 
-    expect(observedDbHandles).toEqual([targetPool]);
+    const [observedDb] = observedDbHandles as Array<{ query?: unknown; connect?: unknown }>;
+    expect(observedDbHandles).toHaveLength(1);
+    expect(observedDb).not.toBe(targetPool);
+    expect(observedDb?.query).toEqual(expect.any(Function));
+    expect(observedDb?.connect).toBeUndefined();
     expect(getApplicationStatusStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:evt_1")).toBe(
       "applied",
     );
