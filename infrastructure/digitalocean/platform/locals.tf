@@ -692,10 +692,16 @@ locals {
     }
   }
 
-  public_web_instances              = 1
-  marketplace_web_instances         = local.is_production ? 2 : 1
-  api_instances                     = local.is_production ? 2 : 1
-  admin_web_instances               = 1
+  public_web_instances      = 1
+  marketplace_web_instances = local.is_production ? 2 : 1
+  api_instances             = local.is_production ? 2 : 1
+  admin_web_instances       = 1
+  # Staging worker sizing decision (#4035): keep 2x apps-s-1vcpu-2gb while
+  # staging is the shared full-platform proof lane for wake drills,
+  # representative catalog/import windows, and rolling deploy handoff. This is
+  # an explicit cost-vs-confidence choice, not an inherited default. Revisit
+  # after DOKS cutover when KEDA/HPA can make one steady worker plus burst
+  # capacity measurable.
   worker_default_instance_size_slug = local.is_staging ? "apps-s-1vcpu-2gb" : var.app_instance_size_slug
   worker_instance_size_slug         = trimspace(var.worker_instance_size_slug) != "" ? var.worker_instance_size_slug : local.worker_default_instance_size_slug
   default_worker_instances          = local.is_staging ? 2 : 1
