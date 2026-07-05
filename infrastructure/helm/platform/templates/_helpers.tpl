@@ -36,6 +36,12 @@
 {{- printf "%s-%s" (include "chase-sets-platform.fullname" .root) .name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "chase-sets-platform.canaryServiceName" -}}
+{{- $component := index .root.Values.components .name -}}
+{{- $suffix := default "canary" $component.rollout.canary.canaryServiceSuffix -}}
+{{- printf "%s-%s" (include "chase-sets-platform.componentName" .) $suffix | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "chase-sets-platform.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "chase-sets-platform.name" .root }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}

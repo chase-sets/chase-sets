@@ -79,6 +79,17 @@ ingress:
 
 Provider webhook, MCP, UCP, and well-known paths should stay routed to `platform-api` before DNS cutover. The matching DNS cutover records live in `infrastructure/digitalocean/environment-dns` and remain disabled until a DOKS load balancer target is known.
 
+## Rollouts
+
+Argo Rollouts are scaffolded as an opt-in chart capability for the two user-facing web components only:
+
+- `public-web`
+- `marketplace`
+
+The default chart still renders Kubernetes `Deployment` resources for every service and worker. `public-web` and `marketplace` values include a disabled `rollout` block so CI can prove the manifest shape before DOKS owns traffic. When a component's `rollout.enabled` is set to `true`, that component renders an Argo `Rollout` instead of a `Deployment`, keeps the existing component Service as the stable service, and renders an additional canary Service with the configured suffix.
+
+Do not enable this in staging or production until Argo Rollouts, nginx ingress traffic routing, the DOKS deploy helper, and staging cutover evidence are all in place. Current production "canary" checks remain post-deploy synthetic smoke against the single deployed App Platform release; proportional Rollouts are reserved for beta-wave exposure control after DOKS cutover.
+
 ## Validation
 
 The Platform PR workflow renders and validates this chart, the runtime Secret contract, and the ingress wait contract when Helm, Secret-delivery, or ingress-wait files change:
@@ -109,6 +120,6 @@ The harness uses the Dockerized Helm image `alpine/helm:3.15.4`, so a local `hel
 
 ## Boundaries
 
-This scaffold intentionally does not own ingress controller installation, certificate issuer installation, external secrets, rollout strategy, live DOKS apply wiring, or App Platform removal.
+This scaffold intentionally does not own ingress controller installation, certificate issuer installation, external secrets, Argo Rollouts controller installation, live DOKS apply wiring, or App Platform removal.
 
 `platform-bootstrap` renders as a Helm `pre-install,pre-upgrade` hook. Before running bootstrap it scales the worker Deployment targets to zero through the in-image `bootstrap-quiesce.mjs` wrapper, waits for those pods to drain, then runs the existing bootstrap command. If bootstrap fails, the wrapper restores the previous worker replica counts before returning the failing exit code so Helm aborts before new pods roll. During first install, missing worker Deployments are skipped because there is no outgoing version to quiesce yet.
