@@ -182,13 +182,30 @@ jobs:
           fi
 
           doctl registry login --expiry-seconds 3600
-          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${{ needs.resolve-release.outputs.release_commit }}"
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          release_tree="$(git rev-parse 'HEAD^{tree}')"
+          tree_tag="tree-${release_tree}"
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${release_commit}"
+          tree_image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${tree_tag}"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
             echo "Release image ${image} already exists; skipping rebuild."
             echo "built=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if docker buildx imagetools inspect "$tree_image" >/dev/null 2>&1; then
+            tree_digest="$(docker buildx imagetools inspect "$tree_image" --format '{{.Manifest.Digest}}')"
+            docker buildx imagetools create --tag "$image" "$tree_image"
+            release_digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+            if [ "$release_digest" != "$tree_digest" ]; then
+              echo "Promoted release image digest ${release_digest} did not match merge-group tree image digest ${tree_digest}." >&2
+              exit 1
+            fi
+            echo "Promoted merge-queue tree image ${tree_image}@${tree_digest} to release image ${image}@${release_digest}; skipping rebuild and boot smoke."
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "No merge-queue tree image found for ${tree_image}; building release image."
           docker buildx build \
             --pull \
             --cache-from type=gha,scope=platform-image \
