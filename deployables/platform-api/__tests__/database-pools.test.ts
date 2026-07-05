@@ -37,21 +37,21 @@ describe("platform api database pools", () => {
       expect(pools.contextWaiters.auth).toBe(pools.auth);
       const options = (
         pools.auth as unknown as {
-          emit: (event: string, client: unknown) => boolean;
-          options: { idle_in_transaction_session_timeout?: number; options?: string };
+          options: {
+            idle_in_transaction_session_timeout?: number;
+            options?: string;
+            onConnect: (client: unknown) => Promise<void>;
+          };
         }
       ).options;
 
       expect(options.idle_in_transaction_session_timeout).toBeUndefined();
       expect(options.options).toBeUndefined();
       const client = createFakeClient();
-      (pools.auth as unknown as { emit: (event: string, client: unknown) => boolean }).emit("connect", client);
-      await vi.waitFor(() =>
-        expect(client.query).toHaveBeenCalledWith(
-          "SELECT set_config('idle_in_transaction_session_timeout', $1, false)",
-          ["15000ms"],
-        ),
-      );
+      await options.onConnect(client);
+      expect(client.query).toHaveBeenCalledWith("SELECT set_config('idle_in_transaction_session_timeout', $1, false)", [
+        "15000ms",
+      ]);
       expect(runtime.mountedContexts.length).toBeGreaterThan(0);
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "auth")?.pool).toBe(pools.auth);
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "catalog")?.pool).toBe(pools.catalog);

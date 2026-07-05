@@ -120,17 +120,18 @@ describe("createPgPool", () => {
     const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets", {
       idleInTransactionSessionTimeoutMillis: 15_000,
     }) as unknown as {
-      emit: (event: string, client: unknown) => boolean;
+      options: {
+        onConnect: (client: unknown) => Promise<void>;
+      };
       end: () => Promise<void>;
     };
     const client = createFakeClient();
 
-    pool.emit("connect", client);
-    await vi.waitFor(() =>
-      expect(client.query).toHaveBeenCalledWith("SELECT set_config('idle_in_transaction_session_timeout', $1, false)", [
-        "15000ms",
-      ]),
-    );
+    await pool.options.onConnect(client);
+
+    expect(client.query).toHaveBeenCalledWith("SELECT set_config('idle_in_transaction_session_timeout', $1, false)", [
+      "15000ms",
+    ]);
 
     await pool.end();
   });
@@ -144,14 +145,16 @@ describe("createPgPool", () => {
         reported.push(error);
       },
     }) as unknown as {
-      emit: (event: string, client: unknown) => boolean;
+      options: {
+        onConnect: (client: unknown) => Promise<void>;
+      };
       end: () => Promise<void>;
     };
     const client = createFakeClient();
     client.query.mockRejectedValueOnce(setupError);
 
-    pool.emit("connect", client);
-    await vi.waitFor(() => expect(reported).toEqual([setupError]));
+    await expect(pool.options.onConnect(client)).rejects.toThrow("provider rejected session setting");
+    expect(reported).toEqual([setupError]);
 
     await pool.end();
   });
@@ -177,12 +180,14 @@ describe("createPgPool", () => {
   it("absorbs active checked-out client errors by default", async () => {
     const connectionError = new Error("Connection terminated unexpectedly");
     const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets") as unknown as {
-      emit: (event: string, client: unknown) => boolean;
+      options: {
+        onConnect: (client: unknown) => Promise<void>;
+      };
       end: () => Promise<void>;
     };
     const client = createFakeClient();
 
-    pool.emit("connect", client);
+    await pool.options.onConnect(client);
     expect(() => client.emit("error", connectionError)).not.toThrow();
 
     await pool.end();
@@ -197,12 +202,14 @@ describe("createPgPool", () => {
         throw new Error("observer failed");
       },
     }) as unknown as {
-      emit: (event: string, client: unknown) => boolean;
+      options: {
+        onConnect: (client: unknown) => Promise<void>;
+      };
       end: () => Promise<void>;
     };
     const client = createFakeClient();
 
-    pool.emit("connect", client);
+    await pool.options.onConnect(client);
     expect(() => client.emit("error", connectionError)).not.toThrow();
 
     expect(reported).toEqual([connectionError]);

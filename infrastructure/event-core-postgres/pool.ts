@@ -77,6 +77,19 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
     max: options.max,
     idleTimeoutMillis: options.idleTimeoutMillis,
     connectionTimeoutMillis: options.connectionTimeoutMillis,
+    onConnect: async (client: pg.ClientBase) => {
+      const activeClient = client as PgActiveClient;
+      activeClient.on("error", (error: unknown) => {
+        reportActiveClientError(options, error);
+      });
+
+      try {
+        await configurePgClientSession(activeClient, options);
+      } catch (error) {
+        reportActiveClientError(options, error);
+        throw error;
+      }
+    },
   });
 
   pool.on("error", (error: unknown) => {
@@ -85,16 +98,6 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
     } catch {
       // Pool idle-client errors must never crash the process.
     }
-  });
-
-  pool.on("connect", (client: PgActiveClient) => {
-    void configurePgClientSession(client, options).catch((error: unknown) => {
-      reportActiveClientError(options, error);
-    });
-
-    client.on("error", (error: unknown) => {
-      reportActiveClientError(options, error);
-    });
   });
 
   return pool as unknown as PgTransactionalPool;
