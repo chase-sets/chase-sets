@@ -220,9 +220,31 @@ export function createMockPool(): MockPool {
       }
 
       if (sql.includes("FROM event_projection_blocked_streams") && sql.includes("WHERE projection_key = $1")) {
+        if (Array.isArray(params[1])) {
+          const projectionKey = String(params[0]);
+          const streamIds = params[1].map(String);
+          return {
+            rows: streamIds.flatMap((streamId) => {
+              const blockedStream = getBlockedStreamStore(pool).get(`${projectionKey}:${streamId}`);
+              return blockedStream && blockedStream.state !== "resolved"
+                ? [
+                    {
+                      projection_key: blockedStream.projectionKey,
+                      stream_id: blockedStream.streamId,
+                      first_blocked_global_position: blockedStream.firstBlockedGlobalPosition,
+                      first_blocked_stream_version: blockedStream.firstBlockedStreamVersion,
+                      last_seen_global_position: blockedStream.lastSeenGlobalPosition,
+                      deferred_event_count: blockedStream.deferredEventCount,
+                      state: blockedStream.state,
+                    },
+                  ]
+                : [];
+            }),
+          };
+        }
+
         const key = `${String(params[0])}:${String(params[1])}`;
         const blockedStream = getBlockedStreamStore(pool).get(key);
-
         return {
           rows:
             blockedStream && blockedStream.state !== "resolved"
@@ -269,6 +291,16 @@ export function createMockPool(): MockPool {
       }
 
       if (sql.includes("INSERT INTO event_subscription_applications")) {
+        if (Array.isArray(params[1])) {
+          const projectionKey = String(params[0]);
+          for (const eventId of params[1].map(String)) {
+            const key = `${projectionKey}:${eventId}`;
+            const existing = getApplicationStatusStore(pool).get(key);
+            getApplicationStatusStore(pool).set(key, existing === "applied" ? existing : "started");
+          }
+          return { rows: [], rowCount: 0 } as never;
+        }
+
         const key = `${String(params[0])}:${String(params[1])}`;
         const existing = getApplicationStatusStore(pool).get(key);
         getApplicationStatusStore(pool).set(key, existing === "applied" ? existing : "started");
@@ -276,6 +308,19 @@ export function createMockPool(): MockPool {
       }
 
       if (sql.includes("UPDATE event_subscription_applications")) {
+        if (Array.isArray(params[1])) {
+          const projectionKey = String(params[0]);
+          const status = sql.includes("status = 'started'")
+            ? "started"
+            : sql.includes("status = 'applied'")
+              ? "applied"
+              : String(params[2]);
+          for (const eventId of params[1].map(String)) {
+            getApplicationStatusStore(pool).set(`${projectionKey}:${eventId}`, status);
+          }
+          return { rows: [], rowCount: params[1].length } as never;
+        }
+
         const key = `${String(params[0])}:${String(params[1])}`;
         getApplicationStatusStore(pool).set(key, String(params[2]));
         return { rows: [], rowCount: 1 } as never;

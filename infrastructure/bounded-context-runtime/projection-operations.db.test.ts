@@ -324,6 +324,110 @@ describeDb("projection operations Postgres integration", () => {
     await expect(loadSubscriptionCheckpoint(primaryRunner.checkpointKey)).resolves.toBe("1");
   });
 
+  it("batch-applies clean subscription events with bounded DB round trips", async () => {
+    const targetQueries: string[] = [];
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const targetPool = createQueryCapturePool(pools.target, targetQueries);
+    const runner = createSubscriptionRunner("target", targetPool, pools.source, {
+      ...createItemsSubscription(),
+      batchSize: 100,
+      checkpointBatchSize: 100,
+    });
+
+    for (const itemId of ["item-batch-1", "item-batch-2", "item-batch-3", "item-batch-4", "item-batch-5"]) {
+      await sourceEventStore.appendToStream({
+        streamId: `source.${itemId}`,
+        expectedVersion: "no_stream",
+        context: createEventStoreContext(),
+        events: [
+          {
+            eventType: "source.item-recorded",
+            payload: { itemId },
+          },
+        ],
+      });
+    }
+
+    await expect(runner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
+      processed: 5,
+      lastGlobalPosition: "5",
+      blockedStreams: 0,
+      poisonEvents: 0,
+    });
+    await expect(readProjectedItems()).resolves.toEqual([
+      { item_id: "item-batch-1", seen_count: 1 },
+      { item_id: "item-batch-2", seen_count: 1 },
+      { item_id: "item-batch-3", seen_count: 1 },
+      { item_id: "item-batch-4", seen_count: 1 },
+      { item_id: "item-batch-5", seen_count: 1 },
+    ]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toHaveLength(5);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("5");
+
+    expect(targetQueries.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(1);
+    expect(
+      targetQueries.filter((sql) => sql.includes("SELECT event_id, status") && sql.includes("FOR UPDATE")),
+    ).toHaveLength(1);
+    expect(targetQueries.filter((sql) => sql.includes("UPDATE event_subscription_applications"))).toHaveLength(2);
+    expect(
+      targetQueries.filter(
+        (sql) => sql.includes("FROM event_projection_blocked_streams") && sql.includes("stream_id = ANY"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      targetQueries.filter(
+        (sql) => sql.includes("FROM event_projection_blocked_streams") && sql.includes("stream_id = $2"),
+      ),
+    ).toHaveLength(0);
+    expect(targetQueries.filter((sql) => sql.includes("INSERT INTO event_subscription_checkpoints"))).toHaveLength(1);
+  });
+
+  it("isolates a poison event after batch apply failure", async () => {
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const runner = createSubscriptionRunner("target", pools.target, pools.source, {
+      ...createItemsSubscription(),
+      batchSize: 100,
+      checkpointBatchSize: 100,
+    });
+    targetPorts.beforeProjectionWrite = async (itemId) => {
+      if (itemId === "item-batch-bad") {
+        throw new Error("batch item cannot be projected");
+      }
+    };
+
+    for (const itemId of ["item-batch-good-1", "item-batch-bad", "item-batch-good-2"]) {
+      await sourceEventStore.appendToStream({
+        streamId: `source.${itemId}`,
+        expectedVersion: "no_stream",
+        context: createEventStoreContext(),
+        events: [
+          {
+            eventType: "source.item-recorded",
+            payload: { itemId },
+          },
+        ],
+      });
+    }
+
+    await expect(runner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
+      processed: 3,
+      lastGlobalPosition: "3",
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+    await expect(readProjectedItems()).resolves.toEqual([
+      { item_id: "item-batch-good-1", seen_count: 1 },
+      { item_id: "item-batch-good-2", seen_count: 1 },
+    ]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "applied" },
+      { event_id: expect.any(String), status: "poison" },
+      { event_id: expect.any(String), status: "applied" },
+    ]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("3");
+  });
+
   it("rolls back owned-table and subscription-ledger reset when the rebuild lease is lost", async () => {
     const runtime = createMountedContextTestRuntime([
       { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
@@ -419,7 +523,7 @@ describeDb("projection operations Postgres integration", () => {
       `SELECT event_id, status
        FROM event_subscription_applications
        WHERE projection_key = $1
-       ORDER BY event_id`,
+       ORDER BY global_position`,
       [checkpointKey],
     );
 
@@ -505,6 +609,26 @@ function createProjectionRunContext(overrides: Partial<ProjectionRunContext> = {
     statementTimeoutMs: 250,
     throwIfLeaseLost: () => undefined,
     ...overrides,
+  };
+}
+
+function createQueryCapturePool(pool: PgTransactionalPool, queries: string[]): PgTransactionalPool {
+  return {
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+      queries.push(String(sql));
+      return pool.query<Row>(sql, params);
+    },
+    connect: async () => {
+      const client = await pool.connect();
+      return {
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          queries.push(String(sql));
+          return client.query<Row>(sql, params);
+        },
+        release: (error?: unknown) => client.release(error),
+      };
+    },
   };
 }
 

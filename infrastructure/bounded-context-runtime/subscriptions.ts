@@ -171,6 +171,189 @@ function matchesSubscriptionEvent(
   return matchesType && matchesStreamPrefix;
 }
 
+type SubscriptionTransportEvent = Readonly<ReturnType<typeof toTransportEvent>>;
+
+type SubscriptionBatchProgress = {
+  lastGlobalPosition: GlobalPosition;
+  lastCheckpointedGlobalPosition: GlobalPosition;
+  eventsSinceCheckpoint: number;
+  processed: number;
+};
+
+class BatchEventApplyError extends Error {
+  readonly eventId: string;
+  readonly originalError: unknown;
+
+  constructor(eventId: string, error: unknown) {
+    super(error instanceof Error ? error.message : String(error));
+    this.name = "BatchEventApplyError";
+    this.eventId = eventId;
+    this.originalError = error;
+  }
+}
+
+function leaseFencingToken(context: ProjectionRunContext | undefined): string | null {
+  return context?.fencingToken && /^\d+$/.test(context.fencingToken) ? context.fencingToken : null;
+}
+
+async function loadProjectionBlockedStreamsForBatch(
+  db: PgQueryable,
+  projectionKey: string,
+  streamIds: readonly string[],
+): Promise<ReadonlySet<string>> {
+  const uniqueStreamIds = [...new Set(streamIds)];
+  if (uniqueStreamIds.length === 0) {
+    return new Set();
+  }
+
+  const result = await db.query<Readonly<{ stream_id: string }>>(
+    `SELECT stream_id
+     FROM event_projection_blocked_streams
+     WHERE projection_key = $1
+       AND stream_id = ANY($2::text[])
+       AND state IN ('blocked', 'retrying')`,
+    [projectionKey, uniqueStreamIds],
+  );
+
+  return new Set(result.rows.map((row) => row.stream_id));
+}
+
+async function claimSubscriptionApplicationsForBatch(
+  db: PgQueryable,
+  projectionKey: string,
+  events: readonly SubscriptionTransportEvent[],
+  context?: ProjectionRunContext,
+): Promise<ReadonlySet<string>> {
+  if (events.length === 0) {
+    return new Set();
+  }
+
+  const eventIds = events.map((event) => String(event.id));
+  const fencingToken = leaseFencingToken(context);
+  await db.query(
+    `WITH event_input AS (
+       SELECT *
+       FROM unnest(
+         $2::text[],
+         $3::text[],
+         $4::bigint[],
+         $5::bigint[],
+         $6::text[]
+       ) AS input(event_id, stream_id, stream_version, global_position, event_type)
+     )
+     INSERT INTO event_subscription_applications (
+       projection_key,
+       event_id,
+       stream_id,
+       stream_version,
+       global_position,
+       event_type,
+       status,
+       error_message,
+       lease_owner_id,
+       lease_fencing_token,
+       started_at,
+       updated_at
+     )
+     SELECT
+       $1,
+       event_id,
+       stream_id,
+       stream_version,
+       global_position,
+       event_type,
+       'started',
+       NULL,
+       $7,
+       $8::bigint,
+       now(),
+       now()
+     FROM event_input
+     ON CONFLICT (projection_key, event_id)
+     DO NOTHING`,
+    [
+      projectionKey,
+      eventIds,
+      events.map((event) => event.streamId),
+      events.map((event) => String(event.streamVersion)),
+      events.map((event) => event.globalPosition),
+      events.map((event) => event.type),
+      context?.ownerId ?? null,
+      fencingToken,
+    ],
+  );
+
+  const statusResult = await db.query<Readonly<{ event_id: string; status: string }>>(
+    `SELECT event_id, status
+     FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND event_id = ANY($2::text[])
+     FOR UPDATE`,
+    [projectionKey, eventIds],
+  );
+  if (statusResult.rows.length !== eventIds.length) {
+    throw new Error(`Projection application batch '${projectionKey}' disappeared before it could be claimed.`);
+  }
+
+  const alreadyAppliedEventIds = new Set(
+    statusResult.rows.flatMap((row) => (row.status === "applied" ? [String(row.event_id)] : [])),
+  );
+  const claimableEventIds = eventIds.filter((eventId) => !alreadyAppliedEventIds.has(eventId));
+  if (claimableEventIds.length === 0) {
+    return alreadyAppliedEventIds;
+  }
+
+  const updateResult = await db.query(
+    `UPDATE event_subscription_applications
+     SET status = 'started',
+         error_message = NULL,
+         lease_owner_id = $3,
+         lease_fencing_token = $4::bigint,
+         updated_at = now()
+     WHERE projection_key = $1
+       AND event_id = ANY($2::text[])
+       AND status <> 'applied'
+       AND (
+         $4::bigint IS NULL
+         OR lease_fencing_token IS NULL
+         OR $4::bigint >= lease_fencing_token
+       )`,
+    [projectionKey, claimableEventIds, context?.ownerId ?? null, fencingToken],
+  );
+  if (updateResult.rowCount != null && updateResult.rowCount < claimableEventIds.length) {
+    throw new Error(`Projection application batch '${projectionKey}' rejected stale lease fencing token.`);
+  }
+
+  return alreadyAppliedEventIds;
+}
+
+async function recordSubscriptionApplicationsCompletedForBatch(
+  db: PgQueryable,
+  projectionKey: string,
+  eventIds: readonly string[],
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const uniqueEventIds = [...new Set(eventIds)];
+  if (uniqueEventIds.length === 0) {
+    return;
+  }
+
+  const fencingToken = leaseFencingToken(context);
+  const result = await db.query(
+    `UPDATE event_subscription_applications
+     SET status = 'applied',
+         error_message = NULL,
+         updated_at = now()
+     WHERE projection_key = $1
+       AND event_id = ANY($2::text[])
+       AND ($3::bigint IS NULL OR lease_fencing_token = $3::bigint)`,
+    [projectionKey, uniqueEventIds, fencingToken],
+  );
+  if (result.rowCount != null && result.rowCount < uniqueEventIds.length) {
+    throw new Error(`Projection application batch '${projectionKey}' was not claimed before completion.`);
+  }
+}
+
 export function createSubscriptionRunner(
   targetContextName: string,
   targetPool: PgTransactionalPool,
@@ -472,166 +655,245 @@ export function createSubscriptionRunner(
           };
         }
 
-        let lastGlobalPosition = checkpoint;
-        let lastCheckpointedGlobalPosition = checkpoint;
-        let eventsSinceCheckpoint = 0;
-        let processed = 0;
-        const applicationStatuses = await loadSubscriptionApplicationStatuses(
-          targetPool,
-          checkpointKey,
-          storedEvents.map((event) => String(event.eventId)),
-        );
+        const initialProgress = (): SubscriptionBatchProgress => ({
+          lastGlobalPosition: checkpoint,
+          lastCheckpointedGlobalPosition: checkpoint,
+          eventsSinceCheckpoint: 0,
+          processed: 0,
+        });
+        const advanceProgress = async (
+          progress: SubscriptionBatchProgress,
+          event: SubscriptionTransportEvent,
+        ): Promise<void> => {
+          progress.lastGlobalPosition = event.globalPosition;
+          progress.processed += 1;
+          progress.eventsSinceCheckpoint += 1;
+          if (progress.eventsSinceCheckpoint >= checkpointBatchSize) {
+            await saveLeasedSubscriptionCheckpoint(progress.lastGlobalPosition);
+            progress.lastCheckpointedGlobalPosition = progress.lastGlobalPosition;
+            progress.eventsSinceCheckpoint = 0;
+          }
+        };
+        const applyStoredEventsIndividually = async (
+          events: readonly SubscriptionTransportEvent[],
+          knownFailure?: Readonly<{ eventId: string; error: unknown }>,
+        ): Promise<SubscriptionBatchProgress> => {
+          const progress = initialProgress();
+          const applicationStatuses = await loadSubscriptionApplicationStatuses(
+            targetPool,
+            checkpointKey,
+            events.map((event) => String(event.id)),
+          );
 
-        for (const storedEvent of storedEvents) {
-          context?.throwIfLeaseLost?.();
-          const event = toTransportEvent(storedEvent);
-          const handler = (subscription.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[event.type];
+          for (const event of events) {
+            context?.throwIfLeaseLost?.();
+            const handler = (subscription.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[
+              event.type
+            ];
 
-          if (matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }) && handler) {
-            if (errorPolicy === "strict-per-stream") {
-              const blockedStream = await loadProjectionBlockedStream(targetPool, checkpointKey, event.streamId);
+            if (matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }) && handler) {
+              if (errorPolicy === "strict-per-stream") {
+                const blockedStream = await loadProjectionBlockedStream(targetPool, checkpointKey, event.streamId);
 
-              if (blockedStream) {
-                await recordProjectionDeferredBlockedStreamEvent(targetPool, {
+                if (blockedStream) {
+                  await recordProjectionDeferredBlockedStreamEvent(targetPool, {
+                    projectionKey: checkpointKey,
+                    streamId: event.streamId,
+                    streamVersion: event.streamVersion,
+                    globalPosition: event.globalPosition,
+                  });
+
+                  await advanceProgress(progress, event);
+                  continue;
+                }
+              }
+
+              if (applicationStatuses.get(String(event.id)) === "applied") {
+                await advanceProgress(progress, event);
+                continue;
+              }
+
+              try {
+                if (knownFailure?.eventId === String(event.id)) {
+                  throw knownFailure.error;
+                }
+
+                const applicationResult = await withProjectionTransaction(targetPool, context, async (client) => {
+                  const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
+                  if (claimResult === "already-applied") {
+                    return "already-applied" as const;
+                  }
+
+                  await runInProjectionDbContext(client, () =>
+                    handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                  );
+                  context?.throwIfLeaseLost?.();
+                  await recordSubscriptionApplicationCompleted(
+                    client,
+                    checkpointKey,
+                    String(event.id),
+                    "applied",
+                    null,
+                    context,
+                  );
+                  return "applied" as const;
+                });
+                if (applicationResult === "already-applied") {
+                  await advanceProgress(progress, event);
+                  continue;
+                }
+              } catch (error) {
+                if (
+                  errorPolicy === "global-strict" ||
+                  isTransientProjectionError(error) ||
+                  isPgRetryableTransientError(error)
+                ) {
+                  const failureResult = await recordSubscriptionApplicationFailure(
+                    targetPool,
+                    checkpointKey,
+                    event,
+                    "transient",
+                    error,
+                    context,
+                  );
+                  if (failureResult === "already-applied") {
+                    await advanceProgress(progress, event);
+                    continue;
+                  }
+
+                  if (progress.lastGlobalPosition !== progress.lastCheckpointedGlobalPosition) {
+                    await saveLeasedSubscriptionCheckpoint(progress.lastGlobalPosition);
+                    progress.lastCheckpointedGlobalPosition = progress.lastGlobalPosition;
+                  }
+                  throw error;
+                }
+
+                const failureResult = await recordSubscriptionApplicationFailure(
+                  targetPool,
+                  checkpointKey,
+                  event,
+                  "poison",
+                  error,
+                  context,
+                );
+                if (failureResult === "already-applied") {
+                  await advanceProgress(progress, event);
+                  continue;
+                }
+
+                await recordProjectionPoisonEvent(targetPool, {
+                  projectionKey: checkpointKey,
+                  projectionName: subscription.projectionName,
+                  targetContextName,
+                  sourceContextName: subscription.sourceContextName,
+                  subscriptionVersion: subscription.subscriptionVersion,
+                  streamId: event.streamId,
+                  streamVersion: event.streamVersion,
+                  eventId: String(event.id),
+                  eventType: event.type,
+                  globalPosition: event.globalPosition,
+                  error,
+                });
+              }
+            }
+
+            await advanceProgress(progress, event);
+          }
+
+          return progress;
+        };
+        const applyStoredEventsAsBatch = async (
+          events: readonly SubscriptionTransportEvent[],
+        ): Promise<SubscriptionBatchProgress> => {
+          const progress = initialProgress();
+          await withProjectionTransaction(targetPool, context, async (client) => {
+            context?.throwIfLeaseLost?.();
+            const applicableEvents = events.flatMap((event) => {
+              const handler = (subscription.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[
+                event.type
+              ];
+              return matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }) && handler
+                ? [{ event, handler }]
+                : [];
+            });
+            const blockedStreams =
+              errorPolicy === "strict-per-stream"
+                ? await loadProjectionBlockedStreamsForBatch(
+                    client,
+                    checkpointKey,
+                    applicableEvents.map(({ event }) => event.streamId),
+                  )
+                : new Set<string>();
+            const claimCandidates: Array<Readonly<{ event: SubscriptionTransportEvent; handler: ProjectorHandler }>> =
+              [];
+
+            for (const { event, handler } of applicableEvents) {
+              if (blockedStreams.has(event.streamId)) {
+                await recordProjectionDeferredBlockedStreamEvent(client, {
                   projectionKey: checkpointKey,
                   streamId: event.streamId,
                   streamVersion: event.streamVersion,
                   globalPosition: event.globalPosition,
                 });
-
-                lastGlobalPosition = event.globalPosition;
-                processed += 1;
-                eventsSinceCheckpoint += 1;
-                if (eventsSinceCheckpoint >= checkpointBatchSize) {
-                  await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
-                  lastCheckpointedGlobalPosition = lastGlobalPosition;
-                  eventsSinceCheckpoint = 0;
-                }
                 continue;
               }
+
+              claimCandidates.push({ event, handler });
             }
 
-            if (applicationStatuses.get(String(event.id)) === "applied") {
-              lastGlobalPosition = event.globalPosition;
-              processed += 1;
-              eventsSinceCheckpoint += 1;
-              if (eventsSinceCheckpoint >= checkpointBatchSize) {
-                await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
-                lastCheckpointedGlobalPosition = lastGlobalPosition;
-                eventsSinceCheckpoint = 0;
+            const alreadyAppliedEventIds = await claimSubscriptionApplicationsForBatch(
+              client,
+              checkpointKey,
+              claimCandidates.map(({ event }) => event),
+              context,
+            );
+            const completedEventIds: string[] = [];
+            for (const { event, handler } of claimCandidates) {
+              context?.throwIfLeaseLost?.();
+              const eventId = String(event.id);
+              if (alreadyAppliedEventIds.has(eventId)) {
+                continue;
               }
-              continue;
-            }
 
-            try {
-              const applicationResult = await withProjectionTransaction(targetPool, context, async (client) => {
-                const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
-                if (claimResult === "already-applied") {
-                  return "already-applied" as const;
-                }
-
+              try {
                 await runInProjectionDbContext(client, () =>
                   handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
                 );
-                context?.throwIfLeaseLost?.();
-                await recordSubscriptionApplicationCompleted(
-                  client,
-                  checkpointKey,
-                  String(event.id),
-                  "applied",
-                  null,
-                  context,
-                );
-                return "applied" as const;
-              });
-              if (applicationResult === "already-applied") {
-                lastGlobalPosition = event.globalPosition;
-                processed += 1;
-                eventsSinceCheckpoint += 1;
-                if (eventsSinceCheckpoint >= checkpointBatchSize) {
-                  await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
-                  lastCheckpointedGlobalPosition = lastGlobalPosition;
-                  eventsSinceCheckpoint = 0;
-                }
-                continue;
+              } catch (error) {
+                throw new BatchEventApplyError(String(event.id), error);
               }
-            } catch (error) {
-              if (
-                errorPolicy === "global-strict" ||
-                isTransientProjectionError(error) ||
-                isPgRetryableTransientError(error)
-              ) {
-                const failureResult = await recordSubscriptionApplicationFailure(
-                  targetPool,
-                  checkpointKey,
-                  event,
-                  "transient",
-                  error,
-                  context,
-                );
-                if (failureResult === "already-applied") {
-                  lastGlobalPosition = event.globalPosition;
-                  processed += 1;
-                  eventsSinceCheckpoint += 1;
-                  if (eventsSinceCheckpoint >= checkpointBatchSize) {
-                    await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
-                    lastCheckpointedGlobalPosition = lastGlobalPosition;
-                    eventsSinceCheckpoint = 0;
-                  }
-                  continue;
-                }
-
-                if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
-                  await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
-                }
-                throw error;
-              }
-
-              const failureResult = await recordSubscriptionApplicationFailure(
-                targetPool,
-                checkpointKey,
-                event,
-                "poison",
-                error,
-                context,
-              );
-              if (failureResult === "already-applied") {
-                lastGlobalPosition = event.globalPosition;
-                processed += 1;
-                eventsSinceCheckpoint += 1;
-                if (eventsSinceCheckpoint >= checkpointBatchSize) {
-                  await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
-                  lastCheckpointedGlobalPosition = lastGlobalPosition;
-                  eventsSinceCheckpoint = 0;
-                }
-                continue;
-              }
-
-              await recordProjectionPoisonEvent(targetPool, {
-                projectionKey: checkpointKey,
-                projectionName: subscription.projectionName,
-                targetContextName,
-                sourceContextName: subscription.sourceContextName,
-                subscriptionVersion: subscription.subscriptionVersion,
-                streamId: event.streamId,
-                streamVersion: event.streamVersion,
-                eventId: String(event.id),
-                eventType: event.type,
-                globalPosition: event.globalPosition,
-                error,
-              });
+              context?.throwIfLeaseLost?.();
+              completedEventIds.push(eventId);
             }
+
+            await recordSubscriptionApplicationsCompletedForBatch(client, checkpointKey, completedEventIds, context);
+          });
+
+          if (events.length > 0) {
+            progress.lastGlobalPosition = events[events.length - 1]!.globalPosition;
+            progress.eventsSinceCheckpoint = events.length;
+            progress.processed = events.length;
           }
 
-          lastGlobalPosition = event.globalPosition;
-          processed += 1;
-          eventsSinceCheckpoint += 1;
-          if (eventsSinceCheckpoint >= checkpointBatchSize) {
-            await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
-            lastCheckpointedGlobalPosition = lastGlobalPosition;
-            eventsSinceCheckpoint = 0;
-          }
-        }
+          return progress;
+        };
+        const events = storedEvents.map((storedEvent) => toTransportEvent(storedEvent));
+        const progress =
+          storedEvents.length <= checkpointBatchSize
+            ? await applyStoredEventsAsBatch(events).catch((error: unknown) => {
+                if (!(error instanceof BatchEventApplyError)) {
+                  throw error;
+                }
+
+                return applyStoredEventsIndividually(events, {
+                  eventId: error.eventId,
+                  error: error.originalError,
+                });
+              })
+            : await applyStoredEventsIndividually(events);
+        let lastGlobalPosition = progress.lastGlobalPosition;
+        let lastCheckpointedGlobalPosition = progress.lastCheckpointedGlobalPosition;
+        const processed = progress.processed;
 
         if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
           await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
