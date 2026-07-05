@@ -75,13 +75,13 @@ describe("context pools", () => {
 
     try {
       const poolOptions = pools.auth as unknown as {
-        emit: (event: string, client: unknown) => boolean;
         options: {
           max?: number;
           idleTimeoutMillis?: number;
           idle_in_transaction_session_timeout?: number;
           options?: string;
           connectionTimeoutMillis?: number;
+          onConnect: (client: unknown) => Promise<void>;
         };
       };
 
@@ -92,13 +92,10 @@ describe("context pools", () => {
       expect(poolOptions.options.connectionTimeoutMillis).toBe(5_000);
 
       const client = createFakeClient();
-      poolOptions.emit("connect", client);
-      await vi.waitFor(() =>
-        expect(client.query).toHaveBeenCalledWith(
-          "SELECT set_config('idle_in_transaction_session_timeout', $1, false)",
-          ["15000ms"],
-        ),
-      );
+      await poolOptions.options.onConnect(client);
+      expect(client.query).toHaveBeenCalledWith("SELECT set_config('idle_in_transaction_session_timeout', $1, false)", [
+        "15000ms",
+      ]);
     } finally {
       await closeContextPools(pools);
     }

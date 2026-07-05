@@ -21,21 +21,21 @@ describe("platform worker database pools", () => {
     try {
       const options = (
         pools.control as unknown as {
-          emit: (event: string, client: unknown) => boolean;
-          options: { idle_in_transaction_session_timeout?: number; options?: string };
+          options: {
+            idle_in_transaction_session_timeout?: number;
+            options?: string;
+            onConnect: (client: unknown) => Promise<void>;
+          };
         }
       ).options;
 
       expect(options.idle_in_transaction_session_timeout).toBeUndefined();
       expect(options.options).toBeUndefined();
       const client = createFakeClient();
-      (pools.control as unknown as { emit: (event: string, client: unknown) => boolean }).emit("connect", client);
-      await vi.waitFor(() =>
-        expect(client.query).toHaveBeenCalledWith(
-          "SELECT set_config('idle_in_transaction_session_timeout', $1, false)",
-          ["15000ms"],
-        ),
-      );
+      await options.onConnect(client);
+      expect(client.query).toHaveBeenCalledWith("SELECT set_config('idle_in_transaction_session_timeout', $1, false)", [
+        "15000ms",
+      ]);
     } finally {
       await closePlatformWorkerPools(pools);
     }
