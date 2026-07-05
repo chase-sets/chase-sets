@@ -686,9 +686,9 @@ jobs:
           mkdir -p artifacts/terraform-plans
           terraform show -no-color tfplan > artifacts/terraform-plans/staging-tfplan.txt
           terraform show -json tfplan > artifacts/terraform-plans/staging-tfplan.json
-          node ../../../scripts/digitalocean-app-deployment.mjs summarize-plan artifacts/terraform-plans/staging-tfplan.json --title="Staging Terraform plan" >> "$GITHUB_STEP_SUMMARY"
+          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/staging-tfplan.json --title="Staging Terraform plan" >> "$GITHUB_STEP_SUMMARY"
           echo "plan_written=true" >> "$GITHUB_OUTPUT"
-          app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
+          app_changed="$(node ../../../scripts/terraform-plan-inspection.mjs plan-app-changed tfplan)"
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Upload staging Terraform plan
@@ -1770,10 +1770,10 @@ jobs:
           mkdir -p artifacts/terraform-plans
           terraform show -no-color tfplan > artifacts/terraform-plans/production-tfplan.txt
           terraform show -json tfplan > artifacts/terraform-plans/production-tfplan.json
-          node ../../../scripts/digitalocean-app-deployment.mjs summarize-plan artifacts/terraform-plans/production-tfplan.json --title="Production Terraform plan" >> "$GITHUB_STEP_SUMMARY"
+          node ../../../scripts/terraform-plan-inspection.mjs summarize-plan artifacts/terraform-plans/production-tfplan.json --title="Production Terraform plan" >> "$GITHUB_STEP_SUMMARY"
           echo "plan_written=true" >> "$GITHUB_OUTPUT"
-          node ../../../scripts/digitalocean-app-deployment.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
-          app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
+          node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
+          app_changed="$(node ../../../scripts/terraform-plan-inspection.mjs plan-app-changed tfplan)"
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Upload production Terraform plan
@@ -1832,7 +1832,7 @@ jobs:
           fi
           if [ -z "$source_cluster_id" ] && [ -f tfplan ]; then
             source_cluster_id="$(
-              node ../../../scripts/digitalocean-app-deployment.mjs postgres-cluster-id tfplan 2>/dev/null \
+              node ../../../scripts/terraform-plan-inspection.mjs postgres-cluster-id tfplan 2>/dev/null \
                 || true
             )"
             if [ -n "$source_cluster_id" ]; then
