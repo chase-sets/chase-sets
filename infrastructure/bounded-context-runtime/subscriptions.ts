@@ -326,7 +326,9 @@ export function createSubscriptionRunner(
                 return "already-applied" as const;
               }
 
-              await runInProjectionDbContext(client, () => handler(event, { db: client }));
+              await runInProjectionDbContext(client, () =>
+                handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+              );
               context?.throwIfLeaseLost?.();
               await recordSubscriptionApplicationCompleted(
                 client,
@@ -528,7 +530,9 @@ export function createSubscriptionRunner(
                   return "already-applied" as const;
                 }
 
-                await runInProjectionDbContext(client, () => handler(event, { db: client }));
+                await runInProjectionDbContext(client, () =>
+                  handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                );
                 context?.throwIfLeaseLost?.();
                 await recordSubscriptionApplicationCompleted(
                   client,

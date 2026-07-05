@@ -134,6 +134,30 @@ describe("bounded context subscription runner", () => {
     });
   });
 
+  it("passes lease-loss cancellation checks into subscription handlers", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" })]);
+    const throwIfLeaseLost = vi.fn();
+    const handler = vi.fn(async (_event, context) => {
+      context?.throwIfLeaseLost?.();
+    });
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": handler,
+      },
+    });
+
+    await runner.runOnce({ throwIfLeaseLost });
+
+    expect(handler).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ throwIfLeaseLost }));
+    expect(throwIfLeaseLost).toHaveBeenCalled();
+  });
+
   it("reports applicable lag separately from source scan lag", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
