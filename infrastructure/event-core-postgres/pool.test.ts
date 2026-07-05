@@ -108,11 +108,13 @@ describe("createPgPool", () => {
       idleInTransactionSessionTimeoutMillis: 15_000,
     }) as unknown as {
       options: { idle_in_transaction_session_timeout?: number; options?: string };
+      idleInTransactionSessionTimeoutMillis?: number;
       end: () => Promise<void>;
     };
 
     expect(pool.options.idle_in_transaction_session_timeout).toBeUndefined();
     expect(pool.options.options).toBeUndefined();
+    expect(pool.idleInTransactionSessionTimeoutMillis).toBe(15_000);
     await pool.end();
   });
 

@@ -100,7 +100,9 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
     }
   });
 
-  return pool as unknown as PgTransactionalPool;
+  return Object.assign(pool, {
+    idleInTransactionSessionTimeoutMillis: options.idleInTransactionSessionTimeoutMillis,
+  }) as unknown as PgTransactionalPool;
 }
 
 type PgActiveClient = pg.PoolClient & {

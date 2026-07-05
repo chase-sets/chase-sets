@@ -20,6 +20,7 @@ export type PgPoolClient = PgQueryable &
 export type PgTransactionalPool = PgQueryable &
   Readonly<{
     connect: () => Promise<PgPoolClient>;
+    idleInTransactionSessionTimeoutMillis?: number;
   }>;
 
 export const POSTGRES_RETRYABLE_TRANSIENT_CODES = new Set(["40001", "40P01", "55P03", "57014"]);
@@ -37,6 +38,11 @@ export async function withPgTransaction<T>(
 
   try {
     await client.query("BEGIN");
+    if (isPositiveFiniteNumber(pool.idleInTransactionSessionTimeoutMillis)) {
+      await client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
+        `${Math.ceil(pool.idleInTransactionSessionTimeoutMillis)}ms`,
+      ]);
+    }
     const result = await work(client);
     await client.query("COMMIT");
     committed = true;
@@ -57,6 +63,10 @@ export async function withPgTransaction<T>(
   } finally {
     client.release(releaseError);
   }
+}
+
+function isPositiveFiniteNumber(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 export function isPgConnectionLevelError(error: unknown): boolean {
