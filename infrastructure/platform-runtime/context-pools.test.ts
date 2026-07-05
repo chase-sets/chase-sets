@@ -75,6 +75,7 @@ describe("context pools", () => {
 
     try {
       const poolOptions = pools.auth as unknown as {
+        idleInTransactionSessionTimeoutMillis?: number;
         options: {
           max?: number;
           idleTimeoutMillis?: number;
@@ -87,6 +88,7 @@ describe("context pools", () => {
 
       expect(poolOptions.options.max).toBe(3);
       expect(poolOptions.options.idleTimeoutMillis).toBe(30_000);
+      expect(poolOptions.idleInTransactionSessionTimeoutMillis).toBe(15_000);
       expect(poolOptions.options.idle_in_transaction_session_timeout).toBeUndefined();
       expect(poolOptions.options.options).toBeUndefined();
       expect(poolOptions.options.connectionTimeoutMillis).toBe(5_000);

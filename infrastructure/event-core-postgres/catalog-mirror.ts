@@ -144,19 +144,18 @@ export async function buildVersionSchema(
     ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
-  const [dimensionNames, choiceRows] = await Promise.all([
-    loadNameMap(db, tables.dimensions, "dimension_id", "name", dimensionIds),
+  const dimensionNames = await loadNameMap(db, tables.dimensions, "dimension_id", "name", dimensionIds);
+  const choiceRows =
     optionIds.length > 0
-      ? db
-          .query<CatalogMirrorChoiceRow>(
+      ? (
+          await db.query<CatalogMirrorChoiceRow>(
             `SELECT option_id, code, label_i18n, label
            FROM ${tables.dimensionOptions}
            WHERE option_id = ANY($1)`,
             [optionIds],
           )
-          .then((result) => result.rows)
-      : Promise.resolve([] as CatalogMirrorChoiceRow[]),
-  ]);
+        ).rows
+      : [];
 
   const choiceMap = new Map(choiceRows.map((row) => [row.option_id, row]));
 
@@ -253,7 +252,9 @@ async function refreshCatalogMirrorItemsByBlueprint(
     [blueprintId],
   );
 
-  await Promise.all(result.rows.map((row) => refreshCatalogMirrorItem(db, tables, row.catalog_item_id)));
+  for (const row of result.rows) {
+    await refreshCatalogMirrorItem(db, tables, row.catalog_item_id);
+  }
 }
 
 async function findBlueprintIdsByDimension(
