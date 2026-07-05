@@ -1,8 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import {
-  withPgTransaction,
+  isPgConnectionLevelError,
   type PgPoolClient,
+  type PgQueryFunction,
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -46,37 +47,69 @@ export async function withProjectionTransaction<T>(
   work: (client: PgQueryable) => Promise<T>,
 ): Promise<T> {
   context?.throwIfLeaseLost?.();
-  return withPgTransaction(pool, async (client) => {
-    const startedAtMs = Date.now();
-    const transactionTimeoutMs = normalizeProjectionTransactionTimeoutMs(context?.transactionTimeoutMs);
-    const timeoutAwareClient = createTimeoutAwareProjectionClient(client, {
-      startedAtMs,
-      transactionTimeoutMs,
+  const client = await pool.connect();
+  const originalQuery = client.query.bind(client);
+  const mutableClient = client as PgPoolClient & { query: PgQueryFunction };
+  let committed = false;
+  let releaseError: unknown;
+
+  try {
+    await originalQuery("BEGIN");
+    const timeoutGuard = createProjectionTransactionTimeoutGuard({
+      startedAtMs: Date.now(),
+      transactionTimeoutMs: normalizeProjectionTransactionTimeoutMs(context?.transactionTimeoutMs),
       throwIfLeaseLost: context?.throwIfLeaseLost,
     });
+    mutableClient.query = async <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) => {
+      timeoutGuard();
+      const result = await originalQuery<Row>(text, values);
+      timeoutGuard();
+      return result;
+    };
+
     const idleInTransactionSessionTimeoutMs = normalizeProjectionIdleInTransactionSessionTimeoutMs(
       context?.idleInTransactionSessionTimeoutMs,
       pool.idleInTransactionSessionTimeoutMillis,
     );
-    if (
-      idleInTransactionSessionTimeoutMs !== null &&
-      pool.idleInTransactionSessionTimeoutMillis !== idleInTransactionSessionTimeoutMs
-    ) {
-      await timeoutAwareClient.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
+    if (idleInTransactionSessionTimeoutMs !== null) {
+      await client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
         `${idleInTransactionSessionTimeoutMs}ms`,
       ]);
     }
 
-    const statementTimeoutMs = normalizeProjectionStatementTimeoutMs(context?.statementTimeoutMs, transactionTimeoutMs);
+    const statementTimeoutMs = normalizeProjectionStatementTimeoutMs(
+      context?.statementTimeoutMs,
+      timeoutGuard.transactionTimeoutMs,
+    );
     if (statementTimeoutMs !== null) {
-      await timeoutAwareClient.query("SELECT set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
     }
 
     context?.throwIfLeaseLost?.();
-    const result = await work(timeoutAwareClient);
+    const result = await work(client);
     context?.throwIfLeaseLost?.();
+    timeoutGuard();
+    mutableClient.query = originalQuery;
+    await originalQuery("COMMIT");
+    committed = true;
     return result;
-  });
+  } catch (error) {
+    mutableClient.query = originalQuery;
+    if (!committed) {
+      try {
+        await originalQuery("ROLLBACK");
+      } catch (rollbackError) {
+        releaseError = rollbackError;
+      }
+    }
+    if (releaseError === undefined && isPgConnectionLevelError(error)) {
+      releaseError = error;
+    }
+    throw error;
+  } finally {
+    mutableClient.query = originalQuery;
+    client.release(releaseError);
+  }
 }
 
 function normalizeProjectionIdleInTransactionSessionTimeoutMs(
@@ -149,22 +182,15 @@ function createNestedProjectionClient(scopedDb: PgQueryable): PgPoolClient {
   };
 }
 
-function createTimeoutAwareProjectionClient(
-  client: PgQueryable,
+function createProjectionTransactionTimeoutGuard(
   options: Readonly<{
     startedAtMs: number;
     transactionTimeoutMs: number | null;
     throwIfLeaseLost?: () => void;
   }>,
-): PgQueryable {
-  return {
-    query: async <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) => {
-      throwIfProjectionTransactionExpired(options);
-      const result = await client.query<Row>(text, values);
-      throwIfProjectionTransactionExpired(options);
-      return result;
-    },
-  };
+): (() => void) & Readonly<{ transactionTimeoutMs: number | null }> {
+  const guard = () => throwIfProjectionTransactionExpired(options);
+  return Object.assign(guard, { transactionTimeoutMs: options.transactionTimeoutMs });
 }
 
 function throwIfProjectionTransactionExpired(
