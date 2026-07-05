@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import process from "node:process";
 import { buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
+export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
 
 const chartName = "chase-sets-platform";
 const chartPath = "infrastructure/helm/platform";
@@ -132,6 +134,29 @@ export function buildDeploymentEvidence(options = {}) {
   };
 }
 
+export function buildKubernetesRollbackTarget(options = {}) {
+  const registryName = requiredOption(options.registryName, "registryName");
+  const repository = requiredOption(options.repository, "repository");
+  const tag = options.tag ?? options.releaseTag ?? "";
+  const digest = options.digest ?? "";
+  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+
+  return {
+    schemaVersion: PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION,
+    capturedAt: options.checkedAt ?? new Date().toISOString(),
+    release: options.release ?? defaultRelease,
+    namespace: options.namespace ?? defaultNamespace,
+    registryName,
+    repository,
+    tag,
+    digest,
+    imageRef: tag || digest ? platformImageReference({ registryName, repository, tag, digest }) : "",
+    componentNames: [...workloads.deployments, ...workloads.jobs].sort(),
+    lastKnownGoodCommit: options.lastKnownGoodCommit ?? "",
+    releaseTag: options.releaseTag ?? "",
+  };
+}
+
 export async function deployPlatformToKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
@@ -222,6 +247,14 @@ export function parsePlatformImageRef(imageRef) {
   };
 }
 
+function platformImageReference({ registryName, repository, tag, digest }) {
+  if (digest) {
+    return `registry.digitalocean.com/${registryName}/${repository}@${digest}`;
+  }
+
+  return `registry.digitalocean.com/${registryName}/${repository}:${tag}`;
+}
+
 function kubernetesComponentName(release, name) {
   return trimKubernetesName(`${release}-${chartName}-${name}`);
 }
@@ -263,9 +296,9 @@ async function runProcess(options) {
 
 function parseArgs(argv, env = process.env) {
   const command = argv.find((arg) => arg !== "--");
-  if (!command || !["deploy", "rollback", "diagnostics", "plan"].includes(command)) {
+  if (!command || !["deploy", "rollback", "diagnostics", "plan", "capture-rollback-target"].includes(command)) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan|capture-rollback-target> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>]",
     );
   }
 
@@ -279,6 +312,12 @@ function parseArgs(argv, env = process.env) {
     revision: readOption(rest, "--revision", env.CHASE_SETS_HELM_ROLLBACK_REVISION),
     helmPath: readOption(rest, "--helm", env.HELM_PATH ?? "helm"),
     kubectlPath: readOption(rest, "--kubectl", env.KUBECTL_PATH ?? "kubectl"),
+    registryName: readOption(rest, "--registry-name", env.DIGITALOCEAN_CONTAINER_REGISTRY_NAME),
+    repository: readOption(rest, "--repository", env.PLATFORM_IMAGE_REPOSITORY),
+    lastKnownGoodCommit: readOption(rest, "--last-known-good-commit", env.LAST_KNOWN_GOOD_COMMIT ?? ""),
+    releaseTag: readOption(rest, "--release-tag", env.ROLLBACK_RELEASE_TAG ?? ""),
+    outPath: readOption(rest, "--out", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET_OUT),
+    githubOutputPath: readOption(rest, "--github-output", env.GITHUB_OUTPUT),
   };
 }
 
@@ -310,8 +349,42 @@ async function main(argv, env = process.env) {
     return 0;
   }
 
+  if (options.command === "capture-rollback-target") {
+    const target = buildKubernetesRollbackTarget(options);
+    if (options.outPath) {
+      const { writeJsonRecord } = await import("./lib/output-file.mjs");
+      await writeJsonRecord(options.outPath, target);
+    }
+    writeGithubOutput(options.githubOutputPath, {
+      rollback_image_ref: target.imageRef,
+      rollback_image_digest: target.digest,
+      rollback_image_tag: target.tag,
+      rollback_repository: target.repository,
+      rollback_components: target.componentNames.join(","),
+      rollback_registry_name: target.registryName,
+      rollback_target_commit: target.lastKnownGoodCommit,
+      rollback_release_tag: target.releaseTag,
+      last_known_good_commit: target.lastKnownGoodCommit,
+    });
+    console.log(JSON.stringify(target, null, 2));
+    return 0;
+  }
+
   await capturePlatformKubernetesDiagnostics(options);
   return 0;
+}
+
+function writeGithubOutput(filePath, values) {
+  if (!filePath) {
+    return;
+  }
+
+  appendFileSync(
+    filePath,
+    `${Object.entries(values)
+      .map(([key, value]) => `${key}=${value ?? ""}`)
+      .join("\n")}\n`,
+  );
 }
 
 if (process.argv[1]?.endsWith("platform-kubernetes-deployment.mjs")) {

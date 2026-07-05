@@ -896,13 +896,12 @@ describe("DigitalOcean platform configuration", () => {
     const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const stagingSmokeStep = workflowSteps(deployStagingJob, "Smoke check").at(-1);
     const productionSmokeStep = workflowSteps(deployProductionJob, "Smoke check").at(-1);
+    const kubeconfigStep = workflowStep(deployProductionJob, "Configure production Kubernetes context");
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
     const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
-    const diagnosticsStep = workflowStep(
-      deployProductionJob,
-      "Capture post-cutover production App Platform diagnostics",
-    );
-    const rollbackStep = workflowStep(deployProductionJob, "Roll back production App Platform image");
+    const deployStep = workflowStep(deployProductionJob, "Deploy production Kubernetes release");
+    const diagnosticsStep = workflowStep(deployProductionJob, "Capture post-cutover production Kubernetes diagnostics");
+    const rollbackStep = workflowStep(deployProductionJob, "Roll back production Kubernetes release");
     const releaseHealthStep = workflowSteps(platformProductionWorkflow, "Write release health summary").at(-1);
     const uploadStep = workflowSteps(platformProductionWorkflow, "Upload release health summary").at(-1);
 
@@ -916,25 +915,32 @@ describe("DigitalOcean platform configuration", () => {
     const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
     const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
+    const deployIndex = deployProductionJob.indexOf("- name: Deploy production Kubernetes release");
     const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
     const stage1Index = deployProductionJob.indexOf("- name: Stage 1 production canary");
     const diagnosticsIndex = deployProductionJob.indexOf(
-      "- name: Capture post-cutover production App Platform diagnostics",
+      "- name: Capture post-cutover production Kubernetes diagnostics",
     );
-    const rollbackIndex = deployProductionJob.indexOf("- name: Roll back production App Platform image");
+    const rollbackIndex = deployProductionJob.indexOf("- name: Roll back production Kubernetes release");
     const markerIndex = deployProductionJob.indexOf("- name: Mark production release");
 
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
+    expect(applyIndex).toBeLessThan(deployIndex);
+    expect(deployIndex).toBeLessThan(smokeIndex);
     expect(smokeIndex).toBeLessThan(rollbackIndex);
     expect(stage1Index).toBeLessThan(diagnosticsIndex);
     expect(diagnosticsIndex).toBeLessThan(rollbackIndex);
     expect(rollbackIndex).toBeLessThan(markerIndex);
 
-    expect(captureStep).toContain("terraform output -raw app_id");
-    expect(captureStep).toContain("git -C ../../.. fetch origin production --tags");
+    expect(kubeconfigStep).toContain("infrastructure/digitalocean/doks");
+    expect(kubeconfigStep).toContain("-backend-config=key=doks/production.tfstate");
+    expect(kubeconfigStep).toContain("terraform output -raw kubeconfig");
+    expect(kubeconfigStep).toContain("KUBECONFIG=");
+    expect(captureStep).toContain("git fetch origin production --tags");
     expect(captureStep).toContain("last_known_good_commit");
     expect(captureStep).toContain("capture-rollback-target");
+    expect(captureStep).toContain("platform-kubernetes-deployment.mjs");
     expect(captureStep).toContain("production-rollback-target.json");
     expect(captureStep).toContain("docker buildx imagetools inspect");
     expect(captureStep).toContain("smoke_verified=true");
@@ -950,21 +956,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(readinessStep).toContain("pnpm run rollback:readiness");
     expect(readinessStep).toContain('echo "result=${result}" >> "$GITHUB_OUTPUT"');
 
+    expect(deployStep).toContain("pnpm run platform:kubernetes-deployment -- deploy");
+    expect(deployStep).toContain(
+      "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
+    );
+    expect(deployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(deployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
+
     expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
-    expect(diagnosticsStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-    expect(diagnosticsStep).toContain(
-      'app_id="$(terraform output -raw app_id 2>/dev/null || printf \'%s\' "${{ steps.rollback_target.outputs.rollback_app_id }}")"',
-    );
-    expect(diagnosticsStep).toContain(
-      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true',
-    );
+    expect(diagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics");
+    expect(diagnosticsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
 
     expect(rollbackStep).toContain(
       "if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'",
     );
-    expect(rollbackStep).toContain("rollback-image");
-    expect(rollbackStep).toContain("steps.rollback_target.outputs.rollback_image_digest");
-    expect(rollbackStep).toContain("steps.rollback_target.outputs.rollback_image_tag");
+    expect(rollbackStep).toContain("pnpm run platform:kubernetes-deployment -- rollback");
+    expect(rollbackStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
     expect(rollbackStep).toContain("automated-production-rollback");
 
     expect(releaseHealthStep).toContain(
@@ -1720,7 +1727,7 @@ describe("DigitalOcean platform configuration", () => {
       productionCaptureIndex,
     );
     const productionDiagnosticsIndex = platformProductionWorkflow.indexOf(
-      "- name: Capture production App Platform deploy diagnostics",
+      "- name: Capture production Kubernetes deploy diagnostics",
       productionUploadIndex,
     );
 
