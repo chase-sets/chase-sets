@@ -33,6 +33,7 @@ const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/cata
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
 const environmentDnsMain = readFileSync(resolve("infrastructure/digitalocean/environment-dns/main.tf"), "utf8");
 const environmentDnsLocals = readFileSync(resolve("infrastructure/digitalocean/environment-dns/locals.tf"), "utf8");
+const environmentDnsOutputs = readFileSync(resolve("infrastructure/digitalocean/environment-dns/outputs.tf"), "utf8");
 const environmentDnsVariables = readFileSync(
   resolve("infrastructure/digitalocean/environment-dns/variables.tf"),
   "utf8",
@@ -40,6 +41,7 @@ const environmentDnsVariables = readFileSync(
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
+const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
 const platformPreviewCleanupWorkflow = readFileSync(resolve(".github/workflows/platform-preview-cleanup.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 const platformDigitalOceanDriftDigestWorkflow = readFileSync(
@@ -2154,6 +2156,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(dockerfile).not.toContain("chmod 777");
   });
 
+  it("provides a confirmed CI path for live DOKS foundation proof", () => {
+    expect(platformDoksFoundationWorkflow).toContain("name: Platform DOKS Foundation Apply");
+    expect(platformDoksFoundationWorkflow).toContain('Type "apply doks foundation"');
+    expect(platformDoksFoundationWorkflow).toContain('if [ "${{ inputs.confirm }}" != "apply doks foundation" ]');
+    expect(platformDoksFoundationWorkflow).toContain("-backend-config=key=doks/${{ inputs.environment }}.tfstate");
+    expect(platformDoksFoundationWorkflow).toContain("TF_VAR_kubernetes_version: ${{ inputs.kubernetes_version }}");
+    expect(platformDoksFoundationWorkflow).toContain("terraform output -raw kubeconfig");
+    expect(platformDoksFoundationWorkflow).toContain("kubectl wait --for=condition=Ready nodes --all");
+    expect(platformDoksFoundationWorkflow).toContain("registry.digitalocean.com/chase-sets/chase-sets-platform");
+    expect(platformDoksFoundationWorkflow).toContain("kubectl create job platform-image-pull-proof");
+    expect(platformDoksFoundationWorkflow).toContain("platform-doks-foundation-${{ inputs.environment }}");
+  });
+
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
     expect(environmentDnsVariables).toContain('condition     = var.environment == "staging"');
     expect(environmentDnsLocals).toContain('environment_zone = "${var.environment}.${var.root_domain}"');
@@ -2169,6 +2184,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(environmentDnsLocals).toContain(
       'catalog_asset_cdn_endpoint = "chase-sets-${var.environment}-catalog-assets.${var.data_region}.cdn.digitaloceanspaces.com."',
     );
+    expect(environmentDnsVariables).toContain('variable "doks_ingress_dns_enabled"');
+    expect(environmentDnsVariables).toContain('variable "doks_ingress_target"');
+    expect(environmentDnsVariables).toContain("DOKS ingress load balancer IPv4 address");
+    expect(environmentDnsLocals).toContain("doks_ingress_records = var.doks_ingress_dns_enabled");
+    expect(environmentDnsLocals).toContain('fqdn = "marketplace.${local.environment_zone}"');
+    expect(environmentDnsMain).toContain('check "doks_ingress_dns_target"');
+    expect(environmentDnsMain).toContain('resource "digitalocean_record" "doks_ingress"');
+    expect(environmentDnsMain).toContain("for_each = local.doks_ingress_records");
+    expect(environmentDnsMain).toContain('type   = "A"');
+    expect(environmentDnsOutputs).toContain('output "doks_ingress_domains"');
     expect(platformProductionWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformStagingResetWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformProductionWorkflow).toContain("Reconcile staging App Platform alias DNS state");

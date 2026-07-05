@@ -739,6 +739,21 @@ describe("change-scope", () => {
     expect(scope.terraformRequired).toBe(false);
   });
 
+  it("routes the platform ingress wait helper through workflow lint without deploying", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["scripts/platform-ingress-wait.mjs"],
+      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+    });
+
+    expect(scope.workflowLintRequired).toBe(true);
+    expect(scope.localChecksRequired).toBe(true);
+    expect(scope.deployRequired).toBe(false);
+    expect(scope.dockerImageRequired).toBe(false);
+    expect(scope.terraformRequired).toBe(false);
+  });
+
   it("classifies exposure-posture changes for targeted release gates", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({

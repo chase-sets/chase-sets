@@ -41,9 +41,47 @@ node ./scripts/platform-kubernetes-secret.mjs --dry-run --namespace staging
 
 After a rotation applies, rerun the Helm upgrade or restart the affected runtime Deployments so pods reload environment variables from the updated Secret.
 
+## Ingress
+
+Ingress is disabled by default while App Platform still owns public routing. Enable it only after the DOKS ingress controller and cert-manager issuer exist:
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  clusterIssuer: letsencrypt-production
+  hosts:
+    - host: staging.chasesets.com
+      paths:
+        - path: /api
+          service: platform-api
+        - path: /
+          service: marketplace
+    - host: www.staging.chasesets.com
+      paths:
+        - path: /api
+          service: platform-api
+        - path: /
+          service: public-web
+    - host: marketplace.staging.chasesets.com
+      paths:
+        - path: /api
+          service: platform-api
+        - path: /
+          service: marketplace
+    - host: admin.staging.chasesets.com
+      paths:
+        - path: /api
+          service: platform-api
+        - path: /
+          service: admin-web
+```
+
+Provider webhook, MCP, UCP, and well-known paths should stay routed to `platform-api` before DNS cutover. The matching DNS cutover records live in `infrastructure/digitalocean/environment-dns` and remain disabled until a DOKS load balancer target is known.
+
 ## Validation
 
-The Platform PR workflow renders and validates this chart and the runtime Secret contract when Helm or Secret-delivery files change:
+The Platform PR workflow renders and validates this chart, the runtime Secret contract, and the ingress wait contract when Helm, Secret-delivery, or ingress-wait files change:
 
 ```bash
 docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 lint infrastructure/helm/platform
@@ -71,6 +109,6 @@ The harness uses the Dockerized Helm image `alpine/helm:3.15.4`, so a local `hel
 
 ## Boundaries
 
-This scaffold intentionally does not own ingress, certificates, external secrets, rollout strategy, live DOKS apply wiring, or App Platform removal.
+This scaffold intentionally does not own ingress controller installation, certificate issuer installation, external secrets, rollout strategy, live DOKS apply wiring, or App Platform removal.
 
 `platform-bootstrap` renders as a Helm `pre-install,pre-upgrade` hook. Before running bootstrap it scales the worker Deployment targets to zero through the in-image `bootstrap-quiesce.mjs` wrapper, waits for those pods to drain, then runs the existing bootstrap command. If bootstrap fails, the wrapper restores the previous worker replica counts before returning the failing exit code so Helm aborts before new pods roll. During first install, missing worker Deployments are skipped because there is no outgoing version to quiesce yet.

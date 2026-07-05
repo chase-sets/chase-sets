@@ -6,6 +6,13 @@ resource "digitalocean_domain" "environment" {
   }
 }
 
+check "doks_ingress_dns_target" {
+  assert {
+    condition     = !var.doks_ingress_dns_enabled || can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", trimspace(var.doks_ingress_target)))
+    error_message = "doks_ingress_target must be the DOKS ingress load balancer IPv4 address when doks_ingress_dns_enabled is true."
+  }
+}
+
 resource "digitalocean_record" "delegation" {
   for_each = toset(local.nameservers)
 
@@ -86,4 +93,14 @@ resource "digitalocean_record" "catalog_assets" {
   name   = "assets"
   value  = local.catalog_asset_cdn_endpoint
   ttl    = 3600
+}
+
+resource "digitalocean_record" "doks_ingress" {
+  for_each = local.doks_ingress_records
+
+  domain = digitalocean_domain.environment.name
+  type   = "A"
+  name   = each.value.name
+  value  = var.doks_ingress_target
+  ttl    = var.doks_ingress_ttl
 }

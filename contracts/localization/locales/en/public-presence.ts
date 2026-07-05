@@ -36,16 +36,16 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.faq.description":
     "Short answers about marketplace availability, founding seller fees, order processing, shipping, and order protection.",
   "publicPresence.faq.fees.answer":
-    "Listings created during beta keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any Marketplace Checkout Fee before payment.",
+    "Listings created during beta keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any checkout fee before payment.",
   "publicPresence.faq.fees.question": "What do sellers pay during beta?",
   "publicPresence.faq.launch.answer":
-    "Public marketplace checkout opens only after production promotion approval. Request access to tell us whether buying, selling, or both should be prioritized for your account.",
+    "Chase Sets is not open for marketplace checkout yet. Request access to tell us whether buying, selling, or both matters most for your account.",
   "publicPresence.faq.launch.question": "Is Chase Sets live yet?",
   "publicPresence.faq.safety.answer":
-    "Before payment, checkout shows item details, account signals, shipping, return eligibility, and support coverage. After purchase, support can review tracking, payment status, listing evidence, and account context.",
+    "Before payment, checkout shows item details, seller profile, shipping, return options, and support coverage. After purchase, support reviews tracking, payment status, listing evidence, and account context.",
   "publicPresence.faq.safety.question": "How are purchases protected?",
   "publicPresence.faq.shipping.answer":
-    "Checkout shows shipping method, estimate, same-account bundle effects, and 5% of item value earned toward shipping before payment. Accounts that accept offers earn a 5% shipping rebate.",
+    "Checkout shows shipping method, estimate, items from the same seller, and 5% of item value earned toward shipping before payment. Sellers who accept offers earn a 5% shipping rebate.",
   "publicPresence.faq.shipping.question": "How does shipping work?",
   "publicPresence.faq.title": "Marketplace questions",
   "publicPresence.footer.description":
@@ -54,13 +54,13 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.description":
     "Request early access to the seller-first beta for 0% seller fee locks, no separate seller processing fee, bulk-friendly listing, and buyer-visible totals.",
   "publicPresence.home.discordCta": "Join the founders circle on Discord",
-  "publicPresence.home.eyebrow": "Trading card marketplace early access",
+  "publicPresence.home.eyebrow": "Chase the cards. Complete the sets. Keep the margin.",
   "publicPresence.home.finalCta.action": "Request early access",
   "publicPresence.home.finalCta.badge": "Takes under a minute",
   "publicPresence.home.finalCta.description":
-    "Tell us whether selling, buying, or both matters most. The earliest qualified beta accounts help shape launch and can receive Founding Account badge eligibility.",
+    "Tell us whether selling, buying, or both matters most. The first beta invite waves help shape launch and are considered for Founding Account status.",
   "publicPresence.home.finalCta.point.foundingBadge":
-    "Earliest qualified beta accounts can receive Founding Account badge eligibility beside their marketplace account.",
+    "The first beta invite waves are considered for Founding Account status beside their marketplace account.",
   "publicPresence.home.finalCta.point.buyers":
     "Collectors get item, account, shipping, return, support, and shipping-credit details before checkout.",
   "publicPresence.home.finalCta.point.sellers":
@@ -80,12 +80,12 @@ export const publicPresenceEnglishTranslations = {
     "The product model is built around repeat card work: sourcing, listing, pricing, shipping, and buying without rebuilding the same decision every time.",
   "publicPresence.home.howItWorks.title": "Built around real card workflows",
   "publicPresence.home.stickyCta.action": "Request early access",
-  "publicPresence.home.stickyCta.label": "Early access eligibility",
+  "publicPresence.home.stickyCta.label": "Early access list",
   "publicPresence.home.model.economics.description":
-    "Accounts see seller fee terms and offer rebates before inventory goes live. Checkout shows item price, shipping, credits, Marketplace Checkout Fee, and marketplace costs before payment.",
+    "Sellers see fee terms and offer rebates before inventory goes live. Checkout shows item price, shipping, credits, checkout fee, and marketplace costs before payment.",
   "publicPresence.home.model.economics.title": "Show costs before commitment",
   "publicPresence.home.model.supply.description":
-    "Product data and listing tools should make raw, graded, chase, bulk, and everyday cards practical to manage.",
+    "Product data and listing tools make raw, graded, chase, bulk, and everyday cards practical to manage.",
   "publicPresence.home.model.supply.title": "Make more inventory listable",
   "publicPresence.home.model.trust.description":
     "Checkout totals, public policies, order protection, shipping status, and support contact stay close to the decision.",
@@ -94,21 +94,21 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.paths.buy.badge": "For collectors",
   "publicPresence.home.paths.buy.description":
     "Finish sets and decks with shipping credit, account trust, order processing, and protection visible before payment.",
-  "publicPresence.home.paths.buy.point.shipping": "Shipping credit and same-account bundle effects stay visible.",
+  "publicPresence.home.paths.buy.point.shipping": "Shipping credit and items from the same seller stay visible.",
   "publicPresence.home.paths.buy.point.total": "Delivered total is easier to compare before checkout.",
   "publicPresence.home.paths.buy.point.trust":
-    "Account signal, returns, and support context stay close to the listing.",
+    "Seller profile, returns, and support context stay close to the listing.",
   "publicPresence.home.paths.buy.title": "I want to buy cards",
   "publicPresence.home.paths.description":
-    "Choose the first job Chase Sets should solve for you. These buttons prefill the waitlist form and help shape invite waves.",
+    "Choose the first job you want Chase Sets to solve. These buttons prefill the waitlist form and help shape invite waves.",
   "publicPresence.home.paths.sell.action": "I plan to sell cards",
   "publicPresence.home.paths.sell.badge": "For founding sellers",
   "publicPresence.home.paths.sell.description":
     "Bring early supply with beta fee-lock visibility, no separate seller processing line, and workflows built for repeat card work.",
   "publicPresence.home.paths.sell.point.bulk": "Bulk listing and pricing context reduce one-card-at-a-time work.",
-  "publicPresence.home.paths.sell.point.feeLock": "Beta listings can keep 0% seller fees while unchanged.",
+  "publicPresence.home.paths.sell.point.feeLock": "Beta listings keep 0% seller fees while unchanged.",
   "publicPresence.home.paths.sell.point.offers":
-    "Offer acceptance and Sell List review help turn demand into sale-ready work.",
+    "Offer acceptance and matched-offer review help turn demand into sale-ready work.",
   "publicPresence.home.paths.sell.title": "I want to sell cards",
   "publicPresence.home.paths.title": "Pick the workflow you want prioritized",
   "publicPresence.home.sellerEconomics.badge": "Founding seller economics",
@@ -129,7 +129,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.math.processingFee": "Seller payment-processing fee",
   "publicPresence.home.sellerEconomics.math.processingFee.value": "$0.00",
   "publicPresence.home.sellerEconomics.math.reassurance":
-    "Buyers still see any Marketplace Checkout Fee before payment, with lower-cost payment methods encouraged when available.",
+    "Buyers still see any checkout fee before payment, with lower-cost payment methods encouraged when available.",
   "publicPresence.home.sellerEconomics.math.sellerFee": "Beta seller fee",
   "publicPresence.home.sellerEconomics.math.sellerFee.value": "$0.00",
   "publicPresence.home.sellerEconomics.math.title": "$10 card beta seller math",
@@ -158,20 +158,20 @@ export const publicPresenceEnglishTranslations = {
     "Order protection focuses on visible totals, payment clarity, order traceability, and support paths from checkout through delivery.",
   "publicPresence.info.buyerProtection.eyebrow": "Trust",
   "publicPresence.info.buyerProtection.help.body":
-    "If an order needs help, Chase Sets support can review order, payment, shipment, and account context before a resolution is applied.",
+    "If an order needs help, Chase Sets support reviews order, payment, shipment, and account context before a resolution is applied.",
   "publicPresence.info.buyerProtection.help.title": "Support path",
   "publicPresence.info.buyerProtection.orders.body":
-    "Orders show the product, account selling in the order, item price, shipping, shipping credit, Marketplace Checkout Fee, order protection, and fulfillment state before and after payment.",
+    "Orders show the product, seller, item price, shipping, shipping credit, checkout fee, order protection, and fulfillment state before and after payment.",
   "publicPresence.info.buyerProtection.orders.title": "Order visibility",
   "publicPresence.info.buyerProtection.payment.body":
-    "Payments run through secure provider-backed checkout flows with final totals visible before confirmation. Lower-cost payment methods may reduce buyer-side order processing when available.",
+    "Payments run through secure provider-backed checkout flows with final totals visible before confirmation. Lower-cost payment methods reduce buyer-side order processing when available.",
   "publicPresence.info.buyerProtection.payment.title": "Protected payment",
   "publicPresence.info.buyerProtection.title": "Order Protection",
   "publicPresence.info.contact.description":
     "Use the public support email for early access, account review, partnership, marketplace policy, and customer questions.",
   "publicPresence.info.contact.eyebrow": "Support",
   "publicPresence.info.contact.status.body":
-    "Public marketplace checkout opens only after production promotion approval. Support can answer access, account, policy, and partnership questions before and after that gate opens.",
+    "Chase Sets is not open for marketplace checkout yet. Support answers access, account, policy, and partnership questions before and after launch.",
   "publicPresence.info.contact.status.title": "Current status",
   "publicPresence.info.contact.support.body":
     "Email support@chasesets.com for Chase Sets support and business review questions.",
@@ -198,10 +198,10 @@ export const publicPresenceEnglishTranslations = {
     "Refund and return handling is tied to order status, payment outcome, shipment progress, and support review.",
   "publicPresence.info.refunds.eyebrow": "Policy",
   "publicPresence.info.refunds.future.body":
-    "Return eligibility, dispute paths, payment outcomes, and support contact stay visible before and after checkout so accounts can understand the path before money moves.",
+    "Return options, dispute paths, payment outcomes, and support contact stay visible before and after checkout so accounts understand the path before money moves.",
   "publicPresence.info.refunds.future.title": "Marketplace model",
   "publicPresence.info.refunds.prelaunch.body":
-    "Marketplace checkout opens only after production promotion approval. Until then, the public site does not create purchases, charges, refunds, or returns.",
+    "Marketplace checkout opens at launch. Until then, the public site does not create purchases, charges, refunds, or returns.",
   "publicPresence.info.refunds.prelaunch.title": "Current availability",
   "publicPresence.info.refunds.support.body":
     "For questions about refund or return handling, contact support@chasesets.com.",
@@ -211,26 +211,26 @@ export const publicPresenceEnglishTranslations = {
     "Chase Sets is designed to protect early trading card seller margin with beta fee locks, no separate seller payment-processing fee, and fee snapshots before inventory goes live.",
   "publicPresence.info.sellerFees.eyebrow": "Economics",
   "publicPresence.info.sellerFees.buyerVisibility.body":
-    "Buyer-side marketplace costs remain visible before payment. The seller-fee promise should not create surprise checkout math; listings, order processing, shipping credit, and support context stay close to the payment decision.",
+    "Buyer-side marketplace costs remain visible before payment. The seller-fee promise does not create surprise checkout math; listings, order processing, shipping credit, and support context stay close to the payment decision.",
   "publicPresence.info.sellerFees.buyerVisibility.title": "Buyer-side cost visibility",
   "publicPresence.info.sellerFees.founders.body":
-    "The earliest qualified beta accounts can receive Founding Account badge eligibility and access to the founders circle on Discord. Seller feedback from that circle helps pressure test low-value card economics before fees expand beyond beta terms.",
+    "The first beta invite waves are considered for Founding Account status and founders circle access on Discord. Seller feedback from that circle helps pressure test bulk and budget card economics before fees expand beyond beta terms.",
   "publicPresence.info.sellerFees.founders.title": "Founder feedback loop",
   "publicPresence.info.sellerFees.lowValue.body":
-    "The marketplace is designed around better margins for bulk cards, raw cards, graded cards, chase cards, and collectible inventory at every price point. Removing separate seller payment-processing fees is especially important for low-value cards.",
+    "The marketplace is designed around better margins for bulk cards, raw cards, graded cards, chase cards, and collectible inventory at every price point. Removing separate seller payment-processing fees is especially important for budget cards.",
   "publicPresence.info.sellerFees.lowValue.title": "Marketplace margins",
   "publicPresence.info.sellerFees.predictable.body":
     "Listings created during beta keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees such as 2.9% plus $0.30 to sellers.",
   "publicPresence.info.sellerFees.predictable.title": "0% beta seller fee lock",
   "publicPresence.info.sellerFees.prelaunch.body":
-    "Public marketplace checkout opens only after production promotion approval. If a beta listing is changed after beta ends, the current fee schedule applies before it goes live again.",
+    "Marketplace checkout opens at launch. If a beta listing is changed after beta ends, the current fee schedule applies before it goes live again.",
   "publicPresence.info.sellerFees.prelaunch.title": "Marketplace availability",
   "publicPresence.info.sellerFees.questions.body":
     "Contact support@chasesets.com before listing if beta fee-lock rules, listing changes, payout readiness, or marketplace costs are unclear.",
   "publicPresence.info.sellerFees.questions.title": "Questions before listing",
   "publicPresence.info.sellerFees.title": "Marketplace sales fees",
   "publicPresence.info.terms.accounts.body":
-    "Accounts can support buying and selling activity from one account model, subject to permissions, payout readiness, and marketplace policies.",
+    "One account supports buying and selling activity, subject to permissions, payout readiness, and marketplace policies.",
   "publicPresence.info.terms.accounts.title": "Accounts",
   "publicPresence.info.terms.contact.body":
     "Contact support@chasesets.com with questions about these public terms or early access.",
@@ -239,10 +239,10 @@ export const publicPresenceEnglishTranslations = {
     "These plain-language terms explain the public site, early access, and marketplace operating model.",
   "publicPresence.info.terms.eyebrow": "Terms",
   "publicPresence.info.terms.marketplace.body":
-    "Marketplace terms cover beta fee-lock eligibility, listing changes, offers, checkout, Marketplace Checkout Fee, fulfillment, reviews, fees, and payouts. Public marketplace checkout opens only after production promotion approval.",
+    "Marketplace terms cover beta fee-lock rules, listing changes, offers, checkout, checkout fees, fulfillment, reviews, fees, and payouts. Marketplace checkout opens at launch.",
   "publicPresence.info.terms.marketplace.title": "Marketplace terms",
   "publicPresence.info.terms.prelaunch.body":
-    "The public site explains Chase Sets and collects early access interest. Marketplace checkout, listing, payment, fulfillment, review, and payout workflows require account access and are gated until production promotion approval.",
+    "The public site explains Chase Sets and collects early access interest. Marketplace checkout, listing, payment, fulfillment, review, and payout workflows require account access and remain gated until launch.",
   "publicPresence.info.terms.prelaunch.title": "Current availability",
   "publicPresence.info.terms.title": "Terms of service",
   "publicPresence.nav.browse": "Browse",
@@ -257,7 +257,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.nav.sellerFees": "Marketplace sales fees",
   "publicPresence.nav.terms": "Terms",
   "publicPresence.preview.section.description":
-    "Sample UI showing how price, account signal, condition, shipping, earned shipping credit, order processing, returns, and order protection stay together before checkout.",
+    "Sample UI showing how price, seller profile, condition, shipping, earned shipping credit, order processing, returns, and order protection stay together before checkout.",
   "publicPresence.preview.section.title": "Preview the buying experience",
   "publicPresence.preview.listing.badge": "Sample listing",
   "publicPresence.preview.listing.title": "Pikachu Illustration Rare",
@@ -266,13 +266,13 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.preview.listing.availability.value": "Sample: 3 available",
   "publicPresence.preview.listing.condition.value": "Raw Near Mint",
   "publicPresence.preview.listing.description":
-    "Pokemon Scarlet & Violet 151, 173/165 Illustration Rare, English. Condition, account history, shipping estimate, return eligibility, and support coverage stay with the listing.",
+    "Pokemon Scarlet & Violet 151, 173/165 Illustration Rare, English. Condition, seller history, shipping estimate, return options, and support coverage stay with the listing.",
   "publicPresence.preview.listing.imageAlt": "Sample Pikachu 173/165 Illustration Rare Pokemon card.",
   "publicPresence.preview.listing.price.detail": "Raw market estimate",
   "publicPresence.preview.listing.price.explanation":
     "Review account, condition, returns, support, and shipping first.",
   "publicPresence.preview.listing.price.value": "$83.40",
-  "publicPresence.preview.listing.returnPolicy.value": "Return eligibility shown before payment",
+  "publicPresence.preview.listing.returnPolicy.value": "Return options shown before payment",
   "publicPresence.preview.listing.seller.meta": "Sample profile data",
   "publicPresence.preview.listing.seller.trust": "Verification placement shown",
   "publicPresence.preview.listing.seller.value": "Sample card account",
@@ -294,17 +294,17 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.preview.total.due": "Estimated order total",
   "publicPresence.preview.total.due.value": "$83.88",
   "publicPresence.preview.total.description":
-    "Checkout shows the original shipping estimate, the 5% shipping credit, net tracked shipping, and any Marketplace Checkout Fee before payment.",
+    "Checkout shows the original shipping estimate, the 5% shipping credit, net tracked shipping, and any checkout fee before payment.",
   "publicPresence.preview.total.reassurance":
     "Orders earn 5% of item value toward shipping; net shipping, order processing, and support details stay visible before you pay.",
   "publicPresence.preview.trust.payment.description":
-    "Provider-backed checkout confirms the final charge before you pay, including any buyer-side Marketplace Checkout Fee.",
+    "Provider-backed checkout confirms the final charge before you pay, including any buyer-side checkout fee.",
   "publicPresence.preview.trust.payment.title": "Secure payment review",
   "publicPresence.preview.trust.shipping.description":
-    "Example: one higher-value card shows $4.65 tracked shipping reduced to $0.48 after the 5% shipping credit. Same-account bundles show combined shipping before payment.",
+    "Example: one higher-value card shows $4.65 tracked shipping reduced to $0.48 after the 5% shipping credit. Items from the same seller show combined shipping before payment.",
   "publicPresence.preview.trust.shipping.title": "Shipping credit",
   "publicPresence.preview.trust.support.description":
-    "Support can review tracking, payment status, account details, listing evidence, and return eligibility.",
+    "Support reviews tracking, payment status, seller details, listing evidence, and return options.",
   "publicPresence.preview.trust.support.title": "Support context",
   "publicPresence.preview.trust.title": "Signals before payment",
   "publicPresence.promoBar.action.activated": "Promo bar message activated.",
@@ -359,8 +359,8 @@ export const publicPresenceEnglishTranslations = {
     "Answers about Chase Sets marketplace availability, beta seller fees, order processing, shipping, and safety.",
   "publicPresence.routes.faq.meta.title": "FAQ | Chase Sets",
   "publicPresence.routes.home.meta.description":
-    "Request Chase Sets early access for the seller beta: 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
-  "publicPresence.routes.home.meta.title": "Chase Sets Seller Beta Early Access | Trading Card Marketplace",
+    "Request Chase Sets early access for 0% beta seller fee locks, no separate seller payment-processing fee, Founding Account consideration, and buyer-visible delivered totals.",
+  "publicPresence.routes.home.meta.title": "Chase Sets Early Access | Trading Card Marketplace",
   "publicPresence.routes.home.waitlist.failed":
     "We could not request early access. Please check the form and try again.",
   "publicPresence.routes.privacy.meta.description":
@@ -383,7 +383,7 @@ export const publicPresenceEnglishTranslations = {
     "Ask support@chasesets.com to remove you from prelaunch updates or waitlist records.",
   "publicPresence.waitlist.afterSignup.join": "Sign up with your email, marketplace intent, and first priority.",
   "publicPresence.waitlist.afterSignup.signal":
-    "Tell us whether seller economics, bulk listing, buying, pricing, or shipping should open first.",
+    "Tell us whether seller economics, bulk listing, buying, pricing, or shipping matters first.",
   "publicPresence.waitlist.afterSignup.title": "What you get after signup",
   "publicPresence.waitlist.afterSignup.updates": "Get launch updates and early access consideration as invites open.",
   "publicPresence.waitlist.description":
@@ -399,7 +399,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.interest.bulkListing.description": "Listing many cards without one-by-one setup.",
   "publicPresence.waitlist.interest.efficientShipping": "Efficient shipping",
   "publicPresence.waitlist.interest.efficientShipping.description":
-    "Orders and fulfillment that make low-value cards practical.",
+    "Orders and fulfillment that make bulk and budget cards practical.",
   "publicPresence.waitlist.interest.lowSellerFees": "0% beta seller fees",
   "publicPresence.waitlist.interest.lowSellerFees.description":
     "Fee-locked beta listings and no separate seller processing fee.",
@@ -415,15 +415,15 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.role.both": "Purchase and sell",
   "publicPresence.waitlist.role.buy": "Purchase cards",
   "publicPresence.waitlist.role.sell": "List cards",
-  "publicPresence.waitlist.heroIntent.label": "What should we prioritize?",
+  "publicPresence.waitlist.heroIntent.label": "What comes first for you?",
   "publicPresence.waitlist.heroIntent.both": "Both",
   "publicPresence.waitlist.heroIntent.buy": "Buy",
   "publicPresence.waitlist.heroIntent.sell": "Sell",
   "publicPresence.waitlist.promise":
-    "One signup helps shape the first buyer and seller tools and reserves Founding Account badge eligibility for the earliest qualified accounts.",
+    "One signup helps shape the first buyer and seller tools and puts early accounts in line for Founding Account consideration.",
   "publicPresence.waitlist.submit": "Request early access",
   "publicPresence.waitlist.success.description":
-    "You are on the Chase Sets early access list. We will use your priorities to shape beta invites, Founding Account badge eligibility, and founders circle product feedback.",
+    "You are on the Chase Sets early access list. We will use your priorities to shape beta invites, Founding Account consideration, and founders circle product feedback.",
   "publicPresence.waitlist.success.title": "You are on the list",
   "publicPresence.waitlist.trust.noTransactions": "No live marketplace transactions are available during prelaunch.",
   "publicPresence.waitlist.trust.policies":

@@ -36,6 +36,15 @@ describe("render platform Helm values", () => {
     expect(Object.values(values.components).filter((component) => component.kind === "service")).toHaveLength(4);
     expect(Object.values(values.components).filter((component) => component.kind === "worker")).toHaveLength(1);
     expect(Object.values(values.components).filter((component) => component.kind === "job")).toHaveLength(1);
+    expect(values.ingress).toMatchObject({
+      enabled: false,
+      className: "nginx",
+      tls: {
+        enabled: true,
+        secretName: "chase-sets-platform-tls",
+      },
+      hosts: [],
+    });
   });
 
   it("derives commands, ports, and source count expressions from the DigitalOcean app spec", () => {
@@ -90,6 +99,7 @@ describe("render platform Helm values", () => {
     const chartFiles = [
       "templates/_helpers.tpl",
       "templates/deployment.yaml",
+      "templates/ingress.yaml",
       "templates/job.yaml",
       "templates/rbac.yaml",
       "templates/service.yaml",
@@ -99,8 +109,8 @@ describe("render platform Helm values", () => {
     );
     const chartText = `${readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")}\n${chartFiles.join("\n")}`;
 
-    expect(chartText).not.toMatch(/^kind: Ingress$/m);
     expect(chartText).not.toMatch(/^kind: Secret$/m);
+    expect(readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")).toContain("enabled: false");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
     expect(chartText).not.toContain("strategy: canary");

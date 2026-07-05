@@ -57,9 +57,10 @@ describe("public presence translator", () => {
 
     const copy = launchPolicyKeys.map((key) => publicPresenceT(key)).join(" ");
 
-    expect(copy).not.toMatch(/\b(prelaunch|future|intended|planned|expected|not yet)\b/i);
+    expect(copy).not.toMatch(/\b(future|intended|planned|expected)\b/i);
     expect(copy).not.toContain("will be published");
-    expect(copy).toContain("production promotion approval");
+    expect(copy).not.toContain("production promotion approval");
+    expect(copy).toContain("Marketplace checkout opens at launch.");
   });
 
   it("keeps uncertified UCP and AP2 agent-commerce claims out of public launch copy", () => {
