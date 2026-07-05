@@ -158,9 +158,10 @@ describe("bounded context subscription runner", () => {
     expect(throwIfLeaseLost).toHaveBeenCalled();
   });
 
-  it("reports applicable lag separately from source scan lag", async () => {
+  it("refreshes source lag without scanning applicable event lag", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
+    const sourceQuery = vi.spyOn(sourcePool, "query");
     sourceEventsByPool.set(sourcePool, [
       createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
       createStoredEvent("2", "catalog.category.created", { categoryId: "ctg_1" }),
@@ -180,7 +181,8 @@ describe("bounded context subscription runner", () => {
     const status = await runner.refreshStatus();
 
     expect(status.sourceLagEventCount).toBe("3");
-    expect(status.applicableLagEstimate).toBe("2");
+    expect(status.applicableLagEstimate).toBeNull();
+    expect(sourceQuery.mock.calls.some(([sql]) => String(sql).includes("SELECT COUNT(*) AS count"))).toBe(false);
   });
 
   it("surfaces reaction-kind subscription status separately from projection subscriptions", async () => {
@@ -584,6 +586,76 @@ describe("bounded context subscription runner", () => {
           outstandingEventCount: "1",
         }),
       ],
+    });
+  });
+
+  it("shares a source head read through the run context cache", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const sourceQuery = vi.spyOn(sourcePool, "query");
+    sourceHeadByPool.set(sourcePool, "5");
+    const firstRunner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection-a",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection-a",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const secondRunner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection-b",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection-b",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const context = {
+      sourceHeadGlobalPositionCache: new Map<string, Promise<string>>(),
+    } as never;
+
+    await Promise.all([firstRunner.runOnce(context), secondRunner.runOnce(context)]);
+
+    expect(
+      sourceQuery.mock.calls.filter(([sql]) =>
+        String(sql).includes("SELECT COALESCE(MAX(global_position), 0) AS head"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("rate-limits durable checkpoint fast-forward for idle unrelated source advances", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceHeadByPool.set(sourcePool, "1");
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    await runner.runOnce();
+    sourceHeadByPool.set(sourcePool, "2");
+    await runner.runOnce();
+
+    expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("1");
+    expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(1);
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "2",
+      sourceHeadGlobalPosition: "2",
+      outstandingEventCount: "0",
+      state: "caught-up",
     });
   });
 

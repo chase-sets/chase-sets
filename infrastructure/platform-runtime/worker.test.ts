@@ -785,6 +785,106 @@ describe("worker runner loop", () => {
     });
   });
 
+  it("skips unchanged idle runner status and projection snapshot writes before heartbeat", async () => {
+    let runs = 0;
+    const statuses: unknown[] = [];
+    const snapshots: unknown[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane({
+      recordRunnerStatus: async (status) => {
+        statuses.push(status);
+      },
+      recordProjectionStatusSnapshot: async (snapshot) => {
+        snapshots.push(snapshot);
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "inventory.inventory-catalog-item-projection",
+      kind: "projection-group",
+      projectionStatusSnapshot: () =>
+        createProjectionGroup({
+          refreshStatus: async () => ({ revisionStale: false }),
+        }).getStatus() as never,
+      runOnce: async () => {
+        runs += 1;
+        return {
+          processed: 0,
+          lastGlobalPosition: "0" as never,
+        };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      statusHeartbeatIntervalMs: 60_000,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(runs).toBeGreaterThanOrEqual(3);
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(statuses).toHaveLength(2);
+    expect(statuses).toEqual([
+      expect.objectContaining({ state: "running" }),
+      expect.objectContaining({ state: "caught-up" }),
+    ]);
+    expect(snapshots).toHaveLength(1);
+  });
+
+  it("republishes unchanged idle runner status and projection snapshots on heartbeat", async () => {
+    const statuses: unknown[] = [];
+    const snapshots: unknown[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane({
+      recordRunnerStatus: async (status) => {
+        statuses.push(status);
+      },
+      recordProjectionStatusSnapshot: async (snapshot) => {
+        snapshots.push(snapshot);
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "inventory.inventory-catalog-item-projection",
+      kind: "projection-group",
+      projectionStatusSnapshot: () =>
+        createProjectionGroup({
+          refreshStatus: async () => ({ revisionStale: false }),
+        }).getStatus() as never,
+      runOnce: async () => ({
+        processed: 0,
+        lastGlobalPosition: "0" as never,
+      }),
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      statusHeartbeatIntervalMs: 10,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(statuses.length).toBeGreaterThan(2);
+        expect(snapshots.length).toBeGreaterThan(1);
+      });
+    } finally {
+      await loop.stop();
+    }
+  });
+
   it("does not publish projection snapshots for non-projection runners", async () => {
     const snapshots: unknown[] = [];
     const controlPlane = createAlwaysLeasedControlPlane({
@@ -1023,6 +1123,74 @@ describe("worker runner loop", () => {
     (releaseSlowRunner as (() => void) | null)?.();
     await expect(run).resolves.toMatchObject({ processed: 3, lastGlobalPosition: "4" });
     expect(calls).toEqual(["slow-start", "same-order", "slow-end", "later-order"]);
+  });
+
+  it("shares source-head cache across subscription runners in one projection group pass", async () => {
+    let sourceHeadReads = 0;
+    const readSourceHead = (context: ProjectionRunContext | undefined, sourceContextName: string) => {
+      const cache = (
+        context as
+          | (ProjectionRunContext & {
+              sourceHeadGlobalPositionCache?: Map<string, Promise<string>>;
+            })
+          | undefined
+      )?.sourceHeadGlobalPositionCache;
+      if (!cache) {
+        sourceHeadReads += 1;
+        return Promise.resolve("5");
+      }
+
+      let sourceHead = cache.get(sourceContextName);
+      if (!sourceHead) {
+        sourceHeadReads += 1;
+        sourceHead = Promise.resolve("5");
+        cache.set(sourceContextName, sourceHead);
+      }
+
+      return sourceHead;
+    };
+    const firstCatalogRunner = {
+      subscriptionName: "inventory.catalog-a",
+      targetContextName: "inventory",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      checkpointKey: "inventory-catalog-item-projection:catalog-a:v1",
+      order: 10,
+      runOnce: async (context?: ProjectionRunContext) => ({
+        processed: 0,
+        lastGlobalPosition: (await readSourceHead(context, "catalog")) as never,
+      }),
+    };
+    const secondCatalogRunner = {
+      ...firstCatalogRunner,
+      subscriptionName: "inventory.catalog-b",
+      checkpointKey: "inventory-catalog-item-projection:catalog-b:v1",
+    };
+    const marketplaceRunner = {
+      ...firstCatalogRunner,
+      subscriptionName: "inventory.marketplace",
+      sourceContextName: "marketplace",
+      checkpointKey: "inventory-catalog-item-projection:marketplace:v1",
+      runOnce: async (context?: ProjectionRunContext) => ({
+        processed: 0,
+        lastGlobalPosition: (await readSourceHead(context, "marketplace")) as never,
+      }),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [firstCatalogRunner, secondCatalogRunner, marketplaceRunner],
+      refreshStatus: async () => ({ revisionStale: false }),
+    });
+    const [runner] = collectWorkerRunners({
+      mountedContexts: [],
+      services: {},
+      projectors: [],
+      projectionGroups: [group],
+      subscriptionRunners: [firstCatalogRunner, secondCatalogRunner, marketplaceRunner],
+    } as never);
+
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0, lastGlobalPosition: "5" });
+    expect(sourceHeadReads).toBe(2);
   });
 
   it("cancels a running projection operation when the operation state requests cancellation", async () => {
