@@ -1,9 +1,8 @@
 {{- range $name, $component := .Values.components }}
-{{- $rolloutEnabled := and $component.rollout $component.rollout.enabled }}
-{{- if and $component.enabled (not $rolloutEnabled) (or (eq $component.kind "service") (eq $component.kind "worker")) }}
+{{- if and $component.enabled (eq $component.kind "service") $component.rollout $component.rollout.enabled }}
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
   labels:
@@ -13,6 +12,19 @@ spec:
   selector:
     matchLabels:
 {{ include "chase-sets-platform.selectorLabels" (dict "root" $ "name" $name) | nindent 6 }}
+  strategy:
+    canary:
+      stableService: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" $name) }}
+      canaryService: {{ include "chase-sets-platform.canaryServiceName" (dict "root" $ "name" $name) }}
+      {{- if and $component.rollout.canary.trafficRouting.nginx.enabled $component.rollout.canary.trafficRouting.nginx.stableIngress }}
+      trafficRouting:
+        nginx:
+          stableIngress: {{ $component.rollout.canary.trafficRouting.nginx.stableIngress | quote }}
+      {{- end }}
+      {{- with $component.rollout.canary.steps }}
+      steps:
+{{ toYaml . | nindent 8 }}
+      {{- end }}
   template:
     metadata:
       labels:
