@@ -313,9 +313,9 @@ async function refreshCatalogMirrorItemsByBlueprintIds(
   tables: CatalogMirrorTables,
   blueprintIds: readonly string[],
 ): Promise<void> {
-  await Promise.all(
-    [...new Set(blueprintIds)].map((blueprintId) => refreshCatalogMirrorItemsByBlueprint(db, tables, blueprintId)),
-  );
+  for (const blueprintId of new Set(blueprintIds)) {
+    await refreshCatalogMirrorItemsByBlueprint(db, tables, blueprintId);
+  }
 }
 
 export function buildCatalogMirrorProjectionHandlers(db: PgQueryable, spec: CatalogMirrorSpec): ProjectorHandlerMap {

@@ -9,6 +9,7 @@ import {
 
 const projectionDbContext = new AsyncLocalStorage<PgQueryable>();
 
+const DEFAULT_PROJECTION_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS = 15_000;
 const MAX_STATEMENT_TIMEOUT_MS = 2_147_483_647;
 let nestedProjectionTransactionSequence = 0;
 
@@ -47,6 +48,7 @@ export async function withProjectionTransaction<T>(
   return withPgTransaction(pool, async (client) => {
     const idleInTransactionSessionTimeoutMs = normalizeProjectionIdleInTransactionSessionTimeoutMs(
       context?.idleInTransactionSessionTimeoutMs,
+      pool.idleInTransactionSessionTimeoutMillis,
     );
     if (
       idleInTransactionSessionTimeoutMs !== null &&
@@ -71,24 +73,25 @@ export async function withProjectionTransaction<T>(
 
 function normalizeProjectionIdleInTransactionSessionTimeoutMs(
   idleInTransactionSessionTimeoutMs: number | undefined,
+  poolIdleInTransactionSessionTimeoutMs: number | undefined,
 ): number | null {
-  if (
-    idleInTransactionSessionTimeoutMs === undefined ||
-    !Number.isFinite(idleInTransactionSessionTimeoutMs) ||
-    idleInTransactionSessionTimeoutMs <= 0
-  ) {
-    return null;
-  }
-
-  return Math.ceil(idleInTransactionSessionTimeoutMs);
+  return normalizePositiveIntegerMs(
+    idleInTransactionSessionTimeoutMs ??
+      poolIdleInTransactionSessionTimeoutMs ??
+      DEFAULT_PROJECTION_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS,
+  );
 }
 
 function normalizeProjectionStatementTimeoutMs(statementTimeoutMs: number | undefined): number | null {
-  if (statementTimeoutMs === undefined || !Number.isFinite(statementTimeoutMs) || statementTimeoutMs <= 0) {
+  return normalizePositiveIntegerMs(statementTimeoutMs);
+}
+
+function normalizePositiveIntegerMs(value: number | undefined): number | null {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
     return null;
   }
 
-  return Math.min(Math.ceil(statementTimeoutMs), MAX_STATEMENT_TIMEOUT_MS);
+  return Math.min(Math.ceil(value), MAX_STATEMENT_TIMEOUT_MS);
 }
 
 function createNestedProjectionClient(scopedDb: PgQueryable): PgPoolClient {

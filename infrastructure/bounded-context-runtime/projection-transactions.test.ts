@@ -37,7 +37,7 @@ function createRecordingPool(options: { idleInTransactionSessionTimeoutMillis?: 
 }
 
 describe("projection transactions", () => {
-  it("sets projection statement timeouts using Postgres SET syntax", async () => {
+  it("sets projection idle and statement timeouts using Postgres SET syntax", async () => {
     const { calls, pool } = createRecordingPool();
     const context = {
       statementTimeoutMs: 12.2,
@@ -53,7 +53,23 @@ describe("projection transactions", () => {
 
     expect(calls).toEqual([
       { sql: "BEGIN", values: undefined },
+      { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15000ms"] },
       { sql: "SELECT set_config('statement_timeout', $1, true)", values: ["13ms"] },
+      { sql: "SELECT 1", values: undefined },
+      { sql: "COMMIT", values: undefined },
+    ]);
+  });
+
+  it("sets a default projection idle timeout when pool metadata and run context omit one", async () => {
+    const { calls, pool } = createRecordingPool();
+
+    await withProjectionTransaction(pool, undefined, async (client) => {
+      await client.query("SELECT 1");
+    });
+
+    expect(calls).toEqual([
+      { sql: "BEGIN", values: undefined },
+      { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15000ms"] },
       { sql: "SELECT 1", values: undefined },
       { sql: "COMMIT", values: undefined },
     ]);
@@ -135,7 +151,11 @@ describe("projection transactions", () => {
 
       await withProjectionTransaction(pool, context, async () => undefined);
 
-      expect(calls.map((call) => call.sql)).toEqual(["BEGIN", "COMMIT"]);
+      expect(calls.map((call) => call.sql)).toEqual([
+        "BEGIN",
+        "SELECT set_config('idle_in_transaction_session_timeout', $1, true)",
+        "COMMIT",
+      ]);
     }
   });
 
