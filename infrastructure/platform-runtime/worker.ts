@@ -135,6 +135,7 @@ type WorkerHostPools = Readonly<
 >;
 
 export const DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS = 15_000;
+const DEFAULT_WORKER_STATUS_HEARTBEAT_INTERVAL_MS = 60_000;
 
 export type DurableJobLaneRunContext = Readonly<{
   workflowName: string;
@@ -165,6 +166,7 @@ type WorkerRunnerLoopOptions = Readonly<{
   pollIntervalMs: number;
   failureBackoffBaseMs?: number;
   failureBackoffMaxMs?: number;
+  statusHeartbeatIntervalMs?: number;
   observer?: WorkerRuntimeObserver;
   onError?: (error: unknown, runner: WorkerRunner) => void;
 }>;
@@ -178,6 +180,21 @@ type LeasedRunnerOutcome = Readonly<
       result?: ProjectorRunResult;
     }
 >;
+
+type RunnerStatusPublication = Parameters<PlatformControlPlane["recordRunnerStatus"]>[0];
+type ProjectionStatusPublication = Parameters<PlatformControlPlane["recordProjectionStatusSnapshot"]>[0];
+
+type PublishedFingerprint = Readonly<{
+  fingerprint: string;
+  state?: string;
+  publishedAtMs: number;
+}>;
+
+type WorkerStatusPublishState = {
+  heartbeatIntervalMs: number;
+  runnerStatuses: Map<string, PublishedFingerprint>;
+  projectionSnapshots: Map<string, PublishedFingerprint>;
+};
 
 export function createDurableJobLaneRunners(input: {
   workflowName: string;
@@ -372,6 +389,14 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduleAgainAfterCurrentPass = false;
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
   const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
+  const statusPublishState: WorkerStatusPublishState = {
+    heartbeatIntervalMs: Math.max(
+      0,
+      Math.floor(options.statusHeartbeatIntervalMs ?? DEFAULT_WORKER_STATUS_HEARTBEAT_INTERVAL_MS),
+    ),
+    runnerStatuses: new Map(),
+    projectionSnapshots: new Map(),
+  };
 
   const queueImmediateSchedule = () => {
     if (stopped) {
@@ -405,7 +430,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     const runAbortController = new AbortController();
     let completedResult: ProjectorRunResult | undefined;
     let leaseAcquired = false;
-    const promise = runLeasedRunner(options, runner, runAbortController.signal)
+    const promise = runLeasedRunner(options, runner, runAbortController.signal, statusPublishState)
       .then((outcome) => {
         if (!outcome.leaseAcquired) {
           leaseMissCount += 1;
@@ -603,10 +628,98 @@ function resolveRunnerPriority(runner: WorkerRunner): bigint {
   }
 }
 
+async function maybeRecordRunnerStatus(
+  options: WorkerRunnerLoopOptions,
+  publishState: WorkerStatusPublishState,
+  input: RunnerStatusPublication,
+  publishOptions: Readonly<{ force?: boolean }> = {},
+): Promise<void> {
+  const fingerprint = stableJsonFingerprint({
+    runnerName: input.runnerName,
+    runnerKind: input.runnerKind,
+    state: input.state,
+    lastProcessed: input.lastProcessed ?? null,
+    lastError: input.lastError ?? null,
+  });
+  const previous = publishState.runnerStatuses.get(input.runnerName);
+  const nowMs = Date.now();
+  const heartbeatDue = previous !== undefined && nowMs - previous.publishedAtMs >= publishState.heartbeatIntervalMs;
+  const shouldPublish =
+    publishOptions.force === true ||
+    previous === undefined ||
+    heartbeatDue ||
+    (input.state === "running"
+      ? previous.state !== "running" && previous.state !== "caught-up"
+      : previous.fingerprint !== fingerprint);
+
+  if (!shouldPublish) {
+    return;
+  }
+
+  await options.controlPlane.recordRunnerStatus(input);
+  publishState.runnerStatuses.set(input.runnerName, {
+    fingerprint,
+    state: input.state,
+    publishedAtMs: nowMs,
+  });
+}
+
+async function maybeRecordProjectionStatusSnapshot(
+  options: WorkerRunnerLoopOptions,
+  publishState: WorkerStatusPublishState,
+  input: ProjectionStatusPublication,
+  publishOptions: Readonly<{ force?: boolean }> = {},
+): Promise<void> {
+  const fingerprint = stableJsonFingerprint({
+    projectionKey: input.projectionKey,
+    targetContextName: input.targetContextName,
+    projectionName: input.projectionName,
+    runnerName: input.runnerName,
+    status: input.status,
+  });
+  const previous = publishState.projectionSnapshots.get(input.projectionKey);
+  const nowMs = Date.now();
+  const heartbeatDue = previous !== undefined && nowMs - previous.publishedAtMs >= publishState.heartbeatIntervalMs;
+  if (
+    publishOptions.force !== true &&
+    previous !== undefined &&
+    previous.fingerprint === fingerprint &&
+    !heartbeatDue
+  ) {
+    return;
+  }
+
+  await options.controlPlane.recordProjectionStatusSnapshot(input);
+  publishState.projectionSnapshots.set(input.projectionKey, {
+    fingerprint,
+    publishedAtMs: nowMs,
+  });
+}
+
+function stableJsonFingerprint(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => [key, sortJsonValue(entryValue)]),
+  );
+}
+
 async function runLeasedRunner(
   options: WorkerRunnerLoopOptions,
   runner: WorkerRunner,
   runSignal?: AbortSignal,
+  statusPublishState?: WorkerStatusPublishState,
 ): Promise<LeasedRunnerOutcome> {
   if (runSignal?.aborted) {
     return { leaseAcquired: true };
@@ -660,9 +773,14 @@ async function runLeasedRunner(
       });
   }, options.leaseRenewIntervalMs);
   renewalTimer.unref?.();
+  const publishState = statusPublishState ?? {
+    heartbeatIntervalMs: DEFAULT_WORKER_STATUS_HEARTBEAT_INTERVAL_MS,
+    runnerStatuses: new Map<string, PublishedFingerprint>(),
+    projectionSnapshots: new Map<string, PublishedFingerprint>(),
+  };
 
   try {
-    await options.controlPlane.recordRunnerStatus({
+    await maybeRecordRunnerStatus(options, publishState, {
       runnerName: runner.name,
       runnerKind: runner.kind,
       state: "running",
@@ -692,32 +810,42 @@ async function runLeasedRunner(
     const state = result.state === "degraded" ? "degraded" : result.processed > 0 ? "running" : "caught-up";
 
     throwIfLeaseLost();
-    await options.controlPlane.recordRunnerStatus({
-      runnerName: runner.name,
-      runnerKind: runner.kind,
-      state,
-      ownerId: lease.ownerId,
-      fencingToken: lease.fencingToken,
-      lastProcessed: result.processed,
-      lastError:
-        state === "degraded"
-          ? `${projectionStatusSnapshot?.handlerKind === "reaction" ? "Reaction" : "Projection"} has ${
-              result.blockedStreams ?? 0
-            } blocked stream(s) and ${result.poisonEvents ?? 0} poison event(s).`
-          : null,
-    });
+    await maybeRecordRunnerStatus(
+      options,
+      publishState,
+      {
+        runnerName: runner.name,
+        runnerKind: runner.kind,
+        state,
+        ownerId: lease.ownerId,
+        fencingToken: lease.fencingToken,
+        lastProcessed: result.processed,
+        lastError:
+          state === "degraded"
+            ? `${projectionStatusSnapshot?.handlerKind === "reaction" ? "Reaction" : "Projection"} has ${
+                result.blockedStreams ?? 0
+              } blocked stream(s) and ${result.poisonEvents ?? 0} poison event(s).`
+            : null,
+      },
+      { force: result.processed > 0 || state === "degraded" },
+    );
 
     if (projectionStatusSnapshot) {
       throwIfLeaseLost();
-      await options.controlPlane.recordProjectionStatusSnapshot({
-        projectionKey: `${projectionStatusSnapshot.targetContextName}.${projectionStatusSnapshot.projectionName}`,
-        targetContextName: projectionStatusSnapshot.targetContextName,
-        projectionName: projectionStatusSnapshot.projectionName,
-        runnerName: runner.name,
-        ownerId: lease.ownerId,
-        fencingToken: lease.fencingToken,
-        status: projectionStatusSnapshot as unknown as Record<string, unknown>,
-      });
+      await maybeRecordProjectionStatusSnapshot(
+        options,
+        publishState,
+        {
+          projectionKey: `${projectionStatusSnapshot.targetContextName}.${projectionStatusSnapshot.projectionName}`,
+          targetContextName: projectionStatusSnapshot.targetContextName,
+          projectionName: projectionStatusSnapshot.projectionName,
+          runnerName: runner.name,
+          ownerId: lease.ownerId,
+          fencingToken: lease.fencingToken,
+          status: projectionStatusSnapshot as unknown as Record<string, unknown>,
+        },
+        { force: result.processed > 0 || state === "degraded" },
+      );
     }
     return { leaseAcquired: true, result };
   } catch (error) {
@@ -729,14 +857,19 @@ async function runLeasedRunner(
       error,
     });
     if (leaseActive && !abortController.signal.aborted) {
-      await options.controlPlane.recordRunnerStatus({
-        runnerName: runner.name,
-        runnerKind: runner.kind,
-        state: "error",
-        ownerId: lease.ownerId,
-        fencingToken: lease.fencingToken,
-        lastError: error instanceof Error ? error.message : String(error),
-      });
+      await maybeRecordRunnerStatus(
+        options,
+        publishState,
+        {
+          runnerName: runner.name,
+          runnerKind: runner.kind,
+          state: "error",
+          ownerId: lease.ownerId,
+          fencingToken: lease.fencingToken,
+          lastError: error instanceof Error ? error.message : String(error),
+        },
+        { force: true },
+      );
     }
     throw error;
   } finally {
@@ -1486,6 +1619,10 @@ async function runSubscriptionRunnersByOrder(
 ): Promise<readonly ProjectorRunResult[]> {
   const results: ProjectorRunResult[] = [];
   const sortedRunners = sortSubscriptionRunners(runners);
+  const runContext = {
+    ...context,
+    sourceHeadGlobalPositionCache: new Map<string, Promise<ProjectorRunResult["lastGlobalPosition"]>>(),
+  } as ProjectionRunContext;
 
   for (let index = 0; index < sortedRunners.length; ) {
     const order = sortedRunners[index].order;
@@ -1497,7 +1634,7 @@ async function runSubscriptionRunnersByOrder(
     }
 
     context?.throwIfLeaseLost?.();
-    results.push(...(await Promise.all(sameOrderRunners.map((runner) => runner.runOnce(context)))));
+    results.push(...(await Promise.all(sameOrderRunners.map((runner) => runner.runOnce(runContext)))));
   }
 
   return results;
