@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
+import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 
 function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
   return {
@@ -14,6 +15,13 @@ function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
       chaseSets,
     },
   };
+}
+
+function batchDurationSeconds(batch) {
+  return batch
+    .split(",")
+    .filter(Boolean)
+    .reduce((total, suiteId) => total + estimatedE2eSuiteDurationSeconds(suiteId), 0);
 }
 
 describe("change-scope", () => {
@@ -454,22 +462,37 @@ describe("change-scope", () => {
     expect(scope.e2eTestsRequired).toBe(false);
   });
 
-  it("emits suite batches for E2E matrix fanout", () => {
+  it("emits duration-balanced suite batches for E2E matrix fanout", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
       changedFiles: ["package.json"],
       workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
     });
-
-    expect(JSON.parse(toOutputMap(scope).e2e_suite_batches_json)).toEqual([
+    const suiteBatches = JSON.parse(toOutputMap(scope).e2e_suite_batches_json);
+    const oldStaticBatches = [
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
       "catalog_admin_integrations,catalog_admin_modeling",
       "admin_growth,admin_commerce",
       "admin_support,admin_platform",
       "admin_auth,admin_access",
+    ];
+    const batchMeanSeconds =
+      suiteBatches.reduce((total, batch) => total + batchDurationSeconds(batch), 0) / suiteBatches.length;
+    const longestBatchDistanceFromMean = (batches) => Math.max(...batches.map(batchDurationSeconds)) - batchMeanSeconds;
+
+    expect(suiteBatches).toEqual([
+      "catalog_admin_integrations,admin_auth",
+      "catalog_admin_modeling,admin_platform",
+      "marketplace_checkout,admin_support",
+      "marketplace_browse,marketplace_account",
+      "admin_commerce,admin_access",
+      "marketplace_seller,admin_growth",
     ]);
+    expect(suiteBatches.flatMap((batch) => batch.split(",")).sort()).toEqual([...scope.e2eSuiteIds].sort());
+    expect(new Set(suiteBatches.flatMap((batch) => batch.split(","))).size).toBe(scope.e2eSuiteIds.length);
+    expect(longestBatchDistanceFromMean(suiteBatches)).toBeLessThan(longestBatchDistanceFromMean(oldStaticBatches) / 2);
     expect(toOutputMap(scope)).not.toHaveProperty("coverage_fast");
     expect(toOutputMap(scope)).not.toHaveProperty("coverage_summary");
     expect(toOutputMap(scope).exposure_posture_changed).toBe("false");

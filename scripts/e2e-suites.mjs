@@ -5,6 +5,7 @@ export const e2eSuites = Object.freeze([
     deployable: "marketplace",
     journeys: ["browse", "search", "auth entry"],
     grep: "@marketplace-browse",
+    estimatedDurationSeconds: 420,
   },
   {
     id: "marketplace_account",
@@ -12,6 +13,7 @@ export const e2eSuites = Object.freeze([
     deployable: "marketplace",
     journeys: ["account access", "authentication"],
     grep: "@marketplace-account",
+    estimatedDurationSeconds: 300,
   },
   {
     id: "marketplace_checkout",
@@ -19,6 +21,7 @@ export const e2eSuites = Object.freeze([
     deployable: "marketplace",
     journeys: ["buy cart", "sell list", "checkout"],
     grep: "@marketplace-checkout",
+    estimatedDurationSeconds: 540,
   },
   {
     id: "marketplace_seller",
@@ -26,6 +29,7 @@ export const e2eSuites = Object.freeze([
     deployable: "marketplace",
     journeys: ["listings", "offers", "seller operations"],
     grep: "@marketplace-seller",
+    estimatedDurationSeconds: 360,
   },
   {
     id: "catalog_admin_integrations",
@@ -33,6 +37,7 @@ export const e2eSuites = Object.freeze([
     deployable: "admin-web",
     journeys: ["provider profile management", "catalog integrations"],
     grep: "@catalog-admin-integrations",
+    estimatedDurationSeconds: 720,
   },
   {
     id: "catalog_admin_modeling",
@@ -40,6 +45,7 @@ export const e2eSuites = Object.freeze([
     deployable: "admin-web",
     journeys: ["dimensions", "catalog model authoring"],
     grep: "@catalog-admin-modeling",
+    estimatedDurationSeconds: 660,
   },
   {
     id: "admin_growth",
@@ -47,6 +53,7 @@ export const e2eSuites = Object.freeze([
     deployable: "admin-web",
     journeys: ["Google Shopping operations", "waitlist review", "promo bar management"],
     grep: "@admin-growth",
+    estimatedDurationSeconds: 360,
   },
   {
     id: "admin_commerce",
@@ -54,6 +61,7 @@ export const e2eSuites = Object.freeze([
     deployable: "admin-web",
     journeys: ["commercial terms management", "postage policy management"],
     grep: "@admin-commerce",
+    estimatedDurationSeconds: 420,
   },
   {
     id: "admin_support",
@@ -61,6 +69,7 @@ export const e2eSuites = Object.freeze([
     deployable: "admin-web",
     journeys: ["support request operations", "platform feedback triage"],
     grep: "@admin-support",
+    estimatedDurationSeconds: 240,
   },
   {
     id: "admin_platform",
@@ -68,6 +77,7 @@ export const e2eSuites = Object.freeze([
     deployable: "admin-web",
     journeys: ["projection operations", "API topology"],
     grep: "@admin-platform",
+    estimatedDurationSeconds: 240,
   },
   {
     id: "admin_auth",
@@ -75,6 +85,7 @@ export const e2eSuites = Object.freeze([
     deployable: "admin-web",
     journeys: ["admin sign-in", "shell session", "RBAC entry"],
     grep: "@admin-auth",
+    estimatedDurationSeconds: 180,
   },
   {
     id: "admin_access",
@@ -82,14 +93,17 @@ export const e2eSuites = Object.freeze([
     deployable: "admin-web",
     journeys: ["invitation lifecycle", "api key lifecycle"],
     grep: "@admin-access",
+    estimatedDurationSeconds: 300,
   },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
+const suitesById = new Map(e2eSuites.map((suite) => [suite.id, suite]));
 const allMarketplaceSuiteIds = e2eSuites.filter((suite) => suite.deployable === "marketplace").map((suite) => suite.id);
 const allAdminWebSuiteIds = e2eSuites.filter((suite) => suite.deployable === "admin-web").map((suite) => suite.id);
 const allBrowserSuiteIds = e2eSuites.map((suite) => suite.id);
 const defaultSuiteBatchSize = 2;
+const fallbackEstimatedSuiteDurationSeconds = 300;
 
 const browserRuntimePatterns = [
   /^package\.json$/,
@@ -425,17 +439,41 @@ export function orderE2eSuiteIds(suiteIds) {
 export function batchE2eSuiteIds(suiteIds, batchSize = defaultSuiteBatchSize) {
   const orderedSuiteIds = orderE2eSuiteIds(suiteIds);
   const safeBatchSize = Math.max(1, batchSize);
-  const batches = [];
+  const batchCount = Math.ceil(orderedSuiteIds.length / safeBatchSize);
+  const batches = Array.from({ length: batchCount }, (_entry, index) => ({
+    estimatedDurationSeconds: 0,
+    index,
+    suiteIds: [],
+  }));
 
-  for (let index = 0; index < orderedSuiteIds.length; index += safeBatchSize) {
-    batches.push(orderedSuiteIds.slice(index, index + safeBatchSize).join(","));
+  const suiteIdsByDescendingDuration = [...orderedSuiteIds].sort((left, right) => {
+    const durationDelta = estimatedE2eSuiteDurationSeconds(right) - estimatedE2eSuiteDurationSeconds(left);
+    return durationDelta === 0 ? (suiteOrder.get(left) ?? 999) - (suiteOrder.get(right) ?? 999) : durationDelta;
+  });
+
+  for (const suiteId of suiteIdsByDescendingDuration) {
+    const targetBatch = batches
+      .filter((batch) => batch.suiteIds.length < safeBatchSize)
+      .sort(
+        (left, right) =>
+          left.estimatedDurationSeconds - right.estimatedDurationSeconds ||
+          left.suiteIds.length - right.suiteIds.length ||
+          left.index - right.index,
+      )[0];
+
+    targetBatch.suiteIds.push(suiteId);
+    targetBatch.estimatedDurationSeconds += estimatedE2eSuiteDurationSeconds(suiteId);
   }
 
-  return batches;
+  return batches.map((batch) => orderE2eSuiteIds(batch.suiteIds).join(","));
 }
 
 export function e2eSuiteById(suiteId) {
-  return e2eSuites.find((suite) => suite.id === suiteId);
+  return suitesById.get(suiteId);
+}
+
+export function estimatedE2eSuiteDurationSeconds(suiteId) {
+  return e2eSuiteById(suiteId)?.estimatedDurationSeconds ?? fallbackEstimatedSuiteDurationSeconds;
 }
 
 export function isE2eSpecFile(filePath) {
