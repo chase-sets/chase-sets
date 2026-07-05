@@ -1881,6 +1881,29 @@ describe("DigitalOcean platform configuration", () => {
     expect(requiredJob).toContain('require_job "Workflow Lint"');
   });
 
+  it("requires preview deploy and smoke for deploy-scoped same-repository PRs without blocking forks", () => {
+    const previewJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
+
+    expect(previewJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(previewJob).toContain("needs['change-scope'].result == 'success'");
+    expect(previewJob).toContain("needs['change-scope'].outputs.deploy == 'true'");
+    expect(previewJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
+    expect(previewJob).toContain("needs['change-scope'].outputs.e2e_tests != 'true'");
+    expect(previewJob).toContain("needs['e2e-tests'].result == 'success'");
+    expect(previewJob).toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
+
+    expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(requiredJob).toContain("needs['change-scope'].outputs.deploy == 'true'");
+    expect(requiredJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
+    expect(requiredJob).toContain(
+      "Preview deployment and smoke must pass for same-repository deploy-scoped PRs and manual preview-label PRs.",
+    );
+    expect(requiredJob).toContain(
+      "Preview deployment had an unexpected result when it was not required: ${preview_result}.",
+    );
+  });
+
   it("fails pre-merge production plans with unapproved destructive changes", () => {
     const productionPlanStep = workflowStep(platformPrWorkflow, "Terraform plan production platform");
     const deployProductionPlanStep = workflowSteps(platformProductionWorkflow, "Terraform plan").at(-1);

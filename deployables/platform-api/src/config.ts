@@ -81,7 +81,7 @@ export type PlatformApiListingPhotoStorageConfig = PlatformApiCatalogAssetStorag
 
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
 
-const DEPLOYMENT_ENVIRONMENTS = ["production", "staging", "test", "dev", "local", "remote-dev"] as const;
+const DEPLOYMENT_ENVIRONMENTS = ["production", "staging", "preview", "test", "dev", "local", "remote-dev"] as const;
 
 export type PlatformApiBaseConfig = Readonly<{
   runtimeProfile: PlatformApiRuntimeProfile;

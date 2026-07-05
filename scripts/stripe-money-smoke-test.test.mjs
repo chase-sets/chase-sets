@@ -343,6 +343,12 @@ describe("stripe money smoke test", () => {
     );
     expect(paymentWebhookCalls).toHaveLength(2);
     expect(moneyMovementWebhookCalls).toHaveLength(2);
+    expect(JSON.parse(paymentWebhookCalls[1].init.body)).toMatchObject({
+      type: "product.created",
+    });
+    expect(JSON.parse(moneyMovementWebhookCalls[1].init.body)).toMatchObject({
+      type: "product.created",
+    });
   });
 
   it("covers seller health, balance-credit checkout, embedded setup, preview, and requested payout", async () => {
