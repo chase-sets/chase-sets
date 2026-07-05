@@ -13,7 +13,12 @@ export type MockStoredEvent = Readonly<{
 
 export type MockPool = {
   query: (sql: string, params?: readonly unknown[]) => Promise<{ rows: ReadonlyArray<Record<string, unknown>> }>;
-  connect: () => Promise<MockPool & { release: () => void }>;
+  connect: () => Promise<MockPoolClient>;
+};
+
+export type MockPoolClient = {
+  query: MockPool["query"];
+  release: () => void;
 };
 
 export const sourceEventsByPool = new Map<object, MockStoredEvent[]>();
@@ -131,6 +136,9 @@ export function getReadAllCalls(pool: object) {
 export function createMockPool(): MockPool {
   const pool = {
     query: async (sql: string, params: readonly unknown[] = []) => {
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
+        return { rows: [], rowCount: 0 };
+      }
       if (sql === "SELECT set_config('statement_timeout', $1, true)") {
         return { rows: [], rowCount: 0 };
       }
@@ -405,7 +413,7 @@ export function createMockPool(): MockPool {
       throw new Error(`Unexpected SQL in test double: ${sql}`);
     },
     connect: async () => ({
-      ...pool,
+      query: pool.query,
       release: () => undefined,
     }),
   };
@@ -439,6 +447,16 @@ export function createEventCoreMock() {
 export function createEventCorePostgresMock() {
   return {
     withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
+    isPgConnectionLevelError: (error: unknown) => {
+      if (typeof error !== "object" || error === null) {
+        return false;
+      }
+      const candidate = error as { code?: unknown };
+      const code = typeof candidate.code === "string" ? candidate.code.toUpperCase() : "";
+      return ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENOTFOUND", "08000", "08001", "08003"].includes(
+        code,
+      );
+    },
     isPgRetryableTransientError: (error: unknown) => {
       if (typeof error !== "object" || error === null) {
         return false;
