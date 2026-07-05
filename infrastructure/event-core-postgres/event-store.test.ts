@@ -482,6 +482,42 @@ describe("postgres transaction helper", () => {
     expect(releaseErrors).toEqual([undefined]);
   });
 
+  it("sets transaction-local idle-in-transaction timeout when the pool is configured", async () => {
+    const queries: QueryCall[] = [];
+    const releaseErrors: unknown[] = [];
+    const client = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        queries.push({ sql: sql.trim(), ...(params ? { params } : {}) });
+        return { rows: [], rowCount: 0 };
+      },
+      release: (error?: unknown) => {
+        releaseErrors.push(error);
+      },
+    };
+
+    await expect(
+      withPgTransaction(
+        {
+          query: client.query,
+          connect: async () => client,
+          idleInTransactionSessionTimeoutMillis: 15_000,
+        },
+        async (tx) => {
+          await tx.query("SELECT 1");
+          return "ok";
+        },
+      ),
+    ).resolves.toBe("ok");
+
+    expect(queries).toEqual([
+      { sql: "BEGIN" },
+      { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", params: ["15000ms"] },
+      { sql: "SELECT 1" },
+      { sql: "COMMIT" },
+    ]);
+    expect(releaseErrors).toEqual([undefined]);
+  });
+
   it("rolls back failed work and keeps the client reusable", async () => {
     const queries: string[] = [];
     const releaseErrors: unknown[] = [];
