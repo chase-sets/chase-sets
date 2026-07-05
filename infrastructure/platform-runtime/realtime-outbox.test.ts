@@ -1005,6 +1005,42 @@ describe("realtime outbox", () => {
     expect(statements).toEqual(["BEGIN", "UPDATE read_model", "INSERT realtime_outbox", "COMMIT", "release"]);
   });
 
+  it("sets idle transaction timeouts for realtime projection transactions", async () => {
+    const statements: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const client = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        statements.push({ sql, params });
+        return { rows: [] };
+      },
+      release: () => {
+        statements.push({ sql: "release", params: undefined });
+      },
+    };
+    const pool = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        statements.push({ sql: `pool:${sql}`, params });
+        return { rows: [] };
+      },
+      connect: async () => client,
+      idleCount: 1,
+      totalCount: 1,
+      waitingCount: 0,
+      idleInTransactionSessionTimeoutMillis: 15_000,
+    };
+
+    await runRealtimeProjectionTransaction(pool, async (tx) => {
+      await tx.query("UPDATE read_model");
+    });
+
+    expect(statements).toEqual([
+      { sql: "BEGIN", params: undefined },
+      { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", params: ["15000ms"] },
+      { sql: "UPDATE read_model", params: undefined },
+      { sql: "COMMIT", params: undefined },
+      { sql: "release", params: undefined },
+    ]);
+  });
+
   it("rolls back realtime projection transaction failures without destroying a clean client", async () => {
     const releaseErrors: unknown[] = [];
     const statements: string[] = [];
