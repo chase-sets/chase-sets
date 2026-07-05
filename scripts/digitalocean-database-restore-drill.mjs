@@ -229,8 +229,11 @@ export async function validateForkDatabases(options) {
 
 async function validateForkDatabase(options) {
   const startedAt = new Date().toISOString();
+  const connectionString = databaseUrlForDatabase(options.connectionUri, options.databaseCheck.databaseName);
+  const normalizedConnectionString = normalizeRestoreDrillDatabaseUrl(connectionString);
   const client = new options.ClientClass({
-    connectionString: databaseUrlForDatabase(options.connectionUri, options.databaseCheck.databaseName),
+    connectionString: normalizedConnectionString,
+    ssl: resolveRestoreDrillDatabaseSsl(normalizedConnectionString),
     application_name: "chase_sets_restore_drill",
   });
   const base = {
@@ -324,6 +327,33 @@ export function databaseUrlForDatabase(connectionUri, databaseName) {
   const url = new URL(connectionUri);
   url.pathname = `/${encodeURIComponent(databaseName)}`;
   return url.toString();
+}
+
+export function normalizeRestoreDrillDatabaseUrl(databaseUrl) {
+  try {
+    const url = new URL(databaseUrl);
+    if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
+      url.searchParams.set("uselibpqcompat", "true");
+      return url.toString();
+    }
+  } catch {
+    return databaseUrl;
+  }
+
+  return databaseUrl;
+}
+
+export function resolveRestoreDrillDatabaseSsl(databaseUrl) {
+  try {
+    const url = new URL(databaseUrl);
+    if (url.searchParams.get("sslmode") === "require") {
+      return { rejectUnauthorized: false };
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
 }
 
 function createBaseRecord(options, errors) {
