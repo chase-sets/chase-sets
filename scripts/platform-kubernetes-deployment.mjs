@@ -40,6 +40,7 @@ export function buildHelmUpgradeArgs(options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
   const image = parsePlatformImageRef(requiredOption(options.image, "image"));
+  const imagePullSecret = options.imagePullSecret ?? "";
 
   return [
     "upgrade",
@@ -63,6 +64,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     `global.image.tag=${image.tag}`,
     "--set-string",
     `global.image.digest=${image.digest}`,
+    ...(imagePullSecret ? ["--set-string", `global.imagePullSecrets[0].name=${imagePullSecret}`] : []),
   ];
 }
 
@@ -383,6 +385,7 @@ function parseArgs(argv, env = process.env) {
   return {
     command,
     image: readOption(rest, "--image", env.PLATFORM_IMAGE_REF),
+    imagePullSecret: readOption(rest, "--image-pull-secret", env.CHASE_SETS_IMAGE_PULL_SECRET_NAME ?? ""),
     namespace: readOption(rest, "--namespace", env.CHASE_SETS_KUBERNETES_NAMESPACE ?? defaultNamespace),
     release: readOption(rest, "--release", env.CHASE_SETS_HELM_RELEASE ?? defaultRelease),
     timeout: readOption(rest, "--timeout", env.CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT ?? defaultTimeout),
