@@ -1,0 +1,74 @@
+name: Platform CI Flake Digest
+
+on:
+  schedule:
+    # Weekly, Monday 15:00 UTC after the review cadence digest.
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: platform-ci-flake-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    name: Platform CI Flake Digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Build flake digest
+        id: digest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/release-health
+          pnpm run ops -- release-health:flake-digest \
+            --out artifacts/release-health/ci-flake-digest.json \
+            --markdown-out artifacts/release-health/ci-flake-digest.md \
+            --github-output "$GITHUB_OUTPUT"
+          cat artifacts/release-health/ci-flake-digest.md >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.issueBody' artifacts/release-health/ci-flake-digest.json > artifacts/release-health/ci-flake-digest-issue.md
+
+      - name: Create or update flake breach issue
+        if: steps.digest.outputs.breach_count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: ${{ steps.digest.outputs.issue_title }}
+        run: |
+          existing_issue="$(
+            gh issue list \
+              --repo "$GITHUB_REPOSITORY" \
+              --state open \
+              --search "${ISSUE_TITLE} in:title" \
+              --json number \
+              --jq '.[0].number // ""'
+          )"
+          if [ -n "$existing_issue" ]; then
+            gh issue comment "$existing_issue" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body-file artifacts/release-health/ci-flake-digest-issue.md
+          else
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$ISSUE_TITLE" \
+              --body-file artifacts/release-health/ci-flake-digest-issue.md \
+              --label kind:test \
+              --label kind:ops \
+              --label priority:p2 \
+              --milestone "Deploy Pipeline Reliability & Speed"
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-ci-flake-digest
+          path: artifacts/release-health/ci-flake-digest*
+          if-no-files-found: error
