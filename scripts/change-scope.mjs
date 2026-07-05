@@ -37,6 +37,7 @@ const deploymentScriptPatterns = [
   /^scripts\/stripe-money-smoke-test/,
   /^scripts\/apply-digitalocean-database-grant\.mjs$/,
 ];
+const workflowLintScriptPatterns = [/^scripts\/platform-kubernetes-secret\.mjs$/];
 const exposurePosturePatterns = {
   "public-marketplace-launch": [
     /^scripts\/marketplace-(?:launch|production|promotion|public-presence)/,
@@ -236,6 +237,7 @@ export function classifyChanges({
     rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
     rootTestConfigChanged ||= matchesAny(filePath, rootTestConfigPatterns);
     deploymentScriptChanged ||= matchesAny(filePath, deploymentScriptPatterns);
+    workflowChanged ||= matchesAny(filePath, workflowLintScriptPatterns);
     scriptOrConfigChanged ||=
       filePath.startsWith("scripts/") || rootRuntimeChanged || rootTestTypecheckChanged || rootTestConfigChanged;
   }

@@ -23,9 +23,27 @@ Run the freshness check before opening a PR:
 node ./scripts/render-platform-helm-values.mjs --check
 ```
 
+## Runtime Secrets
+
+Pods read sensitive environment variables from the existing Kubernetes Secret named by `global.existingSecretName` (`chase-sets-platform-runtime` by default). The chart intentionally does not render a Secret manifest, ExternalSecret, or sealed-secret payload because the DOKS migration keeps secret values out of git and Terraform state.
+
+Apply or rotate the runtime Secret from CI after the target cluster context is selected:
+
+```bash
+node ./scripts/platform-kubernetes-secret.mjs --namespace staging
+```
+
+The script derives required keys from this chart's `secret: true` env entries, reads the matching process environment variables, base64-encodes them in memory, and pipes the Secret manifest to `kubectl apply -f -`. It logs only the Secret name and key count. Use the dry run for rotation planning without printing values:
+
+```bash
+node ./scripts/platform-kubernetes-secret.mjs --dry-run --namespace staging
+```
+
+After a rotation applies, rerun the Helm upgrade or restart the affected runtime Deployments so pods reload environment variables from the updated Secret.
+
 ## Validation
 
-The Platform PR workflow renders and validates this chart when Helm files change:
+The Platform PR workflow renders and validates this chart and the runtime Secret contract when Helm or Secret-delivery files change:
 
 ```bash
 docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 lint infrastructure/helm/platform
