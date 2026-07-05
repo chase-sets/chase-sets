@@ -84,6 +84,13 @@ export function buildHelmRollbackArgs(options = {}) {
   ];
 }
 
+export function buildHelmStatusArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+
+  return ["status", release, "--namespace", namespace];
+}
+
 export function buildRolloutStatusArgs(deployment, options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
@@ -130,6 +137,7 @@ export function buildDeploymentEvidence(options = {}) {
     startedAt: options.startedAt ?? null,
     completedAt: options.completedAt ?? null,
     result: options.result ?? "unknown",
+    ...(options.reason ? { reason: options.reason } : {}),
     workloads,
   };
 }
@@ -181,6 +189,17 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
   const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  const releaseExists = options.releaseExists ?? (await helmReleaseExists({ ...options, helmPath }));
+
+  if (!releaseExists) {
+    return buildDeploymentEvidence({
+      ...options,
+      action: "rollback",
+      result: "skipped",
+      reason: "helm-release-not-found",
+      workloads,
+    });
+  }
 
   await runProcess({
     command: helmPath,
@@ -195,6 +214,25 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
     result: "success",
     workloads,
   });
+}
+
+export async function helmReleaseExists(options = {}) {
+  const helmPath = options.helmPath ?? "helm";
+
+  try {
+    await runProcess({
+      command: helmPath,
+      args: buildHelmStatusArgs(options),
+      spawn: options.spawn,
+      captureOutput: true,
+    });
+    return true;
+  } catch (error) {
+    if (isHelmReleaseNotFound(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function capturePlatformKubernetesDiagnostics(options = {}) {
@@ -278,27 +316,66 @@ async function runProcess(options) {
   const spawnImpl = options.spawn ?? spawn;
 
   await new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
     const child = spawnImpl(options.command, options.args, {
-      stdio: "inherit",
+      stdio: options.captureOutput ? ["ignore", "pipe", "pipe"] : "inherit",
       windowsHide: true,
     });
 
-    child.on("error", options.allowFailure ? resolve : reject);
-    child.on("close", (code) => {
-      if (code === 0 || options.allowFailure) {
-        resolve();
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      if (options.allowFailure) {
+        resolve({ stdout, stderr, error });
         return;
       }
-      reject(new Error(`${options.command} ${options.args.join(" ")} exited with code ${code ?? "unknown"}.`));
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (code === 0 || options.allowFailure) {
+        resolve({ stdout, stderr, code });
+        return;
+      }
+      reject(
+        new ProcessExitError(`${options.command} ${options.args.join(" ")} exited with code ${code ?? "unknown"}.`, {
+          command: options.command,
+          args: options.args,
+          code,
+          stdout,
+          stderr,
+        }),
+      );
     });
   });
+}
+
+class ProcessExitError extends Error {
+  constructor(message, options) {
+    super(message);
+    this.name = "ProcessExitError";
+    this.command = options.command;
+    this.args = options.args;
+    this.code = options.code;
+    this.stdout = options.stdout;
+    this.stderr = options.stderr;
+  }
+}
+
+function isHelmReleaseNotFound(error) {
+  const output = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}\n${error instanceof Error ? error.message : String(error)}`;
+  return /release:\s*not found/i.test(output) || /release [^\n]+ not found/i.test(output);
 }
 
 function parseArgs(argv, env = process.env) {
   const command = argv.find((arg) => arg !== "--");
   if (!command || !["deploy", "rollback", "diagnostics", "plan", "capture-rollback-target"].includes(command)) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan|capture-rollback-target> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan|capture-rollback-target> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -345,7 +422,16 @@ async function main(argv, env = process.env) {
   }
 
   if (options.command === "rollback") {
-    console.log(JSON.stringify(await rollbackPlatformOnKubernetes(options), null, 2));
+    const evidence = await rollbackPlatformOnKubernetes(options);
+    if (options.outPath) {
+      const { writeJsonRecord } = await import("./lib/output-file.mjs");
+      await writeJsonRecord(options.outPath, evidence);
+    }
+    writeGithubOutput(options.githubOutputPath, {
+      result: evidence.result,
+      rollback_skip_reason: evidence.reason ?? "",
+    });
+    console.log(JSON.stringify(evidence, null, 2));
     return 0;
   }
 

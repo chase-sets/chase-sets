@@ -899,6 +899,7 @@ describe("DigitalOcean platform configuration", () => {
     const kubeconfigStep = workflowStep(deployProductionJob, "Configure production Kubernetes context");
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
     const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
+    const runtimeSecretsStep = workflowStep(deployProductionJob, "Apply production Kubernetes runtime secrets");
     const deployStep = workflowStep(deployProductionJob, "Deploy production Kubernetes release");
     const diagnosticsStep = workflowStep(deployProductionJob, "Capture post-cutover production Kubernetes diagnostics");
     const rollbackStep = workflowStep(deployProductionJob, "Roll back production Kubernetes release");
@@ -915,6 +916,7 @@ describe("DigitalOcean platform configuration", () => {
     const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
     const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
+    const runtimeSecretsIndex = deployProductionJob.indexOf("- name: Apply production Kubernetes runtime secrets");
     const deployIndex = deployProductionJob.indexOf("- name: Deploy production Kubernetes release");
     const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
     const stage1Index = deployProductionJob.indexOf("- name: Stage 1 production canary");
@@ -926,7 +928,8 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
-    expect(applyIndex).toBeLessThan(deployIndex);
+    expect(applyIndex).toBeLessThan(runtimeSecretsIndex);
+    expect(runtimeSecretsIndex).toBeLessThan(deployIndex);
     expect(deployIndex).toBeLessThan(smokeIndex);
     expect(smokeIndex).toBeLessThan(rollbackIndex);
     expect(stage1Index).toBeLessThan(diagnosticsIndex);
@@ -970,6 +973,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(readinessStep).toContain("pnpm run rollback:readiness");
     expect(readinessStep).toContain('echo "result=${result}" >> "$GITHUB_OUTPUT"');
 
+    expect(runtimeSecretsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
+    expect(runtimeSecretsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+
     expect(deployStep).toContain("pnpm run platform:kubernetes-deployment -- deploy");
     expect(deployStep).toContain(
       "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
@@ -986,7 +992,12 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(rollbackStep).toContain("pnpm run platform:kubernetes-deployment -- rollback");
     expect(rollbackStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
+    expect(rollbackStep).toContain('--out "$rollback_record"');
+    expect(rollbackStep).toContain('--github-output "$GITHUB_OUTPUT"');
+    expect(rollbackStep).toContain('rollback_result="$(jq -r');
+    expect(rollbackStep).toContain('echo "result=${rollback_result}"');
     expect(rollbackStep).toContain("automated-production-rollback");
+    expect(rollbackStep).toContain("Automated production rollback skipped");
 
     expect(releaseHealthStep).toContain(
       "RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback'",
@@ -1000,6 +1011,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(releaseHealthStep).not.toContain("ROLLBACK_READINESS_RESULT: unknown");
     expect(uploadStep).toContain("artifacts/release-health/production-rollback-target.json");
     expect(uploadStep).toContain("artifacts/release-health/production-rollback-readiness.json");
+    expect(uploadStep).toContain("artifacts/release-health/production-rollback.json");
   });
 
   it("provisions databases for every platform-api bounded context", () => {

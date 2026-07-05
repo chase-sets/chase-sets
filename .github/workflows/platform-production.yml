@@ -2417,29 +2417,51 @@ jobs:
 
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+          rollback_record="artifacts/release-health/production-rollback.json"
+          mkdir -p "$(dirname "$rollback_record")"
           pnpm run platform:kubernetes-deployment -- rollback \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
-            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
+            --out "$rollback_record" \
+            --github-output "$GITHUB_OUTPUT"
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          rollback_result="$(jq -r '.result // "unknown"' "$rollback_record")"
+          rollback_reason="$(jq -r '.reason // empty' "$rollback_record")"
           rollback_reference="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-automated-production-rollback"
           {
             echo "completed_at=${completed_at}"
-            echo "result=success"
-            echo "rollback_reference=${rollback_reference}"
-            echo "rollback_target_commit=${{ steps.rollback_target.outputs.last_known_good_commit }}"
+            echo "result=${rollback_result}"
+            if [ "$rollback_result" = "success" ]; then
+              echo "rollback_reference=${rollback_reference}"
+              echo "rollback_target_commit=${{ steps.rollback_target.outputs.last_known_good_commit }}"
+            else
+              echo "rollback_reference="
+              echo "rollback_target_commit="
+            fi
           } >> "$GITHUB_OUTPUT"
-          {
-            echo "## Automated production rollback"
-            echo
-            echo "A post-cutover production verification step failed. Helm rolled the production Kubernetes release back to the previous revision."
-            echo
-            echo "- Target commit: ${{ steps.rollback_target.outputs.last_known_good_commit }}"
-            echo "- Release tag: ${{ steps.rollback_target.outputs.rollback_release_tag }}"
-            echo "- Image: ${{ steps.rollback_target.outputs.rollback_image_ref }}"
-            echo "- Workloads: ${{ steps.rollback_target.outputs.rollback_components }}"
-            echo "- Reference: ${rollback_reference}"
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rollback_result" = "success" ]; then
+            {
+              echo "## Automated production rollback"
+              echo
+              echo "A post-cutover production verification step failed. Helm rolled the production Kubernetes release back to the previous revision."
+              echo
+              echo "- Target commit: ${{ steps.rollback_target.outputs.last_known_good_commit }}"
+              echo "- Release tag: ${{ steps.rollback_target.outputs.rollback_release_tag }}"
+              echo "- Image: ${{ steps.rollback_target.outputs.rollback_image_ref }}"
+              echo "- Workloads: ${{ steps.rollback_target.outputs.rollback_components }}"
+              echo "- Reference: ${rollback_reference}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Automated production rollback skipped"
+              echo
+              echo "A production verification step failed before a Helm release existed, so there was no prior Kubernetes release to roll back."
+              echo
+              echo "- Result: ${rollback_result}"
+              echo "- Reason: ${rollback_reason:-unknown}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Mark production release
         id: production_marker
@@ -2660,6 +2682,7 @@ jobs:
             artifacts/release-health/production-release.json
             artifacts/release-health/production-db-restore-point.json
             artifacts/release-health/production-readiness-gate.json
+            artifacts/release-health/production-rollback.json
             artifacts/release-health/production-rollback-target.json
             artifacts/release-health/production-rollback-readiness.json
           if-no-files-found: ignore
