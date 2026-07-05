@@ -489,6 +489,46 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
     expect(probe.getMaxActiveQueryCount()).toBe(1);
   });
 
+  it("serializes affected blueprint refreshes on the projection transaction client", async () => {
+    const replayDb = createCatalogMirrorReplayDb("inventory_catalog");
+    const probe = withQueryConcurrencyProbe(replayDb.db);
+    const handlers = buildCatalogMirrorProjectionHandlers(probe.db, { tablePrefix: "inventory_catalog" });
+
+    await handlers["catalog.dimension.created"]!(
+      event(
+        "catalog.dimension.created",
+        { dimensionId: "dim_condition", name: "Condition" },
+        "catalog.dimension-dim_condition",
+      ),
+    );
+
+    for (const blueprintId of ["bp_first", "bp_second"]) {
+      const itemId = blueprintId.replace("bp_", "cat_");
+      await handlers["catalog.catalog-item.created"]!(
+        event("catalog.catalog-item.created", { itemId, title: itemId, subtitle: null }, `catalog.item-${itemId}`),
+      );
+      await handlers["catalog.blueprint.created"]!(
+        event("catalog.blueprint.created", { blueprintId, name: blueprintId }, `catalog.blueprint-${blueprintId}`),
+      );
+      await handlers["catalog.blueprint.dimensions-set"]!(
+        event(
+          "catalog.blueprint.dimensions-set",
+          { dimensionRules: [{ dimensionId: "dim_condition", required: true }] },
+          `catalog.blueprint-${blueprintId}`,
+        ),
+      );
+      await handlers["catalog.catalog-item.blueprint-assigned"]!(
+        event("catalog.catalog-item.blueprint-assigned", { blueprintId }, `catalog.item-${itemId}`),
+      );
+    }
+
+    await handlers["catalog.dimension.revised"]!(
+      event("catalog.dimension.revised", { name: "Card Condition" }, "catalog.dimension-dim_condition"),
+    );
+
+    expect(probe.getMaxActiveQueryCount()).toBe(1);
+  });
+
   it("returns a null version schema for unknown blueprints", async () => {
     const replayDb = createCatalogMirrorReplayDb("checkout_catalog");
 

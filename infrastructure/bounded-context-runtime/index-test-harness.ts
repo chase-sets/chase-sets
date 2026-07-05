@@ -134,6 +134,9 @@ export function createMockPool(): MockPool {
       if (sql === "SELECT set_config('statement_timeout', $1, true)") {
         return { rows: [], rowCount: 0 };
       }
+      if (sql === "SELECT set_config('idle_in_transaction_session_timeout', $1, true)") {
+        return { rows: [], rowCount: 0 };
+      }
 
       if (sql.includes("SELECT COALESCE(MAX(global_position), 0) AS head")) {
         const configuredHead = sourceHeadByPool.get(pool);
