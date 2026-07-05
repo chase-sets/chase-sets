@@ -29,6 +29,10 @@ const observabilityCollectorTemplate = readFileSync(
   resolve("infrastructure/digitalocean/observability/templates/collector-config.yml.tftpl"),
   "utf8",
 );
+const observabilityPrometheusTemplate = readFileSync(
+  resolve("infrastructure/digitalocean/observability/templates/prometheus.yml.tftpl"),
+  "utf8",
+);
 const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
 const environmentDnsMain = readFileSync(resolve("infrastructure/digitalocean/environment-dns/main.tf"), "utf8");
@@ -2456,12 +2460,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityLocals).toContain("stack_file_exclusions = toset([])");
     expect(observabilityLocals).toContain('setsubtract(fileset(local.stack_source_dir, "**/*")');
     expect(observabilityLocals).toContain('"collector-config.yml" = templatefile');
+    expect(observabilityLocals).toContain('"prometheus.yml" = templatefile');
     expect(observabilityLocals).toContain('encoding    = "gz+b64"');
     expect(observabilityLocals).toContain("content     = base64gzip(content)");
     expect(observabilityLocals).toContain("cloud_init_user_data = templatefile");
     expect(observabilityCollectorTemplate).toContain("deployment.environment");
     expect(observabilityCollectorTemplate).toContain("value: ${deployment_environment}");
     expect(observabilityCollectorTemplate).not.toContain("value: local");
+    expect(observabilityPrometheusTemplate).toContain("target_label: deployment_environment");
+    expect(observabilityPrometheusTemplate).toContain("replacement: ${deployment_environment}");
+    expect(observabilityPrometheusTemplate).toContain("target_label: chase_sets_observability_stack");
+    expect(observabilityPrometheusTemplate).toContain("single-shared-stack");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Token");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Query");
     expect(observabilityDockerCompose).toContain("/var/lib/chase-sets-observability/diagnostics:/srv/diagnostics:ro");

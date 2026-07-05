@@ -74,6 +74,7 @@ Add SLO burn-rate alerts only after production traffic establishes realistic lat
 
 Production observability topology is owned by [ADR 0011: Production Observability Stack](../adr/0011-production-observability-stack.md).
 Staging rehearses the same shape before production enablement.
+During the DOKS migration, both staging and production forward pod telemetry through the Kubernetes collector contract in `infrastructure/observability/kubernetes`. The collector attaches `deployment.environment`, `k8s.cluster.name`, namespace, deployment, pod, and node metadata, then forwards OTLP to the same secured stack endpoints listed below. Keep staging and production separated by labels and dashboard variables, not by duplicate LGTM hosts.
 
 Use Grafana for telemetry questions: request rates, latency, projection freshness metrics, push-wake pipeline latency, traces, and log correlation. Use Admin Platform Operations for application read models and operator actions:
 
@@ -132,6 +133,15 @@ The platform deploy workflow defaults `OTEL_EXPORTER_OTLP_ENDPOINT` to `https://
 Missing telemetry is an operations incident. Do not page customer-facing route owners until you determine whether the application signal is actually degraded or the observability pipeline is missing data. First check whether the affected service still serves traffic, then inspect the collector/backend health, then verify the deployable's `OBSERVABILITY_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, sampler settings, and resource attributes.
 
 Metric labels must stay bounded: service, environment, route template, method, status class, context, event type, projector/subscription name, and provider. Never use account, user, listing, order, payment, shipment, or session ids as metric labels.
+
+## DOKS Consolidation Gate
+
+Close the DOKS observability rewire only after live evidence proves:
+
+- staging and production signals appear in one Grafana/Prometheus/Loki/Tempo stack with `deployment.environment` separation;
+- Kubernetes collector metrics include bounded namespace/deployment/pod/node labels and no customer identifiers;
+- alert notifications fire through the replacement path that supersedes `PLATFORM_ALERT_EMAILS`-equivalent App Platform alerts;
+- the retired duplicate observability Droplet, volume, backups, DNS records, and token references are removed or have a named follow-up with owner-approved launch-time revisit criteria.
 
 Projection freshness metrics add only bounded labels: `mount_path`, `route_path`, `target_context`, `projection`, `source_context`, `outcome`, `wait_mode`, receipt/header status, runner state, and sanitized `last_error` presence. They must not include raw URLs, path parameters, checkout session ids, account ids, user ids, guest emails, cookies, event ids, or `afterWrite` token values.
 

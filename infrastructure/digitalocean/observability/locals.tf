@@ -29,6 +29,9 @@ locals {
     "collector-config.yml" = templatefile("${path.module}/templates/collector-config.yml.tftpl", {
       deployment_environment = var.environment
     })
+    "prometheus.yml" = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
+      deployment_environment = var.environment
+    })
     "docker-compose.yml" = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {})
     ".env" = templatefile("${path.module}/templates/stack.env.tftpl", {
       caddy_image          = var.caddy_image

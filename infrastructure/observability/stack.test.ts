@@ -9,6 +9,10 @@ function readStackFile(path: string) {
   return readFileSync(join(root, "stack", path), "utf8");
 }
 
+function readObservabilityFile(path: string) {
+  return readFileSync(join(root, path), "utf8");
+}
+
 function readRepoFile(path: string) {
   return readFileSync(join(root, "..", "..", path), "utf8");
 }
@@ -30,6 +34,35 @@ describe("observability stack contracts", () => {
     expect(config).toContain("otlp/tempo");
     expect(config).toContain("otlphttp/loki");
     expect(config).toContain("prometheus:");
+  });
+
+  it("labels local Prometheus scrape data with bounded environment and stack labels", () => {
+    const config = readStackFile("prometheus.yml");
+
+    expect(config).toContain("target_label: deployment_environment");
+    expect(config).toContain("replacement: local");
+    expect(config).toContain("target_label: chase_sets_observability_stack");
+    expect(config).toContain("replacement: single-shared-stack");
+  });
+
+  it("defines the DOKS collector contract for k8s-native signals into the shared stack", () => {
+    const config = readObservabilityFile("kubernetes/collector-config.yml");
+    const readme = readObservabilityFile("kubernetes/README.md");
+
+    expect(config).toContain("kubeletstats:");
+    expect(config).toContain("k8s_cluster:");
+    expect(config).toContain("k8sattributes:");
+    expect(config).toContain("deployment.environment");
+    expect(config).toContain("${env:CHASE_SETS_DEPLOYMENT_ENVIRONMENT}");
+    expect(config).toContain("k8s.cluster.name");
+    expect(config).toContain("chase_sets.observability_stack");
+    expect(config).toContain("otlphttp/central_stack");
+    expect(config).toContain("X-Chase-Sets-Observability-Token: ${env:CHASE_SETS_OTLP_TOKEN}");
+    expect(config).not.toContain("account.id");
+    expect(config).not.toContain("payment.id");
+    expect(config).not.toContain("session.id");
+    expect(readme).toContain("single shared Chase Sets observability stack");
+    expect(readme).toContain("Live acceptance for #4051 still requires");
   });
 
   it("provisions Grafana datasources, dashboard, and alert rules", () => {
