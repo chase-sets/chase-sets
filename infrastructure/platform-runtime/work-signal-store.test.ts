@@ -719,9 +719,22 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain("ready_position = GREATEST");
     expect(calls[1].sql).toContain("UPDATE platform_projection_checkpoint_waiters");
     expect(calls[1].sql).toContain("required_position <= $3::bigint");
-    expect(calls[2].sql).toContain("INSERT INTO platform_projection_checkpoint_waiters");
-    expect(calls[3].sql).toContain("FROM platform_projection_checkpoint_readiness readiness");
-    expect(calls[3].sql).toContain("readiness.ready_position >= waiters.required_position");
+    expect(calls[2].sql).toContain("SELECT pg_notify($1, $2)");
+    expect(calls[2].values[0]).toBe("platform_projection_checkpoint_readiness");
+    expect(JSON.parse(String(calls[2].values[1]))).toMatchObject({
+      kind: "projection.checkpoint-ready",
+      payload: {
+        checkpointKey: "checkout.checkout-session-projection:catalog",
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        readyPosition: "42",
+        readyCursor: "catalog:42",
+      },
+    });
+    expect(calls[3].sql).toContain("INSERT INTO platform_projection_checkpoint_waiters");
+    expect(calls[4].sql).toContain("FROM platform_projection_checkpoint_readiness readiness");
+    expect(calls[4].sql).toContain("readiness.ready_position >= waiters.required_position");
   });
 
   it("never late-satisfies expired waiters and never satisfies new waiters from expired readiness", async () => {
@@ -1105,7 +1118,7 @@ describe("work signal store read-consistency gateway", () => {
     expect(store.readConsistencyGateway).toBeUndefined();
   });
 
-  it("omits waiter registration by default because no consumer exists yet", () => {
+  it("omits waiter rows and readiness listeners by default", () => {
     const store = createPostgresWorkSignalStore(
       {
         query: async () => ({ rows: [], rowCount: 0 }),
@@ -1116,6 +1129,70 @@ describe("work signal store read-consistency gateway", () => {
     );
 
     expect(store.readConsistencyGateway?.registerWaiters).toBeUndefined();
+    expect(store.readConsistencyGateway?.waitForReadiness).toBeUndefined();
+  });
+
+  it("waits for matching checkpoint readiness notifications when enabled", async () => {
+    type NotificationListener = (message?: Readonly<{ channel?: string; payload?: string }>) => void;
+    let notificationListener: NotificationListener = () => undefined;
+    let resolveListen: () => void = () => undefined;
+    const listenReady = new Promise<void>((resolve) => {
+      resolveListen = resolve;
+    });
+    const client = {
+      query: async (sql: string) => {
+        if (sql.includes("LISTEN platform_projection_checkpoint_readiness")) {
+          resolveListen();
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      on: (event: "notification" | "error", listener: NotificationListener) => {
+        if (event === "notification") {
+          notificationListener = listener;
+        }
+      },
+      off: () => undefined,
+      removeListener: () => undefined,
+      release: () => undefined,
+    };
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async () => ({ rows: [], rowCount: 0 }),
+        connect: async () => client,
+      },
+      {
+        readConsistencyGateway: {
+          waitForReadinessNotifications: true,
+        },
+      },
+    );
+
+    const wait = store.readConsistencyGateway?.waitForReadiness?.({
+      requests: [WAKE_REQUEST],
+      timeoutMs: 500,
+    });
+    await listenReady;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    notificationListener?.({
+      channel: "platform_projection_checkpoint_readiness",
+      payload: JSON.stringify({
+        schemaVersion: 1,
+        payloadVersion: 1,
+        kind: "projection.checkpoint-ready",
+        source: "platform-runtime.work-signal-store",
+        emittedAt: NOW.toISOString(),
+        payload: {
+          checkpointKey: "checkout-session-pages:marketplace:v1",
+          sourceContextName: "marketplace",
+          targetContextName: "checkout",
+          projectionName: "checkout-session-pages",
+          readyPosition: "42",
+          readyCursor: null,
+        },
+      }),
+    });
+
+    await expect(wait).resolves.toBe("notified");
   });
 
   it("registers checkpoint waiters with a bounded expiry when explicitly enabled", async () => {

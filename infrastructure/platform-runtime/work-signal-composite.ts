@@ -481,11 +481,13 @@ const WORK_SIGNAL_ORIGIN_DISPOSITIONS: readonly WorkSignalOriginDisposition[] = 
   {
     origin: "projection-checkpoint-ready",
     kind: "projection.checkpoint-ready",
-    channel: "none (durable control-plane work-signal store rows)",
-    emitter: "worker checkpoint-readiness recorder into platform_projection_checkpoint_readiness",
-    waiter: "API read-consistency waiters poll readiness rows with bounded timeouts",
+    channel: "platform_projection_checkpoint_readiness",
+    emitter: "worker checkpoint-readiness recorder into platform_projection_checkpoint_readiness plus composite notify",
+    waiter:
+      "API read-consistency waiters use composite notification waits when enabled; durable checkpoint polling remains the fallback",
     disposition: "composite",
-    notes: "Readiness rows in the control database remain the durable source of truth.",
+    notes:
+      "Readiness rows in the control database remain the durable source of truth; NOTIFY only releases the next bounded re-check early.",
   },
   {
     origin: "projection-operation-events",

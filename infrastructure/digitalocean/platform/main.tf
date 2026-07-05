@@ -756,6 +756,11 @@ resource "digitalocean_app" "platform" {
         scope = "RUN_TIME"
       }
       env {
+        key   = "READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED"
+        value = local.read_consistency_readiness_notifications_enabled
+        scope = "RUN_TIME"
+      }
+      env {
         key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
         value = local.event_store_wake_notifications_enabled
         scope = "RUN_TIME"

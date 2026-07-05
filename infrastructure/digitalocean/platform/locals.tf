@@ -235,7 +235,8 @@ locals {
   # Read-after-write wake-before-wait rides a staging-first ramp: staging
   # proves the api-wait wake path before production enablement, which stays
   # gated behind the milestone rollout-control and canary evidence issues.
-  read_consistency_wake_before_wait_enabled = local.is_staging ? "true" : "false"
+  read_consistency_wake_before_wait_enabled        = local.is_staging ? "true" : "false"
+  read_consistency_readiness_notifications_enabled = local.is_staging ? "true" : "false"
 
   # The source-context wake registry is environment-global, so push rollout is
   # environment-gated here: staging runs the full push loop for the enabled

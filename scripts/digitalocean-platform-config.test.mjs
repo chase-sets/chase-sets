@@ -670,7 +670,13 @@ describe("DigitalOcean platform configuration", () => {
       "read_consistency_wake_before_wait_enabled",
       'local.is_staging ? "true" : "false"',
     );
+    expectTerraformAssignment(
+      platformLocals,
+      "read_consistency_readiness_notifications_enabled",
+      'local.is_staging ? "true" : "false"',
+    );
     expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"')).toBe(2);
     expect(platformMain).toContain("for_each = local.api_waiter_database_urls");
     expect(platformMain).toContain("key   = local.context_waiter_database_env[env.key]");
