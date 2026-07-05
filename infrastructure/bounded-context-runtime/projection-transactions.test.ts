@@ -70,6 +70,7 @@ describe("projection transactions", () => {
     expect(calls).toEqual([
       { sql: "BEGIN", values: undefined },
       { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15000ms"] },
+      { sql: "SELECT set_config('statement_timeout', $1, true)", values: ["30000ms"] },
       { sql: "SELECT 1", values: undefined },
       { sql: "COMMIT", values: undefined },
     ]);
@@ -133,6 +134,7 @@ describe("projection transactions", () => {
     expect(calls).toEqual([
       { sql: "BEGIN", values: undefined },
       { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15000ms"] },
+      { sql: "SELECT set_config('statement_timeout', $1, true)", values: ["30000ms"] },
       { sql: "SELECT 1", values: undefined },
       { sql: "COMMIT", values: undefined },
     ]);
@@ -154,9 +156,41 @@ describe("projection transactions", () => {
       expect(calls.map((call) => call.sql)).toEqual([
         "BEGIN",
         "SELECT set_config('idle_in_transaction_session_timeout', $1, true)",
+        "SELECT set_config('statement_timeout', $1, true)",
         "COMMIT",
       ]);
     }
+  });
+
+  it("rolls back projection transactions that exceed the wall-clock budget between queries", async () => {
+    const { calls, pool } = createRecordingPool();
+    let now = 1_000;
+    const originalNow = Date.now;
+    Date.now = () => now;
+
+    try {
+      await expect(
+        withProjectionTransaction(
+          pool,
+          { transactionTimeoutMs: 50, throwIfLeaseLost: () => undefined },
+          async (client) => {
+            await client.query("SELECT first");
+            now = 1_051;
+            await client.query("SELECT second");
+          },
+        ),
+      ).rejects.toThrow("Projection transaction exceeded 50ms.");
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(calls).toEqual([
+      { sql: "BEGIN", values: undefined },
+      { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15000ms"] },
+      { sql: "SELECT set_config('statement_timeout', $1, true)", values: ["50ms"] },
+      { sql: "SELECT first", values: undefined },
+      { sql: "ROLLBACK", values: undefined },
+    ]);
   });
 
   it("routes nested projection connections through savepoints on the scoped client", async () => {

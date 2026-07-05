@@ -178,6 +178,7 @@ export type ProjectionRunContext = Readonly<{
   operationId?: string;
   signal?: AbortSignal;
   idleInTransactionSessionTimeoutMs?: number;
+  transactionTimeoutMs?: number;
   statementTimeoutMs?: number;
   throwIfLeaseLost?: () => void;
 }>;
