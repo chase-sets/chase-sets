@@ -92,6 +92,7 @@ export type PlatformWorkerConfig = Readonly<{
 
 export type PlatformWorkerProjectionWakeSchedulerConfig = Readonly<{
   enabled: boolean;
+  pushDispatchEnabled: boolean;
   maxConcurrentRunners: number;
   pollIntervalMs: number;
   hotLaneRunnerCount: number;
@@ -341,6 +342,7 @@ export function loadConfig(): PlatformWorkerConfig {
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),
     projectionWakeScheduler: {
       enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED", true),
+      pushDispatchEnabled: getBooleanEnv("WORKER_WAKE_PUSH_DISPATCH_ENABLED", true),
       maxConcurrentRunners: getPositiveNumberEnv("WORKER_WAKE_MAX_CONCURRENT_RUNNERS", 2),
       pollIntervalMs: getPositiveNumberEnv("WORKER_WAKE_POLL_INTERVAL_MS", 1_000),
       // Lane runner counts accept zero so an operator can kill one priority

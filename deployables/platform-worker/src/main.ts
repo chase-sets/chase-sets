@@ -31,6 +31,7 @@ import {
 } from "@chase-sets/platform-runtime/worker";
 import {
   createProjectionWakeSchedulerRunners,
+  startPostgresProjectionWakePushDispatcher,
   createWorkSignalCleanupRunner,
   type ProjectionWakeIntentLifecycleEvent,
   type ProjectionWakeSchedulerObserver,
@@ -109,9 +110,10 @@ await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
 );
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
+let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   observer: {
-    projectionWakeIntentEnqueued: (event) =>
+    projectionWakeIntentEnqueued: (event) => {
       recordProjectionWakeIntentEnqueueOutcome({
         outcome: event.outcome,
         sourceContextName: event.sourceContextName,
@@ -120,7 +122,11 @@ const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
         priorityLane: event.priorityLane,
         origin: event.origin,
         routingMode: event.routingMode,
-      }),
+      });
+      if (config.projectionWakeScheduler.pushDispatchEnabled) {
+        projectionWakeRunnerLoop?.nudge();
+      }
+    },
   },
 });
 
@@ -367,6 +373,33 @@ const runnerLoops = runnerGroups.map((group) => ({
     },
   }),
 }));
+projectionWakeRunnerLoop = runnerLoops.find((runnerLoop) => runnerLoop.name === "wakes")?.loop ?? null;
+const projectionWakePushDispatcher =
+  config.projectionWakeScheduler.pushDispatchEnabled && projectionWakeRunnerLoop
+    ? startPostgresProjectionWakePushDispatcher({
+        listenerPool: pools.workSignal,
+        listenRetryCooldownMs: config.projectionWakeScheduler.pollIntervalMs,
+        listenerObserver: {
+          listenerUnavailable: ({ error }) => {
+            logger.warn("Projection wake push dispatcher listener unavailable; relying on wake polling.", {
+              type: "projection-wake-push.listener_unavailable",
+              error,
+            });
+          },
+        },
+        nudge: () => projectionWakeRunnerLoop?.nudge(),
+        waitTimeoutMs: config.projectionWakeScheduler.pollIntervalMs,
+        targetContextNames: [
+          ...new Set(projectionWakeSchedulerProjectionGroups.map((group) => group.targetContextName)),
+        ],
+      })
+    : null;
+void projectionWakePushDispatcher?.done.catch((error: unknown) => {
+  logger.error("Projection wake push dispatcher exited unexpectedly.", {
+    type: "projection-wake-push.dispatcher.failed",
+    error,
+  });
+});
 const projectionWakeRelayConfigs = listSourceContextWakeRelayConfigs();
 const projectionWakeRelayListenerPools = new Map<string, PgTransactionalPool>();
 const projectionWakeRelaySources: ProjectionWakeRelaySourceRuntime[] = config.projectionWakeRelay.enabled
@@ -587,6 +620,7 @@ app.get("/internal/workers/status", async (c) => {
     durableWorkflows,
     projectionWakeControls: {
       schedulerEnabled: config.projectionWakeScheduler.enabled,
+      pushDispatchEnabled: config.projectionWakeScheduler.pushDispatchEnabled,
       relayEnabled: config.projectionWakeRelay.enabled,
       laneRunnerCounts: {
         hot: config.projectionWakeScheduler.hotLaneRunnerCount,
@@ -652,6 +686,15 @@ startGracefulHttpServer({
             timer.unref?.();
           }),
         ]);
+      }
+    },
+    async () => {
+      if (projectionWakePushDispatcher) {
+        await runWithRuntimeLifecycleTimeout(
+          "platform-worker.projection-wake-push-dispatcher-stop",
+          () => projectionWakePushDispatcher.stop(),
+          { logger },
+        );
       }
     },
     async () => {

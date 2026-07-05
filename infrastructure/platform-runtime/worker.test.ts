@@ -207,6 +207,44 @@ describe("worker runner loop", () => {
     }
   });
 
+  it("nudge schedules caught-up runners immediately without waiting for the poll timer", async () => {
+    const calls: string[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const runner: WorkerRunner = {
+      name: "wake-claim-runner",
+      kind: "job",
+      runOnce: async () => {
+        calls.push("wake-claim-runner");
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 60_000,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toHaveLength(1);
+      });
+      loop.nudge();
+      await vi.waitFor(
+        () => {
+          expect(calls).toHaveLength(2);
+        },
+        { timeout: 250 },
+      );
+    } finally {
+      await loop.stop();
+    }
+  });
+
   it("reschedules immediately after a runner claims wake-lane work without completing it", async () => {
     const calls: string[] = [];
     const controlPlane = createAlwaysLeasedControlPlane();

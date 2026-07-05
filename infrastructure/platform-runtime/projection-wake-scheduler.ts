@@ -1,13 +1,22 @@
 import type { ContextProjectionGroup, ContextSubscriptionRunner } from "@chase-sets/bounded-context-runtime";
 import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane } from "./control-plane";
+import {
+  createPostgresWorkSignalWaiter,
+  type PostgresWorkSignalNotification,
+  type PostgresWorkSignalWaiter,
+  type WorkSignalObserver,
+} from "./work-signal-composite";
 import type {
   PostgresWorkSignalStore,
   ProjectionWakeIntentRecord,
   WorkSignalCleanupResult,
+  ProjectionWakeIntentWorkSignalPayload,
   WorkSignalPriorityLane,
 } from "./work-signal-store";
+import { PROJECTION_WAKE_INTENT_WORK_SIGNAL_CHANNEL } from "./work-signal-store";
 import {
   createProjectionGroupRunnerLeaseName,
   createProjectionGroupWorkerRunner,
@@ -30,6 +39,7 @@ export const DEFAULT_PROJECTION_WAKE_UNKNOWN_TARGET_RETRY_MS = 30_000;
 export const DEFAULT_PROJECTION_WAKE_REVISION_STALE_RETRY_MS = 30_000;
 export const DEFAULT_PROJECTION_WAKE_MAX_ATTEMPTS = 10;
 export const DEFAULT_WORK_SIGNAL_CLEANUP_INTERVAL_MS = 60_000;
+export const DEFAULT_PROJECTION_WAKE_PUSH_DISPATCH_WAIT_TIMEOUT_MS = 60_000;
 
 export type ProjectionWakeSchedulerStore = Pick<
   PostgresWorkSignalStore,
@@ -85,6 +95,38 @@ export type ProjectionWakeSchedulerObserver = Readonly<{
   checkpointReadinessRecordFailed?: (event: ProjectionWakeIntentLifecycleEvent & Readonly<{ error: unknown }>) => void;
   workSignalCleanupCompleted?: (event: Readonly<{ result: WorkSignalCleanupResult }>) => void;
 }>;
+
+export type ProjectionWakePushDispatchWaitResult = "notified" | "timeout" | "aborted" | "listener-unavailable";
+
+export type ProjectionWakePushDispatchEvent = Readonly<{
+  result: ProjectionWakePushDispatchWaitResult;
+}>;
+
+export type ProjectionWakePushDispatchObserver = Readonly<{
+  waitEnded?: (event: ProjectionWakePushDispatchEvent) => void;
+  nudgeScheduled?: (event: Readonly<{ targetContextName: string | null }>) => void;
+}>;
+
+export type ProjectionWakePushDispatcher = Readonly<{
+  done: Promise<void>;
+  stop: () => Promise<void>;
+}>;
+
+export type ProjectionWakePushDispatcherInput = Readonly<{
+  waiter: PostgresWorkSignalWaiter;
+  nudge: () => void;
+  waitTimeoutMs?: number;
+  targetContextNames?: readonly string[];
+  signal?: AbortSignal;
+  observer?: ProjectionWakePushDispatchObserver;
+}>;
+
+export type PostgresProjectionWakePushDispatcherInput = Omit<ProjectionWakePushDispatcherInput, "waiter"> &
+  Readonly<{
+    listenerPool: PgTransactionalPool;
+    listenRetryCooldownMs?: number;
+    listenerObserver?: Pick<WorkSignalObserver, "listenerUnavailable" | "notificationReceived" | "waitEnded">;
+  }>;
 
 export type ProjectionWakeSchedulerOptions = Readonly<{
   workerId: string;
@@ -519,6 +561,68 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
   });
 }
 
+export function startProjectionWakePushDispatcher(
+  input: ProjectionWakePushDispatcherInput,
+): ProjectionWakePushDispatcher {
+  const waitTimeoutMs = Math.max(
+    100,
+    Math.floor(input.waitTimeoutMs ?? DEFAULT_PROJECTION_WAKE_PUSH_DISPATCH_WAIT_TIMEOUT_MS),
+  );
+  const targetContextNames =
+    input.targetContextNames && input.targetContextNames.length > 0 ? new Set(input.targetContextNames) : null;
+  const abortController = new AbortController();
+  const abortFromInput = () => abortController.abort();
+  if (input.signal?.aborted) {
+    abortController.abort();
+  } else {
+    input.signal?.addEventListener("abort", abortFromInput, { once: true });
+  }
+
+  const done = (async () => {
+    try {
+      while (!abortController.signal.aborted) {
+        const result = await input.waiter.wait({
+          timeoutMs: waitTimeoutMs,
+          signal: abortController.signal,
+          matches: (notification) => notificationMatchesProjectionWakeIntent(notification, targetContextNames),
+        });
+        input.observer?.waitEnded?.({ result });
+        if (result !== "notified" || abortController.signal.aborted) {
+          continue;
+        }
+
+        input.nudge();
+        input.observer?.nudgeScheduled?.({ targetContextName: null });
+      }
+    } finally {
+      input.signal?.removeEventListener("abort", abortFromInput);
+      await input.waiter.stop();
+    }
+  })();
+
+  return {
+    done,
+    stop: async () => {
+      abortController.abort();
+      await input.waiter.stop();
+      await done;
+    },
+  };
+}
+
+export function startPostgresProjectionWakePushDispatcher(
+  input: PostgresProjectionWakePushDispatcherInput,
+): ProjectionWakePushDispatcher {
+  return startProjectionWakePushDispatcher({
+    ...input,
+    waiter: createPostgresWorkSignalWaiter(input.listenerPool, {
+      channel: PROJECTION_WAKE_INTENT_WORK_SIGNAL_CHANNEL,
+      listenRetryCooldownMs: input.listenRetryCooldownMs,
+      observer: input.listenerObserver,
+    }),
+  });
+}
+
 export function createWorkSignalCleanupRunner(
   input: Readonly<{
     controlPlane: Pick<PlatformControlPlane, "claimScheduledRunner" | "recordScheduledRunnerCompleted">;
@@ -572,6 +676,21 @@ class ProjectionWakeIntentClaimLostError extends Error {
 
 function createProjectionGroupKey(targetContextName: string, projectionName: string): string {
   return `${targetContextName}.${projectionName}`;
+}
+
+function notificationMatchesProjectionWakeIntent(
+  notification: PostgresWorkSignalNotification,
+  targetContextNames: ReadonlySet<string> | null,
+): boolean {
+  if (notification.envelope?.kind !== "projection.wake-intent") {
+    return false;
+  }
+  if (!targetContextNames) {
+    return true;
+  }
+
+  const payload = notification.envelope.payload as Partial<ProjectionWakeIntentWorkSignalPayload>;
+  return typeof payload.targetContextName === "string" && targetContextNames.has(payload.targetContextName);
 }
 
 function buildProjectionGroupIndex(

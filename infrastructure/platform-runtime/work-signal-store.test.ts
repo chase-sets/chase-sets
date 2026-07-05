@@ -116,6 +116,23 @@ describe("work signal store", () => {
     expect(calls[0].values[8]).toBe("hot");
     expect(calls[0].values[9]).toBe("api-wait");
     expect(calls[0].values[13]).toBe(JSON.stringify({ sourceEventId: "evt_1" }));
+    expect(calls[1].sql).toContain("pg_notify");
+    expect(calls[1].values[0]).toBe("platform_projection_wake_intents");
+    expect(JSON.parse(String(calls[1].values[1]))).toMatchObject({
+      kind: "projection.wake-intent",
+      correlationId: "corr_1",
+      payload: {
+        outcome: "created",
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        checkpointKey: "checkout.checkout-session-projection:catalog",
+        requiredPosition: "12",
+        requiredCursor: "catalog:12",
+        priorityLane: "hot",
+        origin: "api-wait",
+      },
+    });
     expect(enqueuedEvents).toEqual([
       {
         outcome: "created",
@@ -188,12 +205,75 @@ describe("work signal store", () => {
     );
   });
 
+  it("keeps durable enqueue successful when wake-intent notification emission fails", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const enqueuedEvents: unknown[] = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          if (sql.includes("pg_notify")) {
+            throw new Error("notify unavailable");
+          }
+
+          return {
+            rows: [
+              wakeIntentRow({
+                coalescing_key: String(values[1]),
+                required_position: String(values[6]),
+                required_cursor: String(values[7]),
+                priority_lane: values[8] as WorkSignalPriorityLane,
+                origin: values[9] as WorkSignalWakeOrigin,
+              }),
+            ],
+            rowCount: 1,
+          };
+        },
+      },
+      {
+        observer: {
+          projectionWakeIntentEnqueued: (event) => enqueuedEvents.push(event),
+        },
+        now: () => NOW,
+      },
+    );
+
+    await expect(
+      store.enqueueProjectionWakeIntent({
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        checkpointKey: "checkout.checkout-session-projection:catalog",
+        requiredPosition: 12,
+        priorityLane: "hot",
+        origin: "api-wait",
+      }),
+    ).resolves.toMatchObject({
+      sourceContextName: "catalog",
+      targetContextName: "checkout",
+      requiredPosition: 12n,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1].sql).toContain("pg_notify");
+    expect(enqueuedEvents).toEqual([
+      expect.objectContaining({
+        outcome: "created",
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+      }),
+    ]);
+  });
+
   it("claims due and stale projection wake intents with deterministic priority and fencing", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const store = createPostgresWorkSignalStore(
       {
         query: async (sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
+          if (sql.includes("pg_notify")) {
+            return { rows: [], rowCount: 1 };
+          }
           return {
             rows: [
               wakeIntentRow({
@@ -893,6 +973,9 @@ describe("work signal store read-consistency gateway", () => {
       {
         query: async (sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
+          if (sql.includes("pg_notify")) {
+            return { rows: [], rowCount: 1 };
+          }
           return {
             rows: [
               wakeIntentRow({
@@ -927,12 +1010,24 @@ describe("work signal store read-consistency gateway", () => {
       }),
     ).resolves.toBe(1);
 
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0].values[8]).toBe("hot");
     expect(calls[0].values[9]).toBe("api-wait");
     expect(JSON.parse(String(calls[0].values[13]))).toEqual({
       requestedBy: "read-consistency",
       mountPath: "/api/marketplace",
+    });
+    expect(calls[1].sql).toContain("pg_notify");
+    expect(calls[1].values[0]).toBe("platform_projection_wake_intents");
+    expect(JSON.parse(String(calls[1].values[1]))).toMatchObject({
+      kind: "projection.wake-intent",
+      payload: {
+        sourceContextName: "marketplace",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-pages",
+        priorityLane: "hot",
+        origin: "api-wait",
+      },
     });
     expect(wakeEnqueueEvents).toEqual([
       expect.objectContaining({
