@@ -1,0 +1,45 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "chase-sets-platform.fullname" . }}
+  labels:
+{{ include "chase-sets-platform.labels" (dict "root" . "name" "ingress") | nindent 4 }}
+  {{- if or .Values.ingress.clusterIssuer .Values.ingress.annotations }}
+  annotations:
+    {{- if .Values.ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+{{ toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    {{- range .Values.ingress.hosts }}
+    - hosts:
+        - {{ .host | quote }}
+      secretName: {{ default $.Values.ingress.tls.secretName .tlsSecretName | quote }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          {{- $component := index $.Values.components .service }}
+          - path: {{ .path | quote }}
+            pathType: {{ default "Prefix" .pathType | quote }}
+            backend:
+              service:
+                name: {{ include "chase-sets-platform.componentName" (dict "root" $ "name" .service) }}
+                port:
+                  number: {{ default $component.service.port .port }}
+          {{- end }}
+    {{- end }}
+{{- end }}
