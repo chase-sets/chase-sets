@@ -125,6 +125,29 @@ describe("guest Buy Now freshness probe", () => {
     });
   });
 
+  it("warns when temporary recovery was observed even if the final account sample has no known state", () => {
+    expect(
+      classifyGuestBuyNowObservation(
+        {
+          afterWritePresent: false,
+          postWriteTokenPresent: true,
+          sessionCookiePresent: true,
+          temporaryRecoveryVisible: false,
+          temporaryRecoveryObserved: true,
+          checkoutReviewVisible: false,
+          readyLatencyMs: null,
+          pageText: "",
+          negativeProbe: healthyProbe,
+        },
+        { flow: "account" },
+      ),
+    ).toEqual({
+      finalState: "temporary",
+      promotionDecision: "warn",
+      failureReason: "checkout-ready-slo-exceeded",
+    });
+  });
+
   it("aborts temporary recovery on SLO breach when slo-mode is gate", () => {
     expect(
       classifyGuestBuyNowObservation(

@@ -256,7 +256,11 @@ export function classifyGuestBuyNowObservation(observation, gate = {}) {
     readiness = { finalState: "pass", promotionDecision: "promote", failureReason: null };
   } else if (readyLatencyMs !== null) {
     readiness = sloExceeded("pass", sloMode);
-  } else if (observation.temporaryRecoveryVisible || TEMPORARY_RECOVERY_PATTERN.test(pageText)) {
+  } else if (
+    observation.temporaryRecoveryVisible ||
+    observation.temporaryRecoveryObserved ||
+    TEMPORARY_RECOVERY_PATTERN.test(pageText)
+  ) {
     readiness = sloExceeded("temporary", sloMode);
   } else {
     readiness = abort("fail", "checkout-review-state-not-detected");
