@@ -5,6 +5,7 @@ import {
   STAGING_RESTORE_DRILL_PREFIX,
   buildStagingRestoreDrillName,
   databaseUrlForDatabase,
+  discoverForkDatabaseChecks,
   normalizeRestoreDrillDatabaseUrl,
   parseDigitalOceanDatabaseRestoreDrillArgs,
   performDigitalOceanDatabaseRestoreDrill,
@@ -266,6 +267,79 @@ describe("digitalocean database restore drill", () => {
         { contextName: "control", databaseName: "chase_sets_staging_control", eventStoreTables: false },
       ],
     });
+  });
+
+  it("discovers default restore checks from the fork database catalog", async () => {
+    const checks = await discoverForkDatabaseChecks({
+      connectionUri: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require",
+      ClientClass: fakeClientClass({
+        queryOverrides: {
+          "FROM pg_database": [
+            { database_name: "chase_sets_staging_auth" },
+            { database_name: "chase_sets_staging_control" },
+            { database_name: "chase_sets_staging_platform_ops" },
+            { database_name: "chase_sets_staging_public_presence" },
+          ],
+        },
+      }),
+    });
+
+    expect(checks).toEqual([
+      { contextName: "auth", databaseName: "chase_sets_staging_auth", eventStoreTables: true },
+      { contextName: "control", databaseName: "chase_sets_staging_control", eventStoreTables: false },
+      {
+        contextName: "platform-operations",
+        databaseName: "chase_sets_staging_platform_ops",
+        eventStoreTables: true,
+      },
+      {
+        contextName: "public-presence",
+        databaseName: "chase_sets_staging_public_presence",
+        eventStoreTables: true,
+      },
+    ]);
+  });
+
+  it("uses discovered fork databases for default validation instead of hardcoded topology", async () => {
+    const result = await performDigitalOceanDatabaseRestoreDrill(
+      { ...baseOptions, databaseChecks: null },
+      {
+        now: clock([0, 1000, 2000, 3000]),
+        execFile: async (_command, args) => {
+          if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
+            return {
+              stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
+            };
+          }
+          if (args[1] === "connection") {
+            return { stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n" };
+          }
+          if (args[1] === "delete") {
+            return { stdout: "" };
+          }
+          throw new Error(`Unexpected command: ${args.join(" ")}`);
+        },
+        Client: fakeClientClass({
+          queryOverrides: {
+            "FROM pg_database": [
+              { database_name: "chase_sets_staging_auth" },
+              { database_name: "chase_sets_staging_control" },
+            ],
+          },
+        }),
+      },
+    );
+
+    expect(result.passesRestoreDrillGate).toBe(true);
+    expect(result.record.validation).toMatchObject({
+      expectedDatabaseCount: 2,
+      checkedDatabaseCount: 2,
+    });
+    expect(result.record.validation.checks.map((check) => check.contextName)).toEqual(["auth", "control"]);
+    expect(result.record.errors).toEqual([]);
   });
 
   it("defaults to a 75-minute fork availability budget", () => {
