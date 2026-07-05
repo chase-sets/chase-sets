@@ -106,7 +106,11 @@ const legacyForbiddenPaths = [
   "scripts/generate-deployable-runtimes.mjs",
   "scripts/generate-deployable-shells.mjs",
 ];
-const nonPackageWorkspaceDirectoryExceptions = new Set(["infrastructure/digitalocean", "infrastructure/remote-dev"]);
+const nonPackageWorkspaceDirectoryExceptions = new Set([
+  "infrastructure/digitalocean",
+  "infrastructure/helm",
+  "infrastructure/remote-dev",
+]);
 const manifestRequiredFields = [
   "contextName",
   "packageName",

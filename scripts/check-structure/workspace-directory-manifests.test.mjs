@@ -61,6 +61,7 @@ describe("workspace directory manifest guard", () => {
   it("allows approved non-package infrastructure container roots", async () => {
     const repoRoot = await createTempRepo();
     await mkdir(path.join(repoRoot, "infrastructure", "digitalocean"));
+    await mkdir(path.join(repoRoot, "infrastructure", "helm"));
     await mkdir(path.join(repoRoot, "infrastructure", "remote-dev"));
 
     await expect(findWorkspaceDirectoryManifestViolations({ repoRoot })).resolves.toEqual([]);

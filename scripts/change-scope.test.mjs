@@ -710,6 +710,20 @@ describe("change-scope", () => {
     expect(scope.dockerImageRequired).toBe(false);
   });
 
+  it("routes Helm chart changes through manifest validation without deploying", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["infrastructure/helm/platform/templates/deployment.yaml"],
+      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+    });
+
+    expect(scope.workflowLintRequired).toBe(true);
+    expect(scope.terraformRequired).toBe(false);
+    expect(scope.deployRequired).toBe(false);
+    expect(scope.dockerImageRequired).toBe(false);
+  });
+
   it("classifies exposure-posture changes for targeted release gates", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({

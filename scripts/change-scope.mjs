@@ -14,6 +14,7 @@ const platformApiParityDocPatterns = [/^docs\/api\/marketplace\.openapi\.json$/]
 const workflowPatterns = [/^\.github\/workflows\//, /^\.github\/actions\//];
 const terraformPatterns = [/^infrastructure\/digitalocean\//];
 const planOnlyTerraformPatterns = [/^infrastructure\/digitalocean\/doks\//];
+const helmPatterns = [/^infrastructure\/helm\//];
 const dockerPatterns = [/^Dockerfile$/, /^\.dockerignore$/];
 const rootRuntimePatterns = [
   /^package\.json$/,
@@ -173,6 +174,7 @@ export function classifyChanges({
   let workflowChanged = false;
   let terraformChanged = false;
   let previewDeployTerraformChanged = false;
+  let helmChanged = false;
   let dockerChanged = false;
   let rootRuntimeChanged = false;
   let rootTestTypecheckChanged = false;
@@ -228,6 +230,7 @@ export function classifyChanges({
     const terraformFileChanged = matchesAny(filePath, terraformPatterns);
     terraformChanged ||= terraformFileChanged;
     previewDeployTerraformChanged ||= terraformFileChanged && !matchesAny(filePath, planOnlyTerraformPatterns);
+    helmChanged ||= matchesAny(filePath, helmPatterns);
     dockerChanged ||= matchesAny(filePath, dockerPatterns);
     rootRuntimeChanged ||= matchesAny(filePath, rootRuntimePatterns);
     rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
@@ -332,7 +335,7 @@ export function classifyChanges({
     buildRequired: runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged,
     dockerImageRequired,
     terraformRequired,
-    workflowLintRequired: workflowChanged,
+    workflowLintRequired: workflowChanged || helmChanged,
     deployRequired,
     exposurePostureChanged: exposurePostureCategories.size > 0,
     exposurePostureCategories: [...exposurePostureCategories].sort(),

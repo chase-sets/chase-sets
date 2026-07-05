@@ -24,6 +24,7 @@ deployables/*/src/generated/*-context-registry.ts
 deployables/*/app/generated/*-context-registry.ts
 **/*.md
 **/*.svg
+infrastructure/helm/*/templates/*.yaml
 *.log
 *.jsonl
 *.pid
