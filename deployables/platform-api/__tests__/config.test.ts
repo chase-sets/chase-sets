@@ -350,9 +350,12 @@ describe("platform api config", () => {
 
     expect(loadBootstrapConfig().deploymentEnvironment).toBe("production");
 
+    process.env.DEPLOYMENT_ENVIRONMENT = "Preview";
+    expect(loadBootstrapConfig().deploymentEnvironment).toBe("preview");
+
     process.env.DEPLOYMENT_ENVIRONMENT = "prod";
     expect(() => loadBootstrapConfig()).toThrow(
-      "DEPLOYMENT_ENVIRONMENT must be one of: production, staging, test, dev, local, remote-dev.",
+      "DEPLOYMENT_ENVIRONMENT must be one of: production, staging, preview, test, dev, local, remote-dev.",
     );
   });
 
