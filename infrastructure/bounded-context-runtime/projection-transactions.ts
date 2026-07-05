@@ -45,6 +45,18 @@ export async function withProjectionTransaction<T>(
 ): Promise<T> {
   context?.throwIfLeaseLost?.();
   return withPgTransaction(pool, async (client) => {
+    const idleInTransactionSessionTimeoutMs = normalizeProjectionIdleInTransactionSessionTimeoutMs(
+      context?.idleInTransactionSessionTimeoutMs,
+    );
+    if (
+      idleInTransactionSessionTimeoutMs !== null &&
+      pool.idleInTransactionSessionTimeoutMillis !== idleInTransactionSessionTimeoutMs
+    ) {
+      await client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
+        `${idleInTransactionSessionTimeoutMs}ms`,
+      ]);
+    }
+
     const statementTimeoutMs = normalizeProjectionStatementTimeoutMs(context?.statementTimeoutMs);
     if (statementTimeoutMs !== null) {
       await client.query("SELECT set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
@@ -55,6 +67,20 @@ export async function withProjectionTransaction<T>(
     context?.throwIfLeaseLost?.();
     return result;
   });
+}
+
+function normalizeProjectionIdleInTransactionSessionTimeoutMs(
+  idleInTransactionSessionTimeoutMs: number | undefined,
+): number | null {
+  if (
+    idleInTransactionSessionTimeoutMs === undefined ||
+    !Number.isFinite(idleInTransactionSessionTimeoutMs) ||
+    idleInTransactionSessionTimeoutMs <= 0
+  ) {
+    return null;
+  }
+
+  return Math.ceil(idleInTransactionSessionTimeoutMs);
 }
 
 function normalizeProjectionStatementTimeoutMs(statementTimeoutMs: number | undefined): number | null {

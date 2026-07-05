@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import type { PlatformControlPlane } from "./control-plane";
-import { collectWorkerRunners, createDurableJobLaneRunners, createWorkerRunnerLoop, type WorkerRunner } from "./worker";
+import {
+  collectWorkerRunners,
+  createDurableJobLaneRunners,
+  createWorkerRunnerLoop,
+  DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
+  type WorkerRunner,
+} from "./worker";
 
 describe("durable job lane runners", () => {
   it("creates stable platform runner names for same-job lanes", async () => {
@@ -670,6 +677,35 @@ describe("worker runner loop", () => {
       name: "inventory.inventory-catalog-item-projection",
       kind: "projection-group",
     });
+  });
+
+  it("passes default idle transaction timeouts into projection group runs", async () => {
+    const idleTimeouts: Array<number | undefined> = [];
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      runOnce: async (context?: ProjectionRunContext) => {
+        idleTimeouts.push(context?.idleInTransactionSessionTimeoutMs);
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({
+        revisionStale: false,
+      }),
+    });
+    const [runner] = collectWorkerRunners({
+      mountedContexts: [],
+      services: {},
+      projectors: [],
+      projectionGroups: [group],
+      subscriptionRunners: [subscriptionRunner],
+    } as never);
+
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0 });
+
+    expect(idleTimeouts).toEqual([DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS]);
   });
 
   it("resets stale projection groups once and marks the revision after worker catch-up", async () => {

@@ -11,6 +11,7 @@ import type {
 import {
   createProjectionGroupRunnerLeaseName,
   createProjectionGroupWorkerRunner,
+  DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
   ProjectionGroupRevisionStaleError,
   tryRunWithRenewedLease,
   type WorkerRunner,
@@ -96,6 +97,7 @@ export type ProjectionWakeSchedulerOptions = Readonly<{
   claimTtlMs?: number;
   leaseTtlMs?: number;
   leaseRenewIntervalMs?: number;
+  idleInTransactionSessionTimeoutMs?: number;
   statementTimeoutMs?: number;
   retryBackoffBaseMs?: number;
   retryBackoffMaxMs?: number;
@@ -143,6 +145,8 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
   const leaseRenewIntervalMs = Math.max(250, Math.floor(options.leaseRenewIntervalMs ?? 10_000));
   const statementTimeoutMs =
     options.statementTimeoutMs === undefined ? undefined : Math.max(1, Math.floor(options.statementTimeoutMs));
+  const idleInTransactionSessionTimeoutMs =
+    options.idleInTransactionSessionTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS;
   const retryBackoffBaseMs = Math.max(
     0,
     Math.floor(options.retryBackoffBaseMs ?? DEFAULT_PROJECTION_WAKE_RETRY_BACKOFF_BASE_MS),
@@ -334,6 +338,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
           ownerId: requireClaimOwnerId(intent),
           ttlMs: leaseTtlMs,
           renewIntervalMs: leaseRenewIntervalMs,
+          idleInTransactionSessionTimeoutMs,
           statementTimeoutMs,
           metadata: {
             wakeIntentId: intent.wakeIntentId,
