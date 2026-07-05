@@ -9,11 +9,11 @@ describe("public presence home route", () => {
   it("positions the homepage metadata around seller beta early access", () => {
     expect(meta({} as never)).toEqual(
       expect.arrayContaining([
-        { title: "Chase Sets Seller Beta Early Access | Trading Card Marketplace" },
+        { title: "Chase Sets Early Access | Trading Card Marketplace" },
         {
           name: "description",
           content:
-            "Request Chase Sets early access for the seller beta: 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
+            "Request Chase Sets early access for 0% beta seller fee locks, no separate seller payment-processing fee, Founding Account consideration, and buyer-visible delivered totals.",
         },
         { property: "og:url", content: "https://chasesets.com/" },
       ]),
