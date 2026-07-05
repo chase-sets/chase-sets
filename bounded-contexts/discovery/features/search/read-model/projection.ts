@@ -655,12 +655,10 @@ async function refreshDiscoverySearchItem(
     );
   }
 
-  const [blueprintNames, categoryRefs] = await Promise.all([
-    item.blueprint_id
-      ? loadNameMap(db, "discovery_search_catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
-      : Promise.resolve(new Map<string, string>()),
-    loadCategoryMap(db, categoryIds),
-  ]);
+  const blueprintNames = item.blueprint_id
+    ? await loadNameMap(db, "discovery_search_catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
+    : new Map<string, string>();
+  const categoryRefs = await loadCategoryMap(db, categoryIds);
 
   const blueprintName = item.blueprint_id ? (blueprintNames.get(item.blueprint_id) ?? null) : null;
   const categoryNameList = categoryIds.map((id) => categoryRefs.get(id)?.name ?? id);
@@ -948,18 +946,15 @@ async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId:
     SEARCH_REFERENCE_RECORDS_TABLE,
     referenceRecordId,
   );
-  const itemIds = [
-    ...(await findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, referenceRecordId)),
-    ...(
-      await Promise.all(
-        relatedRecordIds.map((recordId) =>
-          findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, recordId),
-        ),
-      )
-    ).flat(),
-  ];
+  const itemIds = [...(await findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, referenceRecordId))];
 
-  await Promise.all([...new Set(itemIds)].map((itemId) => refreshDiscoverySearchItem(db, itemId)));
+  for (const recordId of relatedRecordIds) {
+    itemIds.push(...(await findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, recordId)));
+  }
+
+  for (const itemId of new Set(itemIds)) {
+    await refreshDiscoverySearchItem(db, itemId);
+  }
 }
 
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
@@ -1402,33 +1397,31 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       ]);
 
       const latestRules = new Map(dimensionRules.map((rule, index) => [rule.dimensionId, { rule, index }] as const));
-      await Promise.all(
-        [...latestRules.values()].map(({ rule, index }) =>
-          upsertRow(db, {
-            table: "discovery_search_catalog_blueprint_dimensions",
-            insertColumns: [
-              "blueprint_id",
-              "dimension_id",
-              "required",
-              "allowed_option_ids",
-              "applies_when",
-              "display_order",
-              "updated_at",
-            ],
-            conflictColumns: ["blueprint_id", "dimension_id"],
-            values: {
-              blueprint_id: blueprintId,
-              dimension_id: rule.dimensionId,
-              required: Boolean(rule.required),
-              allowed_option_ids: asStringArray(rule.allowedOptionIds),
-              applies_when: asArray(rule.appliesWhen),
-              display_order: index,
-              updated_at: event.timing.recordedAt,
-            },
-            casts: { allowed_option_ids: "jsonb", applies_when: "jsonb" },
-          }),
-        ),
-      );
+      for (const { rule, index } of latestRules.values()) {
+        await upsertRow(db, {
+          table: "discovery_search_catalog_blueprint_dimensions",
+          insertColumns: [
+            "blueprint_id",
+            "dimension_id",
+            "required",
+            "allowed_option_ids",
+            "applies_when",
+            "display_order",
+            "updated_at",
+          ],
+          conflictColumns: ["blueprint_id", "dimension_id"],
+          values: {
+            blueprint_id: blueprintId,
+            dimension_id: rule.dimensionId,
+            required: Boolean(rule.required),
+            allowed_option_ids: asStringArray(rule.allowedOptionIds),
+            applies_when: asArray(rule.appliesWhen),
+            display_order: index,
+            updated_at: event.timing.recordedAt,
+          },
+          casts: { allowed_option_ids: "jsonb", applies_when: "jsonb" },
+        });
+      }
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
@@ -1649,19 +1642,17 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const { optionIds } = event.data as { optionIds: string[] };
 
       const latestOptionOrders = new Map(optionIds.map((optionId, index) => [optionId, index] as const));
-      await Promise.all(
-        [...latestOptionOrders.entries()].map(([optionId, index]) =>
-          updateRow(db, {
-            table: "discovery_search_catalog_dimension_options",
-            setColumns: ["display_order", "updated_at"],
-            values: { display_order: index, updated_at: event.timing.recordedAt },
-            where: {
-              columns: ["dimension_id", "option_id"],
-              values: { dimension_id: dimensionId, option_id: optionId },
-            },
-          }),
-        ),
-      );
+      for (const [optionId, index] of latestOptionOrders.entries()) {
+        await updateRow(db, {
+          table: "discovery_search_catalog_dimension_options",
+          setColumns: ["display_order", "updated_at"],
+          values: { display_order: index, updated_at: event.timing.recordedAt },
+          where: {
+            columns: ["dimension_id", "option_id"],
+            values: { dimension_id: dimensionId, option_id: optionId },
+          },
+        });
+      }
 
       await refreshItemsByDimension(db, dimensionId);
     },
