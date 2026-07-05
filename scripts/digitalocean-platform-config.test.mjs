@@ -940,6 +940,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(kubeconfigStep).toContain("Terraform DOKS kubeconfig output did not contain a usable current-context");
     expect(kubeconfigStep).toContain('cluster_id="$(terraform output -raw cluster_id');
     expect(kubeconfigStep).toContain('cluster_name="$(terraform output -raw cluster_name');
+    expect(kubeconfigStep).toContain("terraform state list");
+    expect(kubeconfigStep).toContain(`awk '/(^|\\.)digitalocean_kubernetes_cluster\\./ { print; exit }'`);
+    expect(kubeconfigStep).toContain("Using production DOKS cluster Terraform state address");
+    expect(kubeconfigStep).toContain(`terraform state show -no-color "$cluster_address"`);
+    expect(kubeconfigStep).toContain(`key == "id"`);
+    expect(kubeconfigStep).toContain(`key == "name"`);
     expect(kubeconfigStep).toContain('doctl kubernetes cluster kubeconfig show "$cluster_id"');
     expect(kubeconfigStep).toContain('doctl kubernetes cluster kubeconfig show "$cluster_name"');
     expect(kubeconfigStep).toContain("Production Kubernetes kubeconfig is present but has no current context");

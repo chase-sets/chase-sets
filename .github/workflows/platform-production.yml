@@ -1880,6 +1880,46 @@ jobs:
             echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
             cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
             cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -z "$cluster_id" ] && [ -z "$cluster_name" ]; then
+              cluster_address="$(
+                terraform state list \
+                  | awk '/(^|\.)digitalocean_kubernetes_cluster\./ { print; exit }'
+              )"
+              if [ -n "$cluster_address" ]; then
+                echo "Using production DOKS cluster Terraform state address ${cluster_address}." >&2
+                cluster_state="$(terraform state show -no-color "$cluster_address")"
+                cluster_id="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "id") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+                cluster_name="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "name") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+              fi
+            fi
             if [ -n "$cluster_id" ]; then
               doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
             elif [ -n "$cluster_name" ]; then
