@@ -697,6 +697,19 @@ describe("change-scope", () => {
     expect(scope.dockerImageRequired).toBe(false);
   });
 
+  it("keeps DOKS-only Terraform changes on the plan-only lane", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["infrastructure/digitalocean/doks/main.tf"],
+      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+    });
+
+    expect(scope.terraformRequired).toBe(true);
+    expect(scope.deployRequired).toBe(false);
+    expect(scope.dockerImageRequired).toBe(false);
+  });
+
   it("classifies exposure-posture changes for targeted release gates", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
