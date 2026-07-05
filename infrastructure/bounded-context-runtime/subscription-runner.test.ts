@@ -662,6 +662,89 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(3);
   });
 
+  it("batch-applies clean events with bounded ledger and blocked-stream queries", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-cat_1"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" }, "catalog.item-cat_2"),
+      createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_3" }, "catalog.item-cat_3"),
+      createStoredEvent("4", "catalog.catalog-item.published", { itemId: "cat_4" }, "catalog.item-cat_4"),
+      createStoredEvent("5", "catalog.catalog-item.published", { itemId: "cat_5" }, "catalog.item-cat_5"),
+    ]);
+    const handler = vi.fn(async () => undefined);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": handler,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      batchSize: 100,
+    });
+
+    await runner.runOnce();
+
+    const targetSql = targetQuery.mock.calls.map(([sql]) => String(sql));
+    expect(handler).toHaveBeenCalledTimes(5);
+    expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(1);
+    expect(
+      targetSql.filter((sql) => sql.includes("SELECT event_id, status") && sql.includes("FOR UPDATE")),
+    ).toHaveLength(1);
+    expect(targetSql.filter((sql) => sql.includes("UPDATE event_subscription_applications"))).toHaveLength(2);
+    expect(
+      targetSql.filter(
+        (sql) => sql.includes("FROM event_projection_blocked_streams") && sql.includes("stream_id = ANY"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      targetSql.filter(
+        (sql) => sql.includes("FROM event_projection_blocked_streams") && sql.includes("stream_id = $2"),
+      ),
+    ).toHaveLength(0);
+    expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(1);
+  });
+
+  it("does not fall back to per-event apply when batch preflight fails", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const originalTargetQuery = targetPool.query.bind(targetPool);
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-cat_1"),
+    ]);
+    const handler = vi.fn(async () => undefined);
+    vi.spyOn(targetPool, "query").mockImplementation(async (sql, params) => {
+      if (String(sql).includes("FROM event_projection_blocked_streams") && String(sql).includes("stream_id = ANY")) {
+        throw new Error("blocked stream preflight unavailable");
+      }
+
+      return originalTargetQuery(sql, params);
+    });
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": handler,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      batchSize: 100,
+    });
+
+    await expect(runner.runOnce()).rejects.toThrow("blocked stream preflight unavailable");
+    expect(handler).not.toHaveBeenCalled();
+    expect(getApplicationStatusStore(targetPool).size).toBe(0);
+    expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBeUndefined();
+  });
+
   it("skips already applied subscription events through the application ledger", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
@@ -696,6 +779,67 @@ describe("bounded context subscription runner", () => {
       "applied",
     );
     expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("2");
+  });
+
+  it("falls back to per-event isolation when a batch handler fails", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_good_1" }, "catalog.item-cat_good_1"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_bad" }, "catalog.item-cat_bad"),
+      createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_good_2" }, "catalog.item-cat_good_2"),
+    ]);
+    const attemptsByPosition = new Map<string, number>();
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          attemptsByPosition.set(event.globalPosition, (attemptsByPosition.get(event.globalPosition) ?? 0) + 1);
+          if (event.globalPosition === "2") {
+            throw new Error("bad catalog item shape");
+          }
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      batchSize: 100,
+    });
+
+    await expect(runner.runOnce()).resolves.toMatchObject({
+      processed: 3,
+      lastGlobalPosition: "3",
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+
+    expect(attemptsByPosition).toEqual(
+      new Map([
+        ["1", 2],
+        ["2", 1],
+        ["3", 1],
+      ]),
+    );
+    expect(getApplicationStatusStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:evt_1")).toBe(
+      "applied",
+    );
+    expect(getApplicationStatusStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:evt_2")).toBe(
+      "poison",
+    );
+    expect(getApplicationStatusStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:evt_3")).toBe(
+      "applied",
+    );
+    expect(
+      getBlockedStreamStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:catalog.item-cat_bad"),
+    ).toMatchObject({
+      firstBlockedGlobalPosition: "2",
+      lastSeenGlobalPosition: "2",
+    });
+    expect(getPoisonEventStore(targetPool).has("inventory-catalog-item-projection:catalog:v1:evt_2")).toBe(true);
   });
 
   it("passes a transaction-scoped db handle to subscription handlers before marking events applied", async () => {

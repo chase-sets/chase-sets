@@ -584,7 +584,7 @@ export async function recordProjectionPoisonEvent(
 }
 
 export async function recordProjectionDeferredBlockedStreamEvent(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   input: Readonly<{
     projectionKey: string;
     streamId: string;
