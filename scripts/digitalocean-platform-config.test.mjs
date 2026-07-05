@@ -1946,6 +1946,15 @@ describe("DigitalOcean platform configuration", () => {
 
   it("gates the release image push behind a runtime boot smoke", () => {
     const buildStep = workflowStep(platformProductionWorkflow, "Build release image");
+    expect(buildStep).toContain('release_commit="${{ needs.resolve-release.outputs.release_commit }}"');
+    expect(buildStep).toContain("release_tree=\"$(git rev-parse 'HEAD^{tree}')\"");
+    expect(buildStep).toContain(
+      'tree_image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:tree-${release_tree}"',
+    );
+    expect(buildStep).toContain('docker buildx imagetools create --tag "$image" "$tree_image"');
+    expect(buildStep).toContain('if [ "$release_digest" != "$tree_digest" ]; then');
+    expect(buildStep).toContain("Promoted merge-queue validated image");
+    expect(buildStep).toContain("skipping rebuild and boot smoke");
     expect(buildStep).toContain("--load \\");
     expect(buildStep).not.toContain("--push");
     expect(buildStep).toContain('echo "built=true" >> "$GITHUB_OUTPUT"');

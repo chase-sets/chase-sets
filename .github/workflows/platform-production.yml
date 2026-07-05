@@ -175,6 +175,7 @@ jobs:
         id: release_image
         run: |
           set -euo pipefail
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
           if [ -z "$registry_name" ]; then
             doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
@@ -182,13 +183,29 @@ jobs:
           fi
 
           doctl registry login --expiry-seconds 3600
-          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${{ needs.resolve-release.outputs.release_commit }}"
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${release_commit}"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
             echo "Release image ${image} already exists; skipping rebuild."
             echo "built=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          release_tree="$(git rev-parse 'HEAD^{tree}')"
+          tree_image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:tree-${release_tree}"
+          if docker buildx imagetools inspect "$tree_image" >/dev/null 2>&1; then
+            tree_digest="$(docker buildx imagetools inspect "$tree_image" --format '{{.Manifest.Digest}}')"
+            docker buildx imagetools create --tag "$image" "$tree_image"
+            release_digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+            if [ "$release_digest" != "$tree_digest" ]; then
+              echo "Promoted release image digest ${release_digest} did not match merge-queue tree image digest ${tree_digest}." >&2
+              exit 1
+            fi
+            echo "Promoted merge-queue validated image ${tree_image}@${tree_digest} to ${image}@${release_digest}; skipping rebuild and boot smoke."
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           docker buildx build \
             --pull \
             --cache-from type=gha,scope=platform-image \
