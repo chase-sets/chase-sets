@@ -57,11 +57,50 @@ export function buildPlatformSecretManifest(options = {}) {
   };
 }
 
+export function buildNamespaceManifest(namespace) {
+  if (!namespace) {
+    return null;
+  }
+
+  return {
+    apiVersion: "v1",
+    kind: "Namespace",
+    metadata: {
+      name: namespace,
+      labels: {
+        "app.kubernetes.io/name": "chase-sets-platform",
+        "app.kubernetes.io/managed-by": "github-actions",
+      },
+      annotations: {
+        "chase-sets.com/generated-by": defaultGeneratedBy,
+      },
+    },
+  };
+}
+
 export async function applyPlatformSecretManifest(options = {}) {
   const manifest = options.manifest ?? buildPlatformSecretManifest(options);
   const kubectlPath = options.kubectlPath ?? "kubectl";
+  const namespace = manifest.metadata.namespace;
+  const namespaceManifest = buildNamespaceManifest(namespace);
+
+  if (namespaceManifest) {
+    await applyManifest({ manifest: namespaceManifest, kubectlPath, spawn: options.spawn });
+  }
+
+  await applyManifest({ manifest, kubectlPath, spawn: options.spawn });
+
+  return {
+    name: manifest.metadata.name,
+    namespace: namespace ?? null,
+    keyCount: Object.keys(manifest.data ?? {}).length,
+  };
+}
+
+async function applyManifest(options) {
   const spawnImpl = options.spawn ?? spawn;
-  const input = `${JSON.stringify(manifest)}\n`;
+  const input = `${JSON.stringify(options.manifest)}\n`;
+  const kubectlPath = options.kubectlPath;
 
   await new Promise((resolve, reject) => {
     const child = spawnImpl(kubectlPath, ["apply", "-f", "-"], {
@@ -79,12 +118,6 @@ export async function applyPlatformSecretManifest(options = {}) {
     });
     child.stdin.end(input);
   });
-
-  return {
-    name: manifest.metadata.name,
-    namespace: manifest.metadata.namespace ?? null,
-    keyCount: Object.keys(manifest.data ?? {}).length,
-  };
 }
 
 export function summarizePlatformSecret(options = {}) {

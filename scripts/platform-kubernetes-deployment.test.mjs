@@ -4,9 +4,11 @@ import {
   buildDeploymentEvidence,
   buildDiagnosticsCommands,
   buildHelmRollbackArgs,
+  buildHelmStatusArgs,
   buildHelmUpgradeArgs,
   buildKubernetesRollbackTarget,
   deployPlatformToKubernetes,
+  helmReleaseExists,
   parsePlatformImageRef,
   platformKubernetesWorkloads,
   rollbackPlatformOnKubernetes,
@@ -27,6 +29,26 @@ function successfulSpawn(calls) {
     calls.push({ command, args, options });
     const child = new EventEmitter();
     queueMicrotask(() => child.emit("close", 0));
+    return child;
+  };
+}
+
+function completedSpawn(calls, completions) {
+  return (command, args, options) => {
+    calls.push({ command, args, options });
+    const completion = completions.shift() ?? { code: 0 };
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    queueMicrotask(() => {
+      if (completion.stdout) {
+        child.stdout.emit("data", completion.stdout);
+      }
+      if (completion.stderr) {
+        child.stderr.emit("data", completion.stderr);
+      }
+      child.emit("close", completion.code ?? 0);
+    });
     return child;
   };
 }
@@ -98,6 +120,15 @@ describe("platform Kubernetes deployment", () => {
     expect(
       buildHelmRollbackArgs({ release: "staging-platform", namespace: "staging", timeout: "5m", revision: "7" }),
     ).toContain("7");
+  });
+
+  it("builds Helm status arguments for release existence checks", () => {
+    expect(buildHelmStatusArgs({ release: "staging-platform", namespace: "staging" })).toEqual([
+      "status",
+      "staging-platform",
+      "--namespace",
+      "staging",
+    ]);
   });
 
   it("derives rollout workloads from the platform Helm values", () => {
@@ -188,9 +219,63 @@ describe("platform Kubernetes deployment", () => {
 
     expect(calls[0]).toMatchObject({
       command: "helm",
+      args: ["status", "proof", "--namespace", "staging"],
+    });
+    expect(calls[1]).toMatchObject({
+      command: "helm",
       args: ["rollback", "proof", "3", "--namespace", "staging", "--wait", "--timeout", "30s"],
     });
-    expect(calls.slice(1).every((call) => call.args[0] === "rollout")).toBe(true);
+    expect(calls.slice(2).every((call) => call.args[0] === "rollout")).toBe(true);
+  });
+
+  it("detects whether a Helm release exists without logging status output", async () => {
+    const calls = [];
+    await expect(
+      helmReleaseExists({
+        release: "proof",
+        namespace: "staging",
+        spawn: completedSpawn(calls, [{ code: 0, stdout: '{"name":"proof"}' }]),
+      }),
+    ).resolves.toBe(true);
+
+    expect(calls).toEqual([
+      {
+        command: "helm",
+        args: ["status", "proof", "--namespace", "staging"],
+        options: { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
+      },
+    ]);
+  });
+
+  it("treats a missing Helm release as a skipped first-install rollback", async () => {
+    const calls = [];
+    const result = await rollbackPlatformOnKubernetes({
+      values: sampleValues,
+      release: "proof",
+      namespace: "production",
+      timeout: "30s",
+      spawn: completedSpawn(calls, [{ code: 1, stderr: "Error: release: not found" }]),
+    });
+
+    expect(result).toMatchObject({
+      action: "rollback",
+      result: "skipped",
+      reason: "helm-release-not-found",
+      release: "proof",
+      namespace: "production",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args).toEqual(["status", "proof", "--namespace", "production"]);
+  });
+
+  it("fails closed when Helm status fails for reasons other than a missing release", async () => {
+    await expect(
+      helmReleaseExists({
+        release: "proof",
+        namespace: "production",
+        spawn: completedSpawn([], [{ code: 1, stderr: "Error: Kubernetes cluster unreachable" }]),
+      }),
+    ).rejects.toThrow("helm status proof --namespace production exited with code 1");
   });
 
   it("builds kubectl diagnostics without requiring App Platform state", () => {

@@ -3,6 +3,7 @@ import { Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import {
   applyPlatformSecretManifest,
+  buildNamespaceManifest,
   buildPlatformSecretManifest,
   collectPlatformSecretKeys,
   summarizePlatformSecret,
@@ -57,6 +58,21 @@ describe("platform Kubernetes secret", () => {
     expect(JSON.stringify(manifest)).not.toContain("sk_test_secret");
   });
 
+  it("builds the namespace manifest used before namespaced secrets", () => {
+    expect(buildNamespaceManifest("production")).toMatchObject({
+      apiVersion: "v1",
+      kind: "Namespace",
+      metadata: {
+        name: "production",
+        labels: {
+          "app.kubernetes.io/name": "chase-sets-platform",
+          "app.kubernetes.io/managed-by": "github-actions",
+        },
+      },
+    });
+    expect(buildNamespaceManifest()).toBeNull();
+  });
+
   it("requires the CI environment to define every chart secret key", () => {
     expect(() =>
       buildPlatformSecretManifest({
@@ -101,6 +117,48 @@ describe("platform Kubernetes secret", () => {
     expect(calls[0]).toMatchObject({ command: "kubectl", args: ["apply", "-f", "-"] });
     expect(calls[0].options.stdio).toEqual(["pipe", "inherit", "inherit"]);
     expect(writes.join("")).toContain('"kind":"Secret"');
+  });
+
+  it("applies the namespace before a namespaced secret manifest", async () => {
+    const writes = [];
+    const calls = [];
+    const spawn = (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stdin = new Writable({
+        write(chunk, _encoding, callback) {
+          writes.push(chunk.toString("utf8"));
+          callback();
+        },
+      });
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    };
+
+    const result = await applyPlatformSecretManifest({
+      kubectlPath: "kubectl",
+      spawn,
+      manifest: buildPlatformSecretManifest({
+        values: sampleValues,
+        namespace: "production",
+        env: {
+          DATABASE_URL_CHECKOUT: "postgres://checkout-secret",
+          STRIPE_SECRET_KEY: "sk_test_secret",
+        },
+      }),
+    });
+
+    expect(result).toEqual({ name: "chase-sets-platform-runtime", namespace: "production", keyCount: 2 });
+    expect(calls.map((call) => call.args)).toEqual([
+      ["apply", "-f", "-"],
+      ["apply", "-f", "-"],
+    ]);
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toContain('"kind":"Namespace"');
+    expect(writes[0]).toContain('"name":"production"');
+    expect(writes[1]).toContain('"kind":"Secret"');
+    expect(writes[1]).toContain('"namespace":"production"');
+    expect(writes.join("")).not.toContain("sk_test_secret");
   });
 
   it("prints only a redacted dry-run summary", () => {
