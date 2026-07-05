@@ -36,8 +36,9 @@ describe("transactional projection handlers", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
     };
-    await handlers["catalog.catalog-item.published"]?.(event, { db });
+    const throwIfLeaseLost = vi.fn();
+    await handlers["catalog.catalog-item.published"]?.(event, { db, throwIfLeaseLost });
 
-    expect(handler).toHaveBeenCalledWith(event, { db });
+    expect(handler).toHaveBeenCalledWith(event, { db, throwIfLeaseLost });
   });
 });

@@ -95,6 +95,7 @@ export type ProjectorHandlerContext = Readonly<{
       values?: readonly unknown[],
     ) => Promise<Readonly<{ rows: readonly Row[]; rowCount?: number | null }>>;
   };
+  throwIfLeaseLost?: () => void;
 }>;
 
 export type EventPayloadMap = Readonly<Record<string, TransportEventPayload>>;

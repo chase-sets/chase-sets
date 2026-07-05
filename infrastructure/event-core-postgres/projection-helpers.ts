@@ -170,9 +170,11 @@ export async function refreshAffectedRows<const TIdColumn extends string>(
     where?: readonly ProjectionCascadeWhere[];
     orderBy?: readonly ProjectionCascadeOrder[];
     idsFromRow?: (row: Readonly<Record<TIdColumn, unknown>>) => readonly string[];
+    throwIfCancelled?: () => void;
     refresh: (id: string) => Promise<unknown>;
   }>,
 ): Promise<readonly string[]> {
+  input.throwIfCancelled?.();
   const values: unknown[] = [];
   const selectColumn = columnRef(input.select);
   const select = `SELECT ${input.select.distinct ? "DISTINCT " : ""}${selectColumn} AS ${sqlIdentifier(input.select.column)}`;
@@ -196,8 +198,10 @@ export async function refreshAffectedRows<const TIdColumn extends string>(
       });
 
   for (const id of ids) {
+    input.throwIfCancelled?.();
     await input.refresh(id);
   }
+  input.throwIfCancelled?.();
 
   return ids;
 }

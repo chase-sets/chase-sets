@@ -132,6 +132,26 @@ describe("projection helpers", () => {
     expect(maxActiveRefreshes).toBe(1);
   });
 
+  it("checks cancellation before and between affected row refreshes", async () => {
+    const { db } = recordingDb([{ catalog_item_id: "item_1" }, { catalog_item_id: "item_2" }]);
+    const refreshed: string[] = [];
+    let checks = 0;
+
+    await refreshAffectedRows(db, {
+      select: { column: "catalog_item_id" },
+      from: { table: "discovery_search_catalog_items" },
+      throwIfCancelled: () => {
+        checks += 1;
+      },
+      refresh: async (id) => {
+        refreshed.push(id);
+      },
+    });
+
+    expect(checks).toBe(4);
+    expect(refreshed).toEqual(["item_1", "item_2"]);
+  });
+
   it("builds affected-row reads with structured joins and aliases", async () => {
     const { db, calls } = recordingDb([{ catalog_item_id: "item_1" }]);
 

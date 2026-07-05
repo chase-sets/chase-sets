@@ -940,7 +940,12 @@ function formatReferenceTypeLabel(typeKey: string): string {
     .join(" ");
 }
 
-async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId: string): Promise<void> {
+async function refreshItemsByReferenceRecord(
+  db: PgQueryable,
+  referenceRecordId: string,
+  throwIfCancelled?: () => void,
+): Promise<void> {
+  throwIfCancelled?.();
   const relatedRecordIds = await findReferenceRecordIdsByRelatedReferenceGraph(
     db,
     SEARCH_REFERENCE_RECORDS_TABLE,
@@ -949,12 +954,15 @@ async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId:
   const itemIds = [...(await findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, referenceRecordId))];
 
   for (const recordId of relatedRecordIds) {
+    throwIfCancelled?.();
     itemIds.push(...(await findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, recordId)));
   }
 
   for (const itemId of new Set(itemIds)) {
+    throwIfCancelled?.();
     await refreshDiscoverySearchItem(db, itemId);
   }
+  throwIfCancelled?.();
 }
 
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
@@ -968,25 +976,35 @@ export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void
   });
 }
 
-async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
+async function refreshItemsByBlueprint(
+  db: PgQueryable,
+  blueprintId: string,
+  throwIfCancelled?: () => void,
+): Promise<void> {
   await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE },
     where: [{ column: "blueprint_id", value: blueprintId }],
+    throwIfCancelled,
     refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
   });
 }
 
-async function refreshItemsByField(db: PgQueryable, fieldId: string): Promise<void> {
+async function refreshItemsByField(db: PgQueryable, fieldId: string, throwIfCancelled?: () => void): Promise<void> {
   await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE },
     where: [{ column: "field_values", operator: "@>", cast: "jsonb", value: [{ fieldId }] }],
+    throwIfCancelled,
     refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
   });
 }
 
-async function refreshItemsByDimension(db: PgQueryable, dimensionId: string): Promise<void> {
+async function refreshItemsByDimension(
+  db: PgQueryable,
+  dimensionId: string,
+  throwIfCancelled?: () => void,
+): Promise<void> {
   await refreshAffectedRows(db, {
     select: { tableAlias: "item", column: "catalog_item_id", distinct: true },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE, alias: "item" },
@@ -1003,15 +1021,21 @@ async function refreshItemsByDimension(db: PgQueryable, dimensionId: string): Pr
       },
     ],
     where: [{ tableAlias: "rule", column: "dimension_id", value: dimensionId }],
+    throwIfCancelled,
     refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
   });
 }
 
-async function refreshItemsByCategory(db: PgQueryable, categoryId: string): Promise<void> {
+async function refreshItemsByCategory(
+  db: PgQueryable,
+  categoryId: string,
+  throwIfCancelled?: () => void,
+): Promise<void> {
   await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE },
     where: [{ column: "category_ids", operator: "@>", cast: "jsonb", value: [categoryId] }],
+    throwIfCancelled,
     refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
   });
 }
@@ -1368,7 +1392,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
     },
-    "catalog.blueprint.revised": async (event) => {
+    "catalog.blueprint.revised": async (event, context) => {
       const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
       const { name } = event.data as { name: unknown };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
@@ -1379,9 +1403,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByBlueprint(db, blueprintId);
+      await refreshItemsByBlueprint(db, blueprintId, context?.throwIfLeaseLost);
     },
-    "catalog.blueprint.dimensions-set": async (event) => {
+    "catalog.blueprint.dimensions-set": async (event, context) => {
       const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
       const { dimensionRules } = event.data as {
         dimensionRules: Array<{
@@ -1423,10 +1447,10 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         });
       }
 
-      await refreshItemsByBlueprint(db, blueprintId);
+      await refreshItemsByBlueprint(db, blueprintId, context?.throwIfLeaseLost);
     },
 
-    "catalog.field.created": async (event) => {
+    "catalog.field.created": async (event, context) => {
       const { fieldId, name, valueType, behavior } = event.data as {
         fieldId: string;
         name: unknown;
@@ -1445,9 +1469,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByField(db, fieldId);
+      await refreshItemsByField(db, fieldId, context?.throwIfLeaseLost);
     },
-    "catalog.field.configured": async (event) => {
+    "catalog.field.configured": async (event, context) => {
       const fieldId = extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX);
       const { name, valueType, behavior } = event.data as {
         name: unknown;
@@ -1466,10 +1490,10 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByField(db, fieldId);
+      await refreshItemsByField(db, fieldId, context?.throwIfLeaseLost);
     },
 
-    "catalog.reference-record.created": async (event) => {
+    "catalog.reference-record.created": async (event, context) => {
       const { referenceRecordId, typeKey, key, name, attributes, relationships } = event.data as {
         referenceRecordId: string;
         typeKey: string;
@@ -1491,9 +1515,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByReferenceRecord(db, referenceRecordId);
+      await refreshItemsByReferenceRecord(db, referenceRecordId, context?.throwIfLeaseLost);
     },
-    "catalog.reference-record.revised": async (event) => {
+    "catalog.reference-record.revised": async (event, context) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
       const { typeKey, key, name, attributes, relationships } = event.data as {
         typeKey: string;
@@ -1514,9 +1538,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByReferenceRecord(db, referenceRecordId);
+      await refreshItemsByReferenceRecord(db, referenceRecordId, context?.throwIfLeaseLost);
     },
-    "catalog.reference-record.published": async (event) => {
+    "catalog.reference-record.published": async (event, context) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
       await transitionStatus(db, {
@@ -1527,9 +1551,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByReferenceRecord(db, referenceRecordId);
+      await refreshItemsByReferenceRecord(db, referenceRecordId, context?.throwIfLeaseLost);
     },
-    "catalog.reference-record.deprecated": async (event) => {
+    "catalog.reference-record.deprecated": async (event, context) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
       await transitionStatus(db, {
@@ -1540,9 +1564,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByReferenceRecord(db, referenceRecordId);
+      await refreshItemsByReferenceRecord(db, referenceRecordId, context?.throwIfLeaseLost);
     },
-    "catalog.reference-record.archived": async (event) => {
+    "catalog.reference-record.archived": async (event, context) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
       await transitionStatus(db, {
@@ -1553,10 +1577,10 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByReferenceRecord(db, referenceRecordId);
+      await refreshItemsByReferenceRecord(db, referenceRecordId, context?.throwIfLeaseLost);
     },
 
-    "catalog.dimension.created": async (event) => {
+    "catalog.dimension.created": async (event, context) => {
       const { dimensionId, name, valueKind } = event.data as {
         dimensionId: string;
         name: unknown;
@@ -1571,9 +1595,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByDimension(db, dimensionId);
+      await refreshItemsByDimension(db, dimensionId, context?.throwIfLeaseLost);
     },
-    "catalog.dimension.revised": async (event) => {
+    "catalog.dimension.revised": async (event, context) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { name, valueKind } = event.data as { name: unknown; valueKind?: string };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
@@ -1585,9 +1609,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByDimension(db, dimensionId);
+      await refreshItemsByDimension(db, dimensionId, context?.throwIfLeaseLost);
     },
-    "catalog.dimension.option-added": async (event) => {
+    "catalog.dimension.option-added": async (event, context) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { optionId, code, label, displayOrder, numericValue, status } = event.data as {
         optionId: string;
@@ -1610,9 +1634,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByDimension(db, dimensionId);
+      await refreshItemsByDimension(db, dimensionId, context?.throwIfLeaseLost);
     },
-    "catalog.dimension.option-revised": async (event) => {
+    "catalog.dimension.option-revised": async (event, context) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { optionId, code, label, displayOrder, numericValue, status } = event.data as {
         optionId: string;
@@ -1635,14 +1659,15 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByDimension(db, dimensionId);
+      await refreshItemsByDimension(db, dimensionId, context?.throwIfLeaseLost);
     },
-    "catalog.dimension.options-reordered": async (event) => {
+    "catalog.dimension.options-reordered": async (event, context) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { optionIds } = event.data as { optionIds: string[] };
 
       const latestOptionOrders = new Map(optionIds.map((optionId, index) => [optionId, index] as const));
       for (const [optionId, index] of latestOptionOrders.entries()) {
+        context?.throwIfLeaseLost?.();
         await updateRow(db, {
           table: "discovery_search_catalog_dimension_options",
           setColumns: ["display_order", "updated_at"],
@@ -1654,7 +1679,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         });
       }
 
-      await refreshItemsByDimension(db, dimensionId);
+      await refreshItemsByDimension(db, dimensionId, context?.throwIfLeaseLost);
     },
 
     "catalog.category.created": async (event) => {
@@ -1669,7 +1694,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
     },
-    "catalog.category.revised": async (event) => {
+    "catalog.category.revised": async (event, context) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
       const { name } = event.data as { name: unknown };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
@@ -1693,7 +1718,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshItemsByCategory(db, categoryId);
+      await refreshItemsByCategory(db, categoryId, context?.throwIfLeaseLost);
     },
   };
 }
