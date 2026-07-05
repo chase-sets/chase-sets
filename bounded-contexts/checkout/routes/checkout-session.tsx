@@ -663,10 +663,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(`/account/offers/submitted/${session.submitted_offer_id}?feedbackWorkflow=offer-submit`);
   }
 
-  const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(resolvedRequest) : null;
-  const savedShippingAddresses = await loadSavedShippingAddresses(resolvedRequest, actor);
-  const savedCheckoutInstruments = await loadSavedCheckoutInstruments(resolvedRequest, actor);
-  const guestCheckoutContact = await loadGuestCheckoutContact(resolvedRequest, actor);
+  const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
+  const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(ancillaryRequest) : null;
+  const savedShippingAddresses = await loadSavedShippingAddresses(ancillaryRequest, actor);
+  const savedCheckoutInstruments = await loadSavedCheckoutInstruments(ancillaryRequest, actor);
+  const guestCheckoutContact = await loadGuestCheckoutContact(ancillaryRequest, actor);
   const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(session);
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const defaultSavedPaymentMethodCategory =
