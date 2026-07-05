@@ -195,7 +195,9 @@ export async function refreshAffectedRows<const TIdColumn extends string>(
         return id;
       });
 
-  await Promise.all(ids.map((id) => input.refresh(id)));
+  for (const id of ids) {
+    await input.refresh(id);
+  }
 
   return ids;
 }

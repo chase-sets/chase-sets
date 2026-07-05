@@ -9,6 +9,7 @@ class DiscoveryProjectionDb implements PgQueryable {
   public readonly detailCatalogItems = new Map<string, Record<string, unknown>>();
   public readonly redirectWrites: unknown[][] = [];
   public readonly derivedWrites: string[] = [];
+  public readonly queries: string[] = [];
 
   constructor() {
     this.searchCatalogItems.set("cat_1", catalogItemRow("old-title-cat-1"));
@@ -19,6 +20,8 @@ class DiscoveryProjectionDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    this.queries.push(sql);
+
     if (sql.includes("SELECT slug FROM discovery_search_catalog_items")) {
       const row = this.searchCatalogItems.get(String(values[0]));
       return { rows: (row ? [{ slug: row.slug }] : []) as Row[], rowCount: row ? 1 : 0 };
@@ -150,7 +153,8 @@ class DiscoveryProjectionDb implements PgQueryable {
     if (
       sql.includes("discovery_search_catalog_categories") ||
       sql.includes("discovery_item_detail_catalog_categories") ||
-      sql.includes("discovery_search_catalog_fields")
+      sql.includes("discovery_search_catalog_fields") ||
+      sql.includes("discovery_item_detail_catalog_fields")
     ) {
       return { rows: [], rowCount: 0 };
     }
@@ -352,11 +356,13 @@ describe("Discovery display identity projection", () => {
   });
 
   it("serializes item detail projection same-client dimension option updates", async () => {
-    const probe = withQueryConcurrencyProbe(new DiscoveryProjectionDb());
+    const rawDb = new DiscoveryProjectionDb();
+    const probe = withQueryConcurrencyProbe(rawDb);
     const handlers = buildDiscoveryItemDetailProjectionHandlers(probe.db);
 
     await handlers["catalog.dimension.options-reordered"]?.(dimensionOptionsReorderedEvent());
 
     expect(probe.getMaxActiveQueryCount()).toBe(1);
+    expect(rawDb.queries.some((query) => query.includes("discovery_item_detail_catalog_blueprints"))).toBe(true);
   });
 });

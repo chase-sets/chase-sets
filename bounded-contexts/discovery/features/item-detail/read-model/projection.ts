@@ -544,6 +544,41 @@ async function refreshItemsByCategory(db: PgQueryable, categoryId: string): Prom
   });
 }
 
+async function refreshItemsByField(db: PgQueryable, fieldId: string): Promise<void> {
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: ITEM_DETAIL_CATALOG_ITEMS_TABLE },
+    where: [{ column: "field_values", operator: "@>", cast: "jsonb", value: [{ fieldId }] }],
+    refresh: (itemId) => refreshDiscoveryItemDetailPage(db, itemId),
+  });
+}
+
+async function refreshItemsByDimension(db: PgQueryable, dimensionId: string): Promise<void> {
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT DISTINCT item.catalog_item_id
+     FROM ${ITEM_DETAIL_CATALOG_ITEMS_TABLE} AS item
+     INNER JOIN discovery_item_detail_catalog_blueprints AS blueprint
+       ON blueprint.blueprint_id = item.blueprint_id
+     WHERE COALESCE(blueprint.canonical_dimension_order, '[]'::jsonb) @> $1::jsonb
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(COALESCE(blueprint.dimension_rules, '[]'::jsonb)) AS rule(value)
+          WHERE rule.value->>'dimensionId' = $2
+             OR EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(COALESCE(rule.value->'appliesWhen', '[]'::jsonb)) AS clause(value)
+               WHERE clause.value->>'dimensionId' = $2
+             )
+        )
+     ORDER BY item.catalog_item_id`,
+    [JSON.stringify([dimensionId]), dimensionId],
+  );
+
+  for (const row of result.rows) {
+    await refreshDiscoveryItemDetailPage(db, row.catalog_item_id);
+  }
+}
+
 async function refreshAllItems(db: PgQueryable): Promise<void> {
   await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
@@ -1076,7 +1111,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshAllItems(db);
+      await refreshItemsByField(db, fieldId);
     },
     "catalog.field.configured": async (event) => {
       const fieldId = extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX);
@@ -1089,7 +1124,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshAllItems(db);
+      await refreshItemsByField(db, fieldId);
     },
 
     "catalog.reference-record.created": async (event) => {
@@ -1199,7 +1234,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         },
       });
 
-      await refreshAllItems(db);
+      await refreshItemsByDimension(db, dimensionId);
     },
     "catalog.dimension.revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
@@ -1219,7 +1254,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         [dimensionId, resolveLocalizedText(nameI18n), valueKind ?? null, event.timing.recordedAt],
       );
 
-      await refreshAllItems(db);
+      await refreshItemsByDimension(db, dimensionId);
     },
     "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
@@ -1244,7 +1279,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshAllItems(db);
+      await refreshItemsByDimension(db, dimensionId);
     },
     "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
@@ -1269,7 +1304,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         updatedAt: event.timing.recordedAt,
       });
 
-      await refreshAllItems(db);
+      await refreshItemsByDimension(db, dimensionId);
     },
     "catalog.dimension.options-reordered": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
@@ -1288,7 +1323,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         });
       }
 
-      await refreshAllItems(db);
+      await refreshItemsByDimension(db, dimensionId);
     },
   };
 }
