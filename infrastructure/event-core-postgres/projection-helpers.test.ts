@@ -113,6 +113,25 @@ describe("projection helpers", () => {
     expect(refreshed).toEqual(["item_1", "item_2"]);
   });
 
+  it("refreshes affected rows serially for single-client projection safety", async () => {
+    const { db } = recordingDb([{ catalog_item_id: "item_1" }, { catalog_item_id: "item_2" }]);
+    let activeRefreshes = 0;
+    let maxActiveRefreshes = 0;
+
+    await refreshAffectedRows(db, {
+      select: { column: "catalog_item_id" },
+      from: { table: "discovery_search_catalog_items" },
+      refresh: async () => {
+        activeRefreshes += 1;
+        maxActiveRefreshes = Math.max(maxActiveRefreshes, activeRefreshes);
+        await Promise.resolve();
+        activeRefreshes -= 1;
+      },
+    });
+
+    expect(maxActiveRefreshes).toBe(1);
+  });
+
   it("builds affected-row reads with structured joins and aliases", async () => {
     const { db, calls } = recordingDb([{ catalog_item_id: "item_1" }]);
 
