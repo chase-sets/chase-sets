@@ -141,6 +141,8 @@ const databasePoolMaxByComponent = {
   "platform-bootstrap": "4",
 };
 
+const rolloutEligibleComponents = new Set(["public-web", "marketplace"]);
+
 export function readPlatformSources(rootDir = repoRoot) {
   return {
     main: readFileSync(path.join(rootDir, platformMainRelativePath), "utf8"),
@@ -259,6 +261,22 @@ function toHelmComponent(component) {
 
   if (component.healthPath) {
     result.healthPath = component.healthPath;
+  }
+
+  if (rolloutEligibleComponents.has(component.name)) {
+    result.rollout = {
+      enabled: false,
+      canary: {
+        canaryServiceSuffix: "canary",
+        trafficRouting: {
+          nginx: {
+            enabled: false,
+            stableIngress: "",
+          },
+        },
+        steps: [{ setWeight: 10 }, { pause: {} }],
+      },
+    };
   }
 
   if (component.terraformKind === "job") {
