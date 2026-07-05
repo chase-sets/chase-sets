@@ -376,6 +376,15 @@ jobs:
         with:
           args: -color
 
+      - name: Lint platform Helm chart
+        run: docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 lint infrastructure/helm/platform
+
+      - name: Validate rendered platform Helm manifests
+        run: |
+          rendered="${RUNNER_TEMP}/platform-helm-rendered.yaml"
+          docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-sets-platform infrastructure/helm/platform > "$rendered"
+          docker run --rm -v "${RUNNER_TEMP}:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary "$(basename "$rendered")"
+
   terraform-preview-plan:
     name: Terraform Preview Plan
     runs-on: ubuntu-latest
