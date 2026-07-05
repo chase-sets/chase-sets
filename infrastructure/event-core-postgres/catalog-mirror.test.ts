@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { PgQueryable } from "./types";
 import {
   asArray,
   asStringArray,
@@ -49,6 +50,27 @@ const CORE_EVENT_TYPES = [
   "catalog.dimension.option-added",
   "catalog.dimension.option-revised",
 ];
+
+function withQueryConcurrencyProbe(db: PgQueryable): { db: PgQueryable; getMaxActiveQueryCount: () => number } {
+  let activeQueryCount = 0;
+  let maxActiveQueryCount = 0;
+
+  return {
+    db: {
+      query: (async (sql: string, values?: readonly unknown[]) => {
+        activeQueryCount += 1;
+        maxActiveQueryCount = Math.max(maxActiveQueryCount, activeQueryCount);
+        try {
+          await Promise.resolve();
+          return await db.query(sql, values);
+        } finally {
+          activeQueryCount -= 1;
+        }
+      }) as PgQueryable["query"],
+    },
+    getMaxActiveQueryCount: () => maxActiveQueryCount,
+  };
+}
 
 describe("catalog mirror primitives", () => {
   it.each([
@@ -411,6 +433,60 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
     expect(optionProductSchemaWrites).toHaveLength(1);
     expect(optionProductSchemaWrites[0]?.params[0]).toBe("cat_affected");
     expect(optionRevisionEffects.some((effect) => effect.sql.includes("ORDER BY catalog_item_id ASC"))).toBe(false);
+  });
+
+  it("serializes product-schema refresh queries on the projection transaction client", async () => {
+    const replayDb = createCatalogMirrorReplayDb("inventory_catalog");
+    const probe = withQueryConcurrencyProbe(replayDb.db);
+    const handlers = buildCatalogMirrorProjectionHandlers(probe.db, { tablePrefix: "inventory_catalog" });
+
+    await handlers["catalog.dimension.created"]!(
+      event(
+        "catalog.dimension.created",
+        { dimensionId: "dim_condition", name: "Condition" },
+        "catalog.dimension-dim_condition",
+      ),
+    );
+    await handlers["catalog.dimension.option-added"]!(
+      event(
+        "catalog.dimension.option-added",
+        { optionId: "opt_nm", code: "NM", label: "Near Mint" },
+        "catalog.dimension-dim_condition",
+      ),
+    );
+    await handlers["catalog.blueprint.created"]!(
+      event(
+        "catalog.blueprint.created",
+        { blueprintId: "bp_condition", name: "Condition Card" },
+        "catalog.blueprint-bp_condition",
+      ),
+    );
+    await handlers["catalog.blueprint.dimensions-set"]!(
+      event(
+        "catalog.blueprint.dimensions-set",
+        { dimensionRules: [{ dimensionId: "dim_condition", required: true, allowedOptionIds: ["opt_nm"] }] },
+        "catalog.blueprint-bp_condition",
+      ),
+    );
+
+    for (const itemId of ["cat_one", "cat_two"]) {
+      await handlers["catalog.catalog-item.created"]!(
+        event("catalog.catalog-item.created", { itemId, title: itemId, subtitle: null }, `catalog.item-${itemId}`),
+      );
+      await handlers["catalog.catalog-item.blueprint-assigned"]!(
+        event("catalog.catalog-item.blueprint-assigned", { blueprintId: "bp_condition" }, `catalog.item-${itemId}`),
+      );
+    }
+
+    await handlers["catalog.dimension.option-revised"]!(
+      event(
+        "catalog.dimension.option-revised",
+        { optionId: "opt_nm", code: "NM", label: "Near Mint revised" },
+        "catalog.dimension-dim_condition",
+      ),
+    );
+
+    expect(probe.getMaxActiveQueryCount()).toBe(1);
   });
 
   it("returns a null version schema for unknown blueprints", async () => {

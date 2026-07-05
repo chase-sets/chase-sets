@@ -12,7 +12,7 @@ type QueryCall = Readonly<{
   values: readonly unknown[] | undefined;
 }>;
 
-function createRecordingPool() {
+function createRecordingPool(options: { idleInTransactionSessionTimeoutMillis?: number } = {}) {
   const calls: QueryCall[] = [];
   let connectCount = 0;
 
@@ -30,6 +30,7 @@ function createRecordingPool() {
       connectCount += 1;
       return client;
     },
+    idleInTransactionSessionTimeoutMillis: options.idleInTransactionSessionTimeoutMillis,
   } satisfies PgTransactionalPool;
 
   return { calls, getConnectCount: () => connectCount, pool };
@@ -52,6 +53,29 @@ describe("projection transactions", () => {
 
     expect(calls).toEqual([
       { sql: "BEGIN", values: undefined },
+      { sql: "SELECT set_config('statement_timeout', $1, true)", values: ["13ms"] },
+      { sql: "SELECT 1", values: undefined },
+      { sql: "COMMIT", values: undefined },
+    ]);
+  });
+
+  it("preserves transaction-local idle timeouts before projection statement timeouts", async () => {
+    const { calls, pool } = createRecordingPool({ idleInTransactionSessionTimeoutMillis: 15_000 });
+    const context = {
+      statementTimeoutMs: 12.2,
+      throwIfLeaseLost: () => undefined,
+    } satisfies ProjectionRunContext;
+
+    await expect(
+      withProjectionTransaction(pool, context, async (client) => {
+        await client.query("SELECT 1");
+        return "done";
+      }),
+    ).resolves.toBe("done");
+
+    expect(calls).toEqual([
+      { sql: "BEGIN", values: undefined },
+      { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15000ms"] },
       { sql: "SELECT set_config('statement_timeout', $1, true)", values: ["13ms"] },
       { sql: "SELECT 1", values: undefined },
       { sql: "COMMIT", values: undefined },
