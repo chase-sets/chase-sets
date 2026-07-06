@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ROUTE_MATRIX_ROUTES,
+  PROMETHEUS_QUERY_TOKEN_HEADER,
   READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_VERSION,
   buildReadConsistencyRouteMatrixEvidence,
   parseReadConsistencyRouteMatrixEvidenceArgs,
   prometheusResultValue,
+  queryPrometheusInstant,
   routeMatrixPrometheusQueries,
   routeMatrixRouteEvidence,
   runReadConsistencyRouteMatrixEvidence,
@@ -210,5 +212,35 @@ describe("read consistency route matrix evidence", () => {
     expect(prometheusResultValue([{ value: [1_782_800_000, "42.4"] }])).toBe(42.4);
     expect(prometheusResultValue([])).toBeNull();
     expect(prometheusResultValue([{ value: [1_782_800_000, "NaN"] }])).toBeNull();
+  });
+
+  it("sends the staging observability query token with the Prometheus gateway header", async () => {
+    const seen = [];
+    const value = await queryPrometheusInstant("up", {
+      prometheusUrl: "https://prometheus.staging.chasesets.com",
+      prometheusToken: "secret-token",
+      fetchImpl: async (url, init) => {
+        seen.push({ url, init });
+        return {
+          ok: true,
+          async json() {
+            return {
+              status: "success",
+              data: {
+                result: [{ value: [1_782_800_000, "1"] }],
+              },
+            };
+          },
+        };
+      },
+    });
+
+    expect(value).toBe(1);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url.toString()).toBe("https://prometheus.staging.chasesets.com/api/v1/query?query=up");
+    expect(seen[0].init.headers).toEqual({
+      [PROMETHEUS_QUERY_TOKEN_HEADER]: "secret-token",
+    });
+    expect(seen[0].init.headers).not.toHaveProperty("Authorization");
   });
 });
