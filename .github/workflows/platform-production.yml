@@ -339,6 +339,9 @@ jobs:
       TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
     steps:
       - name: Record staging start
@@ -773,39 +776,264 @@ jobs:
 
           node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true
 
-      - name: Wait for Terraform App Platform deployment
+      - name: Configure staging Kubernetes context
         if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
+        working-directory: infrastructure/digitalocean/doks
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
 
-      - name: Reset stale staging root domain attachment
+          kubeconfig="${RUNNER_TEMP}/chase-sets-staging.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -z "$cluster_id" ] && [ -z "$cluster_name" ]; then
+              cluster_address="$(
+                terraform state list \
+                  | awk '/(^|\.)digitalocean_kubernetes_cluster\./ { print; exit }'
+              )"
+              if [ -n "$cluster_address" ]; then
+                echo "Using staging DOKS cluster Terraform state address ${cluster_address}." >&2
+                cluster_state="$(terraform state show -no-color "$cluster_address")"
+                cluster_id="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "id") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+                cluster_name="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "name") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+              fi
+            fi
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure staging Kubernetes context." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Staging Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured staging Kubernetes context: ${current_context}"
+
+      - name: Export staging Kubernetes database URLs
         if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DEPLOYMENT_ENVIRONMENT: staging
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs reset-domain "$app_id" staging.chasesets.com
+          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
+          terraform -chdir=infrastructure/digitalocean/platform state pull > "$state_path"
+          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
+          const { execFileSync } = require("node:child_process");
+          const fs = require("node:fs");
 
-      - name: Deploy App Platform image
-        if: env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.app_changed != 'true'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
+          const resources = Array.isArray(state.resources) ? state.resources : [];
+          const resource = (type, name) =>
+            resources.find((candidate) => candidate.type === type && candidate.name === name);
+          const indexed = (item) =>
+            new Map((item?.instances ?? []).map((instance) => [String(instance.index_key ?? ""), instance.attributes ?? {}]));
+          const contextFromToken = (token) => token.toLowerCase().replaceAll("_", "-");
+
+          const cluster = resource("digitalocean_database_cluster", "postgres");
+          const databases = indexed(resource("digitalocean_database_db", "contexts"));
+          const contextUsers = indexed(resource("digitalocean_database_user", "contexts"));
+          const wakeUsers = indexed(resource("digitalocean_database_user", "wake_listeners"));
+          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
+          if (!clusterAttrs.host || !clusterAttrs.port) {
+            throw new Error("Staging Terraform state does not contain a usable DigitalOcean database cluster.");
+          }
+
+          const secretSummary = JSON.parse(
+            execFileSync(process.execPath, [
+              "./scripts/platform-kubernetes-secret.mjs",
+              "--dry-run",
+              "--namespace",
+              process.env.CHASE_SETS_KUBERNETES_NAMESPACE,
+            ], { encoding: "utf8" }),
+          );
+
+          const urlFor = (contextName, users) => {
+            const database = databases.get(contextName);
+            const user = users.get(contextName);
+            if (!database?.name || !user?.name || !user?.password) {
+              throw new Error(`Staging Terraform state is missing database/user data for '${contextName}'.`);
+            }
+            return `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
+              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
+          };
+
+          const lines = [];
+          const add = (name, value) => {
+            console.log(`::add-mask::${value}`);
+            lines.push(`${name}=${value}`);
+          };
+
+          for (const key of secretSummary.keys ?? []) {
+            let match = /^DATABASE_URL_([A-Z0-9_]+)_WAITER$/.exec(key);
+            if (match) {
+              add(key, urlFor(contextFromToken(match[1]), wakeUsers));
+              continue;
+            }
+
+            match = /^WORKER_LISTENER_DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
+            if (match) {
+              add(key, urlFor(contextFromToken(match[1]), wakeUsers));
+              continue;
+            }
+
+            match = /^DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
+            if (match) {
+              add(key, urlFor(contextFromToken(match[1]), contextUsers));
+              continue;
+            }
+
+            if (key === "PLATFORM_CONTROL_DATABASE_URL" || key === "PLATFORM_WORK_SIGNAL_DATABASE_URL") {
+              add(key, urlFor("control", contextUsers));
+            }
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Apply staging Kubernetes runtime secrets
+        if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
+          export CATALOG_ASSET_S3_ACCESS_KEY_ID="${TF_VAR_spaces_access_id:-}"
+          export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="${TF_VAR_spaces_secret_key:-}"
+          export CHASE_SETS_DISCORD_INVITE_URL="${TF_VAR_discord_invite_url:-}"
+          export EASYPOST_API_KEY="${TF_VAR_easypost_api_key:-}"
+          export EASYPOST_WEBHOOK_SECRET="${TF_VAR_easypost_webhook_secret:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_facebook_social_login_client_id:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_facebook_social_login_client_secret:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_google_social_login_client_id:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_google_social_login_client_secret:-}"
+          export OTEL_EXPORTER_OTLP_HEADERS="${TF_VAR_observability_otlp_headers:-}"
+          export PLATFORM_ADMIN_EMAIL="${TF_VAR_platform_admin_email:-}"
+          export PLATFORM_ADMIN_PASSWORD="${TF_VAR_platform_admin_password:-}"
+          export PLATFORM_INTERNAL_AUTH_SECRET="${TF_VAR_platform_internal_auth_secret:-}"
+          export SCRYDEX_API_KEY="${TF_VAR_scrydex_api_key:-}"
+          export SCRYDEX_TEAM_ID="${TF_VAR_scrydex_team_id:-}"
+          export SES_AWS_ACCESS_KEY_ID="${TF_VAR_ses_aws_access_key_id:-}"
+          export SES_AWS_SECRET_ACCESS_KEY="${TF_VAR_ses_aws_secret_access_key:-}"
+          export SES_SOURCE_ARN="${TF_VAR_ses_source_arn:-}"
+          export STRIPE_CONNECT_WEBHOOK_SECRET="${TF_VAR_stripe_connect_webhook_secret:-}"
+          export STRIPE_PUBLISHABLE_KEY="${TF_VAR_stripe_publishable_key:-}"
+          export STRIPE_SECRET_KEY="${TF_VAR_stripe_secret_key:-}"
+          export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
+          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
+
+          node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+
+      - name: Apply staging Kubernetes registry pull secret
+        if: env.SHOULD_DEPLOY != 'false'
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry is required before staging Kubernetes deploys can pull images." >&2
+            exit 1
+          fi
+
+          registry_pull_secret_name="registry-${registry_name}"
+          docker_config="$(mktemp)"
+          trap 'rm -f "$docker_config"' EXIT
+          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
+          kubectl create secret generic "$registry_pull_secret_name" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --from-file=.dockerconfigjson="$docker_config" \
+            --type=kubernetes.io/dockerconfigjson \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
+
+      - name: Deploy staging Kubernetes release
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
+          catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
+          catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
+          catalog_asset_s3_region="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_region)"
+          if [ -z "$catalog_asset_public_base_url" ] || [ -z "$catalog_asset_s3_bucket" ] || [ -z "$catalog_asset_s3_endpoint" ] || [ -z "$catalog_asset_s3_region" ]; then
+            echo "Staging catalog asset runtime env outputs are required before Kubernetes deploy." >&2
+            exit 1
+          fi
+
+          pnpm run platform:kubernetes-deployment -- deploy \
+            --image "$PLATFORM_IMAGE_REF" \
+            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
+            --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
+            --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
+            --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Capture staging Kubernetes deploy diagnostics
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" || true
 
       - name: Wait for staging domains
         if: env.SHOULD_DEPLOY != 'false'

@@ -905,6 +905,14 @@ describe("DigitalOcean platform configuration", () => {
     const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const stagingSmokeStep = workflowSteps(deployStagingJob, "Smoke check").at(-1);
     const productionSmokeStep = workflowSteps(deployProductionJob, "Smoke check").at(-1);
+    const stagingKubeconfigStep = workflowStep(deployStagingJob, "Configure staging Kubernetes context");
+    const stagingRuntimeSecretsStep = workflowStep(deployStagingJob, "Apply staging Kubernetes runtime secrets");
+    const stagingRegistryPullSecretStep = workflowStep(
+      deployStagingJob,
+      "Apply staging Kubernetes registry pull secret",
+    );
+    const stagingDeployStep = workflowStep(deployStagingJob, "Deploy staging Kubernetes release");
+    const stagingDiagnosticsStep = workflowStep(deployStagingJob, "Capture staging Kubernetes deploy diagnostics");
     const kubeconfigStep = workflowStep(deployProductionJob, "Configure production Kubernetes context");
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
     const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
@@ -921,11 +929,22 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(deployStagingJob).not.toContain("- name: Capture production rollback target");
     expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
+    expect(deployStagingJob).not.toContain("- name: Wait for Terraform App Platform deployment");
+    expect(deployStagingJob).not.toContain("- name: Reset stale staging root domain attachment");
+    expect(deployStagingJob).not.toContain("- name: Deploy App Platform image");
     expect(stagingSmokeStep).toContain("timeout-minutes: 12");
     expect(stagingSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
     expect(productionSmokeStep).toContain("timeout-minutes: 15");
     expect(productionSmokeStep).toContain('SMOKE_FETCH_TIMEOUT_MS: "15000"');
 
+    const stagingApplyIndex = deployStagingJob.indexOf("- name: Terraform apply");
+    const stagingKubeconfigIndex = deployStagingJob.indexOf("- name: Configure staging Kubernetes context");
+    const stagingRuntimeSecretsIndex = deployStagingJob.indexOf("- name: Apply staging Kubernetes runtime secrets");
+    const stagingRegistryPullSecretIndex = deployStagingJob.indexOf(
+      "- name: Apply staging Kubernetes registry pull secret",
+    );
+    const stagingDeployIndex = deployStagingJob.indexOf("- name: Deploy staging Kubernetes release");
+    const stagingDomainWaitIndex = deployStagingJob.indexOf("- name: Wait for staging domains");
     const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
     const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
@@ -942,6 +961,11 @@ describe("DigitalOcean platform configuration", () => {
     const rollbackIndex = deployProductionJob.indexOf("- name: Roll back production Kubernetes release");
     const markerIndex = deployProductionJob.indexOf("- name: Mark production release");
 
+    expect(stagingApplyIndex).toBeLessThan(stagingKubeconfigIndex);
+    expect(stagingKubeconfigIndex).toBeLessThan(stagingRuntimeSecretsIndex);
+    expect(stagingRuntimeSecretsIndex).toBeLessThan(stagingRegistryPullSecretIndex);
+    expect(stagingRegistryPullSecretIndex).toBeLessThan(stagingDeployIndex);
+    expect(stagingDeployIndex).toBeLessThan(stagingDomainWaitIndex);
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
     expect(applyIndex).toBeLessThan(runtimeSecretsIndex);
@@ -989,6 +1013,34 @@ describe("DigitalOcean platform configuration", () => {
     expect(readinessStep).toContain("ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}");
     expect(readinessStep).toContain("pnpm run rollback:readiness");
     expect(readinessStep).toContain('echo "result=${result}" >> "$GITHUB_OUTPUT"');
+
+    expect(stagingKubeconfigStep).toContain("infrastructure/digitalocean/doks");
+    expect(stagingKubeconfigStep).toContain("-backend-config=key=doks/staging.tfstate");
+    expect(stagingKubeconfigStep).toContain("terraform output -raw kubeconfig");
+    expect(stagingKubeconfigStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(stagingKubeconfigStep).toContain("Configured staging Kubernetes context: ${current_context}");
+    expect(stagingKubeconfigStep).toContain("Using staging DOKS cluster Terraform state address");
+    expect(stagingRuntimeSecretsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
+    expect(stagingRuntimeSecretsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(stagingRegistryPullSecretStep).toContain("doctl registry get --format Name --no-header");
+    expect(stagingRegistryPullSecretStep).toContain("doctl registry docker-config --expiry-seconds 3600");
+    expect(stagingRegistryPullSecretStep).toContain('kubectl create secret generic "$registry_pull_secret_name"');
+    expect(stagingDeployStep).toContain("pnpm run platform:kubernetes-deployment -- deploy");
+    expect(stagingDeployStep).toContain(
+      "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
+    );
+    expect(stagingDeployStep).toContain("Staging catalog asset runtime env outputs are required");
+    expect(stagingDeployStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
+    expect(stagingDeployStep).toContain(
+      '--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"',
+    );
+    expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}"');
+    expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}"');
+    expect(stagingDeployStep).toContain('--runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}"');
+    expect(stagingDeployStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(stagingDeployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
+    expect(stagingDiagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics");
+    expect(stagingDiagnosticsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
 
     expect(runtimeSecretsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
     expect(runtimeSecretsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
@@ -1779,15 +1831,15 @@ describe("DigitalOcean platform configuration", () => {
     const diagnosticsStep = workflowStep(platformProductionWorkflow, "Capture App Platform deploy diagnostics");
     const diagnosticsIndex = platformProductionWorkflow.indexOf("- name: Capture App Platform deploy diagnostics");
     const applyIndex = platformProductionWorkflow.lastIndexOf("- name: Terraform apply", diagnosticsIndex);
-    const waitIndex = platformProductionWorkflow.indexOf(
-      "- name: Wait for Terraform App Platform deployment",
+    const kubeconfigIndex = platformProductionWorkflow.indexOf(
+      "- name: Configure staging Kubernetes context",
       diagnosticsIndex,
     );
 
     expect(applyIndex).toBeGreaterThan(-1);
-    expect(waitIndex).toBeGreaterThan(diagnosticsIndex);
+    expect(kubeconfigIndex).toBeGreaterThan(diagnosticsIndex);
     expect(diagnosticsIndex).toBeGreaterThan(applyIndex);
-    expect(diagnosticsIndex).toBeLessThan(waitIndex);
+    expect(diagnosticsIndex).toBeLessThan(kubeconfigIndex);
     expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(diagnosticsStep).toContain('app_id="$(terraform output -raw app_id 2>/dev/null || true)"');
     expect(diagnosticsStep).toContain(
@@ -2326,8 +2378,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
     expect(platformStagingResetWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
     expect(platformStagingResetWorkflow).toContain('terraform import "$address" "${zone},${record_id}"');
-    expect(platformProductionWorkflow).toContain("Reset stale staging root domain attachment");
-    expect(platformProductionWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
+    expect(platformProductionWorkflow).not.toContain("Reset stale staging root domain attachment");
+    expect(platformProductionWorkflow).not.toContain('reset-domain "$app_id" staging.chasesets.com');
     expect(platformStagingResetWorkflow).toContain("Reset stale staging root domain attachment");
     expect(platformStagingResetWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
   });
