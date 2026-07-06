@@ -244,6 +244,7 @@ export function buildHeldLockInjectorExecArgs(options, podName) {
 
 export function buildHeldLockInjectorShell(options) {
   return `CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS=${Number(options.heldLockTimeoutSeconds)} node --input-type=module <<'NODE'
+import { readFileSync } from "node:fs";
 import pg from "pg";
 
 const { Client } = pg;
@@ -255,28 +256,100 @@ if (!databaseUrl) {
   process.exit(2);
 }
 
+function normalizeConnectionString(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    const sslMode = url.searchParams.get("sslmode")?.toLowerCase();
+    if (sslMode && sslMode !== "disable" && !url.searchParams.has("uselibpqcompat")) {
+      url.searchParams.set("uselibpqcompat", "true");
+      return url.toString();
+    }
+  } catch {
+    return connectionString;
+  }
+  return connectionString;
+}
+
+function resolveSslConfig(connectionString, env) {
+  const parsed = parseConnectionString(connectionString);
+  if (!parsed) {
+    return undefined;
+  }
+
+  const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+  if (sslMode === "disable") {
+    return undefined;
+  }
+  if (sslMode === "require") {
+    return { rejectUnauthorized: false };
+  }
+  if (sslMode === "verify-ca" || sslMode === "verify-full") {
+    return verifyingSslConfig(parsed, env);
+  }
+  if (!isLocalDatabaseHost(parsed.hostname)) {
+    return verifyingSslConfig(parsed, env);
+  }
+  return undefined;
+}
+
+function verifyingSslConfig(connectionString, env) {
+  const caPath = connectionString.searchParams.get("sslrootcert") ?? env.PGSSLROOTCERT;
+  const ca = caPath ? readFileSync(caPath, "utf8") : undefined;
+  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
+}
+
+function parseConnectionString(connectionString) {
+  try {
+    return new URL(connectionString);
+  } catch {
+    return null;
+  }
+}
+
+function isLocalDatabaseHost(hostname) {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function summarizeSafeError(error) {
+  const code =
+    error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined;
+  return {
+    reason: "injector-error",
+    name: error instanceof Error ? error.name : typeof error,
+    code,
+  };
+}
+
+const connectionString = normalizeConnectionString(databaseUrl);
 const client = new Client({
-  connectionString: databaseUrl,
+  connectionString,
+  ssl: resolveSslConfig(connectionString, process.env),
   application_name: "staging-bootstrap-hook-drill-held-lock",
 });
 
-await client.connect();
 try {
-  await client.query("SET statement_timeout = 0");
-  await client.query("SET lock_timeout = '5s'");
-  await client.query("BEGIN");
-  await client.query("LOCK TABLE catalog.bounded_context_schema_migrations IN ACCESS EXCLUSIVE MODE");
-  console.log("${HELD_LOCK_READY_MARKER} " + JSON.stringify({
-    context: "catalog",
-    relation: "bounded_context_schema_migrations",
-    lockMode: "ACCESS EXCLUSIVE",
-    readyAt: new Date().toISOString(),
-  }));
-  await new Promise((resolve) => setTimeout(resolve, timeoutSeconds * 1000));
-  await client.query("ROLLBACK");
-  console.log("${HELD_LOCK_TIMEOUT_MARKER} " + JSON.stringify({ releasedBy: "injector-timeout" }));
-} finally {
-  await client.end().catch(() => undefined);
+  await client.connect();
+  try {
+    await client.query("SET statement_timeout = 0");
+    await client.query("SET lock_timeout = '5s'");
+    await client.query("BEGIN");
+    await client.query("LOCK TABLE catalog.bounded_context_schema_migrations IN ACCESS EXCLUSIVE MODE");
+    console.log("${HELD_LOCK_READY_MARKER} " + JSON.stringify({
+      context: "catalog",
+      relation: "bounded_context_schema_migrations",
+      lockMode: "ACCESS EXCLUSIVE",
+      readyAt: new Date().toISOString(),
+    }));
+    await new Promise((resolve) => setTimeout(resolve, timeoutSeconds * 1000));
+    await client.query("ROLLBACK");
+    console.log("${HELD_LOCK_TIMEOUT_MARKER} " + JSON.stringify({ releasedBy: "injector-timeout" }));
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+} catch (error) {
+  console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify(summarizeSafeError(error)));
+  process.exit(3);
 }
 NODE`;
 }
