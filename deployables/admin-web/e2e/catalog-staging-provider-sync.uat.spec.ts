@@ -377,6 +377,7 @@ const lorcanaLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
       ],
     },
     requiresTerminalSync: true,
+    allowPartialWithReview: true,
   },
   {
     name: "Lorcana set reference through Lorcast bulk-first shared importer",
@@ -395,6 +396,7 @@ const lorcanaLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
       ],
     },
     requiresTerminalSync: true,
+    allowPartialWithReview: true,
   },
   {
     name: "Lorcana card set through the shared TCGplayer provider",
@@ -603,6 +605,29 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         "Resolve before continuing 1 blocker(s). No promotable observations. Pull provider data or review rows.",
       ),
     ).toBe(true);
+  });
+
+  test("allows rerunnable no-promotable coverage for launch and regression scopes", () => {
+    expect(providerUatScopeAcceptsSettledNoPromotableCoverage("lorcana-launch")).toBe(true);
+    expect(providerUatScopeAcceptsSettledNoPromotableCoverage("all-provider-regression")).toBe(true);
+    expect(providerUatScopeAcceptsSettledNoPromotableCoverage("one-piece-launch")).toBe(false);
+  });
+
+  test("keeps Lorcast Lorcana partial imports reviewable", () => {
+    expect(lorcanaLaunchProviderSyncJourneys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerKey: "lorcast",
+          unitKey: "lorcast:lorcana:single-card:reference-data",
+          allowPartialWithReview: true,
+        }),
+        expect.objectContaining({
+          providerKey: "lorcast",
+          unitKey: "lorcast:lorcana:set:reference-data",
+          allowPartialWithReview: true,
+        }),
+      ]),
+    );
   });
 
   test("keeps Admin Error diagnostics support-safe", () => {
@@ -1552,12 +1577,9 @@ async function expectLorcanaCatalogItemsDownstreamProjection(page: Page): Promis
   const result = promoted ?? (await reapplyPromotedObservationFromSharedImporter(page, selectedScope));
   if (!result) {
     const operatorState = await promotionPreviewOperatorStateMessage(page, selectedScope);
-    if (
-      providerUatJourneyScope === "all-provider-regression" &&
-      promotionPreviewHasNoPromotableBlocker(operatorState)
-    ) {
+    if (providerUatScopeAcceptsSettledNoPromotableCoverage() && promotionPreviewHasNoPromotableBlocker(operatorState)) {
       console.log(
-        `[catalog-staging-provider-uat] Lorcana downstream Catalog Items projection skipped for already-settled no-promotable all-provider scope: ${sanitizeSupportSafeEvidence(
+        `[catalog-staging-provider-uat] Lorcana downstream Catalog Items projection skipped for already-settled no-promotable ${providerUatJourneyScope} scope: ${sanitizeSupportSafeEvidence(
           operatorState,
         )}`,
       );
@@ -1700,7 +1722,7 @@ async function reapplyPromotedObservationFromSharedImporter(
     "start-reapply",
   ).filter({ has: page.getByRole("button", { name: /^Reapply / }) });
   if (await clickFirstEnabledCommandForm(sourceScopeReapplyForms)) {
-    if (!(await expectCommandQueuedOrAllProviderNoPromotable(page, selectedScope))) {
+    if (!(await expectCommandQueuedOrSettledNoPromotable(page, selectedScope))) {
       return null;
     }
     return {
@@ -1722,7 +1744,7 @@ async function reapplyPromotedObservationFromSharedImporter(
     requireSelectedObservationIds: true,
   });
   if (!reapplied) {
-    if (await allProviderNoPromotableSkipReason(page, selectedScope)) {
+    if (await settledNoPromotableSkipReason(page, selectedScope)) {
       return null;
     }
     throw new Error(
@@ -1732,7 +1754,7 @@ async function reapplyPromotedObservationFromSharedImporter(
     );
   }
 
-  if (!(await expectCommandQueuedOrAllProviderNoPromotable(page, selectedScope))) {
+  if (!(await expectCommandQueuedOrSettledNoPromotable(page, selectedScope))) {
     return null;
   }
   return {
@@ -2141,11 +2163,11 @@ async function expectCommandQueuedOrActiveImport(
   );
 }
 
-async function expectCommandQueuedOrAllProviderNoPromotable(
+async function expectCommandQueuedOrSettledNoPromotable(
   page: Page,
   selectedScope: SelectedProviderScope,
 ): Promise<boolean> {
-  if (providerUatJourneyScope !== "all-provider-regression") {
+  if (!providerUatScopeAcceptsSettledNoPromotableCoverage()) {
     await expectCommandQueued(page);
     return true;
   }
@@ -2163,10 +2185,10 @@ async function expectCommandQueuedOrAllProviderNoPromotable(
       return true;
     }
 
-    const skipReason = await allProviderNoPromotableSkipReason(page, selectedScope);
+    const skipReason = await settledNoPromotableSkipReason(page, selectedScope);
     if (skipReason) {
       console.log(
-        `[catalog-staging-provider-uat] No promotable observations after command handoff for ${selectedScope.displayLabel}; treating the settled all-provider scope as covered. ${skipReason}`,
+        `[catalog-staging-provider-uat] No promotable observations after command handoff for ${selectedScope.displayLabel}; treating the settled ${providerUatJourneyScope} scope as covered. ${skipReason}`,
       );
       return false;
     }
@@ -2179,11 +2201,12 @@ async function expectCommandQueuedOrAllProviderNoPromotable(
   );
 }
 
-async function allProviderNoPromotableSkipReason(
-  page: Page,
-  selectedScope: SelectedProviderScope,
-): Promise<string | null> {
-  if (providerUatJourneyScope !== "all-provider-regression") {
+function providerUatScopeAcceptsSettledNoPromotableCoverage(scope: string = providerUatJourneyScope): boolean {
+  return scope === "all-provider-regression" || scope === "lorcana-launch";
+}
+
+async function settledNoPromotableSkipReason(page: Page, selectedScope: SelectedProviderScope): Promise<string | null> {
+  if (!providerUatScopeAcceptsSettledNoPromotableCoverage()) {
     return null;
   }
 
