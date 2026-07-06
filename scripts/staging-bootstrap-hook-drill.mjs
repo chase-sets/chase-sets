@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
@@ -15,7 +16,12 @@ export const DEFAULT_RELEASE = "chase-sets-platform";
 export const DEFAULT_NAMESPACE = "chase-sets-platform";
 export const DEFAULT_CHART_PATH = "infrastructure/helm/platform";
 export const DEFAULT_FAILURE_RUNTIME_PROFILE = "bootstrap-hook-drill-invalid-runtime-profile";
+export const HELD_LOCK_READY_MARKER = "CHASE_SETS_HELD_LOCK_READY";
+export const HELD_LOCK_TIMEOUT_MARKER = "CHASE_SETS_HELD_LOCK_TIMEOUT";
 const MAX_CAPTURE_BYTES = 200_000;
+const DEFAULT_HELD_LOCK_TIMEOUT_SECONDS = 1_200;
+const DEFAULT_HELD_LOCK_READY_TIMEOUT_MS = 60_000;
+const DEFAULT_HELD_LOCK_RELEASE_TIMEOUT_MS = 30_000;
 
 export function parseStagingBootstrapHookDrillArgs(argv, env = process.env) {
   return {
@@ -44,6 +50,21 @@ export function parseStagingBootstrapHookDrillArgs(argv, env = process.env) {
     helmPath: readOption(argv, "--helm") ?? readEnv("HELM_PATH", env) ?? "helm",
     kubectlPath: readOption(argv, "--kubectl") ?? readEnv("KUBECTL_PATH", env) ?? "kubectl",
     pnpmPath: readOption(argv, "--pnpm") ?? readEnv("PNPM_PATH", env) ?? "pnpm",
+    heldLockTimeoutSeconds: Number(
+      readOption(argv, "--held-lock-timeout-seconds") ??
+        readEnv("STAGING_BOOTSTRAP_HOOK_DRILL_HELD_LOCK_TIMEOUT_SECONDS", env) ??
+        DEFAULT_HELD_LOCK_TIMEOUT_SECONDS,
+    ),
+    heldLockReadyTimeoutMs: Number(
+      readOption(argv, "--held-lock-ready-timeout-ms") ??
+        readEnv("STAGING_BOOTSTRAP_HOOK_DRILL_HELD_LOCK_READY_TIMEOUT_MS", env) ??
+        DEFAULT_HELD_LOCK_READY_TIMEOUT_MS,
+    ),
+    heldLockReleaseTimeoutMs: Number(
+      readOption(argv, "--held-lock-release-timeout-ms") ??
+        readEnv("STAGING_BOOTSTRAP_HOOK_DRILL_HELD_LOCK_RELEASE_TIMEOUT_MS", env) ??
+        DEFAULT_HELD_LOCK_RELEASE_TIMEOUT_MS,
+    ),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
     workflowRunId: readEnv("GITHUB_RUN_ID", env),
     workflowRunAttempt: readEnv("GITHUB_RUN_ATTEMPT", env),
@@ -53,24 +74,30 @@ export function parseStagingBootstrapHookDrillArgs(argv, env = process.env) {
 
 export async function runStagingBootstrapHookDrill(options, dependencies = {}) {
   const runner = dependencies.runner ?? runCommand;
+  const processStarter = dependencies.processStarter ?? startCommand;
   const now = dependencies.now ?? (() => new Date().toISOString());
   const record = createBaseRecord(options);
   const validationErrors = validateOptions(options);
   record.errors.push(...validationErrors);
 
   await mkdir(options.outDir, { recursive: true });
-  record.heldLock = buildHeldLockBlocker(options, now());
-  await writeJsonArtifact(options, "held-lock-blocker.json", record.heldLock);
+  record.heldLock = buildHeldLockNotStarted(options, now());
 
   if (validationErrors.length > 0) {
+    await writeJsonArtifact(options, "held-lock-evidence.json", record.heldLock);
     finalizeRecord(record, now());
     await writeJsonRecord(join(options.outDir, "staging-bootstrap-hook-drill.json"), record);
     return { record, passesDrillGate: false };
   }
 
+  let heldLockRun = null;
   try {
     record.preDrill = await captureSnapshot("pre-drill", options, runner);
     record.phases.preDrillSmoke = await runSmokePhase("pre-drill", options, runner, now);
+
+    heldLockRun = await startHeldLockInjector(options, { runner, processStarter, now });
+    record.heldLock = heldLockRun.evidence;
+    await writeJsonArtifact(options, "held-lock-evidence.json", record.heldLock);
 
     record.phases.successfulUpgrade = await runUpgradePhase({
       phaseName: "successful-bootstrap-upgrade",
@@ -80,6 +107,12 @@ export async function runStagingBootstrapHookDrill(options, dependencies = {}) {
       args: buildSuccessfulUpgradeArgs(options),
       expectSuccess: true,
     });
+    record.heldLock = await observeHeldLockRelease(heldLockRun, options, now);
+    await writeHeldLockOutput(options, heldLockRun);
+    await writeJsonArtifact(options, "held-lock-evidence.json", record.heldLock);
+    if (record.heldLock.result !== "released") {
+      throw new Error("Held-lock injector did not exit during the successful bootstrap upgrade.");
+    }
     await captureHookLogs("successful-bootstrap-upgrade", options, runner);
     record.afterSuccessfulUpgrade = await captureSnapshot("after-successful-upgrade", options, runner);
     record.phases.successfulSmoke = await runSmokePhase("successful-upgrade", options, runner, now);
@@ -98,6 +131,26 @@ export async function runStagingBootstrapHookDrill(options, dependencies = {}) {
     record.phases.failedBootstrapSmoke = await runSmokePhase("failed-bootstrap-rollback", options, runner, now);
     record.rollbackVerification = verifyAtomicRollback(failedBaseline, record.afterFailedBootstrapUpgrade);
   } catch (error) {
+    if (heldLockRun && !heldLockRun.finished) {
+      heldLockRun.handle.kill();
+      record.heldLock = await observeHeldLockCleanup(heldLockRun, options, now);
+      await writeHeldLockOutput(options, heldLockRun);
+      await writeJsonArtifact(options, "held-lock-evidence.json", record.heldLock);
+    }
+    if (!heldLockRun && record.heldLock?.result === "not-started") {
+      record.heldLock = {
+        ...record.heldLock,
+        result: "setup-failed",
+        setup: {
+          ...record.heldLock.setup,
+          status: "failure",
+          failedAt: now(),
+          releaseTouched: false,
+          error: summarizeError(error),
+        },
+      };
+      await writeJsonArtifact(options, "held-lock-evidence.json", record.heldLock);
+    }
     record.errors.push(summarizeError(error));
   }
 
@@ -145,30 +198,98 @@ export function buildFailedBootstrapUpgradeArgs(options) {
   ];
 }
 
-export function buildHeldLockBlocker(options, checkedAt) {
+export function buildHeldLockNotStarted(options, checkedAt) {
   return {
-    schemaVersion: "staging-bootstrap-hook-held-lock-blocker/v1",
+    schemaVersion: "staging-bootstrap-hook-held-lock-evidence/v1",
     checkedAt,
     environment: options.environment,
     release: options.release,
     namespace: options.namespace,
-    result: "blocked",
-    liveHeldLockInjection: "not-enabled",
+    result: "not-started",
+    liveHeldLockInjection: "worker-pod-kubectl-exec",
     bootstrapTouchedRelation: {
       context: "catalog",
       table: "bounded_context_schema_migrations",
+      lockMode: "ACCESS EXCLUSIVE",
       sourceEvidence: "deployables/platform-api/__tests__/bootstrap-integration.test.ts",
     },
     supportSafe: true,
     redaction: {
-      databaseUrls: "not-read",
-      credentials: "not-read",
-      rawIdentifiers: "not-written",
+      databaseUrls: "not-read-by-workflow",
+      credentials: "not-read-by-workflow",
+      rawPodNames: "fingerprinted",
       customerOrProviderData: "not-read",
     },
-    nextAction:
-      "Add a dedicated least-privilege staging lock injector before replacing this blocker with a live held-lock phase.",
+    setup: {
+      status: "not-started",
+      releaseTouched: false,
+    },
   };
+}
+
+export function buildHeldLockInjectorExecArgs(options, podName) {
+  return [
+    "exec",
+    "--namespace",
+    options.namespace,
+    podName,
+    "--container",
+    "platform-worker",
+    "--",
+    "sh",
+    "-lc",
+    buildHeldLockInjectorShell(options),
+  ];
+}
+
+export function buildHeldLockInjectorShell(options) {
+  return `CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS=${Number(options.heldLockTimeoutSeconds)} node --input-type=module <<'NODE'
+import pg from "pg";
+
+const { Client } = pg;
+const timeoutSeconds = Number(process.env.CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS || "1200");
+const databaseUrl = process.env.DATABASE_URL_CATALOG;
+
+if (!databaseUrl) {
+  console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify({ reason: "missing-catalog-database-url" }));
+  process.exit(2);
+}
+
+const client = new Client({
+  connectionString: databaseUrl,
+  application_name: "staging-bootstrap-hook-drill-held-lock",
+});
+
+await client.connect();
+try {
+  await client.query("SET statement_timeout = 0");
+  await client.query("SET lock_timeout = '5s'");
+  await client.query("BEGIN");
+  await client.query("LOCK TABLE catalog.bounded_context_schema_migrations IN ACCESS EXCLUSIVE MODE");
+  console.log("${HELD_LOCK_READY_MARKER} " + JSON.stringify({
+    context: "catalog",
+    relation: "bounded_context_schema_migrations",
+    lockMode: "ACCESS EXCLUSIVE",
+    readyAt: new Date().toISOString(),
+  }));
+  await new Promise((resolve) => setTimeout(resolve, timeoutSeconds * 1000));
+  await client.query("ROLLBACK");
+  console.log("${HELD_LOCK_TIMEOUT_MARKER} " + JSON.stringify({ releasedBy: "injector-timeout" }));
+} finally {
+  await client.end().catch(() => undefined);
+}
+NODE`;
+}
+
+export function selectReadyWorkerPodName(raw) {
+  const parsed = JSON.parse(raw || '{"items":[]}');
+  const pod = (parsed.items ?? []).find((item) => {
+    const ready = (item.status?.conditions ?? []).some(
+      (condition) => condition.type === "Ready" && condition.status === "True",
+    );
+    return item.status?.phase === "Running" && !item.metadata?.deletionTimestamp && ready;
+  });
+  return pod?.metadata?.name ?? null;
 }
 
 export function redactSupportUnsafeText(value) {
@@ -227,6 +348,175 @@ export function summarizeEvents(raw) {
     regardingKind: event.involvedObject?.kind ?? event.regarding?.kind ?? "Unknown",
     message: redactSupportUnsafeText(event.message ?? "").slice(0, 500),
   }));
+}
+
+async function startHeldLockInjector(options, dependencies) {
+  const startedAt = dependencies.now();
+  const pods = await dependencies.runner(options.kubectlPath, [
+    "get",
+    "pods",
+    "--namespace",
+    options.namespace,
+    "--selector",
+    `app.kubernetes.io/instance=${options.release},app.kubernetes.io/component=platform-worker`,
+    "-o",
+    "json",
+  ]);
+  const podName = selectReadyWorkerPodName(pods.stdout);
+  if (!podName) {
+    throw new Error("Held-lock injector setup failed: no ready platform-worker pod was available.");
+  }
+
+  const handle = dependencies.processStarter(options.kubectlPath, buildHeldLockInjectorExecArgs(options, podName), {
+    env: process.env,
+  });
+  const run = {
+    handle,
+    finished: false,
+    stdout: "",
+    stderr: "",
+    evidence: {
+      ...buildHeldLockNotStarted(options, startedAt),
+      result: "setup-running",
+      setup: {
+        status: "running",
+        startedAt,
+        releaseTouched: false,
+      },
+      runtimePath: {
+        component: "platform-worker",
+        container: "platform-worker",
+        podNameFingerprint: fingerprint(podName),
+      },
+    },
+  };
+
+  handle.onStdout((text) => {
+    run.stdout = limitOutput(`${run.stdout}${text}`);
+  });
+  handle.onStderr((text) => {
+    run.stderr = limitOutput(`${run.stderr}${text}`);
+  });
+  handle.wait.then(
+    () => {
+      run.finished = true;
+    },
+    () => {
+      run.finished = true;
+    },
+  );
+
+  try {
+    await waitForHeldLockReady(run, options.heldLockReadyTimeoutMs);
+  } catch (error) {
+    handle.kill();
+    run.evidence = {
+      ...run.evidence,
+      result: "setup-failed",
+      setup: {
+        ...run.evidence.setup,
+        status: "failure",
+        failedAt: dependencies.now(),
+        releaseTouched: false,
+        error: summarizeError(error),
+      },
+    };
+    await writeHeldLockOutput(options, run);
+    await writeJsonArtifact(options, "held-lock-evidence.json", run.evidence);
+    throw error;
+  }
+
+  run.evidence = {
+    ...run.evidence,
+    result: "held",
+    setup: {
+      ...run.evidence.setup,
+      status: "success",
+      readyAt: dependencies.now(),
+      releaseTouched: false,
+    },
+  };
+  return run;
+}
+
+async function waitForHeldLockReady(run, timeoutMs) {
+  if (run.stdout.includes(HELD_LOCK_READY_MARKER)) {
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      callback(value);
+    };
+    const timer = setTimeout(() => {
+      finish(reject, new Error(`Held-lock injector did not report ready within ${timeoutMs}ms.`));
+    }, timeoutMs);
+    run.handle.onStdout((text) => {
+      if (text.includes(HELD_LOCK_READY_MARKER)) {
+        finish(resolve);
+      }
+    });
+    run.handle.wait.then((result) => {
+      if (!settled) {
+        finish(
+          reject,
+          new Error(`Held-lock injector exited before acquiring the lock with exit code ${result.exitCode}.`),
+        );
+      }
+    });
+  });
+}
+
+async function observeHeldLockRelease(run, options, now) {
+  const result = await waitForProcessExit(run.handle, options.heldLockReleaseTimeoutMs);
+  run.finished = result.exited;
+  const timedOut = run.stdout.includes(HELD_LOCK_TIMEOUT_MARKER);
+  return {
+    ...run.evidence,
+    result: result.exited && !timedOut ? "released" : "release-not-observed",
+    setup: {
+      ...run.evidence.setup,
+      releaseTouched: true,
+    },
+    lockRelease: {
+      status: result.exited && !timedOut ? "observed" : "not-observed",
+      observedAt: now(),
+      releasedDuring: "successful-bootstrap-upgrade",
+      execExitCode: result.exitCode,
+      injectorTimedOut: timedOut,
+    },
+  };
+}
+
+async function observeHeldLockCleanup(run, options, now) {
+  const result = await waitForProcessExit(run.handle, options.heldLockReleaseTimeoutMs);
+  run.finished = result.exited;
+  return {
+    ...run.evidence,
+    result: "cleanup-after-failure",
+    cleanup: {
+      status: result.exited ? "observed" : "not-observed",
+      observedAt: now(),
+      execExitCode: result.exitCode,
+      reason: "drill-ended-before-held-lock-release-proof",
+    },
+  };
+}
+
+async function waitForProcessExit(handle, timeoutMs) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ exited: false, exitCode: null }), timeoutMs);
+  });
+  const result = await Promise.race([handle.wait.then((value) => ({ exited: true, ...value })), timeout]);
+  clearTimeout(timer);
+  return result;
 }
 
 function createBaseRecord(options) {
@@ -479,6 +769,59 @@ async function runCommand(command, args, options = {}) {
     }
     throw error;
   }
+}
+
+function startCommand(command, args, options = {}) {
+  const child = spawn(command, args, {
+    env: options.env ?? process.env,
+    windowsHide: true,
+  });
+  const stdoutListeners = [];
+  const stderrListeners = [];
+  const wait = new Promise((resolve) => {
+    child.on("error", (error) => {
+      resolve({ exitCode: 1, error: summarizeError(error) });
+    });
+    child.on("close", (code, signal) => {
+      resolve({ exitCode: signal ? 1 : (code ?? 0) });
+    });
+  });
+
+  child.stdout?.on("data", (chunk) => {
+    const text = String(chunk);
+    for (const listener of stdoutListeners) {
+      listener(text);
+    }
+  });
+  child.stderr?.on("data", (chunk) => {
+    const text = String(chunk);
+    for (const listener of stderrListeners) {
+      listener(text);
+    }
+  });
+
+  return {
+    wait,
+    onStdout(listener) {
+      stdoutListeners.push(listener);
+    },
+    onStderr(listener) {
+      stderrListeners.push(listener);
+    },
+    kill() {
+      if (!child.killed) {
+        child.kill("SIGTERM");
+      }
+    },
+  };
+}
+
+async function writeHeldLockOutput(options, run) {
+  await writeTextArtifact(
+    options,
+    "held-lock-injector-output.txt",
+    [`stdout:\n${run.stdout ?? ""}`, `stderr:\n${run.stderr ?? ""}`].join("\n"),
+  );
 }
 
 async function writeTextArtifact(options, fileName, text) {

@@ -2950,7 +2950,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksPlatformOperationsRunbook).toContain("| Namespace | `chase-sets-platform` |");
     expect(doksPlatformOperationsRunbook).toContain("Platform Staging Bootstrap Hook Drill");
     expect(doksPlatformOperationsRunbook).toContain("run staging bootstrap hook drill");
-    expect(doksPlatformOperationsRunbook).toContain("held-lock-blocker.json");
+    expect(doksPlatformOperationsRunbook).toContain("held-lock-evidence.json");
+    expect(doksPlatformOperationsRunbook).toContain("successful-bootstrap-upgrade");
     expect(doksPlatformOperationsRunbook).not.toContain("--release chase-sets-staging");
     expect(doksPlatformOperationsRunbook).not.toContain("--namespace staging");
   });
