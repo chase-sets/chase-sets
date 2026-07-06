@@ -136,9 +136,21 @@
       ]
     },
     {
+      "type": "timeseries",
+      "title": "Append advisory-lock hold p95",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, holder_kind, target_context, projection, outcome) (rate(chase_sets_event_store_append_advisory_lock_hold_duration_ms_bucket[5m])))",
+          "legendFormat": "p95 {{holder_kind}} {{target_context}} {{projection}} {{outcome}}"
+        }
+      ]
+    },
+    {
       "type": "logs",
       "title": "Wake pipeline logs",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 56 },
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },

@@ -415,6 +415,13 @@ export function createSubscriptionRunner(
     poisonEventCount: 0,
     updatedAt: new Date().toISOString(),
   };
+  const transactionTelemetry = {
+    handlerKind,
+    targetContextName,
+    sourceContextName: subscription.sourceContextName,
+    projectionName: subscription.projectionName,
+    subscriptionName: subscription.subscriptionName,
+  };
   let lastIdleCheckpointFastForwardAtMs = 0;
 
   const readSourceHeadForRun = (context: ProjectionRunContext | undefined): Promise<GlobalPosition> => {
@@ -557,26 +564,31 @@ export function createSubscriptionRunner(
           }
 
           try {
-            const applicationResult = await withProjectionTransaction(targetPool, context, async (client) => {
-              const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
-              if (claimResult === "already-applied") {
-                return "already-applied" as const;
-              }
+            const applicationResult = await withProjectionTransaction(
+              targetPool,
+              context,
+              async (client) => {
+                const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
+                if (claimResult === "already-applied") {
+                  return "already-applied" as const;
+                }
 
-              await runInProjectionDbContext(client, () =>
-                handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
-              );
-              context?.throwIfLeaseLost?.();
-              await recordSubscriptionApplicationCompleted(
-                client,
-                checkpointKey,
-                String(event.id),
-                "applied",
-                null,
-                context,
-              );
-              return "applied" as const;
-            });
+                await runInProjectionDbContext(client, () =>
+                  handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                );
+                context?.throwIfLeaseLost?.();
+                await recordSubscriptionApplicationCompleted(
+                  client,
+                  checkpointKey,
+                  String(event.id),
+                  "applied",
+                  null,
+                  context,
+                );
+                return "applied" as const;
+              },
+              transactionTelemetry,
+            );
             if (applicationResult === "already-applied") {
               appliedEvents += 1;
               continue;
@@ -774,26 +786,31 @@ export function createSubscriptionRunner(
                   throw knownFailure.error;
                 }
 
-                const applicationResult = await withProjectionTransaction(targetPool, context, async (client) => {
-                  const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
-                  if (claimResult === "already-applied") {
-                    return "already-applied" as const;
-                  }
+                const applicationResult = await withProjectionTransaction(
+                  targetPool,
+                  context,
+                  async (client) => {
+                    const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
+                    if (claimResult === "already-applied") {
+                      return "already-applied" as const;
+                    }
 
-                  await runInProjectionDbContext(client, () =>
-                    handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
-                  );
-                  context?.throwIfLeaseLost?.();
-                  await recordSubscriptionApplicationCompleted(
-                    client,
-                    checkpointKey,
-                    String(event.id),
-                    "applied",
-                    null,
-                    context,
-                  );
-                  return "applied" as const;
-                });
+                    await runInProjectionDbContext(client, () =>
+                      handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                    );
+                    context?.throwIfLeaseLost?.();
+                    await recordSubscriptionApplicationCompleted(
+                      client,
+                      checkpointKey,
+                      String(event.id),
+                      "applied",
+                      null,
+                      context,
+                    );
+                    return "applied" as const;
+                  },
+                  transactionTelemetry,
+                );
                 if (applicationResult === "already-applied") {
                   await advanceProgress(progress, event);
                   continue;
@@ -862,68 +879,74 @@ export function createSubscriptionRunner(
           events: readonly SubscriptionTransportEvent[],
         ): Promise<SubscriptionBatchProgress> => {
           const progress = initialProgress();
-          await withProjectionTransaction(targetPool, context, async (client) => {
-            context?.throwIfLeaseLost?.();
-            const applicableEvents = events.flatMap((event) => {
-              const handler = (subscription.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[
-                event.type
-              ];
-              return matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }) && handler
-                ? [{ event, handler }]
-                : [];
-            });
-            const blockedStreams =
-              errorPolicy === "strict-per-stream"
-                ? await loadProjectionBlockedStreamsForBatch(
-                    client,
-                    checkpointKey,
-                    applicableEvents.map(({ event }) => event.streamId),
-                  )
-                : new Set<string>();
-            const claimCandidates: Array<Readonly<{ event: SubscriptionTransportEvent; handler: ProjectorHandler }>> =
-              [];
-
-            for (const { event, handler } of applicableEvents) {
-              if (blockedStreams.has(event.streamId)) {
-                await recordProjectionDeferredBlockedStreamEvent(client, {
-                  projectionKey: checkpointKey,
-                  streamId: event.streamId,
-                  streamVersion: event.streamVersion,
-                  globalPosition: event.globalPosition,
-                });
-                continue;
-              }
-
-              claimCandidates.push({ event, handler });
-            }
-
-            const alreadyAppliedEventIds = await claimSubscriptionApplicationsForBatch(
-              client,
-              checkpointKey,
-              claimCandidates.map(({ event }) => event),
-              context,
-            );
-            const completedEventIds: string[] = [];
-            for (const { event, handler } of claimCandidates) {
+          await withProjectionTransaction(
+            targetPool,
+            context,
+            async (client) => {
               context?.throwIfLeaseLost?.();
-              const eventId = String(event.id);
-              if (alreadyAppliedEventIds.has(eventId)) {
-                continue;
+              const applicableEvents = events.flatMap((event) => {
+                const handler = (subscription.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[
+                  event.type
+                ];
+                return matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }) &&
+                  handler
+                  ? [{ event, handler }]
+                  : [];
+              });
+              const blockedStreams =
+                errorPolicy === "strict-per-stream"
+                  ? await loadProjectionBlockedStreamsForBatch(
+                      client,
+                      checkpointKey,
+                      applicableEvents.map(({ event }) => event.streamId),
+                    )
+                  : new Set<string>();
+              const claimCandidates: Array<Readonly<{ event: SubscriptionTransportEvent; handler: ProjectorHandler }>> =
+                [];
+
+              for (const { event, handler } of applicableEvents) {
+                if (blockedStreams.has(event.streamId)) {
+                  await recordProjectionDeferredBlockedStreamEvent(client, {
+                    projectionKey: checkpointKey,
+                    streamId: event.streamId,
+                    streamVersion: event.streamVersion,
+                    globalPosition: event.globalPosition,
+                  });
+                  continue;
+                }
+
+                claimCandidates.push({ event, handler });
               }
 
-              try {
-                await runInProjectionDbContext(client, () =>
-                  handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
-                );
-              } catch (error) {
-                throw new BatchEventApplyError(String(event.id), error);
-              }
-              context?.throwIfLeaseLost?.();
-              completedEventIds.push(eventId);
-            }
+              const alreadyAppliedEventIds = await claimSubscriptionApplicationsForBatch(
+                client,
+                checkpointKey,
+                claimCandidates.map(({ event }) => event),
+                context,
+              );
+              const completedEventIds: string[] = [];
+              for (const { event, handler } of claimCandidates) {
+                context?.throwIfLeaseLost?.();
+                const eventId = String(event.id);
+                if (alreadyAppliedEventIds.has(eventId)) {
+                  continue;
+                }
 
-            await recordSubscriptionApplicationsCompletedForBatch(client, checkpointKey, completedEventIds, context);
-          });
+                try {
+                  await runInProjectionDbContext(client, () =>
+                    handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                  );
+                } catch (error) {
+                  throw new BatchEventApplyError(String(event.id), error);
+                }
+                context?.throwIfLeaseLost?.();
+                completedEventIds.push(eventId);
+              }
+
+              await recordSubscriptionApplicationsCompletedForBatch(client, checkpointKey, completedEventIds, context);
+            },
+            transactionTelemetry,
+          );
 
           if (events.length > 0) {
             progress.lastGlobalPosition = events[events.length - 1]!.globalPosition;

@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
+import { recordEventStoreAppendAdvisoryLockHold } from "@chase-sets/observability";
 import {
+  EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
   isPgConnectionLevelError,
   type PgPoolClient,
   type PgQueryFunction,
@@ -14,6 +16,14 @@ const DEFAULT_PROJECTION_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS = 15_000;
 const DEFAULT_PROJECTION_TRANSACTION_TIMEOUT_MS = 30_000;
 const MAX_STATEMENT_TIMEOUT_MS = 2_147_483_647;
 let nestedProjectionTransactionSequence = 0;
+
+export type ProjectionTransactionTelemetry = Readonly<{
+  handlerKind?: string;
+  targetContextName?: string;
+  sourceContextName?: string;
+  projectionName?: string;
+  subscriptionName?: string;
+}>;
 
 export function createProjectionAwarePool<TPool extends PgTransactionalPool>(pool: TPool): TPool {
   return new Proxy(pool, {
@@ -45,6 +55,7 @@ export async function withProjectionTransaction<T>(
   pool: PgTransactionalPool,
   context: ProjectionRunContext | undefined,
   work: (client: PgQueryable) => Promise<T>,
+  telemetry: ProjectionTransactionTelemetry = {},
 ): Promise<T> {
   context?.throwIfLeaseLost?.();
   const client = await pool.connect();
@@ -52,6 +63,24 @@ export async function withProjectionTransaction<T>(
   const mutableClient = client as PgPoolClient & { query: PgQueryFunction };
   let committed = false;
   let releaseError: unknown;
+  let appendAdvisoryLockAcquiredAtMs: number | null = null;
+  let appendAdvisoryLockRecorded = false;
+  const recordAppendAdvisoryLockHold = (outcome: "committed" | "rolled_back" | "released") => {
+    if (appendAdvisoryLockAcquiredAtMs === null || appendAdvisoryLockRecorded) {
+      return;
+    }
+
+    appendAdvisoryLockRecorded = true;
+    recordEventStoreAppendAdvisoryLockHold({
+      durationMs: Date.now() - appendAdvisoryLockAcquiredAtMs,
+      outcome,
+      holderKind: telemetry.handlerKind,
+      targetContextName: telemetry.targetContextName,
+      sourceContextName: telemetry.sourceContextName,
+      projectionName: telemetry.projectionName,
+      subscriptionName: telemetry.subscriptionName,
+    });
+  };
 
   try {
     await originalQuery("BEGIN");
@@ -63,6 +92,9 @@ export async function withProjectionTransaction<T>(
     mutableClient.query = async <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) => {
       timeoutGuard();
       const result = await originalQuery<Row>(text, values);
+      if (appendAdvisoryLockAcquiredAtMs === null && isGlobalAppendAdvisoryLockQuery(text, values)) {
+        appendAdvisoryLockAcquiredAtMs = Date.now();
+      }
       timeoutGuard();
       return result;
     };
@@ -92,12 +124,14 @@ export async function withProjectionTransaction<T>(
     mutableClient.query = originalQuery;
     await originalQuery("COMMIT");
     committed = true;
+    recordAppendAdvisoryLockHold("committed");
     return result;
   } catch (error) {
     mutableClient.query = originalQuery;
     if (!committed) {
       try {
         await originalQuery("ROLLBACK");
+        recordAppendAdvisoryLockHold("rolled_back");
       } catch (rollbackError) {
         releaseError = rollbackError;
       }
@@ -108,6 +142,7 @@ export async function withProjectionTransaction<T>(
     throw error;
   } finally {
     mutableClient.query = originalQuery;
+    recordAppendAdvisoryLockHold("released");
     client.release(releaseError);
   }
 }
@@ -148,6 +183,13 @@ function normalizePositiveIntegerMs(value: number | undefined): number | null {
   }
 
   return Math.min(Math.ceil(value), MAX_STATEMENT_TIMEOUT_MS);
+}
+
+function isGlobalAppendAdvisoryLockQuery(text: string, values: readonly unknown[] | undefined): boolean {
+  return (
+    text.includes("pg_advisory_xact_lock") &&
+    (values ?? []).some((value) => String(value) === EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY)
+  );
 }
 
 function createNestedProjectionClient(scopedDb: PgQueryable): PgPoolClient {

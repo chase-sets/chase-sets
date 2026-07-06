@@ -11,6 +11,7 @@ import {
   type PgPoolClient,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   bootstrapContextDatabase,
   createSubscriptionRunner,
@@ -33,10 +34,15 @@ const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
 
 type TestContextName = "source" | "target";
-type TestServices = Readonly<{ pool: PgTransactionalPool }>;
+type TestOrderCommands = Readonly<{
+  createOrderForSource: (input: Readonly<{ sourceId: string; context: EventStoreContext }>) => Promise<string>;
+}>;
+type TestServices = Readonly<{ pool: PgTransactionalPool; orderCommands?: TestOrderCommands }>;
 type TestPorts = {
   beforeProjectionWrite?: (itemId: string) => Promise<void>;
   failProjectionOnce?: () => boolean;
+  failReactionAfterDispatchOnce?: () => boolean;
+  createOrderId?: () => string;
 };
 
 const sourceModule = defineBoundedContextModule<TestServices, PgTransactionalPool, TestPorts>({
@@ -77,6 +83,37 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Te
   });
 }
 
+function createReactionTargetModule(): BcApiModule<TestServices, PgTransactionalPool, TestPorts> {
+  return defineBoundedContextModule<TestServices, PgTransactionalPool, TestPorts>({
+    manifest: {
+      contextName: "target",
+      apiBasePath: "/target",
+      streamPrefix: "target.",
+      projectionGroups: [
+        {
+          projectionName: "orders-reaction",
+          handlerKind: "reaction",
+          sourceContextNames: ["source"],
+          ownedTables: [],
+          sideEffectOnly: true,
+        },
+      ],
+    },
+    schemaSql: `
+      CREATE TABLE IF NOT EXISTS reaction_orders (
+        source_id text PRIMARY KEY,
+        order_id text NOT NULL
+      );
+    `,
+    createServices: (pool, ports) => ({
+      pool,
+      orderCommands: createReactionOrderCommands(pool, ports),
+    }),
+    buildApis: () => [],
+    buildSubscriptions: (services) => [createOrderReactionSubscription(services)],
+  });
+}
+
 function createItemsSubscription(): BcEventSubscription {
   return {
     subscriptionName: "target.items",
@@ -110,6 +147,87 @@ function createItemsSubscription(): BcEventSubscription {
   };
 }
 
+function createOrderReactionSubscription(services: TestServices): BcEventSubscription {
+  return {
+    subscriptionName: "target.order-reaction",
+    handlerKind: "reaction",
+    sourceContextName: "source",
+    projectionName: "orders-reaction",
+    subscriptionVersion: 1,
+    eventTypes: ["source.order-requested"],
+    streamPrefixes: ["source.order-request-"],
+    batchSize: 10,
+    checkpointBatchSize: 10,
+    errorPolicy: "global-strict",
+    handlers: {
+      "source.order-requested": async (event) => {
+        const sourceId = String(event.data.sourceId);
+        if (await hasReactionOrderForSource(services.pool, sourceId)) {
+          return;
+        }
+
+        await services.orderCommands?.createOrderForSource({
+          sourceId,
+          context: {
+            tenantId: event.tenantId,
+            audit: event.audit,
+            ...(event.trace ? { trace: event.trace } : {}),
+          },
+        });
+
+        if (targetPorts.failReactionAfterDispatchOnce?.()) {
+          throw new Error("reaction failed after command dispatch");
+        }
+      },
+    },
+  };
+}
+
+function createReactionOrderCommands(pool: PgTransactionalPool, ports: TestPorts | undefined): TestOrderCommands {
+  const eventStore = createPostgresEventStore({ pool });
+
+  return {
+    createOrderForSource: async ({ sourceId, context }) => {
+      const existingOrderId = await hasReactionOrderForSource(pool, sourceId);
+      if (existingOrderId) {
+        return existingOrderId;
+      }
+
+      const orderId = ports?.createOrderId?.() ?? `ord_${Date.now()}`;
+      await eventStore.appendToStream({
+        streamId: `target.order-${orderId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          {
+            eventType: "target.order-created",
+            payload: { orderId, sourceId },
+          },
+        ],
+      });
+      await pool.query(
+        `INSERT INTO reaction_orders (source_id, order_id)
+         VALUES ($1, $2)
+         ON CONFLICT (source_id) DO NOTHING`,
+        [sourceId, orderId],
+      );
+
+      return orderId;
+    },
+  };
+}
+
+async function hasReactionOrderForSource(db: PgTransactionalPool, sourceId: string): Promise<string | null> {
+  const result = await db.query<{ order_id: string }>(
+    `SELECT order_id
+     FROM reaction_orders
+     WHERE source_id = $1`,
+    [sourceId],
+  );
+
+  return result.rows[0]?.order_id ?? null;
+}
+
 const targetPorts: TestPorts = {};
 
 describeDb("projection operations Postgres integration", () => {
@@ -128,6 +246,8 @@ describeDb("projection operations Postgres integration", () => {
   beforeEach(async () => {
     targetPorts.beforeProjectionWrite = undefined;
     targetPorts.failProjectionOnce = undefined;
+    targetPorts.failReactionAfterDispatchOnce = undefined;
+    targetPorts.createOrderId = undefined;
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(sourceModule, pools.source);
     await bootstrapContextDatabase(createTargetModule(), pools.target);
@@ -473,6 +593,78 @@ describeDb("projection operations Postgres integration", () => {
     await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
   });
 
+  it("keeps reaction command dispatch atomic with the subscription application transaction", async () => {
+    let nextOrderId = 1;
+    let shouldFailAfterDispatch = true;
+    targetPorts.createOrderId = () => `ord_${nextOrderId++}`;
+    targetPorts.failReactionAfterDispatchOnce = () => {
+      const result = shouldFailAfterDispatch;
+      shouldFailAfterDispatch = false;
+      return result;
+    };
+    await bootstrapContextDatabase(createReactionTargetModule(), pools.target);
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createReactionTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const runner = runtime.subscriptionRunners[0];
+
+    await sourceEventStore.appendToStream({
+      streamId: "source.order-request-1",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [
+        {
+          eventType: "source.order-requested",
+          payload: { sourceId: "offer-acceptance:off_1" },
+        },
+      ],
+    });
+
+    await expect(runner.runOnce(createProjectionRunContext())).rejects.toThrow(
+      "reaction failed after command dispatch",
+    );
+    await expect(readReactionOrderEvents()).resolves.toEqual([]);
+    await expect(readReactionOrders()).resolves.toEqual([]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "transient" },
+    ]);
+
+    await expect(runner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
+      processed: 1,
+      lastGlobalPosition: "1",
+      blockedStreams: 0,
+      poisonEvents: 0,
+    });
+    await expect(readReactionOrders()).resolves.toEqual([{ source_id: "offer-acceptance:off_1", order_id: "ord_2" }]);
+    await expect(readReactionOrderEvents()).resolves.toEqual([
+      { event_type: "target.order-created", order_id: "ord_2", source_id: "offer-acceptance:off_1" },
+    ]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "applied" },
+    ]);
+
+    await clearSubscriptionLedger(runner.checkpointKey);
+    const replayRuntime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createReactionTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    const replayRunner = replayRuntime.subscriptionRunners[0];
+
+    await expect(replayRunner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
+      processed: 1,
+      lastGlobalPosition: "1",
+      blockedStreams: 0,
+      poisonEvents: 0,
+    });
+    await expect(readReactionOrders()).resolves.toEqual([{ source_id: "offer-acceptance:off_1", order_id: "ord_2" }]);
+    await expect(readReactionOrderEvents()).resolves.toEqual([
+      { event_type: "target.order-created", order_id: "ord_2", source_id: "offer-acceptance:off_1" },
+    ]);
+  });
+
   it("applies statementTimeoutMs inside the active transaction", async () => {
     await expect(
       withProjectionTransaction(
@@ -490,6 +682,33 @@ describeDb("projection operations Postgres integration", () => {
       `SELECT item_id, seen_count
        FROM projected_items
        ORDER BY item_id`,
+    );
+    return result.rows;
+  }
+
+  async function readReactionOrders(): Promise<readonly { source_id: string; order_id: string }[]> {
+    const result = await pools.target.query<{ source_id: string; order_id: string }>(
+      `SELECT source_id, order_id
+       FROM reaction_orders
+       ORDER BY source_id`,
+    );
+    return result.rows;
+  }
+
+  async function readReactionOrderEvents(): Promise<
+    readonly { event_type: string; order_id: string; source_id: string }[]
+  > {
+    const result = await pools.target.query<{
+      event_type: string;
+      order_id: string;
+      source_id: string;
+    }>(
+      `SELECT event_type,
+              payload->>'orderId' AS order_id,
+              payload->>'sourceId' AS source_id
+       FROM event_store_events
+       WHERE event_type = 'target.order-created'
+       ORDER BY global_position`,
     );
     return result.rows;
   }
@@ -514,6 +733,11 @@ describeDb("projection operations Postgres integration", () => {
     );
 
     return Number(result.rows[0]?.count ?? 0);
+  }
+
+  async function clearSubscriptionLedger(checkpointKey: string): Promise<void> {
+    await pools.target.query(`DELETE FROM event_subscription_applications WHERE projection_key = $1`, [checkpointKey]);
+    await pools.target.query(`DELETE FROM event_subscription_checkpoints WHERE checkpoint_key = $1`, [checkpointKey]);
   }
 
   async function readSubscriptionApplicationRows(

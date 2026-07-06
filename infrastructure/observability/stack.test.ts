@@ -122,6 +122,9 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/dashboards/projection-wake-pipeline.json")).toContain(
       "chase_sets_projection_freshness_wake_enqueue_duration_ms",
     );
+    expect(readStackFile("grafana/dashboards/projection-wake-pipeline.json")).toContain(
+      "chase_sets_event_store_append_advisory_lock_hold_duration_ms",
+    );
     expect(readStackFile("grafana/dashboards/catalog-integration-control-plane.json")).toContain(
       "Catalog Integration Control Plane",
     );
@@ -133,6 +136,9 @@ describe("observability stack contracts", () => {
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-worker-wake-alerts.yml")).toContain(
       "Projection wake hot lane queue age p95 above SLO",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/platform-worker-wake-alerts.yml")).toContain(
+      "Reaction append advisory-lock hold p95 above SLO",
     );
     expect(readStackFile("grafana/provisioning/alerting/catalog-integration-alerts.yml")).toContain(
       "Catalog option query failures",

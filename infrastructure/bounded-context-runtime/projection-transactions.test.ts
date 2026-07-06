@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { metrics } from "@opentelemetry/api";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
-import { withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+  withPgTransaction,
+  type PgPoolClient,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import {
   createProjectionAwarePool,
   runInProjectionDbContext,
@@ -190,6 +196,58 @@ describe("projection transactions", () => {
       { sql: "SELECT set_config('statement_timeout', $1, true)", values: ["50ms"] },
       { sql: "SELECT first", values: undefined },
       { sql: "ROLLBACK", values: undefined },
+    ]);
+  });
+
+  it("records append advisory-lock hold duration at the outer projection transaction boundary", async () => {
+    const { pool } = createRecordingPool();
+    const histogramRecords: unknown[] = [];
+    const createHistogram = vi.fn((name: string) => ({
+      record: (value: number, attributes?: unknown) => histogramRecords.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter: vi.fn(),
+      createHistogram,
+      createUpDownCounter: vi.fn(),
+    } as never);
+    let now = 1_000;
+    const originalNow = Date.now;
+    Date.now = () => now;
+
+    try {
+      await withProjectionTransaction(
+        pool,
+        { throwIfLeaseLost: () => undefined },
+        async (client) => {
+          await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+          now = 1_042;
+        },
+        {
+          handlerKind: "reaction",
+          targetContextName: "ordering",
+          sourceContextName: "marketplace",
+          projectionName: "ordering-marketplace-offer-acceptance",
+          subscriptionName: "ordering.marketplace-offer-acceptance",
+        },
+      );
+    } finally {
+      Date.now = originalNow;
+      getMeter.mockRestore();
+    }
+
+    expect(histogramRecords).toEqual([
+      {
+        name: "chase_sets_event_store_append_advisory_lock_hold_duration_ms",
+        value: 42,
+        attributes: {
+          outcome: "committed",
+          holder_kind: "reaction",
+          target_context: "ordering",
+          source_context: "marketplace",
+          projection: "ordering-marketplace-offer-acceptance",
+          subscription: "ordering.marketplace-offer-acceptance",
+        },
+      },
     ]);
   });
 
