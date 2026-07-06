@@ -181,10 +181,13 @@ describe("settlement payout routes", () => {
       can_request: true,
       estimated_wallet_balance_after: "7.50",
     });
-    expect(previewPayoutRequest).toHaveBeenCalledWith({
-      accountId: "acc_seller",
-      amount: "12.50",
-    });
+    expect(previewPayoutRequest).toHaveBeenCalledWith(
+      {
+        accountId: "acc_seller",
+        amount: "12.50",
+      },
+      context,
+    );
   });
 
   it("returns payout money timelines for the current account", async () => {

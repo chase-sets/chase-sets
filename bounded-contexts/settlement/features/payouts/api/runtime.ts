@@ -221,7 +221,10 @@ export type PayoutServices = Readonly<{
       connected_account_payouts_supported: boolean;
     }>
   >;
-  previewPayoutRequest: (params: Readonly<{ accountId: AccountId; amount: string }>) => Promise<
+  previewPayoutRequest: (
+    params: Readonly<{ accountId: AccountId; amount: string }>,
+    context: EventStoreContext,
+  ) => Promise<
     Readonly<{
       account_id: string;
       requested_amount: string;
@@ -361,6 +364,17 @@ function payoutReadinessIsStale(updatedAt: string | null) {
   return Date.now() - Date.parse(updatedAt) > 30 * 24 * 60 * 60 * 1000;
 }
 
+type PayoutReadinessSnapshot = Awaited<ReturnType<PayoutReadinessServices["getPayoutReadiness"]>>;
+
+function payoutReadinessStalenessIsOnlySetupBlocker(readiness: PayoutReadinessSnapshot) {
+  return (
+    readiness.status === "ready" &&
+    Boolean(readiness.provider_reference) &&
+    readiness.missing_requirements.length === 0 &&
+    payoutReadinessIsStale(readiness.updated_at)
+  );
+}
+
 function requirePayoutSnapshot(state: PayoutState, version: number): PayoutCommandSnapshot {
   if (
     !state.payoutId ||
@@ -491,6 +505,24 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       tableName: "settlement_money_movement_webhook_events",
       providerEventId: event.providerEventId,
     });
+  }
+
+  async function refreshPayoutReadinessWhenStalenessIsOnlyBlocker(
+    accountId: AccountId,
+    readiness: PayoutReadinessSnapshot,
+    context: EventStoreContext,
+  ) {
+    if (!payoutReadinessStalenessIsOnlySetupBlocker(readiness)) {
+      return readiness;
+    }
+
+    return deps.payoutReadiness.refreshProviderReadiness(
+      {
+        accountId,
+        providerReference: readiness.provider_reference,
+      },
+      context,
+    );
   }
 
   async function getCommittedPayoutLedgerEntry(accountId: string, ledgerEntryId: LedgerEntryId) {
@@ -1224,9 +1256,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         connected_account_payouts_supported: true,
       };
     },
-    async previewPayoutRequest(params) {
+    async previewPayoutRequest(params, context) {
       const wallet = await deps.wallets.getWallet(params.accountId);
-      const readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
+      let readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
       const currencyCode = normalizeCurrencyCode(wallet.currency_code);
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Payout amount",
@@ -1239,6 +1271,13 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       const unavailableReasons: string[] = [];
       const payoutAvailableBalanceAmount = subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount);
 
+      if (payoutReadinessStalenessIsOnlySetupBlocker(readiness)) {
+        try {
+          readiness = await refreshPayoutReadinessWhenStalenessIsOnlyBlocker(params.accountId, readiness, context);
+        } catch {
+          unavailableReasons.push("payout-setup-refresh-required");
+        }
+      }
       if (readiness.status !== "ready" || !readiness.provider_reference) {
         unavailableReasons.push("payout-setup-incomplete");
       }
@@ -1303,9 +1342,25 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         currencyCode: "usd",
       });
       const wallet = await deps.wallets.getWallet(params.accountId);
-      const readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
+      let readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
       const currencyCode = normalizeCurrencyCode(wallet.currency_code);
       const amount = assertPayoutAmountWithinPolicy(params.amount, currencyCode);
+      try {
+        readiness = await refreshPayoutReadinessWhenStalenessIsOnlyBlocker(params.accountId, readiness, context);
+      } catch {
+        await recordOperation({
+          kind: "payout-request-blocked-by-setup",
+          accountId: params.accountId,
+          amount,
+          currencyCode,
+          readinessStatus: readiness.status,
+          providerReference: readiness.provider_reference,
+          missingRequirementCount: readiness.missing_requirements.length,
+          staleReadiness: true,
+          safeCategory: "setup_stale",
+        });
+        throw new SettlementDomainError("Payout setup status must be refreshed before requesting a payout.");
+      }
       if (readiness.status !== "ready") {
         await recordOperation({
           kind: "payout-request-blocked-by-setup",

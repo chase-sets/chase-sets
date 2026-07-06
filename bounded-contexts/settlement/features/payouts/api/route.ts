@@ -150,12 +150,28 @@ export function createPayoutRoutes(services: PayoutServices) {
     }
 
     const body = await c.req.json();
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payouts.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
     try {
       return c.json(
-        await services.previewPayoutRequest({
-          accountId: access.actor.accountId as AccountId,
-          amount: String(body.amount ?? ""),
-        }),
+        await services.previewPayoutRequest(
+          {
+            accountId: access.actor.accountId as AccountId,
+            amount: String(body.amount ?? ""),
+          },
+          context,
+        ),
       );
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);

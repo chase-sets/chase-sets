@@ -101,24 +101,41 @@ async function seedAvailableWallet(wallets: ReturnType<typeof createWalletRuntim
 
 function createPayoutReadiness(
   status: "not-started" | "pending" | "ready" | "restricted",
-  options: Readonly<{ updatedAt?: string | null; missingRequirements?: readonly string[] }> = {},
+  options: Readonly<{
+    updatedAt?: string | null;
+    missingRequirements?: readonly string[];
+    refreshProviderReadiness?: PayoutReadinessServices["refreshProviderReadiness"];
+  }> = {},
 ) {
+  const readiness = (updatedAt: string | null = options.updatedAt ?? new Date().toISOString()) => ({
+    account_id: "acc_seller",
+    status,
+    missing_requirements: options.missingRequirements ?? (status === "ready" ? [] : ["provider-onboarding"]),
+    provider_reference: "acct_test",
+    onboarding_status: status === "ready" ? "complete" : "pending",
+    transfer_capability_status: status === "ready" ? "active" : "pending",
+    payout_capability_status: status === "ready" ? "active" : "pending",
+    payout_destination_status: status === "ready" ? "ready" : "missing",
+    payout_account_dashboard: "none",
+    losses_collector: "application",
+    fees_collector: "application",
+    requirements_collector: "application",
+    updated_at: updatedAt,
+  });
+
   return {
-    getPayoutReadiness: async () => ({
-      account_id: "acc_seller",
-      status,
-      missing_requirements: options.missingRequirements ?? (status === "ready" ? [] : ["provider-onboarding"]),
-      provider_reference: "acct_test",
-      onboarding_status: status === "ready" ? "complete" : "pending",
-      transfer_capability_status: status === "ready" ? "active" : "pending",
-      payout_capability_status: status === "ready" ? "active" : "pending",
-      payout_destination_status: status === "ready" ? "ready" : "missing",
-      payout_account_dashboard: "none",
-      losses_collector: "application",
-      fees_collector: "application",
-      requirements_collector: "application",
-      updated_at: options.updatedAt ?? new Date().toISOString(),
-    }),
+    getPayoutReadiness: async () => readiness(),
+    refreshProviderReadiness:
+      options.refreshProviderReadiness ??
+      (async () => ({
+        ...readiness(new Date().toISOString()),
+        status: "ready",
+        missing_requirements: [],
+        onboarding_status: "complete",
+        transfer_capability_status: "active",
+        payout_capability_status: "active",
+        payout_destination_status: "ready",
+      })),
   } as unknown as PayoutReadinessServices;
 }
 
@@ -442,10 +459,13 @@ describe("settlement payout runtime", () => {
       moneyMovementGateway: createFakeMoneyMovementGateway(),
     });
 
-    const preview = await payouts.previewPayoutRequest({
-      accountId: "acc_seller" as never,
-      amount: "10.00",
-    });
+    const preview = await payouts.previewPayoutRequest(
+      {
+        accountId: "acc_seller" as never,
+        amount: "10.00",
+      },
+      context,
+    );
 
     expect(preview.can_request).toBe(false);
     expect(preview.available_balance_amount).toBe("8.00");
@@ -577,10 +597,13 @@ describe("settlement payout runtime", () => {
       },
     });
 
-    const preview = await payouts.previewPayoutRequest({
-      accountId: "acc_seller" as never,
-      amount: "12.50",
-    });
+    const preview = await payouts.previewPayoutRequest(
+      {
+        accountId: "acc_seller" as never,
+        amount: "12.50",
+      },
+      context,
+    );
 
     expect(preview.can_request).toBe(false);
     expect(preview.unavailable_reasons).toEqual(["payout-setup-refresh-required", "provider-requirements-open"]);
@@ -602,6 +625,178 @@ describe("settlement payout runtime", () => {
         safeCategory: "setup_stale",
         staleReadiness: true,
         missingRequirementCount: 1,
+      }),
+    );
+    vi.useRealTimers();
+  });
+
+  it("auto-refreshes stale-only payout readiness so a ready seller can preview and request payout in one attempt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T17:00:00.000Z"));
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const refreshProviderReadiness = vi.fn(createPayoutReadiness("ready").refreshProviderReadiness);
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready", {
+        updatedAt: "2026-04-30T17:00:00.000Z",
+        refreshProviderReadiness,
+      }),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+    });
+    await seedAvailableWallet(wallets);
+
+    const preview = await payouts.previewPayoutRequest(
+      {
+        accountId: "acc_seller" as never,
+        amount: "12.50",
+      },
+      context,
+    );
+    const requested = await payouts.requestPayout(
+      {
+        accountId: "acc_seller" as never,
+        amount: "12.50",
+        destinationReference: "bank_123",
+      },
+      context,
+    );
+
+    expect(preview.can_request).toBe(true);
+    expect(preview.unavailable_reasons).toEqual([]);
+    expect(requested.payout.status).toBe("in-transit");
+    expect(refreshProviderReadiness).toHaveBeenCalledTimes(2);
+    expect(refreshProviderReadiness).toHaveBeenNthCalledWith(
+      1,
+      {
+        accountId: "acc_seller",
+        providerReference: "acct_test",
+      },
+      context,
+    );
+    expect(refreshProviderReadiness).toHaveBeenNthCalledWith(
+      2,
+      {
+        accountId: "acc_seller",
+        providerReference: "acct_test",
+      },
+      context,
+    );
+    vi.useRealTimers();
+  });
+
+  it("keeps stale-only payout readiness blocked when the auto-refresh fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T17:00:00.000Z"));
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const operationEvents: Record<string, unknown>[] = [];
+    const refreshProviderReadiness = vi.fn(async () => {
+      throw new Error("Provider readiness refresh failed.");
+    });
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready", {
+        updatedAt: "2026-04-30T17:00:00.000Z",
+        refreshProviderReadiness,
+      }),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    const preview = await payouts.previewPayoutRequest(
+      {
+        accountId: "acc_seller" as never,
+        amount: "12.50",
+      },
+      context,
+    );
+
+    expect(preview.can_request).toBe(false);
+    expect(preview.unavailable_reasons).toEqual(["payout-setup-refresh-required"]);
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "12.50",
+          destinationReference: "bank_123",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Payout setup status must be refreshed before requesting a payout.");
+    expect(readAllEvents()).toHaveLength(0);
+    expect(refreshProviderReadiness).toHaveBeenCalledTimes(2);
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-request-blocked-by-setup",
+        accountId: "acc_seller",
+        safeCategory: "setup_stale",
+        staleReadiness: true,
+        missingRequirementCount: 0,
       }),
     );
     vi.useRealTimers();
