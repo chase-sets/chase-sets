@@ -95,6 +95,10 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
         parcelReasons: ["declared-value-requires-parcel"],
         signatureRequired: true,
         signatureReasons: ["declared-value-requires-signature"],
+        insuranceRequired: false,
+        insuranceReasons: [],
+        insuredValueAmount: null,
+        shippingEvidenceTier: "signature-confirmed",
       },
       deliveryEstimate: {
         earliestDate: "2026-05-03",

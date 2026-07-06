@@ -76,12 +76,12 @@ Notes:
 
 ## Postage Policy
 
-A **Postage Policy** is the Ordering-owned, admin-versioned package-planning policy that determines when an order requires parcel handling, when letter handling remains eligible, and when carrier label purchase must request signature delivery confirmation.
+A **Postage Policy** is the Ordering-owned, admin-versioned package-planning policy that determines when an order requires parcel handling, when letter handling remains eligible, when carrier label purchase must request signature delivery confirmation, and when carrier insurance is required.
 
 Notes:
 
 - Postage Policy is evaluated during checkout preview, checkout confirmation, and accepted-offer order creation.
-- Orders store the policy version and evaluated parcel/signature results in the immutable shipping plan snapshot.
+- Orders store the policy version, evaluated parcel/signature/insurance results, and Shipping Evidence Tier in the immutable shipping plan snapshot.
 - Fulfillment and Checkout consume the snapshot. They do not re-evaluate the mutable active policy.
 - Policy changes affect new orders only.
 
@@ -102,8 +102,27 @@ Examples:
 Examples:
 
 - Shipping option requires signature.
-- Declared item value exceeds the signature threshold.
+- Declared item value meets or exceeds the signature threshold.
 - Product physical flags require signature.
+
+## Carrier Insurance Required
+
+**Carrier Insurance Required** means the active Postage Policy determined the carrier label request must include carrier insurance for the order value.
+
+Examples:
+
+- Declared item value meets or exceeds the insurance threshold.
+- The default marketplace threshold requires insurance at $500 or more.
+
+## Shipping Evidence Tier
+
+A **Shipping Evidence Tier** is the evaluated delivery-evidence level stored with an order's postage policy snapshot.
+
+Notes:
+
+- Tiers are `letter-untracked`, `tracked-parcel`, `signature-confirmed`, and `carrier-insured`.
+- Ordering derives the tier from the evaluated parcel, signature, and insurance requirements.
+- Fulfillment records the tier on label purchase operations so Trust & Safety and dispute evidence can cite the committed shipping evidence facts.
 
 ## Tax Quote
 

@@ -34,7 +34,7 @@ Notes:
 - Fulfillment stores the Package Plan on the shipment.
 - USPS label purchase defaults to the planned parcel package.
 - Operator-supplied package dimensions are an override path, not the normal fulfillment path.
-- Fulfillment enforces postage-policy outputs already committed to the Package Plan, including signature delivery confirmation. It does not resolve the current active Postage Policy.
+- Fulfillment enforces postage-policy outputs already committed to the Package Plan, including signature delivery confirmation, carrier insurance, and Shipping Evidence Tier. It does not resolve the current active Postage Policy.
 
 ## Letter Mailpiece
 
@@ -44,6 +44,16 @@ Notes:
 
 - Ordering determines letter eligibility.
 - Fulfillment records letter preparation honestly instead of forcing letter shipments through parcel-label purchase.
+
+## Shipping Evidence Tier
+
+A **Shipping Evidence Tier** is the Ordering-evaluated delivery-evidence level that Fulfillment records when buying postage labels.
+
+Notes:
+
+- Fulfillment consumes the committed tier from the Package Plan.
+- Label purchase operations record signature and insurance facts with the tier for later dispute-evidence assembly.
+- Fulfillment does not recalculate the tier from the current active Postage Policy.
 
 ## Packing Slip
 

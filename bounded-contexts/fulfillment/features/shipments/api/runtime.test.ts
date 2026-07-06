@@ -114,6 +114,10 @@ const parcelShippingPlan: PackagePlan = {
     parcelReasons: ["declared-value-requires-parcel"],
     signatureRequired: true,
     signatureReasons: ["declared-value-requires-signature"],
+    insuranceRequired: false,
+    insuranceReasons: [],
+    insuredValueAmount: null,
+    shippingEvidenceTier: "signature-confirmed",
   },
   packages: [
     {
@@ -130,6 +134,17 @@ const parcelShippingPlan: PackagePlan = {
   ],
 };
 
+const insuredShippingPlan: PackagePlan = {
+  ...parcelShippingPlan,
+  postagePolicySnapshot: {
+    ...parcelShippingPlan.postagePolicySnapshot!,
+    insuranceRequired: true,
+    insuranceReasons: ["declared-value-requires-insurance"],
+    insuredValueAmount: "500.00",
+    shippingEvidenceTier: "carrier-insured",
+  },
+};
+
 const letterShippingPlan: PackagePlan = {
   packagePlanVersion: "measured-package-plan-v1",
   packageCount: 1,
@@ -137,6 +152,17 @@ const letterShippingPlan: PackagePlan = {
   letterEligibility: {
     eligible: true,
     reasons: [],
+  },
+  postagePolicySnapshot: {
+    policyVersion: "operator-postage-v1",
+    parcelRequired: false,
+    parcelReasons: [],
+    signatureRequired: false,
+    signatureReasons: [],
+    insuranceRequired: false,
+    insuranceReasons: [],
+    insuredValueAmount: null,
+    shippingEvidenceTier: "letter-untracked",
   },
   packages: [
     {
@@ -567,6 +593,7 @@ describe("fulfillment shipment runtime", () => {
     expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
       expect.objectContaining({
         deliveryConfirmation: "signature",
+        insuranceAmount: null,
         sender: expect.objectContaining({
           name: "Seller",
           street1: "1 Main St",
@@ -593,6 +620,8 @@ describe("fulfillment shipment runtime", () => {
     const operationRequest = String(providerOperationCall?.[1]?.[6]);
     expect(operationRequest).toContain('"postagePolicySnapshot"');
     expect(operationRequest).toContain('"signatureRequired":true');
+    expect(operationRequest).toContain('"insuranceRequired":false');
+    expect(operationRequest).toContain('"shippingEvidenceTier":"signature-confirmed"');
     expect(operationRequest).not.toContain("1 Main St");
     expect(operationRequest).not.toContain("2 Market St");
     expect(operationRequest).not.toContain('"sender"');
@@ -607,6 +636,55 @@ describe("fulfillment shipment runtime", () => {
       trackingIdentifier: "940000000000000000",
       postageProviderName: "sandbox-usps",
       postageProviderMode: "test",
+    });
+  });
+
+  it("attaches required carrier insurance from the committed shipping-evidence tier", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(async () => purchasedSandboxLabel),
+      voidLabel: vi.fn(),
+    };
+    const db = createPostageOperationDb(createPackedShipmentRow({ shipping_plan_snapshot: insuredShippingPlan }));
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+
+    await services.purchaseUspsLabel(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
+        serviceLevel: "USPS_GROUND_ADVANTAGE",
+      },
+      context,
+    );
+
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryConfirmation: "signature",
+        insuranceAmount: "500.00",
+      }),
+    );
+    expect(db.readOperation()?.request_json).toMatchObject({
+      insuranceAmount: "500.00",
+      postagePolicySnapshot: {
+        insuranceRequired: true,
+        insuredValueAmount: "500.00",
+        shippingEvidenceTier: "carrier-insured",
+      },
     });
   });
 
@@ -1555,6 +1633,8 @@ describe("fulfillment shipment runtime", () => {
     expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
       expect.objectContaining({
         serviceLevel: "First",
+        deliveryConfirmation: null,
+        insuranceAmount: null,
         labelSize: "7x3",
         package: {
           mailpieceClass: "letter",

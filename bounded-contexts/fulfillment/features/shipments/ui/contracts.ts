@@ -20,6 +20,7 @@ export interface FulfillmentPostageLabelOperationDiagnostic {
   status: string;
   requested_service_level: string | null;
   requested_delivery_confirmation: string | null;
+  requested_insurance_amount: string | null;
   requested_label_size: string | null;
   requested_mailpiece_class: string | null;
   requested_weight_ounces: string | null;
@@ -28,6 +29,9 @@ export interface FulfillmentPostageLabelOperationDiagnostic {
   policy_version: string | null;
   parcel_required: string | null;
   signature_required: string | null;
+  insurance_required: string | null;
+  insured_value_amount: string | null;
+  shipping_evidence_tier: string | null;
   provider_shipment_id: string | null;
   provider_label_id: string | null;
   tracking_identifier: string | null;

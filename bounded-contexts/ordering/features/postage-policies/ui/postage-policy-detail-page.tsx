@@ -271,6 +271,28 @@ export function PostagePolicyDetailPage({
                   value: previewResult.postagePolicySnapshot?.signatureReasons.join(", ") || noValue,
                 })}
               </Text>
+              <Text>
+                {t("ordering.features.postagePolicies.ui.detail.insurance.required", {
+                  value: previewResult.postagePolicySnapshot?.insuranceRequired
+                    ? t("ordering.features.postagePolicies.ui.common.yes")
+                    : t("ordering.features.postagePolicies.ui.common.no"),
+                })}
+              </Text>
+              <Text>
+                {t("ordering.features.postagePolicies.ui.detail.insurance.reasons", {
+                  value: previewResult.postagePolicySnapshot?.insuranceReasons.join(", ") || noValue,
+                })}
+              </Text>
+              <Text>
+                {t("ordering.features.postagePolicies.ui.detail.insured.value", {
+                  value: previewResult.postagePolicySnapshot?.insuredValueAmount ?? noValue,
+                })}
+              </Text>
+              <Text>
+                {t("ordering.features.postagePolicies.ui.detail.shipping.evidence.tier", {
+                  value: previewResult.postagePolicySnapshot?.shippingEvidenceTier ?? noValue,
+                })}
+              </Text>
             </Stack>
           </Card>
         ) : null}

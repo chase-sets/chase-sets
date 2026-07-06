@@ -48,12 +48,18 @@ export type LetterEligibility = Readonly<{
   reasons: readonly string[];
 }>;
 
+export type ShippingEvidenceTier = "letter-untracked" | "tracked-parcel" | "signature-confirmed" | "carrier-insured";
+
 export type PackagePlanPostagePolicySnapshot = Readonly<{
   policyVersion: string;
   parcelRequired: boolean;
   parcelReasons: readonly string[];
   signatureRequired: boolean;
   signatureReasons: readonly string[];
+  insuranceRequired: boolean;
+  insuranceReasons: readonly string[];
+  insuredValueAmount: string | null;
+  shippingEvidenceTier: ShippingEvidenceTier;
 }>;
 
 export type PackagePlan = Readonly<{
@@ -89,6 +95,7 @@ export type PostagePolicy = PackagePlanPolicy &
     signatureRequiredShippingOptions: readonly ShippingOption[];
     signatureRequiredDeclaredValueAmount: number | null;
     signatureRequiredPhysicalFlags: readonly ProductPhysicalFlag[];
+    insuranceRequiredDeclaredValueAmount: number | null;
   }>;
 
 export type BuildPackagePlanInput = Readonly<{
@@ -110,13 +117,14 @@ export const defaultPackagePlanPolicy: PackagePlanPolicy = {
 
 export const defaultPostagePolicy: PostagePolicy = {
   ...defaultPackagePlanPolicy,
-  policyVersion: "default-postage-policy-v1",
+  policyVersion: "default-postage-policy-v2",
   parcelRequiredShippingOptions: ["expedited", "priority"],
   letterRequiredPhysicalFlags: ["raw-card"],
   parcelRequiredPhysicalFlags: ["slab", "sealed", "rigid", "metal", "jumbo", "irregular"],
   signatureRequiredShippingOptions: ["priority"],
-  signatureRequiredDeclaredValueAmount: null,
+  signatureRequiredDeclaredValueAmount: 250,
   signatureRequiredPhysicalFlags: [],
+  insuranceRequiredDeclaredValueAmount: 500,
 };
 
 export function buildPackagePlan(input: BuildPackagePlanInput): PackagePlan {
@@ -130,12 +138,18 @@ export function buildPackagePlan(input: BuildPackagePlanInput): PackagePlan {
       reasons: ["missing-product-measures"],
     };
     const signatureRequirement = evaluateSignatureRequirement([], input.shippingOption, itemSubtotalAmount, policy);
+    const insuranceRequirement = evaluateInsuranceRequirement(itemSubtotalAmount, policy);
     return {
       packagePlanVersion: "measured-package-plan-v1",
       packageCount: 0,
       packages: [],
       letterEligibility,
-      postagePolicySnapshot: buildPostagePolicySnapshot(policy, letterEligibility, signatureRequirement),
+      postagePolicySnapshot: buildPostagePolicySnapshot(
+        policy,
+        letterEligibility,
+        signatureRequirement,
+        insuranceRequirement,
+      ),
       missingProductIds,
     };
   }
@@ -151,6 +165,7 @@ export function buildPackagePlan(input: BuildPackagePlanInput): PackagePlan {
     itemSubtotalAmount,
     policy,
   );
+  const insuranceRequirement = evaluateInsuranceRequirement(itemSubtotalAmount, policy);
   const packagePlanPackage = letterEligibility.eligible
     ? buildLetterPackage(measuredLines, policy)
     : buildParcelPackage(measuredLines, input.shippingOption, policy);
@@ -160,7 +175,12 @@ export function buildPackagePlan(input: BuildPackagePlanInput): PackagePlan {
     packageCount: 1,
     packages: [packagePlanPackage],
     letterEligibility,
-    postagePolicySnapshot: buildPostagePolicySnapshot(policy, letterEligibility, signatureRequirement),
+    postagePolicySnapshot: buildPostagePolicySnapshot(
+      policy,
+      letterEligibility,
+      signatureRequirement,
+      insuranceRequirement,
+    ),
     missingProductIds,
   };
 }
@@ -228,7 +248,7 @@ function evaluateSignatureRequirement(
   }
   if (
     policy.signatureRequiredDeclaredValueAmount != null &&
-    itemSubtotalAmount > policy.signatureRequiredDeclaredValueAmount
+    itemSubtotalAmount >= policy.signatureRequiredDeclaredValueAmount
   ) {
     reasons.push("declared-value-requires-signature");
   }
@@ -242,18 +262,62 @@ function evaluateSignatureRequirement(
   };
 }
 
+function evaluateInsuranceRequirement(itemSubtotalAmount: number, policy: PostagePolicy) {
+  const reasons: string[] = [];
+
+  if (
+    policy.insuranceRequiredDeclaredValueAmount != null &&
+    itemSubtotalAmount >= policy.insuranceRequiredDeclaredValueAmount
+  ) {
+    reasons.push("declared-value-requires-insurance");
+  }
+
+  return {
+    required: reasons.length > 0,
+    reasons,
+    insuredValueAmount: reasons.length > 0 ? itemSubtotalAmount.toFixed(2) : null,
+  };
+}
+
 function buildPostagePolicySnapshot(
   policy: PostagePolicy,
   letterEligibility: LetterEligibility,
   signatureRequirement: Readonly<{ required: boolean; reasons: readonly string[] }>,
+  insuranceRequirement: Readonly<{ required: boolean; reasons: readonly string[]; insuredValueAmount: string | null }>,
 ): PackagePlanPostagePolicySnapshot {
+  const parcelRequired = !letterEligibility.eligible;
   return {
     policyVersion: policy.policyVersion,
-    parcelRequired: !letterEligibility.eligible,
+    parcelRequired,
     parcelReasons: letterEligibility.reasons,
     signatureRequired: signatureRequirement.required,
     signatureReasons: signatureRequirement.reasons,
+    insuranceRequired: insuranceRequirement.required,
+    insuranceReasons: insuranceRequirement.reasons,
+    insuredValueAmount: insuranceRequirement.insuredValueAmount,
+    shippingEvidenceTier: shippingEvidenceTier({
+      parcelRequired,
+      signatureRequired: signatureRequirement.required,
+      insuranceRequired: insuranceRequirement.required,
+    }),
   };
+}
+
+function shippingEvidenceTier(input: {
+  parcelRequired: boolean;
+  signatureRequired: boolean;
+  insuranceRequired: boolean;
+}): ShippingEvidenceTier {
+  if (input.insuranceRequired) {
+    return "carrier-insured";
+  }
+  if (input.signatureRequired) {
+    return "signature-confirmed";
+  }
+  if (input.parcelRequired) {
+    return "tracked-parcel";
+  }
+  return "letter-untracked";
 }
 
 function buildLetterPackage(

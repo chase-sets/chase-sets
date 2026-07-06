@@ -747,6 +747,11 @@ function postageDeliveryConfirmationFromShippingPlan(plan: PackagePlan | null | 
   return plan?.postagePolicySnapshot?.signatureRequired ? ("signature" as const) : null;
 }
 
+function postageInsuranceAmountFromShippingPlan(plan: PackagePlan | null | undefined) {
+  const snapshot = plan?.postagePolicySnapshot;
+  return snapshot?.insuranceRequired ? (snapshot.insuredValueAmount ?? null) : null;
+}
+
 function postageProviderErrorCode(error: unknown) {
   if (error instanceof PostageLabelProviderError) {
     return error.name;
@@ -771,13 +776,22 @@ function assertPostagePolicyCompliance(
   serviceLevel: string,
 ) {
   const snapshot = plan?.postagePolicySnapshot;
-  if (!snapshot?.parcelRequired) {
+  if (!snapshot) {
     return;
   }
 
-  if (pkg.mailpieceClass === "letter" || pkg.mailpieceClass === "flat" || isLetterMailServiceLevel(serviceLevel)) {
+  if (
+    snapshot.parcelRequired &&
+    (pkg.mailpieceClass === "letter" || pkg.mailpieceClass === "flat" || isLetterMailServiceLevel(serviceLevel))
+  ) {
     throw new FulfillmentDomainError(
       "Parcel postage is required by the committed postage policy snapshot for this shipment.",
+    );
+  }
+
+  if (snapshot.insuranceRequired && !snapshot.insuredValueAmount) {
+    throw new FulfillmentDomainError(
+      "Carrier insurance is required by the committed postage policy snapshot for this shipment.",
     );
   }
 }
@@ -788,6 +802,7 @@ function postageLabelOperationRequest(
     orderId: string;
     serviceLevel: string;
     deliveryConfirmation: "signature" | null;
+    insuranceAmount: string | null;
     labelPackage: PostagePackage;
     labelSize: "7x3" | null;
     addressOverrideAudit: {
@@ -805,6 +820,7 @@ function postageLabelOperationRequest(
     orderId: input.orderId,
     serviceLevel: input.serviceLevel,
     deliveryConfirmation: input.deliveryConfirmation,
+    insuranceAmount: input.insuranceAmount,
     labelSize: input.labelSize,
     package: input.labelPackage,
     addressOverride: input.addressOverrideAudit,
@@ -815,6 +831,10 @@ function postageLabelOperationRequest(
           parcelReasons: policySnapshot.parcelReasons,
           signatureRequired: policySnapshot.signatureRequired,
           signatureReasons: policySnapshot.signatureReasons,
+          insuranceRequired: policySnapshot.insuranceRequired,
+          insuranceReasons: policySnapshot.insuranceReasons,
+          insuredValueAmount: policySnapshot.insuredValueAmount,
+          shippingEvidenceTier: policySnapshot.shippingEvidenceTier,
         }
       : null,
   };
@@ -1200,6 +1220,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const recipient = postageAddressFromSnapshot(submittedRecipient);
       const labelPackage = params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
       const deliveryConfirmation = postageDeliveryConfirmationFromShippingPlan(shipment.shipping_plan_snapshot);
+      const insuranceAmount = postageInsuranceAmountFromShippingPlan(shipment.shipping_plan_snapshot);
       const labelSize = postageLabelSizeFromPackage(labelPackage);
       try {
         assertPostagePolicyCompliance(shipment.shipping_plan_snapshot, labelPackage, params.serviceLevel);
@@ -1231,6 +1252,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           orderId: shipment.order_id,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
+          insuranceAmount,
           labelSize,
           labelPackage,
           addressOverrideAudit: addressOverrideAudit
@@ -1281,6 +1303,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           idempotencyKey: operationKey,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
+          insuranceAmount,
           labelSize,
           sender,
           recipient,

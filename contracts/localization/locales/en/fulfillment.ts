@@ -173,6 +173,10 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentDetailPage.exception.type": "Exception type",
   "fulfillment.features.shipments.ui.shipmentDetailPage.exceptions": "Exceptions",
   "fulfillment.features.shipments.ui.shipmentDetailPage.height.in": "Height (in)",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.insurance.amount": "Insurance amount",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.insurance.reasons": "Insurance reasons",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.insurance.required": "Insurance required",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.insured.value": "Insured value",
   "fulfillment.features.shipments.ui.shipmentDetailPage.label.status": "Label status: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece": "Letter Mailpiece",
   "fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece.description":
@@ -249,6 +253,7 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentDetailPage.service.level": "Service level: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.signature.reasons": "Signature reasons",
   "fulfillment.features.shipments.ui.shipmentDetailPage.signature.required": "Signature required",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.shipping.evidence.tier": "Shipping evidence tier",
   "fulfillment.features.shipments.ui.shipmentDetailPage.shipping.method": "Shipping method: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.shipping.option": "Shipping option: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.standard": "Standard",
