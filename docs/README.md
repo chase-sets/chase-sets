@@ -170,6 +170,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0016: Profiled Production Topology](./adr/0016-profiled-production-topology.md)
 - [ADR 0017: Database Provisioning Is Separate From Runtime Activation](./adr/0017-database-provisioning-runtime-activation.md)
 - [ADR 0018: DOKS Compute Runtime](./adr/0018-doks-compute-runtime.md)
+- [ADR 0019: Feature Flags And Rollout Boundaries](./adr/0019-feature-flags-rollout-boundaries.md)
 
 ## Generated Markdown
 
