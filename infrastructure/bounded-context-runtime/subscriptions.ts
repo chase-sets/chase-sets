@@ -97,6 +97,7 @@ export type SubscriptionLedgerMetrics = Readonly<{
 
 const IDLE_CHECKPOINT_FAST_FORWARD_MIN_GAP = 100n;
 const IDLE_CHECKPOINT_FAST_FORWARD_HEARTBEAT_MS = 60_000;
+const REACTION_CHECKPOINT_BATCH_SIZE = 1;
 
 export type ContextSubscriptionRunner = Readonly<{
   subscriptionName: string;
@@ -369,9 +370,13 @@ export function createSubscriptionRunner(
 ): ContextSubscriptionRunner {
   const sourceEventStore = createPostgresEventStore({ pool: sourcePool });
   const batchSize = subscription.batchSize ?? 100;
-  const checkpointBatchSize = Math.max(1, subscription.checkpointBatchSize ?? batchSize);
-  const checkpointKey = createCheckpointKey(subscription);
   const handlerKind = subscription.handlerKind ?? "projection";
+  const configuredCheckpointBatchSize = Math.max(1, subscription.checkpointBatchSize ?? batchSize);
+  const checkpointBatchSize =
+    handlerKind === "reaction"
+      ? Math.min(configuredCheckpointBatchSize, REACTION_CHECKPOINT_BATCH_SIZE)
+      : configuredCheckpointBatchSize;
+  const checkpointKey = createCheckpointKey(subscription);
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
   const status: {
     checkpointKey: string;

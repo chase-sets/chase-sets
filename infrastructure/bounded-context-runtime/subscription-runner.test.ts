@@ -312,6 +312,9 @@ describe("bounded context subscription runner", () => {
 
     await expect(failingRunner.runOnce()).rejects.toThrow("transient failure");
     expect(getCheckpointStore(targetPool).get("marketplace-inventory-supply-projection:inventory:v1")).toBe("1");
+    expect(getCheckpointWriteCountStore(targetPool).get("marketplace-inventory-supply-projection:inventory:v1")).toBe(
+      1,
+    );
 
     const resumedPositions: string[] = [];
     const resumedRunner = createSubscriptionRunner("marketplace", targetPool as never, sourcePool as never, {
@@ -757,13 +760,14 @@ describe("bounded context subscription runner", () => {
       },
       eventTypes: ["catalog.catalog-item.published"],
       streamPrefixes: ["catalog.item-"],
-      batchSize: 100,
     });
 
     await runner.runOnce();
 
     const targetSql = targetQuery.mock.calls.map(([sql]) => String(sql));
+    expect(getReadAllCalls(sourcePool)[0]).toMatchObject({ limit: 100 });
     expect(handler).toHaveBeenCalledTimes(5);
+    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(1);
     expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(1);
     expect(
       targetSql.filter((sql) => sql.includes("SELECT event_id, status") && sql.includes("FOR UPDATE")),
@@ -780,6 +784,47 @@ describe("bounded context subscription runner", () => {
       ),
     ).toHaveLength(0);
     expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(1);
+  });
+
+  it("applies reaction handlers one event per transaction even when configured for larger checkpoints", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-cat_1"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" }, "catalog.item-cat_2"),
+      createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_3" }, "catalog.item-cat_3"),
+    ]);
+    const handler = vi.fn(async () => undefined);
+
+    const runner = createSubscriptionRunner("ordering", targetPool as never, sourcePool as never, {
+      subscriptionName: "ordering.catalog-command-reaction",
+      handlerKind: "reaction",
+      sourceContextName: "catalog",
+      projectionName: "ordering-catalog-command-reaction",
+      reactionName: "ordering-catalog-command-reaction",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": handler,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      batchSize: 100,
+      checkpointBatchSize: 100,
+    });
+
+    await runner.runOnce();
+
+    const targetSql = targetQuery.mock.calls.map(([sql]) => String(sql));
+    expect(handler).toHaveBeenCalledTimes(3);
+    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(3);
+    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(3);
+    expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(3);
+    expect(
+      targetSql.filter((sql) => sql.includes("SELECT event_id, status") && sql.includes("FOR UPDATE")),
+    ).toHaveLength(0);
+    expect(getCheckpointStore(targetPool).get("ordering-catalog-command-reaction:catalog:v1")).toBe("3");
+    expect(getCheckpointWriteCountStore(targetPool).get("ordering-catalog-command-reaction:catalog:v1")).toBe(3);
   });
 
   it("does not fall back to per-event apply when batch preflight fails", async () => {
