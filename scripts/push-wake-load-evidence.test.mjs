@@ -204,6 +204,52 @@ describe("push wake load evidence evaluator", () => {
     expect(markdown).toContain("Attribution: no-queued-intents (high confidence)");
   });
 
+  it("allows inherited failed wake intents in bounded staging when the load does not add new failures", () => {
+    const evidence = buildPushWakeLoadEvidence({
+      artifact: passingArtifact({
+        loadPlan: { iterations: 6, concurrency: 2, bounded: true },
+        loadSummary: {
+          attempted: 6,
+          evidenceProduced: 6,
+          configErrors: 0,
+          promoted: 6,
+          readinessPassRate: 1,
+          readyLatencyMs: { samples: 6, min: 900, p50: 1_200, p95: 1_700, max: 1_700 },
+        },
+        wakeStatusBefore: wakeStatusSnapshot({ failedCount: 8 }),
+        wakeStatusAfter: wakeStatusSnapshot({ failedCount: 5 }),
+      }),
+      checkedAt: "2026-06-24T00:03:00.000Z",
+      profile: "bounded-staging",
+      budgetOverrides: {},
+    });
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.verdictReasons).not.toContain("wake-failed-intents-after-load");
+    expect(evidence.verdictReasons).not.toContain("wake-failed-intents-increased-after-load");
+    expect(evidence.observations.wakeStatus.failedIntentDelta).toBe(0);
+    expect(evidence.warnings).toContain(
+      "wake failed intents were inherited before the load window (8 before, 5 after).",
+    );
+  });
+
+  it("fails bounded staging when failed wake intents increase during the load window", () => {
+    const evidence = buildPushWakeLoadEvidence({
+      artifact: passingArtifact({
+        loadPlan: { iterations: 6, concurrency: 2, bounded: true },
+        wakeStatusBefore: wakeStatusSnapshot({ failedCount: 2 }),
+        wakeStatusAfter: wakeStatusSnapshot({ failedCount: 3 }),
+      }),
+      checkedAt: "2026-06-24T00:03:00.000Z",
+      profile: "bounded-staging",
+      budgetOverrides: {},
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.verdictReasons).toContain("wake-failed-intents-increased-after-load");
+    expect(evidence.observations.wakeStatus.failedIntentDelta).toBe(1);
+  });
+
   it("fails warning-only load readiness misses without an explicit accepted decision", () => {
     const artifact = passingArtifact({
       loadReadinessDecision: null,
