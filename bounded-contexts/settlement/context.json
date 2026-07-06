@@ -34,6 +34,7 @@
       "projectionName": "settlement-support-hold-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
+        "payments.payment-disputed",
         "payments.payment-fraud-warning-received",
         "payments.payment-fraud-review-opened",
         "payments.payment-fraud-review-closed"

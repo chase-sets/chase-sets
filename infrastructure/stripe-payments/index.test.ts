@@ -699,6 +699,8 @@ describe("Stripe payment processor gateway", () => {
         object: {
           id: "dp_123",
           status: "needs_response",
+          reason: "fraudulent",
+          evidence_details: { due_by: 1_785_801_600 },
           charge: "ch_123",
           payment_intent: "pi_123",
           metadata: { payment_id: "pay_123" },
@@ -742,6 +744,11 @@ describe("Stripe payment processor gateway", () => {
       internalPaymentId: "pay_123",
       failureCode: "charge.dispute.created",
       failureMessage: "needs_response",
+      providerChargeReference: "ch_123",
+      disputeLifecycleState: "created",
+      disputeStatus: "needs_response",
+      disputeReason: "fraudulent",
+      disputeEvidenceDueAt: "2026-08-04T00:00:00.000Z",
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://stripe.test/v1/charges/ch_123",

@@ -18,6 +18,15 @@ A **Capture** is the successful completion of a previously authorized charge.
 
 A **Refund** is the reversal of captured buyer funds through an external payment rail.
 
+## Payment Disputed
+
+A **Payment Disputed** event records that the payment processor reported a chargeback or dispute against a captured Payment.
+
+Notes:
+
+- Payments owns the processor dispute identifier, lifecycle state, evidence deadline, charge reference, and affected Payment references.
+- Settlement consumes this fact to hold pending seller funds, claw back released seller funds, or release chargeback holds when the dispute is won.
+
 ## Payment Fraud Warning Received
 
 A **Payment Fraud Warning Received** event records that the payment processor reported an early fraud warning for a Payment.

@@ -76,6 +76,25 @@ Notes:
 - Returned shipments, fulfillment exceptions, active support holds, manual payout review, untrusted account state, and high-dollar seller exposure can extend or prevent release.
 - Settlement owns the release decision even when Stripe payment risk checks pass.
 
+## Chargeback Clawback
+
+A **Chargeback Clawback** is the Settlement-owned ledger adjustment that recovers seller exposure after Payments reports a processor dispute or chargeback.
+
+Notes:
+
+- Chargeback Clawbacks are posted through Wallet commands and may create a negative available balance when released funds have already left the seller wallet.
+- Active chargeback holds keep pending sale proceeds and shipping allowances from becoming available while the processor dispute remains open or lost.
+- A won chargeback releases the active hold with a matching Wallet credit; payout-reversal mechanics remain owned by Payout.
+
+## Negative Balance
+
+A **Negative Balance** is a Wallet state where chargeback, refund, or payout recovery obligations exceed the account's available balance.
+
+Notes:
+
+- Settlement records the balance truth in the Wallet ledger.
+- Follow-up consumers use this vocabulary to decide recovery, payout blocking, or operator workflows without reinterpreting the original payment processor dispute.
+
 ## Payout Batch
 
 A **Payout Batch** is a grouped payout execution run.

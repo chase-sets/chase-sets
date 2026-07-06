@@ -64,6 +64,7 @@ export type PaymentLiabilityShiftOutcome = Readonly<{
   radarRiskLevel: string | null;
   recordedAt: string;
 }>;
+export type PaymentDisputeLifecycleState = "created" | "updated" | "won" | "lost";
 
 export type PaymentState = Readonly<{
   paymentId: PaymentId | null;
@@ -104,6 +105,7 @@ export type PaymentState = Readonly<{
   refundRequests: readonly PaymentRefundRequest[];
   issuedRefunds: readonly IssuedPaymentRefund[];
   disputedAt: string | null;
+  disputeProviderEventIds: readonly string[];
   earlyFraudWarningIds: readonly string[];
   fraudReviews: readonly PaymentFraudReview[];
   threeDSecureRequest: ThreeDSecureRequest | null;
@@ -159,6 +161,7 @@ export const initialPaymentState: PaymentState = {
   refundRequests: [],
   issuedRefunds: [],
   disputedAt: null,
+  disputeProviderEventIds: [],
   earlyFraudWarningIds: [],
   fraudReviews: [],
   threeDSecureRequest: null,
@@ -244,9 +247,15 @@ export type RequestPaymentRefundCommand = Readonly<{
 
 export type RecordPaymentDisputeCommand = Readonly<{
   type: "RecordPaymentDispute";
+  providerEventId?: string | null;
+  providerDisputeId?: string | null;
+  providerChargeReference?: string | null;
   processorStatus: string;
   disputeStatus: string | null;
   disputeMessage: string | null;
+  disputeLifecycleState?: PaymentDisputeLifecycleState | null;
+  disputeReason?: string | null;
+  disputeEvidenceDueAt?: string | null;
   amount: string | null;
   disputedAt: string;
 }>;
@@ -452,9 +461,16 @@ export type PaymentDisputedEvent = DomainEvent<
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
+    providerEventId: string | null;
+    providerDisputeId: string;
+    providerChargeReference: string | null;
     processorStatus: string;
     disputeStatus: string | null;
     disputeMessage: string | null;
+    disputeLifecycleState: PaymentDisputeLifecycleState;
+    disputeReason: string | null;
+    disputeEvidenceDueAt: string | null;
+    sellerPayouts: SellerPayoutComponent[];
     disputedAt: string;
   }>
 >;
@@ -999,14 +1015,21 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
         },
       ];
     }
-    case "RecordPaymentDispute":
+    case "RecordPaymentDispute": {
       assert(state.paymentId !== null, "Payment must be created first.");
-      if (
-        state.status === "disputed" &&
-        state.processorStatus === normalizeRequiredText(command.processorStatus, "Processor status is required.") &&
-        state.failureCode === normalizeOptionalText(command.disputeStatus) &&
-        state.failureMessage === normalizeOptionalText(command.disputeMessage)
-      ) {
+      const processorStatus = normalizeRequiredText(command.processorStatus, "Processor status is required.");
+      const providerEventId = normalizeOptionalText(command.providerEventId);
+      const disputeStatus = normalizeOptionalText(command.disputeStatus);
+      const disputeMessage = normalizeOptionalText(command.disputeMessage);
+      const disputeLifecycleState: PaymentDisputeLifecycleState =
+        command.disputeLifecycleState ??
+        (disputeMessage === "won" || disputeMessage === "warning_closed"
+          ? "won"
+          : disputeMessage === "lost"
+            ? "lost"
+            : "created");
+      const disputeEvidenceDueAt = normalizeOptionalText(command.disputeEvidenceDueAt);
+      if (providerEventId && state.disputeProviderEventIds.includes(providerEventId)) {
         return [];
       }
       assert(
@@ -1031,13 +1054,23 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
-            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
-            disputeStatus: normalizeOptionalText(command.disputeStatus),
-            disputeMessage: normalizeOptionalText(command.disputeMessage),
+            providerEventId,
+            providerDisputeId: normalizeOptionalText(command.providerDisputeId) ?? `${state.paymentId}-dispute`,
+            providerChargeReference: normalizeOptionalText(command.providerChargeReference),
+            processorStatus,
+            disputeStatus,
+            disputeMessage,
+            disputeLifecycleState,
+            disputeReason: normalizeOptionalText(command.disputeReason),
+            disputeEvidenceDueAt: disputeEvidenceDueAt
+              ? ensureIsoTimestamp(disputeEvidenceDueAt, "Payment dispute evidence deadline must be an ISO timestamp.")
+              : null,
+            sellerPayouts: [...state.sellerPayouts],
             disputedAt: ensureIsoTimestamp(command.disputedAt, "Payment dispute must include a timestamp."),
           },
         },
       ];
+    }
     case "RecordPaymentEarlyFraudWarning": {
       assert(state.paymentId !== null, "Payment must be created first.");
       const earlyFraudWarningId = normalizeRequiredText(
@@ -1209,6 +1242,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         refundRequests: [],
         issuedRefunds: [],
         disputedAt: null,
+        disputeProviderEventIds: [],
         earlyFraudWarningIds: [],
         fraudReviews: [],
         liabilityShiftOutcomes: [],
@@ -1291,6 +1325,10 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         failureCode: event.data.disputeStatus,
         failureMessage: event.data.disputeMessage,
         disputedAt: event.data.disputedAt,
+        disputeProviderEventIds:
+          event.data.providerEventId && !state.disputeProviderEventIds.includes(event.data.providerEventId)
+            ? [...state.disputeProviderEventIds, event.data.providerEventId]
+            : state.disputeProviderEventIds,
       };
     case "payments.payment-fraud-warning-received":
       return {

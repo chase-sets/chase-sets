@@ -368,14 +368,44 @@ describe("payments payment domain", () => {
 
     const disputedPartialState = decidePayment(partialState, {
       type: "RecordPaymentDispute",
+      providerEventId: "evt_dispute",
+      providerDisputeId: "dp_123",
+      providerChargeReference: "ch_123",
       processorStatus: "needs_response",
       disputeStatus: "charge.dispute.created",
       disputeMessage: "needs_response",
+      disputeLifecycleState: "created",
+      disputeReason: "fraudulent",
+      disputeEvidenceDueAt: "2026-08-04T00:00:00.000Z",
       amount: "6.00",
       disputedAt: "2026-04-01T00:05:00.000Z",
     }).reduce(evolvePayment, partialState);
 
     expect(disputedPartialState.status).toBe("disputed");
+    expect(
+      decidePayment(partialState, {
+        type: "RecordPaymentDispute",
+        providerEventId: "evt_dispute",
+        providerDisputeId: "dp_123",
+        providerChargeReference: "ch_123",
+        processorStatus: "needs_response",
+        disputeStatus: "charge.dispute.created",
+        disputeMessage: "needs_response",
+        disputeLifecycleState: "created",
+        disputeReason: "fraudulent",
+        disputeEvidenceDueAt: "2026-08-04T00:00:00.000Z",
+        amount: "6.00",
+        disputedAt: "2026-04-01T00:05:00.000Z",
+      })[0]?.data,
+    ).toMatchObject({
+      providerEventId: "evt_dispute",
+      providerDisputeId: "dp_123",
+      providerChargeReference: "ch_123",
+      disputeLifecycleState: "created",
+      disputeReason: "fraudulent",
+      disputeEvidenceDueAt: "2026-08-04T00:00:00.000Z",
+      sellerPayouts: [expect.objectContaining({ sellerAccountId: "acc_seller" })],
+    });
     expect(
       decidePayment(refundedState, {
         type: "RecordPaymentDispute",
