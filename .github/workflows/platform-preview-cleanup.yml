@@ -215,19 +215,6 @@ jobs:
             -backend-config=use_path_style=true \
             -backend-config=use_lockfile=true
 
-      - name: Wait for active App Platform deployment
-        working-directory: infrastructure/digitalocean/platform
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No preview App Platform app was found in Terraform state; skipping deployment wait."
-            exit 0
-          fi
-
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
-
       - name: Disable stateful destroy guard for approved preview cleanup
         run: node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf
 

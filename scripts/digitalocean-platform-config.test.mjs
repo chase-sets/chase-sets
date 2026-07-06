@@ -2604,6 +2604,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPreviewCleanupWorkflow).toContain(
       "-backend-config=key=platform/previews/pr-${{ matrix.pr_number }}.tfstate",
     );
+    expect(platformPreviewCleanupWorkflow).not.toContain("Wait for active App Platform deployment");
+    expect(platformPreviewCleanupWorkflow).not.toContain("digitalocean-app-deployment.mjs");
   });
 
   it("opens or updates the quarterly DigitalOcean token rotation issue without DO secrets", () => {
