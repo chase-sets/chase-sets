@@ -68,17 +68,22 @@ function commandOutput(command, args, options = {}) {
   }
 
   return new Promise((resolve, reject) => {
-    execFile(command, args, { maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
-      if (error) {
-        const message = stderr.trim() || stdout.trim() || error.message;
-        reject(
-          createCommandError(command, args, message, { exitCode: error.code, signal: error.signal, stdout, stderr }),
-        );
-        return;
-      }
+    execFile(
+      command,
+      args,
+      { maxBuffer: 50 * 1024 * 1024, timeout: options.timeoutMs, windowsHide: true },
+      (error, stdout, stderr) => {
+        if (error) {
+          const message = stderr.trim() || stdout.trim() || error.message;
+          reject(
+            createCommandError(command, args, message, { exitCode: error.code, signal: error.signal, stdout, stderr }),
+          );
+          return;
+        }
 
-      resolve(stdout);
-    });
+        resolve(stdout);
+      },
+    );
   });
 }
 
@@ -810,6 +815,7 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
   const warn = options.warn ?? console.warn;
   const tailLines = options.tailLines ?? 200;
   const logTypes = options.logTypes?.length > 0 ? options.logTypes : DEFAULT_DEPLOYMENT_LOG_TYPES;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 30_000;
   const jsonOptions = { ...options, allowNonzeroJsonOutput: true };
 
   let deployments = [];
@@ -886,7 +892,7 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
 
       log(`\n--- ${componentName} ${logType} logs (${deployment.id}) ---`);
       try {
-        const output = await command("doctl", args);
+        const output = await command("doctl", args, { timeoutMs: commandTimeoutMs });
         const trimmed = output.trim();
         log(trimmed || "(no log lines returned)");
         collectedLogs.push({ componentName, logType, ok: true, output });
