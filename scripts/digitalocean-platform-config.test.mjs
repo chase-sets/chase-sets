@@ -1030,6 +1030,8 @@ describe("DigitalOcean platform configuration", () => {
       "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
     );
     expect(stagingDeployStep).toContain("Staging catalog asset runtime env outputs are required");
+    expect(stagingDeployStep).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
+    expect(stagingDeployStep).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(stagingDeployStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
     expect(stagingDeployStep).toContain(
       '--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"',
