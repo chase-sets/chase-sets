@@ -521,10 +521,10 @@ async function startHeldLockInjector(options, dependencies) {
   };
 
   handle.onStdout((text) => {
-    run.stdout = limitOutput(`${run.stdout}${text}`);
+    run.stdout = `${run.stdout}${text}`;
   });
   handle.onStderr((text) => {
-    run.stderr = limitOutput(`${run.stderr}${text}`);
+    run.stderr = `${run.stderr}${text}`;
   });
   handle.wait.then(
     () => {
@@ -899,19 +899,19 @@ async function runCaptured(runner, command, args) {
   return runner(command, args, { allowFailure: false });
 }
 
-async function runCommand(command, args, options = {}) {
+export async function runCommand(command, args, options = {}) {
   try {
     const result = await execFile(command, args, {
       env: options.env ?? process.env,
       maxBuffer: 50 * 1024 * 1024,
       windowsHide: true,
     });
-    return { exitCode: 0, stdout: limitOutput(result.stdout), stderr: limitOutput(result.stderr) };
+    return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
     const result = {
       exitCode: error?.code ?? 1,
-      stdout: limitOutput(error?.stdout ?? ""),
-      stderr: limitOutput(error?.stderr ?? summarizeError(error)),
+      stdout: error?.stdout ?? "",
+      stderr: error?.stderr ?? summarizeError(error),
     };
     if (options.allowFailure) {
       return result;
@@ -1009,7 +1009,7 @@ function limitOutput(value) {
 }
 
 function summarizeError(error) {
-  return redactSupportUnsafeText(error instanceof Error ? error.message : String(error));
+  return limitOutput(redactSupportUnsafeText(error instanceof Error ? error.message : String(error)));
 }
 
 async function main() {
