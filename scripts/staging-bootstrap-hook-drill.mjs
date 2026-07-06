@@ -18,6 +18,7 @@ export const DEFAULT_CHART_PATH = "infrastructure/helm/platform";
 export const DEFAULT_FAILURE_RUNTIME_PROFILE = "bootstrap-hook-drill-invalid-runtime-profile";
 export const HELD_LOCK_READY_MARKER = "CHASE_SETS_HELD_LOCK_READY";
 export const HELD_LOCK_TIMEOUT_MARKER = "CHASE_SETS_HELD_LOCK_TIMEOUT";
+export const HELD_LOCK_SETUP_FAILED_MARKER = "CHASE_SETS_HELD_LOCK_SETUP_FAILED";
 const MAX_CAPTURE_BYTES = 200_000;
 const DEFAULT_HELD_LOCK_TIMEOUT_SECONDS = 1_200;
 const DEFAULT_HELD_LOCK_READY_TIMEOUT_MS = 60_000;
@@ -209,9 +210,10 @@ export function buildHeldLockNotStarted(options, checkedAt) {
     liveHeldLockInjection: "worker-pod-kubectl-exec",
     bootstrapTouchedRelation: {
       context: "catalog",
-      schema: "public",
+      schema: null,
       table: "bounded_context_schema_migrations",
       lockMode: "ACCESS EXCLUSIVE",
+      schemaDiscovery: "runtime-pg-tables",
       sourceEvidence: "deployables/platform-api/__tests__/bootstrap-integration.test.ts",
     },
     supportSafe: true,
@@ -251,10 +253,10 @@ import pg from "pg";
 const { Client } = pg;
 const timeoutSeconds = Number(process.env.CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS || "1200");
 const databaseUrl = process.env.DATABASE_URL_CATALOG;
-const schemaMigrationsRelation = "public.bounded_context_schema_migrations";
+const schemaMigrationsTable = "bounded_context_schema_migrations";
 
 if (!databaseUrl) {
-  console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify({ reason: "missing-catalog-database-url" }));
+  console.error("${HELD_LOCK_SETUP_FAILED_MARKER} " + JSON.stringify({ reason: "missing-catalog-database-url" }));
   process.exit(2);
 }
 
@@ -323,6 +325,49 @@ function summarizeSafeError(error) {
   };
 }
 
+function quoteIdentifier(identifier) {
+  return '"' + String(identifier).replaceAll('"', '""') + '"';
+}
+
+async function discoverSchemaMigrationsRelation(client) {
+  const result = await client.query(
+    "SELECT schemaname FROM pg_tables WHERE tablename = $1 ORDER BY schemaname",
+    [schemaMigrationsTable],
+  );
+  const schemas = result.rows.map((row) => row.schemaname).filter((schema) => typeof schema === "string");
+  if (schemas.length === 1) {
+    return {
+      ok: true,
+      schema: schemas[0],
+      relation: schemas[0] + "." + schemaMigrationsTable,
+      lockTarget: quoteIdentifier(schemas[0]) + "." + quoteIdentifier(schemaMigrationsTable),
+    };
+  }
+
+  if (schemas.length > 1) {
+    return {
+      ok: false,
+      reason: "multiple-relations",
+      table: schemaMigrationsTable,
+      candidates: schemas.map((schema) => schema + "." + schemaMigrationsTable),
+    };
+  }
+
+  const schemasPresentResult = await client.query(
+    "SELECT nspname AS schema FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' ORDER BY nspname",
+  );
+  const databaseResult = await client.query("SELECT current_database() AS database");
+  return {
+    ok: false,
+    reason: "missing-relation",
+    table: schemaMigrationsTable,
+    database: databaseResult.rows[0]?.database ?? null,
+    schemasPresent: schemasPresentResult.rows
+      .map((row) => row.schema)
+      .filter((schema) => typeof schema === "string"),
+  };
+}
+
 const connectionString = normalizeConnectionString(databaseUrl);
 const client = new Client({
   connectionString,
@@ -333,12 +378,9 @@ const client = new Client({
 try {
   await client.connect();
   try {
-    const relationProbe = await client.query("SELECT to_regclass($1)::text AS relation", [schemaMigrationsRelation]);
-    if (relationProbe.rows[0]?.relation !== schemaMigrationsRelation) {
-      console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify({
-        reason: "missing-relation",
-        relation: schemaMigrationsRelation,
-      }));
+    const relationDiscovery = await discoverSchemaMigrationsRelation(client);
+    if (!relationDiscovery.ok) {
+      console.error("${HELD_LOCK_SETUP_FAILED_MARKER} " + JSON.stringify(relationDiscovery));
       await client.end().catch(() => undefined);
       process.exit(3);
     }
@@ -346,10 +388,12 @@ try {
     await client.query("SET statement_timeout = 0");
     await client.query("SET lock_timeout = '5s'");
     await client.query("BEGIN");
-    await client.query("LOCK TABLE public.bounded_context_schema_migrations IN ACCESS EXCLUSIVE MODE");
+    await client.query(\`LOCK TABLE \${relationDiscovery.lockTarget} IN ACCESS EXCLUSIVE MODE\`);
     console.log("${HELD_LOCK_READY_MARKER} " + JSON.stringify({
       context: "catalog",
-      relation: schemaMigrationsRelation,
+      schema: relationDiscovery.schema,
+      table: schemaMigrationsTable,
+      relation: relationDiscovery.relation,
       lockMode: "ACCESS EXCLUSIVE",
       readyAt: new Date().toISOString(),
     }));
@@ -360,7 +404,7 @@ try {
     await client.end().catch(() => undefined);
   }
 } catch (error) {
-  console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify(summarizeSafeError(error)));
+  console.error("${HELD_LOCK_SETUP_FAILED_MARKER} " + JSON.stringify(summarizeSafeError(error)));
   process.exit(3);
 }
 NODE`;
@@ -514,6 +558,10 @@ async function startHeldLockInjector(options, dependencies) {
   run.evidence = {
     ...run.evidence,
     result: "held",
+    bootstrapTouchedRelation: {
+      ...run.evidence.bootstrapTouchedRelation,
+      schema: parseHeldLockReadyMetadata(run.stdout)?.schema ?? run.evidence.bootstrapTouchedRelation.schema,
+    },
     setup: {
       ...run.evidence.setup,
       status: "success",
@@ -556,6 +604,22 @@ async function waitForHeldLockReady(run, timeoutMs) {
       }
     });
   });
+}
+
+function parseHeldLockReadyMetadata(output) {
+  const line = String(output ?? "")
+    .split(/\r?\n/)
+    .find((entry) => entry.includes(HELD_LOCK_READY_MARKER));
+  if (!line) {
+    return null;
+  }
+  const markerIndex = line.indexOf(HELD_LOCK_READY_MARKER);
+  const jsonText = line.slice(markerIndex + HELD_LOCK_READY_MARKER.length).trim();
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    return null;
+  }
 }
 
 async function observeHeldLockRelease(run, options, now) {
