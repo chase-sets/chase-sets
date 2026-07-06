@@ -17,6 +17,7 @@ import {
   buildSuccessfulUpgradeArgs,
   parseStagingBootstrapHookDrillArgs,
   redactSupportUnsafeText,
+  runCommand,
   runStagingBootstrapHookDrill,
   selectReadyWorkerPodName,
   summarizeDeploymentSnapshot,
@@ -268,6 +269,26 @@ describe("staging bootstrap hook drill", () => {
     ).toBe("ready-worker");
   });
 
+  it("keeps command captures intact for machine-parsed JSON over the evidence cap", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-capture-"));
+    const largePodsJson = largeWorkerPodJson();
+    try {
+      const jsonPath = join(outDir, "large-pods.json");
+      await writeFile(jsonPath, largePodsJson, "utf8");
+      const result = await runCommand(process.execPath, [
+        "-e",
+        "process.stdout.write(require('fs').readFileSync(process.argv[1], 'utf8'))",
+        jsonPath,
+      ]);
+
+      expect(result.stdout.length).toBe(largePodsJson.length);
+      expect(result.stdout).not.toContain("[output-truncated]");
+      expect(selectReadyWorkerPodName(result.stdout)).toBe("ready-worker");
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("summarizes deployment images and ready pod UIDs without raw pod identifiers", () => {
     const deployments = summarizeDeploymentSnapshot(
       JSON.stringify({
@@ -513,6 +534,87 @@ describe("staging bootstrap hook drill", () => {
     }
   });
 
+  it("parses large pod JSON while bounding oversized evidence text at artifact boundaries", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-"));
+    const execHandles = [];
+    const oversizedInjectorOutput = "x".repeat(210_000);
+    const options = {
+      ...parseStagingBootstrapHookDrillArgs(
+        ["--out-dir", outDir, "--marker", "run-large-capture", "--held-lock-release-timeout-ms", "1"],
+        {},
+      ),
+      landingUrl: "https://landing.example",
+      adminUrl: "https://admin.example",
+      marketplaceUrl: "https://marketplace.example",
+      legacyRedirectUrl: "https://legacy.example",
+      checkedAt: "2026-07-06T00:00:00.000Z",
+    };
+
+    try {
+      const result = await runStagingBootstrapHookDrill(options, {
+        runner: async (command, args) => {
+          if (
+            command === "helm" &&
+            args[0] === "upgrade" &&
+            args.includes("global.envOverrides.CHASE_SETS_RUNTIME_PROFILE=bootstrap-hook-drill-invalid-runtime-profile")
+          ) {
+            return { exitCode: 1, stdout: "", stderr: "bootstrap failed as expected" };
+          }
+          if (command === "helm" && args[0] === "upgrade") {
+            execHandles[0]?.finish({ exitCode: 0 });
+            return { exitCode: 0, stdout: "successful bootstrap", stderr: "" };
+          }
+          if (command === "helm" && args[0] === "status" && args.includes("-o")) {
+            return { exitCode: 0, stdout: JSON.stringify({ version: 12 }), stderr: "" };
+          }
+          if (command === "kubectl" && args[1] === "deployments") {
+            return { exitCode: 0, stdout: deploymentJson(), stderr: "" };
+          }
+          if (
+            command === "kubectl" &&
+            args[0] === "get" &&
+            args[1] === "pods" &&
+            args.some((arg) => arg.includes("app.kubernetes.io/component=platform-worker"))
+          ) {
+            return { exitCode: 0, stdout: largeWorkerPodJson(), stderr: "" };
+          }
+          if (command === "kubectl" && args[1] === "pods") {
+            return { exitCode: 0, stdout: podsJson(), stderr: "" };
+          }
+          if (command === "kubectl" && args[1] === "events") {
+            return { exitCode: 0, stdout: JSON.stringify({ items: [] }), stderr: "" };
+          }
+          return { exitCode: 0, stdout: "ok", stderr: "" };
+        },
+        processStarter: () => {
+          const handle = createFakeProcessHandle();
+          execHandles.push(handle);
+          queueMicrotask(() => {
+            handle.emitStdout(oversizedInjectorOutput);
+            handle.emitStdout(
+              `\n${HELD_LOCK_READY_MARKER} {"context":"catalog","schema":"catalog_runtime","relation":"catalog_runtime.bounded_context_schema_migrations"}\n`,
+            );
+          });
+          return handle;
+        },
+        now: () => "2026-07-06T00:00:00.000Z",
+      });
+
+      expect(result.record.result).toBe("success");
+      expect(result.record.heldLock.bootstrapTouchedRelation.schema).toBe("catalog_runtime");
+      expect(JSON.stringify(result.record)).not.toContain("[output-truncated]");
+
+      const injectorOutput = await readFile(join(outDir, "held-lock-injector-output.txt"), "utf8");
+      expect(injectorOutput).toContain("[output-truncated]");
+      expect(injectorOutput.length).toBeLessThan(201_000);
+
+      const heldLockEvidence = await readFile(join(outDir, "held-lock-evidence.json"), "utf8");
+      expect(heldLockEvidence).not.toContain("[output-truncated]");
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("cleans up and fails when worker quiesce does not release the held-lock injector", async () => {
     const outDir = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-"));
     const execHandles = [];
@@ -613,6 +715,27 @@ function podsJson() {
 function workerPodJson() {
   return JSON.stringify({
     items: [
+      {
+        metadata: {
+          name: "ready-worker",
+          labels: { "app.kubernetes.io/component": "platform-worker" },
+        },
+        status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }] },
+      },
+    ],
+  });
+}
+
+function largeWorkerPodJson() {
+  return JSON.stringify({
+    items: [
+      ...Array.from({ length: 2_500 }, (_, index) => ({
+        metadata: {
+          name: `pending-worker-${index}`,
+          labels: { "app.kubernetes.io/component": "platform-worker" },
+        },
+        status: { phase: "Pending", conditions: [{ type: "Ready", status: "False" }] },
+      })),
       {
         metadata: {
           name: "ready-worker",
