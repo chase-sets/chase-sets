@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import { toTransportEvent, type TransportEvent } from "@chase-sets/event-core/transport";
 import { EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY, createPostgresEventStore } from "./event-store";
 import { createIsolatedPostgresTestSchema, type IsolatedPostgresTestSchema } from "./postgres-db-test-support";
 import { withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
@@ -401,6 +402,127 @@ describeDb("postgres event store real database integration", () => {
     }
   });
 
+  it("preserves projection-critical checkout and identity events through bulk appends", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-07-06T20:00:30.000Z" as never,
+      createEventId,
+    });
+    await createProjectionRegressionTables(schema.pool);
+
+    const checkoutEvents = createCheckoutProjectionEvents();
+    const identityEvent = createIdentityConsentRecordedEvent();
+
+    const appendedCheckoutEvents = await store.appendToStream({
+      streamId: "checkout.session-chk_projection_poison",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_projection"),
+      events: checkoutEvents,
+    });
+    const appendedIdentityEvents = await store.appendToStream({
+      streamId: "identity.consent-cons_projection_poison",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_projection"),
+      events: [identityEvent],
+    });
+
+    expect(appendedCheckoutEvents.map((event) => event.eventId)).toEqual([
+      "evt_checkout_started",
+      "evt_checkout_shipping_address_set",
+      "evt_checkout_orders_created",
+      "evt_checkout_payment_started",
+    ]);
+    expect(appendedCheckoutEvents.map((event) => event.streamVersion)).toEqual([1, 2, 3, 4]);
+    expect(appendedCheckoutEvents.map((event) => event.globalPosition)).toEqual(["1", "2", "3", "4"]);
+    expect(appendedIdentityEvents).toMatchObject([{ eventId: "evt_identity_consent_recorded", globalPosition: "5" }]);
+
+    const storedEvents = await store.readAll({ limit: 20 });
+    expect(
+      storedEvents.map(({ eventId, eventType, streamVersion, globalPosition }) => ({
+        eventId,
+        eventType,
+        streamVersion,
+        globalPosition,
+      })),
+    ).toEqual([
+      {
+        eventId: "evt_checkout_started",
+        eventType: "checkout.session.started",
+        streamVersion: 1,
+        globalPosition: "1",
+      },
+      {
+        eventId: "evt_checkout_shipping_address_set",
+        eventType: "checkout.session.shipping-address-set",
+        streamVersion: 2,
+        globalPosition: "2",
+      },
+      {
+        eventId: "evt_checkout_orders_created",
+        eventType: "checkout.session.orders-created",
+        streamVersion: 3,
+        globalPosition: "3",
+      },
+      {
+        eventId: "evt_checkout_payment_started",
+        eventType: "checkout.session.payment-started",
+        streamVersion: 4,
+        globalPosition: "4",
+      },
+      {
+        eventId: "evt_identity_consent_recorded",
+        eventType: "identity.consent.recorded",
+        streamVersion: 1,
+        globalPosition: "5",
+      },
+    ]);
+    expect(storedEvents[0]).toMatchObject({
+      payload: checkoutEvents[0].payload,
+      metadata: checkoutEvents[0].metadata,
+      occurredAt: "2026-07-06T20:00:00.000Z",
+      recordedAt: "2026-07-06T20:00:30.000Z",
+    });
+    expect(storedEvents[3]).toMatchObject({
+      payload: checkoutEvents[3].payload,
+      metadata: checkoutEvents[3].metadata,
+      occurredAt: "2026-07-06T20:00:15.000Z",
+      recordedAt: "2026-07-06T20:00:30.000Z",
+    });
+    expect(storedEvents[4]).toMatchObject({
+      payload: identityEvent.payload,
+      metadata: identityEvent.metadata,
+      occurredAt: "2026-07-06T20:01:00.000Z",
+      recordedAt: "2026-07-06T20:00:30.000Z",
+    });
+
+    for (const event of storedEvents) {
+      await applyProjectionRegressionEvent(schema.pool, event);
+    }
+
+    await expect(readCheckoutSessionProjectionRow(schema.pool, "chk_projection_poison")).resolves.toMatchObject({
+      session_id: "chk_projection_poison",
+      buyer_account_id: "acc_buyer_projection",
+      source_type: "cart",
+      optimization_goal: "lowest-total",
+      shipping_option: "standard",
+      shipping_address_id: "addr_projection",
+      payment_id: "pay_projection",
+      order_ids: ["ord_projection_1", "ord_projection_2"],
+      order_write_commit_positions: ["17", "18"],
+      updated_at_iso: "2026-07-06T20:00:15.000Z",
+    });
+    await expect(readIdentityConsentProjectionRow(schema.pool, "cons_projection_poison")).resolves.toMatchObject({
+      consent_id: "cons_projection_poison",
+      subject_type: "user",
+      user_id: "user_projection",
+      account_id: "account_projection",
+      policy_key: "marketplace-terms",
+      policy_version: "2026-07-06",
+      recorded_at_iso: "2026-07-06T20:01:00.000Z",
+      updated_at_iso: "2026-07-06T20:00:30.000Z",
+    });
+  });
+
   function createEventId() {
     return `evt_db_${nextEventId++}` as never;
   }
@@ -531,4 +653,394 @@ async function appendEvents(
     context: eventContext(tenantId),
     events: events.map(([eventType, payload]) => eventToStore(eventType, payload)),
   });
+}
+
+async function createProjectionRegressionTables(pool: PgTransactionalPool): Promise<void> {
+  await pool.query(`
+    DROP TABLE IF EXISTS checkout_session_pages;
+    DROP TABLE IF EXISTS identity_consents;
+
+    CREATE TABLE checkout_session_pages (
+      session_id text PRIMARY KEY,
+      buyer_account_id text NOT NULL,
+      source_type text NOT NULL,
+      optimization_goal text NOT NULL DEFAULT 'lowest-total',
+      fulfillment_preview_revision text NULL,
+      fulfillment_preview_snapshot jsonb NULL,
+      cart_readiness_snapshot jsonb NULL,
+      split_group_handoff jsonb NULL,
+      shipping_option text NOT NULL,
+      shipping_address_id text NULL,
+      shipping_address jsonb NULL,
+      lines jsonb NOT NULL DEFAULT '[]'::jsonb,
+      order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+      order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb,
+      payment_id text NULL,
+      submitted_offer_id text NULL,
+      created_at timestamptz NOT NULL,
+      updated_at timestamptz NOT NULL
+    );
+
+    CREATE TABLE identity_consents (
+      consent_id text PRIMARY KEY,
+      subject_type text NOT NULL,
+      user_id text NULL,
+      account_id text NULL,
+      policy_key text NOT NULL,
+      policy_version text NOT NULL,
+      recorded_at timestamptz NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+}
+
+function createCheckoutProjectionEvents() {
+  return [
+    {
+      eventId: "evt_checkout_started" as never,
+      eventType: "checkout.session.started",
+      payload: {
+        sessionId: "chk_projection_poison",
+        buyerAccountId: "acc_buyer_projection",
+        sourceType: "cart",
+        optimizationGoal: "lowest-total",
+        fulfillmentPreviewRevision: null,
+        fulfillmentPreviewSnapshot: null,
+        cartReadinessSnapshot: {
+          schemaVersion: "checkout.cart-readiness.v1",
+          source: "cart",
+          status: "ready",
+          snapshotId: "ready_projection",
+          includedLineIds: ["cli_projection"],
+          unresolvedLineIds: [],
+          fulfillmentGroups: [
+            {
+              groupId: "grp_projection",
+              lineIds: ["cli_projection"],
+              listingIds: ["lst_projection"],
+              sellerAccountId: "acc_seller_projection",
+              downstreamReferenceStatus: "not-started",
+            },
+          ],
+        },
+        splitGroupHandoff: {
+          status: "ready",
+          supportReference: "CS-READY-PROJECTION",
+          groups: [
+            {
+              groupId: "grp_projection",
+              lineIds: ["cli_projection"],
+              listingIds: ["lst_projection"],
+              sellerAccountId: "acc_seller_projection",
+              downstreamReferenceStatus: "not-started",
+            },
+          ],
+        },
+        shippingOption: "standard",
+        lines: [
+          {
+            listingId: "lst_projection",
+            cartLineId: "cli_projection",
+            catalogItemId: "cat_projection",
+            productId: "cat_projection::",
+            itemTitle: "Projection Test Card",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+            fulfillmentMode: "locked-listing",
+            lockedListingId: "lst_projection",
+            sellerPreferenceId: null,
+            availabilityState: "available",
+          },
+        ],
+        createdAt: "2026-07-06T20:00:00.000Z",
+      },
+      metadata: { commandId: "cmd_checkout_projection", projectionRegression: true },
+      occurredAt: "2026-07-06T20:00:00.000Z" as never,
+    },
+    {
+      eventId: "evt_checkout_shipping_address_set" as never,
+      eventType: "checkout.session.shipping-address-set",
+      payload: {
+        sessionId: "chk_projection_poison",
+        shippingAddress: {
+          shippingAddressId: "addr_projection",
+          name: "Projection Buyer",
+          line1: "1 Projection Way",
+          line2: null,
+          city: "Chicago",
+          region: "IL",
+          postalCode: "60601",
+          country: "US",
+        },
+        selectedAt: "2026-07-06T20:00:05.000Z",
+      },
+      metadata: { commandId: "cmd_checkout_projection" },
+      occurredAt: "2026-07-06T20:00:05.000Z" as never,
+    },
+    {
+      eventId: "evt_checkout_orders_created" as never,
+      eventType: "checkout.session.orders-created",
+      payload: {
+        sessionId: "chk_projection_poison",
+        orderIds: ["ord_projection_1", "ord_projection_2"],
+        orderWriteCommitPositions: ["17", "18"],
+        recordedAt: "2026-07-06T20:00:10.000Z",
+      },
+      metadata: { commandId: "cmd_checkout_projection" },
+      occurredAt: "2026-07-06T20:00:10.000Z" as never,
+    },
+    {
+      eventId: "evt_checkout_payment_started" as never,
+      eventType: "checkout.session.payment-started",
+      payload: {
+        sessionId: "chk_projection_poison",
+        paymentId: "pay_projection",
+        recordedAt: "2026-07-06T20:00:15.000Z",
+      },
+      metadata: { commandId: "cmd_checkout_projection" },
+      occurredAt: "2026-07-06T20:00:15.000Z" as never,
+    },
+  ];
+}
+
+function createIdentityConsentRecordedEvent() {
+  return {
+    eventId: "evt_identity_consent_recorded" as never,
+    eventType: "identity.consent.recorded",
+    payload: {
+      consentId: "cons_projection_poison",
+      subjectType: "user",
+      userId: "user_projection",
+      accountId: "account_projection",
+      policyKey: "marketplace-terms",
+      policyVersion: "2026-07-06",
+      recordedAt: "2026-07-06T20:01:00.000Z",
+    },
+    metadata: { commandId: "cmd_identity_projection", projectionRegression: true },
+    occurredAt: "2026-07-06T20:01:00.000Z" as never,
+  };
+}
+
+async function applyProjectionRegressionEvent(pool: PgTransactionalPool, storedEvent: StoredEvent): Promise<void> {
+  const event = toTransportEvent(storedEvent);
+
+  if (event.type.startsWith("checkout.session.")) {
+    await applyCheckoutSessionProjectionEvent(pool, event);
+    return;
+  }
+
+  if (event.type === "identity.consent.recorded") {
+    await applyIdentityConsentProjectionEvent(pool, event);
+  }
+}
+
+async function applyCheckoutSessionProjectionEvent(pool: PgTransactionalPool, event: TransportEvent): Promise<void> {
+  if (event.type === "checkout.session.started") {
+    const data = event.data as {
+      sessionId: string;
+      buyerAccountId: string;
+      sourceType: string;
+      optimizationGoal?: string;
+      fulfillmentPreviewRevision?: string | null;
+      fulfillmentPreviewSnapshot?: unknown;
+      cartReadinessSnapshot?: unknown;
+      splitGroupHandoff?: unknown;
+      shippingOption: string;
+      lines: unknown;
+      createdAt: string;
+    };
+
+    await pool.query(
+      `INSERT INTO checkout_session_pages (
+         session_id,
+         buyer_account_id,
+         source_type,
+         optimization_goal,
+         fulfillment_preview_revision,
+         fulfillment_preview_snapshot,
+         cart_readiness_snapshot,
+         split_group_handoff,
+         shipping_option,
+         shipping_address_id,
+         shipping_address,
+         lines,
+         order_ids,
+         order_write_commit_positions,
+         payment_id,
+         submitted_offer_id,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, '[]'::jsonb, '[]'::jsonb, NULL, NULL, $11, $11)
+       ON CONFLICT (session_id) DO UPDATE
+       SET buyer_account_id = EXCLUDED.buyer_account_id,
+           source_type = EXCLUDED.source_type,
+           optimization_goal = EXCLUDED.optimization_goal,
+           fulfillment_preview_revision = EXCLUDED.fulfillment_preview_revision,
+           fulfillment_preview_snapshot = EXCLUDED.fulfillment_preview_snapshot,
+           cart_readiness_snapshot = EXCLUDED.cart_readiness_snapshot,
+           split_group_handoff = EXCLUDED.split_group_handoff,
+           shipping_option = EXCLUDED.shipping_option,
+           shipping_address_id = EXCLUDED.shipping_address_id,
+           shipping_address = EXCLUDED.shipping_address,
+           lines = EXCLUDED.lines,
+           updated_at = EXCLUDED.updated_at`,
+      [
+        data.sessionId,
+        data.buyerAccountId,
+        data.sourceType,
+        data.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
+        data.fulfillmentPreviewRevision ?? null,
+        JSON.stringify(data.fulfillmentPreviewSnapshot ?? null),
+        JSON.stringify(data.cartReadinessSnapshot ?? null),
+        JSON.stringify(data.splitGroupHandoff ?? null),
+        data.shippingOption,
+        JSON.stringify(Array.isArray(data.lines) ? data.lines : []),
+        data.createdAt,
+      ],
+    );
+    return;
+  }
+
+  if (event.type === "checkout.session.shipping-address-set") {
+    const data = event.data as {
+      sessionId: string;
+      shippingAddress: { shippingAddressId?: string | null } | null;
+      selectedAt: string;
+    };
+
+    await pool.query(
+      `UPDATE checkout_session_pages
+       SET shipping_address_id = $2,
+           shipping_address = $3,
+           fulfillment_preview_revision = NULL,
+           fulfillment_preview_snapshot = NULL,
+           updated_at = $4
+       WHERE session_id = $1`,
+      [
+        data.sessionId,
+        data.shippingAddress?.shippingAddressId ?? null,
+        JSON.stringify(data.shippingAddress),
+        data.selectedAt,
+      ],
+    );
+    return;
+  }
+
+  if (event.type === "checkout.session.orders-created") {
+    const data = event.data as {
+      sessionId: string;
+      orderIds: string[];
+      orderWriteCommitPositions?: unknown;
+      recordedAt: string;
+    };
+
+    await pool.query(
+      `UPDATE checkout_session_pages
+       SET order_ids = $2,
+           order_write_commit_positions = $3,
+           updated_at = $4
+       WHERE session_id = $1`,
+      [
+        data.sessionId,
+        JSON.stringify(data.orderIds),
+        JSON.stringify(Array.isArray(data.orderWriteCommitPositions) ? data.orderWriteCommitPositions : []),
+        data.recordedAt,
+      ],
+    );
+    return;
+  }
+
+  if (event.type === "checkout.session.payment-started") {
+    const data = event.data as {
+      sessionId: string;
+      paymentId: string;
+      recordedAt: string;
+    };
+
+    await pool.query(
+      `UPDATE checkout_session_pages
+       SET payment_id = $2,
+           updated_at = $3
+       WHERE session_id = $1`,
+      [data.sessionId, data.paymentId, data.recordedAt],
+    );
+  }
+}
+
+async function applyIdentityConsentProjectionEvent(pool: PgTransactionalPool, event: TransportEvent): Promise<void> {
+  const { consentId, subjectType, userId, accountId, policyKey, policyVersion, recordedAt } = event.data as {
+    consentId: string;
+    subjectType: string;
+    userId: string | null;
+    accountId: string | null;
+    policyKey: string;
+    policyVersion: string;
+    recordedAt: string;
+  };
+
+  await pool.query(
+    `INSERT INTO identity_consents (
+       consent_id,
+       subject_type,
+       user_id,
+       account_id,
+       policy_key,
+       policy_version,
+       recorded_at,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (consent_id) DO UPDATE
+     SET subject_type = $2,
+         user_id = $3,
+         account_id = $4,
+         policy_key = $5,
+         policy_version = $6,
+         recorded_at = $7,
+         updated_at = $8`,
+    [consentId, subjectType, userId, accountId, policyKey, policyVersion, recordedAt, event.timing.recordedAt],
+  );
+}
+
+async function readCheckoutSessionProjectionRow(pool: PgTransactionalPool, sessionId: string): Promise<JsonObject> {
+  const result = await pool.query<JsonObject>(
+    `SELECT
+       session_id,
+       buyer_account_id,
+       source_type,
+       optimization_goal,
+       shipping_option,
+       shipping_address_id,
+       payment_id,
+       order_ids,
+       order_write_commit_positions,
+       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at_iso,
+       to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at_iso
+     FROM checkout_session_pages
+     WHERE session_id = $1`,
+    [sessionId],
+  );
+
+  return result.rows[0] ?? {};
+}
+
+async function readIdentityConsentProjectionRow(pool: PgTransactionalPool, consentId: string): Promise<JsonObject> {
+  const result = await pool.query<JsonObject>(
+    `SELECT
+       consent_id,
+       subject_type,
+       user_id,
+       account_id,
+       policy_key,
+       policy_version,
+       to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS recorded_at_iso,
+       to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at_iso
+     FROM identity_consents
+     WHERE consent_id = $1`,
+    [consentId],
+  );
+
+  return result.rows[0] ?? {};
 }
