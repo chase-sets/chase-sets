@@ -7,6 +7,7 @@ import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_VERSION = "read-consistency-route-matrix-evidence/v1";
 export const DEFAULT_PROMETHEUS_WINDOW = "30m";
+export const PROMETHEUS_QUERY_TOKEN_HEADER = "X-Chase-Sets-Observability-Query";
 
 export const DEFAULT_ROUTE_MATRIX_ROUTES = [
   {
@@ -265,7 +266,7 @@ export async function queryPrometheusInstant(query, options = {}) {
   endpoint.searchParams.set("query", query);
   const headers = {};
   if (isNonEmptyString(options.prometheusToken)) {
-    headers.Authorization = `Bearer ${options.prometheusToken}`;
+    headers[PROMETHEUS_QUERY_TOKEN_HEADER] = options.prometheusToken;
   }
   const response = await (options.fetchImpl ?? fetch)(endpoint, { headers });
   if (!response.ok) {
