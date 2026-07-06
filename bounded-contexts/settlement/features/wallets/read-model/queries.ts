@@ -155,6 +155,13 @@ export async function listPendingCreditEntriesMaturedBy(
                      FROM settlement_account_risk_sources risk
                      WHERE risk.account_id = settlement_ledger_entry_pages.account_id
                    ), 0) = 0
+                   OR NOT EXISTS (
+                     SELECT 1
+                     FROM settlement_order_trust_signal_sources trust_source
+                     WHERE trust_source.order_id = settlement_ledger_entry_pages.order_id
+                       AND trust_source.seller_account_id = settlement_ledger_entry_pages.account_id
+                       AND trust_source.trust_signal_eligible = TRUE
+                   )
                    OR EXISTS (
                      SELECT 1
                      FROM settlement_ledger_entry_pages order_sale
@@ -275,6 +282,13 @@ export async function listPendingCreditEntriesMaturedBy(
                    FROM settlement_account_risk_sources risk
                    WHERE risk.account_id = settlement_ledger_entry_pages.account_id
                  ), 0) = 0
+                 OR NOT EXISTS (
+                   SELECT 1
+                   FROM settlement_order_trust_signal_sources trust_source
+                   WHERE trust_source.order_id = settlement_ledger_entry_pages.order_id
+                     AND trust_source.seller_account_id = settlement_ledger_entry_pages.account_id
+                     AND trust_source.trust_signal_eligible = TRUE
+                 )
                  OR EXISTS (
                    SELECT 1
                    FROM settlement_ledger_entry_pages order_sale

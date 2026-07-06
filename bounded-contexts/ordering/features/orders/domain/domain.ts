@@ -428,6 +428,10 @@ function normalizeTaxSnapshot(snapshot: OrderingTaxSnapshot) {
   };
 }
 
+function assertSeparateTransactionAccounts(buyerAccountId: AccountId, sellerAccountId: AccountId) {
+  assert(buyerAccountId !== sellerAccountId, "Buyer and seller accounts must be different for an order.");
+}
+
 function updateReservationRequest(
   state: OrderingOrderState,
   reservationRequestId: string,
@@ -464,6 +468,7 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
         command.sellerAccountId,
         "Orders must include a seller account.",
       );
+      assertSeparateTransactionAccounts(command.buyerAccountId, normalizedSellerAccountId as AccountId);
       return [
         {
           type: "ordering.order.created",

@@ -16,6 +16,10 @@ async function refreshAccountReviews(db: PgQueryable, accountId: string, updated
        CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
        $2
      FROM settlement_account_review_sources
+     INNER JOIN settlement_order_trust_signal_sources trust_source
+       ON trust_source.order_id = settlement_account_review_sources.order_id
+      AND trust_source.seller_account_id = settlement_account_review_sources.subject_account_id
+      AND trust_source.trust_signal_eligible = TRUE
      WHERE subject_account_id = $1
        AND status = 'active'
      ON CONFLICT (account_id) DO UPDATE SET
@@ -92,6 +96,7 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
     "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
+        orderId: string;
         subjectAccountId: string;
         rating: number;
         submittedAt: string;
@@ -99,17 +104,19 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
       await db.query(
         `INSERT INTO settlement_account_review_sources (
            review_id,
+           order_id,
            subject_account_id,
            rating,
            status,
            updated_at
-         ) VALUES ($1, $2, $3, 'active', $4)
+         ) VALUES ($1, $2, $3, $4, 'active', $5)
          ON CONFLICT (review_id) DO UPDATE SET
+           order_id = EXCLUDED.order_id,
            subject_account_id = EXCLUDED.subject_account_id,
            rating = EXCLUDED.rating,
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at`,
-        [data.reviewId, data.subjectAccountId, data.rating, data.submittedAt],
+        [data.reviewId, data.orderId, data.subjectAccountId, data.rating, data.submittedAt],
       );
       await refreshAccountReviews(db, data.subjectAccountId, data.submittedAt);
     },

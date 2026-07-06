@@ -121,6 +121,7 @@ export type SubmitOfferCommand = Readonly<{
   type: "SubmitOffer";
   offerId: OfferId;
   buyerAccountId: AccountId;
+  sellerAccountId?: AccountId | null;
   catalogItemId: string;
   productId: string;
   itemTitle: string;
@@ -204,6 +205,9 @@ export const decideMarketplaceOffer: AggregateDecider<
   switch (command.type) {
     case "SubmitOffer":
       assert(state.offerId === null, "Offer has already been submitted.");
+      if (command.sellerAccountId) {
+        assert(command.buyerAccountId !== command.sellerAccountId, "Accounts cannot offer on their own listings.");
+      }
 
       return [
         {
@@ -232,6 +236,7 @@ export const decideMarketplaceOffer: AggregateDecider<
     case "AcceptOffer":
       assert(state.offerId !== null, "Offer must be submitted first.");
       assert(state.status === "submitted", "Only submitted offers can be accepted.");
+      assert(state.buyerAccountId !== command.sellerAccountId, "Accounts cannot accept their own offers.");
 
       return [
         {

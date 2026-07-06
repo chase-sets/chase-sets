@@ -27,6 +27,7 @@ ALTER TABLE settlement_account_risk_sources
 
 CREATE TABLE IF NOT EXISTS settlement_account_review_sources (
   review_id text PRIMARY KEY,
+  order_id text NOT NULL DEFAULT '',
   subject_account_id text NOT NULL,
   rating integer NOT NULL,
   status text NOT NULL,
@@ -35,4 +36,17 @@ CREATE TABLE IF NOT EXISTS settlement_account_review_sources (
 
 CREATE INDEX IF NOT EXISTS settlement_account_review_sources_subject_idx
   ON settlement_account_review_sources (subject_account_id, status);
+
+ALTER TABLE settlement_account_review_sources
+  ADD COLUMN IF NOT EXISTS order_id text NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS settlement_order_trust_signal_sources (
+  order_id text PRIMARY KEY,
+  seller_account_id text NOT NULL,
+  trust_signal_eligible boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS settlement_order_trust_signal_sources_seller_idx
+  ON settlement_order_trust_signal_sources (seller_account_id, trust_signal_eligible);
 `;

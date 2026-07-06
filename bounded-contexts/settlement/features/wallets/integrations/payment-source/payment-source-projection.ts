@@ -63,6 +63,10 @@ type SellerPayoutComponent = Readonly<{
   sellerPayoutAmount: string;
 }>;
 
+function moneyGreaterThanZero(value: string | null | undefined) {
+  return compareMoney(value ?? "0.00", "0.00") > 0;
+}
+
 function normalizeSellerPayoutComponents(value: unknown): SellerPayoutComponent[] {
   if (!Array.isArray(value)) {
     return [];
@@ -87,6 +91,69 @@ function normalizeSellerPayoutComponents(value: unknown): SellerPayoutComponent[
       },
     ];
   });
+}
+
+async function recordOrderTrustSignalSources(
+  db: PgQueryable,
+  data: Readonly<{
+    sellerPayouts: readonly SellerPayoutComponent[];
+    processorAmount: string;
+    marketplaceSalesFeeAmount: string;
+    updatedAt: string;
+  }>,
+) {
+  const trustSignalEligible =
+    moneyGreaterThanZero(data.processorAmount) && moneyGreaterThanZero(data.marketplaceSalesFeeAmount);
+
+  for (const payout of data.sellerPayouts) {
+    await db.query(
+      `INSERT INTO settlement_order_trust_signal_sources (
+         order_id,
+         seller_account_id,
+         trust_signal_eligible,
+         updated_at
+       ) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (order_id) DO UPDATE SET
+         seller_account_id = EXCLUDED.seller_account_id,
+         trust_signal_eligible = EXCLUDED.trust_signal_eligible,
+         updated_at = EXCLUDED.updated_at`,
+      [payout.orderId, payout.sellerAccountId, trustSignalEligible, data.updatedAt],
+    );
+  }
+}
+
+async function refreshTrustSignalEligibleReviewCounts(
+  db: PgQueryable,
+  sellerAccountIds: readonly string[],
+  updatedAt: string,
+) {
+  for (const sellerAccountId of [...new Set(sellerAccountIds)]) {
+    await db.query(
+      `INSERT INTO settlement_account_risk_sources (
+         account_id,
+         review_count,
+         average_rating,
+         updated_at
+       )
+       SELECT
+         $1,
+         COUNT(*)::integer,
+         CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
+         $2
+       FROM settlement_account_review_sources
+       INNER JOIN settlement_order_trust_signal_sources trust_source
+         ON trust_source.order_id = settlement_account_review_sources.order_id
+        AND trust_source.seller_account_id = settlement_account_review_sources.subject_account_id
+        AND trust_source.trust_signal_eligible = TRUE
+       WHERE subject_account_id = $1
+         AND status = 'active'
+       ON CONFLICT (account_id) DO UPDATE SET
+         review_count = EXCLUDED.review_count,
+         average_rating = EXCLUDED.average_rating,
+         updated_at = EXCLUDED.updated_at`,
+      [sellerAccountId, updatedAt],
+    );
+  }
 }
 
 async function postWalletEntryIdempotently(
@@ -336,12 +403,15 @@ export function buildSettlementPaymentInputProjectionHandlers(
         amount: string;
         balanceCreditAmount?: string;
         processorAmount?: string;
+        marketplaceSalesFeeAmount?: string;
         currencyCode: string;
         processorName: string;
         processorPaymentReference: string;
         processorStatus: string;
         createdAt: string;
       };
+
+      const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts);
 
       await db.query(
         `INSERT INTO settlement_payment_sources (
@@ -389,7 +459,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
           data.paymentId,
           data.buyerAccountId,
           JSON.stringify(data.orderIds),
-          JSON.stringify(normalizeSellerPayoutComponents(data.sellerPayouts)),
+          JSON.stringify(sellerPayouts),
           data.amount,
           data.balanceCreditAmount ?? "0.00",
           data.processorAmount ?? data.amount,
@@ -400,6 +470,17 @@ export function buildSettlementPaymentInputProjectionHandlers(
           data.createdAt,
           event.streamVersion,
         ],
+      );
+      await recordOrderTrustSignalSources(db, {
+        sellerPayouts,
+        processorAmount: data.processorAmount ?? data.amount,
+        marketplaceSalesFeeAmount: data.marketplaceSalesFeeAmount ?? "0.00",
+        updatedAt: data.createdAt,
+      });
+      await refreshTrustSignalEligibleReviewCounts(
+        db,
+        sellerPayouts.map((payout) => payout.sellerAccountId),
+        data.createdAt,
       );
     },
     "payments.payment-authorized": async (event) => {
