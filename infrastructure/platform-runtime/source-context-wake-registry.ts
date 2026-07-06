@@ -311,6 +311,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-identity-account-projection",
       "ordering:ordering-account-projection",
       "marketplace:marketplace-review-account-source-projection",
+      "payments:payments-account-risk-source-projection",
       "settlement:settlement-account-risk-source-projection",
     ],
     routeDependencyIds: [
@@ -477,6 +478,7 @@ export const sourceContextWakeRegistry = [
       "checkout:checkout.payment-summary-projection",
       "fulfillment:fulfillment-payment-fraud-source-projection",
       "ordering:ordering-payment-capture",
+      "payments:payments-account-risk-source-projection",
       "payments:payments-fraud-alert-projection",
       "payments:payments-order-cancellation-refund-effect",
       "payments:payments-payment-projection",
