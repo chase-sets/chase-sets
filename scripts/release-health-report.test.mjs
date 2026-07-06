@@ -426,7 +426,7 @@ describe("release health report", () => {
     });
     expect(result.markdown).toContain("Route matrix failures: 0");
     expect(result.markdown).toContain(
-      "| wake-route-matrix | staging | /checkout/buy/session/:sessionid | pass | wake pass; samples 24; p95 420ms; p99 710ms; timeout 0%; errors 0%; missing-receipt 0; missing-target 0; fallback 0; target checkout; projection checkout.session-projection | pass |",
+      "| wake-route-matrix | staging | /checkout/buy/session/:sessionid | pass | wake pass; samples 24; p95 420ms; p99 710ms; timeout 0%; errors 0%; missing-receipt 0; plain-read-missing-receipt 0; missing-target 0; fallback 0; target checkout; projection checkout.session-projection | pass |",
     );
     expect(result.markdown).toContain(
       "| wake-route-matrix | staging | coverage | complete | 6/6 required routes | pass |",
@@ -468,7 +468,7 @@ describe("release health report", () => {
       routeMatrixFailureCount: 1,
     });
     expect(result.markdown).toContain(
-      "| wake-route-matrix | staging | /account/payouts/:payoutid | pass | wake pass; samples 0; p95 420ms; p99 710ms; timeout 0%; errors 0%; missing-receipt 0; missing-target 0; fallback 0; target settlement; projection settlement.payout-projection | fail |",
+      "| wake-route-matrix | staging | /account/payouts/:payoutid | pass | wake pass; samples 0; p95 420ms; p99 710ms; timeout 0%; errors 0%; missing-receipt 0; plain-read-missing-receipt 0; missing-target 0; fallback 0; target settlement; projection settlement.payout-projection | fail |",
     );
     expect(result.markdown).toContain(
       "| wake-route-matrix | staging | coverage | complete | 6/6 required routes | pass |",

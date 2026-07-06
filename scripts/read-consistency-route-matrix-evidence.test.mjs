@@ -80,6 +80,7 @@ describe("read consistency route matrix evidence", () => {
         timeoutRate: 0,
         workSignalErrorRate: 0,
         missingReceiptCount: 0,
+        diagnosticMissingReceiptCount: 5,
         missingTargetContextCount: 0,
         exactDependencyFallbackCount: 0,
       }),
@@ -159,10 +160,16 @@ describe("read consistency route matrix evidence", () => {
     expect(queries.sampleCount).toContain('route_path="/account/checkout-sessions/:sessionId"');
     expect(queries.sampleCount).toContain('target_context="checkout"');
     expect(queries.sampleCount).toContain('projection="checkout.session-projection"');
+    expect(queries.sampleCount).toContain('receipt="present"');
     expect(queries.sampleCount).toContain('wait_mode="exact-dependency"');
     expect(queries.p95Ms).toContain("histogram_quantile(0.95");
     expect(queries.p99Ms).toContain("chase_sets_projection_freshness_wait_duration_ms_bucket");
+    expect(queries.missingReceiptCount).toContain('receipt="missing"');
+    expect(queries.missingReceiptCount).toContain('outcome!="missing-receipt"');
+    expect(queries.diagnosticMissingReceiptCount).toContain('outcome="missing-receipt"');
+    expect(queries.missingTargetContextCount).toContain('receipt="present"');
     expect(queries.missingTargetContextCount).toContain('target_context_header=~"missing|present_invalid"');
+    expect(queries.exactDependencyFallbackCount).toContain('receipt="present"');
     expect(queries.exactDependencyFallbackCount).toContain('wait_mode!="exact-dependency"');
     expect(workSignalErrorRateQuery("30m")).toContain("chase_sets_projection_freshness_work_signal_errors_total");
   });
@@ -189,7 +196,7 @@ describe("read consistency route matrix evidence", () => {
           return 0;
         }
         if (query.includes('receipt="missing"')) {
-          return 0;
+          return query.includes('outcome="missing-receipt"') ? 12 : 0;
         }
         if (query.includes("target_context_header")) {
           return 0;
