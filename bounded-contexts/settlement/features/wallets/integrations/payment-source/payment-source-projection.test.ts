@@ -1,5 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { buildSettlementPaymentInputProjectionHandlers } from "./payment-source-projection";
+
+function createDb() {
+  const queryMock = vi.fn<(text: string, values?: readonly unknown[]) => Promise<PgQueryResult<never>>>(async () => ({
+    rows: [],
+  }));
+  const db: PgQueryable = {
+    query: async <Row = Record<string, unknown>>(
+      text: string,
+      values?: readonly unknown[],
+    ): Promise<PgQueryResult<Row>> => {
+      return queryMock(text, values);
+    },
+  };
+
+  return { db, queryMock };
+}
 
 function transportEvent(type: string, data: Record<string, unknown>) {
   return {
@@ -24,6 +41,99 @@ function transportEvent(type: string, data: Record<string, unknown>) {
 }
 
 describe("settlement payment source projection", () => {
+  it("records trust-signal eligibility only for fee-bearing external payment orders", async () => {
+    const { db, queryMock } = createDb();
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db);
+
+    await handlers["payments.payment-created"]!(
+      transportEvent("payments.payment-created", {
+        paymentId: "pay_card",
+        buyerAccountId: "acc_buyer",
+        orderIds: ["ord_fee_bearing"],
+        sellerPayouts: [
+          {
+            orderId: "ord_fee_bearing",
+            sellerAccountId: "acc_seller",
+            sellerItemNetAmount: "19.00",
+            shippingAllowanceAmount: "1.00",
+            sellerShippingPayoutAmount: "1.00",
+            sellerPayoutAmount: "20.00",
+          },
+        ],
+        amount: "21.00",
+        balanceCreditAmount: "0.00",
+        processorAmount: "21.00",
+        marketplaceSalesFeeAmount: "1.00",
+        currencyCode: "usd",
+        processorName: "stripe",
+        processorPaymentReference: "pi_1",
+        processorStatus: "requires_capture",
+        createdAt: "2026-05-01T00:00:00.000Z",
+      }),
+    );
+    await handlers["payments.payment-created"]!(
+      transportEvent("payments.payment-created", {
+        paymentId: "pay_balance",
+        buyerAccountId: "acc_buyer",
+        orderIds: ["ord_balance"],
+        sellerPayouts: [
+          {
+            orderId: "ord_balance",
+            sellerAccountId: "acc_seller",
+            sellerItemNetAmount: "19.00",
+            shippingAllowanceAmount: "1.00",
+            sellerShippingPayoutAmount: "1.00",
+            sellerPayoutAmount: "20.00",
+          },
+        ],
+        amount: "20.00",
+        balanceCreditAmount: "20.00",
+        processorAmount: "0.00",
+        marketplaceSalesFeeAmount: "1.00",
+        currencyCode: "usd",
+        processorName: "stripe",
+        processorPaymentReference: "balance-credit",
+        processorStatus: "captured",
+        createdAt: "2026-05-01T00:00:00.000Z",
+      }),
+    );
+    await handlers["payments.payment-created"]!(
+      transportEvent("payments.payment-created", {
+        paymentId: "pay_fee_locked",
+        buyerAccountId: "acc_buyer",
+        orderIds: ["ord_fee_locked"],
+        sellerPayouts: [
+          {
+            orderId: "ord_fee_locked",
+            sellerAccountId: "acc_seller",
+            sellerItemNetAmount: "20.00",
+            shippingAllowanceAmount: "0.00",
+            sellerShippingPayoutAmount: "0.00",
+            sellerPayoutAmount: "20.00",
+          },
+        ],
+        amount: "20.00",
+        balanceCreditAmount: "0.00",
+        processorAmount: "20.00",
+        marketplaceSalesFeeAmount: "0.00",
+        currencyCode: "usd",
+        processorName: "stripe",
+        processorPaymentReference: "pi_2",
+        processorStatus: "requires_capture",
+        createdAt: "2026-05-01T00:00:00.000Z",
+      }),
+    );
+
+    const trustSourceCalls = queryMock.mock.calls.filter(([sql]) =>
+      String(sql).includes("INSERT INTO settlement_order_trust_signal_sources"),
+    );
+    expect(trustSourceCalls.map(([, values]) => values)).toEqual([
+      ["ord_fee_bearing", "acc_seller", true, "2026-05-01T00:00:00.000Z"],
+      ["ord_balance", "acc_seller", false, "2026-05-01T00:00:00.000Z"],
+      ["ord_fee_locked", "acc_seller", false, "2026-05-01T00:00:00.000Z"],
+    ]);
+  });
+
   it("does not credit seller wallets when a payment is only authorized", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

@@ -48,6 +48,7 @@ describe("settlement account risk source projection", () => {
         "marketplace.review.submitted",
         {
           reviewId: "rev_1",
+          orderId: "ord_1",
           subjectAccountId: "acc_seller",
           rating: 5,
           submittedAt: "2026-05-03T00:00:00.000Z",
@@ -64,7 +65,7 @@ describe("settlement account risk source projection", () => {
     expect(db.query).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("INSERT INTO settlement_account_review_sources"),
-      ["rev_1", "acc_seller", 5, "2026-05-03T00:00:00.000Z"],
+      ["rev_1", "ord_1", "acc_seller", 5, "2026-05-03T00:00:00.000Z"],
     );
     expect(db.query).toHaveBeenNthCalledWith(3, expect.stringContaining("review_count"), [
       "acc_seller",

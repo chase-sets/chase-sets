@@ -252,6 +252,17 @@ function normalizeSelectedListingSnapshot(
   };
 }
 
+function assertCartLineIsNotOwnListing(
+  buyerAccountId: AccountId | null,
+  selectedListingSnapshot: CheckoutSelectedListingSnapshot | null,
+) {
+  if (!buyerAccountId || !selectedListingSnapshot?.sellerAccountId) {
+    return;
+  }
+
+  assert(buyerAccountId !== selectedListingSnapshot.sellerAccountId, "Accounts cannot add their own listings to cart.");
+}
+
 export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCartCommand, CheckoutCartEvent> = (
   state,
   command,
@@ -263,6 +274,11 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
         "Cart is owned by a different account.",
       );
       assert(!state.lines.some((line) => line.lineId === command.lineId), "Cart line has already been added.");
+      const selectedListingSnapshot = normalizeSelectedListingSnapshot(
+        command.selectedListingSnapshot,
+        command.lockedListingId,
+      );
+      assertCartLineIsNotOwnListing(command.buyerAccountId, selectedListingSnapshot);
       return [
         {
           type: "checkout.cart.line-added",
@@ -285,10 +301,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
             fulfillmentMode: normalizeFulfillmentMode(command.fulfillmentMode, command.lockedListingId),
             lockedListingId: normalizeOptionalText(command.lockedListingId),
             sellerPreferenceId: normalizeOptionalText(command.sellerPreferenceId),
-            selectedListingSnapshot: normalizeSelectedListingSnapshot(
-              command.selectedListingSnapshot,
-              command.lockedListingId,
-            ),
+            selectedListingSnapshot,
             availabilityState: normalizeAvailabilityState(command.availabilityState),
           },
         },
@@ -313,6 +326,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
         fulfillmentMode === "locked-listing"
           ? normalizeSelectedListingSnapshot(command.selectedListingSnapshot, lockedListingId)
           : null;
+      assertCartLineIsNotOwnListing(state.buyerAccountId, selectedListingSnapshot);
       return [
         {
           type: "checkout.cart.line-fulfillment-set",

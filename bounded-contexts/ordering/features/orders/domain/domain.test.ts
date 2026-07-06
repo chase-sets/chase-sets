@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { PackagePlan } from "@chase-sets/product-measures";
 import { decideOrderingOrder, evolveOrderingOrder, initialOrderingOrderState } from "./domain";
+import type { CreateOrderCommand } from "./domain";
 
 const commercialTermsSnapshot = {
   marketplaceSalesFeeAmount: "1.00",
@@ -59,51 +61,76 @@ const orderAddressSnapshots = {
   },
 } as const;
 
+const shippingPlanSnapshot: PackagePlan = {
+  packagePlanVersion: "test-package-plan-v1",
+  packageCount: 1,
+  packages: [
+    {
+      packageId: "pkg_1",
+      mailpieceClass: "parcel",
+      lengthInches: 7,
+      widthInches: 5,
+      heightInches: 1,
+      weightOunces: 4,
+      billableWeightOunces: 4,
+      serviceLevel: "standard-parcel",
+      productMeasureVersions: ["pmv_1"],
+    },
+  ],
+  letterEligibility: {
+    eligible: false,
+    reasons: ["test-order-uses-parcel"],
+  },
+  missingProductIds: [],
+};
+
 describe("ordering order domain", () => {
+  const createOrderCommand = (sourceType: "cart-checkout" | "buy-now" | "offer-acceptance"): CreateOrderCommand => ({
+    type: "CreateOrder",
+    orderId: `ord_${sourceType}`,
+    sourceType,
+    sourceReferenceId: null,
+    buyerAccountId: "acc_buyer",
+    sellerAccountId: "acc_seller",
+    shippingOption: "standard",
+    itemSubtotalAmount: "20.00",
+    shippingBaseAmount: "4.99",
+    shippingDiscountAmount: "0.00",
+    shippingChargeAmount: "4.99",
+    shippingPlanSnapshot,
+    ...orderTaxFields,
+    totalAmount: "24.99",
+    ...orderAddressSnapshots,
+    commercialTermsSnapshot,
+    lines: [
+      {
+        lineId: "oli_1",
+        listingId: "lst_1",
+        inventoryItemId: "inv_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        unitPriceAmount: "20.00",
+        quantity: 1,
+        lineTotalAmount: "20.00",
+        ...orderLineFees,
+      },
+    ],
+    reservationRequests: [
+      {
+        reservationRequestId: "rsv_1",
+        inventoryItemId: "inv_1",
+        sellerAccountId: "acc_seller",
+        quantity: 1,
+      },
+    ],
+  });
+
   it("creates and cancels a pending order", () => {
-    const created = decideOrderingOrder(initialOrderingOrderState, {
-      type: "CreateOrder",
-      orderId: "ord_1" as never,
-      sourceType: "cart-checkout",
-      sourceReferenceId: null,
-      buyerAccountId: "acc_buyer" as never,
-      sellerAccountId: "acc_seller" as never,
-      shippingOption: "standard",
-      itemSubtotalAmount: "20.00",
-      shippingBaseAmount: "4.99",
-      shippingDiscountAmount: "0.00",
-      shippingChargeAmount: "4.99",
-      shippingPlanSnapshot: {} as never,
-      ...orderTaxFields,
-      totalAmount: "24.99",
-      ...orderAddressSnapshots,
-      commercialTermsSnapshot,
-      lines: [
-        {
-          lineId: "oli_1" as never,
-          listingId: "lst_1",
-          inventoryItemId: "inv_1",
-          catalogItemId: "cat_1",
-          productId: "cat_1::" as never,
-          itemTitle: "Charizard",
-          itemSubtitle: null,
-          selectedOptions: [],
-          productSummary: null,
-          unitPriceAmount: "20.00",
-          quantity: 1,
-          lineTotalAmount: "20.00",
-          ...orderLineFees,
-        },
-      ],
-      reservationRequests: [
-        {
-          reservationRequestId: "rsv_1",
-          inventoryItemId: "inv_1",
-          sellerAccountId: "acc_seller",
-          quantity: 1,
-        },
-      ],
-    });
+    const created = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout"));
     const createdState = created.reduce(evolveOrderingOrder, initialOrderingOrderState);
     const cancelled = decideOrderingOrder(createdState, {
       type: "CancelOrder",
@@ -122,49 +149,10 @@ describe("ordering order domain", () => {
   });
 
   it("marks a pending order ready for fulfillment after payment capture", () => {
-    const createdState = decideOrderingOrder(initialOrderingOrderState, {
-      type: "CreateOrder",
-      orderId: "ord_1" as never,
-      sourceType: "cart-checkout",
-      sourceReferenceId: null,
-      buyerAccountId: "acc_buyer" as never,
-      sellerAccountId: "acc_seller" as never,
-      shippingOption: "standard",
-      itemSubtotalAmount: "20.00",
-      shippingBaseAmount: "4.99",
-      shippingDiscountAmount: "0.00",
-      shippingChargeAmount: "4.99",
-      shippingPlanSnapshot: {} as never,
-      ...orderTaxFields,
-      totalAmount: "24.99",
-      ...orderAddressSnapshots,
-      commercialTermsSnapshot,
-      lines: [
-        {
-          lineId: "oli_1" as never,
-          listingId: "lst_1",
-          inventoryItemId: "inv_1",
-          catalogItemId: "cat_1",
-          productId: "cat_1::" as never,
-          itemTitle: "Charizard",
-          itemSubtitle: null,
-          selectedOptions: [],
-          productSummary: null,
-          unitPriceAmount: "20.00",
-          quantity: 1,
-          lineTotalAmount: "20.00",
-          ...orderLineFees,
-        },
-      ],
-      reservationRequests: [
-        {
-          reservationRequestId: "rsv_1",
-          inventoryItemId: "inv_1",
-          sellerAccountId: "acc_seller",
-          quantity: 1,
-        },
-      ],
-    }).reduce(evolveOrderingOrder, initialOrderingOrderState);
+    const createdState = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
+      evolveOrderingOrder,
+      initialOrderingOrderState,
+    );
 
     const pendingPaymentState = decideOrderingOrder(createdState, {
       type: "RecordReservationConfirmed",
@@ -186,17 +174,17 @@ describe("ordering order domain", () => {
     expect(() =>
       decideOrderingOrder(initialOrderingOrderState, {
         type: "CreateOrder",
-        orderId: "ord_1" as never,
+        orderId: "ord_1",
         sourceType: "cart-checkout",
         sourceReferenceId: null,
-        buyerAccountId: "acc_buyer" as never,
-        sellerAccountId: "acc_seller" as never,
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
         shippingOption: "standard",
         itemSubtotalAmount: "0.00",
         shippingBaseAmount: "4.99",
         shippingDiscountAmount: "0.00",
         shippingChargeAmount: "4.99",
-        shippingPlanSnapshot: {} as never,
+        shippingPlanSnapshot,
         ...orderTaxFields,
         totalAmount: "4.99",
         ...orderAddressSnapshots,
@@ -206,4 +194,25 @@ describe("ordering order domain", () => {
       }),
     ).toThrow("Orders must include at least one line.");
   });
+
+  it.each(["cart-checkout", "buy-now", "offer-acceptance"] as const)(
+    "rejects same-account self-dealing order creation from %s",
+    (sourceType) => {
+      expect(() =>
+        decideOrderingOrder(initialOrderingOrderState, {
+          ...createOrderCommand(sourceType),
+          buyerAccountId: "acc_same",
+          sellerAccountId: "acc_same",
+          reservationRequests: [
+            {
+              reservationRequestId: "rsv_1",
+              inventoryItemId: "inv_1",
+              sellerAccountId: "acc_same",
+              quantity: 1,
+            },
+          ],
+        }),
+      ).toThrow("Buyer and seller accounts must be different for an order.");
+    },
+  );
 });

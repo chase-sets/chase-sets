@@ -91,6 +91,24 @@ describeDb("settlement money maturity query persistence boundary", () => {
       deliveredDaysAgo: 3,
     });
     await seedMaturityCandidate({
+      ledgerEntryId: "led_ready_balance_funded_long",
+      accountId: "acc_trusted",
+      orderId: "ord_ready_balance_funded_long",
+      amount: "32.00",
+      postedDaysAgo: 8,
+      deliveredDaysAgo: 8,
+      trustSignalEligible: false,
+    });
+    await seedMaturityCandidate({
+      ledgerEntryId: "led_blocked_balance_funded_short",
+      accountId: "acc_trusted",
+      orderId: "ord_blocked_balance_funded_short",
+      amount: "36.00",
+      postedDaysAgo: 3,
+      deliveredDaysAgo: 3,
+      trustSignalEligible: false,
+    });
+    await seedMaturityCandidate({
       ledgerEntryId: "led_blocked_recent_post",
       accountId: "acc_trusted",
       orderId: "ord_blocked_recent_post",
@@ -121,6 +139,15 @@ describeDb("settlement money maturity query persistence boundary", () => {
       amount: "250.00",
       postedDaysAgo: 8,
       deliveredDaysAgo: 3,
+    });
+    await seedMaturityCandidate({
+      ledgerEntryId: "led_blocked_zero_fee_locked_short",
+      accountId: "acc_trusted",
+      orderId: "ord_blocked_zero_fee_locked_short",
+      amount: "38.00",
+      postedDaysAgo: 3,
+      deliveredDaysAgo: 3,
+      trustSignalEligible: false,
     });
     await seedMaturityCandidate({
       ledgerEntryId: "led_blocked_support_hold",
@@ -166,6 +193,7 @@ describeDb("settlement money maturity query persistence boundary", () => {
     });
 
     await expect(listPendingCreditEntriesMaturedBy(pool, { now })).resolves.toEqual([
+      expect.objectContaining({ ledger_entry_id: "led_ready_balance_funded_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_default_risk_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_high_value_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_inactive_hold" }),
@@ -246,6 +274,7 @@ describeDb("settlement money maturity query persistence boundary", () => {
     fundsStatus?: string;
     postedDaysAgo: number;
     deliveredDaysAgo: number;
+    trustSignalEligible?: boolean;
   }) {
     await pool.query(
       `INSERT INTO settlement_ledger_entry_pages (
@@ -289,6 +318,15 @@ describeDb("settlement money maturity query persistence boundary", () => {
          last_stream_version
        ) VALUES ($1, $2, 'buyer_1', $3, 'delivered', $4, $5, $4, $5, 1)`,
       [`shp_${params.orderId}`, params.orderId, params.accountId, daysAgo(20), daysAgo(params.deliveredDaysAgo)],
+    );
+    await pool.query(
+      `INSERT INTO settlement_order_trust_signal_sources (
+         order_id,
+         seller_account_id,
+         trust_signal_eligible,
+         updated_at
+       ) VALUES ($1, $2, $3, $4)`,
+      [params.orderId, params.accountId, params.trustSignalEligible ?? true, daysAgo(params.postedDaysAgo)],
     );
   }
 

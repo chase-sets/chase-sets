@@ -152,6 +152,106 @@ describe("marketplace offer runtime", () => {
     expect(commercialTermsResolver).not.toHaveBeenCalled();
   });
 
+  it("rejects same-account offer acceptance before quoting terms", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async () => ({ rows: [{ ...acceptedOfferMatch, buyer_account_id: "acc_same" }] })),
+    };
+    const resolveListingTerms = vi.fn(async () => {
+      throw new Error("Terms should not be quoted for self-dealing.");
+    });
+    const services = createMarketplaceOfferRuntime({
+      db,
+      eventStore,
+      checkpointStore: {} as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+    });
+
+    await services.commandHandler({
+      streamId: "marketplace.offer-off_1",
+      command: {
+        type: "SubmitOffer",
+        offerId: "off_1",
+        buyerAccountId: "acc_same",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+        priceAmount: "350.00",
+        quantityRequested: 1,
+      },
+      context: {
+        tenantId: "tnt_marketplace" as never,
+        audit: {
+          performedByUserId: "usr_same" as never,
+          forAccountId: "acc_same" as never,
+        },
+      },
+    } as never);
+
+    await expect(
+      services.acceptOffer(
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_same" as never,
+          feeQuoteFingerprint: "quote",
+        },
+        {} as never,
+      ),
+    ).rejects.toThrow("Accounts cannot accept their own offers.");
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+  });
+
+  it("rejects offer submission when the buyer has an active listing for the product", async () => {
+    const db = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              catalog_item_id: "cat_charizard",
+              title: "Charizard",
+              subtitle: null,
+              status: "active",
+              product_schema: null,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ account_id: "acc_same" }] }),
+    };
+    const services = createMarketplaceOfferRuntime({
+      db,
+      eventStore: {
+        appendToStream: vi.fn(async () => []),
+        readStream: vi.fn(async () => []),
+        readAll: vi.fn(async () => []),
+      } satisfies EventStore,
+      checkpointStore: {} as never,
+      commercialTermsResolver: {} as never,
+    });
+
+    await expect(
+      services.submitOffer(
+        {
+          buyerAccountId: "acc_same" as never,
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+          priceAmount: "350.00",
+          quantityRequested: 1,
+        },
+        {} as never,
+      ),
+    ).rejects.toThrow("Accounts cannot offer on their own listings.");
+  });
+
   it("treats repeated acceptance by the same seller as an idempotent retry", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {

@@ -101,6 +101,20 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     return result.rows[0] ?? null;
   }
 
+  async function findOwnActiveListingForProduct(buyerAccountId: AccountId, productId: string) {
+    const result = await deps.db.query<{ account_id: string }>(
+      `SELECT account_id
+       FROM marketplace_listing_pages
+       WHERE account_id = $1
+         AND product_id = $2
+         AND status = 'active'
+       LIMIT 1`,
+      [buyerAccountId, productId],
+    );
+
+    return result.rows[0]?.account_id ?? null;
+  }
+
   async function quoteOfferAcceptanceTerms(offerId: OfferId, sellerAccountId: AccountId) {
     const offer = await getOfferMatch(deps.db, offerId, sellerAccountId);
     if (!offer) {
@@ -146,6 +160,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       if (params.productId.trim() !== catalogVersion.productId) {
         throw new Error("Offer product id does not match the selected options.");
       }
+      const ownSellerAccountId = await findOwnActiveListingForProduct(params.buyerAccountId, catalogVersion.productId);
 
       const offerId = params.offerId ?? (createId("off") as OfferId);
       const result = await commandHandler({
@@ -154,6 +169,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           type: "SubmitOffer",
           offerId,
           buyerAccountId: params.buyerAccountId,
+          sellerAccountId: ownSellerAccountId as AccountId | null,
           catalogItemId: params.catalogItemId,
           productId: catalogVersion.productId,
           itemTitle: params.itemTitle,
@@ -180,6 +196,9 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
 
       if (!offer) {
         throw new Error("Offer not found.");
+      }
+      if (offer.buyer_account_id === params.sellerAccountId) {
+        throw new Error("Accounts cannot accept their own offers.");
       }
       if (offer.seller_listing_availability_status === "unavailable") {
         throw new Error("Seller listing availability is off.");

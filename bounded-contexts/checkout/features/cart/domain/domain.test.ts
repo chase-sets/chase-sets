@@ -106,6 +106,63 @@ describe("checkout cart domain", () => {
     });
   });
 
+  it("rejects adding the buyer account's own listing to cart", () => {
+    expect(() =>
+      decideCheckoutCart(initialCheckoutCartState, {
+        type: "AddCartLine",
+        buyerAccountId: "acc_same" as never,
+        lineId: "cli_1" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_selected",
+        selectedListingSnapshot: {
+          listingId: "lst_selected",
+          sellerAccountId: "acc_same",
+          priceAmount: "25.00",
+          source: "discovery.item-detail.add-to-cart",
+        },
+      }),
+    ).toThrow("Accounts cannot add their own listings to cart.");
+  });
+
+  it("rejects locking an existing cart line to the buyer account's own listing", () => {
+    const addedState = decideCheckoutCart(initialCheckoutCartState, {
+      type: "AddCartLine",
+      buyerAccountId: "acc_same" as never,
+      lineId: "cli_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      itemImageUrl: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+    }).reduce(evolveCheckoutCart, initialCheckoutCartState);
+
+    expect(() =>
+      decideCheckoutCart(addedState, {
+        type: "SetCartLineFulfillment",
+        lineId: "cli_1" as never,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_selected",
+        selectedListingSnapshot: {
+          listingId: "lst_selected",
+          sellerAccountId: "acc_same",
+          priceAmount: "25.00",
+          source: "account-cart-fulfillment",
+        },
+      }),
+    ).toThrow("Accounts cannot add their own listings to cart.");
+  });
+
   it("rejects invalid cart line operations", () => {
     expect(() =>
       decideCheckoutCart(initialCheckoutCartState, {

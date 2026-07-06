@@ -109,6 +109,26 @@ describe("marketplace offer domain", () => {
     ).toThrow("Offer has already been submitted.");
   });
 
+  it("rejects offers on the buyer account's own active listing", () => {
+    expect(() =>
+      decideMarketplaceOffer(initialMarketplaceOfferState, {
+        type: "SubmitOffer",
+        offerId: "off_test" as never,
+        buyerAccountId: "acc_same" as never,
+        sellerAccountId: "acc_same" as never,
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        priceAmount: "10.00",
+        quantityRequested: 1,
+        shippingDestinationSnapshot,
+      }),
+    ).toThrow("Accounts cannot offer on their own listings.");
+  });
+
   it("accepts a submitted offer once and records the seller", () => {
     const submittedState = decideMarketplaceOffer(initialMarketplaceOfferState, {
       type: "SubmitOffer",
@@ -141,5 +161,36 @@ describe("marketplace offer domain", () => {
     expect(acceptedState.acceptedSellerAccountId).toBe("acc_seller");
     expect(acceptedState.marketplaceSalesFeeUnitAmount).toBe("0.50");
     expect(acceptedState.sellerNetUnitAmount).toBe("9.50");
+  });
+
+  it("rejects same-account offer acceptance", () => {
+    const submittedState = decideMarketplaceOffer(initialMarketplaceOfferState, {
+      type: "SubmitOffer",
+      offerId: "off_test" as never,
+      buyerAccountId: "acc_same" as never,
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      priceAmount: "10.00",
+      quantityRequested: 1,
+      shippingDestinationSnapshot,
+    }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
+
+    expect(() =>
+      decideMarketplaceOffer(submittedState, {
+        type: "AcceptOffer",
+        sellerAccountId: "acc_same" as never,
+        acceptedAt: "2026-03-31T00:00:00.000Z",
+        marketplaceSalesFeeUnitAmount: "0.50",
+        sellerNetUnitAmount: "9.50",
+        termsScheduleId: "sch_standard",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-03-31T00:00:00.000Z",
+        feeQuoteFingerprint: "10.00|0.50|9.50|sch_standard|",
+      }),
+    ).toThrow("Accounts cannot accept their own offers.");
   });
 });
