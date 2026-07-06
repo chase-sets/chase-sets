@@ -1125,6 +1125,39 @@ describe("DigitalOcean platform configuration", () => {
     expect(uploadStep).toContain("artifacts/release-health/production-rollback.json");
   });
 
+  it("captures staging wake drill worker status through the internal DOKS worker endpoint", () => {
+    const wakeDrillJob = workflowJob(platformStagingWakeDrillsWorkflow, "staging-wake-drill");
+    const kubeconfigStep = workflowStep(wakeDrillJob, "Configure staging Kubernetes context");
+    const portForwardStep = workflowStep(wakeDrillJob, "Start staging worker-status port-forward");
+    const runDrillStep = workflowStep(wakeDrillJob, "Run staging wake drill");
+
+    expect(wakeDrillJob).toContain("CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform");
+    expect(wakeDrillJob).toContain("digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f");
+    expect(wakeDrillJob).toContain("token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+
+    expect(kubeconfigStep).toContain("infrastructure/digitalocean/doks");
+    expect(kubeconfigStep).toContain("-backend-config=key=doks/staging.tfstate");
+    expect(kubeconfigStep).toContain("terraform output -raw kubeconfig");
+    expect(kubeconfigStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(kubeconfigStep).toContain("Terraform DOKS kubeconfig output did not contain a usable current-context");
+    expect(kubeconfigStep).toContain('doctl kubernetes cluster kubeconfig show "$cluster_id"');
+    expect(kubeconfigStep).toContain('doctl kubernetes cluster kubeconfig show "$cluster_name"');
+    expect(kubeconfigStep).toContain("KUBECONFIG=");
+
+    expect(portForwardStep).toContain("app.kubernetes.io/component=platform-worker");
+    expect(portForwardStep).toContain("app.kubernetes.io/instance=chase-sets-platform");
+    expect(portForwardStep).toContain("kubectl port-forward");
+    expect(portForwardStep).toContain('"deployment/${worker_deployment}"');
+    expect(portForwardStep).toContain('"${worker_status_port}:8080"');
+    expect(portForwardStep).toContain(
+      "WAKE_DRILL_WORKER_STATUS_URL=http://127.0.0.1:${worker_status_port}/internal/workers/status",
+    );
+    expect(portForwardStep).toContain("Staging worker-status port-forward is ready.");
+
+    expect(runDrillStep).not.toContain("STAGING_PLATFORM_WORKER_STATUS_URL");
+    expect(runDrillStep).not.toContain("WAKE_DRILL_WORKER_STATUS_URL:");
+  });
+
   it("provisions databases for every platform-api bounded context", () => {
     const managedContexts = terraformStringList(platformLocals, "platform_context_names");
     expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));

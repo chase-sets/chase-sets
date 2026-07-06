@@ -94,6 +94,7 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
     steps:
       - name: Confirm staging wake drill
         run: |
@@ -120,6 +121,10 @@ jobs:
           terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Terraform init staging platform state
         working-directory: infrastructure/digitalocean/platform
@@ -171,6 +176,138 @@ jobs:
             echo "WAKE_DRILL_ADMIN_BASE_URL=https://${admin_domain}"
           } >> "$GITHUB_ENV"
 
+      - name: Configure staging Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-staging-wake-drill.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -z "$cluster_id" ] && [ -z "$cluster_name" ]; then
+              cluster_address="$(
+                terraform state list \
+                  | awk '/(^|\.)digitalocean_kubernetes_cluster\./ { print; exit }'
+              )"
+              if [ -n "$cluster_address" ]; then
+                echo "Using staging DOKS cluster Terraform state address ${cluster_address}." >&2
+                cluster_state="$(terraform state show -no-color "$cluster_address")"
+                cluster_id="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "id") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+                cluster_name="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "name") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+              fi
+            fi
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure staging Kubernetes context." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Staging Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured staging Kubernetes context: ${current_context}"
+
+      - name: Start staging worker-status port-forward
+        run: |
+          set -euo pipefail
+          worker_deployment="$(
+            kubectl get deployment \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --selector 'app.kubernetes.io/component=platform-worker,app.kubernetes.io/instance=chase-sets-platform,app.kubernetes.io/name=chase-sets-platform' \
+              --output jsonpath='{.items[0].metadata.name}'
+          )"
+          if [ -z "$worker_deployment" ]; then
+            echo "No staging platform-worker deployment was found for worker-status capture." >&2
+            kubectl get deployment --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" >&2 || true
+            exit 1
+          fi
+
+          worker_status_port=18080
+          port_forward_log="${RUNNER_TEMP}/staging-worker-status-port-forward.log"
+          kubectl port-forward \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            "deployment/${worker_deployment}" \
+            "${worker_status_port}:8080" \
+            > "$port_forward_log" 2>&1 &
+          port_forward_pid="$!"
+          echo "$port_forward_pid" > "${RUNNER_TEMP}/staging-worker-status-port-forward.pid"
+          echo "WAKE_DRILL_WORKER_STATUS_URL=http://127.0.0.1:${worker_status_port}/internal/workers/status" >> "$GITHUB_ENV"
+
+          for _attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "http://127.0.0.1:${worker_status_port}/internal/workers/status" >/dev/null; then
+              echo "Staging worker-status port-forward is ready."
+              exit 0
+            fi
+            if ! kill -0 "$port_forward_pid" 2>/dev/null; then
+              echo "Staging worker-status port-forward exited before becoming ready." >&2
+              cat "$port_forward_log" >&2 || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "Timed out waiting for staging worker-status port-forward readiness." >&2
+          cat "$port_forward_log" >&2 || true
+          exit 1
+
       - name: Install Playwright Chromium for canary writes
         if: inputs.drill == 'load' || !inputs.skip_canary_write
         run: pnpm exec playwright install --with-deps chromium
@@ -184,7 +321,6 @@ jobs:
           WAKE_DRILL_LOAD_CONCURRENCY: ${{ inputs.load_concurrency }}
           WAKE_DRILL_FLOW: ${{ inputs.load_flow }}
           WAKE_DRILL_SKIP_CANARY_WRITE: ${{ inputs.skip_canary_write && 'true' || 'false' }}
-          WAKE_DRILL_WORKER_STATUS_URL: ${{ vars.STAGING_PLATFORM_WORKER_STATUS_URL || '' }}
           GUEST_BUY_NOW_PROBE_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
           WAKE_DRILL_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || 'air balloon' }}
           GUEST_BUY_NOW_PROBE_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
