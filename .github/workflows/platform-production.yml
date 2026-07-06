@@ -2214,6 +2214,9 @@ jobs:
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --runtime-env "DEPLOYMENT_ENVIRONMENT=production" \
+            --runtime-env "CHASE_SETS_RUNTIME_PROFILE=${TF_VAR_production_runtime_profile:-landing}" \
+            --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
             --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}" \
             --runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}" \
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}" \
