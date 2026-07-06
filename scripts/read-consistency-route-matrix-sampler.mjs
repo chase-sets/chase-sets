@@ -9,6 +9,7 @@ import { DEFAULT_ROUTE_MATRIX_ROUTES } from "./read-consistency-route-matrix-evi
 export const READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_VERSION = "read-consistency-route-matrix-sampler/v1";
 
 const CHECKOUT_ROUTE_TEMPLATE = "/checkout/buy/session/:sessionId";
+const ACCOUNT_CART_ROUTE_TEMPLATE = "/account/cart";
 const SENSITIVE_PATTERNS = [
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
   /https?:\/\/[^\s"']+/gi,
@@ -24,6 +25,8 @@ export function parseReadConsistencyRouteMatrixSamplerArgs(argv, env = process.e
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
     checkoutProbePath:
       readOption(argv, "--checkout-probe-file") ?? readEnv("ROUTE_MATRIX_SAMPLER_CHECKOUT_PROBE_FILE", env),
+    accountCartProbePath:
+      readOption(argv, "--account-cart-probe-file") ?? readEnv("ROUTE_MATRIX_SAMPLER_ACCOUNT_CART_PROBE_FILE", env),
     outPath:
       readOption(argv, "--out") ??
       readEnv("READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT", env) ??
@@ -33,7 +36,10 @@ export function parseReadConsistencyRouteMatrixSamplerArgs(argv, env = process.e
 
 export async function runReadConsistencyRouteMatrixSampler(options = {}) {
   const checkoutProbe = await readOptionalJson(options.checkoutProbePath);
-  const routes = DEFAULT_ROUTE_MATRIX_ROUTES.map((route) => buildRouteSample(route.routeTemplate, checkoutProbe));
+  const accountCartProbe = await readOptionalJson(options.accountCartProbePath);
+  const routes = DEFAULT_ROUTE_MATRIX_ROUTES.map((route) =>
+    buildRouteSample(route.routeTemplate, checkoutProbe, accountCartProbe),
+  );
   const artifact = buildRouteMatrixSamplerArtifact({
     environment: options.environment,
     checkedAt: options.checkedAt,
@@ -83,19 +89,13 @@ export function buildRouteMatrixSamplerArtifact(input) {
   };
 }
 
-export function buildRouteSample(routeTemplate, checkoutProbe) {
+export function buildRouteSample(routeTemplate, checkoutProbe, accountCartProbe) {
   if (routeTemplate === CHECKOUT_ROUTE_TEMPLATE) {
     return checkoutRouteSample(checkoutProbe);
   }
 
-  if (routeTemplate === "/account/cart") {
-    return blockedRouteSample({
-      routeTemplate,
-      driver: "automatic",
-      sourceJourney: "account-cart-add-to-cart",
-      outcomeCategory: "account-cart-sampler-not-yet-wired",
-      blockerCategory: "automation-not-yet-wired",
-    });
+  if (routeTemplate === ACCOUNT_CART_ROUTE_TEMPLATE) {
+    return accountCartRouteSample(accountCartProbe);
   }
 
   if (routeTemplate === "/account/sell-list") {
@@ -145,6 +145,48 @@ export function buildRouteSample(routeTemplate, checkoutProbe) {
     outcomeCategory: "route-not-classified",
     blockerCategory: "route-not-classified",
   });
+}
+
+function accountCartRouteSample(accountCartProbe) {
+  if (!accountCartProbe) {
+    return blockedRouteSample({
+      routeTemplate: ACCOUNT_CART_ROUTE_TEMPLATE,
+      driver: "automatic",
+      sourceJourney: "account-cart-consistency-probe",
+      outcomeCategory: "account-cart-probe-missing",
+      blockerCategory: "redacted-account-cart-observation-required",
+    });
+  }
+
+  const promotionDecision = normalizeCategory(accountCartProbe.promotionDecision);
+  const observedOutcomes = Array.isArray(accountCartProbe.observedOutcomes)
+    ? accountCartProbe.observedOutcomes.map(normalizeCategory).filter(Boolean)
+    : [];
+  if (promotionDecision === "promote") {
+    return {
+      routeTemplate: ACCOUNT_CART_ROUTE_TEMPLATE,
+      driver: "automatic",
+      status: "sampled",
+      outcomeCategory: "sampled",
+      sourceJourney: "account-cart-consistency-probe",
+      attemptCount: 1,
+      probeDecision: promotionDecision,
+      probeFinalState: "pass",
+      blockerCategory: null,
+    };
+  }
+
+  return {
+    routeTemplate: ACCOUNT_CART_ROUTE_TEMPLATE,
+    driver: "automatic",
+    status: "failed",
+    outcomeCategory: "account-cart-probe-failed",
+    sourceJourney: "account-cart-consistency-probe",
+    attemptCount: observedOutcomes.length > 0 ? 1 : 0,
+    probeDecision: promotionDecision ?? "unknown",
+    probeFinalState: observedOutcomes[0] ?? "unknown",
+    blockerCategory: "account-cart-probe-failed",
+  };
 }
 
 function checkoutRouteSample(checkoutProbe) {
