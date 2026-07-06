@@ -45,6 +45,16 @@ Notes:
 - Payments owns the normalized processor review outcome.
 - Consumer contexts use this fact to release or retain their own holds according to their local rules.
 
+## Payment Liability Shift Recorded
+
+A **Payment Liability Shift Recorded** event records the processor-reported card-authentication liability-shift outcome for a Payment.
+
+Notes:
+
+- Payments owns the 3DS request decision and the support-safe provider outcome.
+- Liability-shift facts are used for payment risk review and dispute posture; they do not change Settlement-owned payout-release decisions.
+- Risk-based 3DS should be requested only when card-payment risk warrants step-up, not for every checkout.
+
 ## Payment Processor Reference
 
 A **Payment Processor Reference** is the external identifier returned by the payment service provider.

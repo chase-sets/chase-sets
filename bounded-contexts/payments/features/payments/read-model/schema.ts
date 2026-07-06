@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   processor_client_secret text NULL,
   processor_redirect_url text NULL,
   processor_status text NOT NULL,
+  three_d_secure_request text NULL,
+  three_d_secure_reason_codes jsonb NOT NULL DEFAULT '[]'::jsonb,
+  liability_shift_status text NULL,
+  liability_shift_authentication_result text NULL,
+  liability_shift_radar_risk_level text NULL,
+  liability_shift_recorded_at timestamptz NULL,
   source_context text NULL,
   source_reference_id text NULL,
   status text NOT NULL,
@@ -201,6 +207,16 @@ CREATE TABLE IF NOT EXISTS payments_provider_webhook_events (
 
 CREATE INDEX IF NOT EXISTS payments_provider_webhook_events_received_idx
   ON payments_provider_webhook_events (received_at DESC);
+
+CREATE TABLE IF NOT EXISTS payments_account_risk_sources (
+  account_id text PRIMARY KEY,
+  manual_payout_review boolean NOT NULL DEFAULT false,
+  stripe_fraud_flag boolean NOT NULL DEFAULT false,
+  stripe_fraud_flagged_at timestamptz NULL,
+  stripe_fraud_signal_count integer NOT NULL DEFAULT 0,
+  stripe_review_open_count integer NOT NULL DEFAULT 0,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 `;
 
 export const paymentsPaymentSchemaMigrations = [
@@ -208,6 +224,7 @@ export const paymentsPaymentSchemaMigrations = [
     migrationId: "20260703_payments_payment_pages_checkout_columns",
     description: "Add checkout handoff, payout, refund, and dispute columns to existing payment page read models.",
     statements: [
+      `SET lock_timeout = '2s'`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS balance_credit_amount numeric(12, 2) NOT NULL DEFAULT 0`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_amount numeric(12, 2) NOT NULL DEFAULT 0`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_amount numeric(12, 2) NOT NULL DEFAULT 0`,
@@ -225,7 +242,7 @@ export const paymentsPaymentSchemaMigrations = [
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS refunded_amount numeric(12, 2) NOT NULL DEFAULT 0`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS disputed_at timestamptz NULL`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS last_stream_version bigint NOT NULL DEFAULT 0`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS payments_payment_pages_source_idx
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_pages_source_idx
   ON payments_payment_pages (source_context, source_reference_id)
   WHERE source_context IS NOT NULL AND source_reference_id IS NOT NULL`,
     ],
@@ -252,6 +269,7 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
     migrationId: "20260703_payments_order_refund_amounts",
     description: "Track order-level refundable caps and refunded amounts on payment read models.",
     statements: [
+      `SET lock_timeout = '2s'`,
       `ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS order_refund_caps jsonb NOT NULL DEFAULT '[]'::jsonb`,
       `ALTER TABLE payments_payment_pages
@@ -279,6 +297,28 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
       `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_creation_reservations_order_set_active_idx
   ON payments_payment_creation_reservations (buyer_account_id, order_set_key)
   WHERE status = 'active'`,
+    ],
+  },
+  {
+    migrationId: "20260706_payments_risk_based_3ds",
+    description: "Track risk-based card authentication decisions and liability-shift outcomes for payments.",
+    statements: [
+      `SET lock_timeout = '2s'`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS three_d_secure_request text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS three_d_secure_reason_codes jsonb NOT NULL DEFAULT '[]'::jsonb`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS liability_shift_status text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS liability_shift_authentication_result text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS liability_shift_radar_risk_level text NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS liability_shift_recorded_at timestamptz NULL`,
+      `CREATE TABLE IF NOT EXISTS payments_account_risk_sources (
+  account_id text PRIMARY KEY,
+  manual_payout_review boolean NOT NULL DEFAULT false,
+  stripe_fraud_flag boolean NOT NULL DEFAULT false,
+  stripe_fraud_flagged_at timestamptz NULL,
+  stripe_fraud_signal_count integer NOT NULL DEFAULT 0,
+  stripe_review_open_count integer NOT NULL DEFAULT 0,
+  updated_at timestamptz NOT NULL DEFAULT now()
+)`,
     ],
   },
 ] as const;

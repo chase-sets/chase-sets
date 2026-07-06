@@ -13,6 +13,8 @@ import type {
   PaymentProcessorPublicConfig,
   ProcessorPaymentReconciliationResult,
   PaymentProcessorWebhookEvent,
+  ProcessorLiabilityShiftOutcome,
+  ProcessorThreeDSecureRequest,
   ProcessorSavedPaymentMethod,
   ProcessorSetupSessionResult,
 } from "@chase-sets/payment-processing";
@@ -57,6 +59,7 @@ type StripePaymentIntentResponse = Readonly<{
     code?: string | null;
     message?: string | null;
   }> | null;
+  latest_charge?: string | Readonly<StripeChargeResponse> | null;
 }>;
 
 type StripeChargeResponse = Readonly<{
@@ -65,6 +68,16 @@ type StripeChargeResponse = Readonly<{
   amount_refunded?: number | null;
   disputed?: boolean | null;
   metadata?: Readonly<Record<string, string | null | undefined>> | null;
+  outcome?: Readonly<{
+    risk_level?: string | null;
+  }> | null;
+  payment_method_details?: Readonly<{
+    card?: Readonly<{
+      three_d_secure?: Readonly<{
+        result?: string | null;
+      }> | null;
+    }> | null;
+  }> | null;
 }>;
 
 type StripeCustomerResponse = Readonly<{
@@ -142,6 +155,15 @@ type StripeEventEnvelope = Readonly<{
       outcome?: Readonly<{
         type?: string | null;
         reason?: string | null;
+        risk_level?: string | null;
+      }> | null;
+      latest_charge?: string | Readonly<{ id?: string | null }> | null;
+      payment_method_details?: Readonly<{
+        card?: Readonly<{
+          three_d_secure?: Readonly<{
+            result?: string | null;
+          }> | null;
+        }> | null;
       }> | null;
     }>;
   }>;
@@ -371,6 +393,93 @@ function stripeObjectReference(value: string | Readonly<{ id?: string | null }> 
     return normalizeOptionalText(value);
   }
   return normalizeOptionalText(value?.id ?? null);
+}
+
+function threeDSecureRequestedFromMetadata(
+  metadata: Readonly<Record<string, string | null | undefined>> | null | undefined,
+): ProcessorThreeDSecureRequest | null {
+  const requested = normalizeOptionalText(metadata?.three_d_secure_requested ?? null);
+  return requested === "any" || requested === "automatic" ? requested : null;
+}
+
+function liabilityStatusFromThreeDSecureResult(result: string | null): ProcessorLiabilityShiftOutcome["status"] | null {
+  switch (result) {
+    case "authenticated":
+      return "shifted";
+    case "attempt_acknowledged":
+      return "attempted";
+    case "failed":
+      return "authentication-failed";
+    case "not_supported":
+    case "processing_error":
+      return "not-shifted";
+    default:
+      return null;
+  }
+}
+
+function liabilityShiftOutcomeFromCharge(
+  charge: Pick<StripeChargeResponse, "metadata" | "outcome" | "payment_method_details">,
+  fallbackThreeDSecureRequested?: ProcessorThreeDSecureRequest | null,
+): ProcessorLiabilityShiftOutcome | null {
+  const authenticationResult = normalizeOptionalText(
+    charge.payment_method_details?.card?.three_d_secure?.result ?? null,
+  );
+  const threeDSecureRequested =
+    threeDSecureRequestedFromMetadata(charge.metadata) ?? fallbackThreeDSecureRequested ?? null;
+  const status = liabilityStatusFromThreeDSecureResult(authenticationResult);
+  if (!threeDSecureRequested && !status && !authenticationResult) {
+    return null;
+  }
+
+  return {
+    threeDSecureRequested,
+    status: status ?? (threeDSecureRequested === "any" ? "requested" : "unknown"),
+    authenticationResult,
+    radarRiskLevel: normalizeOptionalText(charge.outcome?.risk_level ?? null),
+  };
+}
+
+function liabilityShiftOutcomeFromFailure(object: StripeWebhookObject): ProcessorLiabilityShiftOutcome | null {
+  const threeDSecureRequested = threeDSecureRequestedFromMetadata(object.metadata);
+  const failureCode = normalizeOptionalText(object.last_payment_error?.code ?? null);
+  if (!threeDSecureRequested || !failureCode?.includes("authentication")) {
+    return null;
+  }
+
+  return {
+    threeDSecureRequested,
+    status: "authentication-failed",
+    authenticationResult: "failed",
+    radarRiskLevel: normalizeOptionalText(object.outcome?.risk_level ?? null),
+  };
+}
+
+function cardAuthenticationEntries(input: Pick<CreateProcessorPaymentInput, "cardAuthentication">, prefix = "") {
+  if (input.cardAuthentication?.requestThreeDSecure !== "any") {
+    return {};
+  }
+  const fieldPrefix = prefix ? `${prefix}[` : "";
+  const fieldSuffix = prefix ? "]" : "";
+  return {
+    [`${fieldPrefix}payment_method_options${fieldSuffix}[card][request_three_d_secure]`]: "any",
+  };
+}
+
+function cardAuthenticationMetadataEntries(
+  input: Pick<CreateProcessorPaymentInput, "cardAuthentication">,
+  prefix = "metadata",
+) {
+  const authentication = input.cardAuthentication;
+  if (!authentication) {
+    return {};
+  }
+  return {
+    [`${prefix}[three_d_secure_requested]`]: authentication.requestThreeDSecure,
+    ...(authentication.reasonCodes.length > 0
+      ? { [`${prefix}[three_d_secure_reason_codes]`]: authentication.reasonCodes.join(",") }
+      : {}),
+  };
 }
 
 function occurredAtFromEvent(event: StripeEventEnvelope) {
@@ -956,6 +1065,26 @@ export function createStripePaymentProcessorGateway(
     return retrievePaymentMethod(methodReference);
   }
 
+  async function retrieveLiabilityShiftOutcomeForIntent(
+    intent: StripePaymentIntentResponse,
+  ): Promise<ProcessorLiabilityShiftOutcome | null> {
+    const latestCharge = intent.latest_charge;
+    if (!latestCharge) {
+      return null;
+    }
+    if (typeof latestCharge !== "string") {
+      return liabilityShiftOutcomeFromCharge(latestCharge, threeDSecureRequestedFromMetadata(intent.metadata));
+    }
+    const chargeReference = normalizeOptionalText(latestCharge);
+    if (!chargeReference) {
+      return null;
+    }
+    const charge = await stripeRequest<StripeChargeResponse>(`/v1/charges/${encodeURIComponent(chargeReference)}`, {
+      method: "GET",
+    });
+    return liabilityShiftOutcomeFromCharge(charge, threeDSecureRequestedFromMetadata(intent.metadata));
+  }
+
   async function retrieveSetupIntentPaymentMethod(
     setupIntentReference: string | null,
   ): Promise<ProcessorSavedPaymentMethod | null> {
@@ -1083,12 +1212,14 @@ export function createStripePaymentProcessorGateway(
                 input.savedCheckoutInstrument.confirmationExperience === "off-session-token" ? "true" : "false",
               description: input.description,
               transfer_group: `payment:${input.paymentId}`,
+              ...cardAuthenticationEntries(input),
               ...paymentMetadataEntries(input, {
                 funds_strategy: "platform-held",
                 transfer_group: `payment:${input.paymentId}`,
                 saved_checkout_instrument_id: input.savedCheckoutInstrument.instrumentId,
                 saved_checkout_instrument_confirmation: input.savedCheckoutInstrument.confirmationExperience,
               }),
+              ...cardAuthenticationMetadataEntries(input),
               ...marketplaceRiskMetadataEntries(input),
             }),
           },
@@ -1128,7 +1259,9 @@ export function createStripePaymentProcessorGateway(
             "line_items[0][price_data][unit_amount]": String(amount),
             "line_items[0][price_data][product_data][name]": input.description,
             "payment_intent_data[transfer_group]": `payment:${input.paymentId}`,
+            ...cardAuthenticationEntries(input, "payment_intent_data"),
             ...paymentMetadataEntries(input, {}, "payment_intent_data[metadata]"),
+            ...cardAuthenticationMetadataEntries(input, "payment_intent_data[metadata]"),
             ...(input.savedCheckoutInstrument
               ? {
                   "payment_intent_data[metadata][saved_checkout_instrument_id]":
@@ -1148,6 +1281,7 @@ export function createStripePaymentProcessorGateway(
               : {}),
             ...marketplaceRiskMetadataEntries(input, "payment_intent_data[metadata]"),
             ...paymentMetadataEntries(input),
+            ...cardAuthenticationMetadataEntries(input),
             ...(input.savedCheckoutInstrument
               ? {
                   "metadata[saved_checkout_instrument_id]": input.savedCheckoutInstrument.instrumentId,
@@ -1193,6 +1327,7 @@ export function createStripePaymentProcessorGateway(
             confirm: "true",
             description: input.description,
             transfer_group: `payment:${input.paymentId}`,
+            ...cardAuthenticationEntries(input),
             ...paymentMetadataEntries(input, {
               funds_strategy: "platform-held",
               transfer_group: `payment:${input.paymentId}`,
@@ -1200,6 +1335,7 @@ export function createStripePaymentProcessorGateway(
               ap2_checkout_mandate_id: input.agenticPayment.ap2CheckoutMandateId,
               ap2_payment_mandate_id: input.agenticPayment.ap2PaymentMandateId,
             }),
+            ...cardAuthenticationMetadataEntries(input),
             ...marketplaceRiskMetadataEntries(input),
           }),
         },
@@ -1239,14 +1375,26 @@ export function createStripePaymentProcessorGateway(
               { method: "GET" },
             )
           : null;
-        return mapCheckoutSessionReconciliationResult(session, paymentIntent);
+        const result = mapCheckoutSessionReconciliationResult(session, paymentIntent);
+        return result && paymentIntent
+          ? {
+              ...result,
+              liabilityShiftOutcome: await retrieveLiabilityShiftOutcomeForIntent(paymentIntent),
+            }
+          : result;
       }
 
       const intent = await stripeRequest<StripePaymentIntentResponse>(
         `/v1/payment_intents/${encodeURIComponent(reference)}`,
         { method: "GET" },
       );
-      return mapPaymentIntentReconciliationResult(intent);
+      const result = mapPaymentIntentReconciliationResult(intent);
+      return result
+        ? {
+            ...result,
+            liabilityShiftOutcome: await retrieveLiabilityShiftOutcomeForIntent(intent),
+          }
+        : null;
     },
     async retrievePaymentResultByPaymentId(paymentId) {
       const normalizedPaymentId = normalizeOptionalText(paymentId);
@@ -1261,7 +1409,13 @@ export function createStripePaymentProcessorGateway(
         { method: "GET" },
       );
       const intent = result.data?.[0] ?? null;
-      return intent ? mapPaymentIntentReconciliationResult(intent) : null;
+      const paymentResult = intent ? mapPaymentIntentReconciliationResult(intent) : null;
+      return paymentResult && intent
+        ? {
+            ...paymentResult,
+            liabilityShiftOutcome: await retrieveLiabilityShiftOutcomeForIntent(intent),
+          }
+        : null;
     },
     async createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund> {
       const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Refund amount"));
@@ -1357,10 +1511,37 @@ export function createStripePaymentProcessorGateway(
         const paymentIntentReference =
           stripeObjectReference(object?.payment_intent) ??
           (mapped.processorPaymentReference.startsWith("pi_") ? mapped.processorPaymentReference : null);
+        const chargeReference =
+          stripeObjectReference(object?.latest_charge) ?? stripeObjectReference(object?.charge) ?? null;
+        const charge = chargeReference
+          ? await stripeRequest<StripeChargeResponse>(`/v1/charges/${encodeURIComponent(chargeReference)}`, {
+              method: "GET",
+            })
+          : null;
+        const liabilityShiftOutcome = charge
+          ? liabilityShiftOutcomeFromCharge(charge, threeDSecureRequestedFromMetadata(object?.metadata))
+          : liabilityShiftOutcomeFromCharge(object as StripeChargeResponse);
         if (consentId && paymentIntentReference) {
           return {
             ...mapped,
+            liabilityShiftOutcome,
             savedPaymentMethod: await retrievePaymentIntentPaymentMethod(paymentIntentReference),
+          };
+        }
+        if (liabilityShiftOutcome) {
+          return {
+            ...mapped,
+            liabilityShiftOutcome,
+          };
+        }
+      }
+
+      if (mapped.kind === "payment-failed") {
+        const liabilityShiftOutcome = liabilityShiftOutcomeFromFailure(event.data?.object as StripeWebhookObject);
+        if (liabilityShiftOutcome) {
+          return {
+            ...mapped,
+            liabilityShiftOutcome,
           };
         }
       }

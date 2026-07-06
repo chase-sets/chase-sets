@@ -112,6 +112,12 @@ function existingPaymentRow() {
     processor_client_secret: "pi_existing_secret",
     processor_redirect_url: null,
     processor_status: "requires_payment_method",
+    three_d_secure_request: null,
+    three_d_secure_reason_codes: [],
+    liability_shift_status: null,
+    liability_shift_authentication_result: null,
+    liability_shift_radar_risk_level: null,
+    liability_shift_recorded_at: null,
     source_context: "checkout",
     source_reference_id: "chk_1",
     status: "pending-confirmation",
@@ -176,10 +182,14 @@ function createProcessorGateway() {
 }
 
 function createOrderInputDb(
-  options: Readonly<{ savedCheckoutInstrumentRows?: readonly Record<string, unknown>[] }> = {},
+  options: Readonly<{
+    savedCheckoutInstrumentRows?: readonly Record<string, unknown>[];
+    accountRiskRows?: readonly Record<string, unknown>[];
+  }> = {},
 ) {
   const reservations = new Map<string, Record<string, unknown>>();
   const savedCheckoutInstrumentRows = [...(options.savedCheckoutInstrumentRows ?? [])].map((row) => ({ ...row }));
+  const accountRiskRows = [...(options.accountRiskRows ?? [])].map((row) => ({ ...row }));
   const savedCheckoutSetupSessions = new Map<string, Record<string, unknown>>();
   const providerCustomers = new Map<string, Record<string, unknown>>();
   const sourceReservationKey = (sourceContext: unknown, sourceReferenceId: unknown) =>
@@ -376,6 +386,10 @@ function createOrderInputDb(
           return { rows: accountRows.filter((row) => row.instrument_id === params?.[1]) };
         }
         return { rows: sortSavedCheckoutInstrumentRows(accountRows) };
+      }
+
+      if (sql.includes("FROM payments_account_risk_sources")) {
+        return { rows: accountRiskRows.filter((row) => row.account_id === params?.[0]) };
       }
 
       if (sql.includes("INSERT INTO payments_payment_creation_reservations")) {
@@ -922,6 +936,105 @@ describe("payment runtime", () => {
     expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
   });
 
+  it("requests 3DS step-up for card payments when account risk warrants it", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const db = createOrderInputDb({
+      accountRiskRows: [
+        {
+          account_id: "acc_buyer",
+          manual_payout_review: true,
+          stripe_fraud_flag: true,
+          stripe_fraud_flagged_at: "2026-07-06T12:00:00.000Z",
+          stripe_fraud_signal_count: 1,
+          stripe_review_open_count: 1,
+          updated_at: "2026-07-06T12:00:00.000Z",
+        },
+      ],
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cardAuthentication: {
+          requestThreeDSecure: "any",
+          reasonCodes: ["stripe-fraud-flag", "stripe-fraud-review-open", "manual-payout-review"],
+        },
+      }),
+    );
+    expect(payment).toMatchObject({
+      three_d_secure_request: "any",
+      three_d_secure_reason_codes: ["stripe-fraud-flag", "stripe-fraud-review-open", "manual-payout-review"],
+    });
+    expect(readAllEvents()[0]?.payload).toMatchObject({
+      threeDSecureRequest: "any",
+      threeDSecureReasonCodes: ["stripe-fraud-flag", "stripe-fraud-review-open", "manual-payout-review"],
+    });
+  });
+
+  it("keeps ordinary low-risk card payments on automatic 3DS", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cardAuthentication: {
+          requestThreeDSecure: "automatic",
+          reasonCodes: [],
+        },
+      }),
+    );
+    expect(payment).toMatchObject({
+      three_d_secure_request: "automatic",
+      three_d_secure_reason_codes: [],
+    });
+    expect(readAllEvents()[0]?.payload).toMatchObject({
+      threeDSecureRequest: "automatic",
+      threeDSecureReasonCodes: [],
+    });
+  });
+
   it("applies available balance credit and creates an external payment for the remainder", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();
@@ -1430,6 +1543,143 @@ describe("payment runtime", () => {
     expect(JSON.stringify(published?.payload)).not.toContain("provider_customer_reference");
     expect(JSON.stringify(published?.payload)).not.toContain("providerCustomerReference");
     expect(JSON.stringify(published?.payload)).not.toContain("consent");
+  });
+
+  it("records authentication-failed liability shift outcomes from provider failures", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const paymentsById = new Map<string, Record<string, unknown>>();
+    const { db } = createReconciliationDb({
+      paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    paymentsById.set(payment.payment_id, payment);
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_auth_failed",
+      kind: "payment-failed",
+      processorName: "stripe",
+      processorPaymentKind: payment.processor_payment_kind,
+      processorPaymentReference: payment.processor_payment_reference,
+      internalPaymentId: payment.payment_id,
+      processorStatus: "requires_payment_method",
+      failureCode: "authentication_required",
+      failureMessage: "3DS authentication failed.",
+      occurredAt: "2026-04-29T00:10:00.000Z",
+      liabilityShiftOutcome: {
+        threeDSecureRequested: "any",
+        status: "authentication-failed",
+        authenticationResult: "failed",
+        radarRiskLevel: "elevated",
+      },
+    } as never);
+
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: false,
+    });
+
+    expect(readAllEvents().map((event) => event.eventType)).toEqual([
+      "payments.payment-created",
+      "payments.payment-failed",
+      "payments.payment-liability-shift-recorded",
+    ]);
+    expect(readAllEvents()[2]?.payload).toMatchObject({
+      providerEventId: "evt_auth_failed",
+      threeDSecureRequested: "any",
+      status: "authentication-failed",
+      authenticationResult: "failed",
+      radarRiskLevel: "elevated",
+    });
+  });
+
+  it("records shifted liability outcomes once across webhook redelivery", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const paymentsById = new Map<string, Record<string, unknown>>();
+    const { db, webhookEvents } = createReconciliationDb({
+      paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    paymentsById.set(payment.payment_id, payment);
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_3ds_shifted",
+      kind: "payment-captured",
+      processorName: "stripe",
+      processorPaymentKind: payment.processor_payment_kind,
+      processorPaymentReference: payment.processor_payment_reference,
+      internalPaymentId: payment.payment_id,
+      processorStatus: "succeeded",
+      failureCode: null,
+      failureMessage: null,
+      occurredAt: "2026-04-29T00:10:00.000Z",
+      liabilityShiftOutcome: {
+        threeDSecureRequested: "any",
+        status: "shifted",
+        authenticationResult: "authenticated",
+        radarRiskLevel: "normal",
+      },
+    } as never);
+
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: false,
+    });
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: true,
+    });
+
+    expect(readAllEvents().map((event) => event.eventType)).toEqual([
+      "payments.payment-created",
+      "payments.payment-captured",
+      "payments.payment-liability-shift-recorded",
+    ]);
+    expect(readAllEvents()[2]?.payload).toMatchObject({
+      providerEventId: "evt_3ds_shifted",
+      threeDSecureRequested: "any",
+      status: "shifted",
+      authenticationResult: "authenticated",
+      radarRiskLevel: "normal",
+    });
+    expect(webhookEvents).toHaveLength(1);
   });
 
   it("repairs a stale pending payment captured by the provider and ignores a late duplicate webhook", async () => {

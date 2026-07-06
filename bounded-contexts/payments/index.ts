@@ -6,6 +6,10 @@ import contextManifest from "./context.json";
 import type { PaymentsServices, PaymentsServiceOptions } from "./support/runtime-support/services";
 import { buildPaymentsApi } from "./api";
 import { buildPaymentsOrderInputProjectionHandlers } from "./features/payments/integrations/order-input/order-input-projection";
+import {
+  buildPaymentsIdentityAccountRiskSourceProjectionHandlers,
+  buildPaymentsPaymentsAccountRiskSourceProjectionHandlers,
+} from "./features/payments/integrations/account-risk-source/account-risk-source-projection";
 import { buildPaymentsOrderCancellationRefundEffectHandlers } from "./features/refunds/integrations/ordering/order-cancellation-refund-effect-projection";
 import { buildPaymentsSupportRefundEffectHandlers } from "./features/refunds/integrations/support/support-refund-effect-projection";
 import { createPaymentProcessorWebhookRoutes } from "./features/payments/api/route";
@@ -37,6 +41,10 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
           buildHandlers: () => buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
           filterToEventTypes: true,
         },
+        "identity.payments-account-risk-source-projection": () =>
+          buildPaymentsIdentityAccountRiskSourceProjectionHandlers(services.db),
+        "payments.payments-account-risk-source-projection": () =>
+          buildPaymentsPaymentsAccountRiskSourceProjectionHandlers(services.db),
       },
     }),
   seed: seedPaymentsDatabase,
