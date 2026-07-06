@@ -281,11 +281,12 @@ jobs:
           fi
 
           worker_status_port=18080
+          worker_target_port=6183
           port_forward_log="${RUNNER_TEMP}/staging-worker-status-port-forward.log"
           kubectl port-forward \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             "deployment/${worker_deployment}" \
-            "${worker_status_port}:8080" \
+            "${worker_status_port}:${worker_target_port}" \
             > "$port_forward_log" 2>&1 &
           port_forward_pid="$!"
           echo "$port_forward_pid" > "${RUNNER_TEMP}/staging-worker-status-port-forward.pid"

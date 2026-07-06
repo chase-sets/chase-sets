@@ -1148,7 +1148,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(portForwardStep).toContain("app.kubernetes.io/instance=chase-sets-platform");
     expect(portForwardStep).toContain("kubectl port-forward");
     expect(portForwardStep).toContain('"deployment/${worker_deployment}"');
-    expect(portForwardStep).toContain('"${worker_status_port}:8080"');
+    expect(portForwardStep).toContain("worker_target_port=6183");
+    expect(portForwardStep).toContain('"${worker_status_port}:${worker_target_port}"');
     expect(portForwardStep).toContain(
       "WAKE_DRILL_WORKER_STATUS_URL=http://127.0.0.1:${worker_status_port}/internal/workers/status",
     );
