@@ -68,9 +68,13 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...(imagePullSecret ? ["--set-string", `global.imagePullSecrets[0].name=${imagePullSecret}`] : []),
     ...Object.entries(envOverrides).flatMap(([name, value]) => [
       "--set-string",
-      `global.envOverrides.${name}=${value}`,
+      `global.envOverrides.${name}=${escapeHelmSetStringValue(value)}`,
     ]),
   ];
+}
+
+function escapeHelmSetStringValue(value) {
+  return String(value).replaceAll("\\", "\\\\").replaceAll(",", "\\,");
 }
 
 export function buildHelmRollbackArgs(options = {}) {

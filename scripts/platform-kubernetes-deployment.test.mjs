@@ -141,6 +141,25 @@ describe("platform Kubernetes deployment", () => {
     );
   });
 
+  it("escapes comma-separated runtime environment override values for Helm", () => {
+    expect(
+      buildHelmUpgradeArgs({
+        release: "production-platform",
+        namespace: "production",
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          PLATFORM_DATA_PROFILES: "critical-bootstrap,catalog-integration-bootstrap",
+        },
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        "--set-string",
+        "global.envOverrides.PLATFORM_DATA_PROFILES=critical-bootstrap\\,catalog-integration-bootstrap",
+      ]),
+    );
+  });
+
   it("rejects malformed runtime environment override names", () => {
     expect(() =>
       buildHelmUpgradeArgs({
