@@ -25,6 +25,7 @@ export const LOAD_EVIDENCE_PROFILES = Object.freeze({
     requireWakeStoreAvailable: false,
     minimumActiveWakeCapableWorkers: 0,
     maxWakeFailedCountAfter: 0,
+    allowInheritedWakeFailedIntents: true,
     maxWakeStaleClaimCountAfter: 0,
     maxWakeOldestQueuedAgeMsAfter: 60_000,
   }),
@@ -39,6 +40,7 @@ export const LOAD_EVIDENCE_PROFILES = Object.freeze({
     requireWakeStoreAvailable: true,
     minimumActiveWakeCapableWorkers: 1,
     maxWakeFailedCountAfter: 0,
+    allowInheritedWakeFailedIntents: false,
     maxWakeStaleClaimCountAfter: 0,
     maxWakeOldestQueuedAgeMsAfter: 30_000,
   }),
@@ -88,6 +90,10 @@ export function buildPushWakeLoadEvidence(input) {
   const wakeStatusBefore = normalizeWakeStatus(artifact.wakeStatusBefore);
   const wakeStatusAfter = normalizeWakeStatus(artifact.wakeStatusAfter);
   const wakePressure = normalizeWakePressure(wakeStatusBefore, wakeStatusAfter);
+  const wakeFailedIntentDelta = Math.max(
+    0,
+    wakeStatusAfter.intentSummary.failedCount - wakeStatusBefore.intentSummary.failedCount,
+  );
   const wakeRuntimeAfterLoad = normalizeWakeRuntimeReadiness(artifact.wakeRuntimeAfterLoad);
   const sourceContexts = readStringArray(artifact.sourceContexts);
   const verdictReasons = [];
@@ -157,7 +163,17 @@ export function buildPushWakeLoadEvidence(input) {
     verdictReasons.push("wake-store-status-unavailable-after-load");
   }
   if (wakeStatusAfter.intentSummary.failedCount > budgets.maxWakeFailedCountAfter) {
-    verdictReasons.push("wake-failed-intents-after-load");
+    if (budgets.allowInheritedWakeFailedIntents === true && wakeStatusBefore.present && wakeStatusAfter.present) {
+      if (wakeFailedIntentDelta > budgets.maxWakeFailedCountAfter) {
+        verdictReasons.push("wake-failed-intents-increased-after-load");
+      } else {
+        warnings.push(
+          `wake failed intents were inherited before the load window (${wakeStatusBefore.intentSummary.failedCount} before, ${wakeStatusAfter.intentSummary.failedCount} after).`,
+        );
+      }
+    } else {
+      verdictReasons.push("wake-failed-intents-after-load");
+    }
   }
   if (wakeStatusAfter.intentSummary.staleClaimCount > budgets.maxWakeStaleClaimCountAfter) {
     verdictReasons.push("wake-stale-claims-after-load");
@@ -216,6 +232,7 @@ export function buildPushWakeLoadEvidence(input) {
       wakeStatus: {
         before: wakeStatusBefore.summary,
         after: wakeStatusAfter.summary,
+        failedIntentDelta: wakeFailedIntentDelta,
       },
       wakePressure,
       wakeRuntime: {
