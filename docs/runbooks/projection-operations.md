@@ -89,6 +89,27 @@ Blocked-stream operations use those tiers:
 - A failed rebuild should leave the currently visible read model intact unless the projection has explicitly declared a safe generation or shadow-table cutover.
 - `generation-cutover` projections must write/read generation-scoped rows and should cut over only after replay catches up. Without a projection-specific adapter, generation cutover fails closed.
 
+## Rebuild RTO Benchmark
+
+Full projection rebuild wall time is the recovery-time objective for disposable or unlogged projection storage. Measure it against staging-scale representative commerce state before choosing cheaper projection storage, splitting projection stores, or accepting rebuild-on-crash recovery.
+
+Run the benchmark from an operator shell with the same database posture used by the target environment:
+
+```powershell
+pnpm run replay:projection -- platform-api benchmark --all --out artifacts/release-health/projection-rebuild-benchmark.json
+```
+
+To benchmark one context or only bootstrap-required groups:
+
+```powershell
+pnpm run replay:projection -- platform-api benchmark checkout --out artifacts/release-health/projection-rebuild-benchmark-checkout.json
+pnpm run replay:projection -- platform-api benchmark --all --required-only --out artifacts/release-health/projection-rebuild-benchmark-required.json
+```
+
+The artifact uses `projection-rebuild-benchmark/v1` and records total wall time, per-context wall time, projection group counts, pre/post replay summaries, and an estimated source-event scan rate. The estimate sums source head positions for the projection subscriptions included in the rebuild; when subscription filters are present, treat it as scan-distance evidence, not a distinct business-event count.
+
+Commit or attach the benchmark artifact with the runbook note that cites the measured total and slowest context. Rerun after material projection-handler changes, projection-group topology changes, or event-volume milestones; no calendar schedule is required.
+
 ## Ledger Maintenance
 
 Workers run `projection-ledger-compaction` as a separate maintenance runner. It removes applied ledger rows older than the durable checkpoint safety window and should not be run inline with event application.
