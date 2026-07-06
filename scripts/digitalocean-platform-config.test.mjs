@@ -2610,6 +2610,13 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformPreviewCleanupWorkflow).not.toContain("Wait for active App Platform deployment");
     expect(platformPreviewCleanupWorkflow).not.toContain("digitalocean-app-deployment.mjs");
+    expect(digitaloceanPlatformRunbook).toContain(
+      "Terraform destroy should converge the remaining state; inspect the uploaded cleanup logs before removing the state key by hand.",
+    );
+    expect(digitaloceanPlatformRunbook).not.toContain("waits for any active App Platform deployment to finish");
+    expect(digitaloceanPlatformRunbook).not.toContain(
+      "the DigitalOcean deployment helper treats the missing app as no active deployment to wait for",
+    );
   });
 
   it("opens or updates the quarterly DigitalOcean token rotation issue without DO secrets", () => {
