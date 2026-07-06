@@ -9,7 +9,7 @@ users:
     ssh_authorized_keys:
       - { { SSH_PUBLIC_KEY } }
 ssh_pwauth: false
-disable_root: false
+disable_root: true
 write_files:
   - path: /usr/local/bin/chase-sets-remote-dev
     permissions: "0755"
