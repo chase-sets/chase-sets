@@ -64,6 +64,7 @@ export type PurchaseUspsLabelRequest = Readonly<{
   idempotencyKey: string;
   serviceLevel: string;
   deliveryConfirmation?: "signature" | null;
+  insuranceAmount?: string | null;
   labelSize?: "4x6" | "6x4" | "7x3" | null;
   sender: PostageAddress;
   recipient: PostageAddress;

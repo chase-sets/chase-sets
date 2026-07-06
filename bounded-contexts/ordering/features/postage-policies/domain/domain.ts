@@ -204,16 +204,26 @@ function normalizePolicyPayload(payload: Partial<OrderingPostagePolicyPayload>):
       "Signature-required shipping option",
     ) as ShippingOption[],
     signatureRequiredDeclaredValueAmount:
-      payload.signatureRequiredDeclaredValueAmount == null
-        ? null
-        : normalizeNumber(payload.signatureRequiredDeclaredValueAmount, "Signature-required declared value", {
-            allowZero: true,
-          }),
+      payload.signatureRequiredDeclaredValueAmount === undefined
+        ? defaultPostagePolicy.signatureRequiredDeclaredValueAmount
+        : payload.signatureRequiredDeclaredValueAmount === null
+          ? null
+          : normalizeNumber(payload.signatureRequiredDeclaredValueAmount, "Signature-required declared value", {
+              allowZero: true,
+            }),
     signatureRequiredPhysicalFlags: normalizeOptionList(
       payload.signatureRequiredPhysicalFlags,
       physicalFlags,
       "Signature-required physical flag",
     ) as ProductPhysicalFlag[],
+    insuranceRequiredDeclaredValueAmount:
+      payload.insuranceRequiredDeclaredValueAmount === undefined
+        ? defaultPostagePolicy.insuranceRequiredDeclaredValueAmount
+        : payload.insuranceRequiredDeclaredValueAmount === null
+          ? null
+          : normalizeNumber(payload.insuranceRequiredDeclaredValueAmount, "Insurance-required declared value", {
+              allowZero: true,
+            }),
   };
 }
 

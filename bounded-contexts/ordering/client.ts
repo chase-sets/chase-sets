@@ -91,6 +91,10 @@ export type CheckoutFulfillmentPreview = Readonly<{
       parcelReasons: readonly string[];
       signatureRequired: boolean;
       signatureReasons: readonly string[];
+      insuranceRequired: boolean;
+      insuranceReasons: readonly string[];
+      insuredValueAmount: string | null;
+      shippingEvidenceTier: string;
     }>;
     deliveryEstimate: Readonly<{
       earliestDate: string;

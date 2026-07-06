@@ -329,6 +329,26 @@ export function FulfillmentShipmentDetailPage({
                   value: formatPostagePolicyReasons(postagePolicySnapshot.signatureReasons),
                   tone: postagePolicySnapshot.signatureReasons.length > 0 ? "warning" : "success",
                 },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.required"),
+                  value: formatPostagePolicyRequirement(postagePolicySnapshot.insuranceRequired),
+                  tone: postagePolicySnapshot.insuranceRequired ? "warning" : "success",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.reasons"),
+                  value: formatPostagePolicyReasons(postagePolicySnapshot.insuranceReasons),
+                  tone: postagePolicySnapshot.insuranceReasons.length > 0 ? "warning" : "success",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insured.value"),
+                  value:
+                    postagePolicySnapshot.insuredValueAmount ??
+                    t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.evidence.tier"),
+                  value: postagePolicySnapshot.shippingEvidenceTier,
+                },
               ]}
             />
           ) : null}
@@ -392,6 +412,19 @@ export function FulfillmentShipmentDetailPage({
                   tone: postagePolicySnapshot?.signatureRequired ? "warning" : "success",
                 },
                 {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.required"),
+                  value: postagePolicySnapshot
+                    ? formatPostagePolicyRequirement(postagePolicySnapshot.insuranceRequired)
+                    : t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
+                  tone: postagePolicySnapshot?.insuranceRequired ? "warning" : "success",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.evidence.tier"),
+                  value:
+                    postagePolicySnapshot?.shippingEvidenceTier ??
+                    t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
+                },
+                {
                   label: t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status"),
                   value: shipment.label_error_code
                     ? `${shipment.label_status} (${shipment.label_error_code})`
@@ -437,6 +470,10 @@ export function FulfillmentShipmentDetailPage({
                           value: formatDiagnosticValue(operation.requested_delivery_confirmation),
                         },
                         {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.amount"),
+                          value: formatDiagnosticValue(operation.requested_insurance_amount),
+                        },
+                        {
                           label: t("fulfillment.features.shipments.ui.shipmentDetailPage.mailpiece.class"),
                           value: formatDiagnosticValue(operation.requested_mailpiece_class),
                         },
@@ -451,6 +488,18 @@ export function FulfillmentShipmentDetailPage({
                         {
                           label: t("fulfillment.features.shipments.ui.shipmentDetailPage.signature.required"),
                           value: formatDiagnosticBoolean(operation.signature_required),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.required"),
+                          value: formatDiagnosticBoolean(operation.insurance_required),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insured.value"),
+                          value: formatDiagnosticValue(operation.insured_value_amount),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.evidence.tier"),
+                          value: formatDiagnosticValue(operation.shipping_evidence_tier),
                         },
                       ]}
                     />

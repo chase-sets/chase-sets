@@ -50,6 +50,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Shipment | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Physical delivery execution for an order. |
 | Package Plan | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Immutable package dimensions, weight, mailpiece class, and measurement-version snapshot executed by Fulfillment. |
 | Letter Mailpiece | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Non-parcel shipment path for eligible low-risk raw-card orders. |
+| Shipping Evidence Tier | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Evaluated delivery-evidence level committed to the order shipping plan and consumed by Fulfillment. |
+| Carrier Insurance Required | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Postage policy result requiring carrier insurance on the label request for high-value orders. |
 | Cancellation Cutoff | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Shipment state boundary that closes self-service purchase cancellation. |
 | Review | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Post-transaction account evaluation. |
 | Payment | [Payments](../bounded-contexts/payments/GLOSSARY.md) | External charge or refund workflow. |
@@ -89,6 +91,12 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Payment Handler | [Payments](../bounded-contexts/payments/GLOSSARY.md) | UCP-facing payment method declaration and instrument-processing contract owned by Payments. |
 | Shared Payment Token | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Provider-scoped agent payment credential grant processed without raw card handling. |
 | AP2 Mandate | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Verifiable autonomous-payment authority required before headless checkout completion can bypass trusted UI handoff. |
+
+## Cross-Context Disambiguation
+
+| Term | Source of truth | Other context use |
+| --- | --- | --- |
+| Shipping Evidence Tier | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) evaluates and stores the tier in the order shipping plan. | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) consumes the committed tier during label purchase and records it on postage diagnostics. |
 
 ## Local Glossaries
 

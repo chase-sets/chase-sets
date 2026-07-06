@@ -75,6 +75,7 @@ const comparableFields = [
   "signatureRequiredShippingOptions",
   "signatureRequiredDeclaredValueAmount",
   "signatureRequiredPhysicalFlags",
+  "insuranceRequiredDeclaredValueAmount",
 ] as const satisfies readonly (keyof PostagePolicy)[];
 
 function formatComparableValue(value: unknown) {

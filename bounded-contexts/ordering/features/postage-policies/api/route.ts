@@ -58,7 +58,10 @@ function readArray(value: unknown) {
 }
 
 function readNullableNumber(value: unknown) {
-  if (value == null || value === "") {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || value === "") {
     return null;
   }
   return Number(value);
@@ -89,6 +92,7 @@ function policyPayload(body: Record<string, unknown>): Partial<OrderingPostagePo
     signatureRequiredPhysicalFlags: readArray(
       body.signatureRequiredPhysicalFlags,
     ) as OrderingPostagePolicyPayload["signatureRequiredPhysicalFlags"],
+    insuranceRequiredDeclaredValueAmount: readNullableNumber(body.insuranceRequiredDeclaredValueAmount),
   };
 }
 

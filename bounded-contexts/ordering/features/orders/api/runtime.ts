@@ -232,6 +232,10 @@ export type CheckoutFulfillmentPreview = Readonly<{
       parcelReasons: readonly string[];
       signatureRequired: boolean;
       signatureReasons: readonly string[];
+      insuranceRequired: boolean;
+      insuranceReasons: readonly string[];
+      insuredValueAmount: string | null;
+      shippingEvidenceTier: string;
     }>;
     deliveryEstimate: Readonly<{
       earliestDate: string;
@@ -936,6 +940,10 @@ function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) 
           group.postageRequirements.parcelReasons.join("+"),
           group.postageRequirements.signatureRequired ? "signature" : "no-signature",
           group.postageRequirements.signatureReasons.join("+"),
+          group.postageRequirements.insuranceRequired ? "insurance" : "no-insurance",
+          group.postageRequirements.insuranceReasons.join("+"),
+          group.postageRequirements.insuredValueAmount ?? "",
+          group.postageRequirements.shippingEvidenceTier,
           group.deliveryEstimate.earliestDate,
           group.deliveryEstimate.latestDate,
           group.deliveryEstimate.basis,
@@ -966,6 +974,8 @@ function fulfillmentDeliveryPromiseForDraft(
   const serviceLevels = [
     ...draft.shippingPlanSnapshot.packages.map((pkg) => pkg.serviceLevel),
     ...(postagePolicySnapshot.signatureRequired ? ["signature-required"] : []),
+    ...(postagePolicySnapshot.insuranceRequired ? ["insurance-required"] : []),
+    postagePolicySnapshot.shippingEvidenceTier,
   ];
 
   return createFulfillmentDeliveryPromise({
@@ -993,6 +1003,10 @@ function postageRequirementsForDraft(draft: SellerOrderDraft) {
     parcelReasons: snapshot.parcelReasons,
     signatureRequired: snapshot.signatureRequired,
     signatureReasons: snapshot.signatureReasons,
+    insuranceRequired: snapshot.insuranceRequired,
+    insuranceReasons: snapshot.insuranceReasons,
+    insuredValueAmount: snapshot.insuredValueAmount,
+    shippingEvidenceTier: snapshot.shippingEvidenceTier,
   };
 }
 

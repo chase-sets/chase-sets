@@ -46,6 +46,7 @@ export function postagePolicyRequestFromForm(formData: FormData): PostagePolicyC
       formData,
       "signatureRequiredPhysicalFlags",
     ) as PostagePolicyCommandRequest["signatureRequiredPhysicalFlags"],
+    insuranceRequiredDeclaredValueAmount: formNullableNumber(formData, "insuranceRequiredDeclaredValueAmount"),
   };
 }
 

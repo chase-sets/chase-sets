@@ -101,6 +101,61 @@ describe("EasyPost postage adapter", () => {
     });
   });
 
+  it("requests signature confirmation and insurance on EasyPost shipment options", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/shipments")) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.shipment.options).toMatchObject({
+          label_format: "PDF",
+          delivery_confirmation: "SIGNATURE",
+          insurance: "500.00",
+        });
+        return Response.json({
+          id: "shp_provider_1",
+          mode: "test",
+          rates: [
+            {
+              id: "rate_1",
+              carrier: "USPS",
+              service: "USPS_GROUND_ADVANTAGE",
+              rate: "4.99",
+              currency: "USD",
+            },
+          ],
+        });
+      }
+
+      return Response.json({
+        id: "shp_provider_1",
+        mode: "test",
+        selected_rate: {
+          id: "rate_1",
+          carrier: "USPS",
+          service: "USPS_GROUND_ADVANTAGE",
+          rate: "4.99",
+          currency: "USD",
+        },
+        postage_label: {
+          id: "pl_1",
+          label_pdf_url: "https://labels.easypost.test/pl_1.pdf",
+        },
+        tracker: { id: "trk_1" },
+        tracking_code: "940000000000000000",
+      });
+    });
+    const provider = createEasyPostPostageLabelProvider({
+      apiKey: "EZTK_test",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    await provider.purchaseUspsLabel({
+      ...sampleRequest,
+      deliveryConfirmation: "signature",
+      insuranceAmount: "500.00",
+    });
+  });
+
   it("passes Letter Mail package and label-size intent to EasyPost", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

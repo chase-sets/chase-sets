@@ -24,6 +24,7 @@ describe("ordering postage policies", () => {
         signatureRequiredShippingOptions: ["priority"],
         signatureRequiredDeclaredValueAmount: 100,
         signatureRequiredPhysicalFlags: ["slab"],
+        insuranceRequiredDeclaredValueAmount: 500,
       },
     });
 
@@ -34,6 +35,7 @@ describe("ordering postage policies", () => {
           policyVersion: "operator-postage-v1",
           signatureRequiredShippingOptions: ["priority"],
           signatureRequiredDeclaredValueAmount: 100,
+          insuranceRequiredDeclaredValueAmount: 500,
         }),
       },
     });
@@ -41,6 +43,29 @@ describe("ordering postage policies", () => {
     const state = events.reduce(evolvePostagePolicy, initialPostagePolicyState);
     expect(state.status).toBe("draft");
     expect(state.payload?.parcelRequiredPhysicalFlags).toEqual(["slab"]);
+  });
+
+  it("uses platform default value tiers when draft thresholds are omitted", () => {
+    const events = decidePostagePolicy(initialPostagePolicyState, {
+      type: "CreatePostagePolicy",
+      policyId: "opp_default_tiers",
+      label: "Default postage policy",
+      createdByUserId: "usr_admin",
+      effectiveFrom: "2026-06-01T00:00:00.000Z",
+      effectiveUntil: null,
+      payload: {
+        policyVersion: "operator-postage-v1",
+      },
+    });
+
+    expect(events[0]).toMatchObject({
+      data: {
+        payload: expect.objectContaining({
+          signatureRequiredDeclaredValueAmount: 250,
+          insuranceRequiredDeclaredValueAmount: 500,
+        }),
+      },
+    });
   });
 
   it("rejects unsupported policy values", () => {

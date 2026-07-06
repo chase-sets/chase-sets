@@ -111,6 +111,17 @@ export function PostagePolicyFormFields({ policy = defaultPostagePolicy }: { pol
               : String(policy.signatureRequiredDeclaredValueAmount)
           }
         />
+        <NumberInput
+          label={t("ordering.features.postagePolicies.ui.form.insurance.declared.value")}
+          name="insuranceRequiredDeclaredValueAmount"
+          min="0"
+          step="0.01"
+          defaultValue={
+            policy.insuranceRequiredDeclaredValueAmount == null
+              ? ""
+              : String(policy.insuranceRequiredDeclaredValueAmount)
+          }
+        />
       </Grid>
 
       <PageSection title={t("ordering.features.postagePolicies.ui.form.parcel.requirements")}>

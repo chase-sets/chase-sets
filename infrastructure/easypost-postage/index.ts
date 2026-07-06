@@ -224,6 +224,7 @@ export function createEasyPostPostageLabelProvider(
               label_format: "PDF",
               ...(request.labelSize ? { label_size: request.labelSize } : {}),
               ...(request.deliveryConfirmation === "signature" ? { delivery_confirmation: "SIGNATURE" } : {}),
+              ...(request.insuranceAmount ? { insurance: request.insuranceAmount } : {}),
             },
           },
         }),

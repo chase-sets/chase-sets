@@ -39,22 +39,31 @@ describe("measured package planning", () => {
     expect(plan.packages[0]?.mailpieceClass).toBe("letter");
     expect(plan.letterEligibility.eligible).toBe(true);
     expect(plan.postagePolicySnapshot).toMatchObject({
-      policyVersion: "default-postage-policy-v1",
+      policyVersion: "default-postage-policy-v2",
       parcelRequired: false,
       signatureRequired: false,
+      insuranceRequired: false,
+      insuredValueAmount: null,
+      shippingEvidenceTier: "letter-untracked",
     });
   });
 
-  it("moves raw singles to parcel when value exceeds the letter cap", () => {
+  it.each([
+    ["50.00", "letter", false],
+    ["50.01", "parcel", true],
+  ])("applies the letter-class value cap above %s", (itemSubtotalAmount, mailpieceClass, parcelRequired) => {
     const plan = buildPackagePlan({
       shippingOption: "standard",
-      itemSubtotalAmount: "125.00",
+      itemSubtotalAmount,
       lines: [{ productId: rawCardMeasure.productId, quantity: 1, measure: rawCardMeasure }],
     });
 
-    expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
-    expect(plan.letterEligibility.reasons).toContain("declared-value-requires-parcel");
-    expect(plan.postagePolicySnapshot?.parcelReasons).toContain("declared-value-requires-parcel");
+    expect(plan.packages[0]?.mailpieceClass).toBe(mailpieceClass);
+    expect(plan.postagePolicySnapshot?.parcelRequired).toBe(parcelRequired);
+    if (parcelRequired) {
+      expect(plan.letterEligibility.reasons).toContain("declared-value-requires-parcel");
+      expect(plan.postagePolicySnapshot?.parcelReasons).toContain("declared-value-requires-parcel");
+    }
   });
 
   it("moves slabs to parcel even when quantity and value are small", () => {
@@ -78,13 +87,59 @@ describe("measured package planning", () => {
 
     expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
     expect(plan.postagePolicySnapshot).toMatchObject({
-      policyVersion: "default-postage-policy-v1",
+      policyVersion: "default-postage-policy-v2",
       parcelRequired: true,
       signatureRequired: true,
+      insuranceRequired: false,
+      shippingEvidenceTier: "signature-confirmed",
     });
     expect(plan.postagePolicySnapshot?.parcelReasons).toContain("shipping-option-requires-parcel");
     expect(plan.postagePolicySnapshot?.signatureReasons).toContain("shipping-option-requires-signature");
   });
+
+  it.each([
+    ["249.99", false, "tracked-parcel"],
+    ["250.00", true, "signature-confirmed"],
+    ["250.01", true, "signature-confirmed"],
+  ])("applies the signature-required value threshold at %s", (itemSubtotalAmount, signatureRequired, evidenceTier) => {
+    const plan = buildPackagePlan({
+      shippingOption: "standard",
+      itemSubtotalAmount,
+      lines: [{ productId: slabMeasure.productId, quantity: 1, measure: slabMeasure }],
+    });
+
+    expect(plan.postagePolicySnapshot).toMatchObject({
+      signatureRequired,
+      shippingEvidenceTier: evidenceTier,
+    });
+    if (signatureRequired) {
+      expect(plan.postagePolicySnapshot?.signatureReasons).toContain("declared-value-requires-signature");
+    }
+  });
+
+  it.each([
+    ["499.99", false, null, "signature-confirmed"],
+    ["500.00", true, "500.00", "carrier-insured"],
+    ["500.01", true, "500.01", "carrier-insured"],
+  ])(
+    "applies the carrier insurance value threshold at %s",
+    (itemSubtotalAmount, insuranceRequired, insuredValueAmount, evidenceTier) => {
+      const plan = buildPackagePlan({
+        shippingOption: "standard",
+        itemSubtotalAmount,
+        lines: [{ productId: slabMeasure.productId, quantity: 1, measure: slabMeasure }],
+      });
+
+      expect(plan.postagePolicySnapshot).toMatchObject({
+        insuranceRequired,
+        insuredValueAmount,
+        shippingEvidenceTier: evidenceTier,
+      });
+      if (insuranceRequired) {
+        expect(plan.postagePolicySnapshot?.insuranceReasons).toContain("declared-value-requires-insurance");
+      }
+    },
+  );
 
   it("supports custom policy versions and declared-value signature thresholds", () => {
     const plan = buildPackagePlan({
@@ -95,6 +150,7 @@ describe("measured package planning", () => {
         policyVersion: "operator-policy-v2",
         maxLetterDeclaredValueAmount: 100,
         signatureRequiredDeclaredValueAmount: 50,
+        insuranceRequiredDeclaredValueAmount: null,
       },
     });
 
@@ -103,6 +159,8 @@ describe("measured package planning", () => {
       policyVersion: "operator-policy-v2",
       parcelRequired: false,
       signatureRequired: true,
+      insuranceRequired: false,
+      shippingEvidenceTier: "signature-confirmed",
     });
     expect(plan.postagePolicySnapshot?.signatureReasons).toContain("declared-value-requires-signature");
   });
