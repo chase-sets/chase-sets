@@ -11,8 +11,8 @@ Use this runbook only after the target DOKS cluster exists through `infrastructu
 | DOKS Terraform state | `doks/staging.tfstate` | `doks/production.tfstate` |
 | Runtime Terraform state | `landing/staging.tfstate` | `landing/production.tfstate` |
 | Environment DNS state | `environment-dns/staging.tfstate` | production DNS stays in platform/runtime roots until cutover |
-| Helm release | `chase-sets-staging` | `chase-sets-production` |
-| Namespace | `staging` | `production` |
+| Helm release | `chase-sets-platform` | `chase-sets-platform` |
+| Namespace | `chase-sets-platform` | `chase-sets-platform` |
 | Runtime Secret | `chase-sets-platform-runtime` | `chase-sets-platform-runtime` |
 
 The chart renders these runtime Deployments when their component is enabled:
@@ -51,14 +51,16 @@ kubectl config current-context
 
 Use the GitHub Actions workflows for normal deploys and evidence. Use `Platform Staging Helm Recovery` (`.github/workflows/platform-staging-helm-recovery.yml`) for owner-approved staging Helm rollback recovery when a DOKS release is stuck or a staging deploy cannot progress. Use a local operator shell only for incident investigation, cutover rehearsal, or an owner-approved emergency recovery that cannot be completed through a workflow.
 
+Use `Platform Staging Bootstrap Hook Drill` (`.github/workflows/platform-staging-bootstrap-hook-drill.yml`) for the staging-only bootstrap hook acceptance drill. Dispatch requires the exact confirmation phrase `run staging bootstrap hook drill`. The workflow uses the current staging DOKS release `chase-sets-platform` and namespace `chase-sets-platform`, captures redacted Helm/Kubernetes/smoke artifacts, records `held-lock-blocker.json` instead of opening live database locks, runs a successful Helm upgrade that exercises worker quiesce before runtime pods roll, then runs a controlled failed-bootstrap upgrade with non-secret values and verifies Helm atomic rollback plus smoke.
+
 ## Deploy And Rollout Status
 
 Normal DOKS deploys should use the rollout helper so Helm arguments, workload names, and evidence stay source-owned:
 
 ```bash
 pnpm run platform:kubernetes-deployment -- deploy \
-  --release chase-sets-staging \
-  --namespace staging \
+  --release chase-sets-platform \
+  --namespace chase-sets-platform \
   --image registry.digitalocean.com/chase-sets/chase-sets-platform:<release-commit> \
   --timeout 10m
 ```
@@ -66,18 +68,18 @@ pnpm run platform:kubernetes-deployment -- deploy \
 Quick inspection commands:
 
 ```bash
-helm status chase-sets-staging --namespace staging
-helm history chase-sets-staging --namespace staging
-kubectl rollout status deployment/chase-sets-staging-chase-sets-platform-platform-api --namespace staging --timeout=10m
-kubectl get deployments,jobs,pods,events --namespace staging --sort-by=.metadata.creationTimestamp
+helm status chase-sets-platform --namespace chase-sets-platform
+helm history chase-sets-platform --namespace chase-sets-platform
+kubectl rollout status deployment/chase-sets-platform-chase-sets-platform-platform-api --namespace chase-sets-platform --timeout=10m
+kubectl get deployments,jobs,pods,events --namespace chase-sets-platform --sort-by=.metadata.creationTimestamp
 ```
 
 If `platform-bootstrap` fails, inspect the hook Job before retrying:
 
 ```bash
-kubectl get jobs --namespace staging
-kubectl describe job --namespace staging -l app.kubernetes.io/component=platform-bootstrap
-kubectl logs --namespace staging -l app.kubernetes.io/component=platform-bootstrap --all-containers --tail=300
+kubectl get jobs --namespace chase-sets-platform
+kubectl describe job --namespace chase-sets-platform -l app.kubernetes.io/component=platform-bootstrap
+kubectl logs --namespace chase-sets-platform -l app.kubernetes.io/component=platform-bootstrap --all-containers --tail=300
 ```
 
 Do not scale runtime Deployments by hand during a normal release. The bootstrap hook owns worker quiesce for release-time schema/seed work, and Helm owns runtime replica convergence.
@@ -88,19 +90,19 @@ Use the source-owned diagnostics command first:
 
 ```bash
 pnpm run platform:kubernetes-deployment -- diagnostics \
-  --release chase-sets-staging \
-  --namespace staging
+  --release chase-sets-platform \
+  --namespace chase-sets-platform
 ```
 
 Manual equivalents:
 
 ```bash
-kubectl describe deployment --namespace staging -l app.kubernetes.io/instance=chase-sets-staging
-kubectl get pods --namespace staging -o wide
-kubectl logs --namespace staging -l app.kubernetes.io/component=platform-api --all-containers --tail=300
-kubectl logs --namespace staging -l app.kubernetes.io/component=platform-worker --all-containers --tail=300
-kubectl describe ingress --namespace staging
-kubectl get certificates,certificaterequests,orders,challenges --namespace staging
+kubectl describe deployment --namespace chase-sets-platform -l app.kubernetes.io/instance=chase-sets-platform
+kubectl get pods --namespace chase-sets-platform -o wide
+kubectl logs --namespace chase-sets-platform -l app.kubernetes.io/component=platform-api --all-containers --tail=300
+kubectl logs --namespace chase-sets-platform -l app.kubernetes.io/component=platform-worker --all-containers --tail=300
+kubectl describe ingress --namespace chase-sets-platform
+kubectl get certificates,certificaterequests,orders,challenges --namespace chase-sets-platform
 ```
 
 For node issues:
@@ -109,7 +111,7 @@ For node issues:
 kubectl get nodes -o wide
 kubectl describe node <node-name>
 kubectl top nodes
-kubectl top pods --namespace staging
+kubectl top pods --namespace chase-sets-platform
 ```
 
 If a node is NotReady, first confirm DigitalOcean maintenance or DOKS node-pool events in the DigitalOcean console or `doctl kubernetes cluster node-pool list <cluster-id>`. Do not drain or delete nodes during a deploy unless the release owner confirms Helm is idle and there is enough remaining capacity for the live replica set.
@@ -120,8 +122,8 @@ Rollback uses Helm release history, not App Platform image mutation. The automat
 
 ```bash
 pnpm run platform:kubernetes-deployment -- rollback \
-  --release chase-sets-production \
-  --namespace production \
+  --release chase-sets-platform \
+  --namespace chase-sets-platform \
   --timeout 10m
 ```
 
@@ -131,8 +133,8 @@ To roll back to a specific revision:
 
 ```bash
 pnpm run platform:kubernetes-deployment -- rollback \
-  --release chase-sets-production \
-  --namespace production \
+  --release chase-sets-platform \
+  --namespace chase-sets-platform \
   --revision <revision> \
   --timeout 10m
 ```
@@ -149,13 +151,13 @@ After rollback:
 Runtime Secrets are Kubernetes-owned and are not rendered by the chart. The source-owned helper derives required keys from the chart and applies a Kubernetes Secret without printing values:
 
 ```bash
-node ./scripts/platform-kubernetes-secret.mjs --namespace staging
+node ./scripts/platform-kubernetes-secret.mjs --namespace chase-sets-platform
 ```
 
 Use dry run to confirm key shape:
 
 ```bash
-node ./scripts/platform-kubernetes-secret.mjs --dry-run --namespace staging
+node ./scripts/platform-kubernetes-secret.mjs --dry-run --namespace chase-sets-platform
 ```
 
 Rotation sequence:
@@ -174,10 +176,10 @@ Ingress stays disabled until the ingress controller, cert-manager issuer, and DO
 Ingress inspection:
 
 ```bash
-kubectl get ingress --namespace staging
-kubectl describe ingress --namespace staging
+kubectl get ingress --namespace chase-sets-platform
+kubectl describe ingress --namespace chase-sets-platform
 kubectl get service --all-namespaces | grep -i loadbalancer
-kubectl get certificates,orders,challenges --namespace staging
+kubectl get certificates,orders,challenges --namespace chase-sets-platform
 ```
 
 DNS cutover sequence:

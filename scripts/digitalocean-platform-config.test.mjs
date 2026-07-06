@@ -96,7 +96,12 @@ const platformStagingHelmRecoveryWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-helm-recovery.yml"),
   "utf8",
 );
+const platformStagingBootstrapHookDrillWorkflow = readFileSync(
+  resolve(".github/workflows/platform-staging-bootstrap-hook-drill.yml"),
+  "utf8",
+);
 const digitaloceanPlatformRunbook = readFileSync(resolve("docs/runbooks/digitalocean-platform-deployment.md"), "utf8");
+const doksPlatformOperationsRunbook = readFileSync(resolve("docs/runbooks/doks-platform-operations.md"), "utf8");
 const productionPgBouncerSessionSafety = readFileSync(
   resolve("docs/architecture/production-pgbouncer-session-safety.md"),
   "utf8",
@@ -2896,6 +2901,58 @@ describe("DigitalOcean platform configuration", () => {
     expect(uploadStep).toContain("platform-staging-helm-recovery-${{ github.run_id }}-${{ github.run_attempt }}");
     expect(platformStagingHelmRecoveryWorkflow).not.toContain("environment: production");
     expect(platformStagingHelmRecoveryWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
+  });
+
+  it("runs the staging bootstrap hook acceptance drill as a confirmed DOKS-only workflow", () => {
+    const drillJob = workflowJob(platformStagingBootstrapHookDrillWorkflow, "staging-bootstrap-hook-drill");
+    const kubeconfigStep = workflowStep(
+      platformStagingBootstrapHookDrillWorkflow,
+      "Configure staging Kubernetes context",
+    );
+    const smokeDomainsStep = workflowStep(platformStagingBootstrapHookDrillWorkflow, "Resolve staging smoke domains");
+    const drillStep = workflowStep(platformStagingBootstrapHookDrillWorkflow, "Run staging bootstrap hook drill");
+    const uploadStep = workflowStep(
+      platformStagingBootstrapHookDrillWorkflow,
+      "Upload staging bootstrap hook drill evidence",
+    );
+
+    expect(platformStagingBootstrapHookDrillWorkflow).toContain("workflow_dispatch:");
+    expect(platformStagingBootstrapHookDrillWorkflow).toContain("run staging bootstrap hook drill");
+    expect(platformStagingBootstrapHookDrillWorkflow).toContain("drill_reference");
+    expect(platformStagingBootstrapHookDrillWorkflow).toContain("permissions:\n  contents: read");
+    expect(platformStagingBootstrapHookDrillWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformStagingBootstrapHookDrillWorkflow).toContain("cancel-in-progress: false");
+    expect(drillJob).toContain("environment: staging");
+    expect(drillJob).toContain("timeout-minutes: 90");
+    expect(drillJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
+    expect(drillJob).toContain("CHASE_SETS_HELM_RELEASE: chase-sets-platform");
+    expect(drillJob).toContain("CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform");
+    expect(drillJob).toContain("STAGING_BOOTSTRAP_HOOK_DRILL_OUT_DIR: artifacts/staging-bootstrap-hook-drill");
+    expect(kubeconfigStep).toContain("infrastructure/digitalocean/doks");
+    expect(kubeconfigStep).toContain("-backend-config=key=doks/staging.tfstate");
+    expect(smokeDomainsStep).toContain("-backend-config=key=landing/staging.tfstate");
+    expect(smokeDomainsStep).toContain("LANDING_URL=https://${landing_domain}");
+    expect(smokeDomainsStep).toContain("MARKETPLACE_ROOT_WEB_URL=https://${staging_root_marketplace_domain}");
+    expect(drillStep).toContain("node ./scripts/staging-bootstrap-hook-drill.mjs");
+    expect(drillStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
+    expect(drillStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(drillStep).toContain('--out-dir "$STAGING_BOOTSTRAP_HOOK_DRILL_OUT_DIR"');
+    expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(uploadStep).toContain(
+      "platform-staging-bootstrap-hook-drill-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+    expect(platformStagingBootstrapHookDrillWorkflow).not.toContain("environment: production");
+    expect(platformStagingBootstrapHookDrillWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
+  });
+
+  it("documents DOKS staging operations with current Helm release and namespace names", () => {
+    expect(doksPlatformOperationsRunbook).toContain("| Helm release | `chase-sets-platform` |");
+    expect(doksPlatformOperationsRunbook).toContain("| Namespace | `chase-sets-platform` |");
+    expect(doksPlatformOperationsRunbook).toContain("Platform Staging Bootstrap Hook Drill");
+    expect(doksPlatformOperationsRunbook).toContain("run staging bootstrap hook drill");
+    expect(doksPlatformOperationsRunbook).toContain("held-lock-blocker.json");
+    expect(doksPlatformOperationsRunbook).not.toContain("--release chase-sets-staging");
+    expect(doksPlatformOperationsRunbook).not.toContain("--namespace staging");
   });
 
   it("gates production promotion on staging marketplace critical flows", () => {
