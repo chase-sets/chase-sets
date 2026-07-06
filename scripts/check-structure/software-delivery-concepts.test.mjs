@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   findSoftwareDeliveryConceptViolations,
+  isFeatureFlagCompositionEdgeFile,
+  isFeatureFlagDomainFile,
   isSoftwareDeliveryConceptGuardedFile,
 } from "./software-delivery-concepts.mjs";
 
@@ -83,8 +85,51 @@ describe("software delivery concepts guard", () => {
     expect(labelsFor("bounded-contexts/platform-operations/domain/x.ts", "const featureRollout = {};")).toContain(
       "featureRollout deploy gate",
     );
-    expect(labelsFor("deployables/admin-web/app/feature-rollout/page.tsx", "")).toContain(
+    expect(labelsFor("bounded-contexts/platform-operations/features/release/domain/feature-rollout.ts", "")).toContain(
       "feature-rollout deploy gate",
+    );
+  });
+
+  it("classifies feature-flag composition edges and deterministic domain files", () => {
+    expect(isFeatureFlagCompositionEdgeFile("deployables/admin-web/app/routes/flags.tsx")).toBe(true);
+    expect(isFeatureFlagCompositionEdgeFile("bounded-contexts/checkout/routes/account.tsx")).toBe(true);
+    expect(isFeatureFlagCompositionEdgeFile("bounded-contexts/checkout/features/sessions/api/route.ts")).toBe(true);
+    expect(isFeatureFlagCompositionEdgeFile("bounded-contexts/checkout/features/sessions/ui/review.tsx")).toBe(true);
+    expect(isFeatureFlagCompositionEdgeFile("bounded-contexts/checkout/features/sessions/domain/decider.ts")).toBe(
+      false,
+    );
+
+    expect(isFeatureFlagDomainFile("bounded-contexts/checkout/features/sessions/domain/decider.ts")).toBe(true);
+    expect(isFeatureFlagDomainFile("bounded-contexts/checkout/features/sessions/api/route.ts")).toBe(false);
+  });
+
+  it("allows OpenFeature usage at composition edges", () => {
+    const routeFlag = `
+      import { OpenFeature } from "@openfeature/server-sdk";
+      const client = OpenFeature.getClient("checkout");
+      await client.getBooleanValue("checkout.stripe-payment-element", false, evaluationContext);
+    `;
+
+    expect(labelsFor("bounded-contexts/checkout/features/sessions/api/route.ts", routeFlag)).toEqual([]);
+    expect(labelsFor("bounded-contexts/checkout/features/sessions/ui/payment-review.tsx", routeFlag)).toEqual([]);
+    expect(labelsFor("deployables/platform-api/src/runtime.ts", routeFlag)).toEqual([]);
+  });
+
+  it("flags feature flag evaluation in deciders and domain code", () => {
+    const deciderFlag = `
+      import { OpenFeature } from "@openfeature/server-sdk";
+      const flagClient = OpenFeature.getClient("ordering");
+      export function decide() {
+        return flagClient.getBooleanValue("ordering.new-reservation-flow", false);
+      }
+    `;
+
+    expect(labelsFor("bounded-contexts/ordering/features/orders/domain/decider.ts", deciderFlag)).toEqual(
+      expect.arrayContaining([
+        "OpenFeature evaluation in domain code",
+        "feature flag evaluation in domain code",
+        "typed flag-value evaluation in domain code",
+      ]),
     );
   });
 

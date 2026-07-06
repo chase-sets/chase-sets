@@ -284,7 +284,7 @@ Operators inspect release state from CI evidence, not an in-app dashboard. The `
 
 ## Feature Rollout Controls
 
-Feature rollout is a delivery concern owned by CI (`.github/workflows`) and `scripts/`, not by the application. The rollout policy is a deterministic evaluation contract expressed in a release-health policy file and resolved by the deterministic rollout evaluator; the application does not persist, serve, or render rollout policy. Pre-launch, feature flags are not retained: a guarded capability is exposed by an explicit rollout policy and removed once it ships.
+Feature rollout for release-health is a delivery concern owned by CI (`.github/workflows`) and `scripts/`, not by the application. The rollout policy is a deterministic evaluation contract expressed in a release-health policy file and resolved by the deterministic rollout evaluator; the application does not persist, serve, or render that policy. Pre-launch, feature flags were not retained: a guarded capability was exposed by an explicit rollout policy and removed once it shipped. Product-surface flags are now governed separately by [ADR 0019: Feature Flags And Rollout Boundaries](../adr/0019-feature-flags-rollout-boundaries.md): flags may gate surfaces at composition edges, but never domain decisions or event semantics.
 
 Supported primitives:
 
