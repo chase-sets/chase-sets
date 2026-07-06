@@ -274,6 +274,21 @@ describe("postgres event store", () => {
     expect(disabledPool.calls.some((call) => call.sql === "SELECT pg_notify($1, $2)")).toBe(false);
   });
 
+  it("uses one event INSERT statement for appends of any event count", async () => {
+    const singleEventCalls = await appendAndCaptureQueries(1);
+    const multiEventCalls = await appendAndCaptureQueries(5);
+    const singleEventInserts = singleEventCalls.filter(isEventInsertCall);
+    const multiEventInserts = multiEventCalls.filter(isEventInsertCall);
+
+    expect(singleEventCalls).toHaveLength(multiEventCalls.length);
+    expect(singleEventInserts).toHaveLength(1);
+    expect(multiEventInserts).toHaveLength(1);
+    expect(singleEventInserts[0].params).toHaveLength(17);
+    expect(multiEventInserts[0].params).toHaveLength(17 * 5);
+    expect(multiEventInserts[0].sql).toContain("($1, $2, $3");
+    expect(multiEventInserts[0].sql).toContain("($69, $70, $71");
+  });
+
   it("does not emit an event-store wake notification when append rolls back", async () => {
     const { pool, calls } = createAppendPool({ currentVersion: 1 });
     const store = createPostgresEventStore({
@@ -651,6 +666,30 @@ type QueryCall = Readonly<{
   params?: readonly unknown[];
 }>;
 
+async function appendAndCaptureQueries(eventCount: number): Promise<readonly QueryCall[]> {
+  const { pool, calls } = createAppendPool();
+  const store = createPostgresEventStore({
+    pool,
+    now: () => NOW as never,
+    createEventId: createSequentialEventId(),
+  });
+
+  await store.appendToStream(
+    appendInput({
+      events: Array.from({ length: eventCount }, (_, index) => ({
+        eventType: `checkout.session.step-${index + 1}`,
+        payload: { step: index + 1 },
+      })),
+    }),
+  );
+
+  return calls;
+}
+
+function isEventInsertCall(call: QueryCall): boolean {
+  return call.sql.includes("INSERT INTO event_store_events");
+}
+
 function createReadPool(): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
   const calls: QueryCall[] = [];
 
@@ -699,6 +738,10 @@ function createAppendPool(
         return { rows: [{ current_version: options.currentVersion ?? 0 }], rowCount: 1 };
       }
 
+      if (normalizedSql.includes("WHERE event_id = ANY")) {
+        return { rows: [], rowCount: 0 };
+      }
+
       if (normalizedSql.includes("RETURNING")) {
         if (options.failInsertWithPostgresCode) {
           throw Object.assign(new Error("simulated postgres append conflict"), {
@@ -707,33 +750,35 @@ function createAppendPool(
         }
 
         const values = params ?? [];
-        const globalPosition = options.globalPositions?.[insertCount] ?? String(insertCount + 1);
-        insertCount += 1;
-
+        const rowWidth = 17;
+        const rows = [];
+        for (let offset = 0; offset < values.length; offset += rowWidth) {
+          const globalPosition = options.globalPositions?.[insertCount] ?? String(insertCount + 1);
+          insertCount += 1;
+          rows.push({
+            event_id: values[offset],
+            stream_id: values[offset + 1],
+            stream_version: values[offset + 2],
+            global_position: globalPosition,
+            tenant_id: values[offset + 3],
+            stream_context_name: values[offset + 4],
+            stream_category: values[offset + 5],
+            event_type: values[offset + 6],
+            payload: values[offset + 7],
+            metadata: values[offset + 8],
+            occurred_at: values[offset + 9],
+            recorded_at: values[offset + 10],
+            performed_by_user_id: values[offset + 11],
+            for_account_id: values[offset + 12],
+            trace_id: values[offset + 13] ?? null,
+            span_id: values[offset + 14] ?? null,
+            parent_span_id: values[offset + 15] ?? null,
+            trace_state: values[offset + 16] ?? null,
+          });
+        }
         return {
-          rows: [
-            {
-              event_id: values[0],
-              stream_id: values[1],
-              stream_version: values[2],
-              global_position: globalPosition,
-              tenant_id: values[3],
-              stream_context_name: values[4],
-              stream_category: values[5],
-              event_type: values[6],
-              payload: values[7],
-              metadata: values[8],
-              occurred_at: values[9],
-              recorded_at: values[10],
-              performed_by_user_id: values[11],
-              for_account_id: values[12],
-              trace_id: values[13] ?? null,
-              span_id: values[14] ?? null,
-              parent_span_id: values[15] ?? null,
-              trace_state: values[16] ?? null,
-            },
-          ],
-          rowCount: 1,
+          rows,
+          rowCount: rows.length,
         };
       }
 

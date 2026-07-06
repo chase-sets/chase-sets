@@ -184,37 +184,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
     FOR UPDATE
   `;
 
-  const insertEventSql = `
-    INSERT INTO ${eventsTable} (
-      event_id,
-      stream_id,
-      stream_version,
-      tenant_id,
-      stream_context_name,
-      stream_category,
-      event_type,
-      payload,
-      metadata,
-      occurred_at,
-      recorded_at,
-      performed_by_user_id,
-      for_account_id,
-      trace_id,
-      span_id,
-      parent_span_id,
-      trace_state
-    )
-    VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
-    )
-    ON CONFLICT (event_id) DO NOTHING
-    RETURNING ${EVENT_COLUMNS}
-  `;
-
-  const readEventByIdSql = `
+  const readEventsByIdsSql = `
     SELECT ${EVENT_COLUMNS}
     FROM ${eventsTable}
-    WHERE event_id = $1
+    WHERE event_id = ANY($1::text[])
   `;
 
   const updateStreamVersionSql = `
@@ -256,8 +229,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
                   createEventId,
                   upsertStreamSql,
                   readCurrentVersionSql,
-                  insertEventSql,
-                  readEventByIdSql,
+                  eventsTable,
+                  readEventsByIdsSql,
                   updateStreamVersionSql,
                 }),
               {
@@ -337,8 +310,8 @@ type AppendInTransactionArgs = Readonly<{
   createEventId: () => EventId;
   upsertStreamSql: string;
   readCurrentVersionSql: string;
-  insertEventSql: string;
-  readEventByIdSql: string;
+  eventsTable: string;
+  readEventsByIdsSql: string;
   updateStreamVersionSql: string;
 }>;
 
@@ -413,11 +386,6 @@ function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
 async function appendEventsToStream(args: AppendInTransactionArgs): Promise<readonly StoredEvent[]> {
   const now = args.now();
 
-  // The event log uses a bigserial global position. Holding one store-wide xact
-  // advisory lock until commit makes position assignment match commit order, so
-  // readAll/source-head checkpoint scans cannot observe a higher committed
-  // position while a lower assigned position is still in flight.
-  await args.client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
   await args.client.query(args.upsertStreamSql, [args.input.streamId, now]);
 
   const streamVersionResult = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [
@@ -434,88 +402,188 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
 
   assertExpectedVersion(args.input.streamId, args.input.expectedVersion, currentVersion);
 
-  const storedEvents: StoredEvent[] = [];
+  const eventCandidates: AppendEventCandidate[] = args.input.events.map((event) => ({
+    streamId: args.input.streamId,
+    event,
+    context: args.input.context,
+    now,
+    eventId: event.eventId ?? args.createEventId(),
+  }));
+  const existingEventsById = await readExistingEventsById(args.client, args.readEventsByIdsSql, eventCandidates);
+  const plannedEventsById = new Map<string, AppendEventToInsert>();
+  const eventsToInsert: AppendEventToInsert[] = [];
   let nextVersion = currentVersion;
 
-  for (let index = 0; index < args.input.events.length; index += 1) {
-    const eventRecord = args.input.events[index];
-    const candidateVersion = nextVersion + 1;
-    const insertResult = await insertSingleEvent({
-      client: args.client,
-      insertEventSql: args.insertEventSql,
-      readEventByIdSql: args.readEventByIdSql,
-      streamId: args.input.streamId,
-      streamVersion: candidateVersion,
-      event: eventRecord,
-      context: args.input.context,
-      now,
-      createEventId: args.createEventId,
-    });
-    const storedEvent = insertResult.event;
-    nextVersion = insertResult.inserted ? candidateVersion : Math.max(nextVersion, storedEvent.streamVersion);
+  for (const candidate of eventCandidates) {
+    const existingEvent = existingEventsById.get(candidate.eventId);
+    if (existingEvent) {
+      assertIdempotentEventMatch(existingEvent, candidate);
+      nextVersion = Math.max(nextVersion, existingEvent.streamVersion);
+      continue;
+    }
 
-    storedEvents.push(storedEvent);
+    const plannedEvent = plannedEventsById.get(candidate.eventId);
+    if (plannedEvent) {
+      assertDuplicateEventIdInAppendMatches(plannedEvent, candidate);
+      continue;
+    }
+
+    nextVersion += 1;
+    const eventToInsert = { ...candidate, streamVersion: nextVersion };
+    plannedEventsById.set(candidate.eventId, eventToInsert);
+    eventsToInsert.push(eventToInsert);
   }
 
-  await args.client.query(args.updateStreamVersionSql, [args.input.streamId, nextVersion, now]);
+  const insertedEventsById = new Map<string, StoredEvent>();
+  if (eventsToInsert.length > 0) {
+    // The event log uses a bigserial global position. Hold the store-wide xact
+    // advisory lock only while assigning positions, and until commit, so
+    // readAll/source-head checkpoint scans cannot observe a higher committed
+    // position while a lower assigned position is still in flight.
+    await args.client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    const insertResult = await args.client.query<DbEventRow>(
+      buildInsertEventsSql(args.eventsTable, eventsToInsert.length),
+      buildInsertEventsParams(eventsToInsert),
+    );
+
+    for (const row of insertResult.rows) {
+      const storedEvent = mapDbEventRow(row);
+      insertedEventsById.set(storedEvent.eventId, storedEvent);
+    }
+
+    if (insertedEventsById.size !== eventsToInsert.length) {
+      const missingEvents = eventsToInsert.filter((event) => !insertedEventsById.has(event.eventId));
+      const eventsConflictingDuringInsert = await readExistingEventsById(
+        args.client,
+        args.readEventsByIdsSql,
+        missingEvents,
+      );
+
+      for (const missingEvent of missingEvents) {
+        const existingEvent = eventsConflictingDuringInsert.get(missingEvent.eventId);
+        if (!existingEvent) {
+          throw createEventStoreError(
+            "infrastructure_failure",
+            "Failed to insert event row into Postgres event store.",
+          );
+        }
+
+        assertIdempotentEventMatch(existingEvent, missingEvent);
+        existingEventsById.set(missingEvent.eventId, existingEvent);
+      }
+    }
+  }
+
+  const storedEvents = eventCandidates.map((candidate) => {
+    const storedEvent = existingEventsById.get(candidate.eventId) ?? insertedEventsById.get(candidate.eventId);
+    if (!storedEvent) {
+      throw createEventStoreError("infrastructure_failure", "Failed to insert event row into Postgres event store.");
+    }
+    return storedEvent;
+  });
+  const updatedStreamVersion = storedEvents.reduce(
+    (version, event) => Math.max(version, event.streamVersion),
+    currentVersion,
+  );
+
+  await args.client.query(args.updateStreamVersionSql, [args.input.streamId, updatedStreamVersion, now]);
 
   return storedEvents;
 }
 
-type InsertSingleEventArgs = Readonly<{
-  client: PgPoolClient;
-  insertEventSql: string;
-  readEventByIdSql: string;
+type AppendEventCandidate = Readonly<{
+  eventId: EventId;
   streamId: string;
-  streamVersion: number;
   event: EventRecordToStore;
   context: AppendToStreamInput["context"];
   now: IsoUtcTimestamp;
-  createEventId: () => EventId;
 }>;
 
-type InsertSingleEventResult = Readonly<{
-  event: StoredEvent;
-  inserted: boolean;
-}>;
+type AppendEventToInsert = AppendEventCandidate & Readonly<{ streamVersion: number }>;
 
-async function insertSingleEvent(args: InsertSingleEventArgs): Promise<InsertSingleEventResult> {
-  const eventId = args.event.eventId ?? args.createEventId();
-  const result = await args.client.query<DbEventRow>(args.insertEventSql, [
-    eventId,
-    args.streamId,
-    args.streamVersion,
-    args.context.tenantId,
-    streamContextName(args.streamId),
-    streamCategory(args.streamId),
-    args.event.eventType,
-    args.event.payload,
-    args.event.metadata ?? {},
-    args.event.occurredAt ?? args.now,
-    args.now,
-    args.context.audit.performedByUserId,
-    args.context.audit.forAccountId,
-    args.context.trace?.traceId ?? null,
-    args.context.trace?.spanId ?? null,
-    args.context.trace?.parentSpanId ?? null,
-    args.context.trace?.traceState ?? null,
-  ]);
+function buildInsertEventsSql(eventsTable: string, eventCount: number): string {
+  const columnCount = 17;
+  const values = Array.from({ length: eventCount }, (_, rowIndex) => {
+    const firstParam = rowIndex * columnCount + 1;
+    const params = Array.from({ length: columnCount }, (__, columnIndex) => `$${firstParam + columnIndex}`);
+    return `(${params.join(", ")})`;
+  }).join(",\n      ");
 
-  if (result.rows.length === 1) {
-    return { event: mapDbEventRow(result.rows[0]), inserted: true };
-  }
-
-  const existingResult = await args.client.query<DbEventRow>(args.readEventByIdSql, [eventId]);
-  if (existingResult.rows.length !== 1) {
-    throw createEventStoreError("infrastructure_failure", "Failed to insert event row into Postgres event store.");
-  }
-
-  const existingEvent = mapDbEventRow(existingResult.rows[0]);
-  assertIdempotentEventMatch(existingEvent, args);
-  return { event: existingEvent, inserted: false };
+  return `
+    INSERT INTO ${eventsTable} (
+      event_id,
+      stream_id,
+      stream_version,
+      tenant_id,
+      stream_context_name,
+      stream_category,
+      event_type,
+      payload,
+      metadata,
+      occurred_at,
+      recorded_at,
+      performed_by_user_id,
+      for_account_id,
+      trace_id,
+      span_id,
+      parent_span_id,
+      trace_state
+    )
+    VALUES
+      ${values}
+    ON CONFLICT (event_id) DO NOTHING
+    RETURNING ${EVENT_COLUMNS}
+  `;
 }
 
-function assertIdempotentEventMatch(existingEvent: StoredEvent, args: InsertSingleEventArgs): void {
+function buildInsertEventsParams(events: readonly AppendEventToInsert[]): readonly unknown[] {
+  const params: unknown[] = [];
+
+  for (const event of events) {
+    params.push(
+      event.eventId,
+      event.streamId,
+      event.streamVersion,
+      event.context.tenantId,
+      streamContextName(event.streamId),
+      streamCategory(event.streamId),
+      event.event.eventType,
+      event.event.payload,
+      event.event.metadata ?? {},
+      event.event.occurredAt ?? event.now,
+      event.now,
+      event.context.audit.performedByUserId,
+      event.context.audit.forAccountId,
+      event.context.trace?.traceId ?? null,
+      event.context.trace?.spanId ?? null,
+      event.context.trace?.parentSpanId ?? null,
+      event.context.trace?.traceState ?? null,
+    );
+  }
+
+  return params;
+}
+
+async function readExistingEventsById(
+  client: PgPoolClient,
+  readEventsByIdsSql: string,
+  events: readonly AppendEventCandidate[],
+): Promise<Map<string, StoredEvent>> {
+  const eventIds = [...new Set(events.map((event) => event.eventId))];
+  if (eventIds.length === 0) {
+    return new Map();
+  }
+
+  const result = await client.query<DbEventRow>(readEventsByIdsSql, [eventIds]);
+  return new Map(
+    result.rows.map((row) => {
+      const event = mapDbEventRow(row);
+      return [event.eventId, event];
+    }),
+  );
+}
+
+function assertIdempotentEventMatch(existingEvent: StoredEvent, args: AppendEventCandidate): void {
   const expectedMetadata = args.event.metadata ?? {};
   if (
     existingEvent.streamId !== args.streamId ||
@@ -530,6 +598,26 @@ function assertIdempotentEventMatch(existingEvent: StoredEvent, args: InsertSing
       existingStreamId: existingEvent.streamId,
       eventType: args.event.eventType,
       existingEventType: existingEvent.eventType,
+    });
+  }
+}
+
+function assertDuplicateEventIdInAppendMatches(first: AppendEventToInsert, duplicate: AppendEventCandidate): void {
+  const expectedMetadata = duplicate.event.metadata ?? {};
+  const firstMetadata = first.event.metadata ?? {};
+  if (
+    first.streamId !== duplicate.streamId ||
+    first.context.tenantId !== duplicate.context.tenantId ||
+    first.event.eventType !== duplicate.event.eventType ||
+    stableJsonStringify(first.event.payload) !== stableJsonStringify(duplicate.event.payload) ||
+    stableJsonStringify(firstMetadata) !== stableJsonStringify(expectedMetadata)
+  ) {
+    throw createEventStoreError("concurrency_conflict", "Event id was already used with different event data.", {
+      eventId: duplicate.eventId,
+      streamId: duplicate.streamId,
+      existingStreamId: first.streamId,
+      eventType: duplicate.event.eventType,
+      existingEventType: first.event.eventType,
     });
   }
 }
