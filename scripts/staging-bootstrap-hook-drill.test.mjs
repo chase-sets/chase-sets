@@ -92,6 +92,8 @@ describe("staging bootstrap hook drill", () => {
         liveHeldLockInjection: "worker-pod-kubectl-exec",
         supportSafe: true,
         bootstrapTouchedRelation: expect.objectContaining({
+          context: "catalog",
+          schema: "public",
           table: "bounded_context_schema_migrations",
           lockMode: "ACCESS EXCLUSIVE",
         }),
@@ -119,7 +121,10 @@ describe("staging bootstrap hook drill", () => {
       "--",
       "sh",
     ]);
-    expect(args.join(" ")).toContain("LOCK TABLE catalog.bounded_context_schema_migrations");
+    expect(args.join(" ")).toContain("SELECT to_regclass($1)::text AS relation");
+    expect(args.join(" ")).toContain("public.bounded_context_schema_migrations");
+    expect(args.join(" ")).toContain("LOCK TABLE public.bounded_context_schema_migrations");
+    expect(args.join(" ")).not.toContain("LOCK TABLE catalog.bounded_context_schema_migrations");
     expect(args.join(" ")).not.toMatch(/postgres:\/\/|PASSWORD=|TOKEN=|SECRET=/);
   });
 
@@ -132,6 +137,20 @@ describe("staging bootstrap hook drill", () => {
     expect(result.config.ssl).toEqual({ rejectUnauthorized: false });
     expect(result.config.application_name).toBe("staging-bootstrap-hook-drill-held-lock");
     expect(`${result.stdout}\n${result.stderr}`).toContain(HELD_LOCK_READY_MARKER);
+    expect(`${result.stdout}\n${result.stderr}`).not.toMatch(/postgres(?:ql)?:\/\//i);
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
+  });
+
+  it("reports a support-safe missing-relation setup failure before taking the held lock", async () => {
+    const result = await runGeneratedHeldLockInjector({
+      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+      relationExists: false,
+    });
+
+    expect(result.exitCode).toBe(3);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      'CHASE_SETS_HELD_LOCK_SETUP_FAILED {"reason":"missing-relation","relation":"public.bounded_context_schema_migrations"}',
+    );
     expect(`${result.stdout}\n${result.stderr}`).not.toMatch(/postgres(?:ql)?:\/\//i);
     expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
   });
@@ -583,7 +602,7 @@ function createFakeProcessHandle() {
   return handle;
 }
 
-async function runGeneratedHeldLockInjector({ databaseUrl, pgsslrootcert = "" }) {
+async function runGeneratedHeldLockInjector({ databaseUrl, pgsslrootcert = "", relationExists = true }) {
   const directory = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-injector-"));
   try {
     const pgModuleDirectory = join(directory, "node_modules", "pg");
@@ -607,7 +626,18 @@ export class Client {
 
   async connect() {}
 
-  async query() {}
+  async query(sql, params = []) {
+    if (String(sql).startsWith("SELECT to_regclass")) {
+      return { rows: [{ relation: process.env.CHASE_SETS_TEST_RELATION_EXISTS === "false" ? null : params[0] }] };
+    }
+    if (
+      process.env.CHASE_SETS_TEST_RELATION_EXISTS === "false" &&
+      String(sql).startsWith("LOCK TABLE")
+    ) {
+      throw new Error("held-lock query ran after a missing relation probe");
+    }
+    return { rows: [] };
+  }
 
   async end() {}
 }
@@ -620,22 +650,33 @@ export default { Client };
       extractHeldLockInjectorNodeScript(buildHeldLockInjectorShell({ heldLockTimeoutSeconds: 0 })),
     );
 
-    const result = await execFile(process.execPath, [scriptPath], {
-      cwd: directory,
-      env: {
-        ...process.env,
-        CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS: "0",
-        CHASE_SETS_TEST_CAPTURE_PATH: capturePath,
-        DATABASE_URL_CATALOG: databaseUrl,
-        PGSSLROOTCERT: pgsslrootcert,
-      },
-      maxBuffer: 1024 * 1024,
-      timeout: 5_000,
-      windowsHide: true,
-    });
+    let result;
+    try {
+      result = await execFile(process.execPath, [scriptPath], {
+        cwd: directory,
+        env: {
+          ...process.env,
+          CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS: "0",
+          CHASE_SETS_TEST_RELATION_EXISTS: relationExists ? "true" : "false",
+          CHASE_SETS_TEST_CAPTURE_PATH: capturePath,
+          DATABASE_URL_CATALOG: databaseUrl,
+          PGSSLROOTCERT: pgsslrootcert,
+        },
+        maxBuffer: 1024 * 1024,
+        timeout: 5_000,
+        windowsHide: true,
+      });
+    } catch (error) {
+      result = {
+        stdout: error.stdout ?? "",
+        stderr: error.stderr ?? "",
+        exitCode: typeof error.code === "number" ? error.code : 1,
+      };
+    }
 
     return {
       config: JSON.parse(await readFile(capturePath, "utf8")),
+      exitCode: result.exitCode ?? 0,
       stdout: result.stdout,
       stderr: result.stderr,
     };

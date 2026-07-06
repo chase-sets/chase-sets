@@ -22,6 +22,7 @@ import {
   sourceObservationListItem,
   sourceObservationScope,
 } from "./primary-workbench-test-fixtures";
+import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
 
 // The import-jobs module polls live progress via useRevalidator, the daily
 // import-context form submits context changes via useSubmit, and the review
@@ -1129,19 +1130,24 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
+    render(
+      <CatalogIntegrationProfileAuthoringWorkspace
+        readModel={{
+          ...readModel,
+          profileAuthoring: {
+            ...readModel.profileAuthoring,
+            sectionGroups: [],
+            sectionWorkspaces: [],
+          },
+        }}
+      />,
+    );
 
     expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
     expect(screen.getByText("Selected profile is ready")).toBeTruthy();
     expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
     expect(screen.getAllByText("tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
     expect(screen.getByText("Draft required for active profiles")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Guided section workspaces" })).toBeTruthy();
-    expect(screen.getByRole("navigation", { name: "Profile section groups" })).toBeTruthy();
-    expect(screen.getByLabelText("Profile section")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Save section" })).toHaveLength(
-      catalogProviderProfileEditableSectionKeys.length,
-    );
     expect(screen.getByText("Immutable identity facts")).toBeTruthy();
     expect(screen.getByLabelText("Draft profile version")).toHaveProperty("value", "2026.06.04-draft");
     expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(false);
@@ -1158,7 +1164,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
     expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
-  }, 15_000);
+  });
 
   it("renders validation readiness as a focused fixture, dry-run, compare, and activation workspace", () => {
     const profile = profileReview({
@@ -1225,11 +1231,20 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
+    render(
+      <CatalogIntegrationsSurfacePage
+        surface="providers"
+        readModel={{
+          ...readModel,
+          profileAuthoring: {
+            ...readModel.profileAuthoring,
+            sectionGroups: [],
+            sectionWorkspaces: [],
+          },
+        }}
+      />,
+    );
 
-    // The providers surface stacks profile authoring and validation readiness; scope
-    // the readiness assertions to the validation workspace so shared affordances
-    // (e.g. the fixture run textbox) resolve uniquely.
     const validationWorkspace = document.querySelector<HTMLElement>(
       '[data-catalog-validation-readiness-workspace="true"]',
     );
@@ -1462,7 +1477,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
+    render(<CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Provider option queries" })).toBeTruthy();
     expect(screen.getAllByText("tcgdex-list-expansions").length).toBeGreaterThan(0);
@@ -1483,7 +1498,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("Inline diagnostics").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Long paths").length).toBeGreaterThan(0);
     expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON|raw JSON/i)).toBeNull();
-  }, 15_000);
+  });
 
   it("renders section forms as editable typed controls for draft profiles", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
@@ -1499,7 +1514,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
+    render(<CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Guided section workspaces" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Profile section groups" })).toBeTruthy();
+    expect(screen.getByLabelText("Profile section")).toBeTruthy();
 
     const forms = document.querySelectorAll<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="update-provider-profile-section"]',
@@ -1526,7 +1545,18 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: false,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
+    render(
+      <CatalogIntegrationProfileAuthoringWorkspace
+        readModel={{
+          ...readModel,
+          profileAuthoring: {
+            ...readModel.profileAuthoring,
+            sectionGroups: [],
+            sectionWorkspaces: [],
+          },
+        }}
+      />,
+    );
 
     expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
     expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
@@ -1547,7 +1577,18 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
+    render(
+      <CatalogIntegrationProfileAuthoringWorkspace
+        readModel={{
+          ...readModel,
+          profileAuthoring: {
+            ...readModel.profileAuthoring,
+            sectionGroups: [],
+            sectionWorkspaces: [],
+          },
+        }}
+      />,
+    );
 
     expect(screen.getByText("Profile selection is stale")).toBeTruthy();
     expect(screen.getByText("Select an available version")).toBeTruthy();
