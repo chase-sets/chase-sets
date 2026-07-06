@@ -728,4 +728,111 @@ describe("Stripe payment processor gateway", () => {
       }),
     ).resolves.toBeNull();
   });
+
+  it("maps early fraud warnings through charge enrichment", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        id: "ch_123",
+        payment_intent: "pi_123",
+        disputed: false,
+        metadata: { payment_id: "pay_123" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_efw",
+      type: "radar.early_fraud_warning.created",
+      created: "2026-07-06T12:00:00.000Z",
+      data: {
+        object: {
+          id: "issfr_123",
+          charge: "ch_123",
+          fraud_type: "card_never_received",
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody,
+        signatureHeader: signature(rawBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_efw",
+      kind: "payment-early-fraud-warning",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_123",
+      providerObjectReference: "issfr_123",
+      providerChargeReference: "ch_123",
+      internalPaymentId: "pay_123",
+      chargeDisputed: false,
+      fraudType: "card_never_received",
+      occurredAt: "2026-07-06T12:00:00.000Z",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://stripe.test/v1/charges/ch_123",
+      expect.objectContaining({ method: "GET" }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("maps Radar review closed approvals with RFC3339 event timestamps", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        id: "ch_123",
+        payment_intent: "pi_123",
+        disputed: false,
+        metadata: { payment_id: "pay_123" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_review_closed",
+      type: "review.closed",
+      created: "2026-07-06T12:05:00.000Z",
+      data: {
+        object: {
+          id: "prv_123",
+          charge: "ch_123",
+          reason: "rule",
+          status: "closed",
+          closed_reason: "approved",
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody,
+        signatureHeader: signature(rawBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_review_closed",
+      kind: "payment-fraud-review-closed",
+      processorPaymentReference: "pi_123",
+      providerObjectReference: "prv_123",
+      providerChargeReference: "ch_123",
+      internalPaymentId: "pay_123",
+      fraudReviewReason: "rule",
+      fraudReviewOutcome: "approved",
+      occurredAt: "2026-07-06T12:05:00.000Z",
+    });
+    vi.unstubAllGlobals();
+  });
 });

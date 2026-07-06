@@ -18,6 +18,33 @@ A **Capture** is the successful completion of a previously authorized charge.
 
 A **Refund** is the reversal of captured buyer funds through an external payment rail.
 
+## Payment Fraud Warning Received
+
+A **Payment Fraud Warning Received** event records that the payment processor reported an early fraud warning for a Payment.
+
+Notes:
+
+- Payments owns the processor fraud signal and its normalized buyer, order, and provider references.
+- Consumer contexts may hold fulfillment or seller funds from this fact, but they do not reinterpret the processor signal.
+
+## Payment Fraud Review Opened
+
+A **Payment Fraud Review Opened** event records that the payment processor opened a fraud review for a Payment.
+
+Notes:
+
+- Payments owns the fraud review identifier and the affected Payment, buyer, and order references.
+- Consumer contexts use this fact to pause dependent workflows while the processor review is open.
+
+## Payment Fraud Review Closed
+
+A **Payment Fraud Review Closed** event records that the payment processor closed a fraud review for a Payment.
+
+Notes:
+
+- Payments owns the normalized processor review outcome.
+- Consumer contexts use this fact to release or retain their own holds according to their local rules.
+
 ## Payment Processor Reference
 
 A **Payment Processor Reference** is the external identifier returned by the payment service provider.

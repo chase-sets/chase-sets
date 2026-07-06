@@ -13,6 +13,7 @@ import { buildSettlementSupportHoldProjectionHandlers } from "./features/wallets
 import { buildSettlementFulfillmentSourceProjectionHandlers } from "./features/wallets/integrations/fulfillment-source/fulfillment-source-projection";
 import {
   buildSettlementIdentityAccountRiskSourceProjectionHandlers,
+  buildSettlementPaymentsAccountRiskSourceProjectionHandlers,
   buildSettlementReputationAccountRiskSourceProjectionHandlers,
 } from "./features/wallets/integrations/account-risk-source/account-risk-source-projection";
 
@@ -29,8 +30,14 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
       handlers: {
         "payments.settlement-payment-input-projection": () =>
           buildSettlementPaymentInputProjectionHandlers(services.db, services.wallets),
-        "platform-operations.settlement-support-hold-projection": () =>
-          buildSettlementSupportHoldProjectionHandlers(services.db),
+        "platform-operations.settlement-support-hold-projection": {
+          buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
+          filterToEventTypes: true,
+        },
+        "payments.settlement-support-hold-projection": {
+          buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
+          filterToEventTypes: true,
+        },
         "fulfillment.settlement-fulfillment-source-projection": () =>
           buildSettlementFulfillmentSourceProjectionHandlers(services.db),
         "identity.settlement-account-risk-source-projection": {
@@ -40,6 +47,11 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
         "marketplace.settlement-account-risk-source-projection": {
           subscriptionName: "settlement.marketplace-review-account-risk-source-projection",
           buildHandlers: () => buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db),
+        },
+        "payments.settlement-account-risk-source-projection": {
+          subscriptionName: "settlement.payments-fraud-account-risk-source-projection",
+          buildHandlers: () => buildSettlementPaymentsAccountRiskSourceProjectionHandlers(services.db),
+          filterToEventTypes: true,
         },
       },
     }),

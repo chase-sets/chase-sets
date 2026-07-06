@@ -327,6 +327,19 @@ async function loadCancellableShipmentForOrder(
   return result.rows[0] ?? null;
 }
 
+async function hasActivePaymentFraudReviewHold(db: PgQueryable, orderId: string): Promise<boolean> {
+  const result = await db.query<{ provider_review_id: string }>(
+    `SELECT provider_review_id
+     FROM fulfillment_payment_fraud_review_holds
+     WHERE status = 'opened'
+       AND order_ids ? $1
+     LIMIT 1`,
+    [orderId],
+  );
+
+  return result.rows.length > 0;
+}
+
 async function findShipmentForPostageProviderEvent(
   db: PgQueryable,
   event: PostageProviderWebhookEvent,
@@ -1469,7 +1482,10 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     dispatchShipment: async (params, context) => {
-      await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+      const shipment = await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+      if (await hasActivePaymentFraudReviewHold(deps.db, shipment.order_id)) {
+        throw new FulfillmentDomainError("Shipment dispatch is blocked while Stripe reviews the payment.");
+      }
 
       const result = await commandHandler({
         streamId: `fulfillment.shipment-${params.shipmentId}`,

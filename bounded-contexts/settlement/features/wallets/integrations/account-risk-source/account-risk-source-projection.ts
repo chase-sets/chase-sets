@@ -145,3 +145,69 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
     },
   };
 }
+
+export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
+    "payments.payment-fraud-warning-received": async (event) => {
+      const data = event.data as { buyerAccountId: string; receivedAt: string };
+      await db.query(
+        `INSERT INTO settlement_account_risk_sources (
+           account_id,
+           stripe_fraud_flag,
+           stripe_fraud_flagged_at,
+           stripe_fraud_signal_count,
+           updated_at
+         ) VALUES ($1, TRUE, $2, 1, $2)
+         ON CONFLICT (account_id) DO UPDATE SET
+           stripe_fraud_flag = TRUE,
+           stripe_fraud_flagged_at = COALESCE(
+             settlement_account_risk_sources.stripe_fraud_flagged_at,
+             EXCLUDED.stripe_fraud_flagged_at
+           ),
+           stripe_fraud_signal_count = settlement_account_risk_sources.stripe_fraud_signal_count + 1,
+           updated_at = EXCLUDED.updated_at`,
+        [data.buyerAccountId, data.receivedAt],
+      );
+    },
+    "payments.payment-fraud-review-opened": async (event) => {
+      const data = event.data as { buyerAccountId: string; openedAt: string };
+      await db.query(
+        `INSERT INTO settlement_account_risk_sources (
+           account_id,
+           stripe_fraud_flag,
+           stripe_fraud_flagged_at,
+           stripe_review_open_count,
+           updated_at
+         ) VALUES ($1, TRUE, $2, 1, $2)
+         ON CONFLICT (account_id) DO UPDATE SET
+           stripe_fraud_flag = TRUE,
+           stripe_fraud_flagged_at = COALESCE(
+             settlement_account_risk_sources.stripe_fraud_flagged_at,
+             EXCLUDED.stripe_fraud_flagged_at
+           ),
+           stripe_review_open_count = settlement_account_risk_sources.stripe_review_open_count + 1,
+           updated_at = EXCLUDED.updated_at`,
+        [data.buyerAccountId, data.openedAt],
+      );
+    },
+    "payments.payment-fraud-review-closed": async (event) => {
+      const data = event.data as { buyerAccountId: string; outcome: string | null; closedAt: string };
+      await db.query(
+        `INSERT INTO settlement_account_risk_sources (
+           account_id,
+           stripe_fraud_flag,
+           stripe_review_open_count,
+           updated_at
+         ) VALUES ($1, $2, 0, $3)
+         ON CONFLICT (account_id) DO UPDATE SET
+           stripe_fraud_flag = CASE
+             WHEN $2 = FALSE AND settlement_account_risk_sources.stripe_fraud_signal_count = 0 THEN FALSE
+             ELSE settlement_account_risk_sources.stripe_fraud_flag
+           END,
+           stripe_review_open_count = GREATEST(0, settlement_account_risk_sources.stripe_review_open_count - 1),
+           updated_at = EXCLUDED.updated_at`,
+        [data.buyerAccountId, data.outcome !== "approved", data.closedAt],
+      );
+    },
+  };
+}

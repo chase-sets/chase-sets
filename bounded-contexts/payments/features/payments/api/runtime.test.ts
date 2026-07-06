@@ -464,6 +464,7 @@ function createReconciliationDb(options: {
   const failedProviderOperations: readonly unknown[][] = [];
   const providerIdempotencyKeys: readonly unknown[][] = [];
   const webhookEvents: readonly unknown[][] = [];
+  const processedWebhookEventIds = new Set<string>();
   const orderInputDb = createOrderInputDb();
 
   const db = {
@@ -481,11 +482,16 @@ function createReconciliationDb(options: {
       }
 
       if (sql.includes("FROM payments_provider_webhook_events")) {
-        return { rows: [], rowCount: 0 };
+        const providerEventId = String(params?.[0] ?? "");
+        return {
+          rows: processedWebhookEventIds.has(providerEventId) ? [{ provider_event_id: providerEventId }] : [],
+          rowCount: processedWebhookEventIds.has(providerEventId) ? 1 : 0,
+        };
       }
 
       if (sql.includes("INSERT INTO payments_provider_webhook_events")) {
         (webhookEvents as unknown[][]).push([...(params ?? [])]);
+        processedWebhookEventIds.add(String(params?.[0] ?? ""));
         return { rows: [], rowCount: 1 };
       }
 
@@ -620,6 +626,106 @@ describe("payment runtime", () => {
     expect(
       db.query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO payments_provider_webhook_events")),
     ).toBe(false);
+  });
+
+  it("records early fraud warnings, refunds undisputed captured payments, and ignores redelivery", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const paymentsById = new Map<string, Record<string, unknown>>();
+    const { db, webhookEvents } = createReconciliationDb({
+      paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+    });
+    const refunds = {
+      issueRefund: vi.fn(async () => ({ refundId: "rfd_fraud_issfr_123" as never, version: 1 })),
+    };
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+      refunds,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        currencyCode: "usd",
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    await services.commandHandler({
+      streamId: `payments.payment-${payment.payment_id}`,
+      command: {
+        type: "RecordPaymentCapture",
+        processorStatus: "succeeded",
+        capturedAt: "2026-07-06T12:00:00.000Z",
+      },
+      context,
+    });
+    paymentsById.set(payment.payment_id, {
+      ...payment,
+      status: "captured",
+      processor_status: "succeeded",
+      captured_at: "2026-07-06T12:00:00.000Z",
+      seller_payouts: [
+        {
+          orderId: "ord_1",
+          sellerAccountId: "acc_seller",
+          sellerItemNetAmount: "22.99",
+          shippingAllowanceAmount: "1.50",
+          sellerShippingPayoutAmount: "1.50",
+          sellerPayoutAmount: "24.49",
+        },
+      ],
+    });
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_efw",
+      kind: "payment-early-fraud-warning",
+      processorName: "stripe",
+      processorPaymentKind: payment.processor_payment_kind,
+      processorPaymentReference: payment.processor_payment_reference,
+      providerObjectReference: "issfr_123",
+      providerChargeReference: "ch_123",
+      internalPaymentId: payment.payment_id,
+      processorStatus: "early_fraud_warning",
+      failureCode: "card_never_received",
+      failureMessage: null,
+      fraudType: "card_never_received",
+      chargeDisputed: false,
+      occurredAt: "2026-07-06T12:05:00.000Z",
+    } as never);
+
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: false,
+    });
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: true,
+    });
+
+    expect(readAllEvents().map((event) => event.eventType)).toContain("payments.payment-fraud-warning-received");
+    expect(
+      readAllEvents().filter((event) => event.eventType === "payments.payment-fraud-warning-received"),
+    ).toHaveLength(1);
+    expect(refunds.issueRefund).toHaveBeenCalledTimes(1);
+    expect(refunds.issueRefund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        refundId: "rfd_fraud_issfr_123",
+        paymentId: payment.payment_id,
+        orderIds: ["ord_1"],
+        amount: "26.05",
+      }),
+      context,
+    );
+    expect(webhookEvents).toHaveLength(1);
   });
 
   it("reuses checkout-sourced payments by checkout session id", async () => {

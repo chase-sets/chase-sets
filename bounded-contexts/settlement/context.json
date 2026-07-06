@@ -30,6 +30,18 @@
       "projectionHandlerSetNames": ["settlement-payment-input-projection"]
     },
     {
+      "sourceContextName": "payments",
+      "projectionName": "settlement-support-hold-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "payments.payment-fraud-warning-received",
+        "payments.payment-fraud-review-opened",
+        "payments.payment-fraud-review-closed"
+      ],
+      "order": 11,
+      "projectionHandlerSetNames": ["settlement-support-hold-projection"]
+    },
+    {
       "sourceContextName": "platform-operations",
       "projectionName": "settlement-support-hold-projection",
       "subscriptionVersion": 1,
@@ -73,6 +85,18 @@
       "streamPrefixes": ["marketplace.review-"],
       "order": 70,
       "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "settlement-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "payments.payment-fraud-warning-received",
+        "payments.payment-fraud-review-opened",
+        "payments.payment-fraud-review-closed"
+      ],
+      "order": 71,
+      "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -85,7 +109,7 @@
     },
     {
       "projectionName": "settlement-support-hold-projection",
-      "sourceContextNames": ["platform-operations"],
+      "sourceContextNames": ["platform-operations", "payments"],
       "ownedTables": ["settlement_support_holds"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
@@ -99,7 +123,7 @@
     },
     {
       "projectionName": "settlement-account-risk-source-projection",
-      "sourceContextNames": ["identity", "marketplace"],
+      "sourceContextNames": ["identity", "marketplace", "payments"],
       "ownedTables": ["settlement_account_risk_sources", "settlement_account_review_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

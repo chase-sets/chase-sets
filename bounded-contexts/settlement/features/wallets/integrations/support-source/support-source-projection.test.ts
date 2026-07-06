@@ -55,4 +55,75 @@ describe("settlement support source projection", () => {
       1,
     ]);
   });
+
+  it("records Stripe early fraud warnings as active seller holds", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildSettlementSupportHoldProjectionHandlers(db as never);
+
+    await handlers["payments.payment-fraud-warning-received"]!(
+      event(
+        "payments.payment-fraud-warning-received",
+        {
+          orderIds: ["ord_1"],
+          buyerAccountId: "acc_buyer",
+          sellerPayouts: [{ orderId: "ord_1", sellerAccountId: "acc_seller" }],
+          earlyFraudWarningId: "issfr_123",
+          receivedAt: "2026-07-06T12:05:00.000Z",
+        },
+        2,
+      ),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("settlement_support_holds"), [
+      "fraud_issfr_123_ord_1_acc_seller",
+      "hold_fraud_issfr_123_ord_1_acc_seller",
+      "ord_1",
+      "acc_buyer",
+      "acc_seller",
+      "stripe-early-fraud-warning",
+      "opened",
+      "2026-07-06T12:05:00.000Z",
+      2,
+    ]);
+  });
+
+  it("releases Radar review holds only after approval", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildSettlementSupportHoldProjectionHandlers(db as never);
+
+    await handlers["payments.payment-fraud-review-opened"]!(
+      event(
+        "payments.payment-fraud-review-opened",
+        {
+          orderIds: ["ord_1"],
+          buyerAccountId: "acc_buyer",
+          sellerPayouts: [{ orderId: "ord_1", sellerAccountId: "acc_seller" }],
+          providerReviewId: "prv_123",
+          openedAt: "2026-07-06T12:05:00.000Z",
+        },
+        3,
+      ),
+    );
+    await handlers["payments.payment-fraud-review-closed"]!(
+      event(
+        "payments.payment-fraud-review-closed",
+        {
+          providerReviewId: "prv_123",
+          outcome: "approved",
+          closedAt: "2026-07-06T12:10:00.000Z",
+        },
+        4,
+      ),
+    );
+
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("stripe-review-approved"), [
+      "fraud_prv_123%",
+      "2026-07-06T12:10:00.000Z",
+      4,
+    ]);
+  });
 });

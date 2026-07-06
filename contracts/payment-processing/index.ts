@@ -167,6 +167,9 @@ export type ProcessorWebhookEventKind =
   | "payment-cancelled"
   | "payment-refunded"
   | "payment-disputed"
+  | "payment-early-fraud-warning"
+  | "payment-fraud-review-opened"
+  | "payment-fraud-review-closed"
   | "saved-payment-setup-succeeded"
   | "saved-payment-setup-failed"
   | "saved-payment-method-detached";
@@ -189,6 +192,11 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   failureCode: string | null;
   failureMessage: string | null;
   occurredAt: string;
+  providerChargeReference?: string | null;
+  chargeDisputed?: boolean | null;
+  fraudType?: string | null;
+  fraudReviewReason?: string | null;
+  fraudReviewOutcome?: string | null;
   savedPaymentMethod?: ProcessorSavedPaymentMethod | null;
   savedPaymentConsentId?: string | null;
   savedPaymentConsentText?: string | null;

@@ -292,6 +292,9 @@ const REQUIRED_STRIPE_PAYMENT_WEBHOOK_EVENTS = [
   "charge.dispute.created",
   "charge.dispute.updated",
   "charge.dispute.closed",
+  "radar.early_fraud_warning.created",
+  "review.opened",
+  "review.closed",
 ] as const;
 
 const REQUIRED_STRIPE_CONNECT_ACCOUNT_WEBHOOK_EVENTS: Readonly<Record<PlatformStripeConnectAccountsApi, string[]>> = {
