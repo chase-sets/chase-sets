@@ -99,4 +99,23 @@ describe("public presence translator", () => {
       expect(publicLaunchCopy).not.toMatch(restrictedClaim);
     }
   });
+
+  it("keeps the beta seller fee offer ahead of one landing-page fine-print clause", () => {
+    const landingCopy = Object.entries(publicPresenceEnglishTranslations)
+      .filter(([key]) => {
+        return key.startsWith("publicPresence.home.") || key.startsWith("publicPresence.faq.");
+      })
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+
+    const offerIndex = landingCopy.indexOf("0% fees on every listing you create during beta.");
+    const finePrintIndex = landingCopy.indexOf("change a beta listing after beta ends");
+
+    expect(landingCopy).toContain("Keep 100% of the sale");
+    expect(offerIndex).toBeGreaterThanOrEqual(0);
+    expect(finePrintIndex).toBeGreaterThan(offerIndex);
+    expect(landingCopy.match(/change a beta listing after beta ends/gi)).toHaveLength(1);
+    expect(landingCopy).not.toContain("Locked while unchanged");
+    expect(landingCopy).not.toContain("The lock holds while the listing stays unchanged");
+  });
 });
