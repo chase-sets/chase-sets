@@ -3037,13 +3037,27 @@ jobs:
             gh issue comment "${existing_issue}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
             echo "Updated incident issue #${existing_issue}."
           else
-            gh issue create \
+            issue_create_args=(
               --repo "${GITHUB_REPOSITORY}" \
               --title "${title}" \
               --body "${body}" \
               --label "kind:ops" \
-              --label "area:infrastructure" \
-              --milestone "Incidents"
+              --label "area:infrastructure"
+            )
+
+            incident_milestone_title="Incidents"
+            incident_milestone_number="$(
+              gh api --paginate "repos/${GITHUB_REPOSITORY}/milestones?state=open&per_page=100" \
+                --jq '.[] | select(.title == "Incidents") | .number'
+            )"
+
+            if [ -n "${incident_milestone_number}" ]; then
+              issue_create_args+=(--milestone "${incident_milestone_title}")
+            else
+              echo "Open incident milestone '${incident_milestone_title}' was not found; creating issue without a milestone."
+            fi
+
+            gh issue create "${issue_create_args[@]}"
           fi
 
   close-resolved-deploy-incidents:

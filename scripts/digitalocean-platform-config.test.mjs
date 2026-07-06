@@ -1632,7 +1632,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(notifyProductionDeployIncidentJob).toContain("name: Notify Production Deploy Incident");
     expect(notifyProductionDeployIncidentJob).toContain("issues: write");
     expect(notifyProductionDeployIncidentJob).toContain("gh issue create");
-    expect(notifyProductionDeployIncidentJob).toContain('--milestone "Incidents"');
+    expect(notifyProductionDeployIncidentJob).toContain('incident_milestone_title="Incidents"');
+    expect(notifyProductionDeployIncidentJob).toContain(
+      "Open incident milestone '${incident_milestone_title}' was not found",
+    );
+    expect(notifyProductionDeployIncidentJob).toContain(
+      'issue_create_args+=(--milestone "${incident_milestone_title}")',
+    );
+    expect(notifyProductionDeployIncidentJob).not.toContain('--milestone "Incidents"');
     expect(notifyProductionDeployIncidentJob).toContain("Incident: Platform Deploy failed for");
     expect(notifyProductionDeployIncidentJob).not.toContain(
       "Incident: Platform Deploy superseded before production for",
