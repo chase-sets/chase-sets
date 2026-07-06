@@ -41,6 +41,7 @@ export function buildHelmUpgradeArgs(options = {}) {
   const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
   const image = parsePlatformImageRef(requiredOption(options.image, "image"));
   const imagePullSecret = options.imagePullSecret ?? "";
+  const envOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
 
   return [
     "upgrade",
@@ -65,6 +66,10 @@ export function buildHelmUpgradeArgs(options = {}) {
     "--set-string",
     `global.image.digest=${image.digest}`,
     ...(imagePullSecret ? ["--set-string", `global.imagePullSecrets[0].name=${imagePullSecret}`] : []),
+    ...Object.entries(envOverrides).flatMap(([name, value]) => [
+      "--set-string",
+      `global.envOverrides.${name}=${value}`,
+    ]),
   ];
 }
 
@@ -377,7 +382,7 @@ function parseArgs(argv, env = process.env) {
   const command = argv.find((arg) => arg !== "--");
   if (!command || !["deploy", "rollback", "diagnostics", "plan", "capture-rollback-target"].includes(command)) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan|capture-rollback-target> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan|capture-rollback-target> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -386,6 +391,7 @@ function parseArgs(argv, env = process.env) {
     command,
     image: readOption(rest, "--image", env.PLATFORM_IMAGE_REF),
     imagePullSecret: readOption(rest, "--image-pull-secret", env.CHASE_SETS_IMAGE_PULL_SECRET_NAME ?? ""),
+    envOverrides: readEnvOverrides(rest),
     namespace: readOption(rest, "--namespace", env.CHASE_SETS_KUBERNETES_NAMESPACE ?? defaultNamespace),
     release: readOption(rest, "--release", env.CHASE_SETS_HELM_RELEASE ?? defaultRelease),
     timeout: readOption(rest, "--timeout", env.CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT ?? defaultTimeout),
@@ -409,6 +415,49 @@ function readOption(argv, name, defaultValue = undefined) {
 
   const prefix = `${name}=`;
   return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? defaultValue;
+}
+
+function readOptions(argv, name) {
+  const values = [];
+  const prefix = `${name}=`;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === name) {
+      values.push(requiredOption(argv[index + 1], name));
+      index += 1;
+    } else if (arg.startsWith(prefix)) {
+      values.push(arg.slice(prefix.length));
+    }
+  }
+
+  return values;
+}
+
+function readEnvOverrides(argv) {
+  return normalizeEnvOverrides(Object.fromEntries(readOptions(argv, "--runtime-env").map(parseEnvOverride)));
+}
+
+function parseEnvOverride(raw) {
+  const separatorIndex = raw.indexOf("=");
+  if (separatorIndex <= 0) {
+    throw new Error(`Runtime env override must look like NAME=VALUE: ${raw}`);
+  }
+
+  return [raw.slice(0, separatorIndex), requiredOption(raw.slice(separatorIndex + 1), raw.slice(0, separatorIndex))];
+}
+
+function normalizeEnvOverrides(overrides) {
+  return Object.fromEntries(
+    Object.entries(overrides)
+      .map(([name, value]) => {
+        if (!/^[A-Z][A-Z0-9_]*$/.test(name)) {
+          throw new Error(`Runtime env override name must be an environment variable token: ${name}`);
+        }
+        return [name, requiredOption(value, name)];
+      })
+      .sort(([left], [right]) => left.localeCompare(right, "en")),
+  );
 }
 
 async function main(argv, env = process.env) {

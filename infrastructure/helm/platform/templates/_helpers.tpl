@@ -63,6 +63,7 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 
 {{- define "chase-sets-platform.env" -}}
 {{- $root := .root -}}
+{{- $envOverrides := default dict $root.Values.global.envOverrides -}}
 {{- range .component.env }}
 - name: {{ .name | quote }}
   {{- if .secret }}
@@ -70,6 +71,8 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
     secretKeyRef:
       name: {{ default $root.Values.global.existingSecretName .secretName | quote }}
       key: {{ default .name .secretKey | quote }}
+  {{- else if hasKey $envOverrides .name }}
+  value: {{ index $envOverrides .name | quote }}
   {{- else }}
   value: {{ default "" .value | quote }}
   {{- end }}
