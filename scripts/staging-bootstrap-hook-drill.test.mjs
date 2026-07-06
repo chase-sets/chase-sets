@@ -10,6 +10,7 @@ import {
   DEFAULT_RELEASE,
   buildFailedBootstrapUpgradeArgs,
   HELD_LOCK_READY_MARKER,
+  HELD_LOCK_SETUP_FAILED_MARKER,
   buildHeldLockInjectorExecArgs,
   buildHeldLockInjectorShell,
   buildHeldLockNotStarted,
@@ -93,9 +94,10 @@ describe("staging bootstrap hook drill", () => {
         supportSafe: true,
         bootstrapTouchedRelation: expect.objectContaining({
           context: "catalog",
-          schema: "public",
+          schema: null,
           table: "bounded_context_schema_migrations",
           lockMode: "ACCESS EXCLUSIVE",
+          schemaDiscovery: "runtime-pg-tables",
         }),
         redaction: expect.objectContaining({
           databaseUrls: "not-read-by-workflow",
@@ -121,9 +123,10 @@ describe("staging bootstrap hook drill", () => {
       "--",
       "sh",
     ]);
-    expect(args.join(" ")).toContain("SELECT to_regclass($1)::text AS relation");
-    expect(args.join(" ")).toContain("public.bounded_context_schema_migrations");
-    expect(args.join(" ")).toContain("LOCK TABLE public.bounded_context_schema_migrations");
+    expect(args.join(" ")).toContain("FROM pg_tables WHERE tablename = $1");
+    expect(args.join(" ")).toContain('schemaMigrationsTable = "bounded_context_schema_migrations"');
+    expect(args.join(" ")).toContain("LOCK TABLE ${relationDiscovery.lockTarget}");
+    expect(args.join(" ")).not.toContain("public.bounded_context_schema_migrations");
     expect(args.join(" ")).not.toContain("LOCK TABLE catalog.bounded_context_schema_migrations");
     expect(args.join(" ")).not.toMatch(/postgres:\/\/|PASSWORD=|TOKEN=|SECRET=/);
   });
@@ -137,6 +140,27 @@ describe("staging bootstrap hook drill", () => {
     expect(result.config.ssl).toEqual({ rejectUnauthorized: false });
     expect(result.config.application_name).toBe("staging-bootstrap-hook-drill-held-lock");
     expect(`${result.stdout}\n${result.stderr}`).toContain(HELD_LOCK_READY_MARKER);
+    expect(`${result.stdout}\n${result.stderr}`).toContain('"schema":"catalog"');
+    expect(result.queries).toContain(
+      'LOCK TABLE "catalog"."bounded_context_schema_migrations" IN ACCESS EXCLUSIVE MODE',
+    );
+    expect(`${result.stdout}\n${result.stderr}`).not.toMatch(/postgres(?:ql)?:\/\//i);
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
+  });
+
+  it("discovers and locks a non-public schema-migrations relation", async () => {
+    const result = await runGeneratedHeldLockInjector({
+      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+      tableSchemas: ["catalog_runtime"],
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      `${HELD_LOCK_READY_MARKER} {"context":"catalog","schema":"catalog_runtime","table":"bounded_context_schema_migrations","relation":"catalog_runtime.bounded_context_schema_migrations","lockMode":"ACCESS EXCLUSIVE"`,
+    );
+    expect(result.queries).toContain(
+      'LOCK TABLE "catalog_runtime"."bounded_context_schema_migrations" IN ACCESS EXCLUSIVE MODE',
+    );
     expect(`${result.stdout}\n${result.stderr}`).not.toMatch(/postgres(?:ql)?:\/\//i);
     expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
   });
@@ -144,15 +168,42 @@ describe("staging bootstrap hook drill", () => {
   it("reports a support-safe missing-relation setup failure before taking the held lock", async () => {
     const result = await runGeneratedHeldLockInjector({
       databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
-      relationExists: false,
+      tableSchemas: [],
+      schemaNames: ["catalog", "extensions", "public"],
+      databaseName: "catalog",
     });
 
     expect(result.exitCode).toBe(3);
-    expect(`${result.stdout}\n${result.stderr}`).toContain(
-      'CHASE_SETS_HELD_LOCK_SETUP_FAILED {"reason":"missing-relation","relation":"public.bounded_context_schema_migrations"}',
-    );
-    expect(`${result.stdout}\n${result.stderr}`).not.toMatch(/postgres(?:ql)?:\/\//i);
-    expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(readMarkerPayload(output, HELD_LOCK_SETUP_FAILED_MARKER)).toEqual({
+      ok: false,
+      reason: "missing-relation",
+      table: "bounded_context_schema_migrations",
+      database: "catalog",
+      schemasPresent: ["catalog", "extensions", "public"],
+    });
+    expect(result.queries.some((query) => query.startsWith("LOCK TABLE"))).toBe(false);
+    expect(output).not.toMatch(/pg_catalog|information_schema|postgres(?:ql)?:\/\//i);
+    expect(output).not.toContain("secret");
+  });
+
+  it("reports support-safe duplicate relation candidates before taking the held lock", async () => {
+    const result = await runGeneratedHeldLockInjector({
+      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+      tableSchemas: ["catalog", "public"],
+    });
+
+    expect(result.exitCode).toBe(3);
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(readMarkerPayload(output, HELD_LOCK_SETUP_FAILED_MARKER)).toEqual({
+      ok: false,
+      reason: "multiple-relations",
+      table: "bounded_context_schema_migrations",
+      candidates: ["catalog.bounded_context_schema_migrations", "public.bounded_context_schema_migrations"],
+    });
+    expect(result.queries.some((query) => query.startsWith("LOCK TABLE"))).toBe(false);
+    expect(output).not.toMatch(/postgres(?:ql)?:\/\//i);
+    expect(output).not.toContain("secret");
   });
 
   it("uses PGSSLROOTCERT for verifying injector sslmodes without writing CA material to output", async () => {
@@ -426,7 +477,11 @@ describe("staging bootstrap hook drill", () => {
           calls.push([command, args]);
           const handle = createFakeProcessHandle();
           execHandles.push(handle);
-          queueMicrotask(() => handle.emitStdout(`${HELD_LOCK_READY_MARKER} {"context":"catalog"}\n`));
+          queueMicrotask(() =>
+            handle.emitStdout(
+              `${HELD_LOCK_READY_MARKER} {"context":"catalog","schema":"catalog_runtime","relation":"catalog_runtime.bounded_context_schema_migrations"}\n`,
+            ),
+          );
           return handle;
         },
         now: () => "2026-07-06T00:00:00.000Z",
@@ -441,6 +496,9 @@ describe("staging bootstrap hook drill", () => {
       expect(result.record.heldLock).toMatchObject({
         result: "released",
         release,
+        bootstrapTouchedRelation: {
+          schema: "catalog_runtime",
+        },
         lockRelease: {
           status: "observed",
           releasedDuring: "successful-bootstrap-upgrade",
@@ -602,7 +660,13 @@ function createFakeProcessHandle() {
   return handle;
 }
 
-async function runGeneratedHeldLockInjector({ databaseUrl, pgsslrootcert = "", relationExists = true }) {
+async function runGeneratedHeldLockInjector({
+  databaseUrl,
+  pgsslrootcert = "",
+  tableSchemas = ["catalog"],
+  schemaNames = ["catalog", "public"],
+  databaseName = "catalog",
+}) {
   const directory = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-injector-"));
   try {
     const pgModuleDirectory = join(directory, "node_modules", "pg");
@@ -617,29 +681,47 @@ async function runGeneratedHeldLockInjector({ databaseUrl, pgsslrootcert = "", r
 export class Client {
   constructor(config) {
     this.config = config;
-    writeFileSync(process.env.CHASE_SETS_TEST_CAPTURE_PATH, JSON.stringify({
-      application_name: config.application_name,
-      connectionString: config.connectionString,
-      ssl: config.ssl,
-    }));
+    this.queries = [];
+    this.writeCapture();
   }
 
   async connect() {}
 
   async query(sql, params = []) {
-    if (String(sql).startsWith("SELECT to_regclass")) {
-      return { rows: [{ relation: process.env.CHASE_SETS_TEST_RELATION_EXISTS === "false" ? null : params[0] }] };
+    const query = String(sql);
+    this.queries.push(query);
+    this.writeCapture();
+    if (query.includes("FROM pg_tables")) {
+      return {
+        rows: JSON.parse(process.env.CHASE_SETS_TEST_TABLE_SCHEMAS).map((schemaname) => ({ schemaname })),
+      };
     }
-    if (
-      process.env.CHASE_SETS_TEST_RELATION_EXISTS === "false" &&
-      String(sql).startsWith("LOCK TABLE")
-    ) {
-      throw new Error("held-lock query ran after a missing relation probe");
+    if (query.includes("FROM pg_namespace")) {
+      return {
+        rows: JSON.parse(process.env.CHASE_SETS_TEST_SCHEMA_NAMES)
+          .filter((schema) => !schema.startsWith("pg_") && schema !== "information_schema")
+          .map((schema) => ({ schema })),
+      };
+    }
+    if (query.startsWith("SELECT current_database()")) {
+      return { rows: [{ database: process.env.CHASE_SETS_TEST_DATABASE_NAME }] };
+    }
+    if (JSON.parse(process.env.CHASE_SETS_TEST_TABLE_SCHEMAS).length !== 1 && query.startsWith("LOCK TABLE")) {
+      throw new Error("held-lock query ran after relation discovery failed");
     }
     return { rows: [] };
   }
 
   async end() {}
+
+  writeCapture() {
+    writeFileSync(process.env.CHASE_SETS_TEST_CAPTURE_PATH, JSON.stringify({
+      application_name: this.config.application_name,
+      connectionString: this.config.connectionString,
+      ssl: this.config.ssl,
+      queries: this.queries,
+    }));
+  }
 }
 
 export default { Client };
@@ -657,7 +739,9 @@ export default { Client };
         env: {
           ...process.env,
           CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS: "0",
-          CHASE_SETS_TEST_RELATION_EXISTS: relationExists ? "true" : "false",
+          CHASE_SETS_TEST_TABLE_SCHEMAS: JSON.stringify(tableSchemas),
+          CHASE_SETS_TEST_SCHEMA_NAMES: JSON.stringify(schemaNames),
+          CHASE_SETS_TEST_DATABASE_NAME: databaseName,
           CHASE_SETS_TEST_CAPTURE_PATH: capturePath,
           DATABASE_URL_CATALOG: databaseUrl,
           PGSSLROOTCERT: pgsslrootcert,
@@ -674,8 +758,14 @@ export default { Client };
       };
     }
 
+    const capture = JSON.parse(await readFile(capturePath, "utf8"));
     return {
-      config: JSON.parse(await readFile(capturePath, "utf8")),
+      config: {
+        application_name: capture.application_name,
+        connectionString: capture.connectionString,
+        ssl: capture.ssl,
+      },
+      queries: capture.queries ?? [],
       exitCode: result.exitCode ?? 0,
       stdout: result.stdout,
       stderr: result.stderr,
@@ -691,6 +781,14 @@ function extractHeldLockInjectorNodeScript(shell) {
     throw new Error("Generated held-lock injector shell did not contain a NODE heredoc.");
   }
   return match[1];
+}
+
+function readMarkerPayload(output, marker) {
+  const line = output.split(/\r?\n/).find((entry) => entry.includes(marker));
+  if (!line) {
+    throw new Error(`Output did not contain marker ${marker}.`);
+  }
+  return JSON.parse(line.slice(line.indexOf(marker) + marker.length).trim());
 }
 
 async function writeCaFile(contents) {
