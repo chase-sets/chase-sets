@@ -40,12 +40,32 @@
       "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
     },
     {
+      "sourceContextName": "identity",
+      "projectionName": "payments-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "order": 30,
+      "projectionHandlerSetNames": ["payments-account-risk-source-projection"]
+    },
+    {
       "sourceContextName": "payments",
       "projectionName": "payments-order-cancellation-refund-effect",
       "subscriptionVersion": 1,
       "eventTypes": ["payments.payment-captured"],
       "order": 21,
       "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "payments-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "payments.payment-fraud-warning-received",
+        "payments.payment-fraud-review-opened",
+        "payments.payment-fraud-review-closed"
+      ],
+      "order": 31,
+      "projectionHandlerSetNames": ["payments-account-risk-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -76,6 +96,13 @@
       "ownedTables": ["payments_payment_orders", "payments_payment_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "payments-account-risk-source-projection",
+      "sourceContextNames": ["identity", "payments"],
+      "ownedTables": ["payments_account_risk_sources"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-fraud-alert-projection",

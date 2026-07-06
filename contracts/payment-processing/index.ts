@@ -5,6 +5,22 @@ export type PaymentProcessorName = "stripe";
 export type ProcessorPaymentKind = "checkout-session" | "payment-intent" | "balance-credit";
 export type ProcessorPaymentMethodCategory = "card" | "bank-account" | "platform-credit";
 export type ProcessorSavedPaymentReadiness = "ready" | "setup-required" | "removed";
+export type ProcessorThreeDSecureRequest = "automatic" | "any";
+export type ProcessorLiabilityShiftStatus =
+  | "not-requested"
+  | "requested"
+  | "shifted"
+  | "not-shifted"
+  | "attempted"
+  | "authentication-failed"
+  | "unknown";
+
+export type ProcessorLiabilityShiftOutcome = Readonly<{
+  threeDSecureRequested: ProcessorThreeDSecureRequest | null;
+  status: ProcessorLiabilityShiftStatus;
+  authenticationResult: string | null;
+  radarRiskLevel?: string | null;
+}>;
 
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
@@ -28,6 +44,10 @@ export type CreateProcessorPaymentInput = Readonly<{
   clientRiskContext?: Readonly<{
     ipAddress?: string | null;
     userAgent?: string | null;
+  }> | null;
+  cardAuthentication?: Readonly<{
+    requestThreeDSecure: ProcessorThreeDSecureRequest;
+    reasonCodes: readonly string[];
   }> | null;
   marketplaceRiskMetadata?: Readonly<Record<string, string | number | boolean | null | undefined>> | null;
   savedCheckoutInstrument?: Readonly<{
@@ -139,6 +159,7 @@ export type ProcessorPaymentReconciliationResult = Readonly<{
   internalPaymentId?: PaymentId | null;
   failureCode?: string | null;
   failureMessage?: string | null;
+  liabilityShiftOutcome?: ProcessorLiabilityShiftOutcome | null;
   savedPaymentMethod?: ProcessorSavedPaymentMethod | null;
   savedPaymentConsentId?: string | null;
   savedPaymentConsentText?: string | null;
@@ -197,6 +218,7 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   fraudType?: string | null;
   fraudReviewReason?: string | null;
   fraudReviewOutcome?: string | null;
+  liabilityShiftOutcome?: ProcessorLiabilityShiftOutcome | null;
   savedPaymentMethod?: ProcessorSavedPaymentMethod | null;
   savedPaymentConsentId?: string | null;
   savedPaymentConsentText?: string | null;

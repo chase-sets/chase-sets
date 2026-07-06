@@ -46,6 +46,25 @@ export type PaymentFraudReview = Readonly<{
   closedAt: string | null;
 }>;
 
+export type ThreeDSecureRequest = "automatic" | "any";
+export type PaymentLiabilityShiftStatus =
+  | "not-requested"
+  | "requested"
+  | "shifted"
+  | "not-shifted"
+  | "attempted"
+  | "authentication-failed"
+  | "unknown";
+
+export type PaymentLiabilityShiftOutcome = Readonly<{
+  providerEventId: string;
+  threeDSecureRequested: ThreeDSecureRequest | null;
+  status: PaymentLiabilityShiftStatus;
+  authenticationResult: string | null;
+  radarRiskLevel: string | null;
+  recordedAt: string;
+}>;
+
 export type PaymentState = Readonly<{
   paymentId: PaymentId | null;
   buyerAccountId: AccountId | null;
@@ -87,6 +106,9 @@ export type PaymentState = Readonly<{
   disputedAt: string | null;
   earlyFraudWarningIds: readonly string[];
   fraudReviews: readonly PaymentFraudReview[];
+  threeDSecureRequest: ThreeDSecureRequest | null;
+  threeDSecureReasonCodes: readonly string[];
+  liabilityShiftOutcomes: readonly PaymentLiabilityShiftOutcome[];
 }>;
 
 export type SellerPayoutComponent = Readonly<{
@@ -139,6 +161,9 @@ export const initialPaymentState: PaymentState = {
   disputedAt: null,
   earlyFraudWarningIds: [],
   fraudReviews: [],
+  threeDSecureRequest: null,
+  threeDSecureReasonCodes: [],
+  liabilityShiftOutcomes: [],
 };
 
 export type CreatePaymentCommand = Readonly<{
@@ -168,6 +193,8 @@ export type CreatePaymentCommand = Readonly<{
   processorStatus: string;
   sourceContext?: string | null;
   sourceReferenceId?: string | null;
+  threeDSecureRequest?: ThreeDSecureRequest | null;
+  threeDSecureReasonCodes?: readonly string[];
   createdAt: string;
 }>;
 
@@ -256,6 +283,16 @@ export type RecordPaymentFraudReviewClosedCommand = Readonly<{
   closedAt: string;
 }>;
 
+export type RecordPaymentLiabilityShiftOutcomeCommand = Readonly<{
+  type: "RecordPaymentLiabilityShiftOutcome";
+  providerEventId: string;
+  threeDSecureRequested?: ThreeDSecureRequest | null;
+  status: PaymentLiabilityShiftStatus;
+  authenticationResult?: string | null;
+  radarRiskLevel?: string | null;
+  recordedAt: string;
+}>;
+
 export type PaymentCommand =
   | CreatePaymentCommand
   | RecordPaymentAuthorizationCommand
@@ -267,7 +304,8 @@ export type PaymentCommand =
   | RecordPaymentDisputeCommand
   | RecordPaymentEarlyFraudWarningCommand
   | RecordPaymentFraudReviewOpenedCommand
-  | RecordPaymentFraudReviewClosedCommand;
+  | RecordPaymentFraudReviewClosedCommand
+  | RecordPaymentLiabilityShiftOutcomeCommand;
 
 export type PaymentCreatedEvent = DomainEvent<
   "payments.payment-created",
@@ -297,6 +335,8 @@ export type PaymentCreatedEvent = DomainEvent<
     processorStatus: string;
     sourceContext: string | null;
     sourceReferenceId: string | null;
+    threeDSecureRequest: ThreeDSecureRequest | null;
+    threeDSecureReasonCodes: string[];
     createdAt: string;
   }>
 >;
@@ -475,6 +515,23 @@ export type PaymentFraudReviewClosedEvent = DomainEvent<
   }>
 >;
 
+export type PaymentLiabilityShiftRecordedEvent = DomainEvent<
+  "payments.payment-liability-shift-recorded",
+  Readonly<{
+    paymentId: PaymentId;
+    orderIds: OrderId[];
+    buyerAccountId: AccountId;
+    processorName: PaymentProcessorName;
+    processorPaymentReference: string;
+    providerEventId: string;
+    threeDSecureRequested: ThreeDSecureRequest | null;
+    status: PaymentLiabilityShiftStatus;
+    authenticationResult: string | null;
+    radarRiskLevel: string | null;
+    recordedAt: string;
+  }>
+>;
+
 export type PaymentEvent =
   | PaymentCreatedEvent
   | PaymentAuthorizedEvent
@@ -486,7 +543,8 @@ export type PaymentEvent =
   | PaymentDisputedEvent
   | PaymentEarlyFraudWarningReceivedEvent
   | PaymentFraudReviewOpenedEvent
-  | PaymentFraudReviewClosedEvent;
+  | PaymentFraudReviewClosedEvent
+  | PaymentLiabilityShiftRecordedEvent;
 
 function normalizeSellerPayoutComponents(components: readonly SellerPayoutComponent[]): SellerPayoutComponent[] {
   return components.map((component) => ({
@@ -710,6 +768,10 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
             processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
             sourceContext: normalizeOptionalText(command.sourceContext),
             sourceReferenceId: normalizeOptionalText(command.sourceReferenceId),
+            threeDSecureRequest: command.threeDSecureRequest ?? null,
+            threeDSecureReasonCodes: [...(command.threeDSecureReasonCodes ?? [])]
+              .map((reason) => normalizeOptionalText(reason))
+              .filter((reason): reason is string => Boolean(reason)),
             createdAt: ensureIsoTimestamp(command.createdAt, "Payment creation must include a timestamp."),
           },
         },
@@ -1062,6 +1124,42 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
         },
       ];
     }
+    case "RecordPaymentLiabilityShiftOutcome": {
+      assert(state.paymentId !== null, "Payment must be created first.");
+      const providerEventId = normalizeRequiredText(command.providerEventId, "Provider event id is required.");
+      const existing = state.liabilityShiftOutcomes.find((outcome) => outcome.providerEventId === providerEventId);
+      const status = normalizeRequiredText(command.status, "Liability shift status is required.");
+      const authenticationResult = normalizeOptionalText(command.authenticationResult);
+      const radarRiskLevel = normalizeOptionalText(command.radarRiskLevel);
+      const threeDSecureRequested = command.threeDSecureRequested ?? null;
+      if (
+        existing &&
+        existing.status === status &&
+        existing.authenticationResult === authenticationResult &&
+        existing.radarRiskLevel === radarRiskLevel &&
+        existing.threeDSecureRequested === threeDSecureRequested
+      ) {
+        return [];
+      }
+      return [
+        {
+          type: "payments.payment-liability-shift-recorded",
+          data: {
+            paymentId: state.paymentId,
+            orderIds: [...state.orderIds],
+            buyerAccountId: state.buyerAccountId!,
+            processorName: state.processorName!,
+            processorPaymentReference: state.processorPaymentReference!,
+            providerEventId,
+            threeDSecureRequested,
+            status: status as PaymentLiabilityShiftStatus,
+            authenticationResult,
+            radarRiskLevel,
+            recordedAt: ensureIsoTimestamp(command.recordedAt, "Liability shift outcome must include a timestamp."),
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -1096,6 +1194,8 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         processorStatus: event.data.processorStatus,
         sourceContext: event.data.sourceContext,
         sourceReferenceId: event.data.sourceReferenceId,
+        threeDSecureRequest: event.data.threeDSecureRequest ?? null,
+        threeDSecureReasonCodes: [...(event.data.threeDSecureReasonCodes ?? [])],
         status: "pending-confirmation",
         failureCode: null,
         failureMessage: null,
@@ -1111,6 +1211,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         disputedAt: null,
         earlyFraudWarningIds: [],
         fraudReviews: [],
+        liabilityShiftOutcomes: [],
       };
     case "payments.payment-authorized":
       return {
@@ -1238,6 +1339,25 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
             outcome: event.data.outcome,
             openedAt: existingReview?.openedAt ?? null,
             closedAt: event.data.closedAt,
+          },
+        ],
+      };
+    }
+    case "payments.payment-liability-shift-recorded": {
+      const withoutOutcome = state.liabilityShiftOutcomes.filter(
+        (outcome) => outcome.providerEventId !== event.data.providerEventId,
+      );
+      return {
+        ...state,
+        liabilityShiftOutcomes: [
+          ...withoutOutcome,
+          {
+            providerEventId: event.data.providerEventId,
+            threeDSecureRequested: event.data.threeDSecureRequested,
+            status: event.data.status,
+            authenticationResult: event.data.authenticationResult,
+            radarRiskLevel: event.data.radarRiskLevel,
+            recordedAt: event.data.recordedAt,
           },
         ],
       };

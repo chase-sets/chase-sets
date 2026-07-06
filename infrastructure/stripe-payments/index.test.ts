@@ -152,6 +152,53 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("requests 3DS on Checkout Session PaymentIntents only for risk-based step-up", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "cs_3ds",
+            client_secret: "cs_3ds_secret",
+            status: "open",
+            payment_status: "unpaid",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    await gateway.createPaymentSession({
+      paymentId: "pay_3ds" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_3ds" as never],
+      amount: "250.00",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "3DS payment",
+      returnUrl: "https://marketplace.test/account/payments/pay_3ds",
+      cardAuthentication: {
+        requestThreeDSecure: "any",
+        reasonCodes: ["high-payment-amount"],
+      },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(formSnapshot(init.body)).toMatchObject({
+      "payment_intent_data[payment_method_options][card][request_three_d_secure]": "any",
+      "payment_intent_data[metadata][three_d_secure_requested]": "any",
+      "payment_intent_data[metadata][three_d_secure_reason_codes]": "high-payment-amount",
+      "metadata[three_d_secure_requested]": "any",
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it("retrieves payment reconciliation state by local payment metadata", async () => {
     const fetchMock = vi.fn(
       async () =>
@@ -291,6 +338,10 @@ describe("Stripe payment processor gateway", () => {
         confirmationExperience: "off-session-token",
         displayLabel: "Visa ending in 4242",
       },
+      cardAuthentication: {
+        requestThreeDSecure: "any",
+        reasonCodes: ["stripe-fraud-flag"],
+      },
     });
 
     expect(payment.processorPaymentKind).toBe("payment-intent");
@@ -304,7 +355,9 @@ describe("Stripe payment processor gateway", () => {
       payment_method: "pm_123",
       confirm: "true",
       off_session: "true",
+      "payment_method_options[card][request_three_d_secure]": "any",
       "metadata[saved_checkout_instrument_id]": "sci_card_1",
+      "metadata[three_d_secure_requested]": "any",
     });
     expect(formSnapshot(init.body)).not.toHaveProperty("transfer_data[destination]");
     expect(formSnapshot(init.body)).not.toHaveProperty("on_behalf_of");
@@ -834,5 +887,109 @@ describe("Stripe payment processor gateway", () => {
       occurredAt: "2026-07-06T12:05:00.000Z",
     });
     vi.unstubAllGlobals();
+  });
+
+  it("maps PaymentIntent 3DS liability shift outcomes through charge enrichment", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        id: "ch_3ds",
+        payment_intent: "pi_3ds",
+        metadata: { payment_id: "pay_3ds", three_d_secure_requested: "any" },
+        outcome: { risk_level: "normal" },
+        payment_method_details: {
+          card: {
+            three_d_secure: { result: "authenticated" },
+          },
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_pi_3ds",
+      type: "payment_intent.succeeded",
+      created: now,
+      data: {
+        object: {
+          id: "pi_3ds",
+          status: "succeeded",
+          latest_charge: "ch_3ds",
+          metadata: { payment_id: "pay_3ds", three_d_secure_requested: "any" },
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody,
+        signatureHeader: signature(rawBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_pi_3ds",
+      kind: "payment-captured",
+      processorPaymentReference: "pi_3ds",
+      liabilityShiftOutcome: {
+        threeDSecureRequested: "any",
+        status: "shifted",
+        authenticationResult: "authenticated",
+        radarRiskLevel: "normal",
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://stripe.test/v1/charges/ch_3ds",
+      expect.objectContaining({ method: "GET" }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("maps failed 3DS authentication from PaymentIntent failures", async () => {
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_pi_3ds_failed",
+      type: "payment_intent.payment_failed",
+      created: now,
+      data: {
+        object: {
+          id: "pi_3ds_failed",
+          status: "requires_payment_method",
+          metadata: { payment_id: "pay_3ds_failed", three_d_secure_requested: "any" },
+          outcome: { risk_level: "elevated" },
+          last_payment_error: {
+            code: "authentication_required",
+            message: "3DS authentication failed.",
+          },
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody,
+        signatureHeader: signature(rawBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_pi_3ds_failed",
+      kind: "payment-failed",
+      processorPaymentReference: "pi_3ds_failed",
+      liabilityShiftOutcome: {
+        threeDSecureRequested: "any",
+        status: "authentication-failed",
+        authenticationResult: "failed",
+        radarRiskLevel: "elevated",
+      },
+    });
   });
 });

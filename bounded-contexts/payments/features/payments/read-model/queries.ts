@@ -34,6 +34,12 @@ export type PaymentDetailRow = Readonly<{
   processor_client_secret: string | null;
   processor_redirect_url: string | null;
   processor_status: string;
+  three_d_secure_request: "automatic" | "any" | null;
+  three_d_secure_reason_codes: readonly string[];
+  liability_shift_status: string | null;
+  liability_shift_authentication_result: string | null;
+  liability_shift_radar_risk_level: string | null;
+  liability_shift_recorded_at: string | null;
   source_context: string | null;
   source_reference_id: string | null;
   status: string;
@@ -59,6 +65,16 @@ export type PaymentProviderEventRow = Readonly<{
   event_kind: string;
   provider_object_reference: string | null;
   received_at: string;
+}>;
+
+export type PaymentAccountRiskSourceRow = Readonly<{
+  account_id: string;
+  manual_payout_review: boolean;
+  stripe_fraud_flag: boolean;
+  stripe_fraud_flagged_at: string | null;
+  stripe_fraud_signal_count: number;
+  stripe_review_open_count: number;
+  updated_at: string;
 }>;
 
 export type SavedCheckoutInstrumentRow = Readonly<{
@@ -155,13 +171,14 @@ export type PaymentProviderOperationRow = Readonly<{
 
 type PaymentPageRow = Omit<
   PaymentDetailRow,
-  "order_ids" | "order_refund_caps" | "seller_payouts" | "order_refunded_amounts"
+  "order_ids" | "order_refund_caps" | "seller_payouts" | "order_refunded_amounts" | "three_d_secure_reason_codes"
 > &
   Readonly<{
     order_ids: unknown;
     order_refund_caps: unknown;
     seller_payouts: unknown;
     order_refunded_amounts: unknown;
+    three_d_secure_reason_codes: unknown;
   }>;
 
 function mapOrderMoneyAmounts(value: unknown): PaymentDetailRow["order_refund_caps"] {
@@ -195,6 +212,9 @@ function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
         )
       : [],
     order_refunded_amounts: mapOrderMoneyAmounts(row.order_refunded_amounts),
+    three_d_secure_reason_codes: Array.isArray(row.three_d_secure_reason_codes)
+      ? row.three_d_secure_reason_codes.filter((value): value is string => typeof value === "string")
+      : [],
   };
 }
 
@@ -236,6 +256,12 @@ const paymentSelect = `
     processor_client_secret,
     processor_redirect_url,
     processor_status,
+    three_d_secure_request,
+    three_d_secure_reason_codes,
+    liability_shift_status,
+    liability_shift_authentication_result,
+    liability_shift_radar_risk_level,
+    liability_shift_recorded_at,
     source_context,
     source_reference_id,
     status,
@@ -252,6 +278,27 @@ const paymentSelect = `
     disputed_at
   FROM payments_payment_pages
 `;
+
+export async function getPaymentAccountRiskSource(
+  db: PgQueryable,
+  accountId: string,
+): Promise<PaymentAccountRiskSourceRow | null> {
+  const result = await db.query<PaymentAccountRiskSourceRow>(
+    `SELECT
+       account_id,
+       manual_payout_review,
+       stripe_fraud_flag,
+       stripe_fraud_flagged_at,
+       stripe_fraud_signal_count,
+       stripe_review_open_count,
+       updated_at
+     FROM payments_account_risk_sources
+     WHERE account_id = $1`,
+    [accountId],
+  );
+
+  return result.rows[0] ?? null;
+}
 
 export async function getAccountPayment(
   db: PgQueryable,

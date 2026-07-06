@@ -54,6 +54,7 @@ import {
   listPaymentProviderOperationsNeedingReconciliation,
   listPaymentsNeedingReconciliation,
   listSavedCheckoutInstruments,
+  getPaymentAccountRiskSource,
   completeSavedCheckoutSetupSession,
   markSavedCheckoutInstrumentRemoved,
   markPaymentCreationReservationInactive,
@@ -71,6 +72,7 @@ import {
   getActivePaymentByOrderSet,
   getPaymentBySource,
   type PaymentDetailRow,
+  type PaymentAccountRiskSourceRow,
   type PaymentProviderEventRow,
   type PaymentProviderOperationRow,
   type SavedCheckoutInstrumentRow,
@@ -382,6 +384,41 @@ function buildMarketplaceRiskMetadata(
     max_seller_order_amount: maxSellerOrderAmount,
     high_dollar_order: compareMoney(maxSellerOrderAmount, "250.00") >= 0,
     fulfillment_required: sellerPayouts.length > 0,
+  };
+}
+
+type CardAuthenticationAssessment = Readonly<{
+  requestThreeDSecure: "automatic" | "any";
+  reasonCodes: readonly string[];
+}>;
+
+const THREE_D_SECURE_PAYMENT_AMOUNT_THRESHOLD = "250.00";
+
+function buildCardAuthenticationAssessment(
+  params: Readonly<{
+    paymentMethodCategory: PaymentMethodCategory;
+    processorAmount: string;
+    marketplaceRiskMetadata: Readonly<Record<string, string | number | boolean>>;
+    accountRisk: PaymentAccountRiskSourceRow | null;
+  }>,
+): CardAuthenticationAssessment | null {
+  if (params.paymentMethodCategory !== "card" || compareMoney(params.processorAmount, "0.00") <= 0) {
+    return null;
+  }
+
+  const reasonCodes = [
+    ...(params.accountRisk?.stripe_fraud_flag ? ["stripe-fraud-flag"] : []),
+    ...(params.accountRisk && params.accountRisk.stripe_review_open_count > 0 ? ["stripe-fraud-review-open"] : []),
+    ...(params.accountRisk?.manual_payout_review ? ["manual-payout-review"] : []),
+    ...(compareMoney(params.processorAmount, THREE_D_SECURE_PAYMENT_AMOUNT_THRESHOLD) >= 0
+      ? ["high-payment-amount"]
+      : []),
+    ...(params.marketplaceRiskMetadata.high_dollar_order === true ? ["high-dollar-seller-exposure"] : []),
+  ];
+
+  return {
+    requestThreeDSecure: reasonCodes.length > 0 ? "any" : "automatic",
+    reasonCodes,
   };
 }
 
@@ -811,6 +848,9 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     assert(state.processorStatus, "Payment creation is still in progress.");
     assert(state.status, "Payment creation is still in progress.");
     assert(state.createdAt, "Payment creation is still in progress.");
+    const latestLiabilityShiftOutcome = [...state.liabilityShiftOutcomes].sort((left, right) =>
+      left.recordedAt.localeCompare(right.recordedAt),
+    )[state.liabilityShiftOutcomes.length - 1];
 
     return {
       payment_id: state.paymentId,
@@ -836,6 +876,12 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       processor_client_secret: state.processorClientSecret,
       processor_redirect_url: state.processorRedirectUrl,
       processor_status: state.processorStatus,
+      three_d_secure_request: state.threeDSecureRequest,
+      three_d_secure_reason_codes: state.threeDSecureReasonCodes,
+      liability_shift_status: latestLiabilityShiftOutcome?.status ?? null,
+      liability_shift_authentication_result: latestLiabilityShiftOutcome?.authenticationResult ?? null,
+      liability_shift_radar_risk_level: latestLiabilityShiftOutcome?.radarRiskLevel ?? null,
+      liability_shift_recorded_at: latestLiabilityShiftOutcome?.recordedAt ?? null,
       source_context: state.sourceContext,
       source_reference_id: state.sourceReferenceId,
       status: state.status,
@@ -980,6 +1026,23 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         command,
         context,
       });
+      let repaired = outcome.newEvents.length > 0;
+      if (result.liabilityShiftOutcome) {
+        const liabilityOutcome = await commandHandler({
+          streamId: `payments.payment-${payment.payment_id}`,
+          command: {
+            type: "RecordPaymentLiabilityShiftOutcome",
+            providerEventId: `${result.processorPaymentReference}:${result.processorStatus}:${result.occurredAt}`,
+            threeDSecureRequested: result.liabilityShiftOutcome.threeDSecureRequested,
+            status: result.liabilityShiftOutcome.status,
+            authenticationResult: result.liabilityShiftOutcome.authenticationResult,
+            radarRiskLevel: result.liabilityShiftOutcome.radarRiskLevel ?? null,
+            recordedAt: result.occurredAt,
+          },
+          context,
+        });
+        repaired = repaired || liabilityOutcome.newEvents.length > 0;
+      }
       if (result.outcome === "captured" && result.savedPaymentMethod) {
         const customer =
           result.savedPaymentMethod.providerCustomerReference ??
@@ -1001,7 +1064,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           });
         }
       }
-      return { repaired: outcome.newEvents.length > 0, attention: null };
+      return { repaired, attention: null };
     } catch (error) {
       return {
         repaired: false,
@@ -1418,6 +1481,14 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const sellerPayoutAmount = sumFeeAmounts(orders, "seller_payout_amount");
       const sellerPayouts = buildSellerPayoutComponents(orders);
       const orderRefundCaps = buildOrderRefundCaps(orders, marketplaceCheckoutFeeAmount);
+      const marketplaceRiskMetadata = buildMarketplaceRiskMetadata(sellerPayouts);
+      const accountRisk = await getPaymentAccountRiskSource(deps.db, accountId);
+      const cardAuthentication = buildCardAuthenticationAssessment({
+        paymentMethodCategory,
+        processorAmount,
+        marketplaceRiskMetadata,
+        accountRisk,
+      });
       const paymentId = createId("pay") as PaymentId;
       const createdAt = new Date().toISOString();
       const createAgenticPaymentSession = deps.processorGateway.createAgenticPaymentSession?.bind(
@@ -1468,7 +1539,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         paymentMethodCategory,
         returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
         clientRiskContext: params.clientRiskContext ?? null,
-        marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
+        cardAuthentication,
+        marketplaceRiskMetadata,
         savedCheckoutInstrument: savedCheckoutInstrument
           ? {
               instrumentId: savedCheckoutInstrument.instrument_id,
@@ -1525,7 +1597,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
                   idempotencyKey: providerIdempotencyKey,
                   clientRiskContext: params.clientRiskContext ?? null,
-                  marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
+                  cardAuthentication,
+                  marketplaceRiskMetadata,
                   savedCheckoutInstrument: providerRequest.savedCheckoutInstrument,
                   savePaymentMethod: providerRequest.savePaymentMethod,
                   agenticPayment: params.agenticPayment,
@@ -1544,7 +1617,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
                   idempotencyKey: providerIdempotencyKey,
                   clientRiskContext: params.clientRiskContext ?? null,
-                  marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
+                  cardAuthentication,
+                  marketplaceRiskMetadata,
                   savedCheckoutInstrument: providerRequest.savedCheckoutInstrument,
                   savePaymentMethod: providerRequest.savePaymentMethod,
                 });
@@ -1589,6 +1663,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           processorStatus: processorPayment.processorStatus,
           sourceContext,
           sourceReferenceId,
+          threeDSecureRequest: cardAuthentication?.requestThreeDSecure ?? null,
+          threeDSecureReasonCodes: cardAuthentication?.reasonCodes ?? [],
           createdAt,
         },
         context,
@@ -1644,6 +1720,12 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         processor_client_secret: processorPayment.processorClientSecret,
         processor_redirect_url: processorPayment.processorRedirectUrl,
         processor_status: processorPayment.processorStatus,
+        three_d_secure_request: cardAuthentication?.requestThreeDSecure ?? null,
+        three_d_secure_reason_codes: cardAuthentication?.reasonCodes ?? [],
+        liability_shift_status: null,
+        liability_shift_authentication_result: null,
+        liability_shift_radar_risk_level: null,
+        liability_shift_recorded_at: null,
         source_context: sourceContext,
         source_reference_id: sourceReferenceId,
         status: compareMoney(processorAmount, "0.00") === 0 ? "captured" : "pending-confirmation",
@@ -2211,6 +2293,22 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           break;
         default:
           assert(false, "Unhandled payment webhook kind.");
+      }
+
+      if (webhookEvent.liabilityShiftOutcome) {
+        await commandHandler({
+          streamId,
+          command: {
+            type: "RecordPaymentLiabilityShiftOutcome",
+            providerEventId: webhookEvent.eventId,
+            threeDSecureRequested: webhookEvent.liabilityShiftOutcome.threeDSecureRequested,
+            status: webhookEvent.liabilityShiftOutcome.status,
+            authenticationResult: webhookEvent.liabilityShiftOutcome.authenticationResult,
+            radarRiskLevel: webhookEvent.liabilityShiftOutcome.radarRiskLevel ?? null,
+            recordedAt: webhookEvent.occurredAt,
+          },
+          context,
+        });
       }
 
       await recordProcessed();

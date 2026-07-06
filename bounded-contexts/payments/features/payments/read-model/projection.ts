@@ -28,6 +28,8 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
         processorClientSecret: string | null;
         processorRedirectUrl?: string | null;
         processorStatus: string;
+        threeDSecureRequest?: string | null;
+        threeDSecureReasonCodes?: unknown;
         sourceContext: string | null;
         sourceReferenceId: string | null;
         createdAt: string;
@@ -37,10 +39,10 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
         `WITH source_conflict AS (
          SELECT payment_id
          FROM payments_payment_pages
-         WHERE $24::text IS NOT NULL
-           AND $25::text IS NOT NULL
-           AND source_context = $24
-           AND source_reference_id = $25
+         WHERE $26::text IS NOT NULL
+           AND $27::text IS NOT NULL
+           AND source_context = $26
+           AND source_reference_id = $27
            AND payment_id <> $1
          ORDER BY created_at ASC, payment_id ASC
          LIMIT 1
@@ -70,6 +72,8 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            processor_client_secret,
            processor_redirect_url,
            processor_status,
+           three_d_secure_request,
+           three_d_secure_reason_codes,
            source_context,
            source_reference_id,
            status,
@@ -87,7 +91,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            last_stream_version
          )
          SELECT
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'pending-confirmation', NULL, NULL, $26, $26, NULL, NULL, NULL, NULL, 0, '[]'::jsonb, NULL, $27
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, 'pending-confirmation', NULL, NULL, $28, $28, NULL, NULL, NULL, NULL, 0, '[]'::jsonb, NULL, $29
          WHERE NOT EXISTS (SELECT 1 FROM source_conflict)
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -112,6 +116,8 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
              processor_client_secret = EXCLUDED.processor_client_secret,
              processor_redirect_url = EXCLUDED.processor_redirect_url,
              processor_status = EXCLUDED.processor_status,
+             three_d_secure_request = EXCLUDED.three_d_secure_request,
+             three_d_secure_reason_codes = EXCLUDED.three_d_secure_reason_codes,
              source_context = EXCLUDED.source_context,
              source_reference_id = EXCLUDED.source_reference_id,
              status = EXCLUDED.status,
@@ -155,6 +161,8 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
           data.processorClientSecret,
           data.processorRedirectUrl ?? null,
           data.processorStatus,
+          data.threeDSecureRequest ?? null,
+          JSON.stringify(Array.isArray(data.threeDSecureReasonCodes) ? data.threeDSecureReasonCodes : []),
           data.sourceContext,
           data.sourceReferenceId,
           data.createdAt,
@@ -305,6 +313,35 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
           data.disputeStatus,
           data.disputeMessage,
           data.disputedAt,
+          event.streamVersion,
+        ],
+      );
+    },
+    "payments.payment-liability-shift-recorded": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        status: string;
+        authenticationResult: string | null;
+        radarRiskLevel: string | null;
+        recordedAt: string;
+      };
+
+      await db.query(
+        `UPDATE payments_payment_pages
+         SET liability_shift_status = $2,
+             liability_shift_authentication_result = $3,
+             liability_shift_radar_risk_level = $4,
+             liability_shift_recorded_at = $5,
+             updated_at = $5,
+             last_stream_version = $6
+         WHERE payment_id = $1
+           AND last_stream_version < $6`,
+        [
+          data.paymentId,
+          data.status,
+          data.authenticationResult,
+          data.radarRiskLevel,
+          data.recordedAt,
           event.streamVersion,
         ],
       );
