@@ -88,6 +88,7 @@ export type WalletServices = Readonly<{
       payoutId?: PayoutId | null;
       description?: string | null;
       postedAt?: string;
+      allowNegativeBalance?: boolean;
     }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: AccountId; version: number; entry: PostedLedgerEntrySnapshot }>;
@@ -194,6 +195,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
           payoutId: params.payoutId ?? null,
           description: params.description ?? null,
           postedAt,
+          allowNegativeBalance: params.allowNegativeBalance,
         },
         context,
       });

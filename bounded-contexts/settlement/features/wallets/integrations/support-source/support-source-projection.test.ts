@@ -126,4 +126,57 @@ describe("settlement support source projection", () => {
       4,
     ]);
   });
+
+  it("holds pending seller funds for chargebacks and releases them when won", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildSettlementSupportHoldProjectionHandlers(db as never);
+
+    await handlers["payments.payment-disputed"]!(
+      event(
+        "payments.payment-disputed",
+        {
+          orderIds: ["ord_1"],
+          buyerAccountId: "acc_buyer",
+          sellerPayouts: [{ orderId: "ord_1", sellerAccountId: "acc_seller" }],
+          providerDisputeId: "dp_123",
+          disputeLifecycleState: "created",
+          disputedAt: "2026-07-06T12:05:00.000Z",
+        },
+        5,
+      ),
+    );
+    await handlers["payments.payment-disputed"]!(
+      event(
+        "payments.payment-disputed",
+        {
+          orderIds: ["ord_1"],
+          buyerAccountId: "acc_buyer",
+          sellerPayouts: [{ orderId: "ord_1", sellerAccountId: "acc_seller" }],
+          providerDisputeId: "dp_123",
+          disputeLifecycleState: "won",
+          disputedAt: "2026-07-08T12:05:00.000Z",
+        },
+        6,
+      ),
+    );
+
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("settlement_support_holds"), [
+      "fraud_dp_123_ord_1_acc_seller",
+      "hold_fraud_dp_123_ord_1_acc_seller",
+      "ord_1",
+      "acc_buyer",
+      "acc_seller",
+      "stripe-chargeback",
+      "created",
+      "2026-07-06T12:05:00.000Z",
+      5,
+    ]);
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("stripe-chargeback-won"), [
+      "fraud_dp_123%",
+      "2026-07-08T12:05:00.000Z",
+      6,
+    ]);
+  });
 });

@@ -262,6 +262,10 @@ function allocateRefundDebitAmounts(
   return allocateMoneyByLargestRemainder(centsToMoneyAmount(cappedDebitCents), weights);
 }
 
+function ledgerIdPart(value: string) {
+  return value.replaceAll(/[^a-zA-Z0-9_]+/g, "_").replaceAll(/^_+|_+$/g, "");
+}
+
 async function debitSellerRefunds(
   wallets: WalletServices | undefined,
   data: Readonly<{
@@ -312,7 +316,17 @@ async function debitSellerRefunds(
   }
 }
 
-function shouldReleaseDisputeHold(disputeStatus: string | null, disputeMessage: string | null) {
+function shouldReleaseDisputeHold(
+  disputeLifecycleState: string | null | undefined,
+  disputeStatus: string | null,
+  disputeMessage: string | null,
+) {
+  if (disputeLifecycleState === "won") {
+    return true;
+  }
+  if (disputeLifecycleState === "lost") {
+    return false;
+  }
   const eventType = disputeStatus?.toLowerCase() ?? "";
   const providerStatus = disputeMessage?.toLowerCase() ?? "";
   return eventType.includes("closed") && (providerStatus === "won" || providerStatus === "warning_closed");
@@ -322,11 +336,13 @@ async function postSellerDisputeLedgerEntries(
   wallets: WalletServices | undefined,
   data: Readonly<{
     paymentId: string;
+    providerDisputeId?: string | null;
     paymentAmount: string;
     disputeAmount: string;
     currencyCode: string;
     disputeStatus: string | null;
     disputeMessage: string | null;
+    disputeLifecycleState?: string | null;
     disputedAt: string;
     sellerPayouts: readonly SellerPayoutComponent[];
   }>,
@@ -341,9 +357,10 @@ async function postSellerDisputeLedgerEntries(
     audit: event.audit,
     trace: event.trace,
   };
-  const releaseHold = shouldReleaseDisputeHold(data.disputeStatus, data.disputeMessage);
+  const releaseHold = shouldReleaseDisputeHold(data.disputeLifecycleState, data.disputeStatus, data.disputeMessage);
 
   const holdAmounts = allocateRefundDebitAmounts(data.disputeAmount, data.paymentAmount, data.sellerPayouts);
+  const disputeId = ledgerIdPart(data.providerDisputeId ?? data.paymentId);
 
   for (const [index, payout] of data.sellerPayouts.entries()) {
     const holdAmount = holdAmounts[index] ?? "0.00";
@@ -365,10 +382,11 @@ async function postSellerDisputeLedgerEntries(
       wallets,
       {
         ...baseEntry,
-        ledgerEntryId: `led_dispute_hold_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+        ledgerEntryId: `led_chargeback_${disputeId}_${ledgerIdPart(payout.orderId)}` as LedgerEntryId,
         kind: "adjustment",
         direction: "debit",
-        description: `Dispute hold for payment ${data.paymentId}`,
+        description: `Chargeback clawback for payment ${data.paymentId}`,
+        allowNegativeBalance: true,
       },
       context,
     );
@@ -378,10 +396,10 @@ async function postSellerDisputeLedgerEntries(
         wallets,
         {
           ...baseEntry,
-          ledgerEntryId: `led_dispute_release_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+          ledgerEntryId: `led_chargeback_release_${disputeId}_${ledgerIdPart(payout.orderId)}` as LedgerEntryId,
           kind: "adjustment",
           direction: "credit",
-          description: `Dispute hold released for payment ${data.paymentId}`,
+          description: `Chargeback hold released for payment ${data.paymentId}`,
         },
         context,
       );
@@ -649,12 +667,14 @@ export function buildSettlementPaymentInputProjectionHandlers(
     "payments.payment-disputed": async (event) => {
       const data = event.data as {
         paymentId: string;
+        providerDisputeId?: string | null;
         amount: string;
         currencyCode: string;
         processorStatus: string;
         sellerPayouts?: unknown;
         disputeStatus: string | null;
         disputeMessage: string | null;
+        disputeLifecycleState?: string | null;
         disputedAt: string;
       };
 
@@ -695,11 +715,13 @@ export function buildSettlementPaymentInputProjectionHandlers(
         wallets,
         {
           paymentId: data.paymentId,
+          providerDisputeId: data.providerDisputeId,
           paymentAmount,
           disputeAmount: data.amount,
           currencyCode: data.currencyCode,
           disputeStatus: data.disputeStatus,
           disputeMessage: data.disputeMessage,
+          disputeLifecycleState: data.disputeLifecycleState,
           disputedAt: data.disputedAt,
           sellerPayouts,
         },
