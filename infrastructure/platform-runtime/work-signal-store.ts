@@ -3,7 +3,11 @@ import { performance } from "node:perf_hooks";
 
 import type { ReadConsistencyWakeRequest, ReadConsistencyWorkSignalGateway } from "@chase-sets/bounded-context-runtime";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { emitPostgresWorkSignalNotification } from "./work-signal-composite";
+import {
+  createPostgresWorkSignalWaiter,
+  emitPostgresWorkSignalNotification,
+  type PostgresWorkSignalWaiter,
+} from "./work-signal-composite";
 
 export const PROJECTION_WAKE_INTENT_WORK_SIGNAL_CHANNEL = "platform_projection_wake_intents";
 const PROJECTION_WAKE_INTENT_WORK_SIGNAL_SOURCE = "platform-runtime.work-signal-store";
@@ -153,6 +157,15 @@ export type ProjectionWakeIntentWorkSignalPayload = Readonly<{
   origin: WorkSignalWakeOrigin;
   state: ProjectionWakeIntentState;
   nextEligibleAt: string;
+}>;
+
+export type ProjectionCheckpointReadyWorkSignalPayload = Readonly<{
+  checkpointKey: string;
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  readyPosition: string;
+  readyCursor: string | null;
 }>;
 
 export type CheckpointReadinessRecord = Readonly<{
@@ -329,11 +342,13 @@ export type WorkSignalReadConsistencyGatewayObserver = Readonly<{
 export type WorkSignalReadConsistencyGatewayOptions = Readonly<{
   priorityLane?: WorkSignalPriorityLane;
   observer?: WorkSignalReadConsistencyGatewayObserver;
+  waitForReadinessNotifications?: boolean;
+  readinessListenRetryCooldownMs?: number;
   /**
-   * Waiter rows currently have no API-side consumer (the read-consistency
-   * middleware polls durable checkpoints). Registration stays off by default
-   * until the readiness-notification wait path lands, so request traffic does
-   * not write rows that influence nothing.
+   * Durable waiter rows are reserved for offline diagnostics and future
+   * cross-process wait recovery. The API read path consumes checkpoint-ready
+   * notifications directly when waitForReadinessNotifications is enabled, so
+   * row registration stays off by default.
    */
   registerWaiters?: boolean;
   waiterTtlSlackMs?: number;
@@ -387,6 +402,8 @@ const DEFAULT_CLEANUP_LIMIT = 500;
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
 const CURRENT_SCHEMA_VERSION = 1;
 const CURRENT_PAYLOAD_VERSION = 1;
+const CHECKPOINT_READY_WORK_SIGNAL_CHANNEL = "platform_projection_checkpoint_readiness";
+const CHECKPOINT_READY_WORK_SIGNAL_SOURCE = "platform-runtime.work-signal-store";
 
 // Durable wake-store rows are an ADR 0010 privacy boundary: wake intents,
 // checkpoint readiness, and waiter rows must carry only identifiers, context,
@@ -537,6 +554,13 @@ export function createPostgresWorkSignalStore(
   const defaultWakeTtlMs = options.defaultWakeTtlMs ?? DEFAULT_WAKE_TTL_MS;
   const defaultReadinessTtlMs = options.defaultReadinessTtlMs ?? DEFAULT_READINESS_TTL_MS;
   const defaultWaiterTtlMs = options.defaultWaiterTtlMs ?? DEFAULT_WAITER_TTL_MS;
+  const checkpointReadyWaiter =
+    options.readConsistencyGateway?.waitForReadinessNotifications && isTransactionalPool(db)
+      ? createPostgresWorkSignalWaiter(db, {
+          channel: CHECKPOINT_READY_WORK_SIGNAL_CHANNEL,
+          listenRetryCooldownMs: options.readConsistencyGateway.readinessListenRetryCooldownMs,
+        })
+      : undefined;
 
   const store: PostgresWorkSignalStore = {
     async enqueueProjectionWakeIntent(input) {
@@ -985,7 +1009,10 @@ export function createPostgresWorkSignalStore(
           [input.checkpointKey, input.sourceContextName, readyPosition],
         );
 
-        return mapCheckpointReadinessRow(requireSingleRow(result.rows));
+        const record = mapCheckpointReadinessRow(requireSingleRow(result.rows));
+        await tryEmitCheckpointReadyWorkSignal(client, record);
+
+        return record;
       });
     },
 
@@ -1320,6 +1347,7 @@ export function createPostgresWorkSignalStore(
         readConsistencyGateway: createWorkSignalReadConsistencyGateway(store, {
           ...options.readConsistencyGateway,
           now,
+          checkpointReadyWaiter,
         }),
       }
     : store;
@@ -1328,6 +1356,7 @@ export function createPostgresWorkSignalStore(
 type WorkSignalReadConsistencyGatewayFactoryOptions = WorkSignalReadConsistencyGatewayOptions &
   Readonly<{
     now: () => Date;
+    checkpointReadyWaiter?: PostgresWorkSignalWaiter;
   }>;
 
 /**
@@ -1405,6 +1434,21 @@ function createWorkSignalReadConsistencyGateway(
           },
         }
       : {}),
+    ...(options.checkpointReadyWaiter
+      ? {
+          waitForReadiness: async (
+            input: Readonly<{
+              requests: readonly ReadConsistencyWakeRequest[];
+              timeoutMs: number;
+            }>,
+          ) =>
+            options.checkpointReadyWaiter!.wait({
+              timeoutMs: input.timeoutMs,
+              matches: (notification) =>
+                checkpointReadyNotificationMatches(notification.envelope?.payload, input.requests),
+            }),
+        }
+      : {}),
   };
 }
 
@@ -1443,6 +1487,68 @@ function notifyProjectionWakeIntentEnqueued(
     observer?.projectionWakeIntentEnqueued?.(event);
   } catch {
     // Observability must never disrupt wake enqueue delivery.
+  }
+}
+
+async function tryEmitCheckpointReadyWorkSignal(
+  db: PgQueryable | PgTransactionalPool,
+  record: CheckpointReadinessRecord,
+): Promise<void> {
+  try {
+    await emitPostgresWorkSignalNotification<ProjectionCheckpointReadyWorkSignalPayload>(db, {
+      channel: CHECKPOINT_READY_WORK_SIGNAL_CHANNEL,
+      envelope: {
+        kind: "projection.checkpoint-ready",
+        source: CHECKPOINT_READY_WORK_SIGNAL_SOURCE,
+        correlationId: record.correlationId,
+        payload: {
+          checkpointKey: record.checkpointKey,
+          sourceContextName: record.sourceContextName,
+          targetContextName: record.targetContextName,
+          projectionName: record.projectionName,
+          readyPosition: record.readyPosition.toString(),
+          readyCursor: record.readyCursor,
+        },
+      },
+    });
+  } catch {
+    return;
+  }
+}
+
+function checkpointReadyNotificationMatches(
+  payload: Record<string, unknown> | undefined,
+  requests: readonly ReadConsistencyWakeRequest[],
+): boolean {
+  if (!payload) {
+    return false;
+  }
+
+  const checkpointKey = typeof payload.checkpointKey === "string" ? payload.checkpointKey : null;
+  const sourceContextName = typeof payload.sourceContextName === "string" ? payload.sourceContextName : null;
+  const readyPosition = typeof payload.readyPosition === "string" ? payload.readyPosition : null;
+  if (!checkpointKey || !sourceContextName || !readyPosition) {
+    return false;
+  }
+
+  const readyGlobalPosition = tryParseGlobalPosition(readyPosition);
+  if (readyGlobalPosition === null) {
+    return false;
+  }
+
+  return requests.some(
+    (request) =>
+      request.checkpointKey === checkpointKey &&
+      request.sourceContextName === sourceContextName &&
+      readyGlobalPosition >= BigInt(request.requiredPosition),
+  );
+}
+
+function tryParseGlobalPosition(value: string): bigint | null {
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
   }
 }
 

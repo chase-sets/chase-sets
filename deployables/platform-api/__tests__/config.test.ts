@@ -157,6 +157,7 @@ function resetConfigEnv() {
   delete process.env.READ_CONSISTENCY_EXACT_DEPENDENCY_MODE;
   delete process.env.READ_CONSISTENCY_ROUTE_TUNING_JSON;
   delete process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED;
+  delete process.env.READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED;
   delete process.env.NODE_ENV;
   delete process.env.DEPLOYMENT_ENVIRONMENT;
   delete process.env.PLATFORM_DATA_PROFILES;
@@ -225,6 +226,7 @@ describe("platform api config", () => {
       exactDependencyMode: "enabled",
       routeTuning: defaultCriticalReadConsistencyRouteTuning,
       wakeBeforeWaitEnabled: false,
+      readinessNotificationsEnabled: false,
     });
     expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS);
   });
@@ -976,6 +978,7 @@ describe("platform api config", () => {
         },
       ],
       wakeBeforeWaitEnabled: false,
+      readinessNotificationsEnabled: false,
     });
   });
 
@@ -984,6 +987,13 @@ describe("platform api config", () => {
     process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED = "true";
 
     expect(loadConfig().readConsistency?.wakeBeforeWaitEnabled).toBe(true);
+  });
+
+  it("enables read consistency readiness notifications from their environment flag", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED = "true";
+
+    expect(loadConfig().readConsistency?.readinessNotificationsEnabled).toBe(true);
   });
 
   it("keeps environment read consistency route tuning after critical defaults so operators can override", () => {

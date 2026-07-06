@@ -51,6 +51,119 @@ describe("bounded context projection freshness waits", () => {
     expect(refreshCount).toBe(2);
   });
 
+  it("rechecks freshness immediately when checkpoint readiness is notified before the poll interval", async () => {
+    let lastGlobalPosition = "1";
+    let refreshCount = 0;
+    const waitCalls: { timeoutMs: number; requests: readonly { checkpointKey: string; requiredPosition: string }[] }[] =
+      [];
+
+    const startedAt = performance.now();
+    const outcome = await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              checkpointKey: "marketplace-listing-projection:marketplace:v1",
+              refreshStatus: async () => {
+                refreshCount += 1;
+                return {
+                  lastGlobalPosition,
+                  state: lastGlobalPosition === "5" ? "caught-up" : "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+      },
+      timeoutMs: 1_000,
+      pollIntervalMs: 500,
+      workSignalGateway: {
+        waitForReadiness: async (input) => {
+          waitCalls.push(input);
+          lastGlobalPosition = "5";
+          return "notified";
+        },
+      },
+    });
+
+    expect(performance.now() - startedAt).toBeLessThan(250);
+    expect(outcome).toEqual({ wakeRequestCount: 0, workSignalErrorPresent: false });
+    expect(refreshCount).toBe(2);
+    expect(waitCalls).toEqual([
+      {
+        timeoutMs: 500,
+        requests: [
+          {
+            sourceContextName: "marketplace",
+            targetContextName: "marketplace",
+            projectionName: "marketplace-listing-projection",
+            checkpointKey: "marketplace-listing-projection:marketplace:v1",
+            requiredPosition: "5",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps polling semantics when checkpoint readiness notifications are unavailable", async () => {
+    let lastGlobalPosition = "1";
+    let refreshCount = 0;
+    let waitCount = 0;
+
+    const outcome = await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              checkpointKey: "marketplace-listing-projection:marketplace:v1",
+              refreshStatus: async () => {
+                refreshCount += 1;
+                if (refreshCount > 2) {
+                  lastGlobalPosition = "5";
+                }
+
+                return {
+                  lastGlobalPosition,
+                  state: lastGlobalPosition === "5" ? "caught-up" : "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+      },
+      timeoutMs: 100,
+      pollIntervalMs: 1,
+      workSignalGateway: {
+        waitForReadiness: async () => {
+          waitCount += 1;
+          return "listener-unavailable";
+        },
+      },
+    });
+
+    expect(outcome).toEqual({ wakeRequestCount: 0, workSignalErrorPresent: false });
+    expect(refreshCount).toBe(3);
+    expect(waitCount).toBe(2);
+  });
+
   it("fails closed when projections do not reach the receipt before timeout", async () => {
     await expect(
       waitForProjectionFreshness({

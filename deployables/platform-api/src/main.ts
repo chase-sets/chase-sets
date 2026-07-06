@@ -490,8 +490,13 @@ const mcpToolCallLimiter = realtimeStreamLimiter.limiter
   : undefined;
 const drainState = createProcessDrainState();
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
-  ...(config.readConsistency?.wakeBeforeWaitEnabled
-    ? { readConsistencyGateway: { observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue } } }
+  ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
+    ? {
+        readConsistencyGateway: {
+          observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue },
+          waitForReadinessNotifications: config.readConsistency?.readinessNotificationsEnabled,
+        },
+      }
     : {}),
 });
 const app = buildPlatformApiApp(runtime, {

@@ -149,6 +149,7 @@ export type PlatformApiReadConsistencyConfig = Readonly<{
   exactDependencyMode: ReadConsistencyExactDependencyMode;
   routeTuning: readonly ReadConsistencyRouteTuning[];
   wakeBeforeWaitEnabled: boolean;
+  readinessNotificationsEnabled: boolean;
 }>;
 
 // Issue #1225: critical post-write routes keep exact-dependency waits. These
@@ -539,6 +540,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       exactDependencyMode: getReadConsistencyExactDependencyModeEnv("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE"),
       routeTuning: loadReadConsistencyRouteTuning(),
       wakeBeforeWaitEnabled: getBooleanEnv("READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED", false),
+      readinessNotificationsEnabled: getBooleanEnv("READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED", false),
     },
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),

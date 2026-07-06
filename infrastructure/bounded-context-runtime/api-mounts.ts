@@ -71,6 +71,13 @@ export type ReadConsistencyWorkSignalGateway = Readonly<{
       metadata?: Readonly<Record<string, unknown>>;
     }>,
   ) => Promise<void>;
+  waitForReadiness?: (
+    input: Readonly<{
+      requests: readonly ReadConsistencyWakeRequest[];
+      timeoutMs: number;
+      metadata?: Readonly<Record<string, unknown>>;
+    }>,
+  ) => Promise<"notified" | "timeout" | "aborted" | "listener-unavailable">;
 }>;
 
 export type ReadConsistencyWaitOutcome = Readonly<{
@@ -453,9 +460,10 @@ export async function waitForProjectionFreshness(
     // bounded durable poll below remains the unconditional fallback, so a
     // wake landing between the check and the registration cannot strand the
     // request.
+    const requests = collectWakeRequests(pending);
+
     if (!workSignalsRequested && input.workSignalGateway) {
       workSignalsRequested = true;
-      const requests = collectWakeRequests(pending);
       if (requests.length > 0) {
         const gateway = input.workSignalGateway;
         const gatewayWork = (async () => {
@@ -484,7 +492,8 @@ export async function waitForProjectionFreshness(
       }
     }
 
-    if (nowMs() - startedAt >= timeoutMs) {
+    const elapsedMs = nowMs() - startedAt;
+    if (elapsedMs >= timeoutMs) {
       throw new ProjectionFreshnessTimeoutError({
         targetContextNames,
         pending,
@@ -495,8 +504,48 @@ export async function waitForProjectionFreshness(
       });
     }
 
-    await delay(Math.min(pollIntervalMs, Math.max(0, timeoutMs - (nowMs() - startedAt))));
+    const waitMs = Math.min(pollIntervalMs, Math.max(0, timeoutMs - elapsedMs));
+    await waitForNextFreshnessCheck({
+      gateway: input.workSignalGateway,
+      requests,
+      timeoutMs: waitMs,
+      metadata: input.workSignalMetadata,
+      onError: () => {
+        workSignalErrorPresent = true;
+      },
+    });
   }
+}
+
+async function waitForNextFreshnessCheck(
+  input: Readonly<{
+    gateway?: ReadConsistencyWorkSignalGateway;
+    requests: readonly ReadConsistencyWakeRequest[];
+    timeoutMs: number;
+    metadata?: Readonly<Record<string, unknown>>;
+    onError: () => void;
+  }>,
+): Promise<void> {
+  if (!input.gateway?.waitForReadiness || input.requests.length === 0) {
+    await delay(input.timeoutMs);
+    return;
+  }
+
+  try {
+    const result = await input.gateway.waitForReadiness({
+      requests: input.requests,
+      timeoutMs: input.timeoutMs,
+      metadata: input.metadata,
+    });
+    if (result === "notified") {
+      return;
+    }
+    return;
+  } catch {
+    input.onError();
+  }
+
+  await delay(input.timeoutMs);
 }
 
 async function findPendingProjectionFreshness(
