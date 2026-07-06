@@ -252,6 +252,17 @@ Shared IDs in [contracts/primitives/typed-ids.ts](../../contracts/primitives/typ
 - `LedgerEntryId`
 - `PayoutId`
 
+## Shared Display References
+
+Display references are support-safe, human-facing labels derived from typed ULIDs with [contracts/primitives/display-reference.ts](../../contracts/primitives/display-reference.ts). They are not canonical identity.
+
+- `OrderId` uses `ORD-<SHORTCODE>`.
+- `ShipmentId` uses `SHP-<SHORTCODE>`.
+- `PayoutId` uses `PYO-<SHORTCODE>`.
+- Existing checkout group references (`CSG-`) and support slice references (`CS-SL-`) stay as-is.
+
+`SHORTCODE` is the uppercase last 8 Crockford-base32 characters of the ULID by default. Projection consumers that persist display references must enforce a UNIQUE index and, on conflict, retry with 10 then 12 suffix characters. Do not use hashes or global sequences for display-reference collision fallback. Typed ULIDs remain canonical for URLs, events, foreign keys, and cross-context references.
+
 Catalog-owned IDs in [bounded-contexts/catalog/ids.ts](../../bounded-contexts/catalog/ids.ts):
 
 - `CatalogItemId`
