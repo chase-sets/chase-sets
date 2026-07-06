@@ -1021,6 +1021,13 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(deployStep).toContain("Production catalog asset runtime env outputs are required");
     expect(deployStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
+    expect(deployStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=production"');
+    expect(deployStep).toContain(
+      '--runtime-env "CHASE_SETS_RUNTIME_PROFILE=${TF_VAR_production_runtime_profile:-landing}"',
+    );
+    expect(deployStep).toContain(
+      '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
+    );
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"');
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_BUCKET=${catalog_asset_s3_bucket}"');
     expect(deployStep).toContain('--runtime-env "CATALOG_ASSET_S3_ENDPOINT=${catalog_asset_s3_endpoint}"');
