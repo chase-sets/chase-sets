@@ -206,7 +206,10 @@ export function buildCaddyfile({ slug, domain, basicAuthUser, basicAuthHash, ema
 }
 
 (remote_auth) {
-  basicauth {
+  @protected {
+    not path ${webhookPathPrefixes.flatMap((prefix) => [prefix, `${prefix}/*`]).join(" ")}
+  }
+  basic_auth @protected {
     ${authUser} ${authHash}
   }
 }

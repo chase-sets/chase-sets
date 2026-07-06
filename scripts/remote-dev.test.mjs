@@ -65,6 +65,7 @@ describe("remote-dev planning helpers", () => {
     expect(cloudInit).toContain(Buffer.from(helperScript, "utf8").toString("base64"));
     expect(cloudInit).toContain("slug=abc");
     expect(cloudInit).toContain("expires_at=2026-05-05T12:00:00.000Z");
+    expect(cloudInit).toContain("disable_root: true");
     expect(cloudInit).not.toContain("SSH_PUBLIC_KEY");
     expect(cloudInit).not.toContain("REMOTE_HELPER_B64");
   });
@@ -160,9 +161,18 @@ describe("remote-dev planning helpers", () => {
     });
 
     expect(caddyfile).toContain("marketplace.abc.dev.example.com");
-    expect(caddyfile).toContain("basicauth");
+    expect(caddyfile).toContain("basic_auth @protected");
+    expect(caddyfile).toContain(
+      "not path /api/payments/provider/webhooks /api/payments/provider/webhooks/* /api/settlement/provider/money-movement/webhooks /api/settlement/provider/money-movement/webhooks/*",
+    );
     expect(caddyfile).toContain("@webhook1 path /api/payments/provider/webhooks");
     expect(caddyfile).toContain("reverse_proxy @webhook2 127.0.0.1:6182");
+    expect(caddyfile.indexOf("reverse_proxy @webhook1")).toBeLessThan(caddyfile.indexOf("handle /api/*"));
+    const marketplaceBlock = caddyfile.slice(
+      caddyfile.indexOf("marketplace.abc.dev.example.com"),
+      caddyfile.indexOf("admin.abc.dev.example.com"),
+    );
+    expect(marketplaceBlock.indexOf("import api_proxy")).toBeLessThan(marketplaceBlock.indexOf("import remote_auth"));
   });
 
   it("parses command flags and converts GitHub remotes to SSH URLs", () => {

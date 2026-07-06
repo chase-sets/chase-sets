@@ -3,7 +3,10 @@
 }
 
 (remote_auth) {
-  basicauth {
+  @protected {
+    not path /api/payments/provider/webhooks /api/payments/provider/webhooks/* /api/settlement/provider/money-movement/webhooks /api/settlement/provider/money-movement/webhooks/*
+  }
+  basic_auth @protected {
     {{BASIC_AUTH_USER}} {{BASIC_AUTH_HASH}}
   }
 }
