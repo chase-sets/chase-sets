@@ -1,6 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFile as execFileCallback } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FAILURE_RUNTIME_PROFILE,
@@ -9,6 +11,7 @@ import {
   buildFailedBootstrapUpgradeArgs,
   HELD_LOCK_READY_MARKER,
   buildHeldLockInjectorExecArgs,
+  buildHeldLockInjectorShell,
   buildHeldLockNotStarted,
   buildSuccessfulUpgradeArgs,
   parseStagingBootstrapHookDrillArgs,
@@ -22,6 +25,7 @@ import {
 
 const release = DEFAULT_RELEASE;
 const namespace = DEFAULT_NAMESPACE;
+const execFile = promisify(execFileCallback);
 
 describe("staging bootstrap hook drill", () => {
   it("defaults to the current staging DOKS release and namespace", () => {
@@ -88,6 +92,8 @@ describe("staging bootstrap hook drill", () => {
         liveHeldLockInjection: "worker-pod-kubectl-exec",
         supportSafe: true,
         bootstrapTouchedRelation: expect.objectContaining({
+          context: "catalog",
+          schema: "public",
           table: "bounded_context_schema_migrations",
           lockMode: "ACCESS EXCLUSIVE",
         }),
@@ -115,8 +121,77 @@ describe("staging bootstrap hook drill", () => {
       "--",
       "sh",
     ]);
-    expect(args.join(" ")).toContain("LOCK TABLE catalog.bounded_context_schema_migrations");
+    expect(args.join(" ")).toContain("SELECT to_regclass($1)::text AS relation");
+    expect(args.join(" ")).toContain("public.bounded_context_schema_migrations");
+    expect(args.join(" ")).toContain("LOCK TABLE public.bounded_context_schema_migrations");
+    expect(args.join(" ")).not.toContain("LOCK TABLE catalog.bounded_context_schema_migrations");
     expect(args.join(" ")).not.toMatch(/postgres:\/\/|PASSWORD=|TOKEN=|SECRET=/);
+  });
+
+  it("normalizes sslmode=require injector connections to match the runtime pool", async () => {
+    const result = await runGeneratedHeldLockInjector({
+      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+    });
+
+    expect(new URL(result.config.connectionString).searchParams.get("uselibpqcompat")).toBe("true");
+    expect(result.config.ssl).toEqual({ rejectUnauthorized: false });
+    expect(result.config.application_name).toBe("staging-bootstrap-hook-drill-held-lock");
+    expect(`${result.stdout}\n${result.stderr}`).toContain(HELD_LOCK_READY_MARKER);
+    expect(`${result.stdout}\n${result.stderr}`).not.toMatch(/postgres(?:ql)?:\/\//i);
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
+  });
+
+  it("reports a support-safe missing-relation setup failure before taking the held lock", async () => {
+    const result = await runGeneratedHeldLockInjector({
+      databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=require",
+      relationExists: false,
+    });
+
+    expect(result.exitCode).toBe(3);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      'CHASE_SETS_HELD_LOCK_SETUP_FAILED {"reason":"missing-relation","relation":"public.bounded_context_schema_migrations"}',
+    );
+    expect(`${result.stdout}\n${result.stderr}`).not.toMatch(/postgres(?:ql)?:\/\//i);
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
+  });
+
+  it("uses PGSSLROOTCERT for verifying injector sslmodes without writing CA material to output", async () => {
+    const ca = await writeCaFile("root ca material");
+    try {
+      const result = await runGeneratedHeldLockInjector({
+        databaseUrl: "postgresql://catalog:secret@db.example:25060/catalog?sslmode=verify-ca",
+        pgsslrootcert: ca.caPath,
+      });
+
+      expect(new URL(result.config.connectionString).searchParams.get("uselibpqcompat")).toBe("true");
+      expect(result.config.ssl).toEqual({ rejectUnauthorized: true, ca: "root ca material" });
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain("root ca material");
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain(ca.caPath);
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain("secret");
+    } finally {
+      await ca.cleanup();
+    }
+  });
+
+  it("lets injector sslrootcert override PGSSLROOTCERT like the runtime pool", async () => {
+    const envCa = await writeCaFile("env ca");
+    const urlCa = await writeCaFile("url ca");
+    try {
+      const result = await runGeneratedHeldLockInjector({
+        databaseUrl: `postgresql://catalog:secret@db.example:25060/catalog?sslmode=verify-full&sslrootcert=${encodeURIComponent(
+          urlCa.caPath,
+        )}`,
+        pgsslrootcert: envCa.caPath,
+      });
+
+      expect(result.config.ssl).toEqual({ rejectUnauthorized: true, ca: "url ca" });
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain("url ca");
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain(envCa.caPath);
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain(urlCa.caPath);
+    } finally {
+      await envCa.cleanup();
+      await urlCa.cleanup();
+    }
   });
 
   it("selects only ready running worker pods for live held-lock injection", () => {
@@ -525,4 +600,105 @@ function createFakeProcessHandle() {
     killed: false,
   };
   return handle;
+}
+
+async function runGeneratedHeldLockInjector({ databaseUrl, pgsslrootcert = "", relationExists = true }) {
+  const directory = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-injector-"));
+  try {
+    const pgModuleDirectory = join(directory, "node_modules", "pg");
+    const capturePath = join(directory, "client-config.json");
+    const scriptPath = join(directory, "injector.mjs");
+    await mkdir(pgModuleDirectory, { recursive: true });
+    await writeFile(join(pgModuleDirectory, "package.json"), JSON.stringify({ type: "module", main: "index.js" }));
+    await writeFile(
+      join(pgModuleDirectory, "index.js"),
+      `import { writeFileSync } from "node:fs";
+
+export class Client {
+  constructor(config) {
+    this.config = config;
+    writeFileSync(process.env.CHASE_SETS_TEST_CAPTURE_PATH, JSON.stringify({
+      application_name: config.application_name,
+      connectionString: config.connectionString,
+      ssl: config.ssl,
+    }));
+  }
+
+  async connect() {}
+
+  async query(sql, params = []) {
+    if (String(sql).startsWith("SELECT to_regclass")) {
+      return { rows: [{ relation: process.env.CHASE_SETS_TEST_RELATION_EXISTS === "false" ? null : params[0] }] };
+    }
+    if (
+      process.env.CHASE_SETS_TEST_RELATION_EXISTS === "false" &&
+      String(sql).startsWith("LOCK TABLE")
+    ) {
+      throw new Error("held-lock query ran after a missing relation probe");
+    }
+    return { rows: [] };
+  }
+
+  async end() {}
+}
+
+export default { Client };
+`,
+    );
+    await writeFile(
+      scriptPath,
+      extractHeldLockInjectorNodeScript(buildHeldLockInjectorShell({ heldLockTimeoutSeconds: 0 })),
+    );
+
+    let result;
+    try {
+      result = await execFile(process.execPath, [scriptPath], {
+        cwd: directory,
+        env: {
+          ...process.env,
+          CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS: "0",
+          CHASE_SETS_TEST_RELATION_EXISTS: relationExists ? "true" : "false",
+          CHASE_SETS_TEST_CAPTURE_PATH: capturePath,
+          DATABASE_URL_CATALOG: databaseUrl,
+          PGSSLROOTCERT: pgsslrootcert,
+        },
+        maxBuffer: 1024 * 1024,
+        timeout: 5_000,
+        windowsHide: true,
+      });
+    } catch (error) {
+      result = {
+        stdout: error.stdout ?? "",
+        stderr: error.stderr ?? "",
+        exitCode: typeof error.code === "number" ? error.code : 1,
+      };
+    }
+
+    return {
+      config: JSON.parse(await readFile(capturePath, "utf8")),
+      exitCode: result.exitCode ?? 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+function extractHeldLockInjectorNodeScript(shell) {
+  const match = /<<'NODE'\r?\n([\s\S]*)\r?\nNODE$/.exec(shell);
+  if (!match) {
+    throw new Error("Generated held-lock injector shell did not contain a NODE heredoc.");
+  }
+  return match[1];
+}
+
+async function writeCaFile(contents) {
+  const directory = await mkdtemp(join(tmpdir(), "bootstrap-hook-drill-ca-"));
+  const caPath = join(directory, "root.crt");
+  await writeFile(caPath, contents, "utf8");
+  return {
+    caPath,
+    cleanup: () => rm(directory, { recursive: true, force: true }),
+  };
 }

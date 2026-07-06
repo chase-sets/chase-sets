@@ -88,11 +88,11 @@ describe("notification outbox", () => {
     });
 
     expect(db.query).toHaveBeenCalledTimes(5);
-    expect(queries[0]?.[0]).toBe("ordering:order_confirmed:ord_1:email:1");
-    expect(queries[1]?.[0]).toBe("ordering:order_confirmed:ord_1:sms:2");
-    expect(queries[2]?.[0]).toBe("ordering:order_confirmed:ord_1:rcs:3");
-    expect(queries[3]?.[0]).toBe("ordering:order_confirmed:ord_1:web:4");
-    expect(queries[4]?.[0]).toBe("ordering:order_confirmed:ord_1:push:5");
+    expect(queries[0]?.[0]).toBe("notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_1:email:1");
+    expect(queries[1]?.[0]).toBe("notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_1:sms:2");
+    expect(queries[2]?.[0]).toBe("notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_1:rcs:3");
+    expect(queries[3]?.[0]).toBe("notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_1:web:4");
+    expect(queries[4]?.[0]).toBe("notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_1:push:5");
     expect(notificationOutboxSchemaSql).toContain("notification_outbox");
     expect(notificationOutboxSchemaSql).not.toContain("channel IN ('email', 'web')");
   });

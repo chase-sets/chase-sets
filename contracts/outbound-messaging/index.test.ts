@@ -60,12 +60,38 @@ describe("notifications contract", () => {
     };
 
     expect(createNotificationDeliveryId(message, message.channels[0], 0)).toBe(
-      "ordering:order_confirmed:ord_123:email:1",
+      "notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_123:email:1",
     );
     expect(createNotificationDeliveryId(message, message.channels[1], 1)).toBe(
-      "ordering:order_confirmed:ord_123:sms:2",
+      "notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_123:sms:2",
     );
     expect(message.channels.map((channel) => channel.channel)).toEqual(["email", "sms", "rcs", "web", "push"]);
+  });
+
+  it("keeps non-primary delivery ids distinct when idempotency keys contain separators", () => {
+    const smsChannel = {
+      channel: "sms",
+      to: { e164: "+15551234567" },
+    } satisfies NotificationMessage["channels"][number];
+    const customChannel = {
+      channel: "email:sms",
+      payload: {},
+    } satisfies NotificationMessage["channels"][number];
+
+    const firstDeliveryId = createNotificationDeliveryId(
+      { idempotencyKey: "ordering:email", channels: [smsChannel, customChannel] },
+      smsChannel,
+      1,
+    );
+    const secondDeliveryId = createNotificationDeliveryId(
+      { idempotencyKey: "ordering", channels: [smsChannel, customChannel] },
+      customChannel,
+      1,
+    );
+
+    expect(firstDeliveryId).toBe("notification-delivery:v1:ordering%3Aemail:sms:2");
+    expect(secondDeliveryId).toBe("notification-delivery:v1:ordering:email%3Asms:2");
+    expect(firstDeliveryId).not.toBe(secondDeliveryId);
   });
 
   it("supports custom future channels through the same adapter contract", async () => {

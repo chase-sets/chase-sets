@@ -209,6 +209,7 @@ export function buildHeldLockNotStarted(options, checkedAt) {
     liveHeldLockInjection: "worker-pod-kubectl-exec",
     bootstrapTouchedRelation: {
       context: "catalog",
+      schema: "public",
       table: "bounded_context_schema_migrations",
       lockMode: "ACCESS EXCLUSIVE",
       sourceEvidence: "deployables/platform-api/__tests__/bootstrap-integration.test.ts",
@@ -244,39 +245,123 @@ export function buildHeldLockInjectorExecArgs(options, podName) {
 
 export function buildHeldLockInjectorShell(options) {
   return `CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS=${Number(options.heldLockTimeoutSeconds)} node --input-type=module <<'NODE'
+import { readFileSync } from "node:fs";
 import pg from "pg";
 
 const { Client } = pg;
 const timeoutSeconds = Number(process.env.CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS || "1200");
 const databaseUrl = process.env.DATABASE_URL_CATALOG;
+const schemaMigrationsRelation = "public.bounded_context_schema_migrations";
 
 if (!databaseUrl) {
   console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify({ reason: "missing-catalog-database-url" }));
   process.exit(2);
 }
 
+function normalizeConnectionString(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    const sslMode = url.searchParams.get("sslmode")?.toLowerCase();
+    if (sslMode && sslMode !== "disable" && !url.searchParams.has("uselibpqcompat")) {
+      url.searchParams.set("uselibpqcompat", "true");
+      return url.toString();
+    }
+  } catch {
+    return connectionString;
+  }
+  return connectionString;
+}
+
+function resolveSslConfig(connectionString, env) {
+  const parsed = parseConnectionString(connectionString);
+  if (!parsed) {
+    return undefined;
+  }
+
+  const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+  if (sslMode === "disable") {
+    return undefined;
+  }
+  if (sslMode === "require") {
+    return { rejectUnauthorized: false };
+  }
+  if (sslMode === "verify-ca" || sslMode === "verify-full") {
+    return verifyingSslConfig(parsed, env);
+  }
+  if (!isLocalDatabaseHost(parsed.hostname)) {
+    return verifyingSslConfig(parsed, env);
+  }
+  return undefined;
+}
+
+function verifyingSslConfig(connectionString, env) {
+  const caPath = connectionString.searchParams.get("sslrootcert") ?? env.PGSSLROOTCERT;
+  const ca = caPath ? readFileSync(caPath, "utf8") : undefined;
+  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
+}
+
+function parseConnectionString(connectionString) {
+  try {
+    return new URL(connectionString);
+  } catch {
+    return null;
+  }
+}
+
+function isLocalDatabaseHost(hostname) {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function summarizeSafeError(error) {
+  const code =
+    error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined;
+  return {
+    reason: "injector-error",
+    name: error instanceof Error ? error.name : typeof error,
+    code,
+  };
+}
+
+const connectionString = normalizeConnectionString(databaseUrl);
 const client = new Client({
-  connectionString: databaseUrl,
+  connectionString,
+  ssl: resolveSslConfig(connectionString, process.env),
   application_name: "staging-bootstrap-hook-drill-held-lock",
 });
 
-await client.connect();
 try {
-  await client.query("SET statement_timeout = 0");
-  await client.query("SET lock_timeout = '5s'");
-  await client.query("BEGIN");
-  await client.query("LOCK TABLE catalog.bounded_context_schema_migrations IN ACCESS EXCLUSIVE MODE");
-  console.log("${HELD_LOCK_READY_MARKER} " + JSON.stringify({
-    context: "catalog",
-    relation: "bounded_context_schema_migrations",
-    lockMode: "ACCESS EXCLUSIVE",
-    readyAt: new Date().toISOString(),
-  }));
-  await new Promise((resolve) => setTimeout(resolve, timeoutSeconds * 1000));
-  await client.query("ROLLBACK");
-  console.log("${HELD_LOCK_TIMEOUT_MARKER} " + JSON.stringify({ releasedBy: "injector-timeout" }));
-} finally {
-  await client.end().catch(() => undefined);
+  await client.connect();
+  try {
+    const relationProbe = await client.query("SELECT to_regclass($1)::text AS relation", [schemaMigrationsRelation]);
+    if (relationProbe.rows[0]?.relation !== schemaMigrationsRelation) {
+      console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify({
+        reason: "missing-relation",
+        relation: schemaMigrationsRelation,
+      }));
+      await client.end().catch(() => undefined);
+      process.exit(3);
+    }
+
+    await client.query("SET statement_timeout = 0");
+    await client.query("SET lock_timeout = '5s'");
+    await client.query("BEGIN");
+    await client.query("LOCK TABLE public.bounded_context_schema_migrations IN ACCESS EXCLUSIVE MODE");
+    console.log("${HELD_LOCK_READY_MARKER} " + JSON.stringify({
+      context: "catalog",
+      relation: schemaMigrationsRelation,
+      lockMode: "ACCESS EXCLUSIVE",
+      readyAt: new Date().toISOString(),
+    }));
+    await new Promise((resolve) => setTimeout(resolve, timeoutSeconds * 1000));
+    await client.query("ROLLBACK");
+    console.log("${HELD_LOCK_TIMEOUT_MARKER} " + JSON.stringify({ releasedBy: "injector-timeout" }));
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+} catch (error) {
+  console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify(summarizeSafeError(error)));
+  process.exit(3);
 }
 NODE`;
 }

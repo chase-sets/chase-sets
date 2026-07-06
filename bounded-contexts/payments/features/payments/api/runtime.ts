@@ -554,6 +554,18 @@ async function persistProcessorSavedPaymentMethod(
     auditAction: string;
   }>,
 ) {
+  const existingInstruments = await listSavedCheckoutInstruments(deps.db, params.accountId);
+  const activeExistingInstruments = existingInstruments.filter(
+    (instrument) =>
+      instrument.readiness !== "removed" &&
+      instrument.provider_reference !== params.savedPaymentMethod.providerReference,
+  );
+  const existingInstrument = existingInstruments.find(
+    (instrument) => instrument.provider_reference === params.savedPaymentMethod.providerReference,
+  );
+  const shouldBecomeDefault =
+    params.isDefault === true && (existingInstrument?.is_default === true || activeExistingInstruments.length === 0);
+
   const instrument = await upsertSavedCheckoutInstrument(deps.db, {
     instrumentId: savedInstrumentIdForProviderReference(params.savedPaymentMethod.providerReference),
     accountId: params.accountId,
@@ -567,7 +579,7 @@ async function persistProcessorSavedPaymentMethod(
     allowRedisplay: params.savedPaymentMethod.allowRedisplay,
     consentId: params.consentId ?? null,
     consentText: params.consentText ?? null,
-    isDefault: params.isDefault ?? false,
+    isDefault: shouldBecomeDefault,
     removedAt: params.savedPaymentMethod.removed ? new Date().toISOString() : null,
   });
   await recordSavedCheckoutInstrumentAudit(deps.db, {
