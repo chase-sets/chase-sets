@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import type { PackagePlan } from "@chase-sets/product-measures";
 import type { OrderingApiEnv } from "../../../api";
 import { createPostagePolicyRoutes } from "./route";
 import type { PostagePolicyServices } from "./runtime";
@@ -69,7 +70,7 @@ describe("ordering postage policy routes", () => {
   });
 
   it("previews package-plan outcomes through the admin API", async () => {
-    const previewPolicy = vi.fn(() => ({
+    const previewPackagePlan: PackagePlan = {
       packagePlanVersion: "measured-package-plan-v1",
       packageCount: 1,
       packages: [],
@@ -80,9 +81,14 @@ describe("ordering postage policy routes", () => {
         parcelReasons: [],
         signatureRequired: false,
         signatureReasons: [],
+        insuranceRequired: false,
+        insuranceReasons: [],
+        insuredValueAmount: null,
+        shippingEvidenceTier: "letter-untracked",
       },
       missingProductIds: [],
-    }));
+    };
+    const previewPolicy = vi.fn(() => previewPackagePlan);
     const app = createApp({ previewPolicy }, ["postage-policies.manage"]);
 
     const response = await app.request("/preview", {

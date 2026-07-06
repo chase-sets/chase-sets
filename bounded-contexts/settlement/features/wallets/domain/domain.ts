@@ -77,6 +77,7 @@ export type PostLedgerEntryCommand = Readonly<{
   payoutId?: PayoutId | null;
   description?: string | null;
   postedAt: string;
+  allowNegativeBalance?: boolean;
 }>;
 
 export type MarkLedgerEntryAvailableCommand = Readonly<{
@@ -157,6 +158,7 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
       assert(
         command.direction !== "debit" ||
           command.fundsStatus !== "available" ||
+          command.allowNegativeBalance === true ||
           compareMoney(state.availableBalanceAmount, command.amount) >= 0,
         "Available balance is too low for this ledger entry.",
       );

@@ -11,6 +11,7 @@ import type {
   CreateProcessorSetupSessionInput,
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
+  ProcessorPaymentDisputeLifecycleState,
   ProcessorPaymentReconciliationResult,
   PaymentProcessorWebhookEvent,
   ProcessorLiabilityShiftOutcome,
@@ -166,6 +167,9 @@ type StripeEventEnvelope = Readonly<{
             result?: string | null;
           }> | null;
         }> | null;
+      }> | null;
+      evidence_details?: Readonly<{
+        due_by?: number | string | null;
       }> | null;
     }>;
   }>;
@@ -498,8 +502,36 @@ function occurredAtFromEvent(event: StripeEventEnvelope) {
   return new Date(Number.isFinite(timestamp) ? timestamp : Date.now()).toISOString();
 }
 
+function stripeTimestampToIso(value: number | string | null | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value * 1000).toISOString();
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    return new Date(Number.parseInt(value.trim(), 10) * 1000).toISOString();
+  }
+  if (typeof value === "string") {
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+  }
+  return null;
+}
+
 function minorUnitsToMoney(amount: number | null | undefined) {
   return typeof amount === "number" && Number.isFinite(amount) && amount > 0 ? (amount / 100).toFixed(2) : null;
+}
+
+function disputeLifecycleState(eventType: string, status: string | null): ProcessorPaymentDisputeLifecycleState {
+  const normalizedStatus = status?.toLowerCase() ?? "";
+  if (normalizedStatus === "won" || normalizedStatus === "warning_closed") {
+    return "won";
+  }
+  if (normalizedStatus === "lost") {
+    return "lost";
+  }
+  if (eventType === "charge.dispute.closed") {
+    return "lost";
+  }
+  return eventType === "charge.dispute.created" ? "created" : "updated";
 }
 
 function setupIntentReferenceFromSession(session: StripeCheckoutSessionResponse) {
@@ -974,6 +1006,8 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         stripeObjectReference(paymentObject.payment_intent) ??
         stripeObjectReference(paymentObject.charge) ??
         processorPaymentReference;
+      const disputeStatus = normalizeOptionalText(paymentObject.status ?? null);
+      const disputeReason = normalizeOptionalText(paymentObject.reason ?? paymentObject.outcome?.reason ?? null);
       return {
         eventId: event.id,
         kind: "payment-disputed",
@@ -986,7 +1020,12 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         internalPaymentId,
         processorStatus,
         failureCode: normalizeOptionalText(event.type),
-        failureMessage: normalizeOptionalText(paymentObject.status ?? null),
+        failureMessage: disputeStatus,
+        providerChargeReference: stripeObjectReference(paymentObject.charge),
+        disputeLifecycleState: disputeLifecycleState(event.type, disputeStatus),
+        disputeStatus,
+        disputeReason,
+        disputeEvidenceDueAt: stripeTimestampToIso(paymentObject.evidence_details?.due_by),
         occurredAt,
       };
     }

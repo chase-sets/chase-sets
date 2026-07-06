@@ -15,6 +15,7 @@ export function parseQuiesceOptions(argv, env = process.env) {
     command,
     namespace: env.CHASE_SETS_KUBERNETES_NAMESPACE ?? null,
     timeoutMs: Number(env.CHASE_SETS_QUIESCE_TIMEOUT_SECONDS ?? "300") * 1000,
+    commandTimeoutMs: Number(env.CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS ?? "600") * 1000,
     pollIntervalMs: Number(env.CHASE_SETS_QUIESCE_POLL_INTERVAL_MS ?? "2000"),
     restoreOnFailure: env.CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE !== "false",
     ignoreMissingDeployments: env.CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS !== "false",
@@ -58,7 +59,10 @@ export async function runQuiescedBootstrap(options) {
     });
   }
 
-  const exitCode = await options.spawnCommand(options.command);
+  const exitCode = await options.spawnCommand(options.command, {
+    timeoutMs: options.commandTimeoutMs,
+    log: options.log,
+  });
   if (exitCode === 0) {
     await options.log("Bootstrap completed with workers quiesced; Helm may continue the rollout.");
     return 0;
@@ -177,11 +181,40 @@ export function createKubernetesClient(options = {}) {
   };
 }
 
-export function spawnShellCommand(command) {
+export function spawnShellCommand(command, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn("sh", ["-lc", command.join(" ")], { stdio: "inherit" });
-    child.on("error", reject);
-    child.on("exit", (code) => resolve(code ?? 1));
+    let timedOut = false;
+    let forceKillTimeout = null;
+    const commandTimeout =
+      options.timeoutMs && options.timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            void options.log?.(
+              `Bootstrap command timed out after ${Math.round(options.timeoutMs / 1000)}s; terminating.`,
+            );
+            child.kill("SIGTERM");
+            forceKillTimeout = setTimeout(() => child.kill("SIGKILL"), 5000);
+          }, options.timeoutMs)
+        : null;
+    child.on("error", (error) => {
+      if (commandTimeout) {
+        clearTimeout(commandTimeout);
+      }
+      if (forceKillTimeout) {
+        clearTimeout(forceKillTimeout);
+      }
+      reject(error);
+    });
+    child.on("exit", (code) => {
+      if (commandTimeout) {
+        clearTimeout(commandTimeout);
+      }
+      if (forceKillTimeout) {
+        clearTimeout(forceKillTimeout);
+      }
+      resolve(timedOut ? 124 : (code ?? 1));
+    });
   });
 }
 

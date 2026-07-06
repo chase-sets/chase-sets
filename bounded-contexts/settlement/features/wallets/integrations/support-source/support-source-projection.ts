@@ -99,6 +99,26 @@ async function releaseFraudReviewHolds(
   );
 }
 
+async function releaseChargebackHolds(
+  db: PgQueryable,
+  params: Readonly<{ providerDisputeId: string; releasedAt: string; streamVersion: number }>,
+) {
+  const sourcePrefix = fraudHoldSourceId({ sourceId: params.providerDisputeId, orderId: "", sellerAccountId: "" });
+  await db.query(
+    `UPDATE settlement_support_holds
+     SET status = 'won',
+         active = FALSE,
+         updated_at = $2,
+         released_at = $2,
+         release_reason = 'stripe-chargeback-won',
+         last_stream_version = $3
+     WHERE support_request_id LIKE $1
+       AND flow_type = 'stripe-chargeback'
+       AND last_stream_version < $3`,
+    [`${sourcePrefix}%`, params.releasedAt, params.streamVersion],
+  );
+}
+
 export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
@@ -299,6 +319,36 @@ export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): P
           streamVersion: event.streamVersion,
         });
       }
+    },
+    "payments.payment-disputed": async (event) => {
+      const data = event.data as {
+        orderIds: string[];
+        buyerAccountId: string;
+        sellerPayouts: readonly Readonly<{ orderId: string; sellerAccountId: string }>[];
+        paymentId?: string | null;
+        providerDisputeId?: string | null;
+        disputeLifecycleState: string;
+        disputedAt: string;
+      };
+      const providerDisputeId = data.providerDisputeId ?? data.paymentId ?? event.id;
+      if (data.disputeLifecycleState === "won") {
+        await releaseChargebackHolds(db, {
+          providerDisputeId,
+          releasedAt: data.disputedAt,
+          streamVersion: event.streamVersion,
+        });
+        return;
+      }
+      await insertFraudHolds(db, {
+        sourceId: providerDisputeId,
+        orderIds: data.orderIds,
+        buyerAccountId: data.buyerAccountId,
+        sellerPayouts: data.sellerPayouts,
+        flowType: "stripe-chargeback",
+        status: data.disputeLifecycleState,
+        openedAt: data.disputedAt,
+        streamVersion: event.streamVersion,
+      });
     },
   };
 }

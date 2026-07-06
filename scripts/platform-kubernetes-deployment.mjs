@@ -118,10 +118,10 @@ export function buildDiagnosticsCommands(options = {}) {
   }));
 
   return [
-    [
-      "kubectl",
-      ["get", "pods,jobs,deployments,events", "--namespace", namespace, "--sort-by=.metadata.creationTimestamp"],
-    ],
+    ["kubectl", ["get", "pods", "--namespace", namespace, "--sort-by=.metadata.creationTimestamp", "--output", "wide"]],
+    ["kubectl", ["get", "jobs", "--namespace", namespace, "--sort-by=.metadata.creationTimestamp"]],
+    ["kubectl", ["get", "deployments", "--namespace", namespace, "--sort-by=.metadata.creationTimestamp"]],
+    ["kubectl", ["get", "events", "--namespace", namespace, "--sort-by=.lastTimestamp"]],
     ...workloads.deployments.map((deployment) => [
       "kubectl",
       ["describe", "deployment", deployment, "--namespace", namespace],
@@ -129,7 +129,29 @@ export function buildDiagnosticsCommands(options = {}) {
     ...workloads.jobs.map((job) => ["kubectl", ["describe", "job", job, "--namespace", namespace]]),
     ...componentSelectors.map((component) => [
       "kubectl",
+      ["get", "pods", "--namespace", namespace, "--selector", component.selector, "--output", "wide"],
+    ]),
+    ...componentSelectors.map((component) => [
+      "kubectl",
+      ["describe", "pods", "--namespace", namespace, "--selector", component.selector],
+    ]),
+    ...componentSelectors.map((component) => [
+      "kubectl",
       ["logs", "--namespace", namespace, "--selector", component.selector, "--all-containers", "--tail", tailLines],
+    ]),
+    ...componentSelectors.map((component) => [
+      "kubectl",
+      [
+        "logs",
+        "--namespace",
+        namespace,
+        "--selector",
+        component.selector,
+        "--all-containers",
+        "--previous",
+        "--tail",
+        tailLines,
+      ],
     ]),
   ];
 }

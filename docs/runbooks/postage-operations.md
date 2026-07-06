@@ -13,7 +13,7 @@ This runbook covers postage label provider configuration and operational checks 
 
 ## Admin Policy Changes
 
-Use Admin Web > Postage Policies to create and revise draft policies. Review parcel-required options, letter thresholds, physical flags, and signature requirements before activation.
+Use Admin Web > Postage Policies to create and revise draft policies. Review parcel-required options, letter thresholds, physical flags, signature requirements, and insurance requirements before activation.
 
 Activation affects new checkout and accepted-offer orders only. Existing orders and shipments keep their committed package-plan snapshot. Do not mutate existing orders to simulate a policy rollback.
 
@@ -43,15 +43,21 @@ Manual package fields are an override path. Operators should only use them when 
 
 Letter mailpieces are not parcel labels. If an order is planned as a letter, Fulfillment should use the letter preparation path instead of buying a USPS parcel label.
 
-Package plans created by new orders include `postagePolicySnapshot` with policy version, parcel-required result and reasons, and signature-required result and reasons. Legacy package plans without that metadata remain fulfillable only through the explicit compatibility behavior covered by the milestone cleanup checklist.
+Package plans created by new orders include `postagePolicySnapshot` with policy version, parcel-required result and reasons, signature-required result and reasons, insurance-required result and reasons, insured value, and Shipping Evidence Tier. Legacy package plans without that metadata remain fulfillable only through the explicit compatibility behavior covered by the milestone cleanup checklist.
+
+Default value tiers are:
+
+- Letter mailpiece refused above $50.
+- Signature delivery confirmation required at $250 or more.
+- Carrier insurance required at $500 or more.
 
 ## Fulfillment Enforcement
 
-Fulfillment label purchase reads `shipping_plan_snapshot.postagePolicySnapshot`. If `signatureRequired` is true, the provider-neutral postage label request uses signature delivery confirmation. EasyPost maps that to the provider shipment option for signature confirmation.
+Fulfillment label purchase reads `shipping_plan_snapshot.postagePolicySnapshot`. If `signatureRequired` is true, the provider-neutral postage label request uses signature delivery confirmation. If `insuranceRequired` is true, the request includes the committed `insuredValueAmount`. EasyPost maps those facts to provider shipment options for signature confirmation and insurance.
 
-Address and package overrides remain operational overrides. They do not remove signature requirements committed by Ordering, and they must not convert a parcel-required shipment into a non-compliant letter flow.
+Address and package overrides remain operational overrides. They do not remove signature or insurance requirements committed by Ordering, and they must not convert a parcel-required shipment into a non-compliant letter flow.
 
-Validation failures are recorded as failed postage label operations before any provider call. Provider capability failures and generic provider errors are also recorded as failed operations and reflected on the shipment label status. The support-facing shipment detail page exposes only bounded diagnostic facts: buyer shipping option, committed policy version, parcel/signature requirements, requested mailpiece class, requested service level, delivery confirmation, label status, provider outcome, and redacted provider event status. Raw provider payloads, sender addresses, and recipient addresses must not be copied from operation tables into support diagnostics.
+Validation failures are recorded as failed postage label operations before any provider call. Provider capability failures and generic provider errors are also recorded as failed operations and reflected on the shipment label status. The support-facing shipment detail page exposes only bounded diagnostic facts: buyer shipping option, committed policy version, parcel/signature/insurance requirements, requested mailpiece class, requested service level, delivery confirmation, insurance amount, Shipping Evidence Tier, label status, provider outcome, and redacted provider event status. Raw provider payloads, sender addresses, and recipient addresses must not be copied from operation tables into support diagnostics.
 
 ## Label Flow
 
@@ -59,7 +65,7 @@ The EasyPost adapter creates shipments from sender and recipient addresses plus 
 
 USPS label refunds are modeled as label void requests. A voided label moves the shipment back to awaiting a label while preserving provider refund metadata on the shipment read model.
 
-Rebuy after void must use the original Fulfillment shipment `shipping_plan_snapshot`; do not re-evaluate the active Ordering postage policy for the shipment. If the original snapshot required parcel or signature, the rebuy path must continue enforcing those requirements even after operators activate a newer Admin postage policy.
+Rebuy after void must use the original Fulfillment shipment `shipping_plan_snapshot`; do not re-evaluate the active Ordering postage policy for the shipment. If the original snapshot required parcel, signature, or insurance, the rebuy path must continue enforcing those requirements even after operators activate a newer Admin postage policy.
 
 EasyPost can complete USPS refunds asynchronously after the void request. EasyPost's [shipping refund](https://docs.easypost.com/docs/shipments/shipping-refund) and [event](https://docs.easypost.com/docs/events) docs describe USPS refund processing as delayed and `refund.successful` as the Event created when a non-instantaneous refund completes. Fulfillment launch proof therefore needs both the synchronous void result and the later EasyPost refund lifecycle callback. The EasyPost adapter normalizes `refund.*` webhook events, including `refund.successful`, into `refund-status` rows in `fulfillment_postage_provider_events`; the launch gate is not satisfied by `label_refund_status` alone.
 
@@ -78,7 +84,7 @@ Before enabling a real postage provider in a shared environment:
 When diagnosing a failed label purchase:
 
 1. Open the seller shipment detail page and inspect Postage diagnostics.
-2. Compare buyer shipping option with the committed policy version, parcel-required result, signature-required result, and policy reasons.
+2. Compare buyer shipping option with the committed policy version, parcel-required result, signature-required result, insurance-required result, Shipping Evidence Tier, and policy reasons.
 3. Check the latest postage label operation. A `postage_policy_validation_failed` shipment label error means Fulfillment rejected a non-compliant label request before the provider was called.
 4. If the operation failed with `postage_provider_capability_failure`, confirm whether the provider mode supports the requested bounded capability, such as signature delivery confirmation.
 5. If the operation failed with another provider error, use the provider-neutral shipment id, label id, tracking identifier, provider event id, and redacted provider status fields to investigate in the provider console.
@@ -93,10 +99,14 @@ SELECT operation_kind,
        status,
        request_json #>> '{serviceLevel}' AS requested_service_level,
        request_json #>> '{deliveryConfirmation}' AS requested_delivery_confirmation,
+       request_json #>> '{insuranceAmount}' AS requested_insurance_amount,
        request_json #>> '{package,mailpieceClass}' AS requested_mailpiece_class,
        request_json #>> '{postagePolicySnapshot,policyVersion}' AS policy_version,
        request_json #>> '{postagePolicySnapshot,parcelRequired}' AS parcel_required,
        request_json #>> '{postagePolicySnapshot,signatureRequired}' AS signature_required,
+       request_json #>> '{postagePolicySnapshot,insuranceRequired}' AS insurance_required,
+       request_json #>> '{postagePolicySnapshot,insuredValueAmount}' AS insured_value_amount,
+       request_json #>> '{postagePolicySnapshot,shippingEvidenceTier}' AS shipping_evidence_tier,
        error_message,
        created_at,
        completed_at
@@ -112,7 +122,7 @@ Before closing postage snapshot cleanup:
 
 1. Confirm recent orders have `shipping_plan_snapshot.postagePolicySnapshot.policyVersion`.
 2. Confirm checkout copy does not imply signature outside the evaluated policy result.
-3. Confirm label operation requests include `deliveryConfirmation` only when the snapshot requires signature.
+3. Confirm label operation requests include `deliveryConfirmation` only when the snapshot requires signature and `insuranceAmount` only when the snapshot requires insurance.
 4. Confirm no production shipment awaiting label depends on missing policy metadata for a policy-required decision.
 5. Confirm new label operation requests no longer persist sender or recipient address bodies in `request_json`; historical rows that predate this cleanup remain retained audit data and must not be exposed through support diagnostics.
 6. Confirm temporary migration scripts and backfill flags are removed or documented as retained audit data.

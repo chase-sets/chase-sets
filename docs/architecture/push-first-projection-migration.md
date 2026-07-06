@@ -103,6 +103,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
 | `ordering:ordering-payment-capture` | Ordering | **payments** | push-enabled | 1/1 |
 | `ordering:ordering-postage-policy-projection` | Ordering | **ordering** | push-enabled | 1/1 |
+| `payments:payments-account-risk-source-projection` | Payments | **identity**, **payments** | push-enabled | 2/2 |
 | `payments:payments-fraud-alert-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:payments-order-cancellation-refund-effect` | Payments | **ordering** | push-enabled | 1/1 |
 | `payments:payments-order-input-projection` | Payments | **ordering** | push-enabled | 1/1 |
@@ -125,7 +126,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 75 `push-enabled`, 12 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 76 `push-enabled`, 12 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (68)
 

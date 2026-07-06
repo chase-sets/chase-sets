@@ -21,6 +21,7 @@ export type ProcessorLiabilityShiftOutcome = Readonly<{
   authenticationResult: string | null;
   radarRiskLevel?: string | null;
 }>;
+export type ProcessorPaymentDisputeLifecycleState = "created" | "updated" | "won" | "lost";
 
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
@@ -216,6 +217,10 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   occurredAt: string;
   providerChargeReference?: string | null;
   chargeDisputed?: boolean | null;
+  disputeLifecycleState?: ProcessorPaymentDisputeLifecycleState | null;
+  disputeStatus?: string | null;
+  disputeReason?: string | null;
+  disputeEvidenceDueAt?: string | null;
   fraudType?: string | null;
   fraudReviewReason?: string | null;
   fraudReviewOutcome?: string | null;

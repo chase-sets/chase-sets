@@ -744,6 +744,103 @@ describe("payment runtime", () => {
     expect(webhookEvents).toHaveLength(1);
   });
 
+  it("records Stripe dispute lifecycle metadata once across webhook redelivery", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const paymentsById = new Map<string, Record<string, unknown>>();
+    const { db, webhookEvents } = createReconciliationDb({
+      paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        currencyCode: "usd",
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    await services.commandHandler({
+      streamId: `payments.payment-${payment.payment_id}`,
+      command: {
+        type: "RecordPaymentCapture",
+        processorStatus: "succeeded",
+        capturedAt: "2026-07-06T12:00:00.000Z",
+      },
+      context,
+    });
+    paymentsById.set(payment.payment_id, {
+      ...payment,
+      status: "captured",
+      processor_status: "succeeded",
+      captured_at: "2026-07-06T12:00:00.000Z",
+      seller_payouts: [
+        {
+          orderId: "ord_1",
+          sellerAccountId: "acc_seller",
+          sellerItemNetAmount: "22.99",
+          shippingAllowanceAmount: "1.50",
+          sellerShippingPayoutAmount: "1.50",
+          sellerPayoutAmount: "24.49",
+        },
+      ],
+    });
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_dispute_created",
+      kind: "payment-disputed",
+      processorName: "stripe",
+      processorPaymentKind: payment.processor_payment_kind,
+      processorPaymentReference: payment.processor_payment_reference,
+      providerObjectReference: "dp_123",
+      providerChargeReference: "ch_123",
+      internalPaymentId: payment.payment_id,
+      processorStatus: "needs_response",
+      failureCode: "charge.dispute.created",
+      failureMessage: "needs_response",
+      disputeLifecycleState: "created",
+      disputeStatus: "needs_response",
+      disputeReason: "fraudulent",
+      disputeEvidenceDueAt: "2026-08-04T00:00:00.000Z",
+      amount: "10.00",
+      currencyCode: "usd",
+      occurredAt: "2026-07-06T12:05:00.000Z",
+    } as never);
+
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: false,
+    });
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: true,
+    });
+
+    const disputeEvents = readAllEvents().filter((event) => event.eventType === "payments.payment-disputed");
+    expect(disputeEvents).toHaveLength(1);
+    expect(disputeEvents[0]?.payload).toMatchObject({
+      providerEventId: "evt_dispute_created",
+      providerDisputeId: "dp_123",
+      providerChargeReference: "ch_123",
+      disputeLifecycleState: "created",
+      disputeReason: "fraudulent",
+      disputeEvidenceDueAt: "2026-08-04T00:00:00.000Z",
+      sellerPayouts: [expect.objectContaining({ sellerAccountId: "acc_seller" })],
+    });
+    expect(webhookEvents).toHaveLength(1);
+  });
+
   it("reuses checkout-sourced payments by checkout session id", async () => {
     const processorGateway = {
       getPublicConfiguration: vi.fn(() => ({

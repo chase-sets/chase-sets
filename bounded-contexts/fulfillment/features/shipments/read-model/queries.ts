@@ -40,6 +40,7 @@ export type FulfillmentPostageLabelOperationDiagnosticRow = Readonly<{
   status: string;
   requested_service_level: string | null;
   requested_delivery_confirmation: string | null;
+  requested_insurance_amount: string | null;
   requested_label_size: string | null;
   requested_mailpiece_class: string | null;
   requested_weight_ounces: string | null;
@@ -48,6 +49,9 @@ export type FulfillmentPostageLabelOperationDiagnosticRow = Readonly<{
   policy_version: string | null;
   parcel_required: string | null;
   signature_required: string | null;
+  insurance_required: string | null;
+  insured_value_amount: string | null;
+  shipping_evidence_tier: string | null;
   provider_shipment_id: string | null;
   provider_label_id: string | null;
   tracking_identifier: string | null;
@@ -575,6 +579,7 @@ async function loadShipmentDetailCollections(db: PgQueryable, shipmentId: string
          status,
          request_json #>> '{serviceLevel}' AS requested_service_level,
          request_json #>> '{deliveryConfirmation}' AS requested_delivery_confirmation,
+         request_json #>> '{insuranceAmount}' AS requested_insurance_amount,
          request_json #>> '{labelSize}' AS requested_label_size,
          request_json #>> '{package,mailpieceClass}' AS requested_mailpiece_class,
          request_json #>> '{package,weightOunces}' AS requested_weight_ounces,
@@ -583,6 +588,9 @@ async function loadShipmentDetailCollections(db: PgQueryable, shipmentId: string
          request_json #>> '{postagePolicySnapshot,policyVersion}' AS policy_version,
          request_json #>> '{postagePolicySnapshot,parcelRequired}' AS parcel_required,
          request_json #>> '{postagePolicySnapshot,signatureRequired}' AS signature_required,
+         request_json #>> '{postagePolicySnapshot,insuranceRequired}' AS insurance_required,
+         request_json #>> '{postagePolicySnapshot,insuredValueAmount}' AS insured_value_amount,
+         request_json #>> '{postagePolicySnapshot,shippingEvidenceTier}' AS shipping_evidence_tier,
          provider_shipment_id,
          provider_label_id,
          tracking_identifier,

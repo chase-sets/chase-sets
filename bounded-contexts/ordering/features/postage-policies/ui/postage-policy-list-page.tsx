@@ -34,9 +34,16 @@ function formatRequirementSummary(policy: PostagePolicyAdminViewModel["payload"]
         }),
     ...policy.signatureRequiredPhysicalFlags,
   ].filter(Boolean);
+  const insurance =
+    policy.insuranceRequiredDeclaredValueAmount == null
+      ? t("ordering.features.postagePolicies.ui.common.none")
+      : t("ordering.features.postagePolicies.ui.list.insurance.value.threshold", {
+          value: policy.insuranceRequiredDeclaredValueAmount,
+        });
   return t("ordering.features.postagePolicies.ui.list.requirement.summary", {
     parcel,
     signature: signature.join(", ") || t("ordering.features.postagePolicies.ui.common.none"),
+    insurance,
   });
 }
 

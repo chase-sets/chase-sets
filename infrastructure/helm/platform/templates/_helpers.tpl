@@ -82,6 +82,8 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
   value: {{ include "chase-sets-platform.quiesceDeployments" . | quote }}
 - name: "CHASE_SETS_QUIESCE_TIMEOUT_SECONDS"
   value: {{ .component.job.quiesce.timeoutSeconds | quote }}
+- name: "CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS"
+  value: {{ .component.job.quiesce.commandTimeoutSeconds | quote }}
 - name: "CHASE_SETS_QUIESCE_POLL_INTERVAL_MS"
   value: {{ .component.job.quiesce.pollIntervalMs | quote }}
 - name: "CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE"

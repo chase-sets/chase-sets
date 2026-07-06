@@ -9,8 +9,20 @@ Each evaluated package plan records a `postagePolicySnapshot` containing:
 - `policyVersion`
 - `parcelRequired` and `parcelReasons`
 - `signatureRequired` and `signatureReasons`
+- `insuranceRequired`, `insuranceReasons`, and `insuredValueAmount`
+- `shippingEvidenceTier`
 
 Those fields are immutable order facts. Checkout uses them through delivery preview summaries, and Fulfillment uses them for label enforcement.
+
+## Default Value Tiers
+
+The default platform Postage Policy is runtime-configurable through Admin Web and starts with these value rules:
+
+- Letter mailpiece handling is refused above $50.
+- Signature delivery confirmation is required at $250 or more.
+- Carrier insurance is required at $500 or more, using the order item subtotal as the insured value.
+
+The evaluated Shipping Evidence Tier is `letter-untracked`, `tracked-parcel`, `signature-confirmed`, or `carrier-insured`. The tier is stored with the order snapshot so Fulfillment, Support, and future dispute-evidence assembly cite the same committed facts.
 
 ## Admin Lifecycle
 
@@ -25,5 +37,5 @@ Current package plans without `postagePolicySnapshot` are invalid for Ordering p
 - Ordering order creation resolves a Postage Policy before package planning.
 - Direct runtime `buildPackagePlan` calls pass the resolved policy.
 - Checkout previews and order creation fail when a new draft lacks `postagePolicySnapshot`.
-- Checkout copy does not hardcode signature into a shipping option label.
+- Checkout copy does not hardcode signature or insurance into a shipping option label.
 - Fulfillment label purchase uses the order/shipment snapshot instead of current mutable policy state.

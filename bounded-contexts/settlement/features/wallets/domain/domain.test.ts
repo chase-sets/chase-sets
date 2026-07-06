@@ -104,6 +104,31 @@ describe("settlement wallet domain", () => {
     ).toThrow("Available balance is too low for this ledger entry.");
   });
 
+  it("allows explicit chargeback recovery debits to create a negative balance", () => {
+    const openedState = decideWallet(initialWalletState, {
+      type: "OpenWallet",
+      accountId: "acc_seller" as never,
+      currencyCode: "usd",
+      openedAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveWallet, initialWalletState);
+
+    const debitedState = decideWallet(openedState, {
+      type: "PostLedgerEntry",
+      ledgerEntryId: "led_chargeback_dp_123_ord_1" as never,
+      kind: "adjustment",
+      direction: "debit",
+      amount: "12.00",
+      currencyCode: "usd",
+      fundsStatus: "available",
+      paymentId: "pay_1" as never,
+      postedAt: "2026-04-02T00:02:00.000Z",
+      allowNegativeBalance: true,
+    }).reduce(evolveWallet, openedState);
+
+    expect(debitedState.availableBalanceAmount).toBe("-12.00");
+    expect(debitedState.totalDebitedAmount).toBe("12.00");
+  });
+
   it("rejects duplicate ledger entry ids", () => {
     const state = [
       {
