@@ -522,14 +522,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("terraform import digitalocean_cdn.catalog_assets");
     expect(platformStagingResetWorkflow).toContain("doctl compute cdn list --output json");
     expect(platformStagingResetWorkflow).toContain("doctl compute domain records list chasesets.com --output json");
-    expect(platformStagingResetWorkflow).toContain('"https://${custom_domain}/" >/dev/null');
+    expect(platformStagingResetWorkflow).toContain("Catalog asset CDN root must stay protected; expected 403");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("repair catalog-assets cdn state");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("doctl compute cdn list --output json");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("terraform state rm digitalocean_cdn.catalog_assets");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("terraform import digitalocean_cdn.catalog_assets");
     expect(platformCatalogAssetsStateRepairWorkflow).toContain("Terraform state points at an existing CDN");
     expect(platformProductionWorkflow).toContain("catalog_asset_public_base_url");
-    expect(platformProductionWorkflow).toContain('"${catalog_asset_public_base_url}/" >/dev/null');
+    expect(platformProductionWorkflow).toContain("Catalog asset CDN root returned expected protected status 403.");
+    expect(platformProductionWorkflow).not.toContain('"${catalog_asset_public_base_url}/" >/dev/null');
   });
 
   it("routes non-production UCP agent discovery and transport paths to platform-api", () => {
