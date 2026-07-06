@@ -209,6 +209,7 @@ export function buildHeldLockNotStarted(options, checkedAt) {
     liveHeldLockInjection: "worker-pod-kubectl-exec",
     bootstrapTouchedRelation: {
       context: "catalog",
+      schema: "public",
       table: "bounded_context_schema_migrations",
       lockMode: "ACCESS EXCLUSIVE",
       sourceEvidence: "deployables/platform-api/__tests__/bootstrap-integration.test.ts",
@@ -250,6 +251,7 @@ import pg from "pg";
 const { Client } = pg;
 const timeoutSeconds = Number(process.env.CHASE_SETS_HELD_LOCK_TIMEOUT_SECONDS || "1200");
 const databaseUrl = process.env.DATABASE_URL_CATALOG;
+const schemaMigrationsRelation = "public.bounded_context_schema_migrations";
 
 if (!databaseUrl) {
   console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify({ reason: "missing-catalog-database-url" }));
@@ -331,13 +333,23 @@ const client = new Client({
 try {
   await client.connect();
   try {
+    const relationProbe = await client.query("SELECT to_regclass($1)::text AS relation", [schemaMigrationsRelation]);
+    if (relationProbe.rows[0]?.relation !== schemaMigrationsRelation) {
+      console.error("CHASE_SETS_HELD_LOCK_SETUP_FAILED " + JSON.stringify({
+        reason: "missing-relation",
+        relation: schemaMigrationsRelation,
+      }));
+      await client.end().catch(() => undefined);
+      process.exit(3);
+    }
+
     await client.query("SET statement_timeout = 0");
     await client.query("SET lock_timeout = '5s'");
     await client.query("BEGIN");
-    await client.query("LOCK TABLE catalog.bounded_context_schema_migrations IN ACCESS EXCLUSIVE MODE");
+    await client.query("LOCK TABLE public.bounded_context_schema_migrations IN ACCESS EXCLUSIVE MODE");
     console.log("${HELD_LOCK_READY_MARKER} " + JSON.stringify({
       context: "catalog",
-      relation: "bounded_context_schema_migrations",
+      relation: schemaMigrationsRelation,
       lockMode: "ACCESS EXCLUSIVE",
       readyAt: new Date().toISOString(),
     }));
