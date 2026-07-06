@@ -865,6 +865,7 @@ function summarizeRouteMatrixRoute(record, route) {
   const timeoutRate = nonNegativeRateOrNull(wake.timeoutRate);
   const errorRate = nonNegativeRateOrNull(wake.workSignalErrorRate ?? wake.errorRate);
   const missingReceiptCount = nonNegativeInteger(wake.missingReceiptCount);
+  const diagnosticMissingReceiptCount = nonNegativeInteger(wake.diagnosticMissingReceiptCount);
   const missingTargetContextCount = nonNegativeInteger(wake.missingTargetContextCount);
   const exactDependencyFallbackCount = nonNegativeInteger(wake.exactDependencyFallbackCount);
   const targetContext = normalizeEvidenceLabel(wake.targetContext ?? route.targetContext);
@@ -901,6 +902,7 @@ function summarizeRouteMatrixRoute(record, route) {
       `timeout ${formatOptionalRate(timeoutRate)}`,
       `errors ${formatOptionalRate(errorRate)}`,
       `missing-receipt ${missingReceiptCount}`,
+      `plain-read-missing-receipt ${diagnosticMissingReceiptCount}`,
       `missing-target ${missingTargetContextCount}`,
       `fallback ${exactDependencyFallbackCount}`,
       `target ${targetContext}`,

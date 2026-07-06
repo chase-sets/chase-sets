@@ -104,16 +104,25 @@ export async function runReadConsistencyRouteMatrixEvidence(options, queryPromet
 
   for (const route of DEFAULT_ROUTE_MATRIX_ROUTES) {
     const queries = routeMatrixPrometheusQueries(route, options.window);
-    const [sampleCount, p95Ms, p99Ms, timeoutRate, missingReceiptCount, missingTargetContextCount, fallbackCount] =
-      await Promise.all([
-        query(queries.sampleCount),
-        query(queries.p95Ms),
-        query(queries.p99Ms),
-        query(queries.timeoutRate),
-        query(queries.missingReceiptCount),
-        query(queries.missingTargetContextCount),
-        query(queries.exactDependencyFallbackCount),
-      ]);
+    const [
+      sampleCount,
+      p95Ms,
+      p99Ms,
+      timeoutRate,
+      missingReceiptCount,
+      diagnosticMissingReceiptCount,
+      missingTargetContextCount,
+      fallbackCount,
+    ] = await Promise.all([
+      query(queries.sampleCount),
+      query(queries.p95Ms),
+      query(queries.p99Ms),
+      query(queries.timeoutRate),
+      query(queries.missingReceiptCount),
+      query(queries.diagnosticMissingReceiptCount),
+      query(queries.missingTargetContextCount),
+      query(queries.exactDependencyFallbackCount),
+    ]);
 
     routes.push(
       routeMatrixRouteEvidence(route, {
@@ -123,6 +132,7 @@ export async function runReadConsistencyRouteMatrixEvidence(options, queryPromet
         timeoutRate,
         workSignalErrorRate: globalWorkSignalErrorRate,
         missingReceiptCount,
+        diagnosticMissingReceiptCount,
         missingTargetContextCount,
         exactDependencyFallbackCount: fallbackCount,
       }),
@@ -152,6 +162,7 @@ export function buildReadConsistencyRouteMatrixEvidence(input) {
       timeoutRate: nonNegativeRate(route.wakeBeforeWait.timeoutRate),
       workSignalErrorRate: nonNegativeRate(route.wakeBeforeWait.workSignalErrorRate),
       missingReceiptCount: nonNegativeInteger(route.wakeBeforeWait.missingReceiptCount),
+      diagnosticMissingReceiptCount: nonNegativeInteger(route.wakeBeforeWait.diagnosticMissingReceiptCount),
       missingTargetContextCount: nonNegativeInteger(route.wakeBeforeWait.missingTargetContextCount),
       exactDependencyFallbackCount: nonNegativeInteger(route.wakeBeforeWait.exactDependencyFallbackCount),
       targetContext: route.targetContext,
@@ -195,6 +206,7 @@ export function routeMatrixRouteEvidence(route, measurement) {
   const timeoutRate = nonNegativeRate(measurement.timeoutRate);
   const workSignalErrorRate = nonNegativeRate(measurement.workSignalErrorRate);
   const missingReceiptCount = nonNegativeInteger(measurement.missingReceiptCount);
+  const diagnosticMissingReceiptCount = nonNegativeInteger(measurement.diagnosticMissingReceiptCount);
   const missingTargetContextCount = nonNegativeInteger(measurement.missingTargetContextCount);
   const exactDependencyFallbackCount = nonNegativeInteger(measurement.exactDependencyFallbackCount);
   const status =
@@ -225,6 +237,7 @@ export function routeMatrixRouteEvidence(route, measurement) {
       timeoutRate,
       workSignalErrorRate,
       missingReceiptCount,
+      diagnosticMissingReceiptCount,
       missingTargetContextCount,
       exactDependencyFallbackCount,
     },
@@ -238,19 +251,22 @@ export function routeMatrixPrometheusQueries(route, window) {
     target_context: route.targetContext,
     projection: route.projectionName,
   });
+  const receiptBackedRouteLabels = `${routeLabels},receipt="present"`;
   const routeOnlyLabels = prometheusLabels({
     mount_path: route.metricMountPath,
     route_path: route.metricRoutePath,
   });
+  const receiptBackedRouteOnlyLabels = `${routeOnlyLabels},receipt="present"`;
 
   return {
-    sampleCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${routeLabels},wait_mode="exact-dependency"}[${window}]))`,
-    p95Ms: `histogram_quantile(0.95, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{${routeLabels},wait_mode="exact-dependency",outcome="fresh"}[${window}])))`,
-    p99Ms: `histogram_quantile(0.99, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{${routeLabels},wait_mode="exact-dependency",outcome="fresh"}[${window}])))`,
-    timeoutRate: `sum(increase(chase_sets_projection_freshness_evaluations_total{${routeLabels},wait_mode="exact-dependency",outcome="timeout"}[${window}])) / clamp_min(sum(increase(chase_sets_projection_freshness_evaluations_total{${routeLabels},wait_mode="exact-dependency"}[${window}])), 1)`,
-    missingReceiptCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${routeLabels},wait_mode="exact-dependency",receipt="missing"}[${window}]))`,
-    missingTargetContextCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${routeLabels},wait_mode="exact-dependency",target_context_header=~"missing|present_invalid"}[${window}]))`,
-    exactDependencyFallbackCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${routeOnlyLabels},wait_mode!="exact-dependency"}[${window}]))`,
+    sampleCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${receiptBackedRouteLabels},wait_mode="exact-dependency"}[${window}]))`,
+    p95Ms: `histogram_quantile(0.95, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{${receiptBackedRouteLabels},wait_mode="exact-dependency",outcome="fresh"}[${window}])))`,
+    p99Ms: `histogram_quantile(0.99, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{${receiptBackedRouteLabels},wait_mode="exact-dependency",outcome="fresh"}[${window}])))`,
+    timeoutRate: `sum(increase(chase_sets_projection_freshness_evaluations_total{${receiptBackedRouteLabels},wait_mode="exact-dependency",outcome="timeout"}[${window}])) / clamp_min(sum(increase(chase_sets_projection_freshness_evaluations_total{${receiptBackedRouteLabels},wait_mode="exact-dependency"}[${window}])), 1)`,
+    missingReceiptCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${routeLabels},wait_mode="exact-dependency",receipt="missing",outcome!="missing-receipt"}[${window}]))`,
+    diagnosticMissingReceiptCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${routeLabels},wait_mode="exact-dependency",receipt="missing",outcome="missing-receipt"}[${window}]))`,
+    missingTargetContextCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${receiptBackedRouteLabels},wait_mode="exact-dependency",target_context_header=~"missing|present_invalid"}[${window}]))`,
+    exactDependencyFallbackCount: `sum(increase(chase_sets_projection_freshness_evaluations_total{${receiptBackedRouteOnlyLabels},wait_mode!="exact-dependency"}[${window}]))`,
   };
 }
 
