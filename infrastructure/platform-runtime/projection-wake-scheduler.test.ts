@@ -24,6 +24,7 @@ import type {
   ClaimProjectionWakeIntentInput,
   CompleteProjectionWakeIntentInput,
   FailProjectionWakeIntentInput,
+  DeferProjectionWakeIntentInput,
   ProjectionWakeIntentCompletionResult,
   ProjectionWakeIntentRecord,
   ProjectionWakeIntentWorkSignalPayload,
@@ -449,8 +450,9 @@ describe("projection wake scheduler", () => {
 
     expect(result).toMatchObject({ processed: 0 });
     expect(projection.runCount()).toBe(0);
-    expect(store.failures[0]).toMatchObject({ retryAfterMs: 750 });
-    expect(store.failures[0].error).toMatchObject({ reason: "projection-group-lease-busy" });
+    expect(store.failures).toHaveLength(0);
+    expect(store.deferrals[0]).toMatchObject({ retryAfterMs: 750 });
+    expect(store.deferrals[0].error).toMatchObject({ reason: "projection-group-lease-busy" });
     expect(deferred).toHaveLength(1);
   });
 
@@ -745,6 +747,9 @@ describe("projection wake scheduler", () => {
       completeProjectionWakeIntent: async () => {
         throw new Error("not used");
       },
+      deferProjectionWakeIntent: async () => {
+        throw new Error("not used");
+      },
       failProjectionWakeIntent: async () => {
         throw new Error("not used");
       },
@@ -835,6 +840,7 @@ describe("projection wake scheduler", () => {
       },
       renewProjectionWakeIntent: async () => true,
       completeProjectionWakeIntent: async () => "completed",
+      deferProjectionWakeIntent: async () => true,
       failProjectionWakeIntent: async () => true,
       recordCheckpointReady: async () => ({}) as never,
     };
@@ -1004,6 +1010,7 @@ function recordingSchedulerStore(
   const claims: ClaimProjectionWakeIntentInput[] = [];
   const renewals: RenewProjectionWakeIntentInput[] = [];
   const completions: CompleteProjectionWakeIntentInput[] = [];
+  const deferrals: DeferProjectionWakeIntentInput[] = [];
   const failures: FailProjectionWakeIntentInput[] = [];
   const readiness: RecordCheckpointReadyInput[] = [];
 
@@ -1011,6 +1018,7 @@ function recordingSchedulerStore(
     claims,
     renewals,
     completions,
+    deferrals,
     failures,
     readiness,
     store: {
@@ -1025,6 +1033,10 @@ function recordingSchedulerStore(
       completeProjectionWakeIntent: async (input: CompleteProjectionWakeIntentInput) => {
         completions.push(input);
         return options.completeResult ?? "completed";
+      },
+      deferProjectionWakeIntent: async (input: DeferProjectionWakeIntentInput) => {
+        deferrals.push(input);
+        return true;
       },
       failProjectionWakeIntent: async (input: FailProjectionWakeIntentInput) => {
         failures.push(input);

@@ -286,6 +286,8 @@ export type FailProjectionWakeIntentInput = CompleteProjectionWakeIntentInput &
     error?: JsonRecord | null;
   }>;
 
+export type DeferProjectionWakeIntentInput = FailProjectionWakeIntentInput;
+
 export type RecordCheckpointReadyInput = Readonly<{
   checkpointKey: string;
   sourceContextName: string;
@@ -384,6 +386,7 @@ export type PostgresWorkSignalStore = Readonly<{
   claimNextProjectionWakeIntent(input: ClaimProjectionWakeIntentInput): Promise<ProjectionWakeIntentRecord | null>;
   renewProjectionWakeIntent(input: RenewProjectionWakeIntentInput): Promise<boolean>;
   completeProjectionWakeIntent(input: CompleteProjectionWakeIntentInput): Promise<ProjectionWakeIntentCompletionResult>;
+  deferProjectionWakeIntent(input: DeferProjectionWakeIntentInput): Promise<boolean>;
   failProjectionWakeIntent(input: FailProjectionWakeIntentInput): Promise<boolean>;
   recordCheckpointReady(input: RecordCheckpointReadyInput): Promise<CheckpointReadinessRecord>;
   clearCheckpointReadiness(input: Readonly<{ checkpointKeys: readonly string[] }>): Promise<number>;
@@ -876,6 +879,43 @@ export function createPostgresWorkSignalStore(
       }
 
       return row.state === "queued" ? "requeued" : "completed";
+    },
+
+    async deferProjectionWakeIntent(input) {
+      const retryAt = addMs(now(), Math.max(0, input.retryAfterMs));
+      const retryExpiresAt = addMs(retryAt, defaultWakeTtlMs);
+      const result = await query(
+        db,
+        `
+        UPDATE platform_projection_wake_intents
+        SET
+          state = 'queued',
+          claim_owner_id = NULL,
+          claimed_until = NULL,
+          claimed_required_position = NULL,
+          claimed_required_cursor = NULL,
+          attempt_count = GREATEST(attempt_count - 1, 0),
+          next_eligible_at = $4::timestamptz,
+          last_error = $5::jsonb,
+          expires_at = GREATEST(expires_at, $6::timestamptz),
+          updated_at = now()
+        WHERE wake_intent_id = $1
+          AND state = 'claimed'
+          AND claim_owner_id = $2
+          AND claim_fencing_token = $3::bigint
+          AND claimed_until > now()
+        `,
+        [
+          input.wakeIntentId,
+          input.claimOwnerId,
+          toPostgresInteger(input.claimFencingToken),
+          formatTimestamp(retryAt),
+          JSON.stringify(redactSensitiveWorkSignalErrorFields(input.error)),
+          formatTimestamp(retryExpiresAt),
+        ],
+      );
+
+      return (result.rowCount ?? 0) > 0;
     },
 
     async failProjectionWakeIntent(input) {

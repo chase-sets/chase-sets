@@ -46,6 +46,7 @@ export type ProjectionWakeSchedulerStore = Pick<
   | "claimNextProjectionWakeIntent"
   | "renewProjectionWakeIntent"
   | "completeProjectionWakeIntent"
+  | "deferProjectionWakeIntent"
   | "failProjectionWakeIntent"
   | "recordCheckpointReady"
 >;
@@ -236,6 +237,24 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
     }
 
     return options.workSignalStore.failProjectionWakeIntent({
+      wakeIntentId: intent.wakeIntentId,
+      claimOwnerId: requireClaimOwnerId(intent),
+      claimFencingToken: intent.claimFencingToken,
+      retryAfterMs,
+      error,
+    });
+  };
+
+  const deferIntent = async (
+    intent: ProjectionWakeIntentRecord,
+    retryAfterMs: number,
+    error: Record<string, unknown>,
+  ): Promise<boolean> => {
+    if (!intent.claimFencingToken) {
+      return false;
+    }
+
+    return options.workSignalStore.deferProjectionWakeIntent({
       wakeIntentId: intent.wakeIntentId,
       claimOwnerId: requireClaimOwnerId(intent),
       claimFencingToken: intent.claimFencingToken,
@@ -471,7 +490,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
     }
 
     if (!runOutcome.acquired) {
-      await failIntent(intent, deferredRetryMs, {
+      await deferIntent(intent, deferredRetryMs, {
         reason: "projection-group-lease-busy",
         workerId: options.workerId,
       });
