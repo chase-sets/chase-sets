@@ -17,6 +17,7 @@ import {
   projectionWakeIntentEnqueueOutcomeMetricRecord,
   publicPresenceWaitlistAnalyticsAttributes,
   recordCheckoutObservabilityEvent,
+  recordEventStoreAppendAdvisoryLockHold,
   recordMcpAuditRecord,
   recordPostWriteConsistencyEvent,
   recordProjectionFreshnessWakeEnqueue,
@@ -960,6 +961,52 @@ describe("projection freshness observability", () => {
 
     expect(records.evaluations[0].attributes.route_path).toBe("/account/checkout-sessions/:id");
     expect(JSON.stringify(records)).not.toContain("chk_01KTMF9TCCPKGA3J3TYMGGXQ2R");
+  });
+});
+
+describe("event-store append lock observability", () => {
+  it("records append advisory-lock hold duration with bounded holder labels", () => {
+    const histogramRecords: unknown[] = [];
+    const createHistogram = vi.fn((name: string) => ({
+      record: (value: number, attributes?: unknown) => histogramRecords.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter: vi.fn(),
+      createHistogram,
+      createUpDownCounter: vi.fn(),
+    } as never);
+
+    try {
+      recordEventStoreAppendAdvisoryLockHold({
+        durationMs: 12.6,
+        outcome: "committed",
+        holderKind: "reaction",
+        targetContextName: "ordering",
+        sourceContextName: "marketplace",
+        projectionName: "ordering-marketplace-offer-acceptance",
+        subscriptionName: "ordering.marketplace-offer-acceptance",
+      });
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(createHistogram).toHaveBeenCalledWith("chase_sets_event_store_append_advisory_lock_hold_duration_ms", {
+      unit: "ms",
+    });
+    expect(histogramRecords).toEqual([
+      {
+        name: "chase_sets_event_store_append_advisory_lock_hold_duration_ms",
+        value: 13,
+        attributes: {
+          outcome: "committed",
+          holder_kind: "reaction",
+          target_context: "ordering",
+          source_context: "marketplace",
+          projection: "ordering-marketplace-offer-acceptance",
+          subscription: "ordering.marketplace-offer-acceptance",
+        },
+      },
+    ]);
   });
 });
 

@@ -79,6 +79,12 @@ const eventStoreCounter = lazyCounter("chase_sets_event_store_operations_total")
 const eventStoreDuration = lazyHistogram("chase_sets_event_store_operation_duration_ms", {
   unit: "ms",
 });
+const eventStoreAppendAdvisoryLockHoldDuration = lazyHistogram(
+  "chase_sets_event_store_append_advisory_lock_hold_duration_ms",
+  {
+    unit: "ms",
+  },
+);
 const projectorCounter = lazyCounter("chase_sets_projection_runs_total");
 const projectorDuration = lazyHistogram("chase_sets_projection_run_duration_ms", {
   unit: "ms",
@@ -433,6 +439,16 @@ export type ProjectionWakeIntentEnqueueOutcomeMetric = Readonly<{
   attributes: Attributes;
 }>;
 
+export type EventStoreAppendAdvisoryLockHoldSignal = Readonly<{
+  durationMs: number;
+  outcome: "committed" | "rolled_back" | "released";
+  holderKind?: string | null;
+  targetContextName?: string | null;
+  sourceContextName?: string | null;
+  projectionName?: string | null;
+  subscriptionName?: string | null;
+}>;
+
 let runtime: ObservabilityRuntime | null = null;
 
 type Meter = ReturnType<typeof metrics.getMeter>;
@@ -746,6 +762,21 @@ export async function observeEventStoreOperation<T>(
     counter: eventStoreCounter,
     duration: eventStoreDuration,
     work,
+  });
+}
+
+export function recordEventStoreAppendAdvisoryLockHold(event: EventStoreAppendAdvisoryLockHoldSignal): void {
+  if (!Number.isFinite(event.durationMs)) {
+    return;
+  }
+
+  eventStoreAppendAdvisoryLockHoldDuration.record(Math.max(0, Math.round(event.durationMs)), {
+    outcome: boundedMetricLabel(event.outcome),
+    holder_kind: boundedMetricLabel(event.holderKind),
+    target_context: boundedMetricLabel(event.targetContextName),
+    source_context: boundedMetricLabel(event.sourceContextName),
+    projection: boundedMetricLabel(event.projectionName),
+    subscription: boundedMetricLabel(event.subscriptionName),
   });
 }
 
