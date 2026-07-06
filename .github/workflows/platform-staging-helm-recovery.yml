@@ -1,0 +1,273 @@
+name: Platform Staging Helm Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "recover staging helm release" to confirm rolling back the staging DOKS Helm release.
+        required: true
+        type: string
+      recovery_reference:
+        description: Incident, issue, deploy run, or operator evidence that justifies this recovery.
+        required: true
+        type: string
+      rollback_revision:
+        description: Optional Helm revision to roll back to. Leave blank to use Helm's previous revision.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Staging Helm Recovery
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'recover staging helm release'
+    steps:
+      - name: Refuse unconfirmed staging Helm recovery
+        run: |
+          echo 'Confirmation text did not match exactly; expected "recover staging helm release".' >&2
+          exit 1
+
+  staging-helm-recovery:
+    name: Staging Helm Recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      DEPLOYMENT_ENVIRONMENT: staging
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      RECOVERY_REFERENCE: ${{ inputs.recovery_reference }}
+      ROLLBACK_REVISION: ${{ inputs.rollback_revision }}
+    steps:
+      - name: Confirm staging Helm recovery
+        run: |
+          set -euo pipefail
+          echo "Staging Helm recovery confirmed for ${CHASE_SETS_HELM_RELEASE} in ${CHASE_SETS_KUBERNETES_NAMESPACE}."
+          echo "Recovery reference: ${RECOVERY_REFERENCE}"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Configure staging Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-staging.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -z "$cluster_id" ] && [ -z "$cluster_name" ]; then
+              cluster_address="$(
+                terraform state list \
+                  | awk '/(^|\.)digitalocean_kubernetes_cluster\./ { print; exit }'
+              )"
+              if [ -n "$cluster_address" ]; then
+                echo "Using staging DOKS cluster Terraform state address ${cluster_address}." >&2
+                cluster_state="$(terraform state show -no-color "$cluster_address")"
+                cluster_id="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "id") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+                cluster_name="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "name") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+              fi
+            fi
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure staging Kubernetes context." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Staging Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured staging Kubernetes context: ${current_context}"
+
+      - name: Capture pre-recovery Helm diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/staging-helm-recovery
+          {
+            echo "Recovery reference: ${RECOVERY_REFERENCE}"
+            echo "Release: ${CHASE_SETS_HELM_RELEASE}"
+            echo "Namespace: ${CHASE_SETS_KUBERNETES_NAMESPACE}"
+            echo
+            echo "## helm status"
+            helm status "$CHASE_SETS_HELM_RELEASE" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" || true
+            echo
+            echo "## helm history"
+            helm history "$CHASE_SETS_HELM_RELEASE" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" || true
+          } > artifacts/staging-helm-recovery/pre-recovery-helm.txt
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            > artifacts/staging-helm-recovery/pre-recovery-diagnostics.txt 2>&1 || true
+
+      - name: Roll back staging Helm release
+        id: staging_rollback
+        run: |
+          set -euo pipefail
+          rollback_record="artifacts/staging-helm-recovery/staging-helm-rollback.json"
+          mkdir -p "$(dirname "$rollback_record")"
+
+          args=(
+            platform:kubernetes-deployment -- rollback
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+            --release "$CHASE_SETS_HELM_RELEASE"
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+            --out "$rollback_record"
+            --github-output "$GITHUB_OUTPUT"
+          )
+          if [ -n "$ROLLBACK_REVISION" ]; then
+            args+=(--revision "$ROLLBACK_REVISION")
+          fi
+          pnpm run "${args[@]}"
+
+      - name: Capture post-recovery Helm diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/staging-helm-recovery
+          {
+            echo "Recovery reference: ${RECOVERY_REFERENCE}"
+            echo "Release: ${CHASE_SETS_HELM_RELEASE}"
+            echo "Namespace: ${CHASE_SETS_KUBERNETES_NAMESPACE}"
+            echo
+            echo "## helm status"
+            helm status "$CHASE_SETS_HELM_RELEASE" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" || true
+            echo
+            echo "## helm history"
+            helm history "$CHASE_SETS_HELM_RELEASE" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" || true
+          } > artifacts/staging-helm-recovery/post-recovery-helm.txt
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            > artifacts/staging-helm-recovery/post-recovery-diagnostics.txt 2>&1 || true
+
+      - name: Summarize staging Helm recovery
+        if: always()
+        run: |
+          set -euo pipefail
+          record="artifacts/staging-helm-recovery/staging-helm-rollback.json"
+          {
+            echo "## Staging Helm Recovery"
+            echo ""
+            echo "- Recovery reference: ${RECOVERY_REFERENCE}"
+            echo "- Release: ${CHASE_SETS_HELM_RELEASE}"
+            echo "- Namespace: ${CHASE_SETS_KUBERNETES_NAMESPACE}"
+            if [ -n "$ROLLBACK_REVISION" ]; then
+              echo "- Requested rollback revision: ${ROLLBACK_REVISION}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -f "$record" ]; then
+            echo "- Result: rollback record missing" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log(`- Result: ${record.result ?? "unknown"}`);
+          console.log(`- Action: ${record.action ?? "unknown"}`);
+          if (record.reason) {
+            console.log(`- Reason: ${record.reason}`);
+          }
+          const deployments = record.workloads?.deployments ?? [];
+          const jobs = record.workloads?.jobs ?? [];
+          console.log(`- Runtime deployments: ${deployments.length}`);
+          console.log(`- Hook jobs: ${jobs.length}`);
+          NODE
+
+      - name: Upload staging Helm recovery evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-staging-helm-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/staging-helm-recovery
+          if-no-files-found: error
+          retention-days: 30
