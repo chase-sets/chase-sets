@@ -1033,6 +1033,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingDeployStep).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
     expect(stagingDeployStep).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(stagingDeployStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
+    expect(stagingDeployStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=staging"');
+    expect(stagingDeployStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
+    expect(stagingDeployStep).toContain(
+      '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',
+    );
     expect(stagingDeployStep).toContain(
       '--runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=${catalog_asset_public_base_url}"',
     );
