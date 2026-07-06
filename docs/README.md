@@ -95,6 +95,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 ## Runbooks
 
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
+- [Rate Limit Operations](./runbooks/rate-limit-operations.md): auth, offer, payment, and card-decline limiter defaults, env overrides, kill switches, and storage seam.
 - [Checkout Fresh-State Release](./runbooks/checkout-fresh-state-release.md): Shopify-simple checkout route activation, disablement, smoke validation, and release-note template.
 - [Checkout Support Operations](./runbooks/checkout-support-operations.md): support playbook for stuck checkout, payment dispute, downstream handoff, and refund request scenarios.
 - [Marketplace Production Promotion](./runbooks/marketplace-production-promotion.md): public promotion gates, proof mode, owner approval variables, and final readiness preflight.

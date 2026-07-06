@@ -1,3 +1,8 @@
+import {
+  createConfiguredInMemoryRateLimiter,
+  publicClientRequestKey,
+  rateLimitExceededJsonResponse,
+} from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
@@ -15,8 +20,18 @@ import {
   type AuthApiApp,
 } from "./support";
 
+const registrationIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.register.ip", {
+  max: 3,
+  windowMs: 60 * 60 * 1000,
+});
+
 export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/register", async (c) => {
+    const rateLimitDecision = registrationIpRateLimiter.check(publicClientRequestKey(c.req.raw));
+    if (rateLimitDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.register.ip", rateLimitDecision);
+    }
+
     const body = await c.req.json();
     const identityMutations = createIdentityMutations(c);
     const email = services.identity.normalizeEmail(String(body.email ?? ""));

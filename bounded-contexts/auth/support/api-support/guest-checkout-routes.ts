@@ -1,3 +1,8 @@
+import {
+  createConfiguredInMemoryRateLimiter,
+  publicClientRequestKey,
+  rateLimitExceededJsonResponse,
+} from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/auth-context";
@@ -23,6 +28,14 @@ import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContex
 
 const AUTH_GUEST_CHECKOUT_TTL_MS = 1000 * 60 * 60 * 24;
 const GUEST_CHECKOUT_CLAIM_LINK_NOTIFICATION_PROJECTION = "auth-guest-checkout-claim-link-notification-intent";
+const guestCheckoutClaimIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.guest-checkout.claim.ip", {
+  max: 20,
+  windowMs: 60 * 60 * 1000,
+});
+const guestCheckoutClaimAccountRateLimiter = createConfiguredInMemoryRateLimiter("auth.guest-checkout.claim.account", {
+  max: 5,
+  windowMs: 60 * 60 * 1000,
+});
 
 function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
@@ -78,6 +91,16 @@ function requireGuestCheckoutActor(actor: ResolvedActor | null) {
 
 function readGuestCheckoutToken(request: Request) {
   return parseCookieHeader(request.headers.get("cookie")).get(AUTH_GUEST_CHECKOUT_COOKIE_NAME) ?? null;
+}
+
+function enforceGuestCheckoutClaimIpLimit(request: Request) {
+  const decision = guestCheckoutClaimIpRateLimiter.check(publicClientRequestKey(request));
+  return decision.limited ? rateLimitExceededJsonResponse("auth.guest-checkout.claim.ip", decision) : null;
+}
+
+function enforceGuestCheckoutClaimAccountLimit(accountId: string, qualifier = "account") {
+  const decision = guestCheckoutClaimAccountRateLimiter.check(`${qualifier}:${accountId || "unknown"}`);
+  return decision.limited ? rateLimitExceededJsonResponse("auth.guest-checkout.claim.account", decision) : null;
 }
 
 async function requireGuestCheckoutContext(services: AuthServices, request: Request, actor: ResolvedActor | null) {
@@ -208,9 +231,17 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
   });
 
   app.post("/guest-checkout/claim-context", async (c) => {
+    const ipLimited = enforceGuestCheckoutClaimIpLimit(c.req.raw);
+    if (ipLimited) {
+      return ipLimited;
+    }
     const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
+    }
+    const accountLimited = enforceGuestCheckoutClaimAccountLimit(context.actor.accountId, "context");
+    if (accountLimited) {
+      return accountLimited;
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -223,10 +254,18 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
   });
 
   app.post("/guest-checkout/claim-link/request", async (c) => {
+    const ipLimited = enforceGuestCheckoutClaimIpLimit(c.req.raw);
+    if (ipLimited) {
+      return ipLimited;
+    }
     const body = await c.req.json();
     const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
+    }
+    const accountLimited = enforceGuestCheckoutClaimAccountLimit(context.actor.accountId, "link");
+    if (accountLimited) {
+      return accountLimited;
     }
 
     const email = context.tokenRecord.contact_email;
@@ -269,10 +308,18 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
   });
 
   app.post("/guest-checkout/claim-with-magic-link", async (c) => {
+    const ipLimited = enforceGuestCheckoutClaimIpLimit(c.req.raw);
+    if (ipLimited) {
+      return ipLimited;
+    }
     const body = await c.req.json();
     const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
+    }
+    const accountLimited = enforceGuestCheckoutClaimAccountLimit(context.actor.accountId, "magic-link");
+    if (accountLimited) {
+      return accountLimited;
     }
 
     const identityMutations = createIdentityMutations(c);
@@ -304,9 +351,17 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
   });
 
   app.post("/guest-checkout/claim-with-continuation", async (c) => {
+    const ipLimited = enforceGuestCheckoutClaimIpLimit(c.req.raw);
+    if (ipLimited) {
+      return ipLimited;
+    }
     const body = await c.req.json();
     const paymentId = String(body.paymentId ?? "").trim();
     const continuation = String(body.continuation ?? "").trim();
+    const continuationLimited = enforceGuestCheckoutClaimAccountLimit(`${paymentId}:${continuation}`, "continuation");
+    if (continuationLimited) {
+      return continuationLimited;
+    }
     const identityMutations = createIdentityMutations(c);
     const record = await consumeGuestCheckoutClaimContinuationToken(services.db, {
       continuationHash: services.auth.hashSecret(continuation),
@@ -333,10 +388,18 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
   });
 
   app.post("/guest-checkout/claim-with-passkey", async (c) => {
+    const ipLimited = enforceGuestCheckoutClaimIpLimit(c.req.raw);
+    if (ipLimited) {
+      return ipLimited;
+    }
     const body = await c.req.json();
     const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
+    }
+    const accountLimited = enforceGuestCheckoutClaimAccountLimit(context.actor.accountId, "passkey");
+    if (accountLimited) {
+      return accountLimited;
     }
 
     const identityMutations = createIdentityMutations(c);

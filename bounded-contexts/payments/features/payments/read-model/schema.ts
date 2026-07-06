@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
   provider text NOT NULL,
   provider_customer_reference text NULL,
   provider_reference text NOT NULL,
+  provider_fingerprint text NULL,
   display_label text NOT NULL,
   confirmation_experience text NOT NULL CHECK (confirmation_experience IN ('trusted-payment-step', 'off-session-token')),
   readiness text NOT NULL CHECK (readiness IN ('ready', 'setup-required', 'removed')),
@@ -150,6 +151,10 @@ CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_account_idx
 
 CREATE UNIQUE INDEX IF NOT EXISTS payments_saved_checkout_instruments_provider_ref_idx
   ON payments_saved_checkout_instruments (provider, provider_reference);
+
+CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_provider_fingerprint_idx
+  ON payments_saved_checkout_instruments (provider, provider_fingerprint)
+  WHERE provider_fingerprint IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS payments_saved_checkout_instrument_audit (
   audit_id text PRIMARY KEY,
@@ -319,6 +324,16 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
   stripe_review_open_count integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 )`,
+    ],
+  },
+  {
+    migrationId: "20260706_payments_saved_checkout_instrument_fingerprint",
+    description: "Persist provider card fingerprints for payment decline velocity enforcement.",
+    statements: [
+      `ALTER TABLE payments_saved_checkout_instruments ADD COLUMN IF NOT EXISTS provider_fingerprint text NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_saved_checkout_instruments_provider_fingerprint_idx
+  ON payments_saved_checkout_instruments (provider, provider_fingerprint)
+  WHERE provider_fingerprint IS NOT NULL`,
     ],
   },
 ] as const;

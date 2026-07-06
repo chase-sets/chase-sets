@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { createInMemoryRateLimiter, publicClientRequestKey } from "./rate-limit";
+import {
+  clearRateLimitExceededCounters,
+  createConfiguredInMemoryRateLimiter,
+  createInMemoryRateLimiter,
+  getRateLimitExceededCounters,
+  publicClientRequestKey,
+  rateLimitExceededJsonResponse,
+  resolveRateLimitRule,
+} from "./rate-limit";
 
 describe("in-memory rate limiter", () => {
   it("uses forwarded client identity before local fallback", () => {
@@ -47,6 +55,68 @@ describe("in-memory rate limiter", () => {
 
     now += 60_001;
     expect(limiter.check("client_1")).toMatchObject({ limited: false, count: 1, remaining: 1 });
+  });
+
+  it("peeks without consuming failure-only buckets", () => {
+    const limiter = createInMemoryRateLimiter({
+      keyPrefix: "failure",
+      max: 2,
+      windowMs: 60_000,
+      now: () => new Date("2026-06-11T12:00:00.000Z").getTime(),
+    });
+
+    expect(limiter.peek("client_1")).toMatchObject({ limited: false, count: 0, remaining: 2 });
+    expect(limiter.check("client_1")).toMatchObject({ limited: false, count: 1, remaining: 1 });
+    expect(limiter.peek("client_1")).toMatchObject({ limited: false, count: 1, remaining: 1 });
+    expect(limiter.check("client_1")).toMatchObject({ limited: false, count: 2, remaining: 0 });
+    expect(limiter.peek("client_1")).toMatchObject({ limited: true, count: 2, remaining: 0 });
+  });
+
+  it("resolves env overrides and kill switches per surface", () => {
+    const env = {
+      CHASE_SETS_RATE_LIMIT_AUTH_SIGN_IN_IP_FAILURES_MAX: "7",
+      CHASE_SETS_RATE_LIMIT_AUTH_SIGN_IN_IP_FAILURES_WINDOW_MS: "120000",
+      CHASE_SETS_RATE_LIMIT_AUTH_SIGN_IN_IP_FAILURES_DISABLED: "true",
+    };
+
+    expect(resolveRateLimitRule("auth.sign-in.ip-failures", { max: 5, windowMs: 60_000 }, env)).toEqual({
+      max: 7,
+      windowMs: 120_000,
+      disabled: true,
+    });
+  });
+
+  it("can disable configured limiters without consuming buckets", () => {
+    const limiter = createConfiguredInMemoryRateLimiter(
+      "auth.register.ip",
+      { max: 1, windowMs: 60_000 },
+      {
+        env: { CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_DISABLED: "true" },
+      },
+    );
+
+    expect(limiter.check("client_1")).toMatchObject({ limited: false, count: 0, remaining: 1 });
+    expect(limiter.check("client_1")).toMatchObject({ limited: false, count: 0, remaining: 1 });
+  });
+
+  it("records a support-safe counter for limit exceeded responses", async () => {
+    clearRateLimitExceededCounters();
+    const response = rateLimitExceededJsonResponse("auth.register.ip", {
+      limited: true,
+      key: "auth.register.ip:client_1",
+      count: 4,
+      limit: 3,
+      remaining: 0,
+      resetAt: Date.now() + 60_000,
+      retryAfterSeconds: 60,
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "rate_limited", surface: "auth.register.ip", retryAfterSeconds: 60 },
+    });
+    expect(getRateLimitExceededCounters()).toEqual({ "auth.register.ip": 1 });
   });
 
   it("bounds stored client buckets", () => {

@@ -99,6 +99,7 @@ export type ProcessorSavedPaymentMethod = Readonly<{
   processorName: PaymentProcessorName;
   providerCustomerReference: string | null;
   providerReference: string;
+  paymentMethodFingerprint?: string | null;
   paymentMethodCategory: ProcessorPaymentMethodCategory;
   displayLabel: string;
   readiness: ProcessorSavedPaymentReadiness;

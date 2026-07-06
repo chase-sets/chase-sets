@@ -84,6 +84,7 @@ export type SavedCheckoutInstrumentRow = Readonly<{
   provider: string;
   provider_customer_reference: string | null;
   provider_reference: string;
+  provider_fingerprint?: string | null;
   display_label: string;
   confirmation_experience: "trusted-payment-step" | "off-session-token";
   is_default: boolean;
@@ -588,6 +589,7 @@ export async function listSavedCheckoutInstruments(
        provider,
        provider_customer_reference,
        provider_reference,
+       provider_fingerprint,
        display_label,
        confirmation_experience,
        is_default,
@@ -619,6 +621,7 @@ export async function getSavedCheckoutInstrument(
        provider,
        provider_customer_reference,
        provider_reference,
+       provider_fingerprint,
        display_label,
        confirmation_experience,
        is_default,
@@ -650,6 +653,7 @@ export async function getSavedCheckoutInstrumentByProviderReference(
        provider,
        provider_customer_reference,
        provider_reference,
+       provider_fingerprint,
        display_label,
        confirmation_experience,
        is_default,
@@ -748,6 +752,7 @@ export async function upsertSavedCheckoutInstrument(
     provider: string;
     providerCustomerReference?: string | null;
     providerReference: string;
+    providerFingerprint?: string | null;
     displayLabel: string;
     confirmationExperience: "trusted-payment-step" | "off-session-token";
     readiness: "ready" | "setup-required" | "removed";
@@ -764,9 +769,9 @@ export async function upsertSavedCheckoutInstrument(
     `WITH cleared_default AS (
        UPDATE payments_saved_checkout_instruments
        SET is_default = false,
-           updated_at = $15
+           updated_at = $16
        WHERE account_id = $2
-         AND $13 = true
+          AND $14 = true
      )
      INSERT INTO payments_saved_checkout_instruments (
        instrument_id,
@@ -775,6 +780,7 @@ export async function upsertSavedCheckoutInstrument(
        provider,
        provider_customer_reference,
        provider_reference,
+       provider_fingerprint,
        display_label,
        confirmation_experience,
        readiness,
@@ -785,11 +791,12 @@ export async function upsertSavedCheckoutInstrument(
        removed_at,
        created_at,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
      ON CONFLICT (provider, provider_reference) DO UPDATE
      SET account_id = EXCLUDED.account_id,
          payment_method_category = EXCLUDED.payment_method_category,
          provider_customer_reference = EXCLUDED.provider_customer_reference,
+         provider_fingerprint = EXCLUDED.provider_fingerprint,
          display_label = EXCLUDED.display_label,
          confirmation_experience = EXCLUDED.confirmation_experience,
          readiness = EXCLUDED.readiness,
@@ -806,6 +813,7 @@ export async function upsertSavedCheckoutInstrument(
        provider,
        provider_customer_reference,
        provider_reference,
+       provider_fingerprint,
        display_label,
        confirmation_experience,
        is_default,
@@ -823,6 +831,7 @@ export async function upsertSavedCheckoutInstrument(
       instrument.provider,
       instrument.providerCustomerReference ?? null,
       instrument.providerReference,
+      instrument.providerFingerprint ?? null,
       instrument.displayLabel,
       instrument.confirmationExperience,
       instrument.readiness,
