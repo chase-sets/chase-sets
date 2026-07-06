@@ -200,6 +200,11 @@ function chooseAttribution(input) {
       return attribution("background-work-pressure", "low", "attributed", reasons);
     }
 
+    if (input.databasePool.counterAvailability.status !== "available") {
+      reasons.push(
+        `Database pool pressure counters were ${input.databasePool.counterAvailability.status}: ${input.databasePool.counterAvailability.unavailableReason ?? "counter availability unknown"}.`,
+      );
+    }
     reasons.push(
       "Hot wake intents are queued, but the captured endpoint did not include enough pressure or contention detail.",
     );
@@ -228,17 +233,20 @@ function attribution(primaryCause, confidence, status, reasons) {
 
 function summarizeDatabasePoolSignals(value) {
   const pool = asRecord(value);
+  const counterAvailability = summarizeDatabasePoolCounterAvailability(pool);
   const waitingClients = readNumber(pool.waitingClients);
   const waitingPoolCount = readNumber(pool.waitingPoolCount);
   const saturatedPoolCount = readNumber(pool.saturatedPoolCount);
   return {
     databasePoolMax: readNumber(pool.databasePoolMax),
     poolCount: readNumber(pool.poolCount),
+    totalClients: readNumber(pool.totalClients),
     activeClients: readNumber(pool.activeClients),
     idleClients: readNumber(pool.idleClients),
     waitingClients,
     waitingPoolCount,
     saturatedPoolCount,
+    counterAvailability,
     hasPressure:
       positive(waitingClients) ||
       positive(waitingPoolCount) ||
@@ -286,6 +294,21 @@ function summarizeWorkerHeartbeatSignals(sources) {
     (worker) => readString(asRecord(worker).workerState) ?? readString(asRecord(worker).worker_state),
   );
   const knownStates = states.filter(Boolean);
+  const summaries = sources.map((source) => asRecord(asRecord(source).workerHeartbeatSummary));
+  const summarizedWorkerCount = sumKnownNumbers(summaries.map((summary) => readNumber(summary.workerCount)));
+  const summarizedActiveWorkerCount = sumKnownNumbers(
+    summaries.map((summary) => readNumber(summary.activeWorkerCount)),
+  );
+  const summarizedStaleWorkerCount = sumKnownNumbers(
+    summaries.map((summary) => readNumber(summary.staleOrExpiredWorkerCount)),
+  );
+  if (workers.length === 0 && summarizedWorkerCount !== null) {
+    return {
+      workerCount: summarizedWorkerCount,
+      activeWorkerCount: summarizedActiveWorkerCount,
+      staleOrExpiredWorkerCount: summarizedStaleWorkerCount,
+    };
+  }
   return {
     workerCount: workers.length,
     activeWorkerCount: knownStates.length === 0 ? null : knownStates.filter((state) => state === "active").length,
@@ -549,6 +572,10 @@ function sumEntries(entries, propertyName) {
 }
 
 function computeOldestAgeMs(entries, checkedAtMs) {
+  const directAges = entries.map((entry) => readNumber(asRecord(entry).oldestAgeMs)).filter((age) => age !== null);
+  if (directAges.length > 0) {
+    return Math.max(...directAges);
+  }
   if (!Number.isFinite(checkedAtMs)) {
     return null;
   }
@@ -559,6 +586,50 @@ function computeOldestAgeMs(entries, checkedAtMs) {
     return null;
   }
   return Math.max(0, checkedAtMs - Math.min(...timestamps));
+}
+
+function summarizeDatabasePoolCounterAvailability(pool) {
+  const explicit = asRecord(pool.counterAvailability);
+  const explicitStatus = readString(explicit.status);
+  const unavailableCounters = asArray(explicit.unavailableCounters).map(readString).filter(Boolean);
+  if (explicitStatus) {
+    return {
+      status: explicitStatus,
+      unavailableCounters,
+      unavailableReason: readString(explicit.unavailableReason),
+    };
+  }
+
+  const counters = {
+    totalClients: readNumber(pool.totalClients),
+    activeClients: readNumber(pool.activeClients),
+    idleClients: readNumber(pool.idleClients),
+    waitingClients: readNumber(pool.waitingClients),
+    waitingPoolCount: readNumber(pool.waitingPoolCount),
+    saturatedPoolCount: readNumber(pool.saturatedPoolCount),
+  };
+  const inferredUnavailableCounters = Object.entries(counters)
+    .filter(([, value]) => value === null)
+    .map(([key]) => key);
+  return {
+    status:
+      inferredUnavailableCounters.length === 0
+        ? "available"
+        : inferredUnavailableCounters.length === Object.keys(counters).length
+          ? "unavailable"
+          : "partial",
+    unavailableCounters: inferredUnavailableCounters,
+    unavailableReason:
+      inferredUnavailableCounters.length === 0 ? null : "database-pool-counters-missing-from-worker-status",
+  };
+}
+
+function sumKnownNumbers(values) {
+  const known = values.filter((value) => value !== null);
+  if (known.length === 0) {
+    return null;
+  }
+  return known.reduce((total, value) => total + value, 0);
 }
 
 function loadJsonFile(path) {

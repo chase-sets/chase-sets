@@ -79,6 +79,64 @@ describe("projection hot lag evidence", () => {
     expect(evidence.signals.hotLane.hotApiWaitQueuedIntentCount).toBe(3);
   });
 
+  it("uses wake-drill aggregate signals for heartbeat counts, pool-counter availability, and queued age", () => {
+    const evidence = buildProjectionHotLagEvidence({
+      checkedAt: "2026-06-24T12:00:00.000Z",
+      workerStatus: workerStatus({
+        databasePoolPressure: {
+          databasePoolMax: 7,
+          poolCount: 1,
+          totalClients: null,
+          activeClients: null,
+          idleClients: null,
+          waitingClients: null,
+          waitingPoolCount: null,
+          saturatedPoolCount: null,
+          counterAvailability: {
+            status: "unavailable",
+            unavailableCounters: [
+              "totalClients",
+              "activeClients",
+              "idleClients",
+              "waitingClients",
+              "waitingPoolCount",
+              "saturatedPoolCount",
+            ],
+            unavailableReason: "node-postgres-pool-counters-unavailable-or-not-exposed",
+          },
+        },
+        projectionWakeIntentBreakdown: [
+          hotBreakdown({
+            state: "queued",
+            intentCount: 2,
+            oldestAgeMs: 45_000,
+            oldestCreatedAt: undefined,
+          }),
+        ],
+        workers: [],
+        workerHeartbeatSummary: {
+          workerCount: 2,
+          activeWorkerCount: 2,
+          staleOrExpiredWorkerCount: 0,
+        },
+      }),
+    });
+
+    expect(evidence.signals.workerHeartbeats).toEqual({
+      workerCount: 2,
+      activeWorkerCount: 2,
+      staleOrExpiredWorkerCount: 0,
+    });
+    expect(evidence.signals.databasePool.counterAvailability).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "node-postgres-pool-counters-unavailable-or-not-exposed",
+    });
+    expect(evidence.signals.hotLane.oldestHotQueuedAgeMs).toBe(45_000);
+    expect(evidence.attribution.reasons).toContain(
+      "Database pool pressure counters were unavailable: node-postgres-pool-counters-unavailable-or-not-exposed.",
+    );
+  });
+
   it("reports projection repair before capacity tuning when blocked streams are present", () => {
     const evidence = buildProjectionHotLagEvidence({
       checkedAt: "2026-06-24T12:00:00.000Z",
