@@ -1627,6 +1627,20 @@ describe("drill orchestration", () => {
       ...workerStatusSnapshot(),
       databaseUrl: "postgresql://admin:secret@db.example:25060/platform",
       sessionToken: "secret-session",
+      databasePoolPressure: {
+        ...workerStatusSnapshot().databasePoolPressure,
+        pools: [
+          {
+            names: ["control", "checkout"],
+            totalClients: 7,
+            activeClients: 6,
+            idleClients: 1,
+            waitingClients: 0,
+            saturated: false,
+            waiting: false,
+          },
+        ],
+      },
       workers: [
         {
           workerId: "platform-worker-private-id",
@@ -1636,6 +1650,11 @@ describe("drill orchestration", () => {
           wakeCapable: true,
           email: "operator@example.com",
         },
+        {
+          worker_id: "platform-worker-private-id-2",
+          worker_kind: "platform-worker",
+          heartbeat_at: "2026-06-30T22:29:40.000Z",
+        },
       ],
       runners: [
         {
@@ -1643,6 +1662,10 @@ describe("drill orchestration", () => {
           state: "active",
           lastError: "projection-group-lease-busy",
           payload: { eventId: "evt_private" },
+        },
+        {
+          runner_name: "projection-standard",
+          state: "idle",
         },
         {
           name: "postgresql://admin:secret@db.example:25060/platform",
@@ -1658,7 +1681,37 @@ describe("drill orchestration", () => {
         state: "active",
         lastError: "projection-group-lease-busy",
       },
+      {
+        name: "projection-standard",
+        state: "idle",
+        lastError: null,
+      },
     ]);
+    expect(sanitized.databasePoolPressure).toMatchObject({
+      totalClients: null,
+      activeClients: 4,
+      counterAvailability: {
+        status: "partial",
+        unavailableCounters: ["totalClients"],
+        unavailableReason: "node-postgres-pool-counters-unavailable-or-not-exposed",
+      },
+      pools: [
+        {
+          nameCount: 2,
+          totalClients: 7,
+          activeClients: 6,
+          waitingClients: 0,
+          saturated: false,
+        },
+      ],
+    });
+    expect(sanitized.workerHeartbeatSummary).toMatchObject({
+      workerCount: 2,
+      activeWorkerCount: 2,
+      staleOrExpiredWorkerCount: 0,
+      stateSource: "heartbeat-age-threshold",
+      staleHeartbeatAgeMs: 120_000,
+    });
     expect(serialized).not.toContain("postgresql://");
     expect(serialized).not.toContain("operator@example.com");
     expect(serialized).not.toContain("secret-session");

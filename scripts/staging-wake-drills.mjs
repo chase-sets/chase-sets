@@ -61,6 +61,7 @@ const POSTGRES_URL_PATTERN = /postgres(?:ql)?:\/\/[^"'\s]+/gi;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const BEARER_PATTERN = /Bearer\s+[A-Za-z0-9._-]+/g;
 const SESSION_TOKEN_FIELD_PATTERN = /"sessionToken"/g;
+const WORKER_HEARTBEAT_STALE_AGE_MS = 120_000;
 
 export function contextDatabaseEnvName(sourceContextName) {
   return `DATABASE_URL_${String(sourceContextName).toUpperCase().replaceAll("-", "_")}`;
@@ -707,15 +708,21 @@ export async function fetchWorkerStatusSnapshot(options, fetchImpl = fetch) {
 
 export function sanitizeWorkerStatusSnapshot(snapshot) {
   const record = asRecord(snapshot);
+  const generatedAt = normalizeString(record.generatedAt) ?? normalizeString(record.checkedAt) ?? null;
+  const generatedAtMs = Date.parse(generatedAt ?? "");
+  const workers = asArray(record.workers)
+    .map((worker) => sanitizeWorkerHeartbeat(worker, generatedAtMs))
+    .filter(Boolean);
   return {
-    generatedAt: normalizeString(record.generatedAt) ?? normalizeString(record.checkedAt) ?? null,
+    generatedAt,
     databasePoolPressure: sanitizeDatabasePoolPressure(record.databasePoolPressure),
     capacity: sanitizeCapacity(record.capacity),
     projectionWakeControls: sanitizeProjectionWakeControls(record.projectionWakeControls),
     projectionWakeIntents: sanitizeProjectionWakeIntents(record.projectionWakeIntents),
     projectionWakeIntentBreakdown: asArray(record.projectionWakeIntentBreakdown).map(sanitizeWakeIntentBreakdownRow),
     loops: asArray(record.loops).map(sanitizeLoopStatus).filter(Boolean),
-    workers: asArray(record.workers).map(sanitizeWorkerHeartbeat).filter(Boolean),
+    workerHeartbeatSummary: summarizeSanitizedWorkerHeartbeats(workers),
+    workers,
     runners: asArray(record.runners).map(sanitizeRunnerStatus).filter(Boolean),
   };
 }
@@ -1491,14 +1498,64 @@ function matchesSensitivePattern(value) {
 
 function sanitizeDatabasePoolPressure(value) {
   const pool = asRecord(value);
-  return {
+  const sanitized = {
     databasePoolMax: toFiniteNumber(pool.databasePoolMax),
     poolCount: toFiniteNumber(pool.poolCount),
+    totalClients: toFiniteNumber(pool.totalClients),
     activeClients: toFiniteNumber(pool.activeClients),
     idleClients: toFiniteNumber(pool.idleClients),
     waitingClients: toFiniteNumber(pool.waitingClients),
     waitingPoolCount: toFiniteNumber(pool.waitingPoolCount),
     saturatedPoolCount: toFiniteNumber(pool.saturatedPoolCount),
+    pools: asArray(pool.pools).map(sanitizeDatabasePoolPressurePool).filter(Boolean),
+  };
+  const pressureCounters = [
+    "totalClients",
+    "activeClients",
+    "idleClients",
+    "waitingClients",
+    "waitingPoolCount",
+    "saturatedPoolCount",
+  ];
+  const unavailableCounters = pressureCounters.filter((counter) => sanitized[counter] === null);
+  return {
+    ...sanitized,
+    counterAvailability: {
+      status:
+        unavailableCounters.length === 0
+          ? "available"
+          : unavailableCounters.length === pressureCounters.length
+            ? "unavailable"
+            : "partial",
+      unavailableCounters,
+      unavailableReason:
+        unavailableCounters.length === 0 ? null : "node-postgres-pool-counters-unavailable-or-not-exposed",
+    },
+  };
+}
+
+function sanitizeDatabasePoolPressurePool(value) {
+  const pool = asRecord(value);
+  const nameCount = Array.isArray(pool.names) ? pool.names.filter((name) => readSafeString(name)).length : null;
+  const hasSignal =
+    nameCount !== null ||
+    toFiniteNumber(pool.totalClients) !== null ||
+    toFiniteNumber(pool.activeClients) !== null ||
+    toFiniteNumber(pool.idleClients) !== null ||
+    toFiniteNumber(pool.waitingClients) !== null ||
+    typeof pool.saturated === "boolean" ||
+    typeof pool.waiting === "boolean";
+  if (!hasSignal) {
+    return null;
+  }
+  return {
+    nameCount,
+    totalClients: toFiniteNumber(pool.totalClients),
+    activeClients: toFiniteNumber(pool.activeClients),
+    idleClients: toFiniteNumber(pool.idleClients),
+    waitingClients: toFiniteNumber(pool.waitingClients),
+    saturated: typeof pool.saturated === "boolean" ? pool.saturated : null,
+    waiting: typeof pool.waiting === "boolean" ? pool.waiting : null,
   };
 }
 
@@ -1565,24 +1622,47 @@ function sanitizeLoopStatus(value) {
   };
 }
 
-function sanitizeWorkerHeartbeat(value) {
+function sanitizeWorkerHeartbeat(value, generatedAtMs = Number.NaN) {
   const worker = asRecord(value);
-  const workerKind = readSafeString(worker.workerKind);
-  const workerState = readSafeString(worker.workerState);
-  if (!workerKind && !workerState) {
+  const workerKind = readSafeString(worker.workerKind) ?? readSafeString(worker.worker_kind);
+  const heartbeatAgeMs =
+    toFiniteNumber(worker.heartbeatAgeMs) ??
+    toFiniteNumber(worker.heartbeat_age_ms) ??
+    computeAgeMs(worker.heartbeatAt ?? worker.heartbeat_at, generatedAtMs);
+  const workerState =
+    readSafeString(worker.workerState) ??
+    readSafeString(worker.worker_state) ??
+    inferWorkerHeartbeatState(heartbeatAgeMs);
+  if (!workerKind && !workerState && heartbeatAgeMs === null) {
     return null;
   }
   return {
     workerKind,
     workerState,
-    heartbeatAgeMs: toFiniteNumber(worker.heartbeatAgeMs),
+    heartbeatAgeMs,
     wakeCapable: typeof worker.wakeCapable === "boolean" ? worker.wakeCapable : null,
+  };
+}
+
+function summarizeSanitizedWorkerHeartbeats(workers) {
+  return {
+    workerCount: workers.length,
+    activeWorkerCount: workers.filter((worker) => worker.workerState === "active").length,
+    staleOrExpiredWorkerCount: workers.filter(
+      (worker) => worker.workerState === "stale" || worker.workerState === "expired",
+    ).length,
+    stateSource: workers.some((worker) => worker.heartbeatAgeMs !== null)
+      ? "heartbeat-age-threshold"
+      : workers.length > 0
+        ? "state-field"
+        : "not-observed",
+    staleHeartbeatAgeMs: WORKER_HEARTBEAT_STALE_AGE_MS,
   };
 }
 
 function sanitizeRunnerStatus(value) {
   const runner = asRecord(value);
-  const name = readSafeString(runner.name) ?? readSafeString(runner.runnerName);
+  const name = readSafeString(runner.name) ?? readSafeString(runner.runnerName) ?? readSafeString(runner.runner_name);
   if (!name) {
     return null;
   }
@@ -1592,6 +1672,25 @@ function sanitizeRunnerStatus(value) {
     state: readSafeString(runner.state),
     lastError: lastError?.includes("projection-group-lease-busy") ? "projection-group-lease-busy" : null,
   };
+}
+
+function inferWorkerHeartbeatState(heartbeatAgeMs) {
+  if (heartbeatAgeMs === null) {
+    return null;
+  }
+  return heartbeatAgeMs > WORKER_HEARTBEAT_STALE_AGE_MS ? "stale" : "active";
+}
+
+function computeAgeMs(timestamp, checkedAtMs) {
+  if (!Number.isFinite(checkedAtMs)) {
+    return null;
+  }
+  const timestampValue = timestamp instanceof Date ? timestamp.toISOString() : normalizeString(timestamp);
+  const timestampMs = Date.parse(timestampValue ?? "");
+  if (!Number.isFinite(timestampMs)) {
+    return null;
+  }
+  return Math.max(0, Math.round(checkedAtMs - timestampMs));
 }
 
 function clampInteger(value, fallback, minimum, maximum) {
