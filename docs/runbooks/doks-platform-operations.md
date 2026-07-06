@@ -49,7 +49,7 @@ export KUBECONFIG="$kubeconfig"
 kubectl config current-context
 ```
 
-Use the GitHub Actions workflows for normal deploys and evidence. Use a local operator shell only for incident investigation, cutover rehearsal, or an owner-approved emergency recovery.
+Use the GitHub Actions workflows for normal deploys and evidence. Use `Platform Staging Helm Recovery` (`.github/workflows/platform-staging-helm-recovery.yml`) for owner-approved staging Helm rollback recovery when a DOKS release is stuck or a staging deploy cannot progress. Use a local operator shell only for incident investigation, cutover rehearsal, or an owner-approved emergency recovery that cannot be completed through a workflow.
 
 ## Deploy And Rollout Status
 
@@ -124,6 +124,8 @@ pnpm run platform:kubernetes-deployment -- rollback \
   --namespace production \
   --timeout 10m
 ```
+
+For staging DOKS release-lane recovery, dispatch `Platform Staging Helm Recovery` with the exact confirmation phrase `recover staging helm release`, a recovery reference, and an optional Helm revision. The workflow shares the staging deploy concurrency group, configures the staging DOKS kubeconfig from Terraform state, captures Helm status/history plus source-owned diagnostics before and after rollback, runs the same `platform:kubernetes-deployment -- rollback` helper for release `chase-sets-platform` in namespace `chase-sets-platform`, and uploads `platform-staging-helm-recovery-<run>-<attempt>` evidence.
 
 To roll back to a specific revision:
 

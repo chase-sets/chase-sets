@@ -92,6 +92,10 @@ const platformStagingRollbackDrillWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-rollback-drill.yml"),
   "utf8",
 );
+const platformStagingHelmRecoveryWorkflow = readFileSync(
+  resolve(".github/workflows/platform-staging-helm-recovery.yml"),
+  "utf8",
+);
 const digitaloceanPlatformRunbook = readFileSync(resolve("docs/runbooks/digitalocean-platform-deployment.md"), "utf8");
 const productionPgBouncerSessionSafety = readFileSync(
   resolve("docs/architecture/production-pgbouncer-session-safety.md"),
@@ -2836,6 +2840,47 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingRollbackDrillWorkflow).toContain("Report staging rollback drill recovery");
     expect(platformStagingRollbackDrillWorkflow).not.toContain("environment: production");
     expect(platformStagingRollbackDrillWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
+  });
+
+  it("runs staging Helm recovery as a confirmed DOKS-only rollback workflow", () => {
+    const recoveryJob = workflowJob(platformStagingHelmRecoveryWorkflow, "staging-helm-recovery");
+    const kubeconfigStep = workflowStep(platformStagingHelmRecoveryWorkflow, "Configure staging Kubernetes context");
+    const preDiagnosticsStep = workflowStep(
+      platformStagingHelmRecoveryWorkflow,
+      "Capture pre-recovery Helm diagnostics",
+    );
+    const rollbackStep = workflowStep(platformStagingHelmRecoveryWorkflow, "Roll back staging Helm release");
+    const uploadStep = workflowStep(platformStagingHelmRecoveryWorkflow, "Upload staging Helm recovery evidence");
+
+    expect(platformStagingHelmRecoveryWorkflow).toContain("workflow_dispatch:");
+    expect(platformStagingHelmRecoveryWorkflow).toContain("recover staging helm release");
+    expect(platformStagingHelmRecoveryWorkflow).toContain("rollback_revision");
+    expect(platformStagingHelmRecoveryWorkflow).toContain("recovery_reference");
+    expect(platformStagingHelmRecoveryWorkflow).toContain("permissions:\n  contents: read");
+    expect(platformStagingHelmRecoveryWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformStagingHelmRecoveryWorkflow).toContain("cancel-in-progress: false");
+    expect(recoveryJob).toContain("environment: staging");
+    expect(recoveryJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
+    expect(recoveryJob).toContain("CHASE_SETS_HELM_RELEASE: chase-sets-platform");
+    expect(recoveryJob).toContain("CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform");
+    expect(recoveryJob).toContain("RECOVERY_REFERENCE: ${{ inputs.recovery_reference }}");
+    expect(recoveryJob).toContain("ROLLBACK_REVISION: ${{ inputs.rollback_revision }}");
+    expect(kubeconfigStep).toContain("infrastructure/digitalocean/doks");
+    expect(kubeconfigStep).toContain("-backend-config=key=doks/staging.tfstate");
+    expect(kubeconfigStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(preDiagnosticsStep).toContain('helm status "$CHASE_SETS_HELM_RELEASE"');
+    expect(preDiagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics");
+    expect(rollbackStep).toContain("pnpm run");
+    expect(rollbackStep).toContain("platform:kubernetes-deployment -- rollback");
+    expect(rollbackStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(rollbackStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
+    expect(rollbackStep).toContain('--out "$rollback_record"');
+    expect(rollbackStep).toContain('--github-output "$GITHUB_OUTPUT"');
+    expect(rollbackStep).toContain('args+=(--revision "$ROLLBACK_REVISION")');
+    expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(uploadStep).toContain("platform-staging-helm-recovery-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(platformStagingHelmRecoveryWorkflow).not.toContain("environment: production");
+    expect(platformStagingHelmRecoveryWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
   });
 
   it("gates production promotion on staging marketplace critical flows", () => {
