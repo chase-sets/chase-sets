@@ -1005,6 +1005,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStep).toContain(
       "PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}",
     );
+    expect(deployStep).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
+    expect(deployStep).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(deployStep).toContain(
       "terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url",
     );
