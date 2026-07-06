@@ -76,6 +76,12 @@ export type PlatformApiAdminGoogleWorkspaceSsoConfig = Readonly<{
   allowedHostedDomains: readonly string[];
 }>;
 
+export type PlatformApiRegistrationAdmissionConfig = Readonly<{
+  mode: "invitation" | "open";
+  disposableEmailMode: "enforce" | "log-only";
+  disposableEmailDomains: readonly string[];
+}>;
+
 export type PlatformApiCatalogAssetStorageConfig = PlatformCatalogAssetStorageConfig;
 
 export type PlatformApiListingPhotoStorageConfig = PlatformApiCatalogAssetStorageConfig;
@@ -103,6 +109,7 @@ export type PlatformApiBaseConfig = Readonly<{
   deploymentEnvironment?: DeploymentEnvironment;
   dataProfiles?: readonly EnvironmentDataProfile[];
   adminRegistrationEnabled?: boolean;
+  registrationAdmission?: PlatformApiRegistrationAdmissionConfig;
   taxProviderBackedQuotesRequired?: boolean;
 }>;
 
@@ -381,6 +388,30 @@ function loadDataProfiles(environmentName: string): readonly EnvironmentDataProf
   return assertDataProfilesAllowed(environmentName, nonProductionDataProfiles);
 }
 
+function loadRegistrationAdmissionMode(environmentName: string): PlatformApiRegistrationAdmissionConfig["mode"] {
+  const configured = getOptionalEnv("REGISTRATION_ADMISSION_MODE");
+  if (configured === "invitation" || configured === "open") {
+    return configured;
+  }
+  if (configured) {
+    throw new Error("REGISTRATION_ADMISSION_MODE must be invitation or open.");
+  }
+
+  return isLongLivedEnvironment(environmentName) ? "invitation" : "open";
+}
+
+function loadDisposableEmailMode(): PlatformApiRegistrationAdmissionConfig["disposableEmailMode"] {
+  const configured = getOptionalEnv("REGISTRATION_DISPOSABLE_EMAIL_MODE");
+  if (!configured) {
+    return "log-only";
+  }
+  if (configured === "enforce" || configured === "log-only") {
+    return configured;
+  }
+
+  throw new Error("REGISTRATION_DISPOSABLE_EMAIL_MODE must be enforce or log-only.");
+}
+
 function loadPlatformAdminConfig(): PlatformApiPlatformAdminConfig | null {
   const email = getOptionalEnv("PLATFORM_ADMIN_EMAIL");
   const password = getOptionalEnv("PLATFORM_ADMIN_PASSWORD");
@@ -536,6 +567,11 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
+    registrationAdmission: {
+      mode: loadRegistrationAdmissionMode(deploymentEnvironment),
+      disposableEmailMode: loadDisposableEmailMode(),
+      disposableEmailDomains: getOptionalCsvEnv("REGISTRATION_DISPOSABLE_EMAIL_DOMAINS"),
+    },
     taxProviderBackedQuotesRequired: getBooleanEnv("TAX_PROVIDER_BACKED_QUOTES_REQUIRED", false),
   };
 }

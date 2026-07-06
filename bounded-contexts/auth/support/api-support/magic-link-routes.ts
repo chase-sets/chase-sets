@@ -18,6 +18,7 @@ import {
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
+import { requireRegistrationAdmission } from "./registration-gates";
 
 function buildPublicOrigin(request: Request) {
   return resolvePublicRequestOrigin(request);
@@ -70,6 +71,13 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
     }
 
     const user = await services.identity.getUserByEmail(email);
+    if (!user) {
+      const admission = await requireRegistrationAdmission(services, email);
+      if (!admission.ok) {
+        return c.json(admission.failure.body, admission.failure.status);
+      }
+    }
+
     const tokenId = createId("cmd");
     const token = services.auth.issueOpaqueToken("magic");
     const expiresAt = createExpiryTimestamp(AUTH_MAGIC_LINK_TTL_MS);
@@ -129,6 +137,11 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
       : await services.identity.getUserByEmail(record.email);
 
     if (!user) {
+      const admission = await requireRegistrationAdmission(services, record.email);
+      if (!admission.ok) {
+        return c.json(admission.failure.body, admission.failure.status);
+      }
+
       let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
       try {
         identity = await identityMutations.createPersonalIdentity({
@@ -143,6 +156,10 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
 
         throw error;
       }
+      const verifiedEmail = await identityMutations.verifyEmailContactMethod({
+        userId: identity.userId,
+        email: record.email,
+      });
       const authResult = await startInteractiveAuth(services, {
         userId: identity.userId,
         accountId: identity.accountId,
@@ -159,8 +176,13 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
         ],
       });
 
-      return jsonWithMutationReceipts(c, authResult, 200, [identity]);
+      return jsonWithMutationReceipts(c, authResult, 200, [identity, verifiedEmail]);
     }
+
+    const verifiedEmail = await identityMutations.verifyEmailContactMethod({
+      userId: user.user_id,
+      email: record.email,
+    });
 
     const authResult = await startInteractiveAuth(services, {
       userId: user!.user_id,
@@ -169,6 +191,6 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
       context: getBootstrapContext(c),
     });
 
-    return c.json(authResult);
+    return jsonWithMutationReceipts(c, authResult, 200, [verifiedEmail]);
   });
 }

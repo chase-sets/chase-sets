@@ -19,6 +19,7 @@ import {
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
+import { requireRegistrationAdmission } from "./registration-gates";
 
 const registrationIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.register.ip", {
   max: 3,
@@ -33,8 +34,13 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
     }
 
     const body = await c.req.json();
-    const identityMutations = createIdentityMutations(c);
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
+    const admission = await requireRegistrationAdmission(services, email);
+    if (!admission.ok) {
+      return c.json(admission.failure.body, admission.failure.status);
+    }
+
+    const identityMutations = createIdentityMutations(c);
     const existingUser = await services.identity.getUserByEmail(email);
     if (existingUser) {
       return c.json({ error: t("auth.support.apiSupport.registerRoutes.a.user.already.exists.for.that") }, 409);

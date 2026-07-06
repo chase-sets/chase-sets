@@ -134,6 +134,11 @@
       "portName": "adminGoogleWorkspaceSso",
       "providedBy": "platform-api",
       "purpose": "Configured Google Workspace hosted-domain policy used by Auth-owned admin SSO journeys."
+    },
+    {
+      "portName": "registrationAdmission",
+      "providedBy": "platform-api",
+      "purpose": "Registration admission and disposable-email screening policy used by Auth-owned registration journeys."
     }
   ],
   "apiDeployables": ["platform-api"],

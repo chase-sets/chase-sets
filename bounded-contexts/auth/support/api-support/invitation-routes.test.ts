@@ -105,6 +105,11 @@ function createIdentityMutations() {
       membershipId: "mbr_invited",
       snapshots: [],
     })),
+    verifyEmailContactMethod: vi.fn(async () => ({
+      ok: true,
+      userId: "usr_new",
+      snapshots: [],
+    })),
     enablePasswordCredential: vi.fn(async () => ({
       ok: true,
       userId: "usr_new",
@@ -257,6 +262,10 @@ describe("invitation auth routes", () => {
       invitationId: "ivt_1",
       userId: "usr_new",
       acceptanceTokenHash: "hashed:invite_token",
+    });
+    expect(identityMutations.verifyEmailContactMethod).toHaveBeenCalledWith({
+      userId: "usr_new",
+      email: "seller@example.com",
     });
     expect(identityMutations.enablePasswordCredential.mock.invocationCallOrder[0]).toBeGreaterThan(
       identityMutations.acceptInvitationForUser.mock.invocationCallOrder[0] ?? 0,

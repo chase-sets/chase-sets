@@ -15,6 +15,7 @@ import {
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
+import { requireRegistrationAdmission } from "./registration-gates";
 
 const PHONE_CODE_NOTIFICATION_PROJECTION = "auth-phone-code-notification-intent";
 
@@ -33,6 +34,13 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
     }
 
     const user = await services.identity.getUserByPhone(phone);
+    if (!user) {
+      const admission = await requireRegistrationAdmission(services, null);
+      if (!admission.ok) {
+        return c.json(admission.failure.body, admission.failure.status);
+      }
+    }
+
     const tokenId = createId("cmd");
     const code = createPhoneCode();
     const expiresAt = createExpiryTimestamp(AUTH_MAGIC_LINK_TTL_MS);
@@ -87,6 +95,11 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
       : await services.identity.getUserByPhone(record.phone);
 
     if (!user) {
+      const admission = await requireRegistrationAdmission(services, null);
+      if (!admission.ok) {
+        return c.json(admission.failure.body, admission.failure.status);
+      }
+
       let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
       try {
         identity = await identityMutations.createPersonalIdentity({

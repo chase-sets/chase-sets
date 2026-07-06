@@ -43,6 +43,11 @@ describe("phone code auth routes", () => {
       identity: {
         getUserByPhone: vi.fn(async () => null),
       },
+      registrationAdmission: {
+        mode: "open",
+        disposableEmailMode: "enforce",
+        disposableEmailDomains: ["mailinator.com"],
+      },
       notificationOutbox: { enqueueNotification },
     };
     const app = buildApp(services);
@@ -94,6 +99,11 @@ describe("phone code auth routes", () => {
         getUserByPhone: vi.fn(async () => null),
         listActiveMembershipsForUser: vi.fn(async () => []),
       },
+      registrationAdmission: {
+        mode: "open",
+        disposableEmailMode: "enforce",
+        disposableEmailDomains: ["mailinator.com"],
+      },
       notificationOutbox: { enqueueNotification: vi.fn() },
     };
     const app = buildApp(services);
@@ -118,6 +128,11 @@ describe("phone code auth routes", () => {
       identity: {
         getUserByPhone: vi.fn(async () => null),
         listActiveMembershipsForUser: vi.fn(async () => []),
+      },
+      registrationAdmission: {
+        mode: "open",
+        disposableEmailMode: "enforce",
+        disposableEmailDomains: ["mailinator.com"],
       },
       notificationOutbox: { enqueueNotification: vi.fn() },
     };

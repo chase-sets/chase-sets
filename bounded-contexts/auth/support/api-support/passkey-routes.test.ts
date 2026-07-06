@@ -75,6 +75,7 @@ function createServices() {
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
       getUserByEmail: vi.fn(async () => null),
+      findPendingInvitationByEmail: vi.fn(async () => null),
       listActiveMembershipsForUser: vi.fn(async () => [
         {
           membershipId: "mbr_1",
@@ -84,6 +85,11 @@ function createServices() {
           rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
         },
       ]),
+    },
+    registrationAdmission: {
+      mode: "open",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
     },
     sessions: {
       commandHandler: vi.fn(async (input) => ({

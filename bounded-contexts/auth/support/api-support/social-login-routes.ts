@@ -22,6 +22,7 @@ import {
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
+import { requireRegistrationAdmission } from "./registration-gates";
 
 const SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH = "/sign-in";
 const SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH = "/register";
@@ -332,6 +333,10 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       if (isAdminSocialLoginJourney(journey)) {
         return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.admin.user.required"), journey);
       }
+      const admission = await requireRegistrationAdmission(services, email);
+      if (!admission.ok) {
+        return redirectToFallback(admission.failure.body.error.message, journey);
+      }
 
       let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
       try {
@@ -362,6 +367,10 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
         userId: user.user_id,
         providerName,
         providerSubject: profile.providerSubject,
+        email,
+      });
+      await identityMutations.verifyEmailContactMethod({
+        userId: user.user_id,
         email,
       });
     } catch (error) {

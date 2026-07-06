@@ -20,6 +20,7 @@ import {
 import { AUTH_BOOTSTRAP_TENANT_ID, AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   getAuthIdentityInvitation,
+  getPendingAuthIdentityInvitationByEmail,
   getAuthIdentityUser,
   getAuthIdentityUserByEmail,
   getAuthIdentityUserByPhone,
@@ -38,6 +39,10 @@ import { createSessionRuntime } from "../../features/sessions/api/runtime";
 import type { SessionRow } from "../../features/sessions/read-model/queries";
 import type { SessionState } from "../../features/sessions/domain/domain";
 import type { SocialLoginProvider } from "../social-login-support/providers";
+import {
+  DEFAULT_REGISTRATION_ADMISSION_CONFIG,
+  type RegistrationAdmissionConfig,
+} from "../api-support/registration-gates";
 
 type AuthIdentityReadServices = Readonly<{
   bootstrapTenantId: string;
@@ -54,7 +59,21 @@ type AuthIdentityReadServices = Readonly<{
     accountId: string,
   ) => ReturnType<typeof getActiveAuthMembershipForUserAccount>;
   getInvitation: (invitationId: string) => ReturnType<typeof getAuthIdentityInvitation>;
+  findPendingInvitationByEmail: (email: string) => ReturnType<typeof getPendingAuthIdentityInvitationByEmail>;
 }>;
+
+export type RegistrationAdmissionHostConfig = RegistrationAdmissionConfig &
+  Readonly<{
+    screeningObserver?: {
+      record: (
+        event: Readonly<{
+          decision: "blocked" | "log-only";
+          emailDomain: string;
+          reason: "disposable-email-domain";
+        }>,
+      ) => void | Promise<void>;
+    };
+  }>;
 
 export type AuthServices = Readonly<{
   pool: PgTransactionalPool;
@@ -66,6 +85,7 @@ export type AuthServices = Readonly<{
   notificationOutbox: NotificationOutbox;
   socialLoginProviders: readonly SocialLoginProvider[];
   adminGoogleWorkspaceSso: AdminGoogleWorkspaceSsoConfig | null;
+  registrationAdmission: RegistrationAdmissionHostConfig;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -77,7 +97,23 @@ export type AuthHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
   socialLoginProviders?: readonly SocialLoginProvider[];
   adminGoogleWorkspaceSso?: AdminGoogleWorkspaceSsoConfig | null;
+  registrationAdmission?: RegistrationAdmissionHostConfig;
 }>;
+
+function resolveRegistrationAdmissionConfig(
+  config: RegistrationAdmissionHostConfig | undefined,
+): RegistrationAdmissionHostConfig {
+  return {
+    ...DEFAULT_REGISTRATION_ADMISSION_CONFIG,
+    ...config,
+    disposableEmailDomains: [
+      ...new Set([
+        ...DEFAULT_REGISTRATION_ADMISSION_CONFIG.disposableEmailDomains,
+        ...(config?.disposableEmailDomains ?? []),
+      ]),
+    ],
+  };
+}
 
 export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPorts = {}): AuthServices {
   const eventStore = createPostgresEventStore({
@@ -114,16 +150,70 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
       getActiveMembershipForUserAccount: (userId, accountId) =>
         getActiveAuthMembershipForUserAccount(db, userId, accountId),
       getInvitation: (invitationId) => getAuthIdentityInvitation(db, invitationId),
+      findPendingInvitationByEmail: (email) => getPendingAuthIdentityInvitationByEmail(db, email),
     },
     sessions,
     notificationOutbox,
     socialLoginProviders: ports.socialLoginProviders ?? [],
     adminGoogleWorkspaceSso: ports.adminGoogleWorkspaceSso ?? null,
+    registrationAdmission: resolveRegistrationAdmissionConfig(ports.registrationAdmission),
     projectors: [...sessions.projectors],
   };
 }
 
 export type AuthSessionMembership = Awaited<ReturnType<typeof listActiveAuthMembershipsForUser>>[number];
+
+const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = new Set(["listings.manage", "offers.manage", "orders.manage"]);
+
+function hasVerifiedEmailForCommerce(
+  user: Awaited<ReturnType<typeof getAuthIdentityUser>> | null,
+  authenticationMethod: string | null,
+) {
+  if (!user?.primary_email) {
+    return true;
+  }
+
+  const primaryEmail = normalizeAuthEmail(user.primary_email);
+  const contactMethods = Array.isArray(user.contact_methods) ? user.contact_methods : [];
+  const primaryEmailMethod = contactMethods.find(
+    (method): method is { type: string; value: string; verifiedAt: string | null } =>
+      Boolean(method) &&
+      typeof method === "object" &&
+      (method as { type?: unknown }).type === "email" &&
+      typeof (method as { value?: unknown }).value === "string" &&
+      normalizeAuthEmail((method as { value: string }).value) === primaryEmail,
+  );
+  if (primaryEmailMethod?.verifiedAt) {
+    return true;
+  }
+
+  const socialLinks = Array.isArray(user.social_login_links) ? user.social_login_links : [];
+  if (
+    socialLinks.some(
+      (link) =>
+        link &&
+        typeof link === "object" &&
+        typeof (link as { email?: unknown }).email === "string" &&
+        normalizeAuthEmail((link as { email: string }).email) === primaryEmail,
+    )
+  ) {
+    return true;
+  }
+
+  return authenticationMethod === "google" || authenticationMethod === "facebook";
+}
+
+function restrictPermissionsForUnverifiedEmail(
+  permissions: readonly string[],
+  user: Awaited<ReturnType<typeof getAuthIdentityUser>> | null,
+  authenticationMethod: string | null,
+) {
+  if (hasVerifiedEmailForCommerce(user, authenticationMethod)) {
+    return permissions;
+  }
+
+  return permissions.filter((permission) => !EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS.has(permission));
+}
 
 export type AuthSessionStartResult =
   | Readonly<{
@@ -372,6 +462,12 @@ export async function resolveActorFromSessionId(
   if (!membership) {
     return null;
   }
+  const user = await services.identity.getUser(session.user_id);
+  const permissions = restrictPermissionsForUnverifiedEmail(
+    resolveRolePermissions(membership.role_key, membership.role_permissions),
+    user,
+    session.authentication_method,
+  );
 
   return {
     sessionId: session.session_id,
@@ -380,6 +476,6 @@ export async function resolveActorFromSessionId(
     accountId: session.account_id,
     membershipId: membership.membership_id,
     roleKey: membership.role_key,
-    permissions: resolveRolePermissions(membership.role_key, membership.role_permissions),
+    permissions,
   };
 }

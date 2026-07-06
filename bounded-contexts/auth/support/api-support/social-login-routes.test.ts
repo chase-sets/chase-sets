@@ -16,6 +16,7 @@ const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoiste
   mockIdentityMutations: {
     createPersonalIdentity: vi.fn(),
     linkSocialLogin: vi.fn(),
+    verifyEmailContactMethod: vi.fn(),
   },
 }));
 
@@ -110,6 +111,7 @@ function createServices(
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
       getUserBySocialLogin: vi.fn(async () => options.socialLoginUser ?? null),
       getUserByEmail: vi.fn(async () => options.existingUser ?? null),
+      findPendingInvitationByEmail: vi.fn(async () => null),
       getUser: vi.fn(async (userId: string) => ({
         user_id: userId,
         status: "active",
@@ -169,6 +171,11 @@ function createServices(
     adminGoogleWorkspaceSso: {
       allowedHostedDomains: ["chasesets.com"],
     },
+    registrationAdmission: {
+      mode: "open",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+    },
     projectors: [],
   } as unknown as AuthServices;
 }
@@ -177,6 +184,7 @@ useMockReset(
   mockCreateIdentityAuthRequestClient,
   mockIdentityMutations.createPersonalIdentity,
   mockIdentityMutations.linkSocialLogin,
+  mockIdentityMutations.verifyEmailContactMethod,
 );
 
 afterEach(() => {

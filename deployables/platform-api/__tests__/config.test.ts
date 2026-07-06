@@ -168,6 +168,9 @@ function resetConfigEnv() {
   delete process.env.PLATFORM_ADMIN_DISPLAY_NAME;
   delete process.env.PLATFORM_ADMIN_ACCOUNT_NAME;
   delete process.env.ADMIN_REGISTRATION_ENABLED;
+  delete process.env.REGISTRATION_ADMISSION_MODE;
+  delete process.env.REGISTRATION_DISPOSABLE_EMAIL_MODE;
+  delete process.env.REGISTRATION_DISPOSABLE_EMAIL_DOMAINS;
   delete process.env.CATALOG_ASSET_STORAGE_KIND;
   delete process.env.CATALOG_ASSET_LOCAL_ROOT;
   delete process.env.CATALOG_ASSET_PUBLIC_BASE_URL;

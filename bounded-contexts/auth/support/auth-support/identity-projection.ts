@@ -113,7 +113,10 @@ CREATE TABLE IF NOT EXISTS auth_identity_invitations (
   expires_at timestamptz NOT NULL,
   accepted_by_user_id text NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
-);`;
+);
+
+CREATE INDEX IF NOT EXISTS auth_identity_invitations_email_status_expires_at_idx
+  ON auth_identity_invitations (email, status, expires_at DESC);`;
 
 export type AuthIdentityUserRow = Readonly<{
   user_id: string;
@@ -1115,6 +1118,20 @@ export async function getAuthIdentityInvitation(db: PgQueryable, invitationId: s
   const result = await db.query<AuthIdentityInvitationRow>(
     `SELECT * FROM auth_identity_invitations WHERE invitation_id = $1`,
     [invitationId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function getPendingAuthIdentityInvitationByEmail(db: PgQueryable, email: string) {
+  const result = await db.query<AuthIdentityInvitationRow>(
+    `SELECT *
+     FROM auth_identity_invitations
+     WHERE email = $1
+       AND status = 'pending'
+       AND expires_at > now()
+     ORDER BY expires_at DESC
+     LIMIT 1`,
+    [normalizeAuthEmail(email)],
   );
   return result.rows[0] ?? null;
 }

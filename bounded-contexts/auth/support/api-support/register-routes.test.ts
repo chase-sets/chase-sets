@@ -11,7 +11,8 @@ import {
   decodeCommitReceipt,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
-import type { AuthServices } from "../runtime-support/services";
+import type { AuthServices, RegistrationAdmissionHostConfig } from "../runtime-support/services";
+import type { AuthIdentityInvitationRow } from "../auth-support/identity-projection";
 import { registerRegistrationRoutes } from "./register-routes";
 import type { AuthApiEnv } from "./support";
 
@@ -48,6 +49,12 @@ function buildApp(services: unknown) {
 }
 
 function createServices() {
+  const registrationAdmission: RegistrationAdmissionHostConfig = {
+    mode: "open",
+    disposableEmailMode: "enforce",
+    disposableEmailDomains: ["mailinator.com"],
+  };
+
   return {
     db: {
       query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })),
@@ -58,7 +65,9 @@ function createServices() {
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
       getUserByEmail: vi.fn(async () => null),
+      findPendingInvitationByEmail: vi.fn(async (_email: string): Promise<AuthIdentityInvitationRow | null> => null),
     },
+    registrationAdmission,
   };
 }
 
@@ -77,6 +86,181 @@ function withCommandReceipt<T extends object>(body: T, source: SourceCommitPosit
 useMockReset();
 
 describe("registration auth routes", () => {
+  it("returns the waitlist path when registration has no pending invitation", async () => {
+    const services = createServices();
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+    };
+    const app = buildApp(services);
+
+    const response = await app.request("/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "new.user@chasesets.test",
+        displayName: "New User",
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "registration_admission_required",
+        waitlistPath: "/#waitlist-form",
+      },
+    });
+    expect(mockCreateIdentityAuthRequestClient).not.toHaveBeenCalled();
+  });
+
+  it("allows a pending invitation email to register without consuming invitation acceptance", async () => {
+    const services = createServices();
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+    };
+    services.identity.findPendingInvitationByEmail.mockResolvedValue({
+      invitation_id: "ivt_wave_1",
+      account_id: "acc_wave",
+      email: "new.user@chasesets.test",
+      role_key: "owner",
+      status: "pending",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      accepted_by_user_id: null,
+      updated_at: new Date().toISOString(),
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => ({
+        userId: "usr_new",
+        accountId: "acc_new",
+        membershipId: "mbr_new",
+      })),
+      enablePasswordCredential: vi.fn(),
+    });
+    mockStartInteractiveAuth.mockResolvedValue({
+      type: "session-started",
+      userId: "usr_new",
+      sessionId: "ses_new",
+      sessionToken: "session_token",
+      session: { session_id: "ses_new", expires_at: new Date(Date.now() + 60_000).toISOString() },
+      memberships: [],
+    });
+    const app = buildApp(services);
+
+    const response = await app.request("/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "New.User@ChaseSets.test",
+        displayName: "New User",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(services.identity.findPendingInvitationByEmail).toHaveBeenCalledWith("new.user@chasesets.test");
+  });
+
+  it("lets dev and test profiles use explicit open registration mode", async () => {
+    const services = createServices();
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => ({
+        userId: "usr_new",
+        accountId: "acc_new",
+        membershipId: "mbr_new",
+      })),
+      enablePasswordCredential: vi.fn(),
+    });
+    mockStartInteractiveAuth.mockResolvedValue({
+      type: "session-started",
+      userId: "usr_new",
+      sessionId: "ses_new",
+      sessionToken: "session_token",
+      session: { session_id: "ses_new", expires_at: new Date(Date.now() + 60_000).toISOString() },
+      memberships: [],
+    });
+    const app = buildApp(services);
+
+    const response = await app.request("/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "new.user@chasesets.test",
+        displayName: "New User",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
+  });
+
+  it("rejects disposable email domains when enforcement is enabled", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+
+    const response = await app.request("/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "new.user@mailinator.com",
+        displayName: "New User",
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "disposable_email_domain",
+        domain: "mailinator.com",
+      },
+    });
+  });
+
+  it("allows disposable domains in log-only mode", async () => {
+    const services = createServices();
+    const observer = { record: vi.fn() };
+    services.registrationAdmission = {
+      mode: "open",
+      disposableEmailMode: "log-only",
+      disposableEmailDomains: ["mailinator.com"],
+      screeningObserver: observer,
+    };
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: vi.fn(async () => ({
+        userId: "usr_new",
+        accountId: "acc_new",
+        membershipId: "mbr_new",
+      })),
+      enablePasswordCredential: vi.fn(),
+    });
+    mockStartInteractiveAuth.mockResolvedValue({
+      type: "session-started",
+      userId: "usr_new",
+      sessionId: "ses_new",
+      sessionToken: "session_token",
+      session: { session_id: "ses_new", expires_at: new Date(Date.now() + 60_000).toISOString() },
+      memberships: [],
+    });
+    const app = buildApp(services);
+
+    const response = await app.request("/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "new.user@mailinator.com",
+        displayName: "New User",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(observer.record).toHaveBeenCalledWith({
+      decision: "log-only",
+      emailDomain: "mailinator.com",
+      reason: "disposable-email-domain",
+    });
+  });
+
   it("writes the registered identity into the Auth mirrors before returning a session", async () => {
     const services = createServices();
     const identitySource = {
