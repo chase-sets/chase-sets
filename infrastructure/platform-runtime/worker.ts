@@ -196,6 +196,19 @@ type WorkerStatusPublishState = {
   projectionSnapshots: Map<string, PublishedFingerprint>;
 };
 
+type HeldRunnerLease = {
+  runner: WorkerRunner;
+  leaseName: string;
+  lease: PlatformLease;
+  abortController: AbortController;
+  leaseActive: boolean;
+  renewalInFlight: boolean;
+  renewalTimer: ReturnType<typeof setInterval> | null;
+  activeRunCount: number;
+  releaseAfterActiveRun: boolean;
+  releasePromise?: Promise<void>;
+};
+
 export function createDurableJobLaneRunners(input: {
   workflowName: string;
   laneCount: number;
@@ -387,6 +400,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduleQueued = false;
   let scheduling = false;
   let scheduleAgainAfterCurrentPass = false;
+  const heldRunnerLeases = new Map<string, HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
   const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
   const statusPublishState: WorkerStatusPublishState = {
@@ -418,6 +432,119 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     immediate.unref?.();
   };
 
+  const releaseHeldRunnerLease = async (heldLease: HeldRunnerLease, scheduleAfterRelease = false): Promise<void> => {
+    heldLease.leaseActive = false;
+    heldLease.abortController.abort();
+    if (heldLease.renewalTimer) {
+      clearInterval(heldLease.renewalTimer);
+      heldLease.renewalTimer = null;
+    }
+
+    if (!heldLease.releasePromise) {
+      heldLease.releasePromise = options.controlPlane.releaseLease(heldLease.lease).finally(() => {
+        if (heldRunnerLeases.get(heldLease.leaseName) === heldLease) {
+          heldRunnerLeases.delete(heldLease.leaseName);
+        }
+      });
+    }
+
+    await heldLease.releasePromise;
+    if (scheduleAfterRelease) {
+      queueImmediateSchedule();
+    }
+  };
+
+  const dropHeldRunnerLeaseAfterRenewalFailure = (heldLease: HeldRunnerLease, error?: unknown): void => {
+    if (!heldLease.leaseActive) {
+      return;
+    }
+
+    heldLease.leaseActive = false;
+    heldLease.abortController.abort();
+    if (heldLease.renewalTimer) {
+      clearInterval(heldLease.renewalTimer);
+      heldLease.renewalTimer = null;
+    }
+    options.observer?.leaseRenewFailed?.({
+      ...leaseEvent(options.workerId, heldLease.runner, heldLease.lease),
+      ...(error === undefined ? {} : { error }),
+    });
+    if (heldLease.activeRunCount > 0) {
+      heldLease.releaseAfterActiveRun = true;
+      return;
+    }
+
+    void releaseHeldRunnerLease(heldLease, true).catch((releaseError: unknown) => {
+      options.onError?.(releaseError, heldLease.runner);
+    });
+  };
+
+  const startLeaseRenewal = (heldLease: HeldRunnerLease): void => {
+    heldLease.renewalTimer = setInterval(() => {
+      if (heldLease.renewalInFlight || !heldLease.leaseActive) {
+        return;
+      }
+
+      heldLease.renewalInFlight = true;
+      void options.controlPlane
+        .renewLease(heldLease.lease, options.leaseTtlMs)
+        .then((renewed) => {
+          if (!renewed) {
+            dropHeldRunnerLeaseAfterRenewalFailure(heldLease);
+          }
+        })
+        .catch((error: unknown) => {
+          dropHeldRunnerLeaseAfterRenewalFailure(heldLease, error);
+        })
+        .finally(() => {
+          heldLease.renewalInFlight = false;
+        });
+    }, options.leaseRenewIntervalMs);
+    heldLease.renewalTimer.unref?.();
+  };
+
+  const acquireHeldRunnerLease = async (runner: WorkerRunner): Promise<HeldRunnerLease | null> => {
+    const leaseName = createWorkerRunnerLeaseName(runner);
+    const existingLease = heldRunnerLeases.get(leaseName);
+    if (existingLease?.leaseActive && !existingLease.abortController.signal.aborted) {
+      return existingLease;
+    }
+    if (existingLease) {
+      await releaseHeldRunnerLease(existingLease);
+    }
+
+    const lease = await options.controlPlane.acquireLease({
+      leaseName,
+      ownerId: options.workerId,
+      ttlMs: options.leaseTtlMs,
+      metadata: { runnerKind: runner.kind },
+    });
+    if (!lease) {
+      options.observer?.leaseMissed?.({
+        workerId: options.workerId,
+        runnerName: runner.name,
+        runnerKind: runner.kind,
+        leaseName,
+      });
+      return null;
+    }
+
+    const heldLease: HeldRunnerLease = {
+      runner,
+      leaseName,
+      lease,
+      abortController: new AbortController(),
+      leaseActive: true,
+      renewalInFlight: false,
+      renewalTimer: null,
+      activeRunCount: 0,
+      releaseAfterActiveRun: false,
+    };
+    heldRunnerLeases.set(leaseName, heldLease);
+    startLeaseRenewal(heldLease);
+    return heldLease;
+  };
+
   const scheduleTimer = () => {
     if (timer) {
       clearTimeout(timer);
@@ -430,7 +557,19 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     const runAbortController = new AbortController();
     let completedResult: ProjectorRunResult | undefined;
     let leaseAcquired = false;
-    const promise = runLeasedRunner(options, runner, runAbortController.signal, statusPublishState)
+    const promise = acquireHeldRunnerLease(runner)
+      .then((heldLease) =>
+        heldLease
+          ? runLeasedRunner(
+              options,
+              runner,
+              heldLease,
+              releaseHeldRunnerLease,
+              runAbortController.signal,
+              statusPublishState,
+            )
+          : ({ leaseAcquired: false } satisfies LeasedRunnerOutcome),
+      )
       .then((outcome) => {
         if (!outcome.leaseAcquired) {
           leaseMissCount += 1;
@@ -556,6 +695,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         abortController.abort();
       }
       await Promise.allSettled([...active]);
+      await Promise.allSettled([...heldRunnerLeases.values()].map((heldLease) => releaseHeldRunnerLease(heldLease)));
     },
     status: () => ({
       workerId: options.workerId,
@@ -718,6 +858,8 @@ function sortJsonValue(value: unknown): unknown {
 async function runLeasedRunner(
   options: WorkerRunnerLoopOptions,
   runner: WorkerRunner,
+  heldLease: HeldRunnerLease,
+  releaseHeldRunnerLease: (heldLease: HeldRunnerLease, scheduleAfterRelease?: boolean) => Promise<void>,
   runSignal?: AbortSignal,
   statusPublishState?: WorkerStatusPublishState,
 ): Promise<LeasedRunnerOutcome> {
@@ -725,54 +867,28 @@ async function runLeasedRunner(
     return { leaseAcquired: true };
   }
 
-  const leaseName = createWorkerRunnerLeaseName(runner);
-  const lease = await options.controlPlane.acquireLease({
-    leaseName,
-    ownerId: options.workerId,
-    ttlMs: options.leaseTtlMs,
-    metadata: { runnerKind: runner.kind },
-  });
-  if (!lease) {
-    options.observer?.leaseMissed?.({
-      workerId: options.workerId,
-      runnerName: runner.name,
-      runnerKind: runner.kind,
-      leaseName,
-    });
-    return { leaseAcquired: false };
-  }
-
-  let leaseActive = true;
+  const lease = heldLease.lease;
+  heldLease.activeRunCount += 1;
   const abortController = new AbortController();
   const abortForStop = () => abortController.abort();
+  const abortForLeaseLoss = () => abortController.abort();
   if (runSignal?.aborted) {
     abortController.abort();
   } else {
     runSignal?.addEventListener("abort", abortForStop, { once: true });
   }
+  if (heldLease.abortController.signal.aborted) {
+    abortController.abort();
+  } else {
+    heldLease.abortController.signal.addEventListener("abort", abortForLeaseLoss, { once: true });
+  }
   const stoppedCooperatively = () => runSignal?.aborted === true && abortController.signal.aborted;
+  const heldLeaseLost = () => !heldLease.leaseActive || heldLease.abortController.signal.aborted;
   const throwIfLeaseLost = () => {
-    if (!leaseActive || abortController.signal.aborted) {
+    if (heldLeaseLost() || abortController.signal.aborted) {
       throw new Error(`Lost lease '${lease.leaseName}'.`);
     }
   };
-  const renewalTimer = setInterval(() => {
-    void options.controlPlane
-      .renewLease(lease, options.leaseTtlMs)
-      .then((renewed) => {
-        leaseActive = leaseActive && renewed;
-        if (!renewed) {
-          options.observer?.leaseRenewFailed?.(leaseEvent(options.workerId, runner, lease));
-          abortController.abort();
-        }
-      })
-      .catch((error: unknown) => {
-        leaseActive = false;
-        options.observer?.leaseRenewFailed?.({ ...leaseEvent(options.workerId, runner, lease), error });
-        abortController.abort();
-      });
-  }, options.leaseRenewIntervalMs);
-  renewalTimer.unref?.();
   const publishState = statusPublishState ?? {
     heartbeatIntervalMs: DEFAULT_WORKER_STATUS_HEARTBEAT_INTERVAL_MS,
     runnerStatuses: new Map<string, PublishedFingerprint>(),
@@ -852,11 +968,14 @@ async function runLeasedRunner(
     if (stoppedCooperatively()) {
       return { leaseAcquired: true };
     }
+    if (heldLeaseLost()) {
+      return { leaseAcquired: true };
+    }
     options.observer?.runnerFailed?.({
       ...leaseEvent(options.workerId, runner, lease),
       error,
     });
-    if (leaseActive && !abortController.signal.aborted) {
+    if (!abortController.signal.aborted) {
       await maybeRecordRunnerStatus(
         options,
         publishState,
@@ -874,8 +993,11 @@ async function runLeasedRunner(
     throw error;
   } finally {
     runSignal?.removeEventListener("abort", abortForStop);
-    clearInterval(renewalTimer);
-    await options.controlPlane.releaseLease(lease);
+    heldLease.abortController.signal.removeEventListener("abort", abortForLeaseLoss);
+    heldLease.activeRunCount = Math.max(0, heldLease.activeRunCount - 1);
+    if (heldLease.releaseAfterActiveRun && heldLease.activeRunCount === 0) {
+      await releaseHeldRunnerLease(heldLease, true);
+    }
   }
 
   return { leaseAcquired: true };

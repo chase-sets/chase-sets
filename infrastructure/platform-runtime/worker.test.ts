@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
-import type { PlatformControlPlane } from "./control-plane";
+import type { PlatformControlPlane, PlatformLease } from "./control-plane";
 import {
   collectWorkerRunners,
   createDurableJobLaneRunners,
@@ -71,7 +71,7 @@ describe("worker runner loop", () => {
     }
   });
 
-  it("runs one bounded batch per lease turn so busy runners do not monopolize the loop", async () => {
+  it("runs one bounded batch per scheduling turn so busy runners do not monopolize the loop", async () => {
     const calls: string[] = [];
     const statuses: Array<Readonly<{ runnerName: string; state: string; lastProcessed?: number }>> = [];
     const controlPlane = createAlwaysLeasedControlPlane({
@@ -130,6 +130,206 @@ describe("worker runner loop", () => {
         lastProcessed: 0,
       }),
     );
+  });
+
+  it("holds an idle runner lease across passes and renews without reacquire or release churn", async () => {
+    let acquireCalls = 0;
+    let renewCalls = 0;
+    let releaseCalls = 0;
+    let runs = 0;
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        acquireCalls += 1;
+        return {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: String(acquireCalls),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+      },
+      renewLease: async () => {
+        renewCalls += 1;
+        return true;
+      },
+      releaseLease: async () => {
+        releaseCalls += 1;
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "idle-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        runs += 1;
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 25,
+      pollIntervalMs: 2,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(runs).toBeGreaterThanOrEqual(3);
+      });
+      expect(acquireCalls).toBe(1);
+      expect(releaseCalls).toBe(0);
+
+      await vi.waitFor(() => {
+        expect(renewCalls).toBeGreaterThanOrEqual(1);
+      });
+      expect(acquireCalls).toBe(1);
+      expect(releaseCalls).toBe(0);
+    } finally {
+      await loop.stop();
+    }
+
+    expect(releaseCalls).toBe(1);
+  });
+
+  it("drops a held runner lease after renewal failure and reacquires on the next eligible pass", async () => {
+    let acquireCalls = 0;
+    let renewCalls = 0;
+    let releaseCalls = 0;
+    const renewFailures: string[] = [];
+    const fencingTokens: string[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        acquireCalls += 1;
+        return {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: String(acquireCalls),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+      },
+      renewLease: async () => {
+        renewCalls += 1;
+        return renewCalls !== 1;
+      },
+      releaseLease: async () => {
+        releaseCalls += 1;
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "renewal-sensitive-projection",
+      kind: "projection-group",
+      runOnce: async (context) => {
+        fencingTokens.push(context?.fencingToken ?? "");
+        if (fencingTokens.length === 1) {
+          await vi.waitFor(() => {
+            expect(context?.signal?.aborted).toBe(true);
+          });
+        }
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 10,
+      pollIntervalMs: 5,
+      observer: {
+        leaseRenewFailed: (event) => renewFailures.push(event.fencingToken ?? ""),
+      },
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(fencingTokens.slice(0, 2)).toEqual(["1", "2"]);
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(acquireCalls).toBe(2);
+    expect(releaseCalls).toBeGreaterThanOrEqual(2);
+    expect(renewFailures).toEqual(["1"]);
+  });
+
+  it("lets a second worker acquire after the first worker stops without double-running the runner", async () => {
+    const coordinator = createInMemoryLeaseCoordinator();
+    const firstControlPlane = coordinator.createControlPlane();
+    const secondControlPlane = coordinator.createControlPlane();
+    const activeOwners = new Set<string>();
+    const runOwners: string[] = [];
+    let doubleRunCount = 0;
+    const firstRunner: WorkerRunner = {
+      name: "catalog-shared-projection",
+      kind: "projection-group",
+      runOnce: async (context) => {
+        runOwners.push(context?.ownerId ?? "");
+        activeOwners.add(context?.ownerId ?? "");
+        doubleRunCount = Math.max(doubleRunCount, activeOwners.size > 1 ? activeOwners.size : 0);
+        await vi.waitFor(() => {
+          expect(context?.signal?.aborted).toBe(true);
+        });
+        activeOwners.delete(context?.ownerId ?? "");
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const secondRunner: WorkerRunner = {
+      name: firstRunner.name,
+      kind: firstRunner.kind,
+      runOnce: async (context) => {
+        runOwners.push(context?.ownerId ?? "");
+        activeOwners.add(context?.ownerId ?? "");
+        doubleRunCount = Math.max(doubleRunCount, activeOwners.size > 1 ? activeOwners.size : 0);
+        activeOwners.delete(context?.ownerId ?? "");
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const firstLoop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane: firstControlPlane,
+      runners: [firstRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+    const secondLoop = createWorkerRunnerLoop({
+      workerId: "worker-b",
+      controlPlane: secondControlPlane,
+      runners: [secondRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    firstLoop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(runOwners).toEqual(["worker-a"]);
+      });
+      secondLoop.start();
+      await vi.waitFor(() => {
+        expect(secondLoop.status().leaseMissCount).toBeGreaterThan(0);
+      });
+      expect(runOwners).toEqual(["worker-a"]);
+
+      await firstLoop.stop();
+      await vi.waitFor(() => {
+        expect(runOwners).toContain("worker-b");
+      });
+    } finally {
+      await Promise.allSettled([firstLoop.stop(), secondLoop.stop()]);
+    }
+
+    expect(doubleRunCount).toBe(0);
+    expect(runOwners).toContain("worker-a");
+    expect(runOwners).toContain("worker-b");
   });
 
   it("reschedules immediately after productive runner completion without waiting for the poll timer", async () => {
@@ -1412,6 +1612,57 @@ function createNeverLeasedControlPlane(
     listProjectionWakeRelayCursors: async () => [],
     advanceProjectionWakeRelayCursor: async () => null,
   };
+}
+
+function createInMemoryLeaseCoordinator() {
+  const leases = new Map<string, PlatformLease>();
+  let nextFencingToken = 0n;
+
+  const isActive = (lease: PlatformLease) => new Date(lease.expiresAt).getTime() > Date.now();
+  const createControlPlane = (): PlatformControlPlane =>
+    createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        const current = leases.get(input.leaseName);
+        if (current && isActive(current) && current.ownerId !== input.ownerId) {
+          return null;
+        }
+
+        nextFencingToken += 1n;
+        const lease: PlatformLease = {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: nextFencingToken.toString(),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+        leases.set(input.leaseName, lease);
+        return lease;
+      },
+      renewLease: async (lease, ttlMs) => {
+        const current = leases.get(lease.leaseName);
+        if (
+          !current ||
+          current.ownerId !== lease.ownerId ||
+          current.fencingToken !== lease.fencingToken ||
+          !isActive(current)
+        ) {
+          return false;
+        }
+
+        leases.set(lease.leaseName, {
+          ...current,
+          expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+        });
+        return true;
+      },
+      releaseLease: async (lease) => {
+        const current = leases.get(lease.leaseName);
+        if (current?.ownerId === lease.ownerId && current.fencingToken === lease.fencingToken) {
+          leases.delete(lease.leaseName);
+        }
+      },
+    });
+
+  return { createControlPlane };
 }
 
 function defaultProjectionOperationSummary() {
