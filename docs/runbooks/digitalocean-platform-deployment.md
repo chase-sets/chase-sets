@@ -130,7 +130,7 @@ Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it 
 
 ### Staging DNS Operations
 
-Use the delegated child-zone primary-domain mode for root environment hosts that must support both App Platform routing and Google Workspace mail. Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`; a root-domain attachment that stays in `CONFIGURING` blocks smoke checks because App Platform routing and certificate validation are not healthy.
+Use the delegated child-zone primary-domain mode for root environment hosts that must support both runtime routing and Google Workspace mail. The DOKS staging deploy lane waits on HTTPS ingress readiness for the landing, admin, marketplace, root marketplace, and legacy redirect hosts before smoke checks run. The staging reset workflow still owns the temporary App Platform attachment repair path until App Platform decommission; a root-domain attachment that stays in `CONFIGURING` blocks reset smoke checks because App Platform routing and certificate validation are not healthy.
 
 Incident history: on May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present because that attachment mode expects a CNAME. On May 26, 2026, using `zone = chasesets.com` with `type = PRIMARY` still left `staging.chasesets.com` in `CONFIGURING` with `DomainZoneInvalid` and `DomainCNAMEMismatch`; DigitalOcean treated it as a subdomain and still expected CNAME ownership.
 

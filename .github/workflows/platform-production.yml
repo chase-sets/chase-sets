@@ -703,24 +703,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Wait for previous App Platform deployment
-        if: env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping deployment wait."
-            exit 0
-          fi
-
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
-
       - name: Terraform apply
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
@@ -758,23 +740,6 @@ jobs:
           path: infrastructure/digitalocean/platform/artifacts/terraform-errored-state/staging-errored.tfstate
           if-no-files-found: error
           retention-days: 1
-
-      - name: Capture App Platform deploy diagnostics
-        if: failure() && env.SHOULD_DEPLOY != 'false'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping deployment diagnostics."
-            exit 0
-          fi
-
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true
 
       - name: Configure staging Kubernetes context
         if: env.SHOULD_DEPLOY != 'false'
@@ -1040,7 +1005,7 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" || true
 
-      - name: Wait for staging domains
+      - name: Wait for staging ingress URLs
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
@@ -1048,7 +1013,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           mapfile -t legacy_public_redirect_domains < <(terraform output -json legacy_public_redirect_domains | jq -r '.[]')
@@ -1059,15 +1023,27 @@ jobs:
             exit 1
           fi
 
-          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
-            "$app_id" \
-            "$landing_domain" \
-            "$admin_domain" \
-            "${legacy_public_redirect_domains[@]}" \
-            "${marketplace_domains[@]}" \
-            "${staging_root_marketplace_domains[@]}" \
-            --timeout-seconds=1800 \
-            --poll-seconds=30
+          ingress_urls=(
+            "https://${landing_domain}/health/ready"
+            "https://${admin_domain}/health/ready"
+          )
+          for hostname in "${marketplace_domains[@]}" "${staging_root_marketplace_domains[@]}"; do
+            ingress_urls+=("https://${hostname}/health/ready")
+          done
+          for hostname in "${legacy_public_redirect_domains[@]}"; do
+            ingress_urls+=("https://${hostname}/")
+          done
+
+          ingress_args=()
+          for url in "${ingress_urls[@]}"; do
+            ingress_args+=(--url "$url")
+          done
+
+          cd ../../..
+          node ./scripts/platform-ingress-wait.mjs \
+            --attempts 60 \
+            --delay-ms 30000 \
+            "${ingress_args[@]}"
 
       # Second freshness re-check before the ~3.5-minute smoke/critical-flow/
       # canary tail: a superseded release's staging state has no consumer, so

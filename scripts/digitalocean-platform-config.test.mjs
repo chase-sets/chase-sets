@@ -913,6 +913,7 @@ describe("DigitalOcean platform configuration", () => {
     );
     const stagingDeployStep = workflowStep(deployStagingJob, "Deploy staging Kubernetes release");
     const stagingDiagnosticsStep = workflowStep(deployStagingJob, "Capture staging Kubernetes deploy diagnostics");
+    const stagingIngressWaitStep = workflowStep(deployStagingJob, "Wait for staging ingress URLs");
     const kubeconfigStep = workflowStep(deployProductionJob, "Configure production Kubernetes context");
     const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
     const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
@@ -930,6 +931,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(deployStagingJob).not.toContain("- name: Capture production rollback target");
     expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
     expect(deployStagingJob).not.toContain("- name: Wait for Terraform App Platform deployment");
+    expect(deployStagingJob).not.toContain("- name: Wait for previous App Platform deployment");
+    expect(deployStagingJob).not.toContain("- name: Capture App Platform deploy diagnostics");
+    expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait ");
+    expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs diagnostics");
+    expect(deployStagingJob).not.toContain("digitalocean-app-deployment.mjs wait-domains");
     expect(deployStagingJob).not.toContain("- name: Reset stale staging root domain attachment");
     expect(deployStagingJob).not.toContain("- name: Deploy App Platform image");
     expect(stagingSmokeStep).toContain("timeout-minutes: 12");
@@ -944,7 +950,7 @@ describe("DigitalOcean platform configuration", () => {
       "- name: Apply staging Kubernetes registry pull secret",
     );
     const stagingDeployIndex = deployStagingJob.indexOf("- name: Deploy staging Kubernetes release");
-    const stagingDomainWaitIndex = deployStagingJob.indexOf("- name: Wait for staging domains");
+    const stagingIngressWaitIndex = deployStagingJob.indexOf("- name: Wait for staging ingress URLs");
     const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
     const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
     const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
@@ -965,7 +971,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingKubeconfigIndex).toBeLessThan(stagingRuntimeSecretsIndex);
     expect(stagingRuntimeSecretsIndex).toBeLessThan(stagingRegistryPullSecretIndex);
     expect(stagingRegistryPullSecretIndex).toBeLessThan(stagingDeployIndex);
-    expect(stagingDeployIndex).toBeLessThan(stagingDomainWaitIndex);
+    expect(stagingDeployIndex).toBeLessThan(stagingIngressWaitIndex);
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
     expect(applyIndex).toBeLessThan(runtimeSecretsIndex);
@@ -1048,6 +1054,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingDeployStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
     expect(stagingDiagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics");
     expect(stagingDiagnosticsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(stagingIngressWaitStep).toContain("node ./scripts/platform-ingress-wait.mjs");
+    expect(stagingIngressWaitStep).toContain('"https://${landing_domain}/health/ready"');
+    expect(stagingIngressWaitStep).toContain('"https://${admin_domain}/health/ready"');
+    expect(stagingIngressWaitStep).toContain('"https://${hostname}/health/ready"');
+    expect(stagingIngressWaitStep).toContain('"https://${hostname}/"');
+    expect(stagingIngressWaitStep).toContain("--attempts 60");
+    expect(stagingIngressWaitStep).toContain("--delay-ms 30000");
 
     expect(runtimeSecretsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
     expect(runtimeSecretsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
@@ -1868,26 +1881,6 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
-  it("captures App Platform diagnostics when staging Terraform apply fails", () => {
-    const diagnosticsStep = workflowStep(platformProductionWorkflow, "Capture App Platform deploy diagnostics");
-    const diagnosticsIndex = platformProductionWorkflow.indexOf("- name: Capture App Platform deploy diagnostics");
-    const applyIndex = platformProductionWorkflow.lastIndexOf("- name: Terraform apply", diagnosticsIndex);
-    const kubeconfigIndex = platformProductionWorkflow.indexOf(
-      "- name: Configure staging Kubernetes context",
-      diagnosticsIndex,
-    );
-
-    expect(applyIndex).toBeGreaterThan(-1);
-    expect(kubeconfigIndex).toBeGreaterThan(diagnosticsIndex);
-    expect(diagnosticsIndex).toBeGreaterThan(applyIndex);
-    expect(diagnosticsIndex).toBeLessThan(kubeconfigIndex);
-    expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
-    expect(diagnosticsStep).toContain('app_id="$(terraform output -raw app_id 2>/dev/null || true)"');
-    expect(diagnosticsStep).toContain(
-      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true',
-    );
-  });
-
   it("captures sensitive Terraform errored state artifacts when platform apply fails", () => {
     const stagingCaptureStep = workflowStep(platformProductionWorkflow, "Capture staging Terraform errored state");
     const stagingUploadStep = workflowStep(platformProductionWorkflow, "Upload staging Terraform errored state");
@@ -1900,10 +1893,6 @@ describe("DigitalOcean platform configuration", () => {
     const stagingCaptureIndex = platformProductionWorkflow.indexOf("- name: Capture staging Terraform errored state");
     const stagingUploadIndex = platformProductionWorkflow.indexOf("- name: Upload staging Terraform errored state");
     const stagingApplyIndex = platformProductionWorkflow.lastIndexOf("- name: Terraform apply", stagingCaptureIndex);
-    const stagingDiagnosticsIndex = platformProductionWorkflow.indexOf(
-      "- name: Capture App Platform deploy diagnostics",
-      stagingUploadIndex,
-    );
 
     const productionCaptureIndex = platformProductionWorkflow.indexOf(
       "- name: Capture production Terraform errored state",
@@ -1923,7 +1912,6 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingApplyIndex).toBeGreaterThan(-1);
     expect(stagingCaptureIndex).toBeGreaterThan(stagingApplyIndex);
     expect(stagingUploadIndex).toBeGreaterThan(stagingCaptureIndex);
-    expect(stagingDiagnosticsIndex).toBeGreaterThan(stagingUploadIndex);
     expect(productionApplyIndex).toBeGreaterThan(-1);
     expect(productionCaptureIndex).toBeGreaterThan(productionApplyIndex);
     expect(productionUploadIndex).toBeGreaterThan(productionCaptureIndex);
