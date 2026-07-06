@@ -14,61 +14,83 @@ import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } fro
 const DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 1_800_000;
 
 async function bootstrap() {
-  const config = loadBootstrapConfig();
-  const pools = createPlatformApiPools(config);
+  const config = await runBootstrapPhase("load-config", () => loadBootstrapConfig());
+  const pools = await runBootstrapPhase("create-database-pools", () => createPlatformApiPools(config));
 
   try {
-    await bootstrapPlatformControlPlane(pools.control);
+    await runBootstrapPhase("platform-control-plane", () => bootstrapPlatformControlPlane(pools.control));
     const taxQuoteResolver = shouldBlockProductionTaxQuotes(
       config.deploymentEnvironment,
       Boolean(config.taxProviderBackedQuotesRequired),
     )
       ? createProductionTaxQuoteResolverBlocker()
       : undefined;
-    const runtime = createPlatformApiHost({
-      pools,
-      runtimeProfile: config.runtimeProfile,
-      hostPorts: {
-        processorGateway: createFakePaymentProcessorGateway(),
-        moneyMovementGateway: createFakeMoneyMovementGateway(),
-        listingPhotoStorage:
-          config.listingPhotoStorage.kind === "s3"
-            ? createS3ObjectStorage(config.listingPhotoStorage)
-            : createFilesystemObjectStorage(config.listingPhotoStorage),
-        ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
-      },
-    });
-    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
-      enabledDataProfiles: config.dataProfiles ?? [],
-      environmentName: config.deploymentEnvironment ?? null,
-      runtimeProfile: config.runtimeProfile,
-      schemaBootstrap: {
-        lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
-        lockTimeoutRetryBudgetMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
-      },
-    });
+    const runtime = await runBootstrapPhase("create-runtime", () =>
+      createPlatformApiHost({
+        pools,
+        runtimeProfile: config.runtimeProfile,
+        hostPorts: {
+          processorGateway: createFakePaymentProcessorGateway(),
+          moneyMovementGateway: createFakeMoneyMovementGateway(),
+          listingPhotoStorage:
+            config.listingPhotoStorage.kind === "s3"
+              ? createS3ObjectStorage(config.listingPhotoStorage)
+              : createFilesystemObjectStorage(config.listingPhotoStorage),
+          ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
+        },
+      }),
+    );
+    await runBootstrapPhase("seed-api-host", () =>
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+        enabledDataProfiles: config.dataProfiles ?? [],
+        environmentName: config.deploymentEnvironment ?? null,
+        runtimeProfile: config.runtimeProfile,
+        schemaBootstrap: {
+          lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
+          lockTimeoutRetryBudgetMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
+        },
+      }),
+    );
 
-    if (config.platformAdmin) {
+    const platformAdmin = config.platformAdmin;
+    if (platformAdmin) {
       const identityServices = runtime.services.identity as Parameters<typeof bootstrapPlatformAdminIdentity>[0];
       const authServices = runtime.services.auth as Parameters<typeof bootstrapPlatformAdminPassword>[0];
-      const admin = await bootstrapPlatformAdminIdentity(identityServices, {
-        email: config.platformAdmin.email,
-        displayName: config.platformAdmin.displayName,
-        accountName: config.platformAdmin.accountName,
-      });
+      const admin = await runBootstrapPhase("platform-admin-identity", () =>
+        bootstrapPlatformAdminIdentity(identityServices, {
+          email: platformAdmin.email,
+          displayName: platformAdmin.displayName,
+          accountName: platformAdmin.accountName,
+        }),
+      );
 
-      await syncContextProjectionGroups(runtime, "auth");
-      await bootstrapPlatformAdminPassword(authServices, {
-        userId: admin.userId,
-        credentialId: admin.credentialId,
-        password: config.platformAdmin.password,
-      });
+      await runBootstrapPhase("auth-projection-sync", () => syncContextProjectionGroups(runtime, "auth"));
+      await runBootstrapPhase("platform-admin-password", () =>
+        bootstrapPlatformAdminPassword(authServices, {
+          userId: admin.userId,
+          credentialId: admin.credentialId,
+          password: platformAdmin.password,
+        }),
+      );
       console.log("Platform admin bootstrap reconciled.");
     }
 
     console.log("Platform API bootstrap complete.");
   } finally {
-    await closePlatformApiPools(pools);
+    await runBootstrapPhase("close-database-pools", () => closePlatformApiPools(pools));
+  }
+}
+
+async function runBootstrapPhase<T>(phase: string, action: () => T | Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  console.log(`[platform-bootstrap] ${phase} started.`);
+  try {
+    const result = await action();
+    console.log(`[platform-bootstrap] ${phase} completed in ${Date.now() - startedAt}ms.`);
+    return result;
+  } catch (error) {
+    console.error(`[platform-bootstrap] ${phase} failed after ${Date.now() - startedAt}ms.`, error);
+    throw error;
   }
 }
 

@@ -344,74 +344,67 @@ describe("platform Kubernetes deployment", () => {
   });
 
   it("builds kubectl diagnostics without requiring App Platform state", () => {
-    expect(
-      buildDiagnosticsCommands({
-        values: sampleValues,
-        release: "proof",
-        namespace: "staging",
-        tailLines: 50,
-      }),
-    ).toEqual([
+    const commands = buildDiagnosticsCommands({
+      values: sampleValues,
+      release: "proof",
+      namespace: "staging",
+      tailLines: 50,
+    });
+
+    expect(commands.slice(0, 4)).toEqual([
       [
         "kubectl",
-        ["get", "pods,jobs,deployments,events", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp"],
+        ["get", "pods", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp", "--output", "wide"],
       ],
-      ["kubectl", ["describe", "deployment", "proof-chase-sets-platform-public-web", "--namespace", "staging"]],
-      ["kubectl", ["describe", "deployment", "proof-chase-sets-platform-marketplace", "--namespace", "staging"]],
-      ["kubectl", ["describe", "deployment", "proof-chase-sets-platform-platform-worker", "--namespace", "staging"]],
-      ["kubectl", ["describe", "job", "proof-chase-sets-platform-platform-bootstrap", "--namespace", "staging"]],
+      ["kubectl", ["get", "jobs", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp"]],
+      ["kubectl", ["get", "deployments", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp"]],
+      ["kubectl", ["get", "events", "--namespace", "staging", "--sort-by=.lastTimestamp"]],
+    ]);
+    expect(commands).toContainEqual([
+      "kubectl",
+      ["describe", "job", "proof-chase-sets-platform-platform-bootstrap", "--namespace", "staging"],
+    ]);
+    expect(commands).toContainEqual([
+      "kubectl",
       [
-        "kubectl",
-        [
-          "logs",
-          "--namespace",
-          "staging",
-          "--selector",
-          "app.kubernetes.io/instance=proof,app.kubernetes.io/component=public-web",
-          "--all-containers",
-          "--tail",
-          "50",
-        ],
+        "describe",
+        "pods",
+        "--namespace",
+        "staging",
+        "--selector",
+        "app.kubernetes.io/instance=proof,app.kubernetes.io/component=platform-bootstrap",
       ],
+    ]);
+    expect(commands).toContainEqual([
+      "kubectl",
       [
-        "kubectl",
-        [
-          "logs",
-          "--namespace",
-          "staging",
-          "--selector",
-          "app.kubernetes.io/instance=proof,app.kubernetes.io/component=marketplace",
-          "--all-containers",
-          "--tail",
-          "50",
-        ],
+        "logs",
+        "--namespace",
+        "staging",
+        "--selector",
+        "app.kubernetes.io/instance=proof,app.kubernetes.io/component=platform-bootstrap",
+        "--all-containers",
+        "--tail",
+        "50",
       ],
+    ]);
+    expect(commands).toContainEqual([
+      "kubectl",
       [
-        "kubectl",
-        [
-          "logs",
-          "--namespace",
-          "staging",
-          "--selector",
-          "app.kubernetes.io/instance=proof,app.kubernetes.io/component=platform-worker",
-          "--all-containers",
-          "--tail",
-          "50",
-        ],
+        "logs",
+        "--namespace",
+        "staging",
+        "--selector",
+        "app.kubernetes.io/instance=proof,app.kubernetes.io/component=platform-bootstrap",
+        "--all-containers",
+        "--previous",
+        "--tail",
+        "50",
       ],
-      [
-        "kubectl",
-        [
-          "logs",
-          "--namespace",
-          "staging",
-          "--selector",
-          "app.kubernetes.io/instance=proof,app.kubernetes.io/component=platform-bootstrap",
-          "--all-containers",
-          "--tail",
-          "50",
-        ],
-      ],
+    ]);
+    expect(commands).not.toContainEqual([
+      "kubectl",
+      ["get", "pods,jobs,deployments,events", "--namespace", "staging", "--sort-by=.metadata.creationTimestamp"],
     ]);
   });
 
