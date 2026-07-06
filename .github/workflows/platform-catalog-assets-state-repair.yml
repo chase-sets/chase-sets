@@ -1,0 +1,209 @@
+name: Platform Catalog Assets State Repair
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Catalog asset environment whose CDN state should be repaired.
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      live_cdn_id:
+        description: API-confirmed live DigitalOcean CDN UUID for the environment custom domain.
+        required: true
+        type: string
+      release_ref:
+        description: Ref to check out. Defaults to main.
+        required: false
+        default: main
+        type: string
+      confirm:
+        description: Type "repair catalog-assets cdn state <environment> <live_cdn_id>".
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: platform-catalog-assets-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  repair-cdn-state:
+    name: Repair Catalog Assets CDN State (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_environment: ${{ inputs.environment }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+    steps:
+      - name: Confirm catalog-assets CDN state repair
+        run: |
+          set -euo pipefail
+          expected="repair catalog-assets cdn state ${{ inputs.environment }} ${{ inputs.live_cdn_id }}"
+          if [ "${{ inputs.confirm }}" != "$expected" ]; then
+            echo "Confirmation text did not match exactly; expected '${expected}'." >&2
+            exit 1
+          fi
+
+          if ! printf '%s' "${{ inputs.live_cdn_id }}" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
+            echo "live_cdn_id must be a DigitalOcean CDN UUID." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.release_ref }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Terraform init catalog assets
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=catalog-assets/${{ inputs.environment }}.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Terraform format catalog assets
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate catalog assets
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform validate
+
+      - name: Repair catalog-assets CDN state
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: |
+          set -euo pipefail
+
+          mkdir -p ../../../artifacts/catalog-assets
+          case "${{ inputs.environment }}" in
+            staging) custom_domain="assets.staging.chasesets.com" ;;
+            production) custom_domain="assets.chasesets.com" ;;
+            *)
+              echo "Unsupported catalog-assets environment." >&2
+              exit 1
+              ;;
+          esac
+
+          live_cdn_id="${{ inputs.live_cdn_id }}"
+          matched_live_id="$(doctl compute cdn list --output json | jq -r \
+            --arg live_cdn_id "$live_cdn_id" \
+            --arg custom_domain "$custom_domain" \
+            'first(.[] | select(.id == $live_cdn_id and .custom_domain == $custom_domain) | .id) // empty')"
+          if [ "$matched_live_id" != "$live_cdn_id" ]; then
+            echo "The supplied live_cdn_id does not match the expected catalog asset custom domain." >&2
+            exit 1
+          fi
+
+          state_backup="${RUNNER_TEMP}/catalog-assets-${{ inputs.environment }}-state-before.json"
+          repair_started="false"
+          restore_state_on_error() {
+            if [ "$repair_started" = "true" ]; then
+              echo "Repair failed after mutating state; restoring the pre-repair Terraform state backup." >&2
+              repair_started="false"
+              terraform state push -force "$state_backup"
+            fi
+          }
+          trap restore_state_on_error ERR
+
+          terraform state pull > "$state_backup"
+          current_cdn_id="$(jq -r '
+            first(
+              .resources[]
+              | select(.mode == "managed" and .type == "digitalocean_cdn" and .name == "catalog_assets")
+              | .instances[]
+              | .attributes.id // empty
+            ) // empty
+          ' "$state_backup")"
+          repair_action="noop"
+
+          if [ "$current_cdn_id" = "$live_cdn_id" ]; then
+            echo "Terraform state already tracks the live catalog-assets CDN."
+          else
+            if [ -n "$current_cdn_id" ] && doctl compute cdn get "$current_cdn_id" >/dev/null 2>&1; then
+              echo "Terraform state points at an existing CDN that differs from the supplied live CDN; refusing automatic repair." >&2
+              exit 1
+            fi
+
+            if [ -n "$current_cdn_id" ]; then
+              echo "Removing stale catalog-assets CDN state object."
+              repair_started="true"
+              terraform state rm digitalocean_cdn.catalog_assets
+              repair_action="state-rm-import"
+            else
+              repair_started="true"
+              repair_action="import"
+            fi
+
+            echo "Importing live catalog-assets CDN state object."
+            terraform import digitalocean_cdn.catalog_assets "$live_cdn_id"
+          fi
+
+          terraform plan -out=tfplan
+          terraform show -no-color tfplan > "../../../artifacts/catalog-assets/${{ inputs.environment }}-catalog-assets-post-repair-plan.txt"
+          repair_started="false"
+          trap - ERR
+
+          jq -n \
+            --arg environment "${{ inputs.environment }}" \
+            --arg custom_domain "$custom_domain" \
+            --arg previous_cdn_id "${current_cdn_id:-}" \
+            --arg live_cdn_id "$live_cdn_id" \
+            --arg repair_action "$repair_action" \
+            --arg plan_artifact "${{ inputs.environment }}-catalog-assets-post-repair-plan.txt" \
+            '{
+              environment: $environment,
+              customDomain: $custom_domain,
+              previousCdnId: $previous_cdn_id,
+              liveCdnId: $live_cdn_id,
+              repairAction: $repair_action,
+              planArtifact: $plan_artifact
+            }' > "../../../artifacts/catalog-assets/${{ inputs.environment }}-catalog-assets-state-repair-summary.json"
+
+      - name: Upload catalog-assets state repair artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-assets-${{ inputs.environment }}-state-repair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-assets/${{ inputs.environment }}-catalog-assets-*.*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summarize catalog-assets CDN state repair
+        if: always()
+        run: |
+          {
+            echo "## Catalog Assets CDN State Repair"
+            echo ""
+            echo "- Environment: ${{ inputs.environment }}"
+            echo "- Release ref: ${{ inputs.release_ref }}"
+            echo "- Supplied live CDN id: ${{ inputs.live_cdn_id }}"
+            echo "- Artifact: catalog-assets-${{ inputs.environment }}-state-repair-${{ github.run_id }}-${{ github.run_attempt }}"
+          } >> "$GITHUB_STEP_SUMMARY"

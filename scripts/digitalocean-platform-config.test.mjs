@@ -52,6 +52,10 @@ const platformDigitalOceanDriftDigestWorkflow = readFileSync(
   resolve(".github/workflows/platform-digitalocean-drift-digest.yml"),
   "utf8",
 );
+const platformCatalogAssetsStateRepairWorkflow = readFileSync(
+  resolve(".github/workflows/platform-catalog-assets-state-repair.yml"),
+  "utf8",
+);
 const platformDigitalOceanTokenRotationReminderWorkflow = readFileSync(
   resolve(".github/workflows/platform-digitalocean-token-rotation-reminder.yml"),
   "utf8",
@@ -515,6 +519,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("doctl compute cdn list --output json");
     expect(platformStagingResetWorkflow).toContain("doctl compute domain records list chasesets.com --output json");
     expect(platformStagingResetWorkflow).toContain('"https://${custom_domain}/" >/dev/null');
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("repair catalog-assets cdn state");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("doctl compute cdn list --output json");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("terraform state rm digitalocean_cdn.catalog_assets");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("terraform import digitalocean_cdn.catalog_assets");
+    expect(platformCatalogAssetsStateRepairWorkflow).toContain("Terraform state points at an existing CDN");
     expect(platformProductionWorkflow).toContain("catalog_asset_public_base_url");
     expect(platformProductionWorkflow).toContain('"${catalog_asset_public_base_url}/" >/dev/null');
   });
