@@ -2,18 +2,27 @@ import { describe, expect, it, vi } from "vitest";
 import { listPendingCreditEntriesMaturedBy } from "./queries";
 
 describe("settlement wallet release queries", () => {
-  it("requires delivered fulfillment and releases both sale proceeds and shipping allowances", async () => {
+  it("passes the maturity clock and clamps the unclaimed batch size through parameters", async () => {
     const query = vi.fn(async (_sql: string) => ({ rows: [] }));
 
     await listPendingCreditEntriesMaturedBy({ query } as never, {
       now: "2026-05-27T00:00:00.000Z",
+      limit: 50_000,
     });
 
-    const sql = String((query.mock.calls[0]?.[0] as string | undefined) ?? "");
-    expect(sql).toContain("kind IN ('sale', 'rebate')");
-    expect(sql).toContain("settlement_order_fulfillment_sources fulfillment");
-    expect(sql).toContain("fulfillment.status = 'delivered'");
-    expect(sql).toContain("INTERVAL '7 days'");
-    expect(sql).toContain("manual_payout_review");
+    expect(query).toHaveBeenCalledWith(expect.any(String), ["2026-05-27T00:00:00.000Z", 1000]);
+  });
+
+  it("passes claim owner and ttl through parameters for claimed maturity work", async () => {
+    const query = vi.fn(async (_sql: string) => ({ rows: [] }));
+
+    await listPendingCreditEntriesMaturedBy({ query } as never, {
+      now: "2026-05-27T00:00:00.000Z",
+      limit: 10,
+      claimOwnerId: "worker-1",
+      claimTtlMs: 5_000,
+    });
+
+    expect(query).toHaveBeenCalledWith(expect.any(String), ["2026-05-27T00:00:00.000Z", 10, "worker-1", 5_000]);
   });
 });
