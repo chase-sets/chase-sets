@@ -317,11 +317,11 @@ After the release window closes, delete the forked restore-point cluster to stop
 doctl databases delete <restore-point-cluster-id> --force
 ```
 
-The `Platform Production Restore Point Cleanup` workflow runs daily and deletes only restore-point forks whose names start with `cs-prod-rp-` and are at least 24 hours old. Manual dispatch defaults to `dry_run=true` for operator inspection. Scheduled runs apply cleanup automatically so old release-window forks do not keep accruing charges.
+The `Platform Production Restore Point Cleanup` workflow runs four times per day and deletes only restore-point forks whose names start with `cs-prod-rp-` and are at least 6 hours old. Manual dispatch defaults to `dry_run=true` for operator inspection. Scheduled runs apply cleanup automatically so old release-window forks do not keep accruing charges.
 
 Use the workflow `hold_names` input, or the production environment variable `PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES`, to keep an active incident or rollback fork. The hold list accepts comma-separated restore-point cluster names or ids; held forks appear in the cleanup artifact under `restorePoints.held` and are excluded from deletion candidates.
 
-When production deploys fail with DigitalOcean database quota errors, first inspect old restore-point forks with the dry-run cleanup helper or manual workflow dispatch. The helper lists managed databases, selects only clusters whose names start with `cs-prod-rp-`, skips held clusters, and defaults to forks at least 24 hours old:
+When production deploys fail with DigitalOcean database quota errors, first inspect old restore-point forks with the dry-run cleanup helper or manual workflow dispatch. The helper lists managed databases, selects only clusters whose names start with `cs-prod-rp-`, skips held clusters, and defaults to forks at least 6 hours old:
 
 ```bash
 node ./scripts/production-db-restore-point-cleanup.mjs \
@@ -332,7 +332,7 @@ Review the `restorePoints.candidates` list before applying. To delete the select
 
 ```bash
 node ./scripts/production-db-restore-point-cleanup.mjs \
-  --min-age-hours 24 \
+  --min-age-hours 6 \
   --apply \
   --out artifacts/release-health/production-db-restore-point-cleanup.json
 ```
