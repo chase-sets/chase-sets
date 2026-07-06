@@ -13,12 +13,14 @@ describe("bootstrap quiesce wrapper", () => {
       parseQuiesceOptions(["--", "pnpm", "run", "bootstrap"], {
         CHASE_SETS_QUIESCE_DEPLOYMENTS: "platform-worker",
         CHASE_SETS_QUIESCE_TIMEOUT_SECONDS: "45",
+        CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS: "120",
         CHASE_SETS_QUIESCE_POLL_INTERVAL_MS: "250",
       }),
     ).toMatchObject({
       deployments: ["platform-worker"],
       command: ["pnpm", "run", "bootstrap"],
       timeoutMs: 45_000,
+      commandTimeoutMs: 120_000,
       pollIntervalMs: 250,
       restoreOnFailure: true,
       ignoreMissingDeployments: true,
@@ -69,6 +71,30 @@ describe("bootstrap quiesce wrapper", () => {
     expect(calls).toContainEqual(["scale", "release-platform-worker", 0]);
     expect(calls).toContainEqual(["scale", "release-platform-worker", 3]);
     expect(calls.at(-1)).toEqual(["wait", "release-platform-worker", 3]);
+  });
+
+  it("restores old worker replica counts when bootstrap times out", async () => {
+    const calls = [];
+    const result = await runQuiescedBootstrap({
+      deployments: ["release-platform-worker"],
+      command: ["pnpm", "bootstrap"],
+      timeoutMs: 1000,
+      commandTimeoutMs: 600_000,
+      pollIntervalMs: 1,
+      restoreOnFailure: true,
+      log: async (message) => calls.push(["log", message]),
+      kubernetes: fakeKubernetesClient(calls, { "release-platform-worker": 2 }),
+      spawnCommand: async (command, options) => {
+        calls.push(["spawn", command, options.timeoutMs]);
+        return 124;
+      },
+    });
+
+    expect(result).toBe(124);
+    expect(calls).toContainEqual(["spawn", ["pnpm", "bootstrap"], 600_000]);
+    expect(calls).toContainEqual(["log", "Bootstrap failed with exit code 124."]);
+    expect(calls).toContainEqual(["scale", "release-platform-worker", 2]);
+    expect(calls.at(-1)).toEqual(["wait", "release-platform-worker", 2]);
   });
 
   it("skips missing deployments during first install", async () => {
