@@ -698,22 +698,33 @@ describe("platform api config", () => {
 
   it("reports Stripe go-live checks", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.STRIPE_SECRET_KEY = "sk_live_123";
-    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
-    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
 
     expect(loadConfig().stripeGoLive).toMatchObject({
       apiVersion: "2026-03-25.dahlia",
       paymentsConfigured: true,
       connectConfigured: true,
       fakeFallbackAllowed: true,
-      liveSecretKeyLikely: true,
+      liveSecretKeyLikely: false,
     });
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("checkout.session.completed");
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payment_intent.succeeded");
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("v2.core.account[requirements].updated");
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payout.failed");
+  });
+
+  it("rejects live Stripe keys outside production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
+
+    expect(() => loadConfig()).toThrow("Live Stripe keys are only allowed when DEPLOYMENT_ENVIRONMENT=production.");
   });
 
   it("loads EasyPost webhook configuration from environment variables", () => {

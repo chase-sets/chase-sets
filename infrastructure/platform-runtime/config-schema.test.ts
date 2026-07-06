@@ -4,7 +4,9 @@ import {
   getBooleanEnv,
   getReadConsistencyExactDependencyModeEnv,
   loadPoolConfig,
+  loadDeploymentEnvironment,
   loadReadConsistencyRouteTuningEnv,
+  loadStripeProviderConfig,
   resolveEnumEnv,
 } from "./config-schema";
 
@@ -36,6 +38,18 @@ describe("platform runtime config schema", () => {
     process.env[booleanEnvName] = "required";
     expect(() => getBooleanEnv(booleanEnvName, false)).toThrow(
       "PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_FLAG must be a boolean value: 1, true, yes, on, 0, false, no, off.",
+    );
+  });
+
+  it("loads deployment environment from DEPLOYMENT_ENVIRONMENT before NODE_ENV", () => {
+    expect(loadDeploymentEnvironment({ deploymentEnvironment: null, nodeEnv: "production" })).toBe("production");
+    expect(loadDeploymentEnvironment({ deploymentEnvironment: "staging", nodeEnv: "production" })).toBe("staging");
+    expect(loadDeploymentEnvironment({ deploymentEnvironment: "Preview", nodeEnv: "production" })).toBe("preview");
+    expect(loadDeploymentEnvironment({ deploymentEnvironment: "Production", nodeEnv: "test" })).toBe("production");
+    expect(loadDeploymentEnvironment({ deploymentEnvironment: null, nodeEnv: "test" })).toBe("test");
+    expect(loadDeploymentEnvironment({ deploymentEnvironment: null, nodeEnv: "development" })).toBe("dev");
+    expect(() => loadDeploymentEnvironment({ deploymentEnvironment: "prod", nodeEnv: "production" })).toThrow(
+      "DEPLOYMENT_ENVIRONMENT must be one of: production, staging, preview, test, dev, local, remote-dev.",
     );
   });
 
@@ -110,5 +124,65 @@ describe("platform runtime config schema", () => {
         envName: "READ_CONSISTENCY_ROUTE_TUNING_JSON",
       }),
     ).toThrow("READ_CONSISTENCY_ROUTE_TUNING_JSON[0].mountPath must be an absolute path string.");
+  });
+
+  it("keeps the no-key Stripe fake-provider path outside production", () => {
+    expect(
+      loadStripeProviderConfig({
+        productionLike: false,
+        deploymentEnvironment: "dev",
+        productionMissingConfigError: "production Stripe config is required.",
+      }),
+    ).toMatchObject({
+      paymentProcessor: { kind: "fake" },
+      moneyMovement: { kind: "fake" },
+    });
+  });
+
+  it("rejects live Stripe keys outside production", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+
+    expect(() =>
+      loadStripeProviderConfig({
+        productionLike: false,
+        deploymentEnvironment: "staging",
+        productionMissingConfigError: "production Stripe config is required.",
+      }),
+    ).toThrow("Live Stripe keys are only allowed when DEPLOYMENT_ENVIRONMENT=production.");
+  });
+
+  it("rejects test Stripe keys in production", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+
+    expect(() =>
+      loadStripeProviderConfig({
+        productionLike: true,
+        deploymentEnvironment: "production",
+        productionMissingConfigError: "production Stripe config is required.",
+      }),
+    ).toThrow("STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY must use live-mode keys in production.");
+  });
+
+  it("loads live Stripe keys in production", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
+
+    expect(
+      loadStripeProviderConfig({
+        productionLike: true,
+        deploymentEnvironment: "production",
+        productionMissingConfigError: "production Stripe config is required.",
+      }),
+    ).toMatchObject({
+      paymentProcessor: { kind: "stripe", secretKey: "sk_live_123", publishableKey: "pk_live_123" },
+      moneyMovement: { kind: "stripe", secretKey: "sk_live_123", webhookSecret: "whsec_connect_live" },
+    });
   });
 });

@@ -6,6 +6,7 @@ import {
   getOptionalEnv,
   getOptionalPositiveNumberEnv,
   getPositiveNumberEnv,
+  loadDeploymentEnvironment,
   loadCatalogAssetStorageConfig,
   loadPlatformDatabaseConfig,
   loadPoolConfig,
@@ -189,7 +190,8 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 
 export function loadConfig(): PlatformWorkerConfig {
   const runtimeProfile = loadRuntimeProfile();
-  const productionLike = process.env.NODE_ENV === "production";
+  const deploymentEnvironment = loadDeploymentEnvironment();
+  const productionLike = deploymentEnvironment === "production";
   const workerContexts = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
   const databaseConfig = loadPlatformDatabaseConfig({
     contextNames: workerContexts,
@@ -215,6 +217,7 @@ export function loadConfig(): PlatformWorkerConfig {
   const providerRequired = productionLike && runtimeProfile !== "landing";
   const stripeProvider = loadStripeProviderConfig({
     productionLike: providerRequired,
+    deploymentEnvironment,
     productionMissingConfigError:
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
   });

@@ -54,6 +54,18 @@ export type PlatformMoneyMovementConfig =
 
 export type PlatformStripeConnectAccountsApi = "v1" | "v2";
 
+export const DEPLOYMENT_ENVIRONMENTS = [
+  "production",
+  "staging",
+  "preview",
+  "test",
+  "dev",
+  "local",
+  "remote-dev",
+] as const;
+
+export type DeploymentEnvironment = (typeof DEPLOYMENT_ENVIRONMENTS)[number];
+
 export type PlatformPostageConfig<TIncludeWebhookSecret extends boolean = boolean> =
   | Readonly<{
       kind: "sandbox";
@@ -179,6 +191,26 @@ export function resolveEnumEnv<T extends string>(
   }
 
   throw new Error(`${name} must be one of: ${allowed.join(", ")}.`);
+}
+
+export function loadDeploymentEnvironment(input?: {
+  deploymentEnvironment?: string | null;
+  nodeEnv?: string | null;
+}): DeploymentEnvironment {
+  const deploymentEnvironment = input?.deploymentEnvironment ?? getOptionalEnv("DEPLOYMENT_ENVIRONMENT");
+  if (deploymentEnvironment) {
+    return resolveEnumEnv("DEPLOYMENT_ENVIRONMENT", deploymentEnvironment, DEPLOYMENT_ENVIRONMENTS, "dev");
+  }
+
+  const nodeEnv = input?.nodeEnv ?? process.env.NODE_ENV;
+  if (nodeEnv === "production") {
+    return "production";
+  }
+  if (nodeEnv === "test") {
+    return "test";
+  }
+
+  return "dev";
 }
 
 export function getOptionalCsvEnv(name: string): readonly string[] {
@@ -465,6 +497,7 @@ export function loadCatalogAssetStorageConfig(input: {
 
 export function loadStripeProviderConfig(input: {
   productionLike: boolean;
+  deploymentEnvironment?: DeploymentEnvironment;
   productionMissingConfigError: string;
 }): PlatformStripeProviderConfig {
   const secretKey = getOptionalEnv("STRIPE_SECRET_KEY");
@@ -480,9 +513,20 @@ export function loadStripeProviderConfig(input: {
   );
   const resolvedConnectWebhookSecret =
     connectWebhookSecret ?? (!input.productionLike ? (webhookSecret ?? undefined) : undefined);
+  const deploymentEnvironment = input.deploymentEnvironment ?? loadDeploymentEnvironment();
+  const productionDeployment = deploymentEnvironment === "production";
 
   if (input.productionLike && (!secretKey || !publishableKey || !webhookSecret || !connectWebhookSecret)) {
     throw new Error(input.productionMissingConfigError);
+  }
+  if (!productionDeployment && (secretKey?.startsWith("sk_live") || publishableKey?.startsWith("pk_live"))) {
+    throw new Error("Live Stripe keys are only allowed when DEPLOYMENT_ENVIRONMENT=production.");
+  }
+  if (
+    productionDeployment &&
+    ((secretKey && !secretKey.startsWith("sk_live")) || (publishableKey && !publishableKey.startsWith("pk_live")))
+  ) {
+    throw new Error("STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY must use live-mode keys in production.");
   }
 
   return {

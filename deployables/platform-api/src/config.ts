@@ -16,6 +16,7 @@ import {
   getPositiveNumberEnv,
   getReadConsistencyExactDependencyModeEnv,
   getRequiredPositiveNumberEnv,
+  loadDeploymentEnvironment,
   loadReadConsistencyRouteTuningEnv,
   loadCatalogAssetStorageConfig,
   loadPlatformDatabaseConfig,
@@ -25,8 +26,8 @@ import {
   loadStripeProviderConfig,
   loadTcgplayerAutomationConfig,
   PLATFORM_DATA_PROFILES,
-  resolveEnumEnv,
   resolveMobileMessagingProvider,
+  type DeploymentEnvironment,
   type PlatformCatalogAssetStorageConfig,
   type PlatformMoneyMovementConfig,
   type PlatformPaymentProcessorConfig,
@@ -99,7 +100,7 @@ export type PlatformApiBaseConfig = Readonly<{
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
   payoutReconciliationIntervalMs?: number | null;
-  deploymentEnvironment?: string | null;
+  deploymentEnvironment?: DeploymentEnvironment;
   dataProfiles?: readonly EnvironmentDataProfile[];
   adminRegistrationEnabled?: boolean;
   taxProviderBackedQuotesRequired?: boolean;
@@ -330,23 +331,7 @@ function loadReadConsistencyRouteTuning(): readonly ReadConsistencyRouteTuning[]
 }
 
 function getDeploymentEnvironment() {
-  const deploymentEnvironment = getOptionalEnv("DEPLOYMENT_ENVIRONMENT");
-  if (deploymentEnvironment) {
-    return resolveEnumEnv("DEPLOYMENT_ENVIRONMENT", deploymentEnvironment, DEPLOYMENT_ENVIRONMENTS, "dev");
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    return "production";
-  }
-  if (process.env.NODE_ENV === "test") {
-    return "test";
-  }
-
-  return "dev";
-}
-
-function isProductionDeployment() {
-  return getDeploymentEnvironment() === "production";
+  return loadDeploymentEnvironment();
 }
 
 function loadRuntimeProfile(): PlatformApiRuntimeProfile {
@@ -486,7 +471,7 @@ export function getContextWaiterDatabaseEnvName(contextName: PlatformApiContextN
 
 function loadBaseConfig(): PlatformApiBaseConfig {
   const deploymentEnvironment = getDeploymentEnvironment();
-  const productionLike = isProductionDeployment();
+  const productionLike = deploymentEnvironment === "production";
   const runtimeProfile = loadRuntimeProfile();
   const databaseConfig = loadPlatformDatabaseConfig({
     contextNames: getPlatformApiContextsForRuntimeProfile(runtimeProfile),
@@ -554,7 +539,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
 
 export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
   const baseConfig = loadBaseConfig();
-  const productionLike = isProductionDeployment();
+  const productionLike = baseConfig.deploymentEnvironment === "production";
   const catalogAssetStorage = loadCatalogAssetStorageConfig({
     port: baseConfig.port,
     productionLike,
@@ -572,7 +557,7 @@ export function loadConfig(): PlatformApiConfig {
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
   };
-  const productionLike = isProductionDeployment();
+  const productionLike = baseConfig.deploymentEnvironment === "production";
   const providerRequired = productionLike && baseConfig.runtimeProfile !== "landing";
   const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
   const googleSocialLoginClientId = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID");
@@ -602,6 +587,7 @@ export function loadConfig(): PlatformApiConfig {
 
   const stripeProvider = loadStripeProviderConfig({
     productionLike: providerRequired,
+    deploymentEnvironment: baseConfig.deploymentEnvironment,
     productionMissingConfigError:
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
   });

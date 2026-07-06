@@ -8,6 +8,7 @@ import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-r
 
 const envNames = [
   "DATABASE_URL",
+  "DEPLOYMENT_ENVIRONMENT",
   "PLATFORM_CONTROL_DATABASE_URL",
   "PLATFORM_WORK_SIGNAL_DATABASE_URL",
   "CHASE_SETS_RUNTIME_PROFILE",
@@ -674,6 +675,16 @@ describe("platform worker config", () => {
     );
   });
 
+  it("fails production config when DEPLOYMENT_ENVIRONMENT=production without NODE_ENV=production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+
+    expect(() => loadConfig()).toThrow(
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
+    );
+  });
+
   it("does not require marketplace provider secrets in production landing profile", () => {
     process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
@@ -695,10 +706,10 @@ describe("platform worker config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
-    process.env.STRIPE_SECRET_KEY = "sk_test_123";
-    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
-    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
 
     expect(() => loadConfig()).toThrow(
       "EASYPOST_API_KEY is required for platform worker postage label work in production.",
@@ -709,10 +720,10 @@ describe("platform worker config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
-    process.env.STRIPE_SECRET_KEY = "sk_test_123";
-    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
-    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.EASYPOST_API_KEY = "EZTK_test";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
     process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-staging";
@@ -724,14 +735,14 @@ describe("platform worker config", () => {
     expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
   });
 
-  it("loads production provider adapters when staging-style provider config is complete", () => {
+  it("loads production provider adapters when live provider config is complete", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
-    process.env.STRIPE_SECRET_KEY = "sk_test_123";
-    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
-    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.EASYPOST_API_KEY = "EZTK_test";
     process.env.EASYPOST_MODE = "test";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
@@ -744,7 +755,7 @@ describe("platform worker config", () => {
     expect(config.paymentProcessor).toMatchObject({ kind: "stripe" });
     expect(config.moneyMovement).toMatchObject({
       kind: "stripe",
-      webhookSecret: "whsec_connect_test",
+      webhookSecret: "whsec_connect_live",
       connectAccountsApi: "v2",
     });
     expect(config.postage).toEqual({
@@ -862,10 +873,10 @@ describe("platform worker config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
-    process.env.STRIPE_SECRET_KEY = "sk_test_123";
-    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
-    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.EASYPOST_API_KEY = "EZTK_test";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
     process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-staging";
