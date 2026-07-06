@@ -86,6 +86,11 @@ export function buildFulfillmentOrderProjectionHandlers(
       context: EventStoreContext;
     }) => Promise<void>;
     onOrderCancelled?: (params: { orderId: string; cancelledAt: string; context: EventStoreContext }) => Promise<void>;
+    onFraudWarningReceived?: (params: {
+      orderId: string;
+      receivedAt: string;
+      context: EventStoreContext;
+    }) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
   return {
@@ -221,6 +226,86 @@ export function buildFulfillmentOrderProjectionHandlers(
           trace: event.trace,
         } as EventStoreContext,
       });
+    },
+    "payments.payment-fraud-warning-received": async (event) => {
+      const data = event.data as {
+        orderIds: string[];
+        receivedAt: string;
+      };
+
+      for (const orderId of data.orderIds ?? []) {
+        await options.onFraudWarningReceived?.({
+          orderId,
+          receivedAt: data.receivedAt,
+          context: {
+            tenantId: event.tenantId,
+            audit: event.audit,
+            trace: event.trace,
+          } as EventStoreContext,
+        });
+      }
+    },
+    "payments.payment-fraud-review-opened": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        orderIds: string[];
+        buyerAccountId: string;
+        providerReviewId: string;
+        openedAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO fulfillment_payment_fraud_review_holds (
+           provider_review_id,
+           payment_id,
+           order_ids,
+           buyer_account_id,
+           status,
+           outcome,
+           opened_at,
+           closed_at,
+           updated_at,
+           last_stream_version
+         ) VALUES ($1, $2, $3::jsonb, $4, 'opened', NULL, $5, NULL, $5, $6)
+         ON CONFLICT (provider_review_id) DO UPDATE
+         SET payment_id = EXCLUDED.payment_id,
+             order_ids = EXCLUDED.order_ids,
+             buyer_account_id = EXCLUDED.buyer_account_id,
+             status = 'opened',
+             outcome = NULL,
+             opened_at = EXCLUDED.opened_at,
+             closed_at = NULL,
+             updated_at = EXCLUDED.updated_at,
+             last_stream_version = EXCLUDED.last_stream_version
+         WHERE fulfillment_payment_fraud_review_holds.last_stream_version < EXCLUDED.last_stream_version`,
+        [
+          data.providerReviewId,
+          data.paymentId,
+          JSON.stringify(data.orderIds ?? []),
+          data.buyerAccountId,
+          data.openedAt,
+          event.streamVersion,
+        ],
+      );
+    },
+    "payments.payment-fraud-review-closed": async (event) => {
+      const data = event.data as {
+        providerReviewId: string;
+        outcome: string | null;
+        closedAt: string;
+      };
+
+      await db.query(
+        `UPDATE fulfillment_payment_fraud_review_holds
+         SET status = 'closed',
+             outcome = $2,
+             closed_at = $3,
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE provider_review_id = $1
+           AND last_stream_version < $4`,
+        [data.providerReviewId, data.outcome, data.closedAt, event.streamVersion],
+      );
     },
     "ordering.order.ready-for-fulfillment-recorded": async (event) => {
       const data = event.data as {

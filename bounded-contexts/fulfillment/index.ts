@@ -35,6 +35,19 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
               await services.shipments.cancelShipmentForCancelledOrder(params);
             },
           }),
+        "payments.fulfillment-payment-fraud-source-projection": {
+          buildHandlers: () =>
+            buildFulfillmentOrderProjectionHandlers(services.db, {
+              onFraudWarningReceived: async (params) => {
+                await services.shipments.cancelShipmentForCancelledOrder({
+                  orderId: params.orderId,
+                  cancelledAt: params.receivedAt,
+                  context: params.context,
+                });
+              },
+            }),
+          filterToEventTypes: true,
+        },
       },
     }),
   seed: seedFulfillmentDatabase,

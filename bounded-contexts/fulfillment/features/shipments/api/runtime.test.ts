@@ -2339,4 +2339,52 @@ describe("fulfillment shipment runtime", () => {
       ]),
     );
   });
+
+  it("blocks dispatch while a Stripe Radar review hold is open for the order", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              createPackedShipmentRow({
+                shipment_id: "shp_1",
+                order_id: "ord_1",
+                seller_account_id: "acc_seller",
+                status: "label-attached",
+                label_status: "purchased",
+              }),
+            ],
+          };
+        }
+        if (sql.includes("FROM fulfillment_payment_fraud_review_holds")) {
+          return { rows: [{ provider_review_id: "prv_123" }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await expect(
+      services.dispatchShipment(
+        {
+          shipmentId: "shp_1" as never,
+          sellerAccountId: "acc_seller" as never,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Shipment dispatch is blocked while Stripe reviews the payment.");
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("fulfillment_payment_fraud_review_holds"), ["ord_1"]);
+  });
 });

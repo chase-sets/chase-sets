@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import {
   buildSettlementIdentityAccountRiskSourceProjectionHandlers,
+  buildSettlementPaymentsAccountRiskSourceProjectionHandlers,
   buildSettlementReputationAccountRiskSourceProjectionHandlers,
 } from "./account-risk-source-projection";
 
@@ -69,6 +70,25 @@ describe("settlement account risk source projection", () => {
     expect(db.query).toHaveBeenNthCalledWith(3, expect.stringContaining("review_count"), [
       "acc_seller",
       "2026-05-03T00:00:00.000Z",
+    ]);
+  });
+
+  it("projects Stripe fraud signals into buyer risk sources", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db as never);
+
+    await handlers["payments.payment-fraud-warning-received"]!(
+      event("payments.payment-fraud-warning-received", {
+        buyerAccountId: "acc_buyer",
+        receivedAt: "2026-07-06T12:05:00.000Z",
+      }),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("stripe_fraud_signal_count"), [
+      "acc_buyer",
+      "2026-07-06T12:05:00.000Z",
     ]);
   });
 });

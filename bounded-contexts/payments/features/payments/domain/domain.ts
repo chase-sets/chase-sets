@@ -36,6 +36,16 @@ export type IssuedPaymentRefund = Readonly<{
   amount: string;
 }>;
 
+export type PaymentFraudReview = Readonly<{
+  providerReviewId: string;
+  providerChargeReference: string | null;
+  reason: string | null;
+  status: "opened" | "closed";
+  outcome: string | null;
+  openedAt: string | null;
+  closedAt: string | null;
+}>;
+
 export type PaymentState = Readonly<{
   paymentId: PaymentId | null;
   buyerAccountId: AccountId | null;
@@ -75,6 +85,8 @@ export type PaymentState = Readonly<{
   refundRequests: readonly PaymentRefundRequest[];
   issuedRefunds: readonly IssuedPaymentRefund[];
   disputedAt: string | null;
+  earlyFraudWarningIds: readonly string[];
+  fraudReviews: readonly PaymentFraudReview[];
 }>;
 
 export type SellerPayoutComponent = Readonly<{
@@ -125,6 +137,8 @@ export const initialPaymentState: PaymentState = {
   refundRequests: [],
   issuedRefunds: [],
   disputedAt: null,
+  earlyFraudWarningIds: [],
+  fraudReviews: [],
 };
 
 export type CreatePaymentCommand = Readonly<{
@@ -210,6 +224,38 @@ export type RecordPaymentDisputeCommand = Readonly<{
   disputedAt: string;
 }>;
 
+export type RecordPaymentEarlyFraudWarningCommand = Readonly<{
+  type: "RecordPaymentEarlyFraudWarning";
+  providerEventId: string;
+  earlyFraudWarningId: string;
+  providerChargeReference?: string | null;
+  processorStatus: string;
+  fraudType?: string | null;
+  chargeDisputed: boolean;
+  receivedAt: string;
+}>;
+
+export type RecordPaymentFraudReviewOpenedCommand = Readonly<{
+  type: "RecordPaymentFraudReviewOpened";
+  providerEventId: string;
+  providerReviewId: string;
+  providerChargeReference?: string | null;
+  processorStatus: string;
+  reason?: string | null;
+  openedAt: string;
+}>;
+
+export type RecordPaymentFraudReviewClosedCommand = Readonly<{
+  type: "RecordPaymentFraudReviewClosed";
+  providerEventId: string;
+  providerReviewId: string;
+  providerChargeReference?: string | null;
+  processorStatus: string;
+  reason?: string | null;
+  outcome?: string | null;
+  closedAt: string;
+}>;
+
 export type PaymentCommand =
   | CreatePaymentCommand
   | RecordPaymentAuthorizationCommand
@@ -218,7 +264,10 @@ export type PaymentCommand =
   | CancelPaymentCommand
   | RequestPaymentRefundCommand
   | RecordPaymentRefundCommand
-  | RecordPaymentDisputeCommand;
+  | RecordPaymentDisputeCommand
+  | RecordPaymentEarlyFraudWarningCommand
+  | RecordPaymentFraudReviewOpenedCommand
+  | RecordPaymentFraudReviewClosedCommand;
 
 export type PaymentCreatedEvent = DomainEvent<
   "payments.payment-created",
@@ -370,6 +419,62 @@ export type PaymentDisputedEvent = DomainEvent<
   }>
 >;
 
+export type PaymentEarlyFraudWarningReceivedEvent = DomainEvent<
+  "payments.payment-fraud-warning-received",
+  Readonly<{
+    paymentId: PaymentId;
+    orderIds: OrderId[];
+    buyerAccountId: AccountId;
+    sellerPayouts: SellerPayoutComponent[];
+    processorName: PaymentProcessorName;
+    processorPaymentReference: string;
+    providerEventId: string;
+    earlyFraudWarningId: string;
+    providerChargeReference: string | null;
+    processorStatus: string;
+    fraudType: string | null;
+    chargeDisputed: boolean;
+    receivedAt: string;
+  }>
+>;
+
+export type PaymentFraudReviewOpenedEvent = DomainEvent<
+  "payments.payment-fraud-review-opened",
+  Readonly<{
+    paymentId: PaymentId;
+    orderIds: OrderId[];
+    buyerAccountId: AccountId;
+    sellerPayouts: SellerPayoutComponent[];
+    processorName: PaymentProcessorName;
+    processorPaymentReference: string;
+    providerEventId: string;
+    providerReviewId: string;
+    providerChargeReference: string | null;
+    processorStatus: string;
+    reason: string | null;
+    openedAt: string;
+  }>
+>;
+
+export type PaymentFraudReviewClosedEvent = DomainEvent<
+  "payments.payment-fraud-review-closed",
+  Readonly<{
+    paymentId: PaymentId;
+    orderIds: OrderId[];
+    buyerAccountId: AccountId;
+    sellerPayouts: SellerPayoutComponent[];
+    processorName: PaymentProcessorName;
+    processorPaymentReference: string;
+    providerEventId: string;
+    providerReviewId: string;
+    providerChargeReference: string | null;
+    processorStatus: string;
+    reason: string | null;
+    outcome: string | null;
+    closedAt: string;
+  }>
+>;
+
 export type PaymentEvent =
   | PaymentCreatedEvent
   | PaymentAuthorizedEvent
@@ -378,7 +483,10 @@ export type PaymentEvent =
   | PaymentCancelledEvent
   | PaymentRefundRequestedEvent
   | PaymentRefundedEvent
-  | PaymentDisputedEvent;
+  | PaymentDisputedEvent
+  | PaymentEarlyFraudWarningReceivedEvent
+  | PaymentFraudReviewOpenedEvent
+  | PaymentFraudReviewClosedEvent;
 
 function normalizeSellerPayoutComponents(components: readonly SellerPayoutComponent[]): SellerPayoutComponent[] {
   return components.map((component) => ({
@@ -868,6 +976,92 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
           },
         },
       ];
+    case "RecordPaymentEarlyFraudWarning": {
+      assert(state.paymentId !== null, "Payment must be created first.");
+      const earlyFraudWarningId = normalizeRequiredText(
+        command.earlyFraudWarningId,
+        "Early fraud warning id is required.",
+      );
+      if (state.earlyFraudWarningIds.includes(earlyFraudWarningId)) {
+        return [];
+      }
+      return [
+        {
+          type: "payments.payment-fraud-warning-received",
+          data: {
+            paymentId: state.paymentId,
+            orderIds: [...state.orderIds],
+            buyerAccountId: state.buyerAccountId!,
+            sellerPayouts: [...state.sellerPayouts],
+            processorName: state.processorName!,
+            processorPaymentReference: state.processorPaymentReference!,
+            providerEventId: normalizeRequiredText(command.providerEventId, "Provider event id is required."),
+            earlyFraudWarningId,
+            providerChargeReference: normalizeOptionalText(command.providerChargeReference),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            fraudType: normalizeOptionalText(command.fraudType),
+            chargeDisputed: command.chargeDisputed,
+            receivedAt: ensureIsoTimestamp(command.receivedAt, "Fraud warning receipt must include a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordPaymentFraudReviewOpened": {
+      assert(state.paymentId !== null, "Payment must be created first.");
+      const providerReviewId = normalizeRequiredText(command.providerReviewId, "Fraud review id is required.");
+      const existingReview = state.fraudReviews.find((review) => review.providerReviewId === providerReviewId);
+      if (existingReview?.status === "opened") {
+        return [];
+      }
+      return [
+        {
+          type: "payments.payment-fraud-review-opened",
+          data: {
+            paymentId: state.paymentId,
+            orderIds: [...state.orderIds],
+            buyerAccountId: state.buyerAccountId!,
+            sellerPayouts: [...state.sellerPayouts],
+            processorName: state.processorName!,
+            processorPaymentReference: state.processorPaymentReference!,
+            providerEventId: normalizeRequiredText(command.providerEventId, "Provider event id is required."),
+            providerReviewId,
+            providerChargeReference: normalizeOptionalText(command.providerChargeReference),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            reason: normalizeOptionalText(command.reason),
+            openedAt: ensureIsoTimestamp(command.openedAt, "Fraud review opening must include a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordPaymentFraudReviewClosed": {
+      assert(state.paymentId !== null, "Payment must be created first.");
+      const providerReviewId = normalizeRequiredText(command.providerReviewId, "Fraud review id is required.");
+      const existingReview = state.fraudReviews.find((review) => review.providerReviewId === providerReviewId);
+      const outcome = normalizeOptionalText(command.outcome);
+      if (existingReview?.status === "closed" && existingReview.outcome === outcome) {
+        return [];
+      }
+      return [
+        {
+          type: "payments.payment-fraud-review-closed",
+          data: {
+            paymentId: state.paymentId,
+            orderIds: [...state.orderIds],
+            buyerAccountId: state.buyerAccountId!,
+            sellerPayouts: [...state.sellerPayouts],
+            processorName: state.processorName!,
+            processorPaymentReference: state.processorPaymentReference!,
+            providerEventId: normalizeRequiredText(command.providerEventId, "Provider event id is required."),
+            providerReviewId,
+            providerChargeReference: normalizeOptionalText(command.providerChargeReference),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            reason: normalizeOptionalText(command.reason),
+            outcome,
+            closedAt: ensureIsoTimestamp(command.closedAt, "Fraud review closing must include a timestamp."),
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -915,6 +1109,8 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         refundRequests: [],
         issuedRefunds: [],
         disputedAt: null,
+        earlyFraudWarningIds: [],
+        fraudReviews: [],
       };
     case "payments.payment-authorized":
       return {
@@ -995,6 +1191,57 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         failureMessage: event.data.disputeMessage,
         disputedAt: event.data.disputedAt,
       };
+    case "payments.payment-fraud-warning-received":
+      return {
+        ...state,
+        earlyFraudWarningIds: state.earlyFraudWarningIds.includes(event.data.earlyFraudWarningId)
+          ? state.earlyFraudWarningIds
+          : [...state.earlyFraudWarningIds, event.data.earlyFraudWarningId],
+      };
+    case "payments.payment-fraud-review-opened": {
+      const withoutReview = state.fraudReviews.filter(
+        (review) => review.providerReviewId !== event.data.providerReviewId,
+      );
+      return {
+        ...state,
+        fraudReviews: [
+          ...withoutReview,
+          {
+            providerReviewId: event.data.providerReviewId,
+            providerChargeReference: event.data.providerChargeReference,
+            reason: event.data.reason,
+            status: "opened",
+            outcome: null,
+            openedAt: event.data.openedAt,
+            closedAt: null,
+          },
+        ],
+      };
+    }
+    case "payments.payment-fraud-review-closed": {
+      const existingReview = state.fraudReviews.find(
+        (review) => review.providerReviewId === event.data.providerReviewId,
+      );
+      const withoutReview = state.fraudReviews.filter(
+        (review) => review.providerReviewId !== event.data.providerReviewId,
+      );
+      return {
+        ...state,
+        fraudReviews: [
+          ...withoutReview,
+          {
+            providerReviewId: event.data.providerReviewId,
+            providerChargeReference:
+              event.data.providerChargeReference ?? existingReview?.providerChargeReference ?? null,
+            reason: event.data.reason ?? existingReview?.reason ?? null,
+            status: "closed",
+            outcome: event.data.outcome,
+            openedAt: existingReview?.openedAt ?? null,
+            closedAt: event.data.closedAt,
+          },
+        ],
+      };
+    }
     default:
       return assertNever(event);
   }

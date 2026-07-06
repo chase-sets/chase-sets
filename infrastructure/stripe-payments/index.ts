@@ -63,6 +63,7 @@ type StripeChargeResponse = Readonly<{
   id: string;
   payment_intent?: string | Readonly<{ id?: string | null }> | null;
   amount_refunded?: number | null;
+  disputed?: boolean | null;
   metadata?: Readonly<Record<string, string | null | undefined>> | null;
 }>;
 
@@ -104,14 +105,14 @@ type StripeRefundResponse = Readonly<{
 type StripeEventEnvelope = Readonly<{
   id: string;
   type: string;
-  created?: number;
+  created?: number | string;
   data?: Readonly<{
     object?: Readonly<{
       id?: string;
       status?: string | null;
       payment_status?: string | null;
-      payment_intent?: string | null;
-      charge?: string | null;
+      payment_intent?: string | Readonly<{ id?: string | null }> | null;
+      charge?: string | Readonly<{ id?: string | null }> | null;
       setup_intent?: string | null;
       amount?: number | null;
       amount_refunded?: number | null;
@@ -133,6 +134,14 @@ type StripeEventEnvelope = Readonly<{
       last_payment_error?: Readonly<{
         code?: string | null;
         message?: string | null;
+      }> | null;
+      fraud_type?: string | null;
+      actionable?: boolean | null;
+      reason?: string | null;
+      closed_reason?: string | null;
+      outcome?: Readonly<{
+        type?: string | null;
+        reason?: string | null;
       }> | null;
     }>;
   }>;
@@ -357,6 +366,27 @@ function paymentIntentReferenceFromCharge(charge: StripeChargeResponse) {
   return normalizeOptionalText(paymentIntent?.id ?? null);
 }
 
+function stripeObjectReference(value: string | Readonly<{ id?: string | null }> | null | undefined) {
+  if (typeof value === "string") {
+    return normalizeOptionalText(value);
+  }
+  return normalizeOptionalText(value?.id ?? null);
+}
+
+function occurredAtFromEvent(event: StripeEventEnvelope) {
+  const created = event.created;
+  const timestamp =
+    typeof created === "number"
+      ? created * 1000
+      : typeof created === "string" && /^\d+$/.test(created.trim())
+        ? Number.parseInt(created.trim(), 10) * 1000
+        : typeof created === "string"
+          ? Date.parse(created)
+          : Date.now();
+
+  return new Date(Number.isFinite(timestamp) ? timestamp : Date.now()).toISOString();
+}
+
 function minorUnitsToMoney(amount: number | null | undefined) {
   return typeof amount === "number" && Number.isFinite(amount) && amount > 0 ? (amount / 100).toFixed(2) : null;
 }
@@ -499,15 +529,75 @@ function verifyStripeSignature(
 
 function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEvent | null {
   const paymentObject = event.data?.object;
-  const processorPaymentReference = paymentObject?.id?.trim();
+  if (!paymentObject) {
+    return null;
+  }
 
-  if (!paymentObject || !processorPaymentReference) {
+  const occurredAt = occurredAtFromEvent(event);
+  if (event.type === "radar.early_fraud_warning.created") {
+    const warningReference = normalizeOptionalText(paymentObject.id ?? null);
+    const chargeReference = stripeObjectReference(paymentObject.charge);
+    const paymentIntentReference = stripeObjectReference(paymentObject.payment_intent);
+    const processorPaymentReference = paymentIntentReference ?? chargeReference;
+    if (!warningReference || !processorPaymentReference) {
+      return null;
+    }
+    return {
+      eventId: event.id,
+      kind: "payment-early-fraud-warning",
+      processorName: "stripe",
+      processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
+      processorPaymentReference,
+      providerObjectReference: warningReference,
+      providerChargeReference: chargeReference,
+      internalPaymentId: metadataPaymentId(paymentObject) as PaymentProcessorWebhookEvent["internalPaymentId"],
+      processorStatus: normalizeOptionalText(paymentObject.status) ?? "early_fraud_warning",
+      failureCode: normalizeOptionalText(paymentObject.fraud_type ?? null),
+      failureMessage:
+        paymentObject.actionable === false ? "Stripe marked the early fraud warning non-actionable." : null,
+      chargeDisputed: null,
+      fraudType: normalizeOptionalText(paymentObject.fraud_type ?? null),
+      occurredAt,
+    };
+  }
+
+  if (event.type === "review.opened" || event.type === "review.closed") {
+    const reviewReference = normalizeOptionalText(paymentObject.id ?? null);
+    const chargeReference = stripeObjectReference(paymentObject.charge);
+    const paymentIntentReference = stripeObjectReference(paymentObject.payment_intent);
+    const processorPaymentReference = paymentIntentReference ?? chargeReference;
+    if (!reviewReference || !processorPaymentReference) {
+      return null;
+    }
+    const reviewOutcome =
+      normalizeOptionalText(paymentObject.closed_reason ?? null) ??
+      normalizeOptionalText(paymentObject.outcome?.type ?? null) ??
+      normalizeOptionalText(paymentObject.status ?? null);
+    return {
+      eventId: event.id,
+      kind: event.type === "review.opened" ? "payment-fraud-review-opened" : "payment-fraud-review-closed",
+      processorName: "stripe",
+      processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
+      processorPaymentReference,
+      providerObjectReference: reviewReference,
+      providerChargeReference: chargeReference,
+      internalPaymentId: metadataPaymentId(paymentObject) as PaymentProcessorWebhookEvent["internalPaymentId"],
+      processorStatus: normalizeOptionalText(paymentObject.status) ?? event.type,
+      failureCode: normalizeOptionalText(paymentObject.reason ?? paymentObject.outcome?.reason ?? null),
+      failureMessage: null,
+      fraudReviewReason: normalizeOptionalText(paymentObject.reason ?? paymentObject.outcome?.reason ?? null),
+      fraudReviewOutcome: reviewOutcome,
+      occurredAt,
+    };
+  }
+
+  const processorPaymentReference = paymentObject.id?.trim();
+  if (!processorPaymentReference) {
     return null;
   }
 
   const processorStatus = paymentObject.payment_status?.trim() ?? paymentObject.status?.trim() ?? event.type;
   const paymentStatus = normalizeOptionalText(paymentObject.payment_status)?.toLowerCase() ?? null;
-  const occurredAt = new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
   const failureCode = normalizeOptionalText(paymentObject.last_payment_error?.code ?? null);
   const failureMessage = normalizeOptionalText(paymentObject.last_payment_error?.message ?? null);
   const internalPaymentId = metadataPaymentId(paymentObject) as PaymentProcessorWebhookEvent["internalPaymentId"];
@@ -742,8 +832,8 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         return null;
       }
       const refundPaymentReference =
-        normalizeOptionalText(paymentObject.payment_intent ?? null) ??
-        normalizeOptionalText(paymentObject.charge ?? null) ??
+        stripeObjectReference(paymentObject.payment_intent) ??
+        stripeObjectReference(paymentObject.charge) ??
         processorPaymentReference;
       return {
         eventId: event.id,
@@ -769,8 +859,8 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
     case "charge.dispute.updated":
     case "charge.dispute.closed": {
       const disputePaymentReference =
-        normalizeOptionalText(paymentObject.payment_intent ?? null) ??
-        normalizeOptionalText(paymentObject.charge ?? null) ??
+        stripeObjectReference(paymentObject.payment_intent) ??
+        stripeObjectReference(paymentObject.charge) ??
         processorPaymentReference;
       return {
         eventId: event.id,
@@ -1225,6 +1315,33 @@ export function createStripePaymentProcessorGateway(
         return null;
       }
 
+      if (
+        mapped.kind === "payment-early-fraud-warning" ||
+        mapped.kind === "payment-fraud-review-opened" ||
+        mapped.kind === "payment-fraud-review-closed"
+      ) {
+        const chargeReference =
+          normalizeOptionalText(mapped.providerChargeReference ?? null) ??
+          (mapped.processorPaymentReference.startsWith("ch_") ? mapped.processorPaymentReference : null);
+        if (chargeReference) {
+          const charge = await stripeRequest<StripeChargeResponse>(
+            `/v1/charges/${encodeURIComponent(chargeReference)}`,
+            { method: "GET" },
+          );
+          const paymentIntentReference = paymentIntentReferenceFromCharge(charge);
+          return {
+            ...mapped,
+            processorPaymentKind: paymentIntentReference ? "payment-intent" : mapped.processorPaymentKind,
+            processorPaymentReference: paymentIntentReference ?? mapped.processorPaymentReference,
+            internalPaymentId:
+              mapped.internalPaymentId ??
+              (metadataPaymentId(charge as StripeWebhookObject) as PaymentProcessorWebhookEvent["internalPaymentId"]),
+            providerChargeReference: chargeReference,
+            chargeDisputed: Boolean(charge.disputed),
+          };
+        }
+      }
+
       if (mapped.kind === "saved-payment-setup-succeeded") {
         const setupIntentReference = mapped.setupIntentReference ?? null;
         return {
@@ -1238,11 +1355,8 @@ export function createStripePaymentProcessorGateway(
         const object = event.data?.object;
         const consentId = normalizeOptionalText(object?.metadata?.saved_payment_consent_id ?? null);
         const paymentIntentReference =
-          typeof object?.payment_intent === "string"
-            ? normalizeOptionalText(object.payment_intent)
-            : mapped.processorPaymentReference.startsWith("pi_")
-              ? mapped.processorPaymentReference
-              : null;
+          stripeObjectReference(object?.payment_intent) ??
+          (mapped.processorPaymentReference.startsWith("pi_") ? mapped.processorPaymentReference : null);
         if (consentId && paymentIntentReference) {
           return {
             ...mapped,
@@ -1254,7 +1368,7 @@ export function createStripePaymentProcessorGateway(
       if (mapped.kind === "payment-refunded") {
         const object = event.data?.object;
         const chargeReference =
-          normalizeOptionalText(object?.charge ?? null) ??
+          stripeObjectReference(object?.charge) ??
           (mapped.processorPaymentReference.startsWith("ch_") ? mapped.processorPaymentReference : null);
         if (chargeReference && (!mapped.refundedAmount || mapped.processorPaymentReference.startsWith("ch_"))) {
           const charge = await stripeRequest<StripeChargeResponse>(

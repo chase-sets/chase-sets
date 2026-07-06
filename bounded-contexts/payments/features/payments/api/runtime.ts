@@ -35,6 +35,10 @@ import {
   buildPaymentTransactionalEmailProjectionHandlers,
   PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 } from "../integrations/transactional-email/transactional-email-projector";
+import {
+  buildPaymentFraudAlertProjectionHandlers,
+  PAYMENTS_FRAUD_ALERT_PROJECTION,
+} from "../integrations/fraud-alerts/fraud-alert-projection";
 import { buildPaymentProjectionHandlers } from "../read-model/projection";
 import {
   getAccountPayment,
@@ -83,6 +87,7 @@ import {
   type SellerPayoutComponent,
 } from "../domain/domain";
 import { decideRefund, evolveRefund, initialRefundState, type RefundEvent } from "../../refunds/domain/domain";
+import type { RefundServices } from "../../refunds/api/runtime";
 import {
   marketplaceCheckoutFeePaymentMethodCategories,
   marketplaceCheckoutFeePolicy,
@@ -98,6 +103,7 @@ type PaymentRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
+  refunds?: Pick<RefundServices, "issueRefund">;
   balanceCreditResolver?: BalanceCreditResolver;
   notificationOutbox?: NotificationOutbox;
 }>;
@@ -325,6 +331,10 @@ function moneyToCents(value: string) {
 
 function centsToMoney(cents: number) {
   return (cents / 100).toFixed(2);
+}
+
+function fraudRefundId(providerEventId: string): RefundId {
+  return `rfd_fraud_${providerEventId.replaceAll(/[^a-zA-Z0-9]+/g, "_").replaceAll(/^_+|_+$/g, "")}` as RefundId;
 }
 
 function buildOrderRefundCaps(
@@ -2116,6 +2126,73 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             context,
           });
           break;
+        case "payment-early-fraud-warning":
+          await commandHandler({
+            streamId,
+            command: {
+              type: "RecordPaymentEarlyFraudWarning",
+              providerEventId: webhookEvent.eventId,
+              earlyFraudWarningId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
+              providerChargeReference: webhookEvent.providerChargeReference ?? null,
+              processorStatus: webhookEvent.processorStatus,
+              fraudType: webhookEvent.fraudType ?? webhookEvent.failureCode,
+              chargeDisputed: Boolean(webhookEvent.chargeDisputed),
+              receivedAt: webhookEvent.occurredAt,
+            },
+            context,
+          });
+          if (
+            deps.refunds &&
+            webhookEvent.chargeDisputed === false &&
+            !payment.disputed_at &&
+            (payment.status === "captured" || payment.status === "partially-refunded")
+          ) {
+            const refundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
+            if (compareMoney(refundableAmount, "0.00") > 0) {
+              await deps.refunds.issueRefund(
+                {
+                  refundId: fraudRefundId(webhookEvent.providerObjectReference ?? webhookEvent.eventId),
+                  paymentId: payment.payment_id as PaymentId,
+                  orderIds: payment.order_ids,
+                  amount: refundableAmount,
+                  reason: `Stripe early fraud warning ${webhookEvent.providerObjectReference ?? webhookEvent.eventId}.`,
+                },
+                context,
+              );
+            }
+          }
+          break;
+        case "payment-fraud-review-opened":
+          await commandHandler({
+            streamId,
+            command: {
+              type: "RecordPaymentFraudReviewOpened",
+              providerEventId: webhookEvent.eventId,
+              providerReviewId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
+              providerChargeReference: webhookEvent.providerChargeReference ?? null,
+              processorStatus: webhookEvent.processorStatus,
+              reason: webhookEvent.fraudReviewReason ?? webhookEvent.failureCode,
+              openedAt: webhookEvent.occurredAt,
+            },
+            context,
+          });
+          break;
+        case "payment-fraud-review-closed":
+          await commandHandler({
+            streamId,
+            command: {
+              type: "RecordPaymentFraudReviewClosed",
+              providerEventId: webhookEvent.eventId,
+              providerReviewId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
+              providerChargeReference: webhookEvent.providerChargeReference ?? null,
+              processorStatus: webhookEvent.processorStatus,
+              reason: webhookEvent.fraudReviewReason ?? webhookEvent.failureCode,
+              outcome: webhookEvent.fraudReviewOutcome,
+              closedAt: webhookEvent.occurredAt,
+            },
+            context,
+          });
+          break;
         case "payment-disputed":
           await commandHandler({
             streamId,
@@ -2152,6 +2229,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           notificationOutbox,
           PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
+      }),
+      createProjectionHandlerSet({
+        projectionName: PAYMENTS_FRAUD_ALERT_PROJECTION,
+        handlers: buildPaymentFraudAlertProjectionHandlers(notificationOutbox, PAYMENTS_FRAUD_ALERT_PROJECTION),
       }),
     ],
   };

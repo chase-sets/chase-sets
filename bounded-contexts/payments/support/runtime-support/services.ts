@@ -66,19 +66,20 @@ export function createPaymentsServices(
   const processorGateway = options.processorGateway ?? createMissingProcessorGateway();
   const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
 
-  const payments = createPaymentRuntime({
-    eventStore,
-    checkpointStore,
-    db,
-    processorGateway,
-    balanceCreditResolver: options.balanceCreditResolver,
-    notificationOutbox,
-  });
   const refunds = createRefundRuntime({
     eventStore,
     checkpointStore,
     db,
     processorGateway,
+    notificationOutbox,
+  });
+  const payments = createPaymentRuntime({
+    eventStore,
+    checkpointStore,
+    db,
+    processorGateway,
+    refunds,
+    balanceCreditResolver: options.balanceCreditResolver,
     notificationOutbox,
   });
 

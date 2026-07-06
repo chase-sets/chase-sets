@@ -475,9 +475,13 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "checkout:checkout.payment-affordance-projection",
       "checkout:checkout.payment-summary-projection",
+      "fulfillment:fulfillment-payment-fraud-source-projection",
       "ordering:ordering-payment-capture",
+      "payments:payments-fraud-alert-projection",
       "payments:payments-order-cancellation-refund-effect",
       "payments:payments-payment-projection",
+      "settlement:settlement-account-risk-source-projection",
+      "settlement:settlement-support-hold-projection",
       "settlement:settlement-payment-input-projection",
     ],
     routeDependencyIds: [
