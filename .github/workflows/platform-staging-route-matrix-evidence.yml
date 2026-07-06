@@ -60,6 +60,7 @@ jobs:
       READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_OUT: artifacts/wake-drills/read-consistency-route-matrix-evidence.json
       READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT: artifacts/wake-drills/read-consistency-route-matrix-sampler.json
       ROUTE_MATRIX_CHECKOUT_PROBE_OUT: artifacts/wake-drills/route-matrix-checkout-probe.json
+      ROUTE_MATRIX_ACCOUNT_CART_PROBE_OUT: artifacts/wake-drills/route-matrix-account-cart-probe.json
     steps:
       - name: Confirm staging route-matrix evidence
         run: |
@@ -172,12 +173,42 @@ jobs:
             echo "Checkout route-matrix sample probe did not promote; sampler artifact will record the support-safe blocker."
           fi
 
+      - name: Drive account-cart route-matrix sample
+        env:
+          ACCOUNT_CART_CONSISTENCY_OBSERVATION_JSON: ${{ vars.STAGING_ACCOUNT_CART_CONSISTENCY_OBSERVATION_JSON || '' }}
+          ACCOUNT_CART_CONSISTENCY_EVIDENCE_REFERENCE: ${{ vars.STAGING_ACCOUNT_CART_CONSISTENCY_EVIDENCE_REFERENCE || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ACCOUNT_CART_CONSISTENCY_OBSERVATION_JSON:-}" ]; then
+            echo "No account-cart route-matrix observation configured; sampler artifact will record the support-safe blocker."
+            exit 0
+          fi
+
+          observation_file="${RUNNER_TEMP}/route-matrix-account-cart-observation.json"
+          printf '%s\n' "${ACCOUNT_CART_CONSISTENCY_OBSERVATION_JSON}" > "${observation_file}"
+          evidence_reference="${ACCOUNT_CART_CONSISTENCY_EVIDENCE_REFERENCE:-github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-route-matrix-account-cart}"
+
+          set +e
+          pnpm run ops account-cart:consistency-probe -- \
+            --environment "${ROUTE_MATRIX_EVIDENCE_ENVIRONMENT}" \
+            --release-commit "${release_commit:-}" \
+            --evidence-reference "${evidence_reference}" \
+            --observation-file "${observation_file}" \
+            --out "${ROUTE_MATRIX_ACCOUNT_CART_PROBE_OUT}"
+          account_cart_exit=$?
+          set -e
+          rm -f "${observation_file}"
+          if [ "$account_cart_exit" -ne 0 ]; then
+            echo "Account-cart route-matrix sample probe did not promote; sampler artifact will record the support-safe blocker."
+          fi
+
       - name: Generate route-matrix sampler artifact
         run: |
           set -euo pipefail
           pnpm run ops read-consistency:route-matrix-sampler -- \
             --environment "${ROUTE_MATRIX_EVIDENCE_ENVIRONMENT}" \
             --checkout-probe-file "${ROUTE_MATRIX_CHECKOUT_PROBE_OUT}" \
+            --account-cart-probe-file "${ROUTE_MATRIX_ACCOUNT_CART_PROBE_OUT}" \
             --out "${READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT}"
 
       - name: Generate route-matrix evidence

@@ -32,6 +32,10 @@ export const SUBCOMMANDS = {
     script: "admin-workflows-qa-evidence.mjs",
     description: "Lint admin-workflows QA evidence for public redaction safety.",
   },
+  "account-cart:consistency-probe": {
+    script: "account-cart-consistency-probe.mjs",
+    description: "Redacted account-cart post-write consistency probe evidence.",
+  },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
     description: "Emergency recovery guide record for platform incidents.",

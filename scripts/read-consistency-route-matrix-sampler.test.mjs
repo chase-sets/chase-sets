@@ -22,6 +22,8 @@ describe("read consistency route matrix sampler", () => {
           checkedAt,
           "--checkout-probe-file",
           "artifacts/checkout.json",
+          "--account-cart-probe-file",
+          "artifacts/account-cart.json",
           "--out",
           "artifacts/sampler.json",
         ],
@@ -31,6 +33,7 @@ describe("read consistency route matrix sampler", () => {
       environment: "staging",
       checkedAt,
       checkoutProbePath: "artifacts/checkout.json",
+      accountCartProbePath: "artifacts/account-cart.json",
       outPath: "artifacts/sampler.json",
     });
 
@@ -38,16 +41,19 @@ describe("read consistency route matrix sampler", () => {
       parseReadConsistencyRouteMatrixSamplerArgs([], {
         ROUTE_MATRIX_SAMPLER_ENVIRONMENT: "staging",
         ROUTE_MATRIX_SAMPLER_CHECKOUT_PROBE_FILE: "checkout.json",
+        ROUTE_MATRIX_SAMPLER_ACCOUNT_CART_PROBE_FILE: "account-cart.json",
       }),
     ).toMatchObject({
       environment: "staging",
       checkoutProbePath: "checkout.json",
+      accountCartProbePath: "account-cart.json",
     });
   });
 
   it("builds a support-safe sampler artifact with one route per route-matrix template", async () => {
     const dir = await mkdtemp(join(tmpdir(), "route-matrix-sampler-"));
     const checkoutProbePath = join(dir, "checkout-probe.json");
+    const accountCartProbePath = join(dir, "account-cart-probe.json");
     const outPath = join(dir, "sampler.json");
     await writeFile(
       checkoutProbePath,
@@ -58,11 +64,20 @@ describe("read consistency route matrix sampler", () => {
         attempts: [{ state: "pass" }],
       }),
     );
+    await writeFile(
+      accountCartProbePath,
+      JSON.stringify({
+        schemaVersion: "account-cart-consistency-probe/v1",
+        promotionDecision: "promote",
+        observedOutcomes: ["optimistic_applied", "reconciliation", "stale_response_discard"],
+      }),
+    );
 
     const artifact = await runReadConsistencyRouteMatrixSampler({
       environment: "staging",
       checkedAt,
       checkoutProbePath,
+      accountCartProbePath,
       outPath,
     });
 
@@ -72,8 +87,8 @@ describe("read consistency route matrix sampler", () => {
       checkedAt,
       summary: {
         routeCount: 6,
-        sampledRouteCount: 1,
-        blockedRouteCount: 5,
+        sampledRouteCount: 2,
+        blockedRouteCount: 4,
         failedRouteCount: 0,
         allRoutesSampled: false,
       },
@@ -99,6 +114,17 @@ describe("read consistency route matrix sampler", () => {
       sourceJourney: "guest-buy-now-freshness-probe",
       attemptCount: 1,
       probeDecision: "promote",
+      blockerCategory: null,
+    });
+    expect(artifact.routes[1]).toMatchObject({
+      routeTemplate: "/account/cart",
+      driver: "automatic",
+      status: "sampled",
+      outcomeCategory: "sampled",
+      sourceJourney: "account-cart-consistency-probe",
+      attemptCount: 1,
+      probeDecision: "promote",
+      probeFinalState: "pass",
       blockerCategory: null,
     });
     expect(artifact.routes.find((route) => route.routeTemplate === "/account/payouts/:payoutId")).toMatchObject({
@@ -142,7 +168,38 @@ describe("read consistency route matrix sampler", () => {
     expect(JSON.stringify(artifact)).not.toContain("hidden raw details");
   });
 
-  it("blocks checkout when no checkout probe artifact is present", async () => {
+  it("marks account cart as failed when the cart probe aborts without copying raw details", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "route-matrix-sampler-"));
+    const accountCartProbePath = join(dir, "account-cart-probe.json");
+    await writeFile(
+      accountCartProbePath,
+      JSON.stringify({
+        promotionDecision: "abort",
+        observedOutcomes: ["freshness_timeout", "reconciliation"],
+        blockers: ["hidden raw account-cart details must not be copied"],
+      }),
+    );
+
+    const artifact = await runReadConsistencyRouteMatrixSampler({
+      environment: "staging",
+      checkedAt,
+      accountCartProbePath,
+    });
+
+    const accountCartRoute = artifact.routes.find((route) => route.routeTemplate === "/account/cart");
+    expect(artifact.summary.failedRouteCount).toBe(1);
+    expect(accountCartRoute).toMatchObject({
+      status: "failed",
+      outcomeCategory: "account-cart-probe-failed",
+      attemptCount: 1,
+      probeDecision: "abort",
+      probeFinalState: "freshness_timeout",
+      blockerCategory: "account-cart-probe-failed",
+    });
+    expect(JSON.stringify(artifact)).not.toContain("hidden raw account-cart details");
+  });
+
+  it("blocks automatic routes when probe artifacts are absent", async () => {
     const artifact = await runReadConsistencyRouteMatrixSampler({
       environment: "staging",
       checkedAt,
@@ -157,6 +214,11 @@ describe("read consistency route matrix sampler", () => {
       status: "blocked",
       outcomeCategory: "checkout-probe-missing",
       blockerCategory: "checkout-probe-missing",
+    });
+    expect(artifact.routes[1]).toMatchObject({
+      status: "blocked",
+      outcomeCategory: "account-cart-probe-missing",
+      blockerCategory: "redacted-account-cart-observation-required",
     });
   });
 
