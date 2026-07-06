@@ -13,6 +13,9 @@ describe("account payout setup route headers", () => {
     expect(CONNECT_EMBEDDED_COMPONENT_CSP).toContain(
       "script-src 'self' 'unsafe-inline' https://connect-js.stripe.com https://js.stripe.com",
     );
+    expect(CONNECT_EMBEDDED_COMPONENT_CSP).toContain(
+      "connect-src 'self' https://api.stripe.com https://merchant-ui-api.stripe.com",
+    );
     expect(CONNECT_EMBEDDED_COMPONENT_CSP).toContain("frame-src https://connect-js.stripe.com https://js.stripe.com");
     expect(CONNECT_EMBEDDED_COMPONENT_CSP).toContain("img-src 'self' data: https://*.stripe.com");
     expect(CONNECT_EMBEDDED_COMPONENT_CSP).toContain("style-src 'self' 'unsafe-inline'");
