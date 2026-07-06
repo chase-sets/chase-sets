@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (84)
+## Projection Groups (87)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -66,6 +66,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `discovery:discovery-search-item-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-account-projection` | Fulfillment | **identity** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-order-source-projection` | Fulfillment | **ordering** | push-enabled | 1/1 |
+| `fulfillment:fulfillment-payment-fraud-source-projection` | Fulfillment | **payments** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
 | `identity:identity-account-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-api-key-projection` | Identity | **identity** | push-enabled | 1/1 |
@@ -102,6 +103,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
 | `ordering:ordering-payment-capture` | Ordering | **payments** | push-enabled | 1/1 |
 | `ordering:ordering-postage-policy-projection` | Ordering | **ordering** | push-enabled | 1/1 |
+| `payments:payments-fraud-alert-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:payments-order-cancellation-refund-effect` | Payments | **ordering** | push-enabled | 1/1 |
 | `payments:payments-order-input-projection` | Payments | **ordering** | push-enabled | 1/1 |
 | `payments:payments-payment-projection` | Payments | **payments** | push-enabled | 1/1 |
@@ -116,14 +118,14 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-transactional-email-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
-| `settlement:settlement-account-risk-source-projection` | Settlement | **identity**, **marketplace** | push-enabled | 2/2 |
+| `settlement:settlement-account-risk-source-projection` | Settlement | **identity**, **marketplace**, **payments** | push-enabled | 3/3 |
 | `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
 | `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
 | `settlement:settlement-payout-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
-| `settlement:settlement-support-hold-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
+| `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 72 `push-enabled`, 12 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 75 `push-enabled`, 12 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (68)
 

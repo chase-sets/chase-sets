@@ -30,8 +30,10 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
       handlers: {
         "payments.settlement-payment-input-projection": () =>
           buildSettlementPaymentInputProjectionHandlers(services.db, services.wallets),
-        "platform-operations.settlement-support-hold-projection": () =>
-          buildSettlementSupportHoldProjectionHandlers(services.db),
+        "platform-operations.settlement-support-hold-projection": {
+          buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
+          filterToEventTypes: true,
+        },
         "payments.settlement-support-hold-projection": {
           buildHandlers: () => buildSettlementSupportHoldProjectionHandlers(services.db),
           filterToEventTypes: true,

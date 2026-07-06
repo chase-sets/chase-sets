@@ -26,15 +26,18 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
       manifest: contextManifest,
       handlers: {
         "identity.fulfillment-account-projection": () => buildFulfillmentAccountProjectionHandlers(services.db),
-        "ordering.fulfillment-order-source-projection": () =>
-          buildFulfillmentOrderProjectionHandlers(services.db, {
-            onReadyForFulfillment: async (params) => {
-              await services.shipments.createShipmentForReadyOrder(params);
-            },
-            onOrderCancelled: async (params) => {
-              await services.shipments.cancelShipmentForCancelledOrder(params);
-            },
-          }),
+        "ordering.fulfillment-order-source-projection": {
+          buildHandlers: () =>
+            buildFulfillmentOrderProjectionHandlers(services.db, {
+              onReadyForFulfillment: async (params) => {
+                await services.shipments.createShipmentForReadyOrder(params);
+              },
+              onOrderCancelled: async (params) => {
+                await services.shipments.cancelShipmentForCancelledOrder(params);
+              },
+            }),
+          filterToEventTypes: true,
+        },
         "payments.fulfillment-payment-fraud-source-projection": {
           buildHandlers: () =>
             buildFulfillmentOrderProjectionHandlers(services.db, {
