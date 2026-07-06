@@ -23,6 +23,9 @@ const MAX_CAPTURE_BYTES = 200_000;
 const DEFAULT_HELD_LOCK_TIMEOUT_SECONDS = 1_200;
 const DEFAULT_HELD_LOCK_READY_TIMEOUT_MS = 60_000;
 const DEFAULT_HELD_LOCK_RELEASE_TIMEOUT_MS = 30_000;
+const DEFAULT_ROLLOUT_SETTLE_ATTEMPTS = 180;
+const DEFAULT_ROLLOUT_SETTLE_POLL_INTERVAL_MS = 5_000;
+const QUIESCED_WORKER_COMPONENT = "platform-worker";
 
 export function parseStagingBootstrapHookDrillArgs(argv, env = process.env) {
   return {
@@ -65,6 +68,16 @@ export function parseStagingBootstrapHookDrillArgs(argv, env = process.env) {
       readOption(argv, "--held-lock-release-timeout-ms") ??
         readEnv("STAGING_BOOTSTRAP_HOOK_DRILL_HELD_LOCK_RELEASE_TIMEOUT_MS", env) ??
         DEFAULT_HELD_LOCK_RELEASE_TIMEOUT_MS,
+    ),
+    rolloutSettleAttempts: Number(
+      readOption(argv, "--rollout-settle-attempts") ??
+        readEnv("STAGING_BOOTSTRAP_HOOK_DRILL_ROLLOUT_SETTLE_ATTEMPTS", env) ??
+        DEFAULT_ROLLOUT_SETTLE_ATTEMPTS,
+    ),
+    rolloutSettlePollIntervalMs: Number(
+      readOption(argv, "--rollout-settle-poll-interval-ms") ??
+        readEnv("STAGING_BOOTSTRAP_HOOK_DRILL_ROLLOUT_SETTLE_POLL_INTERVAL_MS", env) ??
+        DEFAULT_ROLLOUT_SETTLE_POLL_INTERVAL_MS,
     ),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
     workflowRunId: readEnv("GITHUB_RUN_ID", env),
@@ -443,6 +456,7 @@ export function summarizeDeploymentSnapshot(raw) {
       component: item.metadata?.labels?.["app.kubernetes.io/component"] ?? "unknown",
       generation: item.metadata?.generation ?? null,
       observedGeneration: item.status?.observedGeneration ?? null,
+      expectedReplicas: item.spec?.replicas ?? 1,
       replicas: item.status?.replicas ?? 0,
       readyReplicas: item.status?.readyReplicas ?? 0,
       images: [
@@ -731,26 +745,7 @@ async function captureSnapshot(label, options, runner) {
     "--namespace",
     options.namespace,
   ]);
-  const deployments = await runCaptured(runner, options.kubectlPath, [
-    "get",
-    "deployments",
-    "--namespace",
-    options.namespace,
-    "--selector",
-    `app.kubernetes.io/instance=${options.release},app.kubernetes.io/name=chase-sets-platform`,
-    "-o",
-    "json",
-  ]);
-  const pods = await runCaptured(runner, options.kubectlPath, [
-    "get",
-    "pods",
-    "--namespace",
-    options.namespace,
-    "--selector",
-    `app.kubernetes.io/instance=${options.release},app.kubernetes.io/name=chase-sets-platform`,
-    "-o",
-    "json",
-  ]);
+  const settledSnapshot = await captureSettledKubernetesSnapshot(label, options, runner);
   const events = await runCaptured(runner, options.kubectlPath, [
     "get",
     "events",
@@ -763,23 +758,93 @@ async function captureSnapshot(label, options, runner) {
 
   await writeTextArtifact(options, `${label}-helm-status.txt`, statusText.stdout);
   await writeTextArtifact(options, `${label}-helm-history.txt`, historyText.stdout);
-  await writeJsonArtifact(
-    options,
-    `${label}-deployment-images-generations.json`,
-    summarizeDeploymentSnapshot(deployments.stdout),
-  );
-  await writeJsonArtifact(
-    options,
-    `${label}-ready-pod-uid-fingerprints.json`,
-    summarizeReadyPodUidFingerprints(pods.stdout),
-  );
+  await writeJsonArtifact(options, `${label}-deployment-images-generations.json`, settledSnapshot.deployments);
+  await writeJsonArtifact(options, `${label}-ready-pod-uid-fingerprints.json`, settledSnapshot.readyPodUidFingerprints);
+  await writeJsonArtifact(options, `${label}-rollout-settle.json`, settledSnapshot.rolloutSettle);
   await writeJsonArtifact(options, `${label}-k8s-events.json`, summarizeEvents(events.stdout));
 
   return {
     helmRevision: readHelmRevision(statusJson.stdout),
-    deployments: summarizeDeploymentSnapshot(deployments.stdout),
-    readyPodUidFingerprints: summarizeReadyPodUidFingerprints(pods.stdout),
+    deployments: settledSnapshot.deployments,
+    readyPodUidFingerprints: settledSnapshot.readyPodUidFingerprints,
+    rolloutSettle: settledSnapshot.rolloutSettle,
   };
+}
+
+async function captureSettledKubernetesSnapshot(label, options, runner) {
+  const attempts = Math.max(1, options.rolloutSettleAttempts ?? DEFAULT_ROLLOUT_SETTLE_ATTEMPTS);
+  let lastSnapshot = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const deploymentsResult = await runCaptured(runner, options.kubectlPath, [
+      "get",
+      "deployments",
+      "--namespace",
+      options.namespace,
+      "--selector",
+      `app.kubernetes.io/instance=${options.release},app.kubernetes.io/name=chase-sets-platform`,
+      "-o",
+      "json",
+    ]);
+    const podsResult = await runCaptured(runner, options.kubectlPath, [
+      "get",
+      "pods",
+      "--namespace",
+      options.namespace,
+      "--selector",
+      `app.kubernetes.io/instance=${options.release},app.kubernetes.io/name=chase-sets-platform`,
+      "-o",
+      "json",
+    ]);
+    const deployments = summarizeDeploymentSnapshot(deploymentsResult.stdout);
+    const readyPodUidFingerprints = summarizeReadyPodUidFingerprints(podsResult.stdout);
+    const rolloutSettle = evaluateRolloutSettle(label, attempt, deployments, readyPodUidFingerprints);
+    lastSnapshot = { deployments, readyPodUidFingerprints, rolloutSettle };
+    if (rolloutSettle.status === "settled") {
+      return lastSnapshot;
+    }
+    if (attempt < attempts) {
+      await sleep(options.rolloutSettlePollIntervalMs ?? DEFAULT_ROLLOUT_SETTLE_POLL_INTERVAL_MS);
+    }
+  }
+  throw new Error(
+    `${label} rollout did not settle before fingerprint capture: ${lastSnapshot?.rolloutSettle?.reason ?? "unknown"}.`,
+  );
+}
+
+function evaluateRolloutSettle(label, attempt, deployments, readyPodUidFingerprints) {
+  const readyPodsByComponent = groupPodUidFingerprintsByComponent(readyPodUidFingerprints);
+  const unsettled = deployments.flatMap((deployment) => {
+    const expectedReplicas = deployment.expectedReplicas ?? 0;
+    const readyPodCount = readyPodsByComponent.get(deployment.component)?.length ?? 0;
+    const reasons = [];
+    if (deployment.observedGeneration !== deployment.generation) {
+      reasons.push("generation-not-observed");
+    }
+    if (deployment.replicas !== expectedReplicas) {
+      reasons.push("replica-count-not-settled");
+    }
+    if (deployment.readyReplicas !== expectedReplicas) {
+      reasons.push("ready-replica-count-not-settled");
+    }
+    if (readyPodCount !== expectedReplicas) {
+      reasons.push("ready-pod-count-not-settled");
+    }
+    return reasons.length === 0
+      ? []
+      : [
+          {
+            component: deployment.component,
+            expectedReplicas,
+            replicas: deployment.replicas,
+            readyReplicas: deployment.readyReplicas,
+            readyPodCount,
+            reasons,
+          },
+        ];
+  });
+  return unsettled.length === 0
+    ? { status: "settled", label, attempt }
+    : { status: "waiting", label, attempt, reason: "rollout-not-settled", unsettled };
 }
 
 async function runUpgradePhase({ phaseName, options, runner, now, args, expectSuccess }) {
@@ -869,15 +934,66 @@ function verifyAtomicRollback(before, after) {
   const afterImages = JSON.stringify(
     after?.deployments?.map((deployment) => [deployment.component, deployment.images]) ?? [],
   );
-  const beforePods = JSON.stringify(before?.readyPodUidFingerprints ?? []);
-  const afterPods = JSON.stringify(after?.readyPodUidFingerprints ?? []);
+  const servingComponents = (before?.deployments ?? [])
+    .map((deployment) => deployment.component)
+    .filter((component) => component !== QUIESCED_WORKER_COMPONENT)
+    .sort((left, right) => left.localeCompare(right, "en"));
+  const beforePodsByComponent = groupPodUidFingerprintsByComponent(before?.readyPodUidFingerprints ?? []);
+  const afterPodsByComponent = groupPodUidFingerprintsByComponent(after?.readyPodUidFingerprints ?? []);
+  const servingBeforePods = serializeComponentPodFingerprints(servingComponents, beforePodsByComponent);
+  const servingAfterPods = serializeComponentPodFingerprints(servingComponents, afterPodsByComponent);
+  const beforeWorkerUidFingerprints = beforePodsByComponent.get(QUIESCED_WORKER_COMPONENT) ?? [];
+  const afterWorkerUidFingerprints = afterPodsByComponent.get(QUIESCED_WORKER_COMPONENT) ?? [];
+  const workerExpectedReplicas =
+    after?.deployments?.find((deployment) => deployment.component === QUIESCED_WORKER_COMPONENT)?.expectedReplicas ?? 1;
+  const workerReturnedReady = afterWorkerUidFingerprints.length === workerExpectedReplicas;
+  const workerUidChanged =
+    beforeWorkerUidFingerprints.length === workerExpectedReplicas &&
+    workerReturnedReady &&
+    JSON.stringify(beforeWorkerUidFingerprints) !== JSON.stringify(afterWorkerUidFingerprints);
+  const deploymentImagesStable = beforeImages === afterImages;
+  const servingReadyPodUidFingerprintsStable = servingBeforePods === servingAfterPods;
   return {
-    status: beforeImages === afterImages && beforePods === afterPods ? "success" : "failure",
+    status:
+      deploymentImagesStable && servingReadyPodUidFingerprintsStable && workerReturnedReady && workerUidChanged
+        ? "success"
+        : "failure",
     baselineHelmRevision: before?.helmRevision ?? null,
     postFailureHelmRevision: after?.helmRevision ?? null,
-    deploymentImagesStable: beforeImages === afterImages,
-    readyPodUidFingerprintsStable: beforePods === afterPods,
+    deploymentImagesStable,
+    readyPodUidFingerprintsStable: servingReadyPodUidFingerprintsStable,
+    servingReadyPodUidFingerprintsStable,
+    servingComponents,
+    quiescedWorkerComponent: QUIESCED_WORKER_COMPONENT,
+    platformWorkerReturnedReady: workerReturnedReady,
+    platformWorkerUidChanged: workerUidChanged,
+    platformWorkerExpectedReplicas: workerExpectedReplicas,
+    platformWorkerBeforeUidFingerprints: beforeWorkerUidFingerprints,
+    platformWorkerAfterUidFingerprints: afterWorkerUidFingerprints,
   };
+}
+
+function groupPodUidFingerprintsByComponent(pods) {
+  const grouped = new Map();
+  for (const pod of pods) {
+    const component = pod.component ?? "unknown";
+    grouped.set(component, [...(grouped.get(component) ?? []), pod.uidFingerprint]);
+  }
+  for (const [component, uidFingerprints] of grouped.entries()) {
+    grouped.set(
+      component,
+      [...uidFingerprints].sort((left, right) => left.localeCompare(right, "en")),
+    );
+  }
+  return grouped;
+}
+
+function serializeComponentPodFingerprints(components, podsByComponent) {
+  return JSON.stringify(components.map((component) => [component, podsByComponent.get(component) ?? []]));
+}
+
+function sleep(ms) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
 }
 
 function buildCleanupStatus(record) {

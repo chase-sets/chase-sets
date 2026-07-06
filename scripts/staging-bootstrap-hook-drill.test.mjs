@@ -326,6 +326,7 @@ describe("staging bootstrap hook drill", () => {
         component: "platform-api",
         generation: 8,
         observedGeneration: 8,
+        expectedReplicas: 1,
         replicas: 1,
         readyReplicas: 1,
         images: ["registry.digitalocean.com/[registry]/chase-sets-platform:release-sha"],
@@ -410,6 +411,8 @@ describe("staging bootstrap hook drill", () => {
           adminUrl: "https://admin.example",
           marketplaceUrl: "https://marketplace.example",
           legacyRedirectUrl: "https://legacy.example",
+          rolloutSettleAttempts: 1,
+          rolloutSettlePollIntervalMs: 0,
         },
         {
           runner: async (command, args) => {
@@ -420,8 +423,16 @@ describe("staging bootstrap hook drill", () => {
             if (command === "kubectl" && args[1] === "deployments") {
               return { exitCode: 0, stdout: deploymentJson(), stderr: "" };
             }
-            if (command === "kubectl" && args[1] === "pods") {
+            if (
+              command === "kubectl" &&
+              args[0] === "get" &&
+              args[1] === "pods" &&
+              args.some((arg) => arg.includes("app.kubernetes.io/component=platform-worker"))
+            ) {
               return { exitCode: 0, stdout: JSON.stringify({ items: [] }), stderr: "" };
+            }
+            if (command === "kubectl" && args[1] === "pods") {
+              return { exitCode: 0, stdout: podsJson(), stderr: "" };
             }
             if (command === "kubectl" && args[1] === "events") {
               return { exitCode: 0, stdout: JSON.stringify({ items: [] }), stderr: "" };
@@ -455,7 +466,19 @@ describe("staging bootstrap hook drill", () => {
       legacyRedirectUrl: "https://legacy.example",
       marketplaceRootUrl: "https://root.example",
       checkedAt: "2026-07-06T00:00:00.000Z",
+      rolloutSettleAttempts: 3,
+      rolloutSettlePollIntervalMs: 0,
     };
+    const platformPodSnapshots = [
+      podsJson({ workerUid: "11111111-1111-4111-8111-111111111111" }),
+      podsJson({
+        workerUid: "22222222-2222-4222-8222-222222222222",
+        adminWebUids: ["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"],
+      }),
+      podsJson({ workerUid: "22222222-2222-4222-8222-222222222222" }),
+      podsJson({ workerUid: "55555555-5555-4555-8555-555555555555" }),
+    ];
+    let platformPodSnapshotIndex = 0;
 
     try {
       const result = await runStagingBootstrapHookDrill(options, {
@@ -487,7 +510,13 @@ describe("staging bootstrap hook drill", () => {
             return { exitCode: 0, stdout: workerPodJson(), stderr: "" };
           }
           if (command === "kubectl" && args[1] === "pods") {
-            return { exitCode: 0, stdout: podsJson(), stderr: "" };
+            return {
+              exitCode: 0,
+              stdout:
+                platformPodSnapshots[platformPodSnapshotIndex++] ??
+                platformPodSnapshots[platformPodSnapshots.length - 1],
+              stderr: "",
+            };
           }
           if (command === "kubectl" && args[1] === "events") {
             return { exitCode: 0, stdout: JSON.stringify({ items: [] }), stderr: "" };
@@ -513,6 +542,18 @@ describe("staging bootstrap hook drill", () => {
         status: "success",
         deploymentImagesStable: true,
         readyPodUidFingerprintsStable: true,
+        servingReadyPodUidFingerprintsStable: true,
+        servingComponents: ["admin-web", "marketplace", "platform-api", "public-web"],
+        quiescedWorkerComponent: "platform-worker",
+        platformWorkerReturnedReady: true,
+        platformWorkerUidChanged: true,
+        platformWorkerExpectedReplicas: 1,
+        platformWorkerBeforeUidFingerprints: [expect.stringMatching(/^[a-f0-9]{16}$/)],
+        platformWorkerAfterUidFingerprints: [expect.stringMatching(/^[a-f0-9]{16}$/)],
+      });
+      expect(result.record.afterSuccessfulUpgrade.rolloutSettle).toMatchObject({
+        status: "settled",
+        attempt: 2,
       });
       expect(result.record.heldLock).toMatchObject({
         result: "released",
@@ -529,6 +570,7 @@ describe("staging bootstrap hook drill", () => {
       expect(calls.some(([command, args]) => command === "pnpm" && args.includes("smoke:platform"))).toBe(true);
       expect(calls.some(([command, args]) => command === "kubectl" && args[0] === "logs")).toBe(true);
       expect(execHandles).toHaveLength(1);
+      expect(platformPodSnapshotIndex).toBe(4);
     } finally {
       await rm(outDir, { recursive: true, force: true });
     }
@@ -548,7 +590,15 @@ describe("staging bootstrap hook drill", () => {
       marketplaceUrl: "https://marketplace.example",
       legacyRedirectUrl: "https://legacy.example",
       checkedAt: "2026-07-06T00:00:00.000Z",
+      rolloutSettleAttempts: 1,
+      rolloutSettlePollIntervalMs: 0,
     };
+    const platformPodSnapshots = [
+      podsJson({ workerUid: "11111111-1111-4111-8111-111111111111" }),
+      podsJson({ workerUid: "22222222-2222-4222-8222-222222222222" }),
+      podsJson({ workerUid: "55555555-5555-4555-8555-555555555555" }),
+    ];
+    let platformPodSnapshotIndex = 0;
 
     try {
       const result = await runStagingBootstrapHookDrill(options, {
@@ -579,7 +629,13 @@ describe("staging bootstrap hook drill", () => {
             return { exitCode: 0, stdout: largeWorkerPodJson(), stderr: "" };
           }
           if (command === "kubectl" && args[1] === "pods") {
-            return { exitCode: 0, stdout: podsJson(), stderr: "" };
+            return {
+              exitCode: 0,
+              stdout:
+                platformPodSnapshots[platformPodSnapshotIndex++] ??
+                platformPodSnapshots[platformPodSnapshots.length - 1],
+              stderr: "",
+            };
           }
           if (command === "kubectl" && args[1] === "events") {
             return { exitCode: 0, stdout: JSON.stringify({ items: [] }), stderr: "" };
@@ -683,31 +739,39 @@ describe("staging bootstrap hook drill", () => {
 });
 
 function deploymentJson() {
+  const components = ["admin-web", "marketplace", "platform-api", "platform-worker", "public-web"];
   return JSON.stringify({
-    items: [
-      {
-        metadata: { generation: 3, labels: { "app.kubernetes.io/component": "platform-worker" } },
-        status: { observedGeneration: 3, replicas: 1, readyReplicas: 1 },
-        spec: {
-          template: {
-            spec: { containers: [{ image: "registry.digitalocean.com/chase-sets/chase-sets-platform:abc" }] },
-          },
+    items: components.map((component) => ({
+      metadata: { generation: 3, labels: { "app.kubernetes.io/component": component } },
+      status: { observedGeneration: 3, replicas: 1, readyReplicas: 1 },
+      spec: {
+        replicas: 1,
+        template: {
+          spec: { containers: [{ image: "registry.digitalocean.com/chase-sets/chase-sets-platform:abc" }] },
         },
       },
-    ],
+    })),
   });
 }
 
-function podsJson() {
+function podsJson({
+  workerUid = "9cf3ae99-7b02-4db1-a257-9eb48c19e8c3",
+  adminWebUids = ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+} = {}) {
+  const pod = (component, uid) => ({
+    metadata: {
+      uid,
+      labels: { "app.kubernetes.io/component": component },
+    },
+    status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }] },
+  });
   return JSON.stringify({
     items: [
-      {
-        metadata: {
-          uid: "9cf3ae99-7b02-4db1-a257-9eb48c19e8c3",
-          labels: { "app.kubernetes.io/component": "platform-worker" },
-        },
-        status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }] },
-      },
+      ...adminWebUids.map((uid) => pod("admin-web", uid)),
+      pod("marketplace", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+      pod("platform-api", "cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+      pod("platform-worker", workerUid),
+      pod("public-web", "dddddddd-dddd-4ddd-8ddd-dddddddddddd"),
     ],
   });
 }
