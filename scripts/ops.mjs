@@ -132,6 +132,10 @@ export const SUBCOMMANDS = {
     script: "read-consistency-route-matrix-evidence.mjs",
     description: "Prometheus-backed read-consistency route matrix freshness evidence.",
   },
+  "read-consistency:route-matrix-sampler": {
+    script: "read-consistency-route-matrix-sampler.mjs",
+    description: "Support-safe staging route-matrix sampler and blocker artifact.",
+  },
   "push-wake:capacity-evidence": {
     script: "push-wake-capacity-evidence.mjs",
     description: "CI-safe push-wake connection budget and listener expansion evidence.",
