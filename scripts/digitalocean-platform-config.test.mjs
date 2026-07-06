@@ -1504,22 +1504,40 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain('export RELEASE_ATTEMPT_PHASE="$attempt_phase"');
     expect(platformProductionWorkflow).toContain('export RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT="$superseded_by_commit"');
     expect(platformProductionWorkflow).toContain("name: staging-release-health");
-    expect(platformProductionWorkflow).toContain("notify-production-deploy-incident:");
-    expect(platformProductionWorkflow).toContain("name: Notify Production Deploy Incident");
-    expect(platformProductionWorkflow).toContain("issues: write");
-    expect(platformProductionWorkflow).toContain("gh issue create");
-    expect(platformProductionWorkflow).toContain("Incident: Platform Deploy failed for");
-    expect(platformProductionWorkflow).not.toContain("Incident: Platform Deploy superseded before production for");
-    expect(platformProductionWorkflow).not.toContain("Kind: production-superseded");
-    expect(workflowJob(platformProductionWorkflow, "notify-production-deploy-incident")).not.toContain(
-      "needs.deploy-production.outputs.superseded == 'true'",
+    const notifyProductionDeployIncidentJob = workflowJob(
+      platformProductionWorkflow,
+      "notify-production-deploy-incident",
     );
-    expect(workflowJob(platformProductionWorkflow, "notify-production-deploy-incident")).toContain(
+    expect(notifyProductionDeployIncidentJob).toContain("notify-production-deploy-incident:");
+    expect(notifyProductionDeployIncidentJob).toContain("name: Notify Production Deploy Incident");
+    expect(notifyProductionDeployIncidentJob).toContain("issues: write");
+    expect(notifyProductionDeployIncidentJob).toContain("gh issue create");
+    expect(notifyProductionDeployIncidentJob).toContain('--milestone "Incidents"');
+    expect(notifyProductionDeployIncidentJob).toContain("Incident: Platform Deploy failed for");
+    expect(notifyProductionDeployIncidentJob).not.toContain(
+      "Incident: Platform Deploy superseded before production for",
+    );
+    expect(notifyProductionDeployIncidentJob).not.toContain("Kind: production-superseded");
+    expect(notifyProductionDeployIncidentJob).not.toContain("needs.deploy-production.outputs.superseded == 'true'");
+    expect(notifyProductionDeployIncidentJob).toContain(
       'contains(fromJSON(\'["failure", "cancelled"]\'), needs.deploy-production.result)',
     );
     expect(platformProductionWorkflow).toContain(
       'contains(fromJSON(\'["failure", "cancelled"]\'), needs.deploy-production.result)',
     );
+    const closeResolvedDeployIncidentsJob = workflowJob(platformProductionWorkflow, "close-resolved-deploy-incidents");
+    expect(closeResolvedDeployIncidentsJob).toContain("name: Close Resolved Production Deploy Incidents");
+    expect(closeResolvedDeployIncidentsJob).toContain("needs.deploy-production.result == 'success'");
+    expect(closeResolvedDeployIncidentsJob).toContain("needs.deploy-production.outputs.superseded != 'true'");
+    expect(closeResolvedDeployIncidentsJob).toContain("issues: write");
+    expect(closeResolvedDeployIncidentsJob).toContain("Close resolved deploy incidents");
+    expect(closeResolvedDeployIncidentsJob).toContain('--search "\\"Incident: Platform Deploy\\" in:title"');
+    expect(closeResolvedDeployIncidentsJob).toContain(
+      'startswith("Incident: Platform Deploy superseded before production for ")',
+    );
+    expect(closeResolvedDeployIncidentsJob).toContain("Resolving workflow run: ${RUN_URL}");
+    expect(closeResolvedDeployIncidentsJob).toContain("Resolving release commit: ${release_commit}");
+    expect(closeResolvedDeployIncidentsJob).toContain('gh issue close "${issue_number}"');
     expect(platformProductionWorkflow).toContain("- name: Stage 1 production canary");
     expect(platformProductionWorkflow.indexOf("- name: Stage 1 production canary")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Mark production release"),
