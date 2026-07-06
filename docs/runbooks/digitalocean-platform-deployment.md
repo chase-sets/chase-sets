@@ -564,9 +564,9 @@ Representative commerce state is intentionally outside this normal staging deplo
 
 Closed and merged pull requests destroy their preview environment through `.github/workflows/platform-preview-cleanup.yml`. The same workflow also runs a once-daily safety sweep that lists disposable preview Terraform state objects under `platform/previews/`, keeps only closed pull requests, and fans out the same destroy job for any leaked preview state.
 
-The cleanup workflow runs with the trusted base workflow definition, checks out a trusted ref for the cleanup target, initializes Terraform with `platform/previews/pr-<number>.tfstate`, waits for any active App Platform deployment to finish, disables the platform root's stateful `prevent_destroy` guard in the ephemeral checkout, and runs `terraform destroy -auto-approve`. That bypass is limited to the approved preview cleanup workflow so ordinary plans and ad hoc targeted destroys still fail closed.
+The cleanup workflow runs with the trusted base workflow definition, checks out a trusted ref for the cleanup target, initializes Terraform with `platform/previews/pr-<number>.tfstate`, disables the platform root's stateful `prevent_destroy` guard in the ephemeral checkout, and runs `terraform destroy -auto-approve`. That bypass is limited to the approved preview cleanup workflow so ordinary plans and ad hoc targeted destroys still fail closed.
 
-If cleanup fails, rerun the cleanup workflow for the closed PR. If the state key exists but the App Platform app has already been deleted manually, the DigitalOcean deployment helper treats the missing app as no active deployment to wait for. The scheduled sweep uploads `platform-preview-cleanup-sweep` evidence with candidate state keys and selected PR numbers, but does not read Terraform state contents.
+If cleanup fails, rerun the cleanup workflow for the closed PR. If the state key exists but the App Platform app has already been deleted manually, Terraform destroy should converge the remaining state; inspect the uploaded cleanup logs before removing the state key by hand. The scheduled sweep uploads `platform-preview-cleanup-sweep` evidence with candidate state keys and selected PR numbers, but does not read Terraform state contents.
 
 ## Production Deployment
 
