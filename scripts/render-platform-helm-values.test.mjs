@@ -125,6 +125,9 @@ describe("render platform Helm values", () => {
     expect(componentEnvKeys(values.components["platform-worker"])).toContain(
       "WORKER_LISTENER_DATABASE_URL_PUBLIC_PRESENCE",
     );
+    expect(
+      values.components["platform-worker"].env.find((entry) => entry.name === "NOTIFICATION_EMAIL_PROVIDER"),
+    ).toMatchObject({ value: "noop" });
   });
 
   it("keeps live deploy wiring out of the scaffold", () => {

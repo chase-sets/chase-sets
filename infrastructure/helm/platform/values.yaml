@@ -525,7 +525,7 @@ components:
       - name: "NODE_ENV"
         value: "production"
       - name: "NOTIFICATION_EMAIL_PROVIDER"
-        value: "disabled"
+        value: "noop"
       - name: "OBSERVABILITY_ENABLED"
         value: "false"
       - name: "OTEL_EXPORTER_OTLP_ENDPOINT"
