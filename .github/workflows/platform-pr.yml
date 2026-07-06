@@ -549,7 +549,7 @@ jobs:
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
           (
             cd "$tmp"
-            node "$GITHUB_WORKSPACE/scripts/digitalocean-app-deployment.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
+            node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
           )
 
       - name: Terraform init catalog assets without remote backend
@@ -589,7 +589,7 @@ jobs:
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
           (
             cd "$tmp"
-            node "$GITHUB_WORKSPACE/scripts/digitalocean-app-deployment.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
+            node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
           )
 
   terraform-staging-plan:
@@ -947,7 +947,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform plan -out=tfplan
-          app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
+          app_changed="$(node ../../../scripts/terraform-plan-inspection.mjs plan-app-changed tfplan)"
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Wait for previous App Platform deployment

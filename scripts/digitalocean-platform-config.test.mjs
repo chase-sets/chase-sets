@@ -417,7 +417,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(restorePointStep).toContain(`gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)`);
     expect(restorePointStep).toContain("[ -f tfplan ]");
     expect(restorePointStep).toContain(
-      "node ../../../scripts/digitalocean-app-deployment.mjs postgres-cluster-id tfplan",
+      "node ../../../scripts/terraform-plan-inspection.mjs postgres-cluster-id tfplan",
     );
     expect(restorePointStep).toContain("Using production database cluster id from Terraform plan.");
     expect(restorePointStep).toContain("git fetch origin production");
@@ -1976,10 +1976,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(productionPlanStep).toContain('cd "$tmp"');
     expect(productionPlanStep).toContain(
-      'node "$GITHUB_WORKSPACE/scripts/digitalocean-app-deployment.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"',
+      'node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan --allow-file="$GITHUB_WORKSPACE/${DESTRUCTIVE_CHANGE_ALLOW_FILE}"',
     );
     expect(deployProductionPlanStep).toContain(
-      "node ../../../scripts/digitalocean-app-deployment.mjs assert-no-destructive-changes tfplan",
+      "node ../../../scripts/terraform-plan-inspection.mjs assert-no-destructive-changes tfplan",
     );
   });
 
