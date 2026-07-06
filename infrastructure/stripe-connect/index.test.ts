@@ -1245,12 +1245,9 @@ describe("money movement adapters", () => {
     const rawBody = JSON.stringify({
       id: "evt_account_requirements",
       type: "v2.core.account[requirements].updated",
-      created: 1_776_000_000,
-      data: {
-        object: {
-          id: "acct_123",
-          requirements: { currently_due: ["external_account"] },
-        },
+      created: "2026-04-12T13:20:00.000Z",
+      related_object: {
+        id: "acct_123",
       },
     });
 
@@ -1278,6 +1275,32 @@ describe("money movement adapters", () => {
       occurredAt: "2026-04-12T13:20:00.000Z",
     });
     expect(calls).toHaveLength(1);
+  });
+
+  it("Stripe webhook parser ignores malformed Accounts v2 readiness envelopes without retryable errors", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-12T13:21:00.000Z"));
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("malformed readiness envelopes should not fetch Stripe accounts");
+    }) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const rawBody = JSON.stringify({
+      id: "evt_account_requirements_missing_reference",
+      type: "v2.core.account.updated",
+      created: "not-a-date",
+    });
+
+    await expect(
+      adapter.parseMoneyMovementWebhook({
+        rawBody,
+        signatureHeader: stripeSignature(rawBody, "whsec_test"),
+      }),
+    ).resolves.toBeNull();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("Stripe webhook parser maps Accounts v1 account.updated into blocked provider-neutral readiness", async () => {
