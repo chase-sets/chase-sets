@@ -2453,6 +2453,16 @@ describe("DigitalOcean platform configuration", () => {
       "PROMETHEUS_QUERY_TOKEN: ${{ secrets.PROMETHEUS_QUERY_TOKEN || '' }}",
     );
     expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("route-matrix-config-failure.json");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("ROUTE_MATRIX_CHECKOUT_PROBE_OUT");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("Drive checkout route-matrix sample");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("pnpm run guest-buy-now:freshness-probe");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("route-matrix-probe+${GITHUB_RUN_ID}");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("Generate route-matrix sampler artifact");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("pnpm run ops read-consistency:route-matrix-sampler");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
+      '--checkout-probe-file "${ROUTE_MATRIX_CHECKOUT_PROBE_OUT}"',
+    );
     expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
       'schemaVersion: "read-consistency-route-matrix-config-failure/v1"',
     );

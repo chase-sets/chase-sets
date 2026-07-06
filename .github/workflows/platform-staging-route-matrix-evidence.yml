@@ -48,7 +48,7 @@ jobs:
   staging-route-matrix-evidence:
     name: Staging Route Matrix Evidence
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     environment: staging
     needs: refuse-unconfirmed
     if: always() && needs.refuse-unconfirmed.result == 'skipped'
@@ -58,6 +58,8 @@ jobs:
       ROUTE_MATRIX_EVIDENCE_WINDOW: ${{ inputs.window }}
       ROUTE_MATRIX_EVIDENCE_ENVIRONMENT: staging
       READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_OUT: artifacts/wake-drills/read-consistency-route-matrix-evidence.json
+      READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT: artifacts/wake-drills/read-consistency-route-matrix-sampler.json
+      ROUTE_MATRIX_CHECKOUT_PROBE_OUT: artifacts/wake-drills/route-matrix-checkout-probe.json
     steps:
       - name: Confirm staging route-matrix evidence
         run: |
@@ -78,6 +80,9 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
+
+      - name: Install Playwright Chromium for route-matrix sampler
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Validate Prometheus query configuration
         run: |
@@ -123,6 +128,58 @@ jobs:
             exit 1
           fi
 
+      - name: Drive checkout route-matrix sample
+        env:
+          GUEST_BUY_NOW_PROBE_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
+          GUEST_BUY_NOW_PROBE_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || 'air balloon' }}
+          GUEST_BUY_NOW_PROBE_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
+          GUEST_BUY_NOW_PROBE_TIMEOUT_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
+          GUEST_BUY_NOW_PROBE_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
+          GUEST_BUY_NOW_PROBE_ATTEMPTS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ATTEMPTS || '3' }}
+          GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_BUDGET_MS || '120000' }}
+          GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+        run: |
+          set -euo pipefail
+          checkout_args=(
+            --environment staging
+            --base-url "https://marketplace.staging.chasesets.com"
+            --admin-base-url "https://admin.staging.chasesets.com"
+            --search-query "${GUEST_BUY_NOW_PROBE_SEARCH_QUERY}"
+            --fixture-key "${GUEST_BUY_NOW_PROBE_FIXTURE_KEY}"
+            --timeout-ms "${GUEST_BUY_NOW_PROBE_TIMEOUT_MS}"
+            --ready-slo-ms "${GUEST_BUY_NOW_PROBE_READY_SLO_MS}"
+            --attempts "${GUEST_BUY_NOW_PROBE_ATTEMPTS}"
+            --wake-runtime-ready-budget-ms "${GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS}"
+            --wake-runtime-ready-poll-interval-ms "${GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS}"
+          )
+          if [ -n "${GUEST_BUY_NOW_PROBE_ITEM_PATH}" ]; then
+            checkout_args+=(--item-path "${GUEST_BUY_NOW_PROBE_ITEM_PATH}")
+          fi
+
+          set +e
+          pnpm run guest-buy-now:freshness-probe -- \
+            "${checkout_args[@]}" \
+            --flow guest \
+            --guest-email "route-matrix-probe+${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@chasesets.test" \
+            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-route-matrix-checkout" \
+            --out "${ROUTE_MATRIX_CHECKOUT_PROBE_OUT}"
+          checkout_exit=$?
+          set -e
+          if [ "$checkout_exit" -ne 0 ]; then
+            echo "Checkout route-matrix sample probe did not promote; sampler artifact will record the support-safe blocker."
+          fi
+
+      - name: Generate route-matrix sampler artifact
+        run: |
+          set -euo pipefail
+          pnpm run ops read-consistency:route-matrix-sampler -- \
+            --environment "${ROUTE_MATRIX_EVIDENCE_ENVIRONMENT}" \
+            --checkout-probe-file "${ROUTE_MATRIX_CHECKOUT_PROBE_OUT}" \
+            --out "${READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT}"
+
       - name: Generate route-matrix evidence
         run: |
           set -euo pipefail
@@ -160,6 +217,21 @@ jobs:
           {
             echo "## Staging Route Matrix Evidence"
             echo
+            sampler="artifacts/wake-drills/read-consistency-route-matrix-sampler.json"
+            if [ -f "$sampler" ]; then
+              jq -r '
+                "### Sampler",
+                "",
+                "- sampled: " + (.summary.sampledRouteCount | tostring) + "/" + (.summary.routeCount | tostring),
+                "- blocked: " + (.summary.blockedRouteCount | tostring),
+                "- failed: " + (.summary.failedRouteCount | tostring),
+                "",
+                "| Route | Sampler status | Outcome | Blocker |",
+                "| --- | --- | --- | --- |",
+                (.routes[] | "| " + .routeTemplate + " | " + .status + " | " + .outcomeCategory + " | " + (.blockerCategory // "none") + " |"),
+                ""
+              ' "$sampler"
+            fi
             jq -r '
               "- checkedAt: " + (.checkedAt // "unknown"),
               "- window: " + (.window // "unknown"),
