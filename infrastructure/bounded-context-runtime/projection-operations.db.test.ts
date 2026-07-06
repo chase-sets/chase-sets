@@ -89,6 +89,15 @@ function createReactionTargetModule(): BcApiModule<TestServices, PgTransactional
       contextName: "target",
       apiBasePath: "/target",
       streamPrefix: "target.",
+      projectionGroups: [
+        {
+          projectionName: "orders-reaction",
+          handlerKind: "reaction",
+          sourceContextNames: ["source"],
+          ownedTables: [],
+          sideEffectOnly: true,
+        },
+      ],
     },
     schemaSql: `
       CREATE TABLE IF NOT EXISTS reaction_orders (
