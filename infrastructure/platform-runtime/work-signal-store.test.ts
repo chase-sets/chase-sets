@@ -436,6 +436,39 @@ describe("work signal store", () => {
     expect(calls[1].values[5]).toBe("2026-06-10T12:00:10.250Z");
   });
 
+  it("defers a fenced wake claim back to queued without consuming the transient claim attempt", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 1 };
+        },
+      },
+      { defaultWakeTtlMs: 10_000, now: () => NOW },
+    );
+
+    await expect(
+      store.deferProjectionWakeIntent({
+        wakeIntentId: "projection-wake-3",
+        claimOwnerId: "projection-worker-a",
+        claimFencingToken: 5n,
+        retryAfterMs: 750,
+        error: { reason: "projection-group-lease-busy", workerId: "worker-a" },
+      }),
+    ).resolves.toBe(true);
+
+    expect(calls[0].sql).toContain("state = 'queued'");
+    expect(calls[0].sql).toContain("attempt_count = GREATEST(attempt_count - 1, 0)");
+    expect(calls[0].sql).toContain("claim_owner_id = $2");
+    expect(calls[0].sql).toContain("claim_fencing_token = $3::bigint");
+    expect(calls[0].sql).toContain("claimed_until > now()");
+    expect(calls[0].sql).toContain("next_eligible_at = $4::timestamptz");
+    expect(calls[0].sql).toContain("last_error = $5::jsonb");
+    expect(calls[0].values[4]).toBe(JSON.stringify({ reason: "projection-group-lease-busy", workerId: "worker-a" }));
+    expect(calls[0].values[5]).toBe("2026-06-10T12:00:10.750Z");
+  });
+
   it("rejects sensitive metadata keys on every durable wake-store write path", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const store = createPostgresWorkSignalStore(
