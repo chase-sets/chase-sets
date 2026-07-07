@@ -107,7 +107,11 @@ export async function runStagingProjectionOperations(options, dependencies = {})
     );
     const auth = { adminBaseUrl, sessionToken, fetchImpl };
 
-    const beforeSnapshot = await fetchProjectionOperationsSnapshot(auth);
+    const beforeSnapshot = await hydrateProjectionOperationsBlockedDetails(
+      await fetchProjectionOperationsSnapshot(auth),
+      auth,
+      options.mode === "retry-blocked" ? options.targets : [],
+    );
     const safeBeforeSnapshot = sanitizeProjectionOperationsSnapshot(beforeSnapshot);
     record.beforeSnapshot = summarizeSnapshotArtifact("before-snapshot.json", safeBeforeSnapshot);
     await writeJsonRecord(join(options.outDir, "before-snapshot.json"), safeBeforeSnapshot);
@@ -118,7 +122,10 @@ export async function runStagingProjectionOperations(options, dependencies = {})
       record.commands = await rebuildProjectionGroups(options.targets, auth);
     }
 
-    const afterSnapshot = await fetchProjectionOperationsSnapshot(auth);
+    const afterSnapshot = await hydrateProjectionOperationsBlockedDetails(
+      await fetchProjectionOperationsSnapshot(auth),
+      auth,
+    );
     const safeAfterSnapshot = sanitizeProjectionOperationsSnapshot(afterSnapshot);
     record.afterSnapshot = summarizeSnapshotArtifact("after-snapshot.json", safeAfterSnapshot);
     record.report = buildProjectionAttentionReport(safeAfterSnapshot);
@@ -150,11 +157,14 @@ export function parseRebuildTarget(target) {
 }
 
 export function sanitizeProjectionOperationsSnapshot(snapshot) {
-  const groups = readArray(snapshot?.projectionGroups).map(sanitizeProjectionGroup).sort(compareGroup);
   const blockedProjections = readArray(snapshot?.blockedProjections)
     .map(sanitizeBlockedProjection)
     .filter((projection) => projection.projectionKey)
     .sort((left, right) => left.projectionKey.localeCompare(right.projectionKey));
+  const groups = reconcileProjectionGroupCounters(
+    readArray(snapshot?.projectionGroups).map(sanitizeProjectionGroup),
+    blockedProjections,
+  ).sort(compareGroup);
   const operations = readArray(snapshot?.operations).map(sanitizeOperation).sort(compareOperation);
   const runners = readArray(snapshot?.runners).map(sanitizeRuntimeRecord).filter(Boolean).sort(compareRuntimeRecord);
   const workers = readArray(snapshot?.workers).map(sanitizeRuntimeRecord).filter(Boolean).sort(compareRuntimeRecord);
@@ -180,7 +190,7 @@ export function buildProjectionAttentionReport(snapshot) {
   );
   const staleGroups = snapshot.projectionGroups.filter((group) => group.revisionStale);
   const blockedStreamCount = snapshot.blockedProjections.reduce(
-    (sum, projection) => sum + projection.blockedStreams.length,
+    (sum, projection) => sum + projection.blockedStreamCount,
     0,
   );
   const poisonEventCount = snapshot.projectionGroups.reduce((sum, group) => sum + group.poisonEventCount, 0);
@@ -220,9 +230,10 @@ export function buildProjectionAttentionReport(snapshot) {
       blockedStreamCount: group.blockedStreamCount,
       poisonEventCount: group.poisonEventCount,
       lastErrorClass: group.lastErrorClass,
+      poisonEventErrorClasses: group.poisonEventErrorClasses,
     })),
     blockedProjectionKeys: snapshot.blockedProjections
-      .filter((projection) => projection.blockedStreams.length > 0)
+      .filter((projection) => projection.blockedStreamCount > 0)
       .map((projection) => projection.projectionKey),
     failedOperationCount,
     supportSafe: true,
@@ -238,22 +249,17 @@ export function redactSupportUnsafeText(value) {
 }
 
 async function retryBlockedStreamsForTargets(targets, beforeSnapshot, auth) {
-  const blockedByProjection = new Map(
-    readArray(beforeSnapshot?.blockedProjections).map((projection) => [
-      String(projection?.projectionKey ?? ""),
-      readArray(projection?.blockedStreams),
-    ]),
-  );
-
   const commands = [];
   for (const projectionKey of targets) {
-    const streams = blockedByProjection.get(projectionKey) ?? [];
+    const resolution = resolveRetryBlockedStreamsForTarget(projectionKey, beforeSnapshot);
+    const streams = resolution.streams;
     const command = {
       operationKind: "retry-blocked",
       target: projectionKey,
       status: streams.length > 0 ? "running" : "skipped",
       streamCount: streams.length,
       streamIdFingerprints: streams.map((stream) => fingerprint(stream?.streamId ?? "")),
+      sourceProjectionKeys: resolution.sourceProjectionKeys,
       responses: [],
     };
     if (streams.length === 0) {
@@ -264,11 +270,16 @@ async function retryBlockedStreamsForTargets(targets, beforeSnapshot, auth) {
 
     for (const stream of streams) {
       const streamId = String(stream?.streamId ?? "");
+      const streamProjectionKey = String(stream?.projectionKey ?? projectionKey);
       if (!streamId) {
         command.responses.push({ status: "skipped", reason: "missing-stream-id" });
         continue;
       }
-      const response = await postProjectionOperation(auth, [projectionKey, "blocked-streams", streamId, "retry"], {});
+      const response = await postProjectionOperation(
+        auth,
+        [streamProjectionKey, "blocked-streams", streamId, "retry"],
+        {},
+      );
       command.responses.push({
         status: "requested",
         streamIdFingerprint: fingerprint(streamId),
@@ -334,11 +345,30 @@ async function fetchProjectionOperationsSnapshot(auth) {
   return result.body;
 }
 
-async function postProjectionOperation(auth, segments, body) {
-  const url = new URL("/api/platform/projections", ensureTrailingSlash(auth.adminBaseUrl));
-  for (const segment of segments) {
-    url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(segment)}`;
+async function hydrateProjectionOperationsBlockedDetails(snapshot, auth, extraProjectionKeys = []) {
+  const projectionKeys = resolveProjectionKeysWithBlockedAttention(snapshot, extraProjectionKeys);
+  if (projectionKeys.length === 0) {
+    return snapshot;
   }
+
+  const details = await Promise.all(
+    projectionKeys.map((projectionKey) => fetchProjectionBlockedStreamDetails(auth, projectionKey)),
+  );
+  return mergeBlockedProjectionDetails(snapshot, details);
+}
+
+async function fetchProjectionBlockedStreamDetails(auth, projectionKey) {
+  const url = buildProjectionOperationUrl(auth.adminBaseUrl, [projectionKey, "blocked-streams"]);
+  url.searchParams.set("limit", "500");
+  const result = await requestJson(url, { headers: { Authorization: `Bearer ${auth.sessionToken}` } }, auth.fetchImpl);
+  if (result.response.status !== 200) {
+    throw new Error(`Projection blocked streams ${projectionKey} failed with HTTP ${result.response.status}.`);
+  }
+  return { projectionKey, ...(isRecord(result.body) ? result.body : {}) };
+}
+
+async function postProjectionOperation(auth, segments, body) {
+  const url = buildProjectionOperationUrl(auth.adminBaseUrl, segments);
   const result = await requestJson(
     url,
     {
@@ -355,6 +385,14 @@ async function postProjectionOperation(auth, segments, body) {
     throw new Error(`Projection operation ${segments.join("/")} failed with HTTP ${result.response.status}.`);
   }
   return result.body;
+}
+
+function buildProjectionOperationUrl(adminBaseUrl, segments) {
+  const url = new URL("/api/platform/projections", ensureTrailingSlash(adminBaseUrl));
+  for (const segment of segments) {
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(segment)}`;
+  }
+  return url;
 }
 
 async function requestJson(url, init, fetchImpl) {
@@ -403,10 +441,7 @@ function summarizeSnapshotArtifact(fileName, snapshot) {
     degradedOrErrorGroups: snapshot.projectionGroups.filter(
       (group) => group.state === "degraded" || group.state === "error",
     ).length,
-    blockedStreamCount: snapshot.blockedProjections.reduce(
-      (sum, projection) => sum + projection.blockedStreams.length,
-      0,
-    ),
+    blockedStreamCount: snapshot.blockedProjections.reduce((sum, projection) => sum + projection.blockedStreamCount, 0),
     poisonEventCount: snapshot.projectionGroups.reduce((sum, group) => sum + group.poisonEventCount, 0),
     failedOperationCount: snapshot.operations.filter((operation) => operation.state === "failed").length,
     supportSafe: true,
@@ -466,6 +501,7 @@ function sanitizeProjectionGroup(group) {
         : readCountString(value.applicableLagEstimate),
     blockedStreamCount: readNumber(value.blockedStreamCount),
     poisonEventCount: readNumber(value.poisonEventCount),
+    poisonEventErrorClasses: [],
     updatedAt: readSafeTimestamp(value.updatedAt),
     lastErrorClass: classifyError(value.lastError),
     subscriptions: readArray(value.subscriptions).map(sanitizeSubscription).sort(compareSubscription),
@@ -499,10 +535,15 @@ function sanitizeSubscription(subscription) {
 
 function sanitizeBlockedProjection(projection) {
   const value = isRecord(projection) ? projection : {};
+  const blockedStreams = readArray(value.blockedStreams).map(sanitizeBlockedStream).sort(compareBlockedStream);
+  const poisonEvents = readArray(value.poisonEvents).map(sanitizePoisonEvent).sort(comparePoisonEvent);
   return {
     projectionKey: readSafeProjectionKey(value.projectionKey),
-    blockedStreams: readArray(value.blockedStreams).map(sanitizeBlockedStream).sort(compareBlockedStream),
-    poisonEvents: readArray(value.poisonEvents).map(sanitizePoisonEvent).sort(comparePoisonEvent),
+    blockedStreamCount: Math.max(readNumber(value.blockedStreamCount), blockedStreams.length),
+    poisonEventCount: Math.max(readNumber(value.poisonEventCount), poisonEvents.length),
+    blockedStreams,
+    poisonEvents,
+    poisonEventErrorClasses: uniqueStrings(poisonEvents.map((event) => event.errorClass).filter(Boolean)).sort(),
   };
 }
 
@@ -531,7 +572,7 @@ function sanitizePoisonEvent(event) {
     firstSeenAt: readSafeTimestamp(value.firstSeenAt),
     lastSeenAt: readSafeTimestamp(value.lastSeenAt),
     state: readSafeEnum(value.state, "unknown"),
-    errorClass: classifyError(value.errorMessage),
+    errorClass: classifyError(readPoisonError(value)),
   };
 }
 
@@ -632,7 +673,7 @@ function classifyError(error) {
   if (error === null || error === undefined || error === "") {
     return null;
   }
-  const text = redactSupportUnsafeText(typeof error === "string" ? error : JSON.stringify(error));
+  const text = redactSupportUnsafeText(stripSupportUnsafeIdentifiers(readFirstErrorLine(error)));
   if (text.includes("projection-group-lease-busy")) {
     return "projection-group-lease-busy";
   }
@@ -648,6 +689,251 @@ function classifyError(error) {
   return text.slice(0, 120) || "error";
 }
 
+function reconcileProjectionGroupCounters(groups, blockedProjections) {
+  const blockedByProjectionKey = new Map(
+    blockedProjections.map((projection) => [projection.projectionKey, projection]),
+  );
+
+  return groups.map((group) => {
+    const subscriptionKeys = group.subscriptions.map((subscription) => subscription.checkpointKey).filter(Boolean);
+    const projectionKeys = uniqueStrings([group.projectionKey, ...subscriptionKeys].filter(Boolean));
+    const groupBlockedStreamCount = Math.max(
+      group.blockedStreamCount,
+      sumProjectionCounts(projectionKeys, blockedByProjectionKey, "blockedStreamCount"),
+    );
+    const groupPoisonEventCount = Math.max(
+      group.poisonEventCount,
+      sumProjectionCounts(projectionKeys, blockedByProjectionKey, "poisonEventCount"),
+    );
+    const poisonEventErrorClasses = uniqueStrings(
+      projectionKeys.flatMap(
+        (projectionKey) => blockedByProjectionKey.get(projectionKey)?.poisonEventErrorClasses ?? [],
+      ),
+    ).sort();
+
+    return {
+      ...group,
+      blockedStreamCount: groupBlockedStreamCount,
+      poisonEventCount: groupPoisonEventCount,
+      poisonEventErrorClasses,
+      subscriptions: group.subscriptions.map((subscription) => {
+        const blockedProjection = blockedByProjectionKey.get(subscription.checkpointKey);
+        if (!blockedProjection) {
+          return subscription;
+        }
+        return {
+          ...subscription,
+          blockedStreamCount: Math.max(subscription.blockedStreamCount, blockedProjection.blockedStreamCount),
+          poisonEventCount: Math.max(subscription.poisonEventCount, blockedProjection.poisonEventCount),
+          poisonEventErrorClasses: blockedProjection.poisonEventErrorClasses,
+        };
+      }),
+    };
+  });
+}
+
+function sumProjectionCounts(projectionKeys, blockedByProjectionKey, countKey) {
+  return projectionKeys.reduce(
+    (sum, projectionKey) => sum + (blockedByProjectionKey.get(projectionKey)?.[countKey] ?? 0),
+    0,
+  );
+}
+
+function resolveProjectionKeysWithBlockedAttention(snapshot, extraProjectionKeys = []) {
+  const keys = new Set(extraProjectionKeys.map(String).filter(Boolean));
+
+  for (const projection of readArray(snapshot?.blockedProjections)) {
+    const projectionKey = String(projection?.projectionKey ?? "");
+    if (
+      projectionKey &&
+      (readNumber(projection?.blockedStreamCount) > 0 ||
+        readNumber(projection?.poisonEventCount) > 0 ||
+        readArray(projection?.blockedStreams).length > 0 ||
+        readArray(projection?.poisonEvents).length > 0)
+    ) {
+      keys.add(projectionKey);
+    }
+  }
+
+  for (const group of readArray(snapshot?.projectionGroups)) {
+    const groupProjectionKey = readRawGroupProjectionKey(group);
+    const subscriptionKeysWithAttention = [];
+    for (const subscription of readArray(group?.subscriptions)) {
+      const checkpointKey = String(subscription?.checkpointKey ?? "");
+      if (
+        checkpointKey &&
+        (readNumber(subscription?.blockedStreamCount) > 0 || readNumber(subscription?.poisonEventCount) > 0)
+      ) {
+        subscriptionKeysWithAttention.push(checkpointKey);
+      }
+    }
+    if (subscriptionKeysWithAttention.length > 0) {
+      for (const checkpointKey of subscriptionKeysWithAttention) {
+        keys.add(checkpointKey);
+      }
+    } else if (
+      groupProjectionKey &&
+      (readNumber(group?.blockedStreamCount) > 0 || readNumber(group?.poisonEventCount) > 0)
+    ) {
+      keys.add(groupProjectionKey);
+    }
+  }
+
+  for (const target of extraProjectionKeys) {
+    for (const group of readArray(snapshot?.projectionGroups)) {
+      if (readRawGroupProjectionKey(group) !== target) {
+        continue;
+      }
+      for (const subscription of readArray(group?.subscriptions)) {
+        const checkpointKey = String(subscription?.checkpointKey ?? "");
+        if (
+          checkpointKey &&
+          (readNumber(subscription?.blockedStreamCount) > 0 || readNumber(subscription?.poisonEventCount) > 0)
+        ) {
+          keys.add(checkpointKey);
+        }
+      }
+    }
+  }
+
+  return [...keys].sort();
+}
+
+function mergeBlockedProjectionDetails(snapshot, details) {
+  const blockedByProjectionKey = new Map(
+    readArray(snapshot?.blockedProjections).flatMap((projection) => {
+      const projectionKey = String(projection?.projectionKey ?? "");
+      return projectionKey ? [[projectionKey, { ...projection }]] : [];
+    }),
+  );
+
+  for (const detail of details) {
+    const projectionKey = String(detail?.projectionKey ?? "");
+    if (!projectionKey) {
+      continue;
+    }
+    const existing = blockedByProjectionKey.get(projectionKey) ?? {};
+    const blockedStreams = readArray(detail?.blockedStreams);
+    const poisonEvents = readArray(detail?.poisonEvents);
+    blockedByProjectionKey.set(projectionKey, {
+      ...existing,
+      ...detail,
+      projectionKey,
+      blockedStreamCount: Math.max(
+        readNumber(existing.blockedStreamCount),
+        readNumber(detail.blockedStreamCount),
+        blockedStreams.length,
+      ),
+      poisonEventCount: Math.max(
+        readNumber(existing.poisonEventCount),
+        readNumber(detail.poisonEventCount),
+        poisonEvents.length,
+      ),
+      blockedStreams,
+      poisonEvents,
+    });
+  }
+
+  return {
+    ...snapshot,
+    blockedProjections: [...blockedByProjectionKey.values()],
+  };
+}
+
+function resolveRetryBlockedStreamsForTarget(target, snapshot) {
+  const sourceProjectionKeys = resolveProjectionKeysForRetryTarget(target, snapshot);
+  const blockedByProjectionKey = new Map(
+    readArray(snapshot?.blockedProjections).flatMap((projection) => {
+      const projectionKey = String(projection?.projectionKey ?? "");
+      return projectionKey ? [[projectionKey, projection]] : [];
+    }),
+  );
+  const seen = new Set();
+  const streams = [];
+
+  for (const sourceProjectionKey of sourceProjectionKeys) {
+    for (const stream of readArray(blockedByProjectionKey.get(sourceProjectionKey)?.blockedStreams)) {
+      const streamId = String(stream?.streamId ?? "");
+      if (!streamId) {
+        streams.push({ ...stream, projectionKey: sourceProjectionKey });
+        continue;
+      }
+      const dedupeKey = `${sourceProjectionKey}\u0000${streamId}`;
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+      streams.push({ ...stream, projectionKey: sourceProjectionKey });
+    }
+  }
+
+  return { sourceProjectionKeys, streams };
+}
+
+function resolveProjectionKeysForRetryTarget(target, snapshot) {
+  const keys = new Set([String(target)]);
+
+  for (const group of readArray(snapshot?.projectionGroups)) {
+    const groupProjectionKey = readRawGroupProjectionKey(group);
+    if (groupProjectionKey !== target) {
+      continue;
+    }
+    for (const subscription of readArray(group?.subscriptions)) {
+      const checkpointKey = String(subscription?.checkpointKey ?? "");
+      if (
+        checkpointKey &&
+        (readNumber(subscription?.blockedStreamCount) > 0 || readNumber(subscription?.poisonEventCount) > 0)
+      ) {
+        keys.add(checkpointKey);
+      }
+    }
+  }
+
+  return [...keys].sort();
+}
+
+function readRawGroupProjectionKey(group) {
+  const targetContextName = String(group?.targetContextName ?? "");
+  const projectionName = String(group?.projectionName ?? "");
+  return targetContextName && projectionName ? `${targetContextName}.${projectionName}` : "";
+}
+
+function readPoisonError(value) {
+  return value.errorMessage ?? value.error_message ?? value.errorStack ?? value.error_stack ?? null;
+}
+
+function readFirstErrorLine(error) {
+  if (error instanceof Error) {
+    return error.stack?.split(/\r?\n/, 1)[0] ?? error.message;
+  }
+  if (isRecord(error)) {
+    const constructorName = typeof error.name === "string" ? error.name : "";
+    const message = error.message ?? error.errorMessage ?? error.error_message ?? error.stack ?? error.error_stack;
+    const firstLine = String(message ?? JSON.stringify(error)).split(/\r?\n/, 1)[0] ?? "";
+    return constructorName && !firstLine.startsWith(`${constructorName}:`)
+      ? `${constructorName}: ${firstLine}`
+      : firstLine;
+  }
+  return String(error).split(/\r?\n/, 1)[0] ?? "";
+}
+
+function stripSupportUnsafeIdentifiers(value) {
+  return String(value)
+    .replace(
+      /\b(?:stream|user|account|customer|session|order|payment|event|tenant|listing|cart|checkout|identity)[._:-][A-Za-z0-9._:-]+\b/gi,
+      "[identifier]",
+    )
+    .replace(/\b[A-Za-z]+_[A-Za-z0-9._:-]{4,}\b/g, "[identifier]")
+    .replace(/\b[A-Za-z0-9._:-]*[0-9][A-Za-z0-9._:-]{5,}\b/g, "[identifier]")
+    .replace(/(["']).{33,}?\1/g, "[identifier]")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.map(String).filter(Boolean))];
+}
+
 function supportSafeRedaction() {
   return {
     credentials: "never-recorded",
@@ -656,6 +942,7 @@ function supportSafeRedaction() {
     eventIds: "fingerprinted",
     operationIds: "fingerprinted",
     workerAndPodIds: "fingerprinted",
+    poisonErrorClasses: "first-error-line-with-identifiers-stripped",
     customerOrProviderData: "not-recorded",
     rawSnapshot: "not-written",
   };
@@ -696,7 +983,7 @@ function readSafeProjectionName(value) {
 
 function readSafeProjectionKey(value) {
   const text = String(value ?? "");
-  return isProjectionKey(text) ? text : null;
+  return isProjectionKey(text) || /^[a-z][a-z0-9.-]*:[a-z][a-z0-9-]*:v[0-9]+$/.test(text) ? text : null;
 }
 
 function readSafeCheckpointKey(value) {

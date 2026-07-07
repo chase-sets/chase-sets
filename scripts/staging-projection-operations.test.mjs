@@ -144,6 +144,37 @@ describe("staging projection operations support-safe sanitization", () => {
       ],
     });
   });
+
+  it("reconciles count-only blocked projection summaries with per-group counters", () => {
+    const sanitized = sanitizeProjectionOperationsSnapshot(counterOnlySnapshot({ blockedStreamCount: 12 }));
+    const report = buildProjectionAttentionReport(sanitized);
+
+    expect(sanitized.blockedProjections[0]).toMatchObject({
+      projectionKey: "catalog.catalog-admin-catalog-item-projection",
+      blockedStreamCount: 12,
+      blockedStreams: [],
+    });
+    expect(report.attentionItems).toContainEqual({ id: "blocked-streams", severity: "warning", count: 12 });
+    expect(report.degradedGroups[0]).toMatchObject({
+      projectionKey: "catalog.catalog-admin-catalog-item-projection",
+      blockedStreamCount: 12,
+    });
+  });
+
+  it("includes support-safe poison error classes for degraded groups", () => {
+    const sanitized = sanitizeProjectionOperationsSnapshot(poisonClassSnapshot());
+    const serialized = JSON.stringify(sanitized);
+
+    expect(sanitized.projectionGroups[0]).toMatchObject({
+      projectionKey: "catalog.catalog-admin-catalog-item-projection",
+      poisonEventErrorClasses: [
+        "TypeError: Cannot read properties of undefined while applying [identifier] for [identifier]",
+      ],
+    });
+    expect(serialized).not.toContain("stream-private-1");
+    expect(serialized).not.toContain("user_123456");
+    expect(serialized).not.toContain("event-private-1");
+  });
 });
 
 describe("staging projection operations runner", () => {
@@ -172,6 +203,8 @@ describe("staging projection operations runner", () => {
       expect(calls.map((call) => [call.method, call.path])).toEqual([
         ["POST", "/api/auth/password-sign-in"],
         ["GET", "/api/platform/projections"],
+        ["GET", "/api/platform/projections/catalog-admin-catalog-item-projection:catalog:v1/blocked-streams"],
+        ["GET", "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams"],
         ["GET", "/api/platform/projections"],
       ]);
 
@@ -221,6 +254,8 @@ describe("staging projection operations runner", () => {
       expect(calls.map((call) => [call.method, call.path])).toEqual([
         ["POST", "/api/auth/password-sign-in"],
         ["GET", "/api/platform/projections"],
+        ["GET", "/api/platform/projections/catalog-admin-catalog-item-projection:catalog:v1/blocked-streams"],
+        ["GET", "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams"],
         [
           "POST",
           "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams/stream-private-1/retry",
@@ -231,6 +266,71 @@ describe("staging projection operations runner", () => {
       const reportText = await readFile(join(outDir, "staging-projection-operations.json"), "utf8");
       expect(reportText).not.toContain("stream-private-1");
       expect(reportText).not.toContain("session_admin");
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves retry streams from the per-projection blocked-stream source when the snapshot only has counters", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "projection-operations-"));
+    const calls = [];
+    try {
+      const result = await runStagingProjectionOperations(
+        parseStagingProjectionOperationsArgs(
+          [
+            "--mode",
+            "retry-blocked",
+            "--targets",
+            "catalog.catalog-admin-catalog-item-projection",
+            "--out-dir",
+            outDir,
+          ],
+          baseEnv,
+        ),
+        {
+          fetchImpl: fakeFetch(
+            calls,
+            [counterOnlySnapshot({ blockedStreamCount: 2 }), healthySnapshot()],
+            new Map([
+              [
+                "catalog.catalog-admin-catalog-item-projection",
+                {
+                  projectionKey: "catalog.catalog-admin-catalog-item-projection",
+                  blockedStreams: [
+                    sampleBlockedStream("catalog.catalog-admin-catalog-item-projection", "stream-private-1"),
+                    sampleBlockedStream("catalog.catalog-admin-catalog-item-projection", "stream-private-2"),
+                  ],
+                  poisonEvents: [],
+                },
+              ],
+            ]),
+          ),
+          now: () => "2026-07-06T00:01:00.000Z",
+        },
+      );
+
+      expect(result.record.result).toBe("success");
+      expect(result.record.commands[0]).toMatchObject({
+        operationKind: "retry-blocked",
+        target: "catalog.catalog-admin-catalog-item-projection",
+        status: "requested",
+        streamCount: 2,
+        sourceProjectionKeys: ["catalog.catalog-admin-catalog-item-projection"],
+      });
+      expect(calls.map((call) => [call.method, call.path])).toEqual([
+        ["POST", "/api/auth/password-sign-in"],
+        ["GET", "/api/platform/projections"],
+        ["GET", "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams"],
+        [
+          "POST",
+          "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams/stream-private-1/retry",
+        ],
+        [
+          "POST",
+          "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams/stream-private-2/retry",
+        ],
+        ["GET", "/api/platform/projections"],
+      ]);
     } finally {
       await rm(outDir, { recursive: true, force: true });
     }
@@ -270,7 +370,7 @@ describe("staging projection operations runner", () => {
   });
 });
 
-function fakeFetch(calls, snapshots) {
+function fakeFetch(calls, snapshots, blockedDetailsByProjectionKey = new Map()) {
   return async (input, init = {}) => {
     const url = new URL(input);
     const body = init.body ? JSON.parse(init.body) : null;
@@ -286,6 +386,14 @@ function fakeFetch(calls, snapshots) {
     }
     if (url.pathname === "/api/platform/projections" && (init.method ?? "GET") === "GET") {
       return jsonResponse(snapshots.shift() ?? healthySnapshot());
+    }
+    if (url.pathname.endsWith("/blocked-streams") && (init.method ?? "GET") === "GET") {
+      const projectionKey = decodeURIComponent(
+        url.pathname.replace(/^\/api\/platform\/projections\//, "").replace(/\/blocked-streams$/, ""),
+      );
+      return jsonResponse(
+        blockedDetailsByProjectionKey.get(projectionKey) ?? sampleBlockedProjectionDetails(projectionKey),
+      );
     }
     if (url.pathname.endsWith("/retry") || url.pathname.endsWith("/rebuild")) {
       return jsonResponse({
@@ -325,6 +433,96 @@ function jsonResponse(body, status = 200) {
     async text() {
       return JSON.stringify(body);
     },
+  };
+}
+
+function sampleBlockedProjectionDetails(projectionKey) {
+  if (projectionKey !== "catalog.catalog-admin-catalog-item-projection") {
+    return { projectionKey, blockedStreams: [], poisonEvents: [] };
+  }
+
+  return {
+    projectionKey,
+    blockedStreams: [sampleBlockedStream(projectionKey, "stream-private-1")],
+    poisonEvents: [
+      {
+        eventId: "event-private-1",
+        eventType: "catalog.ItemChanged",
+        streamId: "stream-private-1",
+        streamVersion: 2,
+        globalPosition: "7",
+        errorMessage: "failed for operator@example.test",
+        retryCount: 1,
+        firstSeenAt: "2026-07-06T00:00:00.000Z",
+        lastSeenAt: "2026-07-06T00:00:00.000Z",
+        state: "active",
+      },
+    ],
+  };
+}
+
+function sampleBlockedStream(projectionKey, streamId) {
+  return {
+    projectionKey,
+    streamId,
+    firstBlockedGlobalPosition: "7",
+    firstBlockedStreamVersion: 2,
+    lastSeenGlobalPosition: "10",
+    deferredEventCount: 3,
+    state: "blocked",
+  };
+}
+
+function counterOnlySnapshot({ blockedStreamCount }) {
+  return {
+    ...sampleSnapshot(),
+    projectionGroups: sampleSnapshot().projectionGroups.map((group) =>
+      group.projectionName === "catalog-admin-catalog-item-projection"
+        ? {
+            ...group,
+            blockedStreamCount,
+            poisonEventCount: 1,
+            subscriptions: [],
+          }
+        : group,
+    ),
+    blockedProjections: [
+      {
+        projectionKey: "catalog.catalog-admin-catalog-item-projection",
+        blockedStreamCount,
+        poisonEventCount: 1,
+      },
+    ],
+  };
+}
+
+function poisonClassSnapshot() {
+  return {
+    ...counterOnlySnapshot({ blockedStreamCount: 1 }),
+    blockedProjections: [
+      {
+        projectionKey: "catalog.catalog-admin-catalog-item-projection",
+        blockedStreamCount: 1,
+        poisonEventCount: 1,
+        blockedStreams: [sampleBlockedStream("catalog.catalog-admin-catalog-item-projection", "stream-private-1")],
+        poisonEvents: [
+          {
+            eventId: "event-private-1",
+            eventType: "catalog.ItemChanged",
+            streamId: "stream-private-1",
+            streamVersion: 2,
+            globalPosition: "7",
+            error_message:
+              "TypeError: Cannot read properties of undefined while applying stream-private-1 for user_123456",
+            error_stack: "TypeError: Cannot read properties of undefined\n    at applyProjection",
+            retryCount: 1,
+            firstSeenAt: "2026-07-06T00:00:00.000Z",
+            lastSeenAt: "2026-07-06T00:00:00.000Z",
+            state: "active",
+          },
+        ],
+      },
+    ],
   };
 }
 
