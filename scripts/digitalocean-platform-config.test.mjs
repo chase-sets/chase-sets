@@ -3099,6 +3099,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).toContain(
       "SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke ${{ github.run_id }}-${{ github.run_attempt }}",
     );
+    expect(stagingMoneySmokeStep).toContain(
+      "PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}",
+    );
+    expect(stagingMoneySmokeStep).toContain(
+      "PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}",
+    );
     expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_RETURN_URL");
     expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_REFRESH_URL");
     expect(stagingMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: staging");

@@ -5,14 +5,25 @@ const DEFAULT_INVITATION_PROJECTION_TIMEOUT_MS = 90_000;
 const DEFAULT_INVITATION_PROJECTION_POLL_MS = 1_000;
 
 export async function provisionSyntheticAccountInvitation(input) {
+  const label = normalizeString(input.label) ?? "Synthetic account";
   const adminEmail = normalizeString(input.adminEmail);
   const adminPassword = normalizeString(input.adminPassword);
-  if (!adminEmail || !adminPassword) {
-    return { status: "skipped", reason: "missing-admin-credentials" };
+  const missingCredentials = [];
+  if (!adminEmail) {
+    missingCredentials.push(input.adminEmailCredentialName ?? "adminEmail");
+  }
+  if (!adminPassword) {
+    missingCredentials.push(input.adminPasswordCredentialName ?? "adminPassword");
+  }
+  if (missingCredentials.length > 0) {
+    throw new Error(
+      `${label} synthetic account invitation requires platform admin credentials before creating the registration bypass. Missing ${missingCredentials.join(
+        ", ",
+      )}.`,
+    );
   }
 
   const baseUrl = stripTrailingSlash(input.baseUrl);
-  const label = normalizeString(input.label) ?? "Synthetic account";
   const fetchImpl = input.fetchImpl ?? fetch;
   const adminSession = await startPasswordSession(fetchImpl, baseUrl, {
     email: adminEmail,
