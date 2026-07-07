@@ -163,6 +163,12 @@ export type IdentityAuthMutationClient = Readonly<{
       expiresAt: string;
     }>
   >;
+  verifyEmailContactMethod: (
+    params: Readonly<{
+      userId: string;
+      email: string;
+    }>,
+  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
 }>;
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -222,6 +228,7 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
       postJson(`invitations/${invitationId}/verify-acceptance-token`, {
         acceptanceTokenHash,
       }),
+    verifyEmailContactMethod: ({ userId, email }) => postJson(`users/${userId}/email-verification`, { email }),
   };
 }
 

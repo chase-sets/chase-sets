@@ -71,6 +71,12 @@ function createServices() {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
       getUser: vi.fn(async () => ({ user_id: "usr_existing" })),
       getUserByEmail: vi.fn(async () => ({ user_id: "usr_existing" })),
+      findPendingInvitationByEmail: vi.fn(async () => null),
+    },
+    registrationAdmission: {
+      mode: "open",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
     },
   };
 }
@@ -197,6 +203,10 @@ describe("magic link auth routes", () => {
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       consumed_at: null,
     });
+    const verifyEmailContactMethod = vi.fn(async () => ({ ok: true, userId: "usr_existing", snapshots: [] }));
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      verifyEmailContactMethod,
+    });
     mockStartInteractiveAuth.mockResolvedValue({
       type: "session-started",
       userId: "usr_existing",
@@ -226,6 +236,10 @@ describe("magic link auth routes", () => {
         authenticationMethod: "magic-link",
       }),
     );
+    expect(verifyEmailContactMethod).toHaveBeenCalledWith({
+      userId: "usr_existing",
+      email: "todd.skelton@chasesets.com",
+    });
   });
 
   it("rejects invalid, expired, or already consumed magic link tokens", async () => {

@@ -18,6 +18,7 @@ import {
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
+import { screenRegistrationEmailDomain } from "./registration-gates";
 
 const INVITATION_ACCEPTANCE_LINK_NOTIFICATION_PROJECTION = "auth-invitation-acceptance-link-notification-intent";
 
@@ -109,6 +110,10 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     const invitation = await services.identity.getInvitation(invitationId);
     if (!isPendingInvitationAvailable(invitation)) {
       return c.json(invitationUnavailable(), 404);
+    }
+    const emailScreen = await screenRegistrationEmailDomain(services, invitation.email);
+    if (!emailScreen.ok) {
+      return c.json(emailScreen.failure.body, emailScreen.failure.status);
     }
 
     const token = services.auth.issueOpaqueToken("invite");
@@ -217,6 +222,10 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       invitationId,
       userId: user!.user_id,
       acceptanceTokenHash,
+    });
+    await identityMutations.verifyEmailContactMethod({
+      userId: user!.user_id,
+      email: invitation.email,
     });
 
     if (body.password) {

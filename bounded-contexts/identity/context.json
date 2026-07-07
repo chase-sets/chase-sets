@@ -1063,6 +1063,7 @@
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/passkey-credential",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/password-credential",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/sms-code",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/email-verification",
         "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/social-login-link"
       ],
       "visibleDestination": {

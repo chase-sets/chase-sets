@@ -23,6 +23,7 @@ import {
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
+import { requireRegistrationAdmission } from "./registration-gates";
 
 export function passkeyMatchesChallengeUser(challengeUserId: string | null, passkeyUserId: string) {
   return challengeUserId !== null && challengeUserId === passkeyUserId;
@@ -105,6 +106,11 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
     let membershipId: string | undefined;
     let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>> | null = null;
     if (!userId && challenge.email) {
+      const admission = await requireRegistrationAdmission(services, challenge.email);
+      if (!admission.ok) {
+        return c.json(admission.failure.body, admission.failure.status);
+      }
+
       try {
         identity = await identityMutations.createPersonalIdentity({
           email: challenge.email,

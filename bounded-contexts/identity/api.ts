@@ -9,6 +9,7 @@ import { getApiKeySecretByPrefix } from "./features/api-keys/api/secret-store";
 import {
   formatGrantableRoleKeys,
   IdentityDomainError,
+  normalizeEmail,
   parseGrantableRoleKey,
   type GrantableRoleKey,
   type PermissionKey,
@@ -426,6 +427,37 @@ async function linkSocialLoginForAuth(
   return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
+async function verifyEmailContactMethodForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    userId: string;
+    email: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const user = await services.users.getUserState(params.userId);
+  const email = normalizeEmail(params.email);
+  const contactMethod = user?.contactMethods.find((method) => method.type === "email" && method.value === email);
+  if (!contactMethod) {
+    return { userId: params.userId, snapshots: [] };
+  }
+  if (contactMethod.verifiedAt) {
+    return { userId: params.userId, snapshots: [] };
+  }
+
+  const result = await services.users.commandHandler({
+    streamId: `identity.user-${params.userId}`,
+    command: {
+      type: "VerifyContactMethod",
+      contactMethodId: contactMethod.contactMethodId,
+      verifiedAt: new Date().toISOString(),
+    },
+    context: params.context,
+  });
+
+  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
+}
+
 async function acceptInvitationForUserFromAuth(
   services: IdentityServices,
   params: Readonly<{
@@ -748,6 +780,16 @@ export function buildIdentityApi(services: IdentityServices) {
 
       throw error;
     }
+  });
+
+  app.post("/internal/auth/users/:id/email-verification", async (c) => {
+    const body = await c.req.json();
+    const verification = await verifyEmailContactMethodForAuth(services, {
+      userId: c.req.param("id"),
+      email: String(body.email ?? ""),
+      context: getBootstrapContext(c),
+    });
+    return c.json({ ok: true, ...verification });
   });
 
   app.post("/internal/auth/invitations/:id/accept", async (c) => {

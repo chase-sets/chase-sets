@@ -99,6 +99,7 @@ function createIdentityRuntime(services: Record<string, unknown>) {
     },
     identity: {
       bootstrapTenantId: "tenant_identity",
+      getUser: vi.fn(async () => null),
       getActiveMembershipForUserAccount: vi.fn(async () => null),
     },
   };
@@ -393,6 +394,7 @@ describe("platform api app wiring", () => {
       },
       identity: {
         bootstrapTenantId: "tenant_auth",
+        getUser: vi.fn(async () => null),
         getActiveMembershipForUserAccount: vi.fn(async () =>
           membershipFresh
             ? {

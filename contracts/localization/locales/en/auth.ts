@@ -125,6 +125,10 @@ export const authEnglishTranslations = {
     "Invitation acceptance token is invalid or expired.",
   "auth.support.apiSupport.invitationRoutes.invitation.is.unavailable": "Invitation is unavailable.",
   "auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has": "Magic link is invalid or has expired.",
+  "auth.support.apiSupport.registrationGates.disposable.email.domains.are.not.allowed":
+    "Disposable email domains are not allowed.",
+  "auth.support.apiSupport.registrationGates.registration.requires.an.invitation":
+    "Registration requires an invitation.",
   "auth.support.routeSupport.authHost.magic.link.token.entry.is.not": "Magic link token entry is not available here.",
   "auth.support.routeSupport.authHost.sign.in.temporarily.unavailable":
     "Sign-in is temporarily unavailable. Try again in a few seconds.",
