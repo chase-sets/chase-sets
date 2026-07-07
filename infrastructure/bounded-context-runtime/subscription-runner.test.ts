@@ -380,6 +380,53 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointStore(targetPool).get(projectionKey)).toBe("1");
   });
 
+  it("treats transient projection failures as retryable without blocking the stream", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_timeout" }, "catalog.item-cat_timeout"),
+    ]);
+
+    let attempts = 0;
+    const appliedPositions: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          attempts += 1;
+          if (attempts === 1) {
+            throw Object.assign(new Error("Projection transaction exceeded 50ms."), {
+              projectionFailureKind: "transient",
+            });
+          }
+          appliedPositions.push(event.globalPosition);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+
+    await expect(runner.runOnce()).rejects.toThrow("Projection transaction exceeded 50ms.");
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("transient");
+    expect(getBlockedStreamStore(targetPool).size).toBe(0);
+    expect(getPoisonEventStore(targetPool).size).toBe(0);
+
+    await expect(runner.runOnce()).resolves.toMatchObject({
+      processed: 1,
+      lastGlobalPosition: "1",
+      state: "running",
+      blockedStreams: 0,
+      poisonEvents: 0,
+    });
+    expect(appliedPositions).toEqual(["1"]);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("applied");
+    expect(getCheckpointStore(targetPool).get(projectionKey)).toBe("1");
+  });
+
   it("keeps deterministic Postgres handler failures on the poison path", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

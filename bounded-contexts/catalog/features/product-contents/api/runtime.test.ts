@@ -343,6 +343,74 @@ describe("product content runtime", () => {
     });
   });
 
+  it("replays resolved product contents through an already connected projection client", async () => {
+    const { db, resolved } = createContentDb([]);
+    const connect = vi.fn(async () => {
+      throw new Error("Client has already been connected. You cannot reuse a client.");
+    });
+    const connectedClientDb = {
+      query: db.query,
+      connect,
+    } as unknown as PgQueryable;
+    const { eventStore } = createEventStore();
+    const services = createProductContentRuntime({
+      db: connectedClientDb,
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+    const handler = services.projectors[0]?.handlers["catalog.product-contents.resolved"];
+    expect(handler).toBeDefined();
+
+    await expect(
+      handler!({
+        id: "evt_projection_client",
+        type: "catalog.product-contents.resolved",
+        data: {
+          containerCatalogItemId: "cat_box",
+          containerSelectedOptions: [],
+          containerProductId: null,
+          lines: [
+            {
+              lineId: "pcl_1",
+              containerCatalogItemId: "cat_box",
+              containerSelectedOptions: [],
+              containerProductId: null,
+              containedCatalogItemId: "cat_card",
+              containedSelectedOptions: [],
+              containedProductId: null,
+              quantity: 1,
+              contentTypeId: "pct_included_item",
+              contentTypeDisplayName: localizedTextMapFromEnglish("Included item"),
+              contentTypeDiscoverySearchWeight: null,
+              inclusionPolicyId: null,
+              inclusionPolicyDisplayName: null,
+              provenance: { source: "manual" },
+              resolutionStatus: "resolved",
+              targetLifecycleStatus: "active",
+            },
+          ],
+          resolvedFactHash: "resolved-hash",
+          resolverVersion: 1,
+          resolvedAt: "2026-07-01T00:00:00.000Z",
+        },
+        tenantId: "tnt_test",
+        streamId: "catalog.product-contents-cat_box",
+        streamVersion: 1,
+        globalPosition: "1",
+        trace: { traceId: null },
+        audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+        timing: {
+          occurredAt: "2026-07-01T00:00:00.000Z",
+          recordedAt: "2026-07-01T00:00:00.000Z",
+        },
+        metadata: {},
+      } as never),
+    ).resolves.toBeUndefined();
+
+    expect(connect).not.toHaveBeenCalled();
+    expect(resolved.size).toBe(1);
+  });
+
   it("repairs the owned read model from Product Contents commands before projection catch-up", async () => {
     const { db } = createContentDb([
       {

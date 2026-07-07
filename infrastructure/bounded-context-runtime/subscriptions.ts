@@ -126,6 +126,13 @@ type ProjectionRunContextWithSourceHeadCache = ProjectionRunContext &
     sourceHeadGlobalPositionCache?: Map<string, Promise<GlobalPosition>>;
   }>;
 
+function isTransientSubscriptionApplyError(
+  error: unknown,
+  errorPolicy: BcEventSubscription["errorPolicy"] | undefined,
+): boolean {
+  return errorPolicy === "global-strict" || isTransientProjectionError(error) || isPgRetryableTransientError(error);
+}
+
 export type MountedContextRuntimeEntry = Readonly<{
   contextName: string;
   mountRole?: "active" | "source-only";
@@ -595,17 +602,32 @@ export function createSubscriptionRunner(
             }
             appliedEvents += 1;
           } catch (error) {
+            const failureStatus = isTransientSubscriptionApplyError(error, errorPolicy) ? "transient" : "poison";
             const failureResult = await recordSubscriptionApplicationFailure(
               targetPool,
               checkpointKey,
               event,
-              "poison",
+              failureStatus,
               error,
               context,
             );
             if (failureResult === "already-applied") {
               appliedEvents += 1;
               continue;
+            }
+
+            if (failureStatus === "transient") {
+              await markProjectionBlockedStreamBlocked(targetPool, checkpointKey, streamId);
+              await refreshSubscriptionStatus(targetPool, sourcePool, checkpointKey, status);
+
+              return {
+                projectionKey: checkpointKey,
+                streamId,
+                state: "still-blocked",
+                inspectedEvents,
+                appliedEvents,
+                errorMessage: error instanceof Error ? error.message : String(error),
+              };
             }
 
             await recordProjectionPoisonEvent(targetPool, {
@@ -816,11 +838,7 @@ export function createSubscriptionRunner(
                   continue;
                 }
               } catch (error) {
-                if (
-                  errorPolicy === "global-strict" ||
-                  isTransientProjectionError(error) ||
-                  isPgRetryableTransientError(error)
-                ) {
+                if (isTransientSubscriptionApplyError(error, errorPolicy)) {
                   const failureResult = await recordSubscriptionApplicationFailure(
                     targetPool,
                     checkpointKey,

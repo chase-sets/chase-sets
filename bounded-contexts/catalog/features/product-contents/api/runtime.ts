@@ -166,6 +166,7 @@ export function createProductContentRuntime(deps: CatalogRuntimeDeps): ProductCo
             await replaceResolvedProductContents(
               resolveProjectionDb(context, deps.db),
               event.data as ProductContentsResolvedFact,
+              "ambient",
             );
           },
         },
@@ -485,8 +486,14 @@ async function listExistingEdges(db: PgQueryable, replacementContainerNode: stri
   });
 }
 
-async function replaceResolvedProductContents(db: PgQueryable, fact: ProductContentsResolvedFact): Promise<void> {
-  if (isPgTransactionalPool(db)) {
+type ProductContentsWriteMode = "transactional" | "ambient";
+
+async function replaceResolvedProductContents(
+  db: PgQueryable,
+  fact: ProductContentsResolvedFact,
+  mode: ProductContentsWriteMode = "transactional",
+): Promise<void> {
+  if (mode === "transactional" && isPgTransactionalPool(db)) {
     await withPgTransaction(db, (client) => replaceResolvedProductContentsRows(client, fact));
     return;
   }
