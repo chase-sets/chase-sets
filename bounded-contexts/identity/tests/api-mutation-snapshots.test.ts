@@ -193,6 +193,12 @@ function createServices(
     },
     shippingAddresses: {
       commandHandler: vi.fn(async () => commandResult(71, "committed")),
+      verifyShippingAddress: vi.fn(
+        async (address: Parameters<IdentityServices["shippingAddresses"]["verifyShippingAddress"]>[0]) => ({
+          status: "accepted",
+          address,
+        }),
+      ),
       listShippingAddresses: vi.fn(async () => []),
       getShippingAddress: vi.fn(async () => null),
       projectors: [],
