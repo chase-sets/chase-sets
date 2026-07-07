@@ -12,6 +12,8 @@ This root owns:
 
 Initialize this root only after the state bucket has been created by [state-bootstrap](../state-bootstrap/README.md). Use `platform/previews/pr-<number>.tfstate` for PR previews, `landing/staging.tfstate` for staging, and `landing/production.tfstate` for production.
 
+Staging keeps the `db-s-2vcpu-4gb` cluster size for the checked-in connection budget, but its create-time storage allocation is pinned to `staging_database_storage_size_mib = 25600`. The database resource ignores subsequent `storage_size_mib` drift so normal staging deploys do not attempt a destructive storage/profile mutation against the existing cluster. The smaller storage allocation activates on the next `Platform Staging Reset`, which destroys and recreates staging Postgres in the approved rebuild window.
+
 Run `pnpm install --frozen-lockfile` from the repo root before applying this Terraform root.
 
 The target App Platform component contract is tested offline by `scripts/digitalocean-runtime-topology.mjs`. Production runtime modes are `production-landing`, `production-proof`, and `production-public`; `admin-support-api`, `admin-support-worker`, and `admin-support-bootstrap` are retired component names and should not reappear outside a reviewed rollback.
