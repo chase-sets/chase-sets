@@ -33,11 +33,18 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
       AWS_DEFAULT_REGION: us-east-1
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         # pull_request_target has repo secrets. Preview cleanup discovery never checks
         # out PR head code; it runs from the trusted base workflow.
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - uses: ./.github/actions/setup-pnpm-workspace
 
@@ -83,7 +90,16 @@ jobs:
                 ? process.env.PULL_REQUEST_MERGE_COMMIT_SHA
                 : process.env.PULL_REQUEST_BASE_REF;
           const imageSha = eventName === "workflow_dispatch" ? process.env.IMAGE_SHA : process.env.PULL_REQUEST_HEAD_SHA;
-          const matrix = { include: [{ pr_number: Number(prNumber), checkout_ref: checkoutRef, image_sha: imageSha }] };
+          const matrix = {
+            include: [
+              {
+                pr_number: Number(prNumber),
+                checkout_ref: checkoutRef,
+                image_sha: imageSha,
+                expected_database_cluster_name: `chase-sets-pr-${prNumber}-postgres`,
+              },
+            ],
+          };
           console.log(`matrix=${JSON.stringify(matrix)}`);
           console.log("target_count=1");
           console.log("result=success");
@@ -105,13 +121,17 @@ jobs:
           console.log("## Preview Cleanup Sweep");
           console.log("");
           console.log(`- Result: ${record.result}`);
-          console.log(`- Candidate preview states: ${record.candidates?.length ?? 0}`);
+          console.log(`- Candidate preview states: ${record.stateCandidates?.length ?? 0}`);
+          console.log(`- Candidate preview database clusters: ${record.databaseClusterCandidates?.length ?? 0}`);
           console.log(`- Closed PR cleanup targets: ${record.targets?.length ?? 0}`);
           if (record.targets?.length) {
             console.log("");
             console.log("### Targets");
             for (const target of record.targets) {
-              console.log(`- PR #${target.prNumber}: ${target.stateKey}`);
+              const stateKey = target.stateKey ?? "no Terraform state key";
+              const clusters = (target.databaseClusters ?? []).map((cluster) => cluster.clusterName).join(", ");
+              const clusterSummary = clusters ? `; database clusters: ${clusters}` : "";
+              console.log(`- PR #${target.prNumber}: ${stateKey}${clusterSummary}`);
             }
           }
           if (record.errors?.length) {
@@ -217,6 +237,13 @@ jobs:
 
       - name: Disable stateful destroy guard for approved preview cleanup
         run: node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf
+
+      - name: Import live preview database cluster into cleanup state
+        run: |
+          node scripts/digitalocean-preview-cleanup-sweep.mjs import-database \
+            --pr-number "${{ matrix.pr_number }}" \
+            --cluster-name "${{ matrix.expected_database_cluster_name }}" \
+            --terraform-directory infrastructure/digitalocean/platform
 
       - name: Terraform destroy
         working-directory: infrastructure/digitalocean/platform
