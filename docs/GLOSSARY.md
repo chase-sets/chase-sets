@@ -4,6 +4,32 @@ This file is the cross-context index for marketplace language. Detailed definiti
 
 Aggregate language and projection language may differ. When they do, each model name must stay within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
 
+## Language Constitution
+
+Bounded contexts own behavior and the words for that behavior. A context-local `GLOSSARY.md` is the source of truth for local terms; this master glossary indexes cross-context terms, external-facing terms, and language families that are easy to confuse.
+
+Ubiquitous language must use natural marketplace words that can appear in code, API docs, operator docs, and account-facing copy without translation. If a term is too internal for product copy, keep it out of the domain glossary or name the domain concept more plainly.
+
+Shared words are allowed only when the owning behavior stays clear. When two contexts need the same plain word for different behavior, the local glossary must qualify the term, and the master glossary must disambiguate the family before the word spreads into schemas, events, APIs, or UI copy.
+
+## Adaptation Rules
+
+Use the owning context's term unchanged when consuming its published fact. For example, a projection that consumes Inventory hold events still says Inventory Hold, Hold Purpose, or Hold Release Reason.
+
+Name a qualified local term when the behavior changes ownership or lifecycle. For example, Settlement uses Payout Release Hold because it blocks wallet availability, not Inventory stock.
+
+Adapters translate provider, protocol, or transport vocabulary at the boundary. Domain code and durable docs keep the Chase Sets term unless the external word is itself the marketplace term users see.
+
+Avoid generic family names as standalone durable terms outside their owner. Do not introduce bare Policy, Channel, or Hold in a new context; qualify the behavior, owner, or surface.
+
+## Ratchet Rules
+
+Every new `context.json` owned noun and declared event noun must resolve to a local glossary term heading before it ships.
+
+Every new repeated or overloaded glossary heading must either reuse the same behavior owner or add a Cross-Context Disambiguation row here.
+
+The glossary coverage baseline is only a migration ledger. Existing rows may be removed as local glossaries catch up, but new drift belongs in the same guard and should not create a parallel allowlist.
+
 ## Account Role Language
 
 Use **Account** for identity, permissions, setup, wallet, inventory ownership, listings, navigation, and account settings.
@@ -100,6 +126,9 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 
 | Term | Source of truth | Other context use |
 | --- | --- | --- |
+| Hold family | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) owns stock Holds, Hold Purpose, Hold Source Reference, Hold Expiry, and Hold Release Reason. | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) owns Payout Release Hold for wallet availability. Other contexts consume the qualified Inventory terms or name a qualified local hold. |
+| Policy family | The context that owns the decision owns each named policy, such as Ordering Postage Policy, Marketplace High-Dollar Listing Publication Policy, Pricing Repricing Policy, or Payments Marketplace Checkout Fee Policy. | Do not use bare Policy as a durable term. Consumers reference the named policy and its owner, and adapters translate provider policy vocabulary at the boundary. |
+| Channel family | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) owns account notification delivery language, while platform architecture docs own wake/listener transport channels. | Qualify channel by surface or transport, such as notification channel, wake channel, or listener channel. Do not let transport channels become notification preferences. |
 | Shipping Evidence Tier | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) evaluates and stores the tier in the order shipping plan. | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) consumes the committed tier during label purchase and records it on postage diagnostics. |
 
 ## Local Glossaries
