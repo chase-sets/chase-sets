@@ -25,6 +25,29 @@ function displayItemLabel(item: InventoryItemDetail) {
   return item.item_title ?? item.catalog_catalog_item_id;
 }
 
+function holdPurposeLabel(purpose: string) {
+  switch (purpose) {
+    case "order":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.order");
+    case "manual":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.manual");
+    case "checkout":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.checkout");
+    case "pos":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.pos");
+    case "channel":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.channel");
+    case "transfer":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.transfer");
+    default:
+      return purpose;
+  }
+}
+
+function orderSourceRef(sourceRef: InventoryItemDetail["holds"][number]["source_ref"]) {
+  return sourceRef && "orderId" in sourceRef ? sourceRef.orderId : null;
+}
+
 export function InventoryItemDetailPage({
   item,
   errorMessage,
@@ -168,6 +191,18 @@ export function InventoryItemDetailPage({
                   <Text weight="semibold">
                     {hold.reason} ({hold.quantity})
                   </Text>
+                  <Stack gap={2}>
+                    <Badge tone={hold.purpose === "manual" ? "neutral" : "info"}>
+                      {holdPurposeLabel(hold.purpose)}
+                    </Badge>
+                    {orderSourceRef(hold.source_ref) ? (
+                      <LinkButton href={`/account/sales/${orderSourceRef(hold.source_ref)}`} tone="secondary" size="sm">
+                        {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.view.order", {
+                          orderId: orderSourceRef(hold.source_ref),
+                        })}
+                      </LinkButton>
+                    ) : null}
+                  </Stack>
                   <Text tone="secondary">
                     {hold.status === "active"
                       ? t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.active.hold")
@@ -178,7 +213,7 @@ export function InventoryItemDetailPage({
                     {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.created")}
                     {hold.created_at}
                   </Text>
-                  {hold.status === "active" ? (
+                  {hold.status === "active" && hold.purpose === "manual" ? (
                     <Form spacing="none" method="post">
                       <HiddenInput type="hidden" name="intent" value="release-hold" />
                       <HiddenInput type="hidden" name="holdId" value={hold.hold_id} />

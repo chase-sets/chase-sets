@@ -264,6 +264,90 @@ describe("inventory item runtime", () => {
     expect(streams.get("inventory.item-inv_1")).toHaveLength(3);
   });
 
+  it("uses aggregate held quantity to enforce the adjustment floor when projections lag", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM inventory_items AS item")) {
+          return { rows: [] };
+        }
+        if (sql.includes("FROM event_store_events")) {
+          return {
+            rows: [
+              {
+                hold_id: "hld_1",
+                account_id: "acc_seller",
+                item_id: "inv_1",
+                quantity: 1,
+                active: true,
+              },
+              {
+                hold_id: "hld_2",
+                account_id: "acc_seller",
+                item_id: "inv_1",
+                quantity: 2,
+                active: true,
+              },
+            ],
+          };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const services = createInventoryItemRuntime(
+      {
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+      },
+      {
+        getCatalogItem: vi.fn(),
+      } as never,
+      {
+        listStorageLocations: vi.fn(),
+        createStorageLocation: vi.fn(),
+      } as never,
+    );
+    await services.commandHandler({
+      streamId: "inventory.item-inv_1",
+      command: {
+        type: "CreateInventoryItem",
+        itemId: "inv_1" as never,
+        accountId: "acc_seller" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        selectedOptions: [],
+        storageLocationId: "loc_1",
+        totalQuantity: 5,
+      },
+      context,
+    });
+
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: -2,
+          reason: "Cycle count",
+        },
+        context,
+      ),
+    ).resolves.toEqual({ itemId: "inv_1", version: 2 });
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: -1,
+          reason: "Cycle count",
+        },
+        context,
+      ),
+    ).rejects.toThrow("3 units are committed to open orders.");
+  });
+
   it("ensures default listing stock without requiring manual inventory setup", async () => {
     const { eventStore, streams } = createInMemoryEventStore();
     let listingStockLocation: {

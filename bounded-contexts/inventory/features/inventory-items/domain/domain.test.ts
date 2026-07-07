@@ -18,12 +18,52 @@ describe("inventory item domain", () => {
     const adjusted = await decideInventoryItem(createdState, {
       type: "AdjustInventoryItemQuantity",
       quantityDelta: -4,
+      heldQuantity: 0,
       reason: "Cycle count",
     });
     const adjustedState = adjusted.reduce(evolveInventoryItem, createdState);
 
     expect(createdState.totalQuantity).toBe(12);
     expect(adjustedState.totalQuantity).toBe(8);
+  });
+
+  it("rejects adjustments below committed held quantity", async () => {
+    const created = await decideInventoryItem(initialInventoryItemState, {
+      type: "CreateInventoryItem",
+      itemId: "inv_1" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 5,
+    });
+    const createdState = created.reduce(evolveInventoryItem, initialInventoryItemState);
+
+    expect(
+      decideInventoryItem(createdState, {
+        type: "AdjustInventoryItemQuantity",
+        quantityDelta: -2,
+        heldQuantity: 3,
+        reason: "Cycle count",
+      }),
+    ).toHaveLength(1);
+    expect(() =>
+      decideInventoryItem(createdState, {
+        type: "AdjustInventoryItemQuantity",
+        quantityDelta: -3,
+        heldQuantity: 3,
+        reason: "Cycle count",
+      }),
+    ).toThrow("3 units are committed to open orders.");
+    expect(() =>
+      decideInventoryItem(createdState, {
+        type: "AdjustInventoryItemQuantity",
+        quantityDelta: -4,
+        heldQuantity: 4,
+        reason: "Cycle count",
+      }),
+    ).toThrow("4 units are committed to open orders.");
   });
 
   it("keeps graded card details on the inventory item", async () => {

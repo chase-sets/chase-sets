@@ -1,8 +1,12 @@
 export const inventoryEnglishTranslations = {
   "inventory.features.holds.readModel.schema.create.table.if.not.exists.inventory":
     "\nCREATE TABLE IF NOT EXISTS inventory_holds (\n  hold_id text PRIMARY KEY,\n  account_id text NOT NULL,\n  item_id text NOT NULL REFERENCES inventory_items(item_id),\n  quantity integer NOT NULL CHECK (quantity > 0),\n  reason text NOT NULL,\n  notes text NULL,\n  status text NOT NULL DEFAULT 'active',\n  created_at timestamptz NOT NULL DEFAULT now(),\n  updated_at timestamptz NOT NULL DEFAULT now(),\n  released_at timestamptz NULL,\n  last_stream_version bigint NOT NULL DEFAULT 0\n);\n\nCREATE INDEX IF NOT EXISTS inventory_holds_account_idx\n  ON inventory_holds (account_id, status, created_at DESC);\n\nCREATE INDEX IF NOT EXISTS inventory_holds_item_idx\n  ON inventory_holds (item_id, status);\n",
+  "inventory.features.holds.api.route.only.manual.holds.can.be.released.by.sellers":
+    "Only manual inventory holds can be released by sellers.",
   "inventory.features.inventoryItems.api.route.inventory.item.not.found": "Inventory item not found.",
   "inventory.features.inventoryItems.api.route.request.failed": "Request failed.",
+  "inventory.features.inventoryItems.api.route.units.committed.to.open.orders":
+    "{count} units are committed to open orders.",
   "inventory.features.inventoryItems.readModel.schema.create.table.if.not.exists.inventory":
     "\nCREATE TABLE IF NOT EXISTS inventory_items (\n  item_id text PRIMARY KEY,\n  account_id text NOT NULL,\n  catalog_catalog_item_id text NOT NULL,\n  product_id text NOT NULL,\n  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,\n  graded_card jsonb NULL,\n  storage_location_id text NOT NULL REFERENCES inventory_storage_locations(storage_location_id),\n  total_quantity integer NOT NULL CHECK (total_quantity >= 0),\n  last_stream_version bigint NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0),\n  acquisition_cost_amount numeric(12,2) NULL,\n  created_at timestamptz NOT NULL DEFAULT now(),\n  updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS inventory_items_account_idx\n  ON inventory_items (account_id, updated_at DESC);\n\nCREATE INDEX IF NOT EXISTS inventory_items_storage_location_idx\n  ON inventory_items (storage_location_id);\n\nCREATE INDEX IF NOT EXISTS inventory_items_catalog_version_idx\n  ON inventory_items (product_id);\n",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.1.or.5": "-1 or 5",
@@ -18,6 +22,12 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.created": "Created ",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.held.quantity": "Held quantity:",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.history": "Hold History",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.channel": "Channel",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.checkout": "Checkout",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.manual": "Manual",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.order": "Order",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.pos": "Point of sale",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.purpose.transfer": "Transfer",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.quantity": "Hold quantity",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.inventory.item.detail": "Inventory item detail",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.inventory.item.summary": "Inventory Item Summary",
@@ -33,6 +43,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.released.hold": "Released hold",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.seller": "Seller",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.total.quantity": "Total quantity:",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.view.order": "View order {orderId}",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost": "Acquisition cost",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.2": "Acquisition Cost",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.actions": "Actions",

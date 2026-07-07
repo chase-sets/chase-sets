@@ -168,4 +168,34 @@ describe("inventory item routes", () => {
     expect(response.status).toBe(201);
     expect(ensureListingStock).toHaveBeenCalledWith(expect.objectContaining({ gradedCard: null }), context);
   });
+
+  it("returns localized copy when an adjustment would drop below committed stock", async () => {
+    const app = buildApp(
+      createItemServices({
+        adjustItem: vi.fn(async () => {
+          throw new Error("2 units are committed to open orders.");
+        }),
+      }),
+    );
+
+    const response = await app.fetch(
+      new Request("http://inventory.test/items/inv_1/adjustments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quantityDelta: -1,
+          reason: "Cycle count",
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: {
+        code: "inventory_adjustment_below_committed_quantity",
+        message: "2 units are committed to open orders.",
+      },
+    });
+  });
 });

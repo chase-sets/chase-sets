@@ -16,6 +16,7 @@ import {
 } from "../integrations/catalog/versioning";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
+import { loadInventoryStockSnapshot } from "../../../support/runtime-support/stock-snapshot";
 import { getStorageLocation } from "../../storage-locations/read-model/queries";
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import {
@@ -222,15 +223,13 @@ export function createInventoryItemRuntime(
       };
     },
     adjustItem: async (params, context) => {
-      const item = await getInventoryItem(deps.db, params.itemId, params.accountId);
-      if (!item) {
-        throw new InventoryDomainError("Inventory item not found.");
-      }
-
-      const nextTotalQuantity = item.total_quantity + params.quantityDelta;
-      if (nextTotalQuantity < item.held_quantity) {
-        throw new InventoryDomainError("Adjustments cannot reduce total quantity below active held quantity.");
-      }
+      const stock = await loadInventoryStockSnapshot({
+        db: deps.db,
+        itemRepository: repository,
+        itemId: params.itemId,
+        accountId: params.accountId as AccountId,
+        context,
+      });
 
       const idempotencyKey = normalizeIdempotencyKey(params.idempotencyKey);
       const commandFingerprint = inventoryAdjustmentCommandFingerprint({
@@ -278,6 +277,7 @@ export function createInventoryItemRuntime(
           command: {
             type: "AdjustInventoryItemQuantity",
             quantityDelta: params.quantityDelta,
+            heldQuantity: stock.heldQuantity,
             reason: params.reason,
           },
           context,
@@ -426,6 +426,7 @@ export function createInventoryItemRuntime(
           command: {
             type: "AdjustInventoryItemQuantity",
             quantityDelta: adjustedQuantityBy,
+            heldQuantity: existingItem?.held_quantity ?? 0,
             reason: "Automatic listing stock",
           },
           context,

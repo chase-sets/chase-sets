@@ -64,6 +64,7 @@ export type CreateInventoryItemCommand = Readonly<{
 export type AdjustInventoryItemQuantityCommand = Readonly<{
   type: "AdjustInventoryItemQuantity";
   quantityDelta: number;
+  heldQuantity: number;
   reason: string;
 }>;
 
@@ -125,8 +126,14 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
     case "AdjustInventoryItemQuantity":
       requireCreatedInventoryItem(state);
       ensureInteger(command.quantityDelta, "Inventory adjustments must use a whole-number quantity delta.");
+      ensureInteger(command.heldQuantity, "Inventory adjustments require a whole-number held quantity.");
+      assert(command.heldQuantity >= 0, "Inventory held quantity cannot be negative.");
       assert(command.quantityDelta !== 0, "Quantity adjustments must change inventory.");
       assert(state.totalQuantity + command.quantityDelta >= 0, "Inventory quantity cannot fall below zero.");
+      assert(
+        state.totalQuantity + command.quantityDelta >= command.heldQuantity,
+        `${command.heldQuantity} units are committed to open orders.`,
+      );
       return [
         {
           type: "inventory.item.adjusted",
