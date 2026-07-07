@@ -9,7 +9,10 @@ import {
   settlementAccountRiskSourceSchemaSql,
 } from "../../features/wallets/integrations/account-risk-source/account-risk-source-schema";
 import { settlementPayoutSchemaSql } from "../../features/payouts/read-model/schema";
-import { settlementPayoutReadinessSchemaSql } from "../../features/payout-readiness/read-model/schema";
+import {
+  settlementPayoutReadinessSchemaMigrations,
+  settlementPayoutReadinessSchemaSql,
+} from "../../features/payout-readiness/read-model/schema";
 
 export const settlementWorkClaimSchemaSql = `
 CREATE TABLE IF NOT EXISTS settlement_work_claims (
@@ -47,4 +50,5 @@ export const settlementSchemaSql = [
 export const settlementSchemaMigrations = [
   ...settlementWalletSchemaMigrations,
   ...settlementAccountRiskSourceSchemaMigrations,
+  ...settlementPayoutReadinessSchemaMigrations,
 ] as const;

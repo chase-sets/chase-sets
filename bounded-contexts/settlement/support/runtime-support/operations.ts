@@ -29,6 +29,8 @@ export type SettlementOperationEvent = Readonly<{
     | "payout-readiness-webhook-recorded"
     | "payout-readiness-webhook-ignored"
     | "payout-request-blocked-by-setup"
+    | "payout-request-blocked-by-destination-friction"
+    | "payout-destination-changed"
     | "provider-health-checked";
   accountId?: AccountId | string;
   payoutId?: PayoutId | string;
@@ -52,7 +54,12 @@ export type SettlementOperationEvent = Readonly<{
   payoutAccountDashboard?: string;
   missingRequirementCount?: number;
   staleReadiness?: boolean;
-  safeCategory?: SettlementProviderErrorCategory | "setup_incomplete" | "setup_stale" | "requirements_open";
+  safeCategory?:
+    | SettlementProviderErrorCategory
+    | "setup_incomplete"
+    | "setup_stale"
+    | "requirements_open"
+    | "step_up_required";
   reason?: string | null;
   occurredAt: string;
 }>;

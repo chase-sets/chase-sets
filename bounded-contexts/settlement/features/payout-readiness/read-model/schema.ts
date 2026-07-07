@@ -4,10 +4,13 @@ CREATE TABLE IF NOT EXISTS settlement_payout_readiness_pages (
   status text NOT NULL,
   missing_requirements jsonb NOT NULL DEFAULT '[]'::jsonb,
   provider_reference text NULL,
+  contact_email text NULL,
   onboarding_status text NOT NULL DEFAULT 'not-started',
   transfer_capability_status text NOT NULL DEFAULT 'inactive',
   payout_capability_status text NOT NULL DEFAULT 'inactive',
   payout_destination_status text NOT NULL DEFAULT 'missing',
+  payout_destination_fingerprint text NULL,
+  payout_destination_changed_at timestamptz NULL,
   payout_account_dashboard text NOT NULL DEFAULT 'unknown',
   losses_collector text NOT NULL DEFAULT 'unknown',
   fees_collector text NOT NULL DEFAULT 'unknown',
@@ -55,3 +58,19 @@ CREATE INDEX IF NOT EXISTS settlement_payout_readiness_pages_provider_posture_id
   )
   WHERE provider_reference IS NOT NULL;
 `;
+
+export const settlementPayoutReadinessSchemaMigrations = [
+  {
+    migrationId: "20260707_settlement_payout_destination_friction",
+    description: "Track safe payout destination change metadata for takeover-friction enforcement.",
+    statements: [
+      `SET lock_timeout = '2s'`,
+      `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS contact_email text NULL`,
+      `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS payout_destination_fingerprint text NULL`,
+      `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS payout_destination_changed_at timestamptz NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_payout_readiness_destination_changed_idx
+  ON settlement_payout_readiness_pages (payout_destination_changed_at DESC, account_id)
+  WHERE payout_destination_changed_at IS NOT NULL`,
+    ],
+  },
+] as const;

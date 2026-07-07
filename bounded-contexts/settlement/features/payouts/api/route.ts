@@ -53,6 +53,17 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("settlement.features.payouts.api.route.request.failed");
 }
 
+function validationErrorCode(error: unknown) {
+  const message = errorMessage(error);
+  return message.includes("Confirm it is you before requesting a payout") ? "step_up_required" : "validation_failed";
+}
+
+function validationErrorMessage(error: unknown) {
+  return validationErrorCode(error) === "step_up_required"
+    ? t("settlement.features.payouts.api.route.step.up.required")
+    : errorMessage(error);
+}
+
 function isProviderWebhookVerificationError(error: unknown) {
   const message = errorMessage(error).toLowerCase();
   return message.includes("signature") || message.includes("webhook secret");
@@ -360,6 +371,8 @@ export function createPayoutRoutes(services: PayoutServices) {
         amount: String(body.amount ?? ""),
         destinationReference: typeof body.destinationReference === "string" ? body.destinationReference : null,
         note: typeof body.note === "string" ? body.note : null,
+        actorUserId: access.actor.userId,
+        sensitiveActionToken: typeof body.sensitiveActionToken === "string" ? body.sensitiveActionToken : null,
         ...(typeof body.notificationEmail === "string" ? { notificationEmail: body.notificationEmail } : {}),
       };
       const result = await services.requestPayout(request, context);
@@ -374,7 +387,7 @@ export function createPayoutRoutes(services: PayoutServices) {
         201,
       );
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: validationErrorCode(error), message: validationErrorMessage(error) } }, 400);
     }
   });
 

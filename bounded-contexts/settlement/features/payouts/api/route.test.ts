@@ -88,9 +88,11 @@ describe("settlement payout routes", () => {
     expect(requestPayout).toHaveBeenCalledWith(
       {
         accountId: "acc_seller",
+        actorUserId: "usr_test",
         amount: "12.50",
         destinationReference: null,
         note: "Weekly payout",
+        sensitiveActionToken: null,
       },
       context,
     );

@@ -14,12 +14,15 @@ import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
+import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../features/payouts/api/runtime";
 
 export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
   notificationOutbox?: NotificationOutbox;
   negativeBalancePolicy?: NegativeBalancePolicy;
+  payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
+  sensitiveActionVerifier?: SensitiveActionVerifier;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -77,6 +80,9 @@ export function createSettlementServices(
     db,
     moneyMovementGateway,
     operationsRecorder,
+    notificationOutbox,
+    payoutDestinationFrictionPolicy: ports.payoutDestinationFrictionPolicy,
+    sensitiveActionVerifier: ports.sensitiveActionVerifier,
   });
   const payouts = createPayoutRuntime({
     eventStore,
@@ -87,6 +93,8 @@ export function createSettlementServices(
     moneyMovementGateway,
     operationsRecorder,
     notificationOutbox,
+    payoutDestinationFrictionPolicy: ports.payoutDestinationFrictionPolicy,
+    sensitiveActionVerifier: ports.sensitiveActionVerifier,
   });
 
   return {

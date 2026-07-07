@@ -104,6 +104,7 @@ function createPayoutReadiness(
   options: Readonly<{
     updatedAt?: string | null;
     missingRequirements?: readonly string[];
+    payoutDestinationChangedAt?: string | null;
     refreshProviderReadiness?: PayoutReadinessServices["refreshProviderReadiness"];
   }> = {},
 ) {
@@ -116,6 +117,8 @@ function createPayoutReadiness(
     transfer_capability_status: status === "ready" ? "active" : "pending",
     payout_capability_status: status === "ready" ? "active" : "pending",
     payout_destination_status: status === "ready" ? "ready" : "missing",
+    payout_destination_fingerprint: "ba_test:bank_account:US:usd:4242:verified",
+    payout_destination_changed_at: options.payoutDestinationChangedAt ?? null,
     payout_account_dashboard: "none",
     losses_collector: "application",
     fees_collector: "application",
@@ -414,6 +417,100 @@ describe("settlement payout runtime", () => {
       direction: "credit",
       amount: "12.50",
     });
+  });
+
+  it("requires step-up for payout requests inside the payout destination cooling window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"));
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+    };
+    const wallets = {
+      getWallet: vi.fn(async () => ({
+        account_id: "acc_seller",
+        currency_code: "usd",
+        pending_balance_amount: "0.00",
+        available_balance_amount: "20.00",
+        negative_balance_status: "in-good-standing",
+      })),
+      postEntry: vi.fn(async () => ({ ledgerEntryId: "led_test", version: 1 })),
+    };
+    const sensitiveActionVerifier = vi.fn(async (input: { token: string }) => input.token === "fresh-step-up");
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets: wallets as never,
+      payoutReadiness: createPayoutReadiness("ready", {
+        payoutDestinationChangedAt: "2026-06-02T09:00:00.000Z",
+      }),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      sensitiveActionVerifier,
+    });
+
+    const preview = await payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "12.50" }, context);
+    expect(preview.can_request).toBe(false);
+    expect(preview.unavailable_reasons).toContain("payout-destination-cooling-period");
+    await expect(payouts.requestPayout({ accountId: "acc_seller" as never, amount: "12.50" }, context)).rejects.toThrow(
+      "Confirm it is you before requesting a payout",
+    );
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "12.50",
+          actorUserId: "usr_seller",
+          sensitiveActionToken: "fresh-step-up",
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ payout: { status: "in-transit" } });
+    expect(sensitiveActionVerifier).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        userId: "usr_seller",
+        token: "fresh-step-up",
+        purpose: "payout-request",
+      }),
+    );
+    vi.useRealTimers();
+  });
+
+  it("honors the payout destination cooling window kill switch", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"));
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+    };
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets: {
+        getWallet: vi.fn(async () => ({
+          account_id: "acc_seller",
+          currency_code: "usd",
+          pending_balance_amount: "0.00",
+          available_balance_amount: "20.00",
+          negative_balance_status: "in-good-standing",
+        })),
+        postEntry: vi.fn(async () => ({ ledgerEntryId: "led_test", version: 1 })),
+      } as never,
+      payoutReadiness: createPayoutReadiness("ready", {
+        payoutDestinationChangedAt: "2026-06-02T09:00:00.000Z",
+      }),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      payoutDestinationFrictionPolicy: { enabled: false },
+    });
+
+    const preview = await payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "12.50" }, context);
+    expect(preview.unavailable_reasons).not.toContain("payout-destination-cooling-period");
+    await expect(
+      payouts.requestPayout({ accountId: "acc_seller" as never, amount: "12.50" }, context),
+    ).resolves.toMatchObject({ payout: { status: "in-transit" } });
+    vi.useRealTimers();
   });
 
   it("blocks payouts while available seller funds are tied to active support holds", async () => {

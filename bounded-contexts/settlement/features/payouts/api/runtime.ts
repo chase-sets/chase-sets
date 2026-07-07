@@ -94,7 +94,24 @@ type PayoutRuntimeDeps = Readonly<{
   moneyMovementGateway: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
   notificationOutbox?: NotificationOutbox;
+  payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
+  sensitiveActionVerifier?: SensitiveActionVerifier;
 }>;
+
+export type PayoutDestinationFrictionPolicy = Readonly<{
+  enabled: boolean;
+  coolingPeriodMs: number;
+  requireStepUpForAccountManagement: boolean;
+}>;
+
+export type SensitiveActionVerifier = (
+  input: Readonly<{
+    accountId: AccountId;
+    userId?: string | null;
+    token: string;
+    purpose: "payout-request" | "payout-account-management";
+  }>,
+) => Promise<boolean>;
 
 type PayoutWalletLedgerEntry = Readonly<{
   ledgerEntryId?: string;
@@ -250,6 +267,8 @@ export type PayoutServices = Readonly<{
       destinationReference?: string | null;
       note?: string | null;
       notificationEmail?: string | null;
+      actorUserId?: string | null;
+      sensitiveActionToken?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ payoutId: PayoutId; version: number; payout: PayoutCommandSnapshot }>;
@@ -378,6 +397,37 @@ function payoutReadinessStalenessIsOnlySetupBlocker(readiness: PayoutReadinessSn
   );
 }
 
+const DEFAULT_PAYOUT_DESTINATION_FRICTION_POLICY: PayoutDestinationFrictionPolicy = {
+  enabled: true,
+  coolingPeriodMs: 24 * 60 * 60 * 1000,
+  requireStepUpForAccountManagement: true,
+};
+
+function payoutDestinationFrictionPolicy(
+  policy?: Partial<PayoutDestinationFrictionPolicy>,
+): PayoutDestinationFrictionPolicy {
+  return {
+    ...DEFAULT_PAYOUT_DESTINATION_FRICTION_POLICY,
+    ...policy,
+  };
+}
+
+function payoutDestinationCoolingWindowEndsAt(
+  readiness: PayoutReadinessSnapshot,
+  policy: PayoutDestinationFrictionPolicy,
+  nowMs = Date.now(),
+) {
+  if (!policy.enabled || !readiness.payout_destination_changed_at) {
+    return null;
+  }
+  const changedAtMs = Date.parse(readiness.payout_destination_changed_at);
+  if (!Number.isFinite(changedAtMs)) {
+    return null;
+  }
+  const endsAtMs = changedAtMs + policy.coolingPeriodMs;
+  return nowMs < endsAtMs ? new Date(endsAtMs).toISOString() : null;
+}
+
 function requirePayoutSnapshot(state: PayoutState, version: number): PayoutCommandSnapshot {
   if (
     !state.payoutId ||
@@ -445,6 +495,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   );
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const operationsRecorder = deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
+  const destinationFrictionPolicy = payoutDestinationFrictionPolicy(deps.payoutDestinationFrictionPolicy);
+  const sensitiveActionVerifier = deps.sensitiveActionVerifier ?? (async () => false);
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<PayoutEvent>(),
@@ -462,6 +514,13 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       providerName: event.providerName ?? deps.moneyMovementGateway.providerName,
       occurredAt: event.occurredAt ?? new Date().toISOString(),
     });
+  }
+
+  async function verifySensitiveAction(input: Parameters<SensitiveActionVerifier>[0]) {
+    if (!input.token.trim()) {
+      return false;
+    }
+    return sensitiveActionVerifier(input);
   }
 
   async function recordPayoutProviderReferences(
@@ -1291,6 +1350,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       if (readiness.missing_requirements.length > 0) {
         unavailableReasons.push("provider-requirements-open");
       }
+      if (payoutDestinationCoolingWindowEndsAt(readiness, destinationFrictionPolicy)) {
+        unavailableReasons.push("payout-destination-cooling-period");
+      }
       if (compareMoney(payoutAvailableBalanceAmount, "0.00") <= 0) {
         unavailableReasons.push("no-available-wallet-balance");
       }
@@ -1426,6 +1488,28 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           safeCategory: "requirements_open",
         });
         throw new SettlementDomainError("Payout setup requirements must be resolved before requesting a payout.");
+      }
+      const coolingWindowEndsAt = payoutDestinationCoolingWindowEndsAt(readiness, destinationFrictionPolicy);
+      if (coolingWindowEndsAt) {
+        const verified = await verifySensitiveAction({
+          accountId: params.accountId,
+          userId: params.actorUserId ?? null,
+          token: params.sensitiveActionToken ?? "",
+          purpose: "payout-request",
+        });
+        if (!verified) {
+          await recordOperation({
+            kind: "payout-request-blocked-by-destination-friction",
+            accountId: params.accountId,
+            amount,
+            currencyCode,
+            providerReference: readiness.provider_reference,
+            reason: `Payout destination changed within cooling period ending ${coolingWindowEndsAt}.`,
+          });
+          throw new SettlementDomainError(
+            "Confirm it is you before requesting a payout, or wait until the payout destination cooling period ends.",
+          );
+        }
       }
       const riskSummary = await getAccountPayoutRiskSummary(deps.db, params.accountId);
       if (riskSummary.failed_payout_count > 0) {
