@@ -7,6 +7,7 @@ import {
 } from "../../../support/market-support/listing-visibility";
 import type {
   DiscoveryAccountOfferMatchWithTerms,
+  DiscoveryGradedCardDetails,
   DiscoveryItemDetailSellerOverlay,
   DiscoveryMarketListing,
   DiscoveryProductContentLine,
@@ -53,6 +54,7 @@ export type DiscoveryItemDetailRow = Readonly<{
     item_subtitle: string | null;
     selected_options: readonly { dimensionId: string; optionId: string }[];
     product_summary: string | null;
+    graded_card: DiscoveryGradedCardDetails | null;
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
@@ -357,6 +359,7 @@ export async function getDiscoveryItemDetail(
          listing.item_subtitle,
          listing.selected_options,
          listing.product_summary,
+         listing.graded_card,
          listing.storage_location_name,
          listing.ship_from_code,
          listing.price_amount,
@@ -391,6 +394,7 @@ export async function getDiscoveryItemDetail(
        item_subtitle,
        selected_options,
        product_summary,
+       graded_card,
        storage_location_name,
        ship_from_code,
        price_amount,

@@ -5,7 +5,7 @@ import { discoveryCategorySchemaSql } from "../../features/categories/read-model
 import { discoveryItemDetailSchemaSql } from "../../features/item-detail/read-model/schema";
 import { discoveryProductAlertSchemaSql } from "../../features/product-alerts/read-model/schema";
 import { discoveryGoogleShoppingSchemaSql } from "../../features/google-shopping-operations/api/schema";
-import { discoveryMarketSchemaSql } from "../market-support/schema";
+import { discoveryMarketSchemaMigrations, discoveryMarketSchemaSql } from "../market-support/schema";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "../../features/search/read-model/schema";
 import { discoverySlugSchemaSql } from "./slug-schema";
 
@@ -22,4 +22,7 @@ export const discoverySchemaSql = [
   realtimeOutboxSchemaSql,
 ].join("\n\n");
 
-export const discoverySchemaMigrations = [...discoverySearchSchemaMigrations] as const;
+export const discoverySchemaMigrations = [
+  ...discoveryMarketSchemaMigrations,
+  ...discoverySearchSchemaMigrations,
+] as const;

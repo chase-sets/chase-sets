@@ -669,6 +669,59 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
+  it("surfaces verified grading certificate facts without implying physical authentication", () => {
+    const verifiedListing = {
+      ...baseListing,
+      product_summary: "PSA 10",
+      graded_card: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: "81234567",
+        population: null,
+        conditionDescriptors: ["slabbed"],
+        registryVerification: {
+          state: "verified" as const,
+          provider: "PSA",
+          verifiedAt: "2026-07-07T12:00:00.000Z",
+          lookupUrl: "https://www.psacard.com/cert/81234567",
+        },
+      },
+    };
+
+    renderWithDataRouter(
+      <CheckoutPurchaseIntentSection
+        catalogItemId="cat_charizard"
+        productId="cat_charizard::graded:psa-10"
+        selectedListing={verifiedListing}
+        selectedListingSource="explicit"
+        itemTitle="Charizard"
+        selectedOptions={[]}
+        productSummary="PSA 10"
+        visibleListingCount={1}
+      />,
+    );
+
+    expect(screen.getByText("Registry match")).toBeTruthy();
+    expect(screen.getByText("PSA 10 cert 81234567")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View registry lookup" }).getAttribute("href")).toBe(
+      "https://www.psacard.com/cert/81234567",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View grading certificate verification details" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Grading cert registry match" });
+    expect(
+      within(dialog).getByText(
+        "The grading company registry returned card identity and grade data that matched this listing's catalog item and grade.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        "This is a registry data match only. It is not Chase Sets authentication of the physical card or slab.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("keeps buy actions in one compact accordion section list", () => {
     const { container } = render(
       <BuyActionCard

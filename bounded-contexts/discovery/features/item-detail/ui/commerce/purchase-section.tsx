@@ -5,12 +5,14 @@ import {
   HiddenInput,
   Form,
   AccountReputationSummary,
+  Badge,
   Banner,
   Button,
   FormPanel,
   type FormPanelVariant,
   Inline,
   LinkButton,
+  LinkText,
   NumberInput,
   ProductOptions,
   OrderProtectionBadge,
@@ -19,6 +21,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
+import type { DiscoveryGradedCardDetails } from "../../../../support/client-support/contracts";
 import {
   formatMoneyAmount,
   getActionErrorMessage,
@@ -33,6 +36,75 @@ import {
   RailReferenceInfo,
   submittedButtonValue,
 } from "./commerce-primitives";
+
+function gradingCertLookupUrl(gradedCard: DiscoveryGradedCardDetails): string | null {
+  const explicitUrl = gradedCard.registryVerification?.lookupUrl?.trim();
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  const certificationNumber = gradedCard.certificationNumber?.trim();
+  if (!certificationNumber) {
+    return null;
+  }
+
+  switch (gradedCard.gradingCompany.trim().toUpperCase()) {
+    case "PSA":
+      return `https://www.psacard.com/cert/${encodeURIComponent(certificationNumber)}`;
+    case "CGC":
+      return `https://www.cgccards.com/certlookup/${encodeURIComponent(certificationNumber)}/`;
+    default:
+      return null;
+  }
+}
+
+function GradingCertificationSummary({ gradedCard }: { gradedCard: DiscoveryGradedCardDetails }) {
+  const isVerified = gradedCard.registryVerification?.state === "verified";
+  const lookupUrl = gradingCertLookupUrl(gradedCard);
+  const certLabel = gradedCard.certificationNumber
+    ? t("discovery.routes.itemDetail.grading.cert.summary", {
+        company: gradedCard.gradingCompany,
+        grade: gradedCard.grade,
+        cert: gradedCard.certificationNumber,
+      })
+    : t("discovery.routes.itemDetail.grading.summary", {
+        company: gradedCard.gradingCompany,
+        grade: gradedCard.grade,
+      });
+
+  return (
+    <Stack gap={1}>
+      <Inline gap={2}>
+        {isVerified ? (
+          <Badge tone="success">{t("discovery.routes.itemDetail.grading.cert.verified.badge")}</Badge>
+        ) : null}
+        <Text size="sm" tone="secondary">
+          {certLabel}
+        </Text>
+      </Inline>
+      {isVerified ? (
+        <RailReferenceInfo
+          analyticsTopic="grading_cert_verification"
+          triggerLabel={t("discovery.routes.itemDetail.referenceInfo.gradingCert.trigger")}
+          ariaLabel={t("discovery.routes.itemDetail.referenceInfo.gradingCert.aria")}
+          title={t("discovery.routes.itemDetail.referenceInfo.gradingCert.title")}
+          summary={t("discovery.routes.itemDetail.referenceInfo.gradingCert.summary")}
+          lines={[
+            t("discovery.routes.itemDetail.referenceInfo.gradingCert.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.gradingCert.line2"),
+          ]}
+        />
+      ) : null}
+      {lookupUrl ? (
+        <Text size="sm" tone="secondary">
+          <LinkText href={lookupUrl} target="_blank" rel="noreferrer">
+            {t("discovery.routes.itemDetail.grading.cert.lookup")}
+          </LinkText>
+        </Text>
+      ) : null}
+    </Stack>
+  );
+}
 
 export function CheckoutPurchaseIntentSection({
   formId = "buy-box",
@@ -68,6 +140,7 @@ export function CheckoutPurchaseIntentSection({
     seller_slug?: string | null;
     seller_average_rating?: string | null;
     seller_review_count?: number;
+    graded_card?: DiscoveryGradedCardDetails | null;
   } | null;
   selectedListingSource?: MarketSelectionSource;
   itemTitle: string;
@@ -103,6 +176,7 @@ export function CheckoutPurchaseIntentSection({
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
   const showSelectedListingContext = Boolean(selectedListing && isListingWorkflow);
+  const selectedListingGradedCard = showSelectedListingContext ? (selectedListing?.graded_card ?? null) : null;
   const selectionHeading =
     selectedListing && showSelectedListingContext
       ? selectedListingSource === "explicit"
@@ -313,6 +387,9 @@ export function CheckoutPurchaseIntentSection({
                   productSummary={productSummary}
                   fallback={productId ? itemTitle : t("discovery.routes.itemDetail.choose.options.to.add.this.product")}
                 />
+                {selectedListingGradedCard ? (
+                  <GradingCertificationSummary gradedCard={selectedListingGradedCard} />
+                ) : null}
               </Stack>
             ) : (
               <Stack gap={1}>
