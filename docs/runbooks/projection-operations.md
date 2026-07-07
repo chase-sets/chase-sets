@@ -39,6 +39,14 @@ The console is owned by the Platform Operations bounded context. It should be us
 - The operation history API supports filters for `contextName`, `projectionName`, `state`, and `requestedByUserId`.
 - Operation summaries expose queued count, running count, failed count, cancel-requested count, oldest queued/running timestamps, and average operation duration.
 
+### Attempts, Backoff, Timeouts, and Dead-Lettering
+
+- Every claim charges an attempt (`attempt_count`) and sets an eligibility horizon (claim TTL plus exponential backoff), so an operation whose worker dies without a terminal write is reclaimed only after backoff and never hot-loops at the head of the queue.
+- An operation that cannot acquire its projection-group runner lease waits briefly for the lease (the idle degraded group runner yields it between passes), and on sustained contention is requeued as retryable with backoff instead of failing terminally.
+- An operation that exceeds its execution deadline (`WORKER_PROJECTION_OPERATION_TIMEOUT_MS`, rebuilds use `WORKER_PROJECTION_OPERATION_REBUILD_TIMEOUT_MS`) is aborted and recorded as failed with a timeout message; a hung operation can no longer pin an executor runner while renewing its claim forever.
+- Once `attempt_count` reaches `WORKER_PROJECTION_OPERATION_MAX_ATTEMPTS`, the claim sweep dead-letters the operation: state `failed` with error code `attempts_exhausted`, preserving the last recorded error. Re-request the retry or rebuild after fixing the underlying cause.
+- Operation executors run in the dedicated `operations` worker runner group (`WORKER_PROJECTION_OPERATION_RUNNER_COUNT` runners, cluster-wide leases), so queued recovery operations are not starved by projection-group backlog.
+
 ## Poison Events
 
 Poison handling is stream-isolated. A projection group reports `degraded` when it is still draining unrelated streams but at least one stream is blocked by a poison event; `error` means the runner could not make progress for the turn. Unrelated streams continue to drain while one stream is blocked, and later events from the blocked stream remain unapplied for that projection.

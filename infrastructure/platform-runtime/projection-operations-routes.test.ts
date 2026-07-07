@@ -75,6 +75,8 @@ function projectionOperation(
     claimOwnerId: null,
     claimFencingToken: null,
     claimedUntil: null,
+    attemptCount: 0,
+    nextEligibleAt: "2026-06-29T00:00:00.000Z",
     progress: {},
     result: null,
     error: null,

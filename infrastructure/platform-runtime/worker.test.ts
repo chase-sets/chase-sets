@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
-import type { PlatformControlPlane, PlatformLease } from "./control-plane";
+import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
 import {
+  collectProjectionOperationRunners,
   collectWorkerRunners,
   createDurableJobLaneRunners,
   createWorkerRunnerLoop,
@@ -1545,6 +1546,8 @@ describe("worker runner loop", () => {
         claimOwnerId: "worker-a",
         claimFencingToken: "1",
         claimedUntil: new Date(Date.now() + 60_000).toISOString(),
+        attemptCount: 1,
+        nextEligibleAt: new Date(0).toISOString(),
         progress: {},
         result: null,
         error: null,
@@ -1566,6 +1569,8 @@ describe("worker runner loop", () => {
         claimOwnerId: "worker-a",
         claimFencingToken: "1",
         claimedUntil: new Date(Date.now() + 60_000).toISOString(),
+        attemptCount: 1,
+        nextEligibleAt: new Date(0).toISOString(),
         progress: {},
         result: null,
         error: null,
@@ -1579,7 +1584,7 @@ describe("worker runner loop", () => {
         return true;
       },
     });
-    const runners = collectWorkerRunners(
+    const runners = collectProjectionOperationRunners(
       {
         mountedContexts: [],
         services: {},
@@ -1589,7 +1594,7 @@ describe("worker runner loop", () => {
       } as never,
       {
         controlPlane,
-        projectionOperationCancelPollIntervalMs: 1,
+        cancelPollIntervalMs: 1,
       },
     );
     const operationRunner = runners.find((runner) => runner.name === "projection-operations");
@@ -1604,7 +1609,242 @@ describe("worker runner loop", () => {
       }),
     );
   });
+
+  it("times out a hung projection operation, records the timeout as its failure, and frees the runner", async () => {
+    // Regression for #4496 recovery 7: a hung operation renewed its claim
+    // forever, pinned the single operation executor, and the queue backed up
+    // behind it (operationSummary running:1 since 19:05Z, queued 33 -> 84).
+    const failures: Array<Record<string, unknown>> = [];
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      reset: async () => undefined,
+      // Hangs forever and ignores the abort signal.
+      runOnce: () => new Promise<never>(() => {}),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({ revisionStale: false }),
+    });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      claimProjectionOperation: async () => createClaimedOperationRecord(),
+      recordProjectionOperationProgress: async () => true,
+      getProjectionOperation: async () => createClaimedOperationRecord(),
+      failProjectionOperation: async (input) => {
+        failures.push(input as unknown as Record<string, unknown>);
+        return true;
+      },
+    });
+    const [operationRunner] = collectProjectionOperationRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [group],
+        subscriptionRunners: [subscriptionRunner],
+      } as never,
+      {
+        controlPlane,
+        rebuildOperationTimeoutMs: 25,
+      },
+    );
+
+    await expect(operationRunner.runOnce({ ownerId: "worker-a" })).rejects.toThrow(/timed out after 25ms/);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      operationId: "projection-operation-1",
+      retryable: false,
+      error: expect.objectContaining({
+        message: expect.stringContaining("timed out after 25ms"),
+      }),
+    });
+  });
+
+  it("requeues an operation as retryable when the projection-group lease stays unavailable", async () => {
+    const failures: Array<Record<string, unknown>> = [];
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      reset: async () => undefined,
+      runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({ revisionStale: false }),
+    });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      // The projection-group lease is held elsewhere for the whole window.
+      acquireLease: async () => null,
+      claimProjectionOperation: async () => createClaimedOperationRecord({ attemptCount: 1 }),
+      recordProjectionOperationProgress: async () => true,
+      getProjectionOperation: async () => createClaimedOperationRecord({ attemptCount: 1 }),
+      failProjectionOperation: async (input) => {
+        failures.push(input as unknown as Record<string, unknown>);
+        return true;
+      },
+    });
+    const [operationRunner] = collectProjectionOperationRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [group],
+        subscriptionRunners: [subscriptionRunner],
+      } as never,
+      {
+        controlPlane,
+        leaseAcquireTimeoutMs: 0,
+        maxAttempts: 5,
+      },
+    );
+
+    await expect(operationRunner.runOnce({ ownerId: "worker-a" })).rejects.toThrow(/lease .* is already active/);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ retryable: true });
+  });
+
+  it("waits for a briefly-held projection-group lease instead of failing the operation", async () => {
+    let acquireAttempts = 0;
+    const completed: string[] = [];
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      reset: async () => undefined,
+      runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({ revisionStale: false }),
+    });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      // The scheduled group runner yields the lease after two poll ticks.
+      acquireLease: async (input) => {
+        acquireAttempts += 1;
+        if (acquireAttempts <= 2) {
+          return null;
+        }
+        return {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: "1",
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+      },
+      claimProjectionOperation: async () => createClaimedOperationRecord(),
+      recordProjectionOperationProgress: async () => true,
+      getProjectionOperation: async () => createClaimedOperationRecord(),
+      completeProjectionOperation: async (input) => {
+        completed.push(input.operationId);
+        return true;
+      },
+    });
+    const [operationRunner] = collectProjectionOperationRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [group],
+        subscriptionRunners: [subscriptionRunner],
+      } as never,
+      {
+        controlPlane,
+        leaseAcquireTimeoutMs: 5_000,
+        leaseAcquireRetryIntervalMs: 1,
+      },
+    );
+
+    await expect(operationRunner.runOnce({ ownerId: "worker-a" })).resolves.toMatchObject({ processed: 1 });
+    expect(acquireAttempts).toBeGreaterThanOrEqual(3);
+    expect(completed).toEqual(["projection-operation-1"]);
+  });
+
+  it("throws the original operation error when the failure write loses the claim", async () => {
+    // Regression for #4496: the masked claim-loss failure ("claim was lost
+    // before the status update completed") replaced the real error and left
+    // the operation pinned in `running` with no recorded failure.
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      reset: async () => undefined,
+      runOnce: async () => {
+        throw new Error("projection apply exploded");
+      },
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({ revisionStale: false }),
+    });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      claimProjectionOperation: async () => createClaimedOperationRecord(),
+      recordProjectionOperationProgress: async () => true,
+      getProjectionOperation: async () => createClaimedOperationRecord(),
+      failProjectionOperation: async () => false,
+    });
+    const [operationRunner] = collectProjectionOperationRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [group],
+        subscriptionRunners: [subscriptionRunner],
+      } as never,
+      {
+        controlPlane,
+      },
+    );
+
+    await expect(operationRunner.runOnce({ ownerId: "worker-a" })).rejects.toThrow("projection apply exploded");
+  });
+
+  it("creates the configured number of projection operation runners with stable names", () => {
+    const runners = collectProjectionOperationRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      } as never,
+      {
+        controlPlane: createAlwaysLeasedControlPlane(),
+        runnerCount: 3,
+      },
+    );
+
+    expect(runners.map((runner) => runner.name)).toEqual([
+      "projection-operations",
+      "projection-operations-2",
+      "projection-operations-3",
+    ]);
+  });
 });
+
+function createClaimedOperationRecord(overrides: Partial<ProjectionOperationRecord> = {}): ProjectionOperationRecord {
+  return {
+    operationId: "projection-operation-1",
+    operationKind: "rebuild-projection-group",
+    state: "running",
+    contextName: "inventory",
+    projectionName: "inventory-catalog-item-projection",
+    projectionKey: null,
+    streamId: null,
+    requestedByUserId: null,
+    requestedByAccountId: null,
+    claimOwnerId: "worker-a",
+    claimFencingToken: "1",
+    claimedUntil: new Date(Date.now() + 60_000).toISOString(),
+    attemptCount: 1,
+    nextEligibleAt: new Date(0).toISOString(),
+    progress: {},
+    result: null,
+    error: null,
+    requestedAt: new Date(0).toISOString(),
+    startedAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+    completedAt: null,
+    ...overrides,
+  };
+}
 
 function createProjectionGroup(
   overrides: Readonly<{
@@ -1680,7 +1920,7 @@ function createAlwaysLeasedControlPlane(overrides: Partial<PlatformControlPlane>
         throw new Error("not used");
       }),
     claimProjectionOperation: overrides.claimProjectionOperation ?? (async () => null),
-    recordProjectionOperationProgress: async () => false,
+    recordProjectionOperationProgress: overrides.recordProjectionOperationProgress ?? (async () => false),
     completeProjectionOperation: overrides.completeProjectionOperation ?? (async () => false),
     failProjectionOperation: overrides.failProjectionOperation ?? (async () => false),
     cancelProjectionOperation: overrides.cancelProjectionOperation ?? (async () => false),

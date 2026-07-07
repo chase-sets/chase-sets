@@ -18,7 +18,14 @@ import type { BcApiModule, BcHostPort } from "@chase-sets/bounded-context-module
 import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
+import {
+  DEFAULT_PROJECTION_OPERATION_MAX_ATTEMPTS,
+  DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS,
+  DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS,
+  type PlatformControlPlane,
+  type PlatformLease,
+  type ProjectionOperationRecord,
+} from "./control-plane";
 import { attachRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 import type { PostgresWorkSignalStore } from "./work-signal-store";
 import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
@@ -136,6 +143,44 @@ type WorkerHostPools = Readonly<
 
 export const DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS = 15_000;
 const DEFAULT_WORKER_STATUS_HEARTBEAT_INTERVAL_MS = 60_000;
+export const DEFAULT_PROJECTION_OPERATION_TIMEOUT_MS = 600_000;
+export const DEFAULT_PROJECTION_OPERATION_REBUILD_TIMEOUT_MS = 7_200_000;
+const DEFAULT_PROJECTION_OPERATION_CLAIM_TTL_MS = 120_000;
+const DEFAULT_PROJECTION_OPERATION_LEASE_TTL_MS = 120_000;
+const DEFAULT_PROJECTION_OPERATION_LEASE_RENEW_INTERVAL_MS = 30_000;
+const DEFAULT_PROJECTION_OPERATION_STATEMENT_TIMEOUT_MS = 30_000;
+const DEFAULT_PROJECTION_OPERATION_CANCEL_POLL_INTERVAL_MS = 5_000;
+const DEFAULT_PROJECTION_OPERATION_LEASE_ACQUIRE_TIMEOUT_MS = 15_000;
+const DEFAULT_PROJECTION_OPERATION_LEASE_ACQUIRE_RETRY_INTERVAL_MS = 500;
+
+/**
+ * A projection operation could not acquire the projection-group runner lease
+ * it targets (the scheduled group runner or another operation holds it). This
+ * failure class is transient contention, not a broken operation: the worker
+ * requeues the operation with backoff instead of dead-lettering it.
+ */
+export class ProjectionRunnerLeaseUnavailableError extends Error {
+  readonly leaseName: string;
+
+  constructor(leaseName: string) {
+    super(`Projection runner lease '${leaseName}' is already active.`);
+    this.name = "ProjectionRunnerLeaseUnavailableError";
+    this.leaseName = leaseName;
+  }
+}
+
+/**
+ * A projection operation exceeded its execution deadline and was aborted so
+ * the operation executor cannot be pinned by a hung operation. The claim is
+ * still valid when this is thrown, so the failure is recorded with this
+ * message instead of leaving the operation silently `running` forever.
+ */
+export class ProjectionOperationTimedOutError extends Error {
+  constructor(operationId: string, timeoutMs: number) {
+    super(`Projection operation '${operationId}' timed out after ${timeoutMs}ms and was aborted.`);
+    this.name = "ProjectionOperationTimedOutError";
+  }
+}
 
 export type DurableJobLaneRunContext = Readonly<{
   workflowName: string;
@@ -326,15 +371,8 @@ function isPgTransactionalPool(value: unknown): value is PgTransactionalPool {
 export function collectWorkerRunners(
   runtime: WorkerHostRuntime,
   options: Readonly<{
-    controlPlane?: PlatformControlPlane;
-    projectionOperationClaimTtlMs?: number;
-    projectionOperationLeaseTtlMs?: number;
-    projectionOperationLeaseRenewIntervalMs?: number;
     projectionTransactionIdleTimeoutMs?: number;
-    projectionOperationStatementTimeoutMs?: number;
-    projectionOperationCancelPollIntervalMs?: number;
     workSignalStore?: Pick<PostgresWorkSignalStore, "recordCheckpointReady" | "clearCheckpointReadiness">;
-    observer?: WorkerRuntimeObserver;
   }> = {},
 ): readonly WorkerRunner[] {
   const onCheckpointsAdvanced = options.workSignalStore
@@ -345,7 +383,8 @@ export function collectWorkerRunners(
         await options.workSignalStore?.clearCheckpointReadiness({ checkpointKeys });
       }
     : undefined;
-  const runners = [
+
+  return [
     ...runtime.projectionGroups.map((group) =>
       createProjectionGroupWorkerRunner(group, {
         idleInTransactionSessionTimeoutMs:
@@ -357,24 +396,72 @@ export function collectWorkerRunners(
     createSubscriptionLedgerCompactionRunner(runtime),
     createProjectionGenerationRetentionRunner(runtime),
   ];
+}
 
-  return options.controlPlane
-    ? [
-        ...runners,
-        createProjectionOperationWorkerRunner(runtime, {
-          controlPlane: options.controlPlane,
-          claimTtlMs: options.projectionOperationClaimTtlMs ?? 120_000,
-          leaseTtlMs: options.projectionOperationLeaseTtlMs ?? 120_000,
-          leaseRenewIntervalMs: options.projectionOperationLeaseRenewIntervalMs ?? 30_000,
-          idleInTransactionSessionTimeoutMs:
-            options.projectionTransactionIdleTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
-          statementTimeoutMs: options.projectionOperationStatementTimeoutMs ?? 30_000,
-          cancelPollIntervalMs: options.projectionOperationCancelPollIntervalMs ?? 5_000,
-          onCheckpointsReset,
-          observer: options.observer,
-        }),
-      ]
-    : runners;
+/**
+ * Projection operation executors run in their own runner group so queued
+ * recovery operations are never starved by projection-group backlog priority
+ * (issue #4496: a single shared-loop consumer left retry operations queued for
+ * hours). Each runner claims one operation at a time; `runnerCount` scales
+ * cluster-wide concurrency, and per-projection-group leases still serialize
+ * operations that target the same group.
+ */
+export function collectProjectionOperationRunners(
+  runtime: WorkerHostRuntime,
+  options: Readonly<{
+    controlPlane: PlatformControlPlane;
+    runnerCount?: number;
+    claimTtlMs?: number;
+    leaseTtlMs?: number;
+    leaseRenewIntervalMs?: number;
+    projectionTransactionIdleTimeoutMs?: number;
+    statementTimeoutMs?: number;
+    cancelPollIntervalMs?: number;
+    operationTimeoutMs?: number;
+    rebuildOperationTimeoutMs?: number;
+    maxAttempts?: number;
+    retryBackoffBaseMs?: number;
+    retryBackoffMaxMs?: number;
+    leaseAcquireTimeoutMs?: number;
+    leaseAcquireRetryIntervalMs?: number;
+    workSignalStore?: Pick<PostgresWorkSignalStore, "clearCheckpointReadiness">;
+    observer?: WorkerRuntimeObserver;
+  }>,
+): readonly WorkerRunner[] {
+  const onCheckpointsReset = options.workSignalStore
+    ? async (checkpointKeys: readonly string[]) => {
+        await options.workSignalStore?.clearCheckpointReadiness({ checkpointKeys });
+      }
+    : undefined;
+  const runnerOptions: ProjectionOperationRunnerOptions = {
+    controlPlane: options.controlPlane,
+    claimTtlMs: options.claimTtlMs ?? DEFAULT_PROJECTION_OPERATION_CLAIM_TTL_MS,
+    leaseTtlMs: options.leaseTtlMs ?? DEFAULT_PROJECTION_OPERATION_LEASE_TTL_MS,
+    leaseRenewIntervalMs: options.leaseRenewIntervalMs ?? DEFAULT_PROJECTION_OPERATION_LEASE_RENEW_INTERVAL_MS,
+    idleInTransactionSessionTimeoutMs:
+      options.projectionTransactionIdleTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
+    statementTimeoutMs: options.statementTimeoutMs ?? DEFAULT_PROJECTION_OPERATION_STATEMENT_TIMEOUT_MS,
+    cancelPollIntervalMs: options.cancelPollIntervalMs ?? DEFAULT_PROJECTION_OPERATION_CANCEL_POLL_INTERVAL_MS,
+    operationTimeoutMs: options.operationTimeoutMs ?? DEFAULT_PROJECTION_OPERATION_TIMEOUT_MS,
+    rebuildOperationTimeoutMs: options.rebuildOperationTimeoutMs ?? DEFAULT_PROJECTION_OPERATION_REBUILD_TIMEOUT_MS,
+    maxAttempts: options.maxAttempts ?? DEFAULT_PROJECTION_OPERATION_MAX_ATTEMPTS,
+    retryBackoffBaseMs: options.retryBackoffBaseMs ?? DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS,
+    retryBackoffMaxMs: options.retryBackoffMaxMs ?? DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS,
+    leaseAcquireTimeoutMs: options.leaseAcquireTimeoutMs ?? DEFAULT_PROJECTION_OPERATION_LEASE_ACQUIRE_TIMEOUT_MS,
+    leaseAcquireRetryIntervalMs:
+      options.leaseAcquireRetryIntervalMs ?? DEFAULT_PROJECTION_OPERATION_LEASE_ACQUIRE_RETRY_INTERVAL_MS,
+    onCheckpointsReset,
+    observer: options.observer,
+  };
+  const runnerCount = Math.max(1, Math.floor(options.runnerCount ?? 1));
+
+  return Array.from({ length: runnerCount }, (_, index) =>
+    createProjectionOperationWorkerRunner(
+      runtime,
+      runnerOptions,
+      index === 0 ? "projection-operations" : `projection-operations-${index + 1}`,
+    ),
+  );
 }
 
 export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): WorkerRunnerLoop {
@@ -1186,22 +1273,32 @@ export function createProjectionGroupWorkerRunner(
   };
 }
 
+type ProjectionOperationRunnerOptions = Readonly<{
+  controlPlane: PlatformControlPlane;
+  claimTtlMs: number;
+  leaseTtlMs: number;
+  leaseRenewIntervalMs: number;
+  idleInTransactionSessionTimeoutMs: number;
+  statementTimeoutMs: number;
+  cancelPollIntervalMs: number;
+  operationTimeoutMs: number;
+  rebuildOperationTimeoutMs: number;
+  maxAttempts: number;
+  retryBackoffBaseMs: number;
+  retryBackoffMaxMs: number;
+  leaseAcquireTimeoutMs: number;
+  leaseAcquireRetryIntervalMs: number;
+  onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
+  observer?: WorkerRuntimeObserver;
+}>;
+
 function createProjectionOperationWorkerRunner(
   runtime: WorkerHostRuntime,
-  options: Readonly<{
-    controlPlane: PlatformControlPlane;
-    claimTtlMs: number;
-    leaseTtlMs: number;
-    leaseRenewIntervalMs: number;
-    idleInTransactionSessionTimeoutMs: number;
-    statementTimeoutMs: number;
-    cancelPollIntervalMs: number;
-    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
-    observer?: WorkerRuntimeObserver;
-  }>,
+  options: ProjectionOperationRunnerOptions,
+  runnerName = "projection-operations",
 ): WorkerRunner {
   return {
-    name: "projection-operations",
+    name: runnerName,
     kind: "job",
     priority: () => 0,
     runOnce: async (context) => {
@@ -1209,6 +1306,9 @@ function createProjectionOperationWorkerRunner(
       const operation = await options.controlPlane.claimProjectionOperation({
         ownerId,
         claimTtlMs: options.claimTtlMs,
+        maxAttempts: options.maxAttempts,
+        retryBackoffBaseMs: options.retryBackoffBaseMs,
+        retryBackoffMaxMs: options.retryBackoffMaxMs,
       });
 
       if (!operation) {
@@ -1263,10 +1363,12 @@ function createProjectionOperationWorkerRunner(
           state: "running",
         };
       } catch (error) {
-        const latestOperation = await options.controlPlane.getProjectionOperation(operation.operationId);
+        const latestOperation = await options.controlPlane
+          .getProjectionOperation(operation.operationId)
+          .catch(() => null);
         if (latestOperation?.state === "cancel_requested") {
-          await requireProjectionOperationClaim(
-            options.controlPlane.completeProjectionOperation({
+          const cancelled = await options.controlPlane
+            .completeProjectionOperation({
               operationId: operation.operationId,
               ownerId,
               fencingToken: operation.claimFencingToken,
@@ -1274,32 +1376,53 @@ function createProjectionOperationWorkerRunner(
                 state: "cancelled",
                 message: error instanceof Error ? error.message : String(error),
               },
-            }),
-            operation.operationId,
-          );
-          options.observer?.projectionOperationCompleted?.(
-            projectionOperationEvent({ ...operation, state: "cancelled" }, ownerId, operation.claimFencingToken),
-          );
-          return {
-            processed: 1,
-            lastGlobalPosition: ZERO_GLOBAL_POSITION,
-            state: "degraded",
-          };
+            })
+            .catch(() => false);
+          if (cancelled) {
+            options.observer?.projectionOperationCompleted?.(
+              projectionOperationEvent({ ...operation, state: "cancelled" }, ownerId, operation.claimFencingToken),
+            );
+            return {
+              processed: 1,
+              lastGlobalPosition: ZERO_GLOBAL_POSITION,
+              state: "degraded",
+            };
+          }
+          throw error;
         }
 
-        await requireProjectionOperationClaim(
-          options.controlPlane.failProjectionOperation({
+        // Lease contention is transient: the group runner yields its lease
+        // between idle passes, so requeue with backoff instead of
+        // dead-lettering. Every other failure (including a timed-out
+        // operation) is terminal.
+        const retryable =
+          error instanceof ProjectionRunnerLeaseUnavailableError && operation.attemptCount < options.maxAttempts;
+        // The failure write is best-effort: if the claim was already lost
+        // (expired TTL, fencing race, worker restart) the write returns false
+        // and the operation stays reclaimable — its attempt was charged at
+        // claim time, so the backoff horizon and attempt cap still bound it.
+        // Never let a lost failure write mask the original error (issue
+        // #4496: masked claim-loss failures left operations pinned in
+        // `running` with no recorded error).
+        const recorded = await options.controlPlane
+          .failProjectionOperation({
             operationId: operation.operationId,
             ownerId,
             fencingToken: operation.claimFencingToken,
             error: {
               message: error instanceof Error ? error.message : String(error),
             },
-          }),
-          operation.operationId,
-        );
+            retryable,
+            retryBackoffBaseMs: options.retryBackoffBaseMs,
+            retryBackoffMaxMs: options.retryBackoffMaxMs,
+          })
+          .catch(() => false);
         options.observer?.projectionOperationFailed?.({
-          ...projectionOperationEvent({ ...operation, state: "failed" }, ownerId, operation.claimFencingToken),
+          ...projectionOperationEvent(
+            { ...operation, state: recorded && retryable ? "queued" : "failed" },
+            ownerId,
+            operation.claimFencingToken,
+          ),
           error,
         });
         throw error;
@@ -1310,16 +1433,7 @@ function createProjectionOperationWorkerRunner(
 
 async function runProjectionOperationWithRenewedClaim(
   runtime: WorkerHostRuntime,
-  options: Readonly<{
-    controlPlane: PlatformControlPlane;
-    claimTtlMs: number;
-    leaseTtlMs: number;
-    leaseRenewIntervalMs: number;
-    idleInTransactionSessionTimeoutMs: number;
-    statementTimeoutMs: number;
-    cancelPollIntervalMs: number;
-    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
-  }>,
+  options: ProjectionOperationRunnerOptions,
   operation: ProjectionOperationRecord,
   ownerId: string,
   progress: Record<string, unknown>,
@@ -1384,10 +1498,39 @@ async function runProjectionOperationWithRenewedClaim(
     throwIfLeaseLost: throwIfOperationClaimLost,
   };
 
+  // Execution deadline: without one, a hung operation renews its claim
+  // forever and pins its executor runner — the exact single-consumer jam from
+  // issue #4496 (one operation `running` for hours while the queue backed
+  // up). On timeout the claim stops renewing, the run context aborts, and the
+  // still-valid claim records the timeout as the operation's failure.
+  const operationTimeoutMs =
+    operation.operationKind === "rebuild-projection-group" || operation.operationKind === "rebuild-context"
+      ? options.rebuildOperationTimeoutMs
+      : options.operationTimeoutMs;
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
   try {
-    await runProjectionOperation(runtime, options, operation, ownerId, operationContext);
+    const workPromise = runProjectionOperation(runtime, options, operation, ownerId, operationContext);
+    // If the deadline wins the race, the leaked work promise settles later
+    // (or never); mark its eventual rejection as handled so a hung apply path
+    // cannot crash the process.
+    workPromise.catch(() => undefined);
+    await Promise.race([
+      workPromise,
+      new Promise<never>((_, reject) => {
+        timeoutTimer = setTimeout(() => {
+          claimActive = false;
+          abortController.abort();
+          reject(new ProjectionOperationTimedOutError(operation.operationId, operationTimeoutMs));
+        }, operationTimeoutMs);
+        timeoutTimer.unref?.();
+      }),
+    ]);
     throwIfOperationClaimLost();
   } finally {
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer);
+    }
     clearInterval(renewalTimer);
     runnerContext?.signal?.removeEventListener("abort", abortFromParent);
     abortController.abort();
@@ -1396,15 +1539,7 @@ async function runProjectionOperationWithRenewedClaim(
 
 async function runProjectionOperation(
   runtime: WorkerHostRuntime,
-  options: Readonly<{
-    controlPlane: PlatformControlPlane;
-    leaseTtlMs: number;
-    leaseRenewIntervalMs: number;
-    idleInTransactionSessionTimeoutMs: number;
-    statementTimeoutMs: number;
-    cancelPollIntervalMs: number;
-    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
-  }>,
+  options: ProjectionOperationRunnerOptions,
   operation: ProjectionOperationRecord,
   ownerId: string,
   runnerContext?: ProjectionRunContext,
@@ -1423,6 +1558,8 @@ async function runProjectionOperation(
         ownerId,
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
+        acquireTimeoutMs: options.leaseAcquireTimeoutMs,
+        acquireRetryIntervalMs: options.leaseAcquireRetryIntervalMs,
         idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
         statementTimeoutMs: options.statementTimeoutMs,
         shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
@@ -1455,6 +1592,8 @@ async function runProjectionOperation(
           ownerId,
           ttlMs: options.leaseTtlMs,
           renewIntervalMs: options.leaseRenewIntervalMs,
+          acquireTimeoutMs: options.leaseAcquireTimeoutMs,
+          acquireRetryIntervalMs: options.leaseAcquireRetryIntervalMs,
           idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
           statementTimeoutMs: options.statementTimeoutMs,
           shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
@@ -1491,6 +1630,8 @@ async function runProjectionOperation(
         ownerId,
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
+        acquireTimeoutMs: options.leaseAcquireTimeoutMs,
+        acquireRetryIntervalMs: options.leaseAcquireRetryIntervalMs,
         idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
         statementTimeoutMs: options.statementTimeoutMs,
         shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
@@ -1573,6 +1714,15 @@ export type RunWithRenewedLeaseInput = Readonly<{
   ownerId: string;
   ttlMs: number;
   renewIntervalMs: number;
+  /**
+   * How long to keep retrying lease acquisition before giving up. The
+   * scheduled projection-group runner yields its lease between idle passes,
+   * so a short acquisition window lets a queued operation win the lease
+   * instead of failing instantly on momentary contention. Defaults to a
+   * single attempt.
+   */
+  acquireTimeoutMs?: number;
+  acquireRetryIntervalMs?: number;
   idleInTransactionSessionTimeoutMs?: number;
   statementTimeoutMs?: number;
   shouldAbort?: () => Promise<boolean>;
@@ -1587,7 +1737,7 @@ async function runWithRenewedLease<T>(
 ): Promise<T> {
   const outcome = await tryRunWithRenewedLease(controlPlane, input, work);
   if (!outcome.acquired) {
-    throw new Error(`Projection runner lease '${input.leaseName}' is already active.`);
+    throw new ProjectionRunnerLeaseUnavailableError(input.leaseName);
   }
 
   return outcome.result;
@@ -1598,12 +1748,7 @@ export async function tryRunWithRenewedLease<T>(
   input: RunWithRenewedLeaseInput,
   work: (context: ProjectionRunContext) => Promise<T>,
 ): Promise<Readonly<{ acquired: true; result: T }> | Readonly<{ acquired: false }>> {
-  const lease = await controlPlane.acquireLease({
-    leaseName: input.leaseName,
-    ownerId: input.ownerId,
-    ttlMs: input.ttlMs,
-    metadata: input.metadata,
-  });
+  const lease = await acquireLeaseWithinTimeout(controlPlane, input);
   if (!lease) {
     return { acquired: false };
   }
@@ -1618,6 +1763,13 @@ export async function tryRunWithRenewedLease<T>(
   let renewalInFlight = false;
   const renewalTimer = setInterval(() => {
     if (renewalInFlight) {
+      return;
+    }
+    // Once the run is aborted (lease lost, cancellation, or operation
+    // timeout) the lease must lapse by TTL rather than being renewed forever:
+    // leaked work that ignores the abort signal must not pin the shared
+    // projection-group lease against the scheduled runner.
+    if (!leaseActive || abortController.signal.aborted) {
       return;
     }
     renewalInFlight = true;
@@ -1675,6 +1827,35 @@ export async function tryRunWithRenewedLease<T>(
       clearInterval(abortPollTimer);
     }
     await controlPlane.releaseLease(lease);
+  }
+}
+
+async function acquireLeaseWithinTimeout(
+  controlPlane: PlatformControlPlane,
+  input: RunWithRenewedLeaseInput,
+): Promise<PlatformLease | null> {
+  const acquireDeadline = Date.now() + Math.max(0, Math.floor(input.acquireTimeoutMs ?? 0));
+  const retryIntervalMs = Math.max(50, Math.floor(input.acquireRetryIntervalMs ?? 500));
+
+  for (;;) {
+    const lease = await controlPlane.acquireLease({
+      leaseName: input.leaseName,
+      ownerId: input.ownerId,
+      ttlMs: input.ttlMs,
+      metadata: input.metadata,
+    });
+    if (lease) {
+      return lease;
+    }
+
+    const remainingMs = acquireDeadline - Date.now();
+    if (remainingMs <= 0) {
+      return null;
+    }
+    if (input.shouldAbort && (await input.shouldAbort())) {
+      return null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(retryIntervalMs, remainingMs)));
   }
 }
 

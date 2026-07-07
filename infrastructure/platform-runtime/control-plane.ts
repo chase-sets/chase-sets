@@ -12,6 +12,19 @@ import type { RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
 const PROJECTION_OPERATION_NOTIFY_CHANNEL = "platform_projection_operation_events";
 const PROJECTION_OPERATION_WORK_SIGNAL_KIND = "projection-operation.event";
+export const DEFAULT_PROJECTION_OPERATION_MAX_ATTEMPTS = 5;
+export const DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS = 30_000;
+export const DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS = 600_000;
+
+function normalizeProjectionOperationMaxAttempts(value: number | undefined): number {
+  return Number.isFinite(value) && (value as number) >= 1
+    ? Math.floor(value as number)
+    : DEFAULT_PROJECTION_OPERATION_MAX_ATTEMPTS;
+}
+
+function normalizeProjectionOperationBackoffMs(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) && (value as number) >= 0 ? Math.floor(value as number) : fallback;
+}
 
 export const platformControlPlaneSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_control_leases (
@@ -126,6 +139,8 @@ CREATE TABLE IF NOT EXISTS platform_projection_operations (
   claim_owner_id text NULL,
   claim_fencing_token bigint NULL,
   claimed_until timestamptz NULL,
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  next_eligible_at timestamptz NOT NULL DEFAULT now(),
   event_sequence integer NOT NULL DEFAULT 0 CHECK (event_sequence >= 0),
   progress jsonb NOT NULL DEFAULT '{}'::jsonb,
   result jsonb NULL,
@@ -139,6 +154,9 @@ CREATE TABLE IF NOT EXISTS platform_projection_operations (
 CREATE INDEX IF NOT EXISTS platform_projection_operations_state_requested_idx
   ON platform_projection_operations (state, requested_at ASC);
 
+CREATE INDEX IF NOT EXISTS platform_projection_operations_claimable_idx
+  ON platform_projection_operations (state, next_eligible_at ASC, requested_at ASC);
+
 CREATE INDEX IF NOT EXISTS platform_projection_operations_target_idx
   ON platform_projection_operations (context_name, projection_name, requested_at DESC);
 
@@ -147,6 +165,12 @@ CREATE INDEX IF NOT EXISTS platform_projection_operations_actor_requested_idx
 
 ALTER TABLE platform_projection_operations
   ADD COLUMN IF NOT EXISTS event_sequence integer NOT NULL DEFAULT 0;
+
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NOT NULL DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS platform_projection_operation_events (
   operation_id text NOT NULL REFERENCES platform_projection_operations(operation_id) ON DELETE CASCADE,
@@ -242,6 +266,8 @@ export type ProjectionOperationRecord = Readonly<{
   claimOwnerId: string | null;
   claimFencingToken: string | null;
   claimedUntil: string | null;
+  attemptCount: number;
+  nextEligibleAt: string;
   progress: Record<string, unknown>;
   result: Record<string, unknown> | null;
   error: Record<string, unknown> | null;
@@ -349,6 +375,9 @@ export type PlatformControlPlane = Readonly<{
       ownerId: string;
       claimTtlMs: number;
       operationKinds?: readonly ProjectionOperationKind[];
+      maxAttempts?: number;
+      retryBackoffBaseMs?: number;
+      retryBackoffMaxMs?: number;
     }>,
   ) => Promise<ProjectionOperationRecord | null>;
   recordProjectionOperationProgress: (
@@ -375,6 +404,8 @@ export type PlatformControlPlane = Readonly<{
       fencingToken: string;
       error: Record<string, unknown>;
       retryable?: boolean;
+      retryBackoffBaseMs?: number;
+      retryBackoffMaxMs?: number;
     }>,
   ) => Promise<boolean>;
   cancelProjectionOperation: (
@@ -435,6 +466,8 @@ type ProjectionOperationRow = Readonly<{
   claim_owner_id: string | null;
   claim_fencing_token: string | number | bigint | null;
   claimed_until: Date | string | null;
+  attempt_count: number | string;
+  next_eligible_at: Date | string;
   progress: unknown;
   result: unknown;
   error: unknown;
@@ -732,7 +765,66 @@ export function createPostgresPlatformControlPlane(
     },
     claimProjectionOperation: async (input) => {
       const operationKinds = input.operationKinds?.length ? [...new Set(input.operationKinds)] : null;
+      const maxAttempts = normalizeProjectionOperationMaxAttempts(input.maxAttempts);
+      const retryBackoffBaseMs = normalizeProjectionOperationBackoffMs(
+        input.retryBackoffBaseMs,
+        DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS,
+      );
+      const retryBackoffMaxMs = Math.max(
+        retryBackoffBaseMs,
+        normalizeProjectionOperationBackoffMs(
+          input.retryBackoffMaxMs,
+          DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS,
+        ),
+      );
       return runControlPlaneWrite(db, async (queryable) => {
+        // Dead-letter sweep: an operation that has burned its attempt budget
+        // (including attempts that ended in a lost claim and were silently
+        // reclaimed) must never be claimed again — otherwise one poisoned
+        // operation at the head of the queue starves every younger operation
+        // forever (issue #4496 recovery 7). The original error payload is
+        // preserved so operators can see what the operation last said.
+        const exhausted = await queryable.query<ProjectionOperationRow>(
+          `WITH exhausted AS (
+           SELECT operation_id
+           FROM platform_projection_operations
+           WHERE (
+               state = 'queued'
+               OR (
+                 state = 'running'
+                 AND claimed_until <= now()
+               )
+             )
+             AND attempt_count >= $2::integer
+             AND ($1::text[] IS NULL OR operation_kind = ANY($1::text[]))
+           ORDER BY requested_at ASC
+           LIMIT 25
+           FOR UPDATE SKIP LOCKED
+         )
+         UPDATE platform_projection_operations AS operation
+         SET state = 'failed',
+             error = COALESCE(
+                 operation.error,
+                 jsonb_build_object('message', 'Projection operation retry attempts were exhausted.')
+               ) || jsonb_build_object('code', 'attempts_exhausted'),
+             claim_owner_id = NULL,
+             claimed_until = NULL,
+             completed_at = COALESCE(operation.completed_at, now()),
+             updated_at = now()
+         FROM exhausted
+         WHERE operation.operation_id = exhausted.operation_id
+          RETURNING ${projectionOperationColumns("operation")}`,
+          [operationKinds, maxAttempts],
+        );
+        for (const row of exhausted.rows) {
+          await appendProjectionOperationEvent(queryable, mapProjectionOperationRow(row));
+        }
+
+        // Claim eligibility mirrors the durable-job store: expired running
+        // claims are reclaimable, every claim counts an attempt, and the
+        // eligibility horizon set here (claim TTL + exponential backoff) keeps
+        // an operation that dies without a terminal write from hot-looping at
+        // the head of the queue while younger operations proceed past it.
         const result = await queryable.query<ProjectionOperationRow>(
           `WITH claimable AS (
            SELECT operation_id
@@ -744,6 +836,8 @@ export function createPostgresPlatformControlPlane(
                  AND claimed_until <= now()
                )
              )
+             AND attempt_count < $4::integer
+             AND next_eligible_at <= now()
              AND ($3::text[] IS NULL OR operation_kind = ANY($3::text[]))
            ORDER BY requested_at ASC
            LIMIT 1
@@ -754,12 +848,22 @@ export function createPostgresPlatformControlPlane(
              claim_owner_id = $1,
              claim_fencing_token = COALESCE(operation.claim_fencing_token, 0) + 1,
              claimed_until = now() + ($2::text || ' milliseconds')::interval,
+             attempt_count = operation.attempt_count + 1,
+             next_eligible_at =
+               now()
+               + ($2::text || ' milliseconds')::interval
+               + (
+                 LEAST(
+                   $6::numeric,
+                   $5::numeric * power(2::numeric, LEAST(GREATEST(operation.attempt_count, 0), 10))
+                 )::integer::text || ' milliseconds'
+               )::interval,
              started_at = COALESCE(operation.started_at, now()),
              updated_at = now()
          FROM claimable
          WHERE operation.operation_id = claimable.operation_id
           RETURNING ${projectionOperationColumns("operation")}`,
-          [input.ownerId, input.claimTtlMs, operationKinds],
+          [input.ownerId, input.claimTtlMs, operationKinds, maxAttempts, retryBackoffBaseMs, retryBackoffMaxMs],
         );
 
         if (!result.rows[0]) {
@@ -822,13 +926,39 @@ export function createPostgresPlatformControlPlane(
       });
     },
     failProjectionOperation: async (input) => {
+      const retryBackoffBaseMs = normalizeProjectionOperationBackoffMs(
+        input.retryBackoffBaseMs,
+        DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS,
+      );
+      const retryBackoffMaxMs = Math.max(
+        retryBackoffBaseMs,
+        normalizeProjectionOperationBackoffMs(
+          input.retryBackoffMaxMs,
+          DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS,
+        ),
+      );
       return runControlPlaneWrite(db, async (queryable) => {
+        // A retryable failure requeues the operation behind an exponential
+        // backoff (attempt_count was already charged at claim time), releasing
+        // the claim so younger operations proceed past it in the meantime.
         const result = await queryable.query<ProjectionOperationRow>(
-          `UPDATE platform_projection_operations
+          `UPDATE platform_projection_operations AS operation
          SET state = $4,
              error = $5::jsonb,
+             claim_owner_id = CASE WHEN $4 = 'queued' THEN NULL ELSE operation.claim_owner_id END,
              claimed_until = NULL,
-             completed_at = CASE WHEN $4 = 'failed' THEN now() ELSE completed_at END,
+             next_eligible_at = CASE
+               WHEN $4 = 'queued' THEN
+                 now()
+                 + (
+                   LEAST(
+                     $7::numeric,
+                     $6::numeric * power(2::numeric, LEAST(GREATEST(operation.attempt_count - 1, 0), 10))
+                   )::integer::text || ' milliseconds'
+                 )::interval
+               ELSE operation.next_eligible_at
+             END,
+             completed_at = CASE WHEN $4 = 'failed' THEN now() ELSE operation.completed_at END,
              updated_at = now()
          WHERE operation_id = $1
            AND claim_owner_id = $2
@@ -842,6 +972,8 @@ export function createPostgresPlatformControlPlane(
             input.fencingToken,
             input.retryable ? "queued" : "failed",
             JSON.stringify(input.error),
+            retryBackoffBaseMs,
+            retryBackoffMaxMs,
           ],
         );
         if (!result.rows[0]) {
@@ -1152,6 +1284,8 @@ const PROJECTION_OPERATION_COLUMN_NAMES = [
   "claim_owner_id",
   "claim_fencing_token",
   "claimed_until",
+  "attempt_count",
+  "next_eligible_at",
   "progress",
   "result",
   "error",
@@ -1213,6 +1347,8 @@ function mapProjectionOperationRow(row: ProjectionOperationRow | undefined): Pro
     claimOwnerId: row.claim_owner_id,
     claimFencingToken: row.claim_fencing_token === null ? null : String(row.claim_fencing_token),
     claimedUntil: formatNullableTimestamp(row.claimed_until),
+    attemptCount: Number(row.attempt_count ?? 0),
+    nextEligibleAt: formatTimestamp(row.next_eligible_at ?? new Date(0)),
     progress: readJsonRecord(row.progress) ?? {},
     result: readJsonRecord(row.result),
     error: readJsonRecord(row.error),

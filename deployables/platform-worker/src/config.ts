@@ -70,6 +70,7 @@ export type PlatformWorkerConfig = Readonly<{
   pollIntervalMs: number;
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
+  projectionOperations: PlatformWorkerProjectionOperationsConfig;
   projectionWakeScheduler: PlatformWorkerProjectionWakeSchedulerConfig;
   projectionWakeRelay: PlatformWorkerProjectionWakeRelayConfig;
   projectionWakeDisabledProjections: readonly string[];
@@ -90,6 +91,16 @@ export type PlatformWorkerConfig = Readonly<{
   tcgplayerAutomation: PlatformWorkerTcgplayerAutomationConfig | null;
   googleMerchant: PlatformWorkerGoogleMerchantConfig;
   notificationEmail: PlatformWorkerNotificationEmailConfig;
+}>;
+
+export type PlatformWorkerProjectionOperationsConfig = Readonly<{
+  runnerCount: number;
+  operationTimeoutMs: number;
+  rebuildOperationTimeoutMs: number;
+  maxAttempts: number;
+  retryBackoffBaseMs: number;
+  retryBackoffMaxMs: number;
+  leaseAcquireTimeoutMs: number;
 }>;
 
 export type PlatformWorkerProjectionWakeSchedulerConfig = Readonly<{
@@ -344,6 +355,15 @@ export function loadConfig(): PlatformWorkerConfig {
     pollIntervalMs: getPositiveNumberEnv("WORKER_POLL_INTERVAL_MS", 1_000),
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),
+    projectionOperations: {
+      runnerCount: getPositiveNumberEnv("WORKER_PROJECTION_OPERATION_RUNNER_COUNT", 2),
+      operationTimeoutMs: getPositiveNumberEnv("WORKER_PROJECTION_OPERATION_TIMEOUT_MS", 600_000),
+      rebuildOperationTimeoutMs: getPositiveNumberEnv("WORKER_PROJECTION_OPERATION_REBUILD_TIMEOUT_MS", 7_200_000),
+      maxAttempts: getPositiveNumberEnv("WORKER_PROJECTION_OPERATION_MAX_ATTEMPTS", 5),
+      retryBackoffBaseMs: getPositiveNumberEnv("WORKER_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS", 30_000),
+      retryBackoffMaxMs: getPositiveNumberEnv("WORKER_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS", 600_000),
+      leaseAcquireTimeoutMs: getPositiveNumberEnv("WORKER_PROJECTION_OPERATION_LEASE_ACQUIRE_TIMEOUT_MS", 15_000),
+    },
     projectionWakeScheduler: {
       enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED", true),
       pushDispatchEnabled: getBooleanEnv("WORKER_WAKE_PUSH_DISPATCH_ENABLED", true),

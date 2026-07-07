@@ -113,7 +113,10 @@ export async function runStagingProjectionOperations(options, dependencies = {})
       options.mode === "retry-blocked" ? options.targets : [],
       options.mode === "retry-blocked" ? { onDetailError: () => undefined } : {},
     );
-    const safeBeforeSnapshot = sanitizeProjectionOperationsSnapshot(beforeSnapshot);
+    const safeBeforeSnapshot = sanitizeProjectionOperationsSnapshot({
+      ...beforeSnapshot,
+      ...(await fetchProjectionOperationHistory(auth)),
+    });
     record.beforeSnapshot = summarizeSnapshotArtifact("before-snapshot.json", safeBeforeSnapshot);
     await writeJsonRecord(join(options.outDir, "before-snapshot.json"), safeBeforeSnapshot);
 
@@ -135,7 +138,10 @@ export async function runStagingProjectionOperations(options, dependencies = {})
           }
         : {},
     );
-    const safeAfterSnapshot = sanitizeProjectionOperationsSnapshot(afterSnapshot);
+    const safeAfterSnapshot = sanitizeProjectionOperationsSnapshot({
+      ...afterSnapshot,
+      ...(await fetchProjectionOperationHistory(auth)),
+    });
     record.afterSnapshot = summarizeSnapshotArtifact("after-snapshot.json", safeAfterSnapshot);
     record.report = buildProjectionAttentionReport(safeAfterSnapshot);
     await writeJsonRecord(join(options.outDir, "after-snapshot.json"), safeAfterSnapshot);
@@ -175,6 +181,8 @@ export function sanitizeProjectionOperationsSnapshot(snapshot) {
     blockedProjections,
   ).sort(compareGroup);
   const operations = readArray(snapshot?.operations).map(sanitizeOperation).sort(compareOperation);
+  const failedOperations = readArray(snapshot?.failedOperations).map(sanitizeOperation).sort(compareOperation);
+  const runningOperations = readArray(snapshot?.runningOperations).map(sanitizeOperation).sort(compareOperation);
   const runners = readArray(snapshot?.runners).map(sanitizeRuntimeRecord).filter(Boolean).sort(compareRuntimeRecord);
   const workers = readArray(snapshot?.workers).map(sanitizeRuntimeRecord).filter(Boolean).sort(compareRuntimeRecord);
 
@@ -189,6 +197,8 @@ export function sanitizeProjectionOperationsSnapshot(snapshot) {
     workers,
     runners,
     operations,
+    failedOperations,
+    runningOperations,
     operationSummary: sanitizeOperationSummary(snapshot?.operationSummary),
   };
 }
@@ -204,6 +214,21 @@ export function buildProjectionAttentionReport(snapshot) {
   );
   const poisonEventCount = snapshot.projectionGroups.reduce((sum, group) => sum + group.poisonEventCount, 0);
   const failedOperationCount = snapshot.operations.filter((operation) => operation.state === "failed").length;
+  const failedOperationHistory = readArray(snapshot.failedOperations);
+  const failedOperationErrorClasses = {};
+  for (const operation of failedOperationHistory) {
+    const errorClass = operation.errorClass ?? "unclassified";
+    failedOperationErrorClasses[errorClass] = (failedOperationErrorClasses[errorClass] ?? 0) + 1;
+  }
+  const runningOperations = readArray(snapshot.runningOperations).map((operation) => ({
+    operationKind: operation.operationKind,
+    state: operation.state,
+    projectionKey: operation.projectionKey,
+    attemptCount: operation.attemptCount ?? null,
+    requestedAt: operation.requestedAt,
+    startedAt: operation.startedAt,
+    updatedAt: operation.updatedAt,
+  }));
   const staleWorkerCount = snapshot.workers.filter(
     (worker) => worker.state === "stale" || worker.state === "expired" || worker.workerState === "stale",
   ).length;
@@ -245,6 +270,12 @@ export function buildProjectionAttentionReport(snapshot) {
       .filter((projection) => projection.blockedStreamCount > 0)
       .map((projection) => projection.projectionKey),
     failedOperationCount,
+    // Executor-jam forensics (#4496): the terminal failure classes across the
+    // whole failed-operation history and every operation currently claimed,
+    // so a stuck executor is visible from the artifact alone.
+    failedOperationTotal: snapshot.operationSummary?.failedCount ?? null,
+    failedOperationErrorClasses,
+    runningOperations,
     supportSafe: true,
   };
 }
@@ -376,6 +407,37 @@ async function fetchProjectionOperationsSnapshot(auth) {
     throw new Error(`Projection operations snapshot failed with HTTP ${result.response.status}.`);
   }
   return result.body;
+}
+
+// Best-effort executor-jam forensics (#4496): the snapshot's `operations`
+// list only carries the 25 newest operations, which hides the failed backlog
+// and the currently claimed operation whenever fresh retries flood the queue.
+// Fetch the failed history and running set explicitly; the snapshot stays
+// usable when this endpoint is unavailable.
+async function fetchProjectionOperationHistory(auth) {
+  const history = { failedOperations: [], runningOperations: [] };
+  const queries = [
+    ["failed", 200, "failedOperations"],
+    ["running", 50, "runningOperations"],
+  ];
+  for (const [state, limit, key] of queries) {
+    try {
+      const url = buildProjectionOperationUrl(auth.adminBaseUrl, ["operations"]);
+      url.searchParams.set("state", state);
+      url.searchParams.set("limit", String(limit));
+      const result = await requestJson(
+        url,
+        { headers: { Authorization: `Bearer ${auth.sessionToken}` } },
+        auth.fetchImpl,
+      );
+      if (result.response.status === 200 && isRecord(result.body)) {
+        history[key] = readArray(result.body.operations);
+      }
+    } catch {
+      // Operation history is supplementary evidence; never fail the run for it.
+    }
+  }
+  return history;
 }
 
 async function hydrateProjectionOperationsBlockedDetails(snapshot, auth, extraProjectionKeys = [], options = {}) {
@@ -640,6 +702,8 @@ function sanitizeOperation(operation) {
     streamIdFingerprint: value.streamId == null ? null : fingerprint(value.streamId),
     requestedByUserIdFingerprint: value.requestedByUserId == null ? null : fingerprint(value.requestedByUserId),
     claimOwnerIdFingerprint: value.claimOwnerId == null ? null : fingerprint(value.claimOwnerId),
+    attemptCount: value.attemptCount == null ? null : readNumber(value.attemptCount),
+    nextEligibleAt: value.nextEligibleAt == null ? null : readSafeTimestamp(value.nextEligibleAt),
     requestedAt: readSafeTimestamp(value.requestedAt),
     startedAt: value.startedAt == null ? null : readSafeTimestamp(value.startedAt),
     updatedAt: readSafeTimestamp(value.updatedAt),
