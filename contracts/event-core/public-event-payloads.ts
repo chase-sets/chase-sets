@@ -277,6 +277,15 @@ export type PlatformOperationsReportedContentActionRecordedPayload = Readonly<{
   recordedAt: string;
 }>;
 
+export type PlatformOperationsRiskAlertActionRecordedPayload = Readonly<{
+  actionId: string;
+  alertId: string;
+  action: "request-manual-payout-review" | "acknowledge";
+  note: string | null;
+  operatorUserId: string | null;
+  recordedAt: string;
+}>;
+
 export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.created": MarketplaceListingCreatedPayload;
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
@@ -290,6 +299,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.seller-listing-availability.enabled": MarketplaceSellerListingAvailabilityPayload;
   "marketplace.report.submitted": MarketplaceReportSubmittedPayload;
   "platform-operations.reported-content.action-recorded": PlatformOperationsReportedContentActionRecordedPayload;
+  "platform-operations.risk-alert.action-recorded": PlatformOperationsRiskAlertActionRecordedPayload;
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
 }>;
 

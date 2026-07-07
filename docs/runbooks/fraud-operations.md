@@ -2,6 +2,17 @@
 
 This runbook records operator policy for fraud and trust-safety controls that cross account, marketplace, payments, and settlement behavior.
 
+## Velocity Alerts
+
+Risk velocity alerts are operator-only in v1. They do not automatically hold payouts, suspend accounts, unlist content, block checkout, or refund payments.
+
+| Flag | Default threshold | Manual response |
+| --- | --- | --- |
+| Chargeback velocity | 2 or more seller chargebacks in 30 days, or chargeback rate at least 2% over seller payments in 30 days | Review payment and dispute timelines, confirm seller exposure, and request the Identity `manual-payout-review` badge when the evidence supports enhanced payout release holds. |
+| New seller listing velocity | Account age under 30 days and listing asking value at least $2,500 in 24 hours | Inspect listings for high-value concentration, duplicate/counterfeit signals, payout readiness, and recent reports before contacting the account. |
+| Review velocity | 5 or more reviews received in 24 hours with median reviewer account age under 7 days | Check purchase-gated review eligibility, account relationships, and support/report history before removing reviews or escalating account action. |
+| Young buyer spend velocity | Buyer account age under 7 days and payment-created spend at least $2,000 in 24 hours | Review payment risk timeline, order concentration, fulfillment status, and Stripe risk signals before contacting the buyer or opening support follow-up. |
+
 ## Payment Fraud Signals
 
 Payments is the source of truth for processor fraud signals.

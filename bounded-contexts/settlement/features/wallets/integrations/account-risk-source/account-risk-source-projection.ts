@@ -124,6 +124,220 @@ async function refreshAddressClusterAccounts(
   }
 }
 
+type SellerPayoutComponent = Readonly<{ orderId: string; sellerAccountId: string; sellerPayoutAmount?: string }>;
+
+function moneyToCents(value: unknown): number {
+  const parsed = Number.parseFloat(String(value ?? "0"));
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+}
+
+function normalizeSellerPayouts(value: unknown): SellerPayoutComponent[] {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : null))
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry?.sellerAccountId))
+        .map((entry) => ({
+          orderId: String(entry.orderId ?? ""),
+          sellerAccountId: String(entry.sellerAccountId),
+          sellerPayoutAmount: typeof entry.sellerPayoutAmount === "string" ? entry.sellerPayoutAmount : undefined,
+        }))
+    : [];
+}
+
+function velocityFlagsSql(nowParam: string) {
+  return `jsonb_strip_nulls(jsonb_build_object(
+    'chargeback_velocity',
+      CASE WHEN chargeback_30d_count >= 2 OR chargeback_30d_rate_bps >= 200 THEN jsonb_build_object(
+        'manualPayoutReviewCandidate', TRUE,
+        'chargeback30dCount', chargeback_30d_count,
+        'chargeback30dRateBps', chargeback_30d_rate_bps
+      ) END,
+    'new_seller_listing_velocity',
+      CASE WHEN account_created_at IS NOT NULL
+             AND ${nowParam}::timestamptz - account_created_at < interval '30 days'
+             AND listing_24h_value_cents >= 250000 THEN jsonb_build_object(
+        'listing24hCount', listing_24h_count,
+        'listing24hValueCents', listing_24h_value_cents
+      ) END,
+    'review_velocity',
+      CASE WHEN review_24h_count >= 5
+             AND review_24h_median_reviewer_age_days IS NOT NULL
+             AND review_24h_median_reviewer_age_days < 7 THEN jsonb_build_object(
+        'review24hCount', review_24h_count,
+        'medianReviewerAgeDays', review_24h_median_reviewer_age_days
+      ) END,
+    'young_buyer_spend_velocity',
+      CASE WHEN account_created_at IS NOT NULL
+             AND ${nowParam}::timestamptz - account_created_at < interval '7 days'
+             AND buyer_spend_24h_cents >= 200000 THEN jsonb_build_object(
+        'buyerOrder24hCount', buyer_order_24h_count,
+        'buyerSpend24hCents', buyer_spend_24h_cents
+      ) END
+  ))`;
+}
+
+async function refreshVelocityCounters(db: PgQueryable, accountId: string, now: string) {
+  await db.query(
+    `INSERT INTO settlement_account_risk_sources (
+       account_id,
+       chargeback_7d_count,
+       chargeback_30d_count,
+       chargeback_30d_rate_bps,
+       listing_24h_count,
+       listing_24h_value_cents,
+       review_24h_count,
+       review_24h_median_reviewer_age_days,
+       buyer_order_24h_count,
+       buyer_spend_24h_cents,
+       velocity_alert_flags,
+       updated_at
+     )
+     WITH counters AS (
+       SELECT
+         COUNT(*) FILTER (
+           WHERE source_kind = 'chargeback-received'
+             AND occurred_at >= $2::timestamptz - interval '7 days'
+         )::integer AS chargeback_7d_count,
+         COUNT(*) FILTER (
+           WHERE source_kind = 'chargeback-received'
+             AND occurred_at >= $2::timestamptz - interval '30 days'
+         )::integer AS chargeback_30d_count,
+         COUNT(*) FILTER (
+           WHERE source_kind = 'seller-payment-created'
+             AND occurred_at >= $2::timestamptz - interval '30 days'
+         )::integer AS seller_payment_30d_count,
+         COUNT(*) FILTER (
+           WHERE source_kind = 'listing-created'
+             AND occurred_at >= $2::timestamptz - interval '24 hours'
+         )::integer AS listing_24h_count,
+         COALESCE(SUM(amount_cents) FILTER (
+           WHERE source_kind = 'listing-created'
+             AND occurred_at >= $2::timestamptz - interval '24 hours'
+         ), 0)::bigint AS listing_24h_value_cents,
+         COUNT(*) FILTER (
+           WHERE source_kind = 'review-received'
+             AND occurred_at >= $2::timestamptz - interval '24 hours'
+         )::integer AS review_24h_count,
+         ROUND((
+           percentile_cont(0.5) WITHIN GROUP (
+             ORDER BY EXTRACT(EPOCH FROM (occurred_at - reviewer_account_created_at)) / 86400
+           ) FILTER (
+             WHERE source_kind = 'review-received'
+               AND occurred_at >= $2::timestamptz - interval '24 hours'
+               AND reviewer_account_created_at IS NOT NULL
+           )
+         )::numeric, 2) AS review_24h_median_reviewer_age_days,
+         COUNT(*) FILTER (
+           WHERE source_kind = 'buyer-payment-created'
+             AND occurred_at >= $2::timestamptz - interval '24 hours'
+         )::integer AS buyer_order_24h_count,
+         COALESCE(SUM(amount_cents) FILTER (
+           WHERE source_kind = 'buyer-payment-created'
+             AND occurred_at >= $2::timestamptz - interval '24 hours'
+         ), 0)::bigint AS buyer_spend_24h_cents
+       FROM settlement_account_velocity_sources
+       WHERE account_id = $1
+     ), rollup AS (
+       SELECT
+         (SELECT account_created_at FROM settlement_account_risk_sources WHERE account_id = $1) AS account_created_at,
+         chargeback_7d_count,
+         chargeback_30d_count,
+         CASE
+           WHEN seller_payment_30d_count = 0 THEN 0
+           ELSE FLOOR(chargeback_30d_count::numeric * 10000 / seller_payment_30d_count)::integer
+         END AS chargeback_30d_rate_bps,
+         listing_24h_count,
+         listing_24h_value_cents,
+         review_24h_count,
+         review_24h_median_reviewer_age_days,
+         buyer_order_24h_count,
+         buyer_spend_24h_cents
+       FROM counters
+     )
+     SELECT
+       $1,
+       chargeback_7d_count,
+       chargeback_30d_count,
+       chargeback_30d_rate_bps,
+       listing_24h_count,
+       listing_24h_value_cents,
+       review_24h_count,
+       review_24h_median_reviewer_age_days,
+       buyer_order_24h_count,
+       buyer_spend_24h_cents,
+       ${velocityFlagsSql("$2")},
+       $2
+     FROM rollup
+     ON CONFLICT (account_id) DO UPDATE SET
+       chargeback_7d_count = EXCLUDED.chargeback_7d_count,
+       chargeback_30d_count = EXCLUDED.chargeback_30d_count,
+       chargeback_30d_rate_bps = EXCLUDED.chargeback_30d_rate_bps,
+       listing_24h_count = EXCLUDED.listing_24h_count,
+       listing_24h_value_cents = EXCLUDED.listing_24h_value_cents,
+       review_24h_count = EXCLUDED.review_24h_count,
+       review_24h_median_reviewer_age_days = EXCLUDED.review_24h_median_reviewer_age_days,
+       buyer_order_24h_count = EXCLUDED.buyer_order_24h_count,
+       buyer_spend_24h_cents = EXCLUDED.buyer_spend_24h_cents,
+       velocity_alert_flags = EXCLUDED.velocity_alert_flags,
+       updated_at = EXCLUDED.updated_at`,
+    [accountId, now],
+  );
+}
+
+async function upsertVelocitySource(
+  db: PgQueryable,
+  params: Readonly<{
+    sourceKind: string;
+    sourceId: string;
+    accountId: string;
+    occurredAt: string;
+    amountCents?: number;
+    reviewerAccountId?: string | null;
+    updatedAt: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO settlement_account_velocity_sources (
+       source_kind,
+       source_id,
+       account_id,
+       occurred_at,
+       amount_cents,
+       reviewer_account_id,
+       reviewer_account_created_at,
+       updated_at
+     ) VALUES (
+       $1,
+       $2,
+       $3,
+       $4,
+       $5,
+       $6,
+       (SELECT account_created_at FROM settlement_account_risk_sources WHERE account_id = $6),
+       $7
+     )
+     ON CONFLICT (source_kind, source_id, account_id) DO UPDATE SET
+       occurred_at = EXCLUDED.occurred_at,
+       amount_cents = EXCLUDED.amount_cents,
+       reviewer_account_id = EXCLUDED.reviewer_account_id,
+       reviewer_account_created_at = COALESCE(
+         EXCLUDED.reviewer_account_created_at,
+         settlement_account_velocity_sources.reviewer_account_created_at
+       ),
+       updated_at = EXCLUDED.updated_at`,
+    [
+      params.sourceKind,
+      params.sourceId,
+      params.accountId,
+      params.occurredAt,
+      params.amountCents ?? 0,
+      params.reviewerAccountId ?? null,
+      params.updatedAt,
+    ],
+  );
+  await refreshVelocityCounters(db, params.accountId, params.updatedAt);
+}
+
 async function refreshAccountReviews(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO settlement_account_risk_sources (
@@ -191,6 +405,23 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(db: P
            updated_at = EXCLUDED.updated_at`,
         [data.accountId, createdAt],
       );
+      await db.query(
+        `UPDATE settlement_account_velocity_sources
+         SET reviewer_account_created_at = $2,
+             updated_at = $3
+         WHERE reviewer_account_id = $1
+           AND reviewer_account_created_at IS NULL`,
+        [data.accountId, createdAt, event.timing.recordedAt],
+      );
+      const touched = await db.query<{ account_id: string }>(
+        `SELECT DISTINCT account_id
+         FROM settlement_account_velocity_sources
+         WHERE reviewer_account_id = $1`,
+        [data.accountId],
+      );
+      for (const row of touched.rows) {
+        await refreshVelocityCounters(db, row.account_id, event.timing.recordedAt);
+      }
     },
     "identity.account.badge-assigned": async (event) => {
       const data = event.data as { badgeKey: string };
@@ -299,10 +530,22 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(db: P
 
 export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    "marketplace.listing.created": async (event) => {
+      const data = event.data as { listingId: string; accountId: string; priceAmount: string };
+      await upsertVelocitySource(db, {
+        sourceKind: "listing-created",
+        sourceId: data.listingId,
+        accountId: data.accountId,
+        occurredAt: event.timing.occurredAt ?? event.timing.recordedAt,
+        amountCents: moneyToCents(data.priceAmount),
+        updatedAt: event.timing.recordedAt,
+      });
+    },
     "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
         orderId: string;
+        authorAccountId?: string;
         subjectAccountId: string;
         rating: number;
         submittedAt: string;
@@ -325,6 +568,14 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
         [data.reviewId, data.orderId, data.subjectAccountId, data.rating, data.submittedAt],
       );
       await refreshAccountReviews(db, data.subjectAccountId, data.submittedAt);
+      await upsertVelocitySource(db, {
+        sourceKind: "review-received",
+        sourceId: data.reviewId,
+        accountId: data.subjectAccountId,
+        occurredAt: data.submittedAt,
+        reviewerAccountId: data.authorAccountId ?? null,
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "marketplace.review.updated": async (event) => {
       const data = event.data as { reviewId: string; rating: number; updatedAt: string };
@@ -361,6 +612,51 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
 
 export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    "payments.payment-created": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        buyerAccountId: string;
+        amount: string;
+        createdAt?: string;
+        sellerPayouts?: unknown;
+      };
+      const occurredAt = data.createdAt ?? event.timing.occurredAt ?? event.timing.recordedAt;
+      await upsertVelocitySource(db, {
+        sourceKind: "buyer-payment-created",
+        sourceId: data.paymentId,
+        accountId: data.buyerAccountId,
+        occurredAt,
+        amountCents: moneyToCents(data.amount),
+        updatedAt: event.timing.recordedAt,
+      });
+      for (const payout of normalizeSellerPayouts(data.sellerPayouts)) {
+        await upsertVelocitySource(db, {
+          sourceKind: "seller-payment-created",
+          sourceId: `${data.paymentId}:${payout.orderId}`,
+          accountId: payout.sellerAccountId,
+          occurredAt,
+          updatedAt: event.timing.recordedAt,
+        });
+      }
+    },
+    "payments.payment-disputed": async (event) => {
+      const data = event.data as {
+        providerDisputeId?: string | null;
+        paymentId: string;
+        disputedAt?: string;
+        sellerPayouts?: unknown;
+      };
+      const occurredAt = data.disputedAt ?? event.timing.occurredAt ?? event.timing.recordedAt;
+      for (const payout of normalizeSellerPayouts(data.sellerPayouts)) {
+        await upsertVelocitySource(db, {
+          sourceKind: "chargeback-received",
+          sourceId: `${data.providerDisputeId ?? data.paymentId}:${payout.orderId}`,
+          accountId: payout.sellerAccountId,
+          occurredAt,
+          updatedAt: event.timing.recordedAt,
+        });
+      }
+    },
     "payments.payment-fraud-warning-received": async (event) => {
       const data = event.data as { buyerAccountId: string; receivedAt: string };
       await db.query(

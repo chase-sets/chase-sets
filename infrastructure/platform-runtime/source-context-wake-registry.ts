@@ -315,6 +315,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-review-account-source-projection",
       "ordering:ordering-account-projection",
       "payments:payments-account-risk-source-projection",
+      "platform-operations:risk-alert-queue-projection",
       "settlement:settlement-account-risk-source-projection",
     ],
     routeDependencyIds: [
@@ -404,6 +405,7 @@ export const sourceContextWakeRegistry = [
       "ordering:ordering-marketplace-supply-input-projection",
       "ordering:ordering-order-review-opportunity-projection",
       "platform-operations:reported-content-queue-projection",
+      "platform-operations:risk-alert-queue-projection",
       "pricing:pricing-market-input-projection",
       "settlement:settlement-account-risk-source-projection",
     ],
@@ -493,6 +495,7 @@ export const sourceContextWakeRegistry = [
       "payments:payments-fraud-alert-projection",
       "payments:payments-order-cancellation-refund-effect",
       "payments:payments-payment-projection",
+      "platform-operations:risk-alert-queue-projection",
       "settlement:settlement-account-risk-source-projection",
       "settlement:settlement-support-hold-projection",
       "settlement:settlement-payment-input-projection",
@@ -519,6 +522,7 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "platform-operations:experience-platform-feedback-projection",
       "platform-operations:reported-content-queue-projection",
+      "platform-operations:risk-alert-queue-projection",
       "payments:payments-support-refund-effect",
       "marketplace:marketplace-review-support-source-projection",
       "ordering:ordering-order-review-opportunity-projection",

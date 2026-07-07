@@ -89,8 +89,12 @@
       "sourceContextName": "marketplace",
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
-      "streamPrefixes": ["marketplace.review-"],
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.review.submitted",
+        "marketplace.review.updated",
+        "marketplace.review.withdrawn"
+      ],
       "order": 70,
       "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
     },
@@ -99,6 +103,8 @@
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
+        "payments.payment-created",
+        "payments.payment-disputed",
         "payments.payment-fraud-warning-received",
         "payments.payment-fraud-review-opened",
         "payments.payment-fraud-review-closed",
@@ -137,7 +143,8 @@
         "settlement_account_risk_sources",
         "settlement_account_review_sources",
         "settlement_account_instrument_risk_sources",
-        "settlement_account_address_risk_sources"
+        "settlement_account_address_risk_sources",
+        "settlement_account_velocity_sources"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
