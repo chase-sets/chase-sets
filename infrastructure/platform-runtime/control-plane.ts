@@ -151,6 +151,23 @@ CREATE TABLE IF NOT EXISTS platform_projection_operations (
   completed_at timestamptz NULL
 );
 
+-- Backfill compatibility columns onto pre-existing operations tables BEFORE any
+-- index that references them. On a fresh database the columns already exist from
+-- the CREATE TABLE above and these ALTERs are no-ops; on an upgraded database the
+-- CREATE TABLE is a no-op and these ALTERs add the columns (charging every
+-- existing row a zero attempt budget and an immediate next_eligible_at horizon)
+-- so the claimable index below can be built. Reordering these after the index
+-- creation regresses to issue #4599's staging bootstrap failure ("column
+-- next_eligible_at does not exist"). Keep ADD COLUMN before CREATE INDEX.
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS event_sequence integer NOT NULL DEFAULT 0;
+
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS platform_projection_operations_state_requested_idx
   ON platform_projection_operations (state, requested_at ASC);
 
@@ -162,15 +179,6 @@ CREATE INDEX IF NOT EXISTS platform_projection_operations_target_idx
 
 CREATE INDEX IF NOT EXISTS platform_projection_operations_actor_requested_idx
   ON platform_projection_operations (requested_by_user_id, requested_at DESC);
-
-ALTER TABLE platform_projection_operations
-  ADD COLUMN IF NOT EXISTS event_sequence integer NOT NULL DEFAULT 0;
-
-ALTER TABLE platform_projection_operations
-  ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;
-
-ALTER TABLE platform_projection_operations
-  ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NOT NULL DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS platform_projection_operation_events (
   operation_id text NOT NULL REFERENCES platform_projection_operations(operation_id) ON DELETE CASCADE,

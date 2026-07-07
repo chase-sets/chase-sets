@@ -412,4 +412,68 @@ describe("platform runtime Postgres concurrency guards", () => {
       }),
     ).resolves.toMatchObject({ outcome: "conflict" });
   });
+
+  it("upgrades a pre-existing operations table missing the retry columns without failing bootstrap", async () => {
+    // Reproduces issue #4599's staging bootstrap failure: the table already exists
+    // from a prior deploy (so CREATE TABLE IF NOT EXISTS is a no-op) and is missing
+    // attempt_count / next_eligible_at, yet holds terminal, queued, and ghost-running
+    // rows. Re-applying the schema SQL must add the columns and build the claimable
+    // index instead of raising 42703 ("column next_eligible_at does not exist").
+    await pools.platform.query(`
+      DROP TABLE IF EXISTS platform_projection_operation_events CASCADE;
+      DROP TABLE IF EXISTS platform_projection_operations CASCADE;
+      CREATE TABLE platform_projection_operations (
+        operation_id text PRIMARY KEY,
+        operation_kind text NOT NULL,
+        state text NOT NULL,
+        context_name text NOT NULL,
+        projection_name text NULL,
+        projection_key text NULL,
+        stream_id text NULL,
+        requested_by_user_id text NULL,
+        requested_by_account_id text NULL,
+        claim_owner_id text NULL,
+        claim_fencing_token bigint NULL,
+        claimed_until timestamptz NULL,
+        event_sequence integer NOT NULL DEFAULT 0,
+        progress jsonb NOT NULL DEFAULT '{}'::jsonb,
+        result jsonb NULL,
+        error jsonb NULL,
+        requested_at timestamptz NOT NULL,
+        started_at timestamptz NULL,
+        updated_at timestamptz NOT NULL,
+        completed_at timestamptz NULL
+      );
+      INSERT INTO platform_projection_operations
+        (operation_id, operation_kind, state, context_name, requested_at, updated_at, started_at)
+      VALUES
+        ('op_failed', 'rebuild-context', 'failed', 'catalog', now() - interval '2 hours', now(), NULL),
+        ('op_queued', 'rebuild-context', 'queued', 'catalog', now() - interval '1 hour', now(), NULL),
+        ('op_ghost', 'rebuild-projection-group', 'running', 'catalog', now() - interval '3 hours', now(), now() - interval '3 hours');
+    `);
+
+    const upgradedAtOrAfter = new Date();
+    await expect(pools.platform.query(platformControlPlaneSchemaSql)).resolves.toBeDefined();
+
+    const rows = await pools.platform.query(
+      `SELECT operation_id, attempt_count, next_eligible_at
+       FROM platform_projection_operations
+       ORDER BY operation_id`,
+    );
+    expect(rows.rows).toHaveLength(3);
+    for (const row of rows.rows as unknown as ReadonlyArray<{
+      attempt_count: number;
+      next_eligible_at: Date;
+    }>) {
+      // Existing rows converge on a full attempt budget (0) and an immediate horizon
+      // so queued/ghost operations become claimable right away.
+      expect(Number(row.attempt_count)).toBe(0);
+      expect(new Date(row.next_eligible_at).getTime()).toBeLessThanOrEqual(upgradedAtOrAfter.getTime() + 1_000);
+    }
+
+    const claimableIndex = await pools.platform.query(
+      `SELECT 1 FROM pg_indexes WHERE indexname = 'platform_projection_operations_claimable_idx'`,
+    );
+    expect(claimableIndex.rowCount).toBe(1);
+  });
 });
