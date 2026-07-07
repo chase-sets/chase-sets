@@ -4,22 +4,35 @@ import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 
-export const DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION = "digitalocean-preview-cleanup-sweep/v1";
+export const DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION = "digitalocean-preview-cleanup-sweep/v2";
+export const DIGITALOCEAN_PREVIEW_DATABASE_CLEANUP_VERSION = "digitalocean-preview-database-cleanup/v1";
 export const DEFAULT_STATE_BUCKET = "chase-sets-terraform-state";
 export const DEFAULT_SPACES_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
 export const DEFAULT_PREVIEW_STATE_PREFIX = "platform/previews/";
+export const PREVIEW_DATABASE_TERRAFORM_ADDRESS = "digitalocean_database_cluster.postgres";
+export const PREVIEW_DATABASE_DELETE_CONFIRMATION = "delete leaked preview database clusters";
 
-function commandOutput(command, args) {
+function commandOutput(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { maxBuffer: 20 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
-      if (error) {
-        const message = stderr.trim() || stdout.trim() || error.message;
-        reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
-        return;
-      }
+    execFile(
+      command,
+      args,
+      {
+        cwd: options.cwd,
+        env: options.env,
+        maxBuffer: 20 * 1024 * 1024,
+        windowsHide: true,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const message = stderr.trim() || stdout.trim() || error.message;
+          reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
+          return;
+        }
 
-      resolve(stdout);
-    });
+        resolve(stdout);
+      },
+    );
   });
 }
 
@@ -32,6 +45,85 @@ export function previewPrNumberFromStateKey(key, prefix = DEFAULT_PREVIEW_STATE_
   const escapedPrefix = escapeRegExp(trimSlashes(prefix));
   const match = String(key ?? "").match(new RegExp(`^${escapedPrefix}/pr-(\\d+)\\.tfstate$`));
   return match ? Number.parseInt(match[1], 10) : null;
+}
+
+export function previewDatabaseClusterNameForPrNumber(prNumber) {
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    throw new Error("Preview PR number must be a positive integer.");
+  }
+  return `chase-sets-pr-${prNumber}-postgres`;
+}
+
+export function previewPrNumberFromDatabaseClusterName(name) {
+  const normalized = String(name ?? "")
+    .trim()
+    .toLowerCase();
+  const patterns = [
+    /^chase-sets-pr-(\d+)-postgres$/,
+    /^preview-pr-(\d+)(?:-|$)/,
+    /^preview-(\d+)(?:-|$)/,
+    /^pr-(\d+)-preview(?:-|$)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      return Number.parseInt(match[1], 10);
+    }
+  }
+
+  return null;
+}
+
+export function classifyDatabaseCluster(cluster) {
+  const name = databaseClusterName(cluster);
+  const normalizedName = name.toLowerCase();
+  const tags = databaseClusterTags(cluster).map((tag) => tag.toLowerCase());
+  const prNumber = previewPrNumberFromDatabaseCluster(cluster);
+
+  if (normalizedName.startsWith("cs-prod-rp-")) {
+    return { classification: "cs-prod-rp-*", prNumber: null };
+  }
+
+  if (prNumber || normalizedName.startsWith("preview-") || tags.includes("preview")) {
+    return { classification: "preview-*", prNumber };
+  }
+
+  if (
+    normalizedName === "chase-sets-staging-postgres" ||
+    normalizedName === "staging-postgres" ||
+    tags.includes("staging")
+  ) {
+    return { classification: "staging", prNumber: null };
+  }
+
+  if (
+    normalizedName === "chase-sets-postgres" ||
+    normalizedName === "chase-sets-production-postgres" ||
+    normalizedName === "production-postgres" ||
+    tags.includes("production")
+  ) {
+    return { classification: "production", prNumber: null };
+  }
+
+  return { classification: "unknown", prNumber: null };
+}
+
+export function previewPrNumberFromDatabaseCluster(cluster) {
+  const fromName = previewPrNumberFromDatabaseClusterName(databaseClusterName(cluster));
+  if (fromName) {
+    return fromName;
+  }
+
+  for (const tag of databaseClusterTags(cluster)) {
+    const normalized = tag.toLowerCase();
+    const match = normalized.match(/^(?:pr|preview-pr|pull-request|github-pr)-(\d+)$/);
+    if (match) {
+      return Number.parseInt(match[1], 10);
+    }
+  }
+
+  return null;
 }
 
 export function selectPreviewStateTargets(objects, options = {}) {
@@ -53,18 +145,69 @@ export function selectPreviewStateTargets(objects, options = {}) {
   return [...targetsByPr.values()].sort((left, right) => left.prNumber - right.prNumber);
 }
 
+export function selectPreviewDatabaseClusterTargets(clusters) {
+  return normalizeDatabaseClusters(clusters)
+    .map((cluster) => {
+      const classification = classifyDatabaseCluster(cluster);
+      if (classification.classification !== "preview-*" || !classification.prNumber) {
+        return null;
+      }
+
+      return {
+        prNumber: classification.prNumber,
+        clusterId: databaseClusterId(cluster),
+        clusterName: databaseClusterName(cluster),
+        classification: classification.classification,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.prNumber - right.prNumber || left.clusterName.localeCompare(right.clusterName));
+}
+
+export function combinePreviewCleanupCandidates(stateTargets, databaseClusterTargets) {
+  const byPr = new Map();
+  const ensure = (prNumber) => {
+    const existing = byPr.get(prNumber);
+    if (existing) {
+      return existing;
+    }
+    const candidate = { prNumber, stateKey: null, databaseClusters: [] };
+    byPr.set(prNumber, candidate);
+    return candidate;
+  };
+
+  for (const target of stateTargets) {
+    ensure(target.prNumber).stateKey = target.stateKey;
+  }
+
+  for (const target of databaseClusterTargets) {
+    const candidate = ensure(target.prNumber);
+    candidate.databaseClusters.push({
+      clusterId: target.clusterId,
+      clusterName: target.clusterName,
+    });
+  }
+
+  for (const candidate of byPr.values()) {
+    candidate.databaseClusters.sort((left, right) => left.clusterName.localeCompare(right.clusterName));
+  }
+
+  return [...byPr.values()].sort((left, right) => left.prNumber - right.prNumber);
+}
+
 export function cleanupMatrixForTargets(targets, options = {}) {
   return {
     include: targets.map((target) => ({
       pr_number: target.prNumber,
       checkout_ref: options.checkoutRef,
       image_sha: options.imageSha,
+      expected_database_cluster_name: previewDatabaseClusterNameForPrNumber(target.prNumber),
     })),
   };
 }
 
 export async function discoverPreviewCleanupTargets(options, dependencies = {}) {
-  const errors = validateOptions(options);
+  const errors = validateDiscoverOptions(options);
   const baseRecord = {
     schemaVersion: DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION,
     checkedAt: options.checkedAt,
@@ -74,9 +217,12 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     repository: options.repository,
     checkoutRef: options.checkoutRef,
     imageSha: options.imageSha,
+    stateCandidates: [],
+    databaseClusterCandidates: [],
     candidates: [],
     targets: [],
     result: "failure",
+    warnings: [],
     errors,
   };
   if (errors.length > 0) {
@@ -86,6 +232,9 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
   const awsJson =
     dependencies.awsJson ??
     ((args) => commandJson("aws", [...args, "--endpoint-url", options.endpointUrl], dependencies));
+  const listDatabaseClusters =
+    dependencies.listDatabaseClusters ??
+    (() => commandJson("doctl", ["databases", "list", "--output", "json"], dependencies));
   const fetchPullRequest =
     dependencies.fetchPullRequest ??
     ((prNumber) =>
@@ -95,7 +244,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
         prNumber,
       }));
 
-  const record = { ...baseRecord, errors: [] };
+  const record = { ...baseRecord, errors: [], warnings: [] };
   try {
     const listed = await awsJson([
       "s3api",
@@ -105,7 +254,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
       "--prefix",
       `${record.prefix}/`,
     ]);
-    record.candidates = selectPreviewStateTargets(listed.Contents ?? listed.contents ?? [], {
+    record.stateCandidates = selectPreviewStateTargets(listed.Contents ?? listed.contents ?? [], {
       prefix: record.prefix,
     });
   } catch (error) {
@@ -114,10 +263,19 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     return { record, matrix: { include: [] } };
   }
 
+  try {
+    record.databaseClusterCandidates = selectPreviewDatabaseClusterTargets(await listDatabaseClusters());
+  } catch (error) {
+    record.warnings.push("Preview database cluster listing failed; state-backed cleanup targets were still evaluated.");
+    record.warnings.push(describeError(error));
+  }
+
+  record.candidates = combinePreviewCleanupCandidates(record.stateCandidates, record.databaseClusterCandidates);
+
   for (const candidate of record.candidates) {
     try {
       const pullRequest = await fetchPullRequest(candidate.prNumber);
-      const state = String(pullRequest.state ?? "unknown");
+      const state = String(pullRequest.state ?? "unknown").toLowerCase();
       const target = {
         ...candidate,
         pullRequestState: state,
@@ -132,7 +290,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     }
   }
 
-  record.result = record.errors.length > 0 ? "failure" : "success";
+  record.result = record.errors.length > 0 ? "failure" : record.warnings.length > 0 ? "warning" : "success";
   return {
     record,
     matrix: cleanupMatrixForTargets(record.targets, {
@@ -140,6 +298,236 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
       imageSha: options.imageSha,
     }),
   };
+}
+
+export async function buildPreviewDatabaseClusterInventory(options, dependencies = {}) {
+  const errors = [];
+  if (!isNonEmptyString(options.repository)) {
+    errors.push("--repo is required.");
+  }
+  if (!isNonEmptyString(options.checkedAt)) {
+    errors.push("--checked-at is required.");
+  }
+
+  const record = {
+    schemaVersion: DIGITALOCEAN_PREVIEW_DATABASE_CLEANUP_VERSION,
+    checkedAt: options.checkedAt,
+    repository: options.repository,
+    mode: "inventory",
+    clusters: [],
+    result: "failure",
+    warnings: [],
+    errors,
+  };
+  if (errors.length > 0) {
+    record.errors = errors;
+    return record;
+  }
+
+  const listDatabaseClusters =
+    dependencies.listDatabaseClusters ??
+    (() => commandJson("doctl", ["databases", "list", "--output", "json"], dependencies));
+  const fetchPullRequest =
+    dependencies.fetchPullRequest ??
+    ((prNumber) =>
+      fetchGithubPullRequest({
+        repository: options.repository,
+        githubToken: options.githubToken,
+        prNumber,
+      }));
+
+  let clusters;
+  try {
+    clusters = normalizeDatabaseClusters(await listDatabaseClusters());
+  } catch (error) {
+    record.errors.push("DigitalOcean database cluster listing failed.");
+    record.errors.push(describeError(error));
+    return record;
+  }
+
+  if (!isNonEmptyString(options.githubToken)) {
+    record.warnings.push("GitHub token is unavailable; preview PR states were not resolved.");
+  }
+
+  for (const cluster of clusters) {
+    const classification = classifyDatabaseCluster(cluster);
+    const row = {
+      clusterId: databaseClusterId(cluster),
+      clusterName: databaseClusterName(cluster),
+      classification: classification.classification,
+      prNumber: classification.prNumber,
+      pullRequestState: classification.prNumber ? "unknown" : "",
+      leaked: false,
+      conclusion: classification.classification === "preview-*" ? "preview-pr-state-unresolved" : "retained",
+    };
+
+    if (
+      classification.classification === "preview-*" &&
+      classification.prNumber &&
+      isNonEmptyString(options.githubToken)
+    ) {
+      try {
+        const pullRequest = await fetchPullRequest(classification.prNumber);
+        row.pullRequestState = pullRequestStateLabel(pullRequest);
+        row.leaked = row.pullRequestState === "closed" || row.pullRequestState === "merged";
+        row.conclusion = row.leaked ? "leaked-preview-cluster" : "active-preview-cluster";
+      } catch (error) {
+        record.warnings.push(`PR #${classification.prNumber} lookup failed: ${describeError(error)}`);
+      }
+    }
+
+    record.clusters.push(row);
+  }
+
+  record.clusters.sort(
+    (left, right) =>
+      left.classification.localeCompare(right.classification) || left.clusterName.localeCompare(right.clusterName),
+  );
+  record.result = record.errors.length > 0 ? "failure" : record.warnings.length > 0 ? "warning" : "success";
+  return record;
+}
+
+export async function cleanupLeakedPreviewDatabaseClusters(options, dependencies = {}) {
+  const inventory = await buildPreviewDatabaseClusterInventory(options, dependencies);
+  const record = {
+    ...inventory,
+    mode: options.delete ? "delete" : "dry-run",
+    selectedDeletionClusters: [],
+    deletedClusters: [],
+    failedClusters: [],
+  };
+  if (inventory.result === "failure") {
+    return record;
+  }
+
+  record.selectedDeletionClusters = inventory.clusters.filter((cluster) => cluster.leaked);
+  if (!options.delete) {
+    record.result = inventory.result;
+    return record;
+  }
+
+  if (options.confirm !== PREVIEW_DATABASE_DELETE_CONFIRMATION) {
+    record.errors.push(`Delete mode requires --confirm "${PREVIEW_DATABASE_DELETE_CONFIRMATION}".`);
+    record.result = "failure";
+    return record;
+  }
+
+  const deleteDatabaseCluster =
+    dependencies.deleteDatabaseCluster ??
+    ((cluster) => commandOutput("doctl", ["databases", "delete", cluster.clusterId, "--force"], dependencies));
+
+  for (const cluster of record.selectedDeletionClusters) {
+    if (!isNonEmptyString(cluster.clusterId)) {
+      record.failedClusters.push({ ...cluster, error: "cluster-id-unavailable" });
+      continue;
+    }
+
+    try {
+      await deleteDatabaseCluster(cluster);
+      record.deletedClusters.push(cluster);
+    } catch (error) {
+      record.failedClusters.push({ ...cluster, error: describeError(error) });
+    }
+  }
+
+  record.result = record.failedClusters.length > 0 ? "failure" : inventory.warnings.length > 0 ? "warning" : "success";
+  return record;
+}
+
+export async function importPreviewDatabaseClusterIntoTerraformState(options, dependencies = {}) {
+  const prNumber = Number.parseInt(String(options.prNumber ?? ""), 10);
+  const terraformDirectory = options.terraformDirectory ?? "infrastructure/digitalocean/platform";
+  const terraformAddress = options.terraformAddress ?? PREVIEW_DATABASE_TERRAFORM_ADDRESS;
+  const expectedClusterName =
+    options.clusterName ?? (Number.isInteger(prNumber) ? previewDatabaseClusterNameForPrNumber(prNumber) : "");
+  const record = {
+    schemaVersion: DIGITALOCEAN_PREVIEW_DATABASE_CLEANUP_VERSION,
+    checkedAt: options.checkedAt,
+    mode: "terraform-import",
+    prNumber,
+    expectedClusterName,
+    terraformDirectory,
+    terraformAddress,
+    selectedCluster: null,
+    action: "not-evaluated",
+    result: "failure",
+    warnings: [],
+    errors: [],
+  };
+
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    record.errors.push("--pr-number must be a positive integer.");
+  }
+  if (!isNonEmptyString(terraformDirectory)) {
+    record.errors.push("--terraform-directory is required.");
+  }
+  if (!isNonEmptyString(terraformAddress)) {
+    record.errors.push("--terraform-address is required.");
+  }
+  if (record.errors.length > 0) {
+    return record;
+  }
+
+  const listDatabaseClusters =
+    dependencies.listDatabaseClusters ??
+    (() => commandJson("doctl", ["databases", "list", "--output", "json"], dependencies));
+  const output = dependencies.commandOutput ?? commandOutput;
+
+  let matchingClusters;
+  try {
+    matchingClusters = selectPreviewDatabaseClusterTargets(await listDatabaseClusters()).filter(
+      (cluster) => cluster.prNumber === prNumber,
+    );
+  } catch (error) {
+    record.errors.push("Preview database cluster listing failed.");
+    record.errors.push(describeError(error));
+    return record;
+  }
+
+  const exactMatch = matchingClusters.find((cluster) => cluster.clusterName === expectedClusterName);
+  if (!exactMatch && matchingClusters.length > 1) {
+    record.errors.push(
+      `Multiple preview database clusters match PR #${prNumber}; refusing to import one Terraform address ambiguously.`,
+    );
+    return record;
+  }
+
+  const selectedCluster = exactMatch ?? matchingClusters[0];
+  if (!selectedCluster) {
+    record.action = "skipped";
+    record.result = "success";
+    record.warnings.push(`No live preview database cluster matched PR #${prNumber}.`);
+    return record;
+  }
+  record.selectedCluster = selectedCluster;
+
+  let stateList = "";
+  try {
+    stateList = await output("terraform", [`-chdir=${terraformDirectory}`, "state", "list"]);
+  } catch (error) {
+    record.warnings.push(`Terraform state list failed; import will still be attempted: ${describeError(error)}`);
+  }
+
+  if (stateList.split(/\r?\n/).includes(terraformAddress)) {
+    record.action = "already-managed";
+    record.result = "success";
+    return record;
+  }
+
+  if (!isNonEmptyString(selectedCluster.clusterId)) {
+    record.errors.push(`Preview database cluster ${selectedCluster.clusterName} did not include an id.`);
+    return record;
+  }
+
+  try {
+    await output("terraform", [`-chdir=${terraformDirectory}`, "import", terraformAddress, selectedCluster.clusterId]);
+    record.action = "imported";
+    record.result = "success";
+  } catch (error) {
+    record.errors.push(describeError(error));
+  }
+
+  return record;
 }
 
 async function fetchGithubPullRequest(input) {
@@ -157,7 +545,7 @@ async function fetchGithubPullRequest(input) {
   return response.json();
 }
 
-function validateOptions(options) {
+function validateDiscoverOptions(options) {
   const errors = [];
   for (const key of ["bucket", "endpointUrl", "prefix", "repository", "checkoutRef", "imageSha", "checkedAt"]) {
     if (!isNonEmptyString(options[key])) {
@@ -170,9 +558,8 @@ function validateOptions(options) {
   return errors;
 }
 
-function parseArgs(argv, env = process.env) {
+function parseDiscoverArgs(argv, env = process.env) {
   return {
-    command: argv[2] ?? "",
     bucket: readOption(argv, "--bucket", env.TERRAFORM_STATE_BUCKET ?? DEFAULT_STATE_BUCKET),
     endpointUrl: readOption(argv, "--endpoint-url", env.SPACES_ENDPOINT_URL ?? DEFAULT_SPACES_ENDPOINT),
     prefix: readOption(argv, "--prefix", env.PREVIEW_STATE_PREFIX ?? DEFAULT_PREVIEW_STATE_PREFIX),
@@ -183,6 +570,42 @@ function parseArgs(argv, env = process.env) {
     checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
     outPath: readOption(argv, "--out", env.PREVIEW_CLEANUP_SWEEP_OUT),
     githubOutputPath: readOption(argv, "--github-output", env.GITHUB_OUTPUT),
+  };
+}
+
+function parseInventoryArgs(argv, env = process.env) {
+  return {
+    repository: readOption(argv, "--repo", env.GITHUB_REPOSITORY ?? ""),
+    githubToken: readOption(argv, "--github-token", env.GITHUB_TOKEN ?? ""),
+    checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
+    outPath: readOption(argv, "--out", env.PREVIEW_DATABASE_CLEANUP_OUT),
+  };
+}
+
+function parseCleanupDatabasesArgs(argv, env = process.env) {
+  return {
+    ...parseInventoryArgs(argv, env),
+    delete: hasOption(argv, "--delete"),
+    confirm: readOption(argv, "--confirm", env.PREVIEW_DATABASE_CLEANUP_CONFIRM ?? ""),
+  };
+}
+
+function parseImportDatabaseArgs(argv, env = process.env) {
+  return {
+    prNumber: readOption(argv, "--pr-number", env.PREVIEW_PR_NUMBER ?? ""),
+    clusterName: readOption(argv, "--cluster-name", env.PREVIEW_DATABASE_CLUSTER_NAME),
+    terraformDirectory: readOption(
+      argv,
+      "--terraform-directory",
+      env.PREVIEW_TERRAFORM_DIRECTORY ?? "infrastructure/digitalocean/platform",
+    ),
+    terraformAddress: readOption(
+      argv,
+      "--terraform-address",
+      env.PREVIEW_DATABASE_TERRAFORM_ADDRESS ?? PREVIEW_DATABASE_TERRAFORM_ADDRESS,
+    ),
+    checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
+    outPath: readOption(argv, "--out", env.PREVIEW_DATABASE_CLEANUP_OUT),
   };
 }
 
@@ -199,6 +622,10 @@ function readOption(argv, name, fallback) {
   return fallback;
 }
 
+function hasOption(argv, name) {
+  return argv.includes(name);
+}
+
 async function writeGithubOutputs(outputPath, outputs) {
   if (!outputPath) {
     return;
@@ -208,6 +635,46 @@ async function writeGithubOutputs(outputPath, outputs) {
     lines.push(`${key}=${String(value)}`);
   }
   await writeFile(outputPath, `${lines.join("\n")}\n`, { flag: "a" });
+}
+
+function normalizeDatabaseClusters(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (Array.isArray(value?.databases)) {
+    return value.databases;
+  }
+  if (Array.isArray(value?.database_clusters)) {
+    return value.database_clusters;
+  }
+  if (Array.isArray(value?.items)) {
+    return value.items;
+  }
+  return [];
+}
+
+function databaseClusterName(cluster) {
+  return String(cluster?.name ?? cluster?.Name ?? "");
+}
+
+function databaseClusterId(cluster) {
+  return String(cluster?.id ?? cluster?.ID ?? cluster?.Id ?? cluster?.uuid ?? "");
+}
+
+function databaseClusterTags(cluster) {
+  const tags = cluster?.tags ?? cluster?.Tags ?? [];
+  if (Array.isArray(tags)) {
+    return tags.map((tag) => String(tag)).filter(Boolean);
+  }
+  return String(tags)
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function pullRequestStateLabel(pullRequest) {
+  const state = String(pullRequest.state ?? "unknown").toLowerCase();
+  return state === "closed" && pullRequest.merged ? "merged" : state;
 }
 
 function trimSlashes(value) {
@@ -230,29 +697,65 @@ function describeError(error) {
   return error instanceof Error ? error.message.replace(/\s+/g, " ").trim().slice(0, 500) : String(error);
 }
 
-async function main() {
-  const options = parseArgs(process.argv);
-  if (options.command !== "discover") {
-    throw new Error("Usage: node scripts/digitalocean-preview-cleanup-sweep.mjs discover [options]");
-  }
-
-  const result = await discoverPreviewCleanupTargets(options);
-  if (options.outPath) {
-    await writeJsonRecord(options.outPath, result.record);
-  }
-  await writeGithubOutputs(options.githubOutputPath, {
-    matrix: JSON.stringify(result.matrix),
-    target_count: result.matrix.include.length,
-    result: result.record.result,
-  });
-  if (result.record.result !== "success") {
-    process.exitCode = 1;
+async function writeOptionalRecord(path, record) {
+  if (path) {
+    await writeJsonRecord(path, record);
   }
 }
 
+async function main(argv = process.argv.slice(2)) {
+  const command = argv[0] ?? "";
+  const commandArgs = argv.slice(1);
+
+  if (command === "discover") {
+    const options = parseDiscoverArgs(commandArgs);
+    const result = await discoverPreviewCleanupTargets(options);
+    await writeOptionalRecord(options.outPath, result.record);
+    await writeGithubOutputs(options.githubOutputPath, {
+      matrix: JSON.stringify(result.matrix),
+      target_count: result.matrix.include.length,
+      result: result.record.result,
+    });
+    return result.record.result === "failure" ? 1 : 0;
+  }
+
+  if (command === "inventory") {
+    const options = parseInventoryArgs(commandArgs);
+    const record = await buildPreviewDatabaseClusterInventory(options);
+    await writeOptionalRecord(options.outPath, record);
+    console.log(JSON.stringify(record, null, 2));
+    return record.result === "failure" ? 1 : 0;
+  }
+
+  if (command === "cleanup-databases") {
+    const options = parseCleanupDatabasesArgs(commandArgs);
+    const record = await cleanupLeakedPreviewDatabaseClusters(options);
+    await writeOptionalRecord(options.outPath, record);
+    console.log(JSON.stringify(record, null, 2));
+    return record.result === "failure" ? 1 : 0;
+  }
+
+  if (command === "import-database") {
+    const options = parseImportDatabaseArgs(commandArgs);
+    const record = await importPreviewDatabaseClusterIntoTerraformState(options);
+    await writeOptionalRecord(options.outPath, record);
+    console.log(JSON.stringify(record, null, 2));
+    return record.result === "failure" ? 1 : 0;
+  }
+
+  throw new Error(
+    "Usage: node scripts/digitalocean-preview-cleanup-sweep.mjs <discover|inventory|cleanup-databases|import-database> [options]",
+  );
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  void main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  void main().then(
+    (exitCode) => {
+      process.exitCode = exitCode;
+    },
+    (error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    },
+  );
 }
