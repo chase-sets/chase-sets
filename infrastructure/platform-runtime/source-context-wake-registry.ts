@@ -369,6 +369,7 @@ export const sourceContextWakeRegistry = [
       "inventory.import-batch-detail",
       "inventory.item-adjust-to-detail",
       "inventory.item-create-to-detail",
+      "inventory.restock-decision-list",
       "inventory.storage-locations-list",
     ],
   }),
