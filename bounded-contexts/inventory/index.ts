@@ -3,6 +3,7 @@ export { default as contextManifest } from "./context.json";
 import {
   buildEventSubscriptionsFromManifest,
   defineBoundedContextModule,
+  type BcContextManifest,
   type BcEventSubscriptionHandler,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -22,8 +23,10 @@ import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaMigrations, inventorySchemaSql } from "./support/runtime-support/schema";
 import { seedInventoryDatabase } from "./support/runtime-support/seed";
 
+const inventoryContextManifest = contextManifest as BcContextManifest;
+
 export const module = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
-  manifest: contextManifest,
+  manifest: inventoryContextManifest,
   schemaSql: inventorySchemaSql,
   schemaMigrations: inventorySchemaMigrations,
   createServices: (pool, ports, options) => createInventoryServices(pool, ports, options),
@@ -32,7 +35,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
       contextName: "inventory",
-      manifest: contextManifest,
+      manifest: inventoryContextManifest,
       handlers: {
         "catalog.inventory-catalog-item-projection": () => buildInventoryCatalogItemProjectionHandlers(services.db),
         "ordering.inventory-order-reservation-workflow": () => ({

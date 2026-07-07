@@ -50,6 +50,7 @@
       "sourceContextName": "fulfillment",
       "projectionName": "inventory-fulfillment-restock-workflow",
       "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.returned"],
       "order": 30,
       "projectionHandlerSetNames": ["inventory-fulfillment-restock-workflow"]
@@ -81,6 +82,7 @@
     {
       "projectionName": "inventory-fulfillment-restock-workflow",
       "sourceContextNames": ["fulfillment"],
+      "optionalSourceContextNames": ["fulfillment"],
       "ownedTables": ["inventory_fulfillment_shipment_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
