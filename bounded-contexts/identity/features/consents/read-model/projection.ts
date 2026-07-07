@@ -6,6 +6,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 // dropping the fact or poisoning replay.
 const LEGACY_CONSENT_POLICY_KEY = "legacy-consent";
 const LEGACY_CONSENT_POLICY_VERSION = "legacy";
+const LEGACY_CONSENT_RECORDED_AT = "1970-01-01T00:00:00.000Z";
 
 export function buildConsentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -26,7 +27,16 @@ export function buildConsentProjectionHandlers(db: PgQueryable): ProjectorHandle
       const policyKey = normalizeConsentProjectionOptionalString(data.policyKey) ?? LEGACY_CONSENT_POLICY_KEY;
       const policyVersion =
         normalizeConsentProjectionOptionalString(data.policyVersion) ?? LEGACY_CONSENT_POLICY_VERSION;
-      const recordedAt = normalizeConsentProjectionOptionalString(data.recordedAt) ?? event.timing.recordedAt;
+      const eventRecordedAt = normalizeConsentProjectionOptionalString(event.timing.recordedAt);
+      const eventOccurredAt = normalizeConsentProjectionOptionalString(
+        (event.timing as Readonly<{ occurredAt?: unknown }>).occurredAt,
+      );
+      const recordedAt =
+        normalizeConsentProjectionOptionalString(data.recordedAt) ??
+        eventRecordedAt ??
+        eventOccurredAt ??
+        LEGACY_CONSENT_RECORDED_AT;
+      const updatedAt = eventRecordedAt ?? recordedAt;
 
       await db.query(
         `INSERT INTO identity_consents (
@@ -48,7 +58,7 @@ export function buildConsentProjectionHandlers(db: PgQueryable): ProjectorHandle
              policy_version = $6,
              recorded_at = $7,
              updated_at = $8`,
-        [consentId, subjectType, userId, accountId, policyKey, policyVersion, recordedAt, event.timing.recordedAt],
+        [consentId, subjectType, userId, accountId, policyKey, policyVersion, recordedAt, updatedAt],
       );
     },
   };

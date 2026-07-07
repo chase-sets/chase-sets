@@ -146,6 +146,8 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly eventTypes?: readonly string[];
   readonly streamPrefixes?: readonly string[];
   readonly errorPolicy?: ProjectionErrorPolicy;
+  readonly batchSize?: number;
+  readonly checkpointBatchSize?: number;
   readonly projectionTransactionTimeoutMs?: number;
   readonly projectionStatementTimeoutMs?: number;
   readonly order?: number;
@@ -284,6 +286,8 @@ export function buildEventSubscriptionsFromManifest<TEventPayloads extends Event
       eventTypes: declaration.eventTypes,
       streamPrefixes: declaration.streamPrefixes,
       errorPolicy: declaration.errorPolicy,
+      batchSize: declaration.batchSize,
+      checkpointBatchSize: declaration.checkpointBatchSize,
       projectionTransactionTimeoutMs: declaration.projectionTransactionTimeoutMs,
       projectionStatementTimeoutMs: declaration.projectionStatementTimeoutMs,
       order: declaration.order,

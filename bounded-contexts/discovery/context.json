@@ -126,6 +126,7 @@
         "catalog.dimension.options-reordered",
         "catalog.product-contents.resolved"
       ],
+      "checkpointBatchSize": 1,
       "projectionTransactionTimeoutMs": 120000,
       "projectionStatementTimeoutMs": 120000,
       "order": 10,
@@ -176,6 +177,7 @@
         "catalog.dimension.option-revised",
         "catalog.dimension.options-reordered"
       ],
+      "checkpointBatchSize": 1,
       "projectionTransactionTimeoutMs": 120000,
       "projectionStatementTimeoutMs": 120000,
       "order": 10,

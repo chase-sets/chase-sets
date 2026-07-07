@@ -83,4 +83,42 @@ describe("identity consent projection", () => {
       "2026-06-01T00:00:01.000Z",
     ]);
   });
+
+  it("normalizes legacy consent facts with missing recorded timing before database writes", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 1 })),
+    } as unknown as PgQueryable;
+    const handlers = buildConsentProjectionHandlers(db);
+
+    await handlers["identity.consent.recorded"]!({
+      id: "evt_legacy_timing",
+      type: "identity.consent.recorded",
+      data: {
+        consentId: "cns_legacy_timing",
+        userId: "usr_legacy",
+      },
+      tenantId: "tnt_test",
+      streamId: "identity.consent-cns_legacy_timing",
+      streamVersion: 1,
+      globalPosition: "1",
+      trace: { traceId: null },
+      audit: { performedByUserId: "usr_legacy", forAccountId: null },
+      timing: {
+        occurredAt: "2026-05-01T00:00:00.000Z",
+        recordedAt: null,
+      },
+      metadata: {},
+    } as never);
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO identity_consents"), [
+      "cns_legacy_timing",
+      "user",
+      "usr_legacy",
+      null,
+      "legacy-consent",
+      "legacy",
+      "2026-05-01T00:00:00.000Z",
+      "2026-05-01T00:00:00.000Z",
+    ]);
+  });
 });
