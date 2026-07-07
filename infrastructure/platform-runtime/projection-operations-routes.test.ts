@@ -85,6 +85,80 @@ function projectionOperation(
   };
 }
 
+function createIdentityConsentProjectionRuntime(): ApiHostRuntime {
+  const pool = {
+    query: vi.fn(async <Row>(sql: string) => {
+      if (sql.includes("FROM event_projection_blocked_streams")) {
+        return {
+          rows: [
+            {
+              projection_key: "identity-consent-projection:identity:v1",
+              stream_id: "identity.legacy-fact-1",
+              first_blocked_global_position: "1",
+              first_blocked_stream_version: "1",
+              last_seen_global_position: "1",
+              deferred_event_count: "0",
+              state: "blocked",
+            } as Row,
+          ],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes("FROM event_projection_poison_events")) {
+        return {
+          rows: [
+            {
+              projection_key: "identity-consent-projection:identity:v1",
+              event_id: "evt_identity_legacy_1",
+              projection_name: "identity-consent-projection",
+              projection_kind: "subscription",
+              target_context_name: "identity",
+              source_context_name: "identity",
+              projection_revision: "0",
+              subscription_version: "0",
+              stream_id: "identity.legacy-fact-1",
+              stream_version: "1",
+              event_type: "identity.legacy-fact-recorded",
+              global_position: "1",
+              failure_kind: "poison",
+              error_message: null,
+              error_stack: null,
+              state: "blocked",
+              retry_count: "0",
+              first_seen_at: "2026-07-06T00:00:00.000Z",
+              last_seen_at: "2026-07-06T00:00:00.000Z",
+              resolved_at: null,
+            } as Row,
+          ],
+          rowCount: 1,
+        };
+      }
+
+      throw new Error(`Unexpected projection operation SQL: ${sql}`);
+    }),
+  };
+
+  return {
+    mountedContexts: [
+      {
+        contextName: "identity",
+        pool,
+      },
+    ],
+    mountedModules: [],
+    services: {},
+    projectionGroups: [],
+    subscriptionRunners: [
+      {
+        checkpointKey: "identity-consent-projection:identity:v1",
+        targetContextName: "identity",
+        projectionName: "identity-consent-projection",
+      },
+    ],
+  } as unknown as ApiHostRuntime;
+}
+
 describe("projection operations routes", () => {
   it("requires an authenticated actor", async () => {
     const app = createRouteApp(null);
@@ -166,6 +240,35 @@ describe("projection operations routes", () => {
         streamId: "stream_1",
       }),
     );
+  });
+
+  it("serves identity blocked-stream details when legacy poison metadata is incomplete", async () => {
+    const app = createRouteApp(platformActor, createIdentityConsentProjectionRuntime());
+
+    const response = await app.request("/identity.identity-consent-projection/blocked-streams");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      projectionKey: "identity.identity-consent-projection",
+      blockedStreams: [
+        {
+          projectionKey: "identity-consent-projection:identity:v1",
+          streamId: "identity.legacy-fact-1",
+          firstBlockedGlobalPosition: "1",
+          firstBlockedStreamVersion: 1,
+          state: "blocked",
+        },
+      ],
+      poisonEvents: [
+        {
+          projectionKey: "identity-consent-projection:identity:v1",
+          projectionName: "identity-consent-projection",
+          projectionRevision: null,
+          subscriptionVersion: null,
+          errorMessage: "Projection failed without a recorded error message.",
+        },
+      ],
+    });
   });
 
   it("requires rebuild permission and records actor attribution for destructive rebuilds", async () => {
