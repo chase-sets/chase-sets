@@ -171,6 +171,10 @@ describe("MCP runtime routes", () => {
       "inventory.create-import-batch",
       "inventory.get-import-batch",
       "inventory.list-import-sources",
+      "marketplace.create-listing",
+      "marketplace.publish-listing",
+      "marketplace.unpublish-listing",
+      "marketplace.update-listing-price",
     ]);
     expect(body.tools).toEqual(
       expect.arrayContaining([
@@ -194,6 +198,14 @@ describe("MCP runtime routes", () => {
             confirmationExpectedValue: "Create Inventory Import Batch.",
           }),
         }),
+        expect.objectContaining({
+          name: "marketplace.create-listing",
+          annotations: expect.objectContaining({
+            confirmationRequired: true,
+            confirmationMatchInputField: "confirmationText",
+            confirmationExpectedValue: "Create Listing.",
+          }),
+        }),
       ]),
     );
   });
@@ -210,6 +222,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["inventory.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://marketplace/{accountId}/listings/{listingId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["listings.view"],
           }),
         }),
         expect.objectContaining({
@@ -379,6 +398,10 @@ describe("MCP runtime routes", () => {
           expect.objectContaining({ name: "inventory.create-import-batch" }),
           expect.objectContaining({ name: "inventory.get-import-batch" }),
           expect.objectContaining({ name: "inventory.commit-import-batch" }),
+          expect.objectContaining({ name: "marketplace.create-listing" }),
+          expect.objectContaining({ name: "marketplace.update-listing-price" }),
+          expect.objectContaining({ name: "marketplace.publish-listing" }),
+          expect.objectContaining({ name: "marketplace.unpublish-listing" }),
         ]),
       },
     });
@@ -391,6 +414,9 @@ describe("MCP runtime routes", () => {
           }),
           expect.objectContaining({
             uriTemplate: "chase-sets://checkout/{accountId}/cart",
+          }),
+          expect.objectContaining({
+            uriTemplate: "chase-sets://marketplace/{accountId}/listings/{listingId}",
           }),
         ]),
       },

@@ -495,6 +495,31 @@ const checkoutCartOutputSchema = objectSchema(
   ["accountId", "items", "total"],
 );
 
+const listingPurchaseLimitsInputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Optional per-listing purchase limits.",
+  additionalProperties: false,
+  properties: {
+    maxUnitsPerOrder: integerProperty("Maximum units per order."),
+    maxUnitsPerDay: integerProperty("Maximum units per day."),
+    maxUnitsPerCustomerAccount: integerProperty("Maximum units per customer account."),
+  },
+};
+
+const marketplaceListingReceiptOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    id: stringProperty("Listing identifier."),
+    listingId: stringProperty("Listing identifier."),
+    version: integerProperty("Committed listing stream version."),
+    status: stringProperty("Lifecycle write result."),
+    resourceUri: stringProperty("MCP resource URI for the listing."),
+    inventoryItemId: stringProperty("Inventory item used to create the listing."),
+    feeQuoteFingerprint: stringProperty("Marketplace sales-fee quote fingerprint."),
+  },
+  ["accountId", "id", "listingId", "version", "status", "resourceUri"],
+);
+
 export const mcpServiceCatalog = [
   {
     ...service(
@@ -958,16 +983,98 @@ export const mcpServiceCatalog = [
         "offer",
         ["Use before accepting, declining, or revising offers."],
       ),
-      writeTool(
-        "marketplace",
-        "publish-listing",
-        "Publish Listing",
-        "Publish a listing to buyer discovery.",
-        "listings.manage",
-        mutationInput("listingId", "Listing to publish."),
-        "listing",
-        ["Use after confirming inventory, pricing, and commercial terms."],
-      ),
+      {
+        ...writeTool(
+          "marketplace",
+          "create-listing",
+          "Create Listing",
+          "Create a draft listing from account-owned inventory.",
+          "listings.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              inventoryItemId: stringProperty(
+                "Account-owned inventory item identifier resolved from Catalog or Inventory natural keys.",
+              ),
+              priceAmount: stringProperty("Listing unit price in decimal currency format."),
+              quantityCap: integerProperty("Maximum listed quantity."),
+              purchaseLimits: listingPurchaseLimitsInputProperty,
+              listingIdOverride: stringProperty("Optional deterministic listing id for idempotent handoffs."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "inventoryItemId", "priceAmount", "quantityCap", "idempotencyKey", "confirmationText"],
+          ),
+          "listing",
+          ["Use after resolving the seller inventory item and confirming listing price, quantity, and terms."],
+        ),
+        availability: "available",
+        outputSchema: marketplaceListingReceiptOutputSchema,
+      },
+      {
+        ...writeTool(
+          "marketplace",
+          "update-listing-price",
+          "Update Listing Price",
+          "Update the seller asking price for an account-owned listing.",
+          "listings.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              listingId: stringProperty("Listing to update."),
+              priceAmount: stringProperty("New listing unit price in decimal currency format."),
+              feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "listingId", "priceAmount", "idempotencyKey", "confirmationText"],
+          ),
+          "listing",
+          ["Use after reading the listing and confirming the current marketplace terms preview."],
+        ),
+        availability: "available",
+        outputSchema: marketplaceListingReceiptOutputSchema,
+      },
+      {
+        ...writeTool(
+          "marketplace",
+          "publish-listing",
+          "Publish Listing",
+          "Publish a listing to buyer discovery.",
+          "listings.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              listingId: stringProperty("Listing to publish."),
+              feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "listingId", "idempotencyKey", "confirmationText"],
+          ),
+          "listing",
+          ["Use after confirming inventory, pricing, photos when required, and commercial terms."],
+        ),
+        availability: "available",
+        outputSchema: marketplaceListingReceiptOutputSchema,
+      },
+      {
+        ...writeTool(
+          "marketplace",
+          "unpublish-listing",
+          "Unpublish Listing",
+          "Remove a listing from buyer discovery while keeping it seller-manageable.",
+          "listings.manage",
+          mutationInput("listingId", "Listing to unpublish."),
+          "listing",
+          ["Use when the seller wants to stop buyer discovery without withdrawing the listing permanently."],
+        ),
+        availability: "available",
+        outputSchema: marketplaceListingReceiptOutputSchema,
+      },
       writeTool(
         "marketplace",
         "accept-offer",
@@ -981,14 +1088,17 @@ export const mcpServiceCatalog = [
       ),
     ],
     resources: [
-      resource(
-        "marketplace",
-        "chase-sets://marketplace/{accountId}/listings/{listingId}",
-        "Listing",
-        "Listing publication and market-facing price state.",
-        "listings.view",
-        ["Use to inspect active marketplace supply."],
-      ),
+      {
+        ...resource(
+          "marketplace",
+          "chase-sets://marketplace/{accountId}/listings/{listingId}",
+          "Listing",
+          "Listing publication and market-facing price state.",
+          "listings.view",
+          ["Use to inspect active marketplace supply."],
+        ),
+        availability: "available",
+      },
       resource(
         "marketplace",
         "chase-sets://marketplace/{accountId}/offers/{offerId}",

@@ -148,6 +148,10 @@ describe("MCP service catalog", () => {
       "inventory.create-import-batch",
       "inventory.get-import-batch",
       "inventory.list-import-sources",
+      "marketplace.create-listing",
+      "marketplace.publish-listing",
+      "marketplace.unpublish-listing",
+      "marketplace.update-listing-price",
     ]);
     expect(
       flattenAvailableMcpResources()
@@ -156,6 +160,7 @@ describe("MCP service catalog", () => {
     ).toEqual([
       "chase-sets://checkout/{accountId}/cart",
       "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+      "chase-sets://marketplace/{accountId}/listings/{listingId}",
     ]);
     expect(flattenMcpTools().find((tool) => tool.name === "inventory.list-items")?.availability).toBe("planned");
   });
@@ -227,6 +232,23 @@ describe("MCP service catalog", () => {
         total: 1,
       }),
     ).toEqual([]);
+    for (const toolName of [
+      "marketplace.create-listing",
+      "marketplace.update-listing-price",
+      "marketplace.publish-listing",
+      "marketplace.unpublish-listing",
+    ]) {
+      expect(
+        validateOutputSchema(findMcpTool(toolName)?.outputSchema, {
+          accountId: "acct_1",
+          id: "lst_1",
+          listingId: "lst_1",
+          version: 2,
+          status: "published",
+          resourceUri: "chase-sets://marketplace/acct_1/listings/lst_1",
+        }),
+      ).toEqual([]);
+    }
   });
 
   it("requires confirmation and idempotency for sensitive and destructive tools", () => {

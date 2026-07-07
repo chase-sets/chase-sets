@@ -10,6 +10,7 @@ import {
 } from "./features/listings/integrations/supply/supply-projection";
 import { buildMarketplaceSettlementNegativeBalanceProjectionHandlers } from "./features/listings/integrations/settlement/negative-balance-projection";
 import { buildMarketplaceListingProjectionHandlers } from "./features/listings/read-model/projection";
+import { createMarketplaceListingMcpHandlers } from "./features/listings/api/mcp";
 import {
   buildReviewAccountProjectionHandlers,
   buildReviewOrderSourceProjectionHandlers,
@@ -28,6 +29,7 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
   schemaSql: marketplaceSchemaSql,
   createServices: (pool, options) => createMarketplaceServices(pool, options),
   buildApis: (services) => [buildMarketplaceApi(services), buildReviewApi(services.reviews)],
+  buildMcpHandlers: (services) => createMarketplaceListingMcpHandlers(services.listings),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const accountProjectionHandlers = buildMarketplaceAccountProjectionHandlers(services.db);

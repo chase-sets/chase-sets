@@ -404,6 +404,20 @@
       "requiresAuth": true
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "marketplace.create-listing", "ownerSlice": "listings" },
+      { "name": "marketplace.update-listing-price", "ownerSlice": "listings" },
+      { "name": "marketplace.publish-listing", "ownerSlice": "listings" },
+      { "name": "marketplace.unpublish-listing", "ownerSlice": "listings" }
+    ],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://marketplace/{accountId}/listings/{listingId}",
+        "ownerSlice": "listings"
+      }
+    ]
+  },
   "readAfterWriteRouteInventory": [
     {
       "id": "marketplace.listing-create-to-detail",
