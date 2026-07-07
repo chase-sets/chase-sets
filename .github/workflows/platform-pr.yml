@@ -743,11 +743,29 @@ jobs:
         run: terraform validate
 
       - name: Terraform plan shared observability
-        working-directory: infrastructure/digitalocean/observability
         run: |
-          terraform plan -refresh=false -lock=false -out=tfplan
-          mkdir -p artifacts/terraform-plans
-          terraform show -no-color tfplan > artifacts/terraform-plans/observability-shared-tfplan.txt
+          set -euo pipefail
+          plan_root="${RUNNER_TEMP}/chase-sets-observability-plan"
+          rm -rf "${plan_root}"
+          mkdir -p "${plan_root}/infrastructure/digitalocean" "${plan_root}/infrastructure/observability"
+          cp -R infrastructure/digitalocean/observability "${plan_root}/infrastructure/digitalocean/observability"
+          cp -R infrastructure/observability/stack "${plan_root}/infrastructure/observability/stack"
+          rm -rf "${plan_root}/infrastructure/digitalocean/observability/.terraform" "${plan_root}/infrastructure/digitalocean/observability/artifacts"
+          python - <<'PY'
+          from pathlib import Path
+
+          versions_path = Path("${{ runner.temp }}/chase-sets-observability-plan/infrastructure/digitalocean/observability/versions.tf")
+          versions = versions_path.read_text()
+          backend_block = '\n  backend "s3" {}\n'
+          if backend_block not in versions:
+              raise SystemExit("Expected observability backend block was not found.")
+          versions_path.write_text(versions.replace(backend_block, '\n'))
+          PY
+          terraform -chdir="${plan_root}/infrastructure/digitalocean/observability" init -backend=false
+          terraform -chdir="${plan_root}/infrastructure/digitalocean/observability" plan -refresh=false -lock=false -out=tfplan
+          plan_artifact="infrastructure/digitalocean/observability/artifacts/terraform-plans/observability-shared-tfplan.txt"
+          mkdir -p "$(dirname "${plan_artifact}")"
+          terraform -chdir="${plan_root}/infrastructure/digitalocean/observability" show -no-color tfplan > "${plan_artifact}"
 
       - name: Upload shared observability Terraform plan
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

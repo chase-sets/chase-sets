@@ -69,6 +69,21 @@ resource "digitalocean_firewall" "observability" {
   }
 }
 
+moved {
+  from = digitalocean_record.observability_a["grafana"]
+  to   = digitalocean_record.observability_a["production-grafana"]
+}
+
+moved {
+  from = digitalocean_record.observability_a["otel"]
+  to   = digitalocean_record.observability_a["production-otel"]
+}
+
+moved {
+  from = digitalocean_record.observability_a["prometheus"]
+  to   = digitalocean_record.observability_a["production-prometheus"]
+}
+
 resource "digitalocean_record" "observability_a" {
   for_each = local.endpoint_dns_records
 

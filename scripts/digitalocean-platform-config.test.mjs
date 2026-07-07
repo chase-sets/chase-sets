@@ -2106,6 +2106,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(terraformObservabilityJob).toContain("if: needs['change-scope'].outputs.terraform == 'true'");
     expect(terraformObservabilityJob).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     expect(terraformObservabilityJob).toContain("Terraform plan shared observability");
+    expect(terraformObservabilityJob).toContain('plan_root="${RUNNER_TEMP}/chase-sets-observability-plan"');
+    expect(terraformObservabilityJob).toContain("backend_block = '\\n  backend \"s3\" {}\\n'");
+    expect(terraformObservabilityJob).toContain("Expected observability backend block was not found.");
+    expect(terraformObservabilityJob).toContain("versions.replace(backend_block, '\\n')");
+    expect(terraformObservabilityJob).toContain(
+      'terraform -chdir="${plan_root}/infrastructure/digitalocean/observability" init -backend=false',
+    );
+    expect(terraformObservabilityJob).toContain(
+      'plan_artifact="infrastructure/digitalocean/observability/artifacts/terraform-plans/observability-shared-tfplan.txt"',
+    );
     expect(terraformObservabilityJob).toContain("observability-shared-tfplan.txt");
     expect(terraformObservabilityJob).toContain("name: observability-shared-terraform-plan");
 
@@ -2709,6 +2719,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain('resource "digitalocean_firewall" "observability"');
     expect(observabilityMain).toContain('resource "digitalocean_record" "observability_a"');
     expect(observabilityMain).toContain("for_each = local.endpoint_dns_records");
+    expect(observabilityMain).toContain('from = digitalocean_record.observability_a["grafana"]');
+    expect(observabilityMain).toContain('to   = digitalocean_record.observability_a["production-grafana"]');
+    expect(observabilityMain).toContain('from = digitalocean_record.observability_a["otel"]');
+    expect(observabilityMain).toContain('to   = digitalocean_record.observability_a["production-otel"]');
+    expect(observabilityMain).toContain('from = digitalocean_record.observability_a["prometheus"]');
+    expect(observabilityMain).toContain('to   = digitalocean_record.observability_a["production-prometheus"]');
     expect(observabilityMain).toContain("backups    = var.droplet_backups_enabled");
     expect(observabilityMain).toContain('check "observability_storage_posture"');
     expect(observabilityMain).toContain('check "observability_retention_posture"');

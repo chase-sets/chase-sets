@@ -417,7 +417,7 @@ Same-bucket snapshots protect against object overwrite and state corruption. The
 
 ## One-Time Observability Bootstrap
 
-Create or update the shared staging and production observability host before enabling App Platform telemetry export:
+Create or update the shared staging and production observability host before enabling App Platform telemetry export. When consolidating from the former per-environment roots, use the production observability state as the shared-state base because its Droplet and volume names already match the shared stack. The Terraform root includes `moved` blocks for the production DNS record address changes; import any existing staging `grafana`, `otel`, and `prometheus` DNS records into the new staging keys before applying. The resulting shared-state plan must show address moves/imports only for existing observability resources, not Droplet or volume destroy/recreate.
 
 ```bash
 cd infrastructure/digitalocean/observability
