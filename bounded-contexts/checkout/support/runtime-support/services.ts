@@ -4,6 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createCheckoutCommercialTermsResolver } from "../../api";
@@ -17,6 +18,7 @@ import { createCheckoutSupportLookupRuntime } from "../../features/support-looku
 export type CheckoutHostPorts = Readonly<{
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
   commercialTermsResolver?: CheckoutCommercialTermsResolver;
+  addressVerificationProvider?: PostageLabelProvider | null;
 }>;
 
 export type CheckoutServices = Readonly<{
@@ -45,6 +47,7 @@ export function createCheckoutServices(pool: PgTransactionalPool, ports: Checkou
     checkpointStore,
     db,
     cart,
+    addressVerificationProvider: ports.addressVerificationProvider,
   });
   const supportLookup = createCheckoutSupportLookupRuntime({ db });
 

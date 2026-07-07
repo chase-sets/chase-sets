@@ -89,6 +89,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.authentication.context.missing.2": "Authentication context missing.",
   "checkout.features.sessions.api.route.authentication.context.missing.3": "Authentication context missing.",
   "checkout.features.sessions.api.route.authentication.required": "Authentication required.",
+  "checkout.features.sessions.api.route.address.standardization.suggested":
+    "We found a standardized version of this address. Choose the suggested address or confirm the address as entered.",
   "checkout.features.sessions.api.route.checkout.session.not.found": "Checkout session not found.",
   "checkout.features.sessions.api.route.checkout.session.not.found.2": "Checkout session not found.",
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",

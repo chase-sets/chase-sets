@@ -9,6 +9,16 @@ export type AddressSnapshot = Readonly<{
   country: string;
   phone?: string | null;
   email?: string | null;
+  verification?: AddressVerificationSnapshot | null;
+}>;
+
+export type AddressVerificationSnapshot = Readonly<{
+  status: "verified" | "corrected" | "unverified" | "undeliverable";
+  source: string;
+  checkedAt: string;
+  buyerDecision?: "accepted-suggested" | "kept-original" | "provider-unavailable" | null;
+  suggestedAddress?: Omit<AddressSnapshot, "verification"> | null;
+  messages?: readonly string[];
 }>;
 
 export type AddressSnapshotSide = "sender" | "recipient";
@@ -24,6 +34,67 @@ function normalizeRequiredText(value: unknown, fieldName: string) {
 function normalizeOptionalText(value: unknown) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeAddressVerification(value: unknown): AddressVerificationSnapshot | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const fields = value as Partial<AddressVerificationSnapshot>;
+  const status =
+    fields.status === "verified" ||
+    fields.status === "corrected" ||
+    fields.status === "unverified" ||
+    fields.status === "undeliverable"
+      ? fields.status
+      : null;
+  if (!status) {
+    return null;
+  }
+
+  const source = normalizeOptionalText(fields.source) ?? "unknown";
+  const checkedAt = normalizeOptionalText(fields.checkedAt) ?? new Date(0).toISOString();
+  const buyerDecision =
+    fields.buyerDecision === "accepted-suggested" ||
+    fields.buyerDecision === "kept-original" ||
+    fields.buyerDecision === "provider-unavailable"
+      ? fields.buyerDecision
+      : null;
+  const suggestedAddress =
+    typeof fields.suggestedAddress === "object" && fields.suggestedAddress !== null
+      ? addressWithoutVerification(normalizeAddressSnapshot(fields.suggestedAddress, "Suggested address"))
+      : null;
+  const messages = Array.isArray(fields.messages)
+    ? fields.messages.flatMap((message) => {
+        const normalized = normalizeOptionalText(message);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+
+  return {
+    status,
+    source,
+    checkedAt,
+    ...(buyerDecision ? { buyerDecision } : {}),
+    ...(suggestedAddress ? { suggestedAddress } : {}),
+    ...(messages.length > 0 ? { messages } : {}),
+  };
+}
+
+function addressWithoutVerification(address: AddressSnapshot): Omit<AddressSnapshot, "verification"> {
+  return {
+    name: address.name,
+    company: address.company,
+    line1: address.line1,
+    line2: address.line2,
+    city: address.city,
+    state: address.state,
+    postalCode: address.postalCode,
+    country: address.country,
+    phone: address.phone,
+    email: address.email,
+  };
 }
 
 export function normalizeAddressSnapshot(
@@ -43,6 +114,7 @@ export function normalizeAddressSnapshot(
     country: normalizeRequiredText(fields.country, `${fieldPrefix} country`).toUpperCase(),
     phone: normalizeOptionalText(fields.phone),
     email: normalizeOptionalText(fields.email),
+    verification: normalizeAddressVerification(fields.verification),
   };
 }
 

@@ -275,7 +275,8 @@ function disputeNarrative(
   const deliveryLines = input.shipments.map((shipment) => {
     const delivered = shipment.delivered_at ? ` Delivery confirmed at ${shipment.delivered_at}.` : "";
     const dispatched = shipment.dispatched_at ? ` Dispatched at ${shipment.dispatched_at}.` : "";
-    return `Order ${shipment.order_id} shipped via ${shipment.carrier_name ?? "carrier"} tracking ${shipment.tracking_identifier}.${dispatched}${delivered}`;
+    const addressVerification = addressVerificationNarrative(shipment.shipping_destination_snapshot);
+    return `Order ${shipment.order_id} shipped via ${shipment.carrier_name ?? "carrier"} tracking ${shipment.tracking_identifier}.${dispatched}${delivered}${addressVerification}`;
   });
   const sellerExposure = input.sellerPayouts
     .map((payout) => `${payout.orderId}: seller payout ${payout.sellerPayoutAmount}`)
@@ -290,4 +291,21 @@ function disputeNarrative(
     .filter((value): value is string => Boolean(value))
     .join("\n")
     .slice(0, 4000);
+}
+
+function addressVerificationNarrative(address: AddressSnapshot | null | undefined) {
+  const verification = address?.verification;
+  if (!verification) {
+    return "";
+  }
+
+  const decision =
+    verification.buyerDecision === "kept-original"
+      ? " Buyer confirmed the original unverified shipping address."
+      : verification.buyerDecision === "accepted-suggested"
+        ? " Buyer accepted the standardized shipping address."
+        : verification.buyerDecision === "provider-unavailable"
+          ? " Address verification provider was unavailable at checkout, so the address was accepted as unverified."
+          : "";
+  return ` Address verification status: ${verification.status} via ${verification.source} at ${verification.checkedAt}.${decision}`;
 }

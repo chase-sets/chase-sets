@@ -12,6 +12,7 @@ export const identityShippingAddressSchemaSql = `CREATE TABLE IF NOT EXISTS iden
   country text NOT NULL,
   phone text NULL,
   email text NULL,
+  verification jsonb NULL,
   is_default boolean NOT NULL DEFAULT false,
   is_archived boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL,
@@ -19,4 +20,7 @@ export const identityShippingAddressSchemaSql = `CREATE TABLE IF NOT EXISTS iden
 );
 
 CREATE INDEX IF NOT EXISTS identity_shipping_addresses_account_idx
-  ON identity_shipping_addresses (account_id, is_archived, is_default DESC, updated_at DESC);`;
+  ON identity_shipping_addresses (account_id, is_archived, is_default DESC, updated_at DESC);
+
+ALTER TABLE identity_shipping_addresses
+  ADD COLUMN IF NOT EXISTS verification jsonb NULL;`;

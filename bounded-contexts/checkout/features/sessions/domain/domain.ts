@@ -1,4 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { AddressVerificationSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type {
   AccountId,
   CheckoutSessionId,
@@ -65,6 +66,7 @@ export type CheckoutShippingAddress = Readonly<{
   country: string;
   phone?: string | null;
   email?: string | null;
+  verification?: AddressVerificationSnapshot | null;
 }>;
 
 export type CheckoutSessionState = Readonly<{
@@ -409,6 +411,39 @@ function normalizeShippingAddress(address: CheckoutShippingAddress): CheckoutShi
     country: normalizeRequiredShippingAddressText(address.country).toUpperCase(),
     phone: normalizeOptionalText(address.phone),
     email: normalizeOptionalText(address.email),
+    verification: normalizeAddressVerification(address.verification),
+  };
+}
+
+function normalizeAddressVerification(
+  verification: AddressVerificationSnapshot | null | undefined,
+): AddressVerificationSnapshot | null {
+  if (!verification) {
+    return null;
+  }
+  const status =
+    verification.status === "verified" ||
+    verification.status === "corrected" ||
+    verification.status === "unverified" ||
+    verification.status === "undeliverable"
+      ? verification.status
+      : "unverified";
+  const buyerDecision =
+    verification.buyerDecision === "accepted-suggested" ||
+    verification.buyerDecision === "kept-original" ||
+    verification.buyerDecision === "provider-unavailable"
+      ? verification.buyerDecision
+      : null;
+  const messages = Array.isArray(verification.messages)
+    ? verification.messages.map((message) => message.trim()).filter(Boolean)
+    : [];
+  return {
+    status,
+    source: normalizeOptionalText(verification.source) ?? "unknown",
+    checkedAt: normalizeRequiredShippingAddressText(verification.checkedAt),
+    ...(buyerDecision ? { buyerDecision } : {}),
+    ...(verification.suggestedAddress ? { suggestedAddress: verification.suggestedAddress } : {}),
+    ...(messages.length > 0 ? { messages } : {}),
   };
 }
 

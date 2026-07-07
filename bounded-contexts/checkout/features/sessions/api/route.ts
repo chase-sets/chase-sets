@@ -380,6 +380,24 @@ function parseOptionalShippingAddress(value: unknown) {
   return value === null || value === undefined ? null : parseShippingAddress(value);
 }
 
+function parseAddressVerificationDecision(value: unknown) {
+  return value === "accept-suggested" || value === "keep-original" ? value : null;
+}
+
+function addressVerificationChoiceResponse(
+  choice: Extract<Awaited<ReturnType<CheckoutSessionServices["verifyShippingAddress"]>>, { status: "choice-required" }>,
+) {
+  return {
+    error: {
+      code: "address_standardization_suggested",
+      message: t("checkout.features.sessions.api.route.address.standardization.suggested"),
+    },
+    suggestedAddress: choice.suggestedAddress,
+    verification: choice.verification,
+    messages: choice.messages,
+  };
+}
+
 function normalizePreviewShippingOption(value: unknown, fallback: CheckoutSessionRow["shipping_option"]) {
   return value === "priority" || value === "expedited" || value === "standard" ? value : fallback;
 }
@@ -951,11 +969,19 @@ export function createAccountCheckoutSessionRoutes(
     const body = await c.req.json().catch(() => ({}));
 
     try {
+      const verification = await services.verifyShippingAddress(
+        parseShippingAddress(body.shippingAddress),
+        parseAddressVerificationDecision(body.addressVerificationDecision),
+      );
+      if (verification.status === "choice-required") {
+        return c.json(addressVerificationChoiceResponse(verification), 409);
+      }
       await services.setShippingAddress(
         {
           sessionId: c.req.param("sessionId"),
           accountId: access.actor.accountId as AccountId,
-          shippingAddress: parseShippingAddress(body.shippingAddress),
+          shippingAddress: verification.shippingAddress,
+          addressVerificationDecision: parseAddressVerificationDecision(body.addressVerificationDecision),
         },
         context,
       );
@@ -1185,11 +1211,19 @@ export function createAccountCheckoutSessionRoutes(
       }
 
       if (session.order_ids.length === 0) {
+        const verification = await services.verifyShippingAddress(
+          parseShippingAddress(body.shippingAddress),
+          parseAddressVerificationDecision(body.addressVerificationDecision),
+        );
+        if (verification.status === "choice-required") {
+          return c.json(addressVerificationChoiceResponse(verification), 409);
+        }
         const shippingAddressResult = await services.setShippingAddress(
           {
             sessionId,
             accountId: access.actor.accountId as AccountId,
-            shippingAddress: parseShippingAddress(body.shippingAddress),
+            shippingAddress: verification.shippingAddress,
+            addressVerificationDecision: parseAddressVerificationDecision(body.addressVerificationDecision),
           },
           context,
         );

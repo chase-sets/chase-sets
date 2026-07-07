@@ -16,6 +16,7 @@ type ShippingAddressPayload = {
     country: string;
     phone: string | null;
     email: string | null;
+    verification?: unknown;
   };
   isDefault: boolean;
 };
@@ -52,12 +53,13 @@ export function buildShippingAddressProjectionHandlers(db: PgQueryable): Project
            country,
            phone,
            email,
+           verification,
            is_default,
            is_archived,
            created_at,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, false, $15, $16)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, false, $16, $17)
          ON CONFLICT (shipping_address_id) DO UPDATE
          SET account_id = $2,
              label = $3,
@@ -71,10 +73,11 @@ export function buildShippingAddressProjectionHandlers(db: PgQueryable): Project
              country = $11,
              phone = $12,
              email = $13,
-             is_default = $14,
+             verification = $14::jsonb,
+             is_default = $15,
              is_archived = false,
-             created_at = $15,
-             updated_at = $16`,
+             created_at = $16,
+             updated_at = $17`,
         [
           data.shippingAddressId,
           data.accountId,
@@ -89,6 +92,7 @@ export function buildShippingAddressProjectionHandlers(db: PgQueryable): Project
           data.address.country,
           data.address.phone,
           data.address.email,
+          JSON.stringify(data.address.verification ?? null),
           data.isDefault,
           data.addedAt,
           data.addedAt,
@@ -113,10 +117,11 @@ export function buildShippingAddressProjectionHandlers(db: PgQueryable): Project
              country = $10,
              phone = $11,
              email = $12,
-             is_default = $13,
-             updated_at = $14
+             verification = $13::jsonb,
+             is_default = $14,
+             updated_at = $15
          WHERE shipping_address_id = $1
-           AND account_id = $15`,
+           AND account_id = $16`,
         [
           data.shippingAddressId,
           data.label,
@@ -130,6 +135,7 @@ export function buildShippingAddressProjectionHandlers(db: PgQueryable): Project
           data.address.country,
           data.address.phone,
           data.address.email,
+          JSON.stringify(data.address.verification ?? null),
           data.isDefault,
           data.updatedAt,
           data.accountId,

@@ -50,6 +50,22 @@ export type PostageAddress = Readonly<{
   email?: string | null;
 }>;
 
+export type AddressVerificationStatus = "verified" | "corrected" | "unverified" | "undeliverable";
+
+export type AddressVerificationResult = Readonly<{
+  providerName: string;
+  providerMode: PostageProviderMode;
+  status: AddressVerificationStatus;
+  checkedAt: string;
+  address: PostageAddress;
+  suggestedAddress?: PostageAddress | null;
+  messages: readonly string[];
+}>;
+
+export type VerifyPostageAddressRequest = Readonly<{
+  address: PostageAddress;
+}>;
+
 export type PostagePackage = Readonly<{
   mailpieceClass?: "letter" | "flat" | "parcel";
   lengthInches: number;
@@ -137,6 +153,7 @@ export function createNoopPostageProviderWebhookGateway(): PostageProviderWebhoo
 export interface PostageLabelProvider {
   readonly providerName: string;
   readonly providerMode: PostageProviderMode;
+  verifyAddress?(request: VerifyPostageAddressRequest): Promise<AddressVerificationResult>;
   purchaseUspsLabel(request: PurchaseUspsLabelRequest): Promise<PurchasedPostageLabel>;
   recoverPurchasedUspsLabel?(request: RecoverPurchasedPostageLabelRequest): Promise<PurchasedPostageLabel | null>;
   voidLabel(

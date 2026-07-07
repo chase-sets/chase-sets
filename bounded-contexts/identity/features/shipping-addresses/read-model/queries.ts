@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressVerificationSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 export type ShippingAddressRow = Readonly<{
   shipping_address_id: string;
@@ -14,6 +15,7 @@ export type ShippingAddressRow = Readonly<{
   country: string;
   phone: string | null;
   email: string | null;
+  verification: AddressVerificationSnapshot | null;
   is_default: boolean;
   is_archived: boolean;
   created_at: string;
