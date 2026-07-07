@@ -12,6 +12,7 @@ import {
 } from "./features/notification-center/api/services";
 import {
   buildNotificationsFulfillmentProjectionHandlers,
+  buildNotificationsInventoryProjectionHandlers,
   buildNotificationsOrderingProjectionHandlers,
   NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 } from "./features/notification-center/integrations/source-events/notification-projector";
@@ -36,6 +37,11 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
           subscriptionName: "notifications.fulfillment-facts-projection",
           buildHandlers: (subscription) =>
             buildNotificationsFulfillmentProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        },
+        [`inventory.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
+          subscriptionName: "notifications.inventory-facts-projection",
+          buildHandlers: (subscription) =>
+            buildNotificationsInventoryProjectionHandlers(services.notificationOutbox, subscription.projectionName),
         },
       },
     }),
