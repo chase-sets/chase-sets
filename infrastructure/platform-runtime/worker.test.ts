@@ -193,6 +193,126 @@ describe("worker runner loop", () => {
     expect(releaseCalls).toBe(1);
   });
 
+  it("yields a degraded projection-group lease when idle so a blocked-stream retry operation can acquire it", async () => {
+    // Regression for #4496: a caught-up projection-group runner that still has
+    // parked blocked streams must release the shared `projection-group:<name>`
+    // lease between idle passes so the queued blocked-stream retry operation
+    // (which acquires that exact lease, frequently on another worker) can take
+    // it and re-apply the parked poison. Before the fix the idle group runner
+    // hoarded the lease and every retry operation failed with "Projection
+    // runner lease ... is already active", so no projection-handler/config/
+    // migration fix could ever bite.
+    let acquireCalls = 0;
+    let releaseCalls = 0;
+    let runs = 0;
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        acquireCalls += 1;
+        return {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: String(acquireCalls),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+      },
+      renewLease: async () => true,
+      releaseLease: async () => {
+        releaseCalls += 1;
+      },
+    });
+    const degradedGroupRunner: WorkerRunner = {
+      name: "discovery.discovery-item-detail-projection",
+      kind: "projection-group",
+      // Caught up (nothing new to process) but still parking blocked streams.
+      runOnce: async () => {
+        runs += 1;
+        return {
+          processed: 0,
+          lastGlobalPosition: "0" as never,
+          state: "degraded",
+          blockedStreams: 3,
+          poisonEvents: 3,
+        };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [degradedGroupRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 2,
+    });
+
+    loop.start();
+    try {
+      // Each idle-but-degraded pass releases the lease and re-acquires on the
+      // next pass, so the queued retry operation gets a window to acquire it.
+      await vi.waitFor(() => {
+        expect(runs).toBeGreaterThanOrEqual(3);
+        expect(releaseCalls).toBeGreaterThanOrEqual(2);
+      });
+      expect(acquireCalls).toBeGreaterThanOrEqual(3);
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("keeps a healthy idle projection-group lease held so live replay is never churned", async () => {
+    // Complements the yield behaviour: a caught-up group with no blocked streams
+    // has no parked poison to recover, so it must not churn its lease — the
+    // continuous runner keeps a single ownership across idle passes.
+    let acquireCalls = 0;
+    let releaseCalls = 0;
+    let runs = 0;
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        acquireCalls += 1;
+        return {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: String(acquireCalls),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+      },
+      renewLease: async () => true,
+      releaseLease: async () => {
+        releaseCalls += 1;
+      },
+    });
+    const healthyGroupRunner: WorkerRunner = {
+      name: "catalog.catalog-item-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        runs += 1;
+        return { processed: 0, lastGlobalPosition: "0" as never, state: "caught-up", blockedStreams: 0 };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [healthyGroupRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 2,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(runs).toBeGreaterThanOrEqual(3);
+      });
+      expect(acquireCalls).toBe(1);
+      expect(releaseCalls).toBe(0);
+    } finally {
+      await loop.stop();
+    }
+
+    expect(releaseCalls).toBe(1);
+  });
+
   it("drops a held runner lease after renewal failure and reacquires on the next eligible pass", async () => {
     let acquireCalls = 0;
     let renewCalls = 0;

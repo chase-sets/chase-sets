@@ -557,9 +557,11 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     const runAbortController = new AbortController();
     let completedResult: ProjectorRunResult | undefined;
     let leaseAcquired = false;
+    let acquiredLease: HeldRunnerLease | null = null;
     const promise = acquireHeldRunnerLease(runner)
-      .then((heldLease) =>
-        heldLease
+      .then((heldLease) => {
+        acquiredLease = heldLease ?? null;
+        return heldLease
           ? runLeasedRunner(
               options,
               runner,
@@ -568,8 +570,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
               runAbortController.signal,
               statusPublishState,
             )
-          : ({ leaseAcquired: false } satisfies LeasedRunnerOutcome),
-      )
+          : ({ leaseAcquired: false } satisfies LeasedRunnerOutcome);
+      })
       .then((outcome) => {
         if (!outcome.leaseAcquired) {
           leaseMissCount += 1;
@@ -602,6 +604,24 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           activeSharedSlotCount -= 1;
         }
         if (leaseAcquired) {
+          // A projection-group runner that finished with nothing to process but
+          // still has parked blocked streams must not keep holding the shared
+          // `projection-group:<name>` lease. Blocked-stream retry and rebuild
+          // projection operations acquire that exact lease; while an idle group
+          // runner (frequently on another worker) holds it, every such operation
+          // fails with "Projection runner lease ... is already active" and the
+          // parked poison can never be re-applied — no projection-handler,
+          // config, or migration fix can bite because the retry apply path never
+          // runs. Yielding the idle-but-degraded lease lets the queued operation
+          // acquire it and execute the (fixed) retry-apply path.
+          if (acquiredLease && shouldYieldRunnerLeaseForPendingOperation(runner, completedResult)) {
+            // Release without an immediate reschedule: the group runner has no
+            // work of its own, so let the normal poll tick re-run it while the
+            // freed lease stays available for the queued retry/rebuild operation.
+            void releaseHeldRunnerLease(acquiredLease, false).catch((error: unknown) => {
+              options.onError?.(error, runner);
+            });
+          }
           try {
             if (shouldRescheduleAfterCompletion(runner, completedResult)) {
               queueImmediateSchedule();
@@ -714,6 +734,23 @@ function shouldRescheduleAfterCompletion(runner: WorkerRunner, result?: Projecto
   }
 
   return result.processed > 0 || runner.rescheduleOnCompletion?.(result) === true;
+}
+
+// Blocked-stream retry and rebuild projection operations acquire the same
+// `projection-group:<name>` lease that the continuously scheduled
+// projection-group runner holds. A caught-up group runner (processed nothing)
+// that still has parked blocked streams has no work of its own to do, so it
+// must release that lease instead of hoarding it — otherwise the queued
+// recovery operation can never acquire it and the parked poison is stuck. A
+// group that actually advanced (processed > 0) keeps its lease so healthy
+// replay is never churned.
+function shouldYieldRunnerLeaseForPendingOperation(runner: WorkerRunner, result?: ProjectorRunResult): boolean {
+  return (
+    runner.kind === "projection-group" &&
+    result !== undefined &&
+    result.processed === 0 &&
+    (result.blockedStreams ?? 0) > 0
+  );
 }
 
 function clampReservedRunnerSlots(
