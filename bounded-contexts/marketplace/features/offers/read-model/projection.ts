@@ -177,5 +177,131 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
       );
       await emitOfferPatch(db, event, data.offerId);
     },
+    "marketplace.offer.match-declined": async (event) => {
+      const data = event.data as {
+        sellerAccountId: string;
+        buyerAccountId: string;
+        listingId: string;
+        productId: string;
+        offerId: string;
+        offerPriceAmount: string;
+        listingPriceAmount: string;
+        declinedAt: string;
+        lowballDeclineCount: number;
+        lowballCooldownUntil: string | null;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_offer_seller_declines (
+          seller_account_id,
+          buyer_account_id,
+          listing_id,
+          product_id,
+          offer_id,
+          offer_price_amount,
+          listing_price_amount,
+          declined_at,
+          lowball_cooldown_until
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (seller_account_id, listing_id, offer_id) DO UPDATE SET
+          declined_at = EXCLUDED.declined_at,
+          lowball_cooldown_until = EXCLUDED.lowball_cooldown_until`,
+        [
+          data.sellerAccountId,
+          data.buyerAccountId,
+          data.listingId,
+          data.productId,
+          data.offerId,
+          data.offerPriceAmount,
+          data.listingPriceAmount,
+          data.declinedAt,
+          data.lowballCooldownUntil,
+        ],
+      );
+      await db.query(
+        `INSERT INTO marketplace_offer_seller_controls (
+          seller_account_id,
+          buyer_account_id,
+          listing_id,
+          product_id,
+          declined_offer_count,
+          lowball_decline_count,
+          last_lowball_declined_amount,
+          lowball_cooldown_until,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8)
+        ON CONFLICT (seller_account_id, buyer_account_id, listing_id) DO UPDATE SET
+          product_id = EXCLUDED.product_id,
+          declined_offer_count = marketplace_offer_seller_controls.declined_offer_count + 1,
+          lowball_decline_count = EXCLUDED.lowball_decline_count,
+          last_lowball_declined_amount = COALESCE(
+            EXCLUDED.last_lowball_declined_amount,
+            marketplace_offer_seller_controls.last_lowball_declined_amount
+          ),
+          lowball_cooldown_until = COALESCE(
+            EXCLUDED.lowball_cooldown_until,
+            marketplace_offer_seller_controls.lowball_cooldown_until
+          ),
+          updated_at = EXCLUDED.updated_at`,
+        [
+          data.sellerAccountId,
+          data.buyerAccountId,
+          data.listingId,
+          data.productId,
+          data.lowballDeclineCount,
+          data.lowballCooldownUntil ? data.offerPriceAmount : null,
+          data.lowballCooldownUntil,
+          data.declinedAt,
+        ],
+      );
+      await emitOfferPatch(db, event, data.offerId);
+    },
+    "marketplace.offer.buyer-muted": async (event) => {
+      const data = event.data as {
+        sellerAccountId: string;
+        buyerAccountId: string;
+        listingId: string;
+        productId: string;
+        offerId: string | null;
+        mutedAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_offer_seller_controls (
+          seller_account_id,
+          buyer_account_id,
+          listing_id,
+          product_id,
+          muted_at,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $5)
+        ON CONFLICT (seller_account_id, buyer_account_id, listing_id) DO UPDATE SET
+          product_id = EXCLUDED.product_id,
+          muted_at = EXCLUDED.muted_at,
+          updated_at = EXCLUDED.updated_at`,
+        [data.sellerAccountId, data.buyerAccountId, data.listingId, data.productId, data.mutedAt],
+      );
+      if (data.offerId) {
+        await emitOfferPatch(db, event, data.offerId);
+      }
+    },
+    "marketplace.offer.buyer-unmuted": async (event) => {
+      const data = event.data as {
+        sellerAccountId: string;
+        buyerAccountId: string;
+        listingId: string;
+        unmutedAt: string;
+      };
+
+      await db.query(
+        `UPDATE marketplace_offer_seller_controls
+         SET muted_at = NULL,
+             updated_at = $4
+         WHERE seller_account_id = $1
+           AND buyer_account_id = $2
+           AND listing_id = $3`,
+        [data.sellerAccountId, data.buyerAccountId, data.listingId, data.unmutedAt],
+      );
+    },
   };
 }

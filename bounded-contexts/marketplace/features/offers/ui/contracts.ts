@@ -38,3 +38,13 @@ export interface OfferMatchListItem extends MarketplaceOffer {
 }
 
 export interface OfferMatchDetail extends OfferMatchListItem {}
+
+export interface OfferBuyerMute {
+  seller_account_id: string;
+  buyer_account_id: string;
+  buyer_display_name: string | null;
+  listing_id: string;
+  product_id: string;
+  muted_at: string;
+  updated_at: string;
+}

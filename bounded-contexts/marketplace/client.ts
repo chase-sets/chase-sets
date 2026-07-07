@@ -19,6 +19,7 @@ export type {
 export type {
   OfferMatchDetail,
   OfferMatchListItem,
+  OfferBuyerMute,
   MarketplaceOffer,
   PublicOfferDetail,
   SubmittedOfferDetail,
@@ -41,6 +42,7 @@ import type {
 import type {
   OfferMatchDetail,
   OfferMatchListItem,
+  OfferBuyerMute,
   PublicOfferDetail,
   SubmittedOfferDetail,
   SubmittedOfferListItem,
@@ -420,6 +422,13 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async listOfferBuyerMutes(): Promise<ListResponse<OfferBuyerMute>> {
+      return parseJsonResponse(
+        await client.account.offers.mutes.$get({
+          header: headers,
+        }),
+      );
+    },
     async getOfferMatch(id: string): Promise<OfferMatchDetail> {
       return parseJsonResponse(
         await client.account.offers.matches[":id"].$get({
@@ -449,6 +458,33 @@ export function createMarketplaceApiClient({
         await client.account.offers.matches[":id"].accept.$post({
           param: { id },
           json: body,
+          header: headers,
+        }),
+      );
+    },
+    async declineOfferMatch(id: string) {
+      return parseJsonResponse(
+        await client.account.offers.matches[":id"].decline.$post({
+          param: { id },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async muteOfferBuyer(id: string) {
+      return parseJsonResponse(
+        await client.account.offers.matches[":id"]["mute-buyer"].$post({
+          param: { id },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async unmuteOfferBuyer(listingId: string, buyerAccountId: string) {
+      return parseJsonResponse(
+        await client.account.offers.mutes[":listingId"][":buyerAccountId"].unmute.$post({
+          param: { listingId, buyerAccountId },
+          json: {},
           header: headers,
         }),
       );

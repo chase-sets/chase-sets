@@ -107,6 +107,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
       );
     }
 
+    if (intent === "decline-offer") {
+      const result = await api.declineOfferMatch(params.offerId!);
+      return redirect(
+        navigateAfterWrite(result, "/account/offers/matches?feedbackWorkflow=offer-decline", {
+          telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
+        }),
+      );
+    }
+
+    if (intent === "mute-offer-buyer") {
+      const result = await api.muteOfferBuyer(params.offerId!);
+      return redirect(
+        navigateAfterWrite(result, "/account/offers/matches?feedbackWorkflow=offer-mute", {
+          telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
+        }),
+      );
+    }
+
     return null;
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 409) {

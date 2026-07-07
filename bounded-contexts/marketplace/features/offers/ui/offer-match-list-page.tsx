@@ -20,7 +20,7 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import type { OfferMatchListItem } from "./contracts";
+import type { OfferBuyerMute, OfferMatchListItem } from "./contracts";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 
 function statusTone(status: string) {
@@ -79,9 +79,11 @@ function formatTimestamp(value: string) {
 
 export function MarketplaceOfferMatchListPage({
   data,
+  buyerMutes,
   errorMessage,
 }: {
   data: { items: readonly OfferMatchListItem[] };
+  buyerMutes?: { items: readonly OfferBuyerMute[] };
   errorMessage?: string | null;
 }) {
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
@@ -284,6 +286,18 @@ export function MarketplaceOfferMatchListPage({
                   <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
                     {t("marketplace.features.offers.ui.offerMatchListPage.open")}
                   </LinkButton>
+                  <Form spacing="none" method="post" action={`/account/offers/matches/${row.offer_id}`}>
+                    <HiddenInput type="hidden" name="intent" value="decline-offer" />
+                    <Button type="submit" tone="secondary" size="sm" disabled={row.status !== "submitted"}>
+                      {t("marketplace.features.offers.ui.offerMatchListPage.decline")}
+                    </Button>
+                  </Form>
+                  <Form spacing="none" method="post" action={`/account/offers/matches/${row.offer_id}`}>
+                    <HiddenInput type="hidden" name="intent" value="mute-offer-buyer" />
+                    <Button type="submit" tone="secondary" size="sm" disabled={row.status !== "submitted"}>
+                      {t("marketplace.features.offers.ui.offerMatchListPage.mute.buyer")}
+                    </Button>
+                  </Form>
                 </Stack>
               ),
             },
@@ -292,6 +306,46 @@ export function MarketplaceOfferMatchListPage({
           emptyDescription={t(
             "marketplace.features.offers.ui.offerMatchListPage.offer.matches.appear.here.when.submitted",
           )}
+        />
+      </PageSection>
+
+      <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.muted.buyers")}>
+        <DataTable
+          rows={[...(buyerMutes?.items ?? [])]}
+          getRowId={(row) => `${row.listing_id}:${row.buyer_account_id}`}
+          columns={[
+            {
+              key: "buyer",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.buyer"),
+              cell: (row) => row.buyer_display_name ?? row.buyer_account_id,
+            },
+            {
+              key: "listing",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.listing"),
+              cell: (row) => row.listing_id,
+            },
+            {
+              key: "muted",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.muted.on"),
+              cell: (row) => formatTimestamp(row.muted_at),
+            },
+            {
+              key: "actions",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.actions"),
+              cell: (row) => (
+                <Form spacing="none" method="post">
+                  <HiddenInput type="hidden" name="intent" value="unmute-offer-buyer" />
+                  <HiddenInput type="hidden" name="listingId" value={row.listing_id} />
+                  <HiddenInput type="hidden" name="buyerAccountId" value={row.buyer_account_id} />
+                  <Button type="submit" tone="secondary" size="sm">
+                    {t("marketplace.features.offers.ui.offerMatchListPage.unmute")}
+                  </Button>
+                </Form>
+              ),
+            },
+          ]}
+          emptyTitle={t("marketplace.features.offers.ui.offerMatchListPage.no.muted.buyers")}
+          emptyDescription={t("marketplace.features.offers.ui.offerMatchListPage.muted.buyers.appear.here")}
         />
       </PageSection>
     </Page>

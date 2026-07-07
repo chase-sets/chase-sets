@@ -1,7 +1,9 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useRouteLoaderData } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect, useLoaderData, useRouteLoaderData } from "react-router";
+import { classifyPostWriteDestinationResult } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { loadAfterWrite, navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -13,6 +15,12 @@ import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topi
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferMatches.review.offer.matches.against.your.active");
+const OFFER_MATCH_LIST_POST_WRITE_TELEMETRY = {
+  boundedContextName: "marketplace",
+  surface: "account-offer-matches",
+  routeId: "account-offer-matches",
+  routeTemplate: "/account/offers/matches",
+} as const satisfies PlatformPostWriteTelemetry;
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -25,11 +33,69 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const api = createMarketplaceRequestApiClient(request);
 
-  const offerMatches = await api.listOfferMatches(DEFAULT_OFFER_QUERY);
+  const offerMatchesRead = await loadAfterWrite({
+    request,
+    isNotFound: () => false,
+    load: () => api.listOfferMatches(DEFAULT_OFFER_QUERY),
+    telemetry: OFFER_MATCH_LIST_POST_WRITE_TELEMETRY,
+  });
+  const offerMatchesDestination = classifyPostWriteDestinationResult(offerMatchesRead);
+
+  if (offerMatchesDestination.kind === "recover") {
+    return {
+      offerMatches: {
+        items: [],
+        total: 0,
+        count: 0,
+      },
+      offerBuyerMutes: {
+        items: [],
+        total: 0,
+        count: 0,
+      },
+    };
+  }
+
+  if (offerMatchesDestination.kind === "pass-through") {
+    const error = "error" in offerMatchesDestination.result ? offerMatchesDestination.result.error : null;
+    if (error) {
+      throw error;
+    }
+    throw new Response(t("marketplace.routes.accountOfferMatches.request.failed"), { status: 503 });
+  }
 
   return {
-    offerMatches,
+    offerMatches: offerMatchesDestination.data,
+    offerBuyerMutes: await api.listOfferBuyerMutes(),
   };
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  const actor = await requireActorFromAuthApi({
+    request,
+    permission: "offers.manage",
+  });
+  if (!actor.permissions.includes("listings.view")) {
+    throw new Response(t("marketplace.routes.accountOfferMatches.forbidden.2"), { status: 403 });
+  }
+
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "");
+  const api = createMarketplaceRequestApiClient(request);
+
+  if (intent === "unmute-offer-buyer") {
+    const result = await api.unmuteOfferBuyer(
+      String(formData.get("listingId") ?? ""),
+      String(formData.get("buyerAccountId") ?? ""),
+    );
+    return redirect(
+      navigateAfterWrite(result, "/account/offers/matches", {
+        telemetry: OFFER_MATCH_LIST_POST_WRITE_TELEMETRY,
+      }),
+    );
+  }
+
+  return null;
 }
 
 export const meta: MetaFunction = () =>
@@ -75,7 +141,7 @@ function MarketplaceAccountOfferMatchesRealtimeView({
     onSyncRequired: reloadForRealtimeSync,
   });
 
-  return <MarketplaceOfferMatchListPage data={offerMatches} />;
+  return <MarketplaceOfferMatchListPage data={offerMatches} buyerMutes={data.offerBuyerMutes} />;
 }
 
 function reloadForRealtimeSync() {

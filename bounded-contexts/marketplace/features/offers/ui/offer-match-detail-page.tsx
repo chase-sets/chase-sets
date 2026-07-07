@@ -102,8 +102,24 @@ export function MarketplaceOfferMatchDetailPage({
     <Form spacing="none" method="post" action="/account/sell-list">
       <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
       <OfferMatchSellListSnapshotFields offer={offer} />
-      <Button type="submit" tone="secondary" disabled={!offer.can_fulfill}>
+      <Button type="submit" tone="secondary">
         {t("marketplace.features.offers.ui.offerMatchDetailPage.add.to.sell.list")}
+      </Button>
+    </Form>
+  ) : null;
+  const declineAction = canAcceptSubmitted ? (
+    <Form spacing="none" method="post">
+      <HiddenInput type="hidden" name="intent" value="decline-offer" />
+      <Button type="submit" tone="secondary" disabled={!offer.can_fulfill}>
+        {t("marketplace.features.offers.ui.offerMatchDetailPage.decline")}
+      </Button>
+    </Form>
+  ) : null;
+  const muteBuyerAction = canAcceptSubmitted ? (
+    <Form spacing="none" method="post">
+      <HiddenInput type="hidden" name="intent" value="mute-offer-buyer" />
+      <Button type="submit" tone="secondary">
+        {t("marketplace.features.offers.ui.offerMatchDetailPage.mute.buyer")}
       </Button>
     </Form>
   ) : null;
@@ -199,10 +215,12 @@ export function MarketplaceOfferMatchDetailPage({
                   },
                 ]}
               />
-              {acceptOfferAction || addToSellListAction ? (
+              {acceptOfferAction || addToSellListAction || declineAction || muteBuyerAction ? (
                 <Inline gap={2}>
                   {acceptOfferAction}
                   {addToSellListAction}
+                  {declineAction}
+                  {muteBuyerAction}
                 </Inline>
               ) : null}
             </Stack>

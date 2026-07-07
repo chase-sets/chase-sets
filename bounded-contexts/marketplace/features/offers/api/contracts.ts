@@ -1,6 +1,7 @@
 export type {
   OfferMatchDetail,
   OfferMatchListItem,
+  OfferBuyerMute,
   MarketplaceOffer,
   PublicOfferDetail,
   SubmittedOfferDetail,
