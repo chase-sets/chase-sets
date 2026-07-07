@@ -23,6 +23,30 @@ CREATE INDEX IF NOT EXISTS inventory_items_storage_location_idx
 CREATE INDEX IF NOT EXISTS inventory_items_catalog_version_idx
   ON inventory_items (product_id);
 
+CREATE TABLE IF NOT EXISTS inventory_item_ledger (
+  ledger_entry_id text PRIMARY KEY,
+  item_id text NOT NULL,
+  account_id text NOT NULL,
+  occurred_at timestamptz NOT NULL,
+  kind text NOT NULL,
+  quantity_delta integer NULL,
+  hold_quantity integer NULL,
+  purpose text NULL,
+  reason text NOT NULL,
+  source_ref jsonb NULL,
+  actor text NOT NULL,
+  event_type text NOT NULL,
+  stream_id text NOT NULL,
+  stream_version bigint NOT NULL CHECK (stream_version >= 1),
+  recorded_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS inventory_item_ledger_item_occurred_idx
+  ON inventory_item_ledger (item_id, occurred_at DESC, ledger_entry_id DESC);
+
+CREATE INDEX IF NOT EXISTS inventory_item_ledger_account_item_idx
+  ON inventory_item_ledger (account_id, item_id, occurred_at DESC);
+
 CREATE TABLE IF NOT EXISTS inventory_item_adjustment_idempotency (
   idempotency_key text PRIMARY KEY,
   account_id text NOT NULL,

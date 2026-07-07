@@ -85,6 +85,13 @@
       "resetStrategy": "truncate-owned-tables"
     },
     {
+      "projectionName": "inventory-item-ledger-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_item_ledger"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "inventory-hold-projection",
       "sourceContextNames": ["inventory"],
       "ownedTables": ["inventory_holds"],
@@ -123,6 +130,9 @@
             },
             {
               "readModelTable": "inventory_holds"
+            },
+            {
+              "readModelTable": "inventory_item_ledger"
             }
           ]
         },
@@ -158,11 +168,11 @@
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "readModelTables": ["inventory_items", "inventory_holds"],
+        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Inventory item create redirects to the created item detail with afterWrite so the item detail API waits on exact item and hold projections before rendering the new stock record."
+          "behavior": "Inventory item create redirects to the created item detail with afterWrite so the item detail API waits on exact item, hold, and ledger projections before rendering the new stock record."
         }
       }
     },
@@ -185,11 +195,11 @@
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "readModelTables": ["inventory_items", "inventory_holds"],
+        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Inventory item detail forwards afterWrite to the API so exact item and hold projections gate the detail read."
+          "behavior": "Inventory item detail forwards afterWrite to the API so exact item, hold, and ledger projections gate the detail read."
         }
       }
     },
@@ -335,7 +345,7 @@
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "readModelTables": ["inventory_items", "inventory_holds"],
+        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Inventory item create redirects to the created item detail with afterWrite and the detail loader retries valid fresh-write not-found reads before falling back to temporary recovery."
@@ -360,10 +370,10 @@
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "readModelTables": ["inventory_items", "inventory_holds"],
+        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Adjust, hold, and release actions redirect with afterWrite to the same item detail page; the loader forwards the receipt and uses bounded fresh-write recovery for lagging item or hold projections."
+          "behavior": "Adjust, hold, and release actions redirect with afterWrite to the same item detail page; the loader forwards the receipt and uses bounded fresh-write recovery for lagging item, hold, or ledger projections."
         }
       },
       "proof": {

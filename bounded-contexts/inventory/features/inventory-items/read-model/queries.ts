@@ -34,7 +34,35 @@ export type InventoryItemListRow = Readonly<{
 export type InventoryItemDetailRow = InventoryItemListRow &
   Readonly<{
     holds: readonly InventoryHoldRow[];
+    ledger: readonly InventoryItemLedgerRow[];
   }>;
+
+export type InventoryItemLedgerKind =
+  | "created"
+  | "adjusted"
+  | "hold-placed"
+  | "hold-converted"
+  | "hold-consumed"
+  | "hold-released"
+  | "hold-expired";
+
+export type InventoryItemLedgerRow = Readonly<{
+  ledger_entry_id: string;
+  item_id: string;
+  account_id: string;
+  occurred_at: string;
+  kind: InventoryItemLedgerKind;
+  quantity_delta: number | null;
+  hold_quantity: number | null;
+  purpose: string | null;
+  reason: string;
+  source_ref: unknown;
+  actor: "seller" | "system";
+  event_type: string;
+  stream_id: string;
+  stream_version: number;
+  recorded_at: string;
+}>;
 
 type BaseInventoryItemRow = Readonly<{
   total_count: number;
@@ -312,12 +340,38 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
     [itemId, accountId],
   );
 
+  const ledgerResult = await db.query<InventoryItemLedgerRow>(
+    `SELECT
+       ledger_entry_id,
+       item_id,
+       account_id,
+       occurred_at,
+       kind,
+       quantity_delta,
+       hold_quantity,
+       purpose,
+       reason,
+       source_ref,
+       actor,
+       event_type,
+       stream_id,
+       stream_version,
+       recorded_at
+     FROM inventory_item_ledger
+     WHERE item_id = $1
+       AND account_id = $2
+     ORDER BY occurred_at DESC, ledger_entry_id DESC
+     LIMIT 50`,
+    [itemId, accountId],
+  );
+
   const catalogItems = await loadCatalogItemSummaries(db, [row.catalog_catalog_item_id]);
   const [enriched] = enrichInventoryItemRows([row], catalogItems);
 
   return {
     ...enriched,
     holds: holdsResult.rows,
+    ledger: ledgerResult.rows,
   } satisfies InventoryItemDetailRow;
 }
 
