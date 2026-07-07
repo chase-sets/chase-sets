@@ -2082,6 +2082,7 @@ describe("DigitalOcean platform configuration", () => {
     const terraformPreviewJob = workflowJob(platformPrWorkflow, "terraform-preview-plan");
     const terraformStagingJob = workflowJob(platformPrWorkflow, "terraform-staging-plan");
     const terraformProductionJob = workflowJob(platformPrWorkflow, "terraform-production-plan");
+    const terraformObservabilityJob = workflowJob(platformPrWorkflow, "terraform-observability-plan");
     const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
 
     expect(platformPrWorkflow).toContain("full_battery_required: ${{ steps.full-battery.outputs.required }}");
@@ -2102,6 +2103,22 @@ describe("DigitalOcean platform configuration", () => {
       expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     }
 
+    expect(terraformObservabilityJob).toContain("if: needs['change-scope'].outputs.terraform == 'true'");
+    expect(terraformObservabilityJob).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
+    expect(terraformObservabilityJob).toContain("Terraform plan shared observability");
+    expect(terraformObservabilityJob).toContain('plan_root="${RUNNER_TEMP}/chase-sets-observability-plan"');
+    expect(terraformObservabilityJob).toContain("backend_block = '\\n  backend \"s3\" {}\\n'");
+    expect(terraformObservabilityJob).toContain("Expected observability backend block was not found.");
+    expect(terraformObservabilityJob).toContain("versions.replace(backend_block, '\\n')");
+    expect(terraformObservabilityJob).toContain(
+      'terraform -chdir="${plan_root}/infrastructure/digitalocean/observability" init -backend=false',
+    );
+    expect(terraformObservabilityJob).toContain(
+      'plan_artifact="infrastructure/digitalocean/observability/artifacts/terraform-plans/observability-shared-tfplan.txt"',
+    );
+    expect(terraformObservabilityJob).toContain("observability-shared-tfplan.txt");
+    expect(terraformObservabilityJob).toContain("name: observability-shared-terraform-plan");
+
     expect(requiredJob).toContain(
       "full_battery_required=\"${{ needs['change-scope'].outputs.full_battery_required }}\"",
     );
@@ -2112,6 +2129,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(requiredJob).toContain('require_heavy_job "Terraform Preview Plan"');
     expect(requiredJob).toContain('require_heavy_job "Terraform Staging Plan"');
     expect(requiredJob).toContain('require_heavy_job "Terraform Production Plan"');
+    expect(requiredJob).toContain('require_job "Terraform Observability Plan"');
     expect(requiredJob).toContain('require_job "Workflow Lint"');
   });
 
@@ -2700,6 +2718,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain('resource "digitalocean_volume" "observability_data"');
     expect(observabilityMain).toContain('resource "digitalocean_firewall" "observability"');
     expect(observabilityMain).toContain('resource "digitalocean_record" "observability_a"');
+    expect(observabilityMain).toContain("for_each = local.endpoint_dns_records");
+    expect(observabilityMain).toContain('from = digitalocean_record.observability_a["grafana"]');
+    expect(observabilityMain).toContain('to   = digitalocean_record.observability_a["production-grafana"]');
+    expect(observabilityMain).toContain('from = digitalocean_record.observability_a["otel"]');
+    expect(observabilityMain).toContain('to   = digitalocean_record.observability_a["production-otel"]');
+    expect(observabilityMain).toContain('from = digitalocean_record.observability_a["prometheus"]');
+    expect(observabilityMain).toContain('to   = digitalocean_record.observability_a["production-prometheus"]');
     expect(observabilityMain).toContain("backups    = var.droplet_backups_enabled");
     expect(observabilityMain).toContain('check "observability_storage_posture"');
     expect(observabilityMain).toContain('check "observability_retention_posture"');
@@ -2709,6 +2734,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain("length(local.unclassified_stack_files) == 0");
     expect(observabilityVariables).toContain('variable "droplet_backups_enabled"');
     expect(observabilityVariables).toContain("default     = false");
+    expect(observabilityVariables).toContain('variable "observability_environments"');
+    expect(observabilityVariables).toContain('variable "stack_environment"');
     expect(observabilityVariables).toContain('variable "acceptable_telemetry_data_loss_window_hours"');
     expect(observabilityMain).toContain('port_range       = "80"');
     expect(observabilityMain).toContain('port_range       = "443"');
@@ -2718,16 +2745,24 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityLocals).toContain('setsubtract(fileset(local.stack_source_dir, "**/*")');
     expect(observabilityLocals).toContain('"collector-config.yml" = templatefile');
     expect(observabilityLocals).toContain('"prometheus.yml" = templatefile');
+    expect(observabilityLocals).toContain("environment_zones");
+    expect(observabilityLocals).toContain("endpoint_dns_records");
+    expect(observabilityLocals).toContain("grafana_domains        = join");
+    expect(observabilityLocals).toContain("otel_domains           = join");
     expect(observabilityLocals).toContain('encoding    = "gz+b64"');
     expect(observabilityLocals).toContain("content     = base64gzip(content)");
     expect(observabilityLocals).toContain("cloud_init_user_data = templatefile");
     expect(observabilityCollectorTemplate).toContain("deployment.environment");
-    expect(observabilityCollectorTemplate).toContain("value: ${deployment_environment}");
+    expect(observabilityCollectorTemplate).toContain("value: ${stack_environment}");
+    expect(observabilityCollectorTemplate).toContain("resource_to_telemetry_conversion");
     expect(observabilityCollectorTemplate).not.toContain("value: local");
     expect(observabilityPrometheusTemplate).toContain("target_label: deployment_environment");
-    expect(observabilityPrometheusTemplate).toContain("replacement: ${deployment_environment}");
+    expect(observabilityPrometheusTemplate).toContain("replacement: ${stack_environment}");
     expect(observabilityPrometheusTemplate).toContain("target_label: chase_sets_observability_stack");
     expect(observabilityPrometheusTemplate).toContain("single-shared-stack");
+    expect(observabilityCaddyfile).toContain("${grafana_domains}");
+    expect(observabilityCaddyfile).toContain("${otel_domains}");
+    expect(observabilityCaddyfile).toContain("${prometheus_domains}");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Token");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Query");
     expect(observabilityDockerCompose).toContain("/var/lib/chase-sets-observability/diagnostics:/srv/diagnostics:ro");
@@ -2740,6 +2775,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityCloudInit).toContain("docker compose logs --tail=120 grafana");
     expect(observabilityCloudInit).toContain("docker compose up -d --remove-orphans");
     expect(observabilityOutputs).toContain('output "app_platform_otlp_headers"');
+    expect(observabilityOutputs).toContain('output "environment_endpoints"');
     // The canary-evidence promotion gate was removed in #2507, so the host no
     // longer exports canary_prometheus_* outputs. The scoped query-auth token
     // (X-Chase-Sets-Observability-Query, asserted above) stays for dashboards.

@@ -73,8 +73,8 @@ Add SLO burn-rate alerts only after production traffic establishes realistic lat
 ## Staging And Production Access
 
 Production observability topology is owned by [ADR 0011: Production Observability Stack](../adr/0011-production-observability-stack.md).
-Staging rehearses the same shape before production enablement.
-During the DOKS migration, both staging and production forward pod telemetry through the Kubernetes collector contract in `infrastructure/observability/kubernetes`. The collector attaches `deployment.environment`, `k8s.cluster.name`, namespace, deployment, pod, and node metadata, then forwards OTLP to the same secured stack endpoints listed below. Keep staging and production separated by labels and dashboard variables, not by duplicate LGTM hosts.
+Staging rehearses the same secured access shape through DNS aliases on the shared pre-launch stack.
+During the DOKS migration, both staging and production forward pod telemetry through the Kubernetes collector contract in `infrastructure/observability/kubernetes`. The collector attaches `deployment.environment`, `k8s.cluster.name`, namespace, deployment, pod, and node metadata, then forwards OTLP to the secured stack endpoints listed below. Keep staging and production separated by labels and dashboard variables, not by duplicate LGTM hosts.
 
 Use Grafana for telemetry questions: request rates, latency, projection freshness metrics, push-wake pipeline latency, traces, and log correlation. Use Admin Platform Operations for application read models and operator actions:
 
@@ -111,28 +111,39 @@ The checked-in local stack uses short retention. Staging and production must set
 
 ## Retention And Backup Posture
 
-The self-hosted staging and production stack is intentionally cost-aware. DigitalOcean Droplet backups protect the reproducible host image, while DigitalOcean Block Storage volume snapshots protect the telemetry data surface. The host can be rebuilt from Terraform and cloud-init; the operational value that is not trivially recreated is the volume data for Prometheus, Loki, Tempo, Grafana, and Caddy.
+The self-hosted staging and production stack is intentionally cost-aware. One shared pre-launch Droplet and one shared volume serve both long-lived environments. DigitalOcean Droplet backups protect only the reproducible host image, while DigitalOcean Block Storage volume snapshots protect the telemetry data surface. The host can be rebuilt from Terraform and cloud-init; the operational value that is not trivially recreated is the volume data for Prometheus, Loki, Tempo, Grafana, and Caddy.
 
 Default posture:
 
-- Staging: `droplet_backups_enabled=false`, Prometheus retention kept short unless a staging drill needs more, observability volume at or below 100 GiB, and an accepted telemetry data loss window of no more than 24 hours.
-- Production: `droplet_backups_enabled=false` unless a named drill or incident requires host-image recovery, Prometheus retention set by current incident-review needs, observability volume at least 100 GiB, and an accepted telemetry data loss window of no more than 24 hours.
+- Shared pre-launch stack: `droplet_backups_enabled=false`, Prometheus retention kept short unless a named drill or incident needs more, observability volume between 50 and 100 GiB, and an accepted telemetry data loss window of no more than 24 hours.
 - Volume protection: take a manual DigitalOcean volume snapshot before destructive maintenance, risky host replacement, or retention policy changes. Routine operation accepts short telemetry loss rather than paying for continuous host-image backups by default.
 - External export: not enabled by default. Create a follow-up issue before launch if incident response needs longer metrics/log/trace retention than the single-node volume can provide at acceptable cost.
 
 Operators can use DigitalOcean Droplet backups for host-image recovery, and DigitalOcean snapshots for Droplet or volume point-in-time copies; DigitalOcean documents these surfaces separately at [Backups](https://docs.digitalocean.com/products/backups/) and [Snapshots](https://docs.digitalocean.com/products/snapshots/). DigitalOcean also documents that Block Storage volumes can be snapshotted in [Volume Features](https://docs.digitalocean.com/products/volumes/details/features/). Treat those snapshots as account-side recovery artifacts, not downloadable telemetry exports.
 
-The drift digest reports observability Droplet backup state and volume size. Staging backup-on or oversized staging volumes are warning findings because they are unexpected spend posture. Production backup-on is advisory because it may be intentional during a named recovery drill, but it must still be reviewed against the current retention policy and invoice expectations.
+The drift digest reports observability Droplet backup state and volume size. Backup-on or oversized shared observability volumes are warning findings because they are unexpected pre-launch spend posture.
 
-Provision staging and production with `infrastructure/digitalocean/observability` before enabling App Platform telemetry export. Use backend keys `observability/staging.tfstate` and `observability/production.tfstate`. The root outputs the exact GitHub values to set:
+Provision the shared stack with `infrastructure/digitalocean/observability` before enabling App Platform telemetry export. Use backend key `observability/shared.tfstate`. The root outputs the exact GitHub values to set:
 
-- `app_platform_otlp_headers` -> `OBSERVABILITY_OTLP_HEADERS` secret in the matching GitHub environment.
+- `app_platform_otlp_headers` -> `OBSERVABILITY_OTLP_HEADERS` secret in both long-lived GitHub environments while the stack is shared.
+- `environment_endpoints` -> staging and production Grafana, OTLP, and Prometheus endpoint inventory.
 
 The platform deploy workflow defaults `OTEL_EXPORTER_OTLP_ENDPOINT` to `https://otel.staging.chasesets.com` or `https://otel.chasesets.com`. Set `OBSERVABILITY_OTLP_ENDPOINT` only when using a different endpoint.
 
 Missing telemetry is an operations incident. Do not page customer-facing route owners until you determine whether the application signal is actually degraded or the observability pipeline is missing data. First check whether the affected service still serves traffic, then inspect the collector/backend health, then verify the deployable's `OBSERVABILITY_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, sampler settings, and resource attributes.
 
 Metric labels must stay bounded: service, environment, route template, method, status class, context, event type, projector/subscription name, and provider. Never use account, user, listing, order, payment, shipment, or session ids as metric labels.
+
+## Launch Revisit Criteria
+
+Keep the shared stack until at least one of these is true:
+
+- production traffic or incident response requires environment-isolated telemetry failure domains;
+- retention needs exceed the shared single-node volume budget or require different staging and production retention windows;
+- customer-facing launch support needs independent Grafana alert state, credentials, or maintenance windows per environment;
+- DigitalOcean project/VPC organization work makes an ops-owned shared stack more expensive or riskier than per-environment placement.
+
+When splitting back out, provision separate staging and production observability states, move the corresponding DNS aliases, and record plan evidence showing the duplicate shared or retired environment resources are intentionally removed.
 
 ## DOKS Consolidation Gate
 

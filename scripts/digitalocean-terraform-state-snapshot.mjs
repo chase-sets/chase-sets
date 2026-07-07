@@ -12,8 +12,7 @@ export const DEFAULT_TERRAFORM_STATE_KEYS = Object.freeze([
   "catalog-assets/preview.tfstate",
   "catalog-assets/staging.tfstate",
   "catalog-assets/production.tfstate",
-  "observability/staging.tfstate",
-  "observability/production.tfstate",
+  "observability/shared.tfstate",
 ]);
 
 export const DEFAULT_STATE_BUCKET = "chase-sets-terraform-state";

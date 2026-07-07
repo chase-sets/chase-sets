@@ -2,7 +2,7 @@ resource "digitalocean_volume" "observability_data" {
   region                  = var.region
   name                    = local.volume_name
   size                    = var.volume_size_gib
-  description             = "Persistent ${var.environment} observability data for Chase Sets."
+  description             = "Persistent shared pre-launch observability data for Chase Sets staging and production."
   initial_filesystem_type = "ext4"
   tags                    = local.tags
 
@@ -69,27 +69,40 @@ resource "digitalocean_firewall" "observability" {
   }
 }
 
-resource "digitalocean_record" "observability_a" {
-  for_each = toset(["grafana", "otel", "prometheus"])
+moved {
+  from = digitalocean_record.observability_a["grafana"]
+  to   = digitalocean_record.observability_a["production-grafana"]
+}
 
-  domain = local.dns_zone
+moved {
+  from = digitalocean_record.observability_a["otel"]
+  to   = digitalocean_record.observability_a["production-otel"]
+}
+
+moved {
+  from = digitalocean_record.observability_a["prometheus"]
+  to   = digitalocean_record.observability_a["production-prometheus"]
+}
+
+resource "digitalocean_record" "observability_a" {
+  for_each = local.endpoint_dns_records
+
+  domain = local.environment_zones[each.value.environment]
   type   = "A"
-  name   = each.key
+  name   = each.value.name
   value  = digitalocean_droplet.observability.ipv4_address
   ttl    = 60
 }
 
 check "observability_storage_posture" {
   assert {
-    condition = var.environment == "staging" ? (
+    condition = (
       !var.droplet_backups_enabled &&
+      var.volume_size_gib >= 50 &&
       var.volume_size_gib <= 100 &&
       var.acceptable_telemetry_data_loss_window_hours <= 24
-      ) : (
-      var.volume_size_gib >= 100 &&
-      var.acceptable_telemetry_data_loss_window_hours <= 24
     )
-    error_message = "Staging observability keeps droplet backups off, volume size at or below 100 GiB, and a 24h-or-better telemetry data loss window; production keeps at least 100 GiB and a 24h-or-better window."
+    error_message = "Shared pre-launch observability keeps droplet backups off, volume size between 50 and 100 GiB, and a 24h-or-better telemetry data loss window."
   }
 }
 

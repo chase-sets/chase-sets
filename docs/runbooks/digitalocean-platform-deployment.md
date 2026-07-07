@@ -5,7 +5,7 @@ This runbook covers the current DigitalOcean App Platform preview, staging, and 
 ## Architecture
 
 - Regions: App Platform runs in `nyc`; managed Postgres and Spaces stay in `nyc3`.
-- Infrastructure: App Platform Terraform root at `infrastructure/digitalocean/platform`; staging/production telemetry backend root at `infrastructure/digitalocean/observability`.
+- Infrastructure: App Platform Terraform root at `infrastructure/digitalocean/platform`; shared staging/production telemetry backend root at `infrastructure/digitalocean/observability`.
 - State: DigitalOcean Spaces bucket through Terraform's S3 backend with `use_lockfile=true`.
 - State keys:
   - PR previews: `platform/previews/pr-<number>.tfstate`.
@@ -18,8 +18,7 @@ This runbook covers the current DigitalOcean App Platform preview, staging, and 
   - Staging assets: `catalog-assets/staging.tfstate`.
   - Production assets: `catalog-assets/production.tfstate`.
 - Observability state keys:
-  - Staging: `observability/staging.tfstate`.
-  - Production: `observability/production.tfstate`.
+  - Shared pre-launch stack: `observability/shared.tfstate`.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before Terraform runs. Staging also uses `infrastructure/digitalocean/environment-dns` to delegate and populate the stable `staging.chasesets.com` child zone before App Platform deploy/reset operations. The platform Terraform root owns App Platform domain attachments and staging nested alias CNAMEs; App Platform owns the apex A/AAAA routing records for primary domains.
 - Catalog asset storage: preview, staging, and production each have a dedicated DigitalOcean Spaces bucket with a CDN-backed custom domain. PR previews share `assets.preview.chasesets.com` instead of creating per-PR buckets or CDNs.
 - Deploy orchestration: GitHub Actions is the canonical deploy owner. Label-gated PR previews and staging build one platform container image in GitHub Actions with bounded Docker Buildx cache, push it to DigitalOcean Container Registry, record the digest, and point App Platform components at that immutable image tag. Production verifies and promotes the staging-built commit image instead of rebuilding a second artifact. A change-scope classifier gates CI and CD work so documentation-only, workflow-only, and non-deployable changes do not build images or deploy App Platform.
@@ -32,7 +31,7 @@ This runbook covers the current DigitalOcean App Platform preview, staging, and 
 - Terraform state snapshots: DigitalOcean Spaces does not support object versioning, so `.github/workflows/platform-terraform-state-snapshot.yml` copies durable state objects into `state-archive/YYYY-MM-DD/<original-key>` daily and prunes archive objects older than 30 days. The workflow excludes disposable PR preview state under `platform/previews/`, uploads metadata-only evidence, and alerts through the scheduled workflow reporter.
 - Availability checks: Terraform creates DigitalOcean uptime checks for public, admin, and canonical marketplace endpoints. Uptime alert emails are created only when `PLATFORM_ALERT_EMAILS` is configured for the GitHub environment. Terraform also creates managed-Postgres DBAAS monitor alerts for disk utilization above 80%, CPU above 85%, memory above 85%, and 15-minute load above 85 when `managed_postgres_alerts_enabled=true` and alert emails are configured. DigitalOcean's Terraform provider does not expose DBAAS connection-count alert policies; `.github/workflows/platform-postgres-growth-evidence.yml` supplies the repo-owned support-safe connection-pressure warning path at 80% of `max_connections`.
 - Drift visibility: `.github/workflows/platform-digitalocean-drift-digest.yml` uses `DIGITALOCEAN_READONLY_TOKEN` to run a read-only advisory digest of DigitalOcean apps, managed databases, registry tags, observability droplets/volumes, uptime checks, and CDN endpoints. The digest uploads `artifacts/release-health/digitalocean-drift-digest.json`, maps known Chase Sets resources to Terraform roots, and flags unknown or cost-impacting resources for operator review. It also warns if retired admin-support component names reappear in one App Platform app. It cannot delete resources.
-- Observability cost posture: `infrastructure/digitalocean/observability` defaults `droplet_backups_enabled=false` because the host is reproducible from Terraform/cloud-init. The attached volume is the durable telemetry surface; staging and production accept no more than 24 hours of telemetry data loss by default and require a manual volume snapshot before destructive maintenance or risky host replacement. The drift digest reports Droplet backup state and observability volume size, warning on unexpected staging spend posture and advising review when production host backups are enabled.
+- Observability cost posture: `infrastructure/digitalocean/observability` provisions one shared pre-launch Droplet and volume for staging and production, defaults `droplet_backups_enabled=false`, and validates backups stay off because the host is reproducible from Terraform/cloud-init. The attached volume is the durable telemetry surface; staging and production accept no more than 24 hours of telemetry data loss by default and require a manual volume snapshot before destructive maintenance or risky host replacement. The drift digest reports Droplet backup state and observability volume size and warns when shared-stack cost posture drifts.
 - Stateful destroy guards: Terraform resources that hold non-replayable or delegated state use `lifecycle { prevent_destroy = true }` by default. This covers the platform managed Postgres cluster, observability data volume, catalog asset Spaces bucket, Terraform state bucket, and delegated environment DNS zone. A deliberate destroy or replacement must be reviewed as a destructive infrastructure change before the guard is bypassed.
 - Image groups are intentionally deferred. The platform still deploys one shared image across App Platform components because splitting deployables into separate image groups would add Docker, registry, Terraform, promotion, rollback, and smoke-test complexity before there is enough deployment data to justify it.
 
@@ -392,8 +391,7 @@ The `Platform Terraform State Snapshot` workflow copies durable Terraform state 
 - `catalog-assets/preview.tfstate`
 - `catalog-assets/staging.tfstate`
 - `catalog-assets/production.tfstate`
-- `observability/staging.tfstate`
-- `observability/production.tfstate`
+- `observability/shared.tfstate`
 
 It intentionally excludes disposable PR preview state under `platform/previews/`. The workflow summary and artifact list object keys, archive keys, byte counts, and pruning results only; they must not include state file contents.
 
@@ -419,14 +417,14 @@ Same-bucket snapshots protect against object overwrite and state corruption. The
 
 ## One-Time Observability Bootstrap
 
-Create or update the staging and production observability hosts before enabling App Platform telemetry export:
+Create or update the shared staging and production observability host before enabling App Platform telemetry export. When consolidating from the former per-environment roots, use the production observability state as the shared-state base because its Droplet and volume names already match the shared stack. The Terraform root includes `moved` blocks for the production DNS record address changes; import any existing staging `grafana`, `otel`, and `prometheus` DNS records into the new staging keys before applying. The resulting shared-state plan must show address moves/imports only for existing observability resources, not Droplet or volume destroy/recreate.
 
 ```bash
 cd infrastructure/digitalocean/observability
 
 terraform init \
   -backend-config=bucket=chase-sets-terraform-state \
-  -backend-config=key=observability/<environment>.tfstate \
+  -backend-config=key=observability/shared.tfstate \
   -backend-config=region=us-east-1 \
   -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
   -backend-config=skip_credentials_validation=true \
@@ -436,10 +434,12 @@ terraform init \
   -backend-config=use_path_style=true \
   -backend-config=use_lockfile=true
 
-terraform apply -var=environment=<environment>
+terraform plan -out=tfplan
+terraform show -no-color tfplan > ../../../artifacts/terraform-plans/observability-shared-tfplan.txt
+terraform apply tfplan
 ```
 
-Run once for `staging` and `production`. Generate distinct `grafana_admin_password`, `otel_write_token`, and `prometheus_query_token` values for each environment. After apply, copy `app_platform_otlp_headers` to the matching GitHub Environment `OBSERVABILITY_OTLP_HEADERS` secret. Copy the same environment's `prometheus_query_token` to the matching GitHub Environment `PROMETHEUS_QUERY_TOKEN` secret so operational evidence workflows can query Prometheus without exposing credentials.
+Run once for the shared stack. Generate one `grafana_admin_password`, one `otel_write_token`, and one `prometheus_query_token` while staging and production share the host. After apply, copy `app_platform_otlp_headers` to both GitHub Environment `OBSERVABILITY_OTLP_HEADERS` secrets. Copy `prometheus_query_token` to both GitHub Environment `PROMETHEUS_QUERY_TOKEN` secrets so operational evidence workflows can query Prometheus without exposing credentials. Keep the plan text as PR or operations evidence; the deploy lane performs the apply, not local development.
 
 ## Catalog Asset Terraform Root
 

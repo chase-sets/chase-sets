@@ -28,22 +28,18 @@ describe("digitalocean-drift-digest", () => {
         runtimeTopologyModes: ["preview", "staging", "production-landing", "production-proof", "production-public"],
         retiredProfileComponentNames: ["admin-support-api", "admin-support-bootstrap", "admin-support-worker"],
         observability: {
-          staging: {
+          shared: {
             dropletBackupsExpected: false,
             acceptableTelemetryDataLossWindowHours: 24,
+            volumeSizeGibMinimum: 50,
             volumeSizeGibMaximum: 100,
-          },
-          production: {
-            dropletBackupsExpected: false,
-            acceptableTelemetryDataLossWindowHours: 24,
-            volumeSizeGibMinimum: 100,
           },
         },
       },
       summary: {
-        unknownChaseSetsResources: 1,
+        unknownChaseSetsResources: 3,
         cleanupCandidates: 3,
-        warningFindings: 6,
+        warningFindings: 7,
         databaseBackups: {
           observedClusters: 1,
           staleClusters: 0,
@@ -115,7 +111,7 @@ describe("digitalocean-drift-digest", () => {
           severity: "advisory",
         }),
         expect.objectContaining({
-          category: "observability-backup-posture",
+          category: "unknown-chase-sets-resource",
           resourceType: "droplet",
           resourceName: "chase-sets-staging-observability",
           severity: "warning",
@@ -124,10 +120,10 @@ describe("digitalocean-drift-digest", () => {
           category: "observability-backup-posture",
           resourceType: "droplet",
           resourceName: "chase-sets-observability",
-          severity: "advisory",
+          severity: "warning",
         }),
         expect.objectContaining({
-          category: "observability-volume-posture",
+          category: "unknown-chase-sets-resource",
           resourceType: "volume",
           resourceName: "chase-sets-staging-observability-data",
           severity: "warning",
