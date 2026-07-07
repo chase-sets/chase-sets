@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS support_order_sources (
   seller_account_id text NOT NULL,
   status text NOT NULL,
   total_amount numeric(12,2) NOT NULL DEFAULT 0,
+  return_context jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   cancelled_at timestamptz NULL,
@@ -17,6 +18,9 @@ CREATE INDEX IF NOT EXISTS support_order_sources_buyer_idx
 
 ALTER TABLE support_order_sources
   ADD COLUMN IF NOT EXISTS buyer_email text NULL;
+
+ALTER TABLE support_order_sources
+  ADD COLUMN IF NOT EXISTS return_context jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS support_order_sources_seller_idx
   ON support_order_sources (seller_account_id, updated_at DESC);

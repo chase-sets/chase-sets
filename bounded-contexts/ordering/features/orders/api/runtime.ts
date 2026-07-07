@@ -188,6 +188,7 @@ type SellerOrderDraft = Readonly<{
     selectedOptions: { dimensionId: string; optionId: string }[];
     productSummary: string | null;
     productMeasureSnapshot: ProductMeasureSnapshot | null;
+    gradedCard: MarketplaceSupplyCandidate["gradedCard"];
     unitPriceAmount: string;
     quantity: number;
     lineTotalAmount: string;
@@ -618,6 +619,7 @@ function quotePlan(
         selectedOptions: [...allocation.candidate.selectedOptions],
         productSummary: allocation.candidate.productSummary,
         productMeasureSnapshot: allocation.candidate.productMeasureSnapshot,
+        gradedCard: allocation.candidate.gradedCard,
         unitPriceAmount,
         quantity: allocation.quantity,
         lineTotalAmount,

@@ -18,16 +18,19 @@ import {
   type SupportEvidence,
   type SupportEvidenceType,
   type SupportFlowType,
+  type SupportOrderReturnContextLine,
   type SupportOffer,
   type SupportPriority,
   type SupportRequesterRole,
   type SupportRequestStatus,
+  type SupportReturnInvestigation,
   type SupportResolution,
   type SupportResolutionType,
   type SupportResponse,
   type SupportResponseType,
 } from "./common";
 import { createChecklist, getSupportFlowDefinition, includesEvidenceType } from "./flow-catalog";
+import { isHighValueReturnAmount, returnFlowPolicy } from "./return-flow-policy";
 
 export type SupportRequestState = Readonly<{
   supportRequestId: SupportRequestId | null;
@@ -44,6 +47,9 @@ export type SupportRequestState = Readonly<{
   updatedAt: string | null;
   sellerResponseDueAt: string | null;
   supportReviewDueAt: string | null;
+  sellerConditionAttestationDueAt: string | null;
+  orderReturnContext: readonly SupportOrderReturnContextLine[];
+  returnInvestigation: SupportReturnInvestigation | null;
   checklist: readonly SupportChecklistItem[];
   evidence: readonly SupportEvidence[];
   responses: readonly SupportResponse[];
@@ -69,6 +75,9 @@ export const initialSupportRequestState: SupportRequestState = {
   updatedAt: null,
   sellerResponseDueAt: null,
   supportReviewDueAt: null,
+  sellerConditionAttestationDueAt: null,
+  orderReturnContext: [],
+  returnInvestigation: null,
   checklist: [],
   evidence: [],
   responses: [],
@@ -90,6 +99,7 @@ export type OpenSupportRequestCommand = Readonly<{
   openedByAccountId: AccountId;
   openedByRole: SupportRequesterRole;
   openedAt: string;
+  orderReturnContext?: readonly SupportOrderReturnContextLine[] | null;
 }>;
 
 export type SubmitSupportEvidenceCommand = Readonly<{
@@ -146,6 +156,7 @@ export type ResolveSupportRequestCommand = Readonly<{
   summary: string;
   refundAmount?: string | null;
   resolvedByAccountId?: AccountId | null;
+  resolvedByRole?: SupportRequesterRole | null;
   resolvedAt: string;
 }>;
 
@@ -187,6 +198,9 @@ export type SupportRequestOpenedEvent = DomainEvent<
     openedAt: string;
     sellerResponseDueAt: string | null;
     supportReviewDueAt: string | null;
+    sellerConditionAttestationDueAt: string | null;
+    orderReturnContext: readonly SupportOrderReturnContextLine[];
+    returnInvestigation: SupportReturnInvestigation | null;
     checklist: readonly SupportChecklistItem[];
   }>
 >;
@@ -197,6 +211,9 @@ export type SupportEvidenceSubmittedEvent = DomainEvent<
     supportRequestId: SupportRequestId;
     evidence: SupportEvidence;
     status: SupportRequestStatus;
+    priority: SupportPriority;
+    sellerConditionAttestationDueAt: string | null;
+    returnInvestigation: SupportReturnInvestigation | null;
     updatedChecklist: readonly SupportChecklistItem[];
   }>
 >;
@@ -216,6 +233,7 @@ export type SupportOfferAcceptedEvent = DomainEvent<
   Readonly<{
     supportRequestId: SupportRequestId;
     offer: SupportOffer;
+    status?: SupportRequestStatus;
   }>
 >;
 
@@ -289,6 +307,18 @@ function addHours(timestamp: string, hours: number | null) {
   return date.toISOString();
 }
 
+function statusForOpenedRequest(
+  flowType: SupportFlowType,
+  orderTotalAmount: string,
+  defaultStatus: SupportRequestStatus,
+) {
+  if (flowType === "return-request" && isHighValueReturnAmount(orderTotalAmount)) {
+    return "ready-for-support";
+  }
+
+  return defaultStatus;
+}
+
 function inferStatusAfterEvidence(state: SupportRequestState, updatedChecklist: readonly SupportChecklistItem[]) {
   if (state.status === "resolved" || state.status === "closed" || state.status === "cancelled") {
     return state.status;
@@ -316,6 +346,72 @@ function satisfyChecklist(
       ? { ...item, satisfiedAt: submittedAt }
       : item,
   );
+}
+
+function addSellerConditionAttestationChecklist(
+  checklist: readonly SupportChecklistItem[],
+): readonly SupportChecklistItem[] {
+  if (checklist.some((item) => item.key === "seller-return-condition-attestation")) {
+    return checklist;
+  }
+
+  return [
+    ...checklist,
+    {
+      key: "seller-return-condition-attestation",
+      label: "Seller confirms the returned item condition after receipt.",
+      ownerRole: "seller",
+      evidenceTypes: ["seller-condition-attestation"],
+      required: true,
+      satisfiedAt: null,
+    },
+  ];
+}
+
+function requiredChecklistSatisfied(state: SupportRequestState) {
+  return state.checklist.every((item) => !item.required || item.satisfiedAt !== null);
+}
+
+function isRefundReleaseResolution(resolutionType: SupportResolutionType) {
+  return ["full-refund", "partial-refund", "return-for-refund"].includes(resolutionType);
+}
+
+function assertReturnRefundReleaseAllowed(
+  state: SupportRequestState,
+  resolutionType: SupportResolutionType,
+  resolvedByRole: SupportRequesterRole | null,
+) {
+  if (state.flowType !== "return-request" || !isRefundReleaseResolution(resolutionType)) {
+    return;
+  }
+
+  assert(requiredChecklistSatisfied(state), "Return refund resolution requires completed return evidence.");
+
+  if (isHighValueReturnAmount(state.orderTotalAmount)) {
+    assert(resolvedByRole === "support", "High-value return refunds require support review.");
+  }
+}
+
+function normalizeOrderReturnContext(
+  value: readonly SupportOrderReturnContextLine[] | null | undefined,
+): readonly SupportOrderReturnContextLine[] {
+  return (value ?? []).map((line) => ({
+    lineId: normalizeRequiredText(line.lineId, "Return context line id is required."),
+    listingId: normalizeRequiredText(line.listingId, "Return context listing id is required."),
+    itemTitle: normalizeRequiredText(line.itemTitle, "Return context item title is required."),
+    productSummary: normalizeOptionalText(line.productSummary),
+    quantity: Math.max(1, Math.trunc(Number(line.quantity))),
+    gradedCard: line.gradedCard
+      ? {
+          gradingCompany: normalizeRequiredText(
+            line.gradedCard.gradingCompany,
+            "Return context graded card company is required.",
+          ),
+          grade: normalizeRequiredText(line.gradedCard.grade, "Return context graded card grade is required."),
+          certificationNumber: normalizeOptionalText(line.gradedCard.certificationNumber),
+        }
+      : null,
+  }));
 }
 
 function normalizeEvidence(command: SubmitSupportEvidenceCommand): SupportEvidence {
@@ -454,6 +550,7 @@ function resolveFromOffer(offer: SupportOffer, acceptedByAccountId: AccountId | 
     summary: `Party agreement accepted offer ${offer.offerId}: ${offer.summary}`,
     refundAmount: offer.refundAmount,
     resolvedByAccountId: acceptedByAccountId,
+    resolvedByRole: offer.decidedByRole,
     resolvedAt: offer.decidedAt!,
   };
 }
@@ -474,6 +571,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
       const orderTotalAmount = normalizeMoneyAmount(command.orderTotalAmount, "Order total");
       assert(orderTotalAmount !== null, "Support request must include the order total.");
       const checklist = createChecklist(flowType);
+      const status = statusForOpenedRequest(flowType, orderTotalAmount, definition.initialStatus);
       return [
         {
           type: "support.support-request.opened",
@@ -484,13 +582,16 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             buyerAccountId: command.buyerAccountId,
             sellerAccountId: command.sellerAccountId,
             flowType,
-            status: definition.initialStatus,
+            status,
             priority: normalizePriority(definition.priority),
             openedByAccountId: command.openedByAccountId,
             openedByRole,
             openedAt,
             sellerResponseDueAt: addHours(openedAt, definition.sellerResponseHours),
             supportReviewDueAt: addHours(openedAt, definition.supportReviewHours),
+            sellerConditionAttestationDueAt: null,
+            orderReturnContext: normalizeOrderReturnContext(command.orderReturnContext),
+            returnInvestigation: null,
             checklist,
           },
         },
@@ -509,9 +610,33 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         includesEvidenceType(definition.allowedEvidenceTypes, evidence.evidenceType),
         "This evidence type is not accepted for the support flow.",
       );
+      if (state.flowType === "return-request" && evidence.evidenceType === "photo") {
+        assert(evidence.attachments.length > 0, "Return photo evidence requires at least one attachment.");
+      }
+      if (state.flowType === "return-request" && evidence.evidenceType === "return-discrepancy-photo") {
+        assert(evidence.attachments.length > 0, "Return discrepancy evidence requires at least one photo attachment.");
+      }
 
-      const updatedChecklist = satisfyChecklist(state.checklist, evidence.evidenceType, evidence.submittedAt);
-      const status = inferStatusAfterEvidence(state, updatedChecklist);
+      const checklistWithReceipt =
+        state.flowType === "return-request" && evidence.evidenceType === "return-delivery-confirmation"
+          ? addSellerConditionAttestationChecklist(state.checklist)
+          : state.checklist;
+      const updatedChecklist = satisfyChecklist(checklistWithReceipt, evidence.evidenceType, evidence.submittedAt);
+      const returnInvestigation =
+        state.flowType === "return-request" && evidence.evidenceType === "return-discrepancy-photo"
+          ? {
+              reason: "seller-condition-discrepancy" as const,
+              convertedAt: evidence.submittedAt,
+            }
+          : state.returnInvestigation;
+      const sellerConditionAttestationDueAt =
+        state.flowType === "return-request" && evidence.evidenceType === "return-delivery-confirmation"
+          ? addHours(evidence.submittedAt, returnFlowPolicy.sellerConditionAttestationHours)
+          : state.sellerConditionAttestationDueAt;
+      const status =
+        state.flowType === "return-request" && evidence.evidenceType === "return-discrepancy-photo"
+          ? "ready-for-support"
+          : inferStatusAfterEvidence(state, updatedChecklist);
 
       return [
         {
@@ -520,6 +645,12 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             supportRequestId: state.supportRequestId,
             evidence,
             status,
+            priority:
+              state.flowType === "return-request" && evidence.evidenceType === "return-discrepancy-photo"
+                ? "urgent"
+                : (state.priority ?? "normal"),
+            sellerConditionAttestationDueAt,
+            returnInvestigation,
             updatedChecklist,
           },
         },
@@ -577,6 +708,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
                 summary: "Seller confirmed the buyer cancellation request.",
                 refundAmount: null,
                 resolvedByAccountId: response.submittedByAccountId,
+                resolvedByRole: response.submittedByRole,
                 resolvedAt: response.submittedAt,
               },
             },
@@ -610,6 +742,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         decisionSummary: "Offer accepted by the counterparty.",
       };
       const resolution = resolveFromOffer(acceptedOffer, command.acceptedByAccountId ?? null);
+      assertReturnRefundReleaseAllowed(state, resolution.resolutionType, acceptedByRole);
 
       return [
         {
@@ -617,6 +750,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
           data: {
             supportRequestId: state.supportRequestId,
             offer: acceptedOffer,
+            status: state.status ?? "open",
           },
         },
         {
@@ -699,11 +833,17 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         definition.allowedResolutions.includes(resolutionType),
         "This resolution is not accepted for the support flow.",
       );
+      const resolvedByRole =
+        command.resolvedByRole === null || command.resolvedByRole === undefined
+          ? null
+          : normalizeRequesterRole(command.resolvedByRole);
+      assertReturnRefundReleaseAllowed(state, resolutionType, resolvedByRole);
       const resolution: SupportResolution = {
         resolutionType,
         summary: normalizeRequiredText(command.summary, "Support resolution must include a summary."),
         refundAmount: normalizeMoneyAmount(command.refundAmount, "Refund amount"),
         resolvedByAccountId: command.resolvedByAccountId ?? null,
+        resolvedByRole,
         resolvedAt: normalizeIsoTimestamp(command.resolvedAt, "Support resolution must record a timestamp."),
       };
       return [
@@ -781,6 +921,9 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         updatedAt: event.data.openedAt,
         sellerResponseDueAt: event.data.sellerResponseDueAt,
         supportReviewDueAt: event.data.supportReviewDueAt,
+        sellerConditionAttestationDueAt: event.data.sellerConditionAttestationDueAt,
+        orderReturnContext: event.data.orderReturnContext,
+        returnInvestigation: event.data.returnInvestigation,
         checklist: event.data.checklist,
         evidence: [],
         responses: [],
@@ -794,7 +937,10 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
       return {
         ...state,
         status: event.data.status,
+        priority: event.data.priority,
         updatedAt: event.data.evidence.submittedAt,
+        sellerConditionAttestationDueAt: event.data.sellerConditionAttestationDueAt,
+        returnInvestigation: event.data.returnInvestigation,
         checklist: event.data.updatedChecklist,
         evidence: [...state.evidence, event.data.evidence],
       };
@@ -810,6 +956,7 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
     case "support.support-request.offer-accepted":
       return {
         ...state,
+        status: event.data.status ?? state.status,
         updatedAt: event.data.offer.decidedAt,
         offers: state.offers.map((offer) => (offer.offerId === event.data.offer.offerId ? event.data.offer : offer)),
         pendingOffer: null,

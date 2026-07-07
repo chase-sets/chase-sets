@@ -28,6 +28,11 @@ export type OrderingOrderLine = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: VersionSelectedOptionEntry[];
   productSummary: string | null;
+  gradedCard: Readonly<{
+    gradingCompany: string;
+    grade: string;
+    certificationNumber: string | null;
+  }> | null;
   unitPriceAmount: string;
   quantity: number;
   lineTotalAmount: string;
@@ -314,6 +319,7 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
     selectedOptions: normalizeVersionSelection(line.selectedOptions),
     productSummary: normalizeOptionalText(line.productSummary),
+    gradedCard: normalizeGradedCardSnapshot(line.gradedCard),
     unitPriceAmount: normalizeMoneyAmount(line.unitPriceAmount, {
       fieldName: "Unit price",
     }),
@@ -338,6 +344,18 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
       allowZero: true,
     }),
   }));
+}
+
+function normalizeGradedCardSnapshot(line: OrderingOrderLine["gradedCard"]) {
+  if (!line) {
+    return null;
+  }
+
+  return {
+    gradingCompany: normalizeRequiredText(line.gradingCompany, "Order line graded card company is required."),
+    grade: normalizeRequiredText(line.grade, "Order line graded card grade is required."),
+    certificationNumber: normalizeOptionalText(line.certificationNumber),
+  };
 }
 
 function normalizeReservationRequests(requests: CreateOrderCommand["reservationRequests"], sellerAccountId: string) {

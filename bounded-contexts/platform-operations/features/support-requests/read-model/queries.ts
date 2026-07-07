@@ -21,6 +21,9 @@ export type SupportRequestListRow = Readonly<{
   updated_at: string;
   seller_response_due_at: string | null;
   support_review_due_at: string | null;
+  seller_condition_attestation_due_at: string | null;
+  order_return_context: unknown;
+  return_investigation: unknown;
   checklist: readonly SupportChecklistItem[];
   pending_offer: SupportOffer | null;
   resolution: SupportResolution | null;
@@ -50,6 +53,9 @@ const listSelect = `
     updated_at::text AS updated_at,
     seller_response_due_at::text AS seller_response_due_at,
     support_review_due_at::text AS support_review_due_at,
+    seller_condition_attestation_due_at::text AS seller_condition_attestation_due_at,
+    order_return_context,
+    return_investigation,
     checklist,
     pending_offer,
     resolution,
@@ -73,6 +79,9 @@ const detailSelect = `
     updated_at::text AS updated_at,
     seller_response_due_at::text AS seller_response_due_at,
     support_review_due_at::text AS support_review_due_at,
+    seller_condition_attestation_due_at::text AS seller_condition_attestation_due_at,
+    order_return_context,
+    return_investigation,
     checklist,
     evidence,
     responses,
@@ -170,6 +179,7 @@ export async function listSupportOperationsQueue(
            priority = 'urgent'
            OR seller_response_due_at <= $1::timestamptz
            OR support_review_due_at <= $1::timestamptz
+           OR seller_condition_attestation_due_at <= $1::timestamptz
            OR status = 'ready-for-support'
          )`,
       values,
@@ -182,13 +192,15 @@ export async function listSupportOperationsQueue(
            priority = 'urgent'
            OR seller_response_due_at <= $1::timestamptz
            OR support_review_due_at <= $1::timestamptz
+           OR seller_condition_attestation_due_at <= $1::timestamptz
            OR status = 'ready-for-support'
          )
        ORDER BY
          CASE WHEN priority = 'urgent' THEN 0 ELSE 1 END,
          LEAST(
            COALESCE(seller_response_due_at, 'infinity'::timestamptz),
-           COALESCE(support_review_due_at, 'infinity'::timestamptz)
+           COALESCE(support_review_due_at, 'infinity'::timestamptz),
+           COALESCE(seller_condition_attestation_due_at, 'infinity'::timestamptz)
          ) ASC,
          updated_at ASC,
          support_request_id ASC

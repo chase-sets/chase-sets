@@ -60,7 +60,7 @@ function formatDateTime(value: string | null) {
 }
 
 function nextDeadline(request: SupportRequestListItem) {
-  return request.seller_response_due_at ?? request.support_review_due_at;
+  return request.seller_response_due_at ?? request.support_review_due_at ?? request.seller_condition_attestation_due_at;
 }
 
 function checklistSummary(request: SupportRequestListItem) {
@@ -273,6 +273,16 @@ function SupportRequestOpenPanel({
                       })}
                 </Text>
               </Inline>
+              <Stack gap={1}>
+                <Text element="span" size="xs" tone="secondary" weight="semibold">
+                  {t("support.features.supportRequests.ui.supportRequestListPage.checklist")}
+                </Text>
+                {selectedFlow.checklist.map((item) => (
+                  <Text key={item.key} size="sm" tone="secondary">
+                    {item.label}
+                  </Text>
+                ))}
+              </Stack>
             </Stack>
           </Inset>
         ) : null}

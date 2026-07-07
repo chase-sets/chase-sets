@@ -21,6 +21,7 @@ type OrderingSupplyCandidateRow = Readonly<{
   selected_options: unknown;
   product_summary: string | null;
   product_measure_snapshot: unknown;
+  graded_card: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
   ship_from_address: unknown;
@@ -76,6 +77,7 @@ export async function listOrderingSupplyCandidates(
        listing.selected_options,
        listing.product_summary,
        listing.product_measure_snapshot,
+       listing.graded_card,
        listing.storage_location_name,
        listing.ship_from_code,
        listing.ship_from_address,
@@ -136,6 +138,7 @@ export async function listOrderingSupplyCandidates(
         : normalizedSelection,
       productSummary: normalizeOptionalText(row.product_summary ?? demand.productSummary),
       productMeasureSnapshot: productMeasureFromUnknown(row.product_measure_snapshot),
+      gradedCard: gradedCardFromUnknown(row.graded_card),
       storageLocationName: row.storage_location_name,
       shipFromCode: row.ship_from_code,
       shipFromAddress:
@@ -182,6 +185,7 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.selected_options,
        listing.product_summary,
        listing.product_measure_snapshot,
+       listing.graded_card,
        listing.storage_location_name,
        listing.ship_from_code,
        listing.ship_from_address,
@@ -241,6 +245,7 @@ export async function getOrderingSupplyCandidateByListingId(
       : [],
     productSummary: normalizeOptionalText(row.product_summary),
     productMeasureSnapshot: productMeasureFromUnknown(row.product_measure_snapshot),
+    gradedCard: gradedCardFromUnknown(row.graded_card),
     storageLocationName: row.storage_location_name,
     shipFromCode: row.ship_from_code,
     shipFromAddress:
@@ -271,6 +276,26 @@ export async function getOrderingSupplyCandidateByListingId(
 
 function productMeasureFromUnknown(value: unknown) {
   return typeof value === "object" && value !== null ? (value as ProductMeasureSnapshot) : null;
+}
+
+function gradedCardFromUnknown(value: unknown): MarketplaceSupplyCandidate["gradedCard"] {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const gradingCompany = String(record.gradingCompany ?? "").trim();
+  const grade = String(record.grade ?? "").trim();
+  if (!gradingCompany || !grade) {
+    return null;
+  }
+  return {
+    gradingCompany,
+    grade,
+    certificationNumber:
+      typeof record.certificationNumber === "string" && record.certificationNumber.trim()
+        ? record.certificationNumber.trim()
+        : null,
+  };
 }
 
 export type OrderingAcceptedOfferBatchInputRow = Readonly<{

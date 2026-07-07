@@ -28,3 +28,5 @@
 - Support Evidence: Structured information supplied by the buyer, seller, or platform on a support request.
 - Support Resolution: The final support outcome, such as refund, replacement, return for refund, no action, or support escalation.
 - Buyer Cancellation Request: The support-owned fallback flow used when a buyer wants to cancel after Fulfillment has started package preparation.
+- Seller Condition Attestation: Seller-supplied support evidence confirming the returned item's condition after return delivery.
+- Return Investigation: Support-owned review opened when return discrepancy evidence indicates the returned item may not match the original sale condition.

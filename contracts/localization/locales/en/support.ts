@@ -72,6 +72,8 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportOperationsPage.status": "Status",
   "support.features.supportRequests.ui.supportOperationsPage.priority": "Priority",
   "support.features.supportRequests.ui.supportOperationsPage.next.deadline": "Next deadline",
+  "support.features.supportRequests.ui.supportOperationsPage.seller.condition.attestation.due":
+    "Seller condition attestation due",
   "support.features.supportRequests.ui.supportOperationsPage.checklist": "Checklist",
   "support.features.supportRequests.ui.supportOperationsPage.action": "Action",
   "support.features.supportRequests.ui.supportOperationsPage.open": "Open",
@@ -91,6 +93,14 @@ export const supportEnglishTranslations = {
     "Review {id}, including the structured order issue, account participants, deadlines, and required support evidence.",
   "support.features.supportRequests.ui.supportOperationsPage.detail.summary": "Summary",
   "support.features.supportRequests.ui.supportOperationsPage.detail.requirement": "Requirement",
+  "support.features.supportRequests.ui.supportOperationsPage.return.context": "Return context",
+  "support.features.supportRequests.ui.supportOperationsPage.no.return.context": "No return context",
+  "support.features.supportRequests.ui.supportOperationsPage.no.return.context.description":
+    "Order-line and graded-card snapshots appear here when available.",
+  "support.features.supportRequests.ui.supportOperationsPage.item": "Item",
+  "support.features.supportRequests.ui.supportOperationsPage.listing": "Listing",
+  "support.features.supportRequests.ui.supportOperationsPage.graded.card": "Graded card",
+  "support.features.supportRequests.ui.supportOperationsPage.certification.number": "cert {certificationNumber}",
   "support.features.supportRequests.ui.supportOperationsPage.detail.operatorActions": "Operator actions",
   "support.features.supportRequests.ui.supportOperationsPage.detail.operatorActions.description":
     "Record structured case work directly on the support request.",
