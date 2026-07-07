@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
   status text NOT NULL,
+  pending_payment_at timestamptz NULL,
+  payment_deadline_at timestamptz NULL,
+  payment_deadline_policy text NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   cancelled_at timestamptz NULL,
@@ -57,6 +60,9 @@ export const paymentsOrderInputSchemaMigrations = [
       `ALTER TABLE payments_order_inputs ADD COLUMN IF NOT EXISTS terms_resolved_at timestamptz NOT NULL DEFAULT now()`,
       `ALTER TABLE payments_order_inputs ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL`,
       `ALTER TABLE payments_order_inputs ADD COLUMN IF NOT EXISTS ready_for_fulfillment_at timestamptz NULL`,
+      `ALTER TABLE payments_order_inputs ADD COLUMN IF NOT EXISTS pending_payment_at timestamptz NULL`,
+      `ALTER TABLE payments_order_inputs ADD COLUMN IF NOT EXISTS payment_deadline_at timestamptz NULL`,
+      `ALTER TABLE payments_order_inputs ADD COLUMN IF NOT EXISTS payment_deadline_policy text NULL`,
       `CREATE INDEX IF NOT EXISTS payments_order_inputs_buyer_status_idx
   ON payments_order_inputs (buyer_account_id, status, updated_at DESC)`,
       `CREATE INDEX IF NOT EXISTS payments_order_inputs_source_idx

@@ -66,6 +66,9 @@ export type OrderingOrderListRow = Readonly<{
   shipping_destination_snapshot: AddressSnapshot;
   shipping_origin_snapshot: AddressSnapshot;
   status: string;
+  pending_payment_at: string | null;
+  payment_deadline_at: string | null;
+  payment_deadline_policy: string | null;
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
@@ -118,6 +121,9 @@ type BaseOrderPageRow = Readonly<{
   shipping_destination_snapshot: AddressSnapshot;
   shipping_origin_snapshot: AddressSnapshot;
   status: string;
+  pending_payment_at: string | null;
+  payment_deadline_at: string | null;
+  payment_deadline_policy: string | null;
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
@@ -184,6 +190,9 @@ const baseOrderSelect = `
     page.shipping_destination_snapshot,
     page.shipping_origin_snapshot,
     page.status,
+    page.pending_payment_at,
+    COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at) AS payment_deadline_at,
+    COALESCE(payment_deadline.payment_deadline_policy, page.payment_deadline_policy) AS payment_deadline_policy,
     page.created_at,
     page.updated_at,
     page.cancelled_at,
@@ -228,6 +237,8 @@ const baseOrderSelect = `
     ON true
   LEFT JOIN ordering_fulfillment_cancellation_inputs AS fulfillment
     ON fulfillment.order_id = page.order_id
+  LEFT JOIN ordering_payment_deadline_inputs AS payment_deadline
+    ON payment_deadline.order_id = page.order_id
 `;
 
 function mapOrderLine(row: OrderLinePageRow): OrderingOrderLineRow {
@@ -453,4 +464,34 @@ export async function listOrderIdsForSource(
   );
 
   return result.rows.map((row) => row.order_id);
+}
+
+export type PaymentDeadlineCancellationCandidate = Readonly<{
+  order_id: string;
+  payment_deadline_at: string;
+  payment_deadline_policy: string;
+}>;
+
+export async function listPendingPaymentOrdersPastDeadline(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly PaymentDeadlineCancellationCandidate[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const result = await db.query<PaymentDeadlineCancellationCandidate>(
+    `SELECT
+       page.order_id,
+       COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at)::text AS payment_deadline_at,
+       COALESCE(payment_deadline.payment_deadline_policy, page.payment_deadline_policy) AS payment_deadline_policy
+     FROM ordering_order_pages AS page
+     LEFT JOIN ordering_payment_deadline_inputs AS payment_deadline
+       ON payment_deadline.order_id = page.order_id
+     WHERE page.status = 'pending-payment'
+       AND COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at) IS NOT NULL
+       AND COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at) <= $1::timestamptz
+     ORDER BY COALESCE(payment_deadline.payment_deadline_at, page.payment_deadline_at), page.order_id
+     LIMIT $2`,
+    [params.now, limit],
+  );
+
+  return result.rows;
 }

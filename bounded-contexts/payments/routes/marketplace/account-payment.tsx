@@ -90,6 +90,7 @@ function orderView(order: PaymentsAccountOrderInput): AccountPaymentOrderView {
     status: order.status,
     total_amount: order.total_amount,
     seller_payout_amount: order.seller_payout_amount,
+    payment_deadline_at: order.payment_deadline_at,
   };
 }
 

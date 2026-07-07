@@ -74,6 +74,9 @@ function orderRow() {
     terms_agreement_id: "agreement_1",
     terms_resolved_at: "2026-07-01T00:00:00.000Z",
     status: "ready-for-fulfillment",
+    pending_payment_at: null,
+    payment_deadline_at: null,
+    payment_deadline_policy: null,
   };
 }
 

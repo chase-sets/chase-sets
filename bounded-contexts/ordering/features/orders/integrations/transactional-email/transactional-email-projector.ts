@@ -1,7 +1,10 @@
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
-import { mapOrderConfirmedToTransactionalEmail } from "./transactional-email-intents";
+import {
+  mapOrderConfirmedToTransactionalEmail,
+  mapOrderPaymentDeadlineCancelledToTransactionalEmail,
+} from "./transactional-email-intents";
 
 export const ORDERING_TRANSACTIONAL_EMAIL_PROJECTION = "ordering-order-transactional-email-projection";
 
@@ -17,6 +20,17 @@ export type OrderingOrderCreatedEmailEvent = Readonly<
   }
 >;
 
+export type OrderingOrderCancelledEmailEvent = Readonly<
+  TransportEvent & {
+    type: "ordering.order.cancelled";
+    data: Readonly<{
+      orderId: string;
+      reason?: string | null;
+      buyerEmail?: string | null;
+    }>;
+  }
+>;
+
 function correlationIdFromEvent(event: TransportEvent) {
   return event.trace.traceId ?? event.id;
 }
@@ -26,6 +40,28 @@ export async function projectOrderingEventToTransactionalEmail(
   event: TransportEvent,
   projectionName = ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
 ) {
+  if (event.type === "ordering.order.cancelled") {
+    const data = event.data as OrderingOrderCancelledEmailEvent["data"];
+    if (data.reason !== "payment-deadline") return;
+    const buyerEmail = data.buyerEmail?.trim();
+    if (!buyerEmail) return;
+
+    await outbox.enqueueNotification({
+      message: mapOrderPaymentDeadlineCancelledToTransactionalEmail({
+        buyerEmail,
+        orderId: data.orderId,
+        correlationId: correlationIdFromEvent(event),
+      }),
+      source: {
+        sourceEventId: event.id,
+        sourceGlobalPosition: event.globalPosition,
+        projectionName,
+        occurredAt: event.timing.occurredAt,
+      },
+    });
+    return;
+  }
+
   if (event.type !== "ordering.order.created") return;
   const data = event.data as OrderingOrderCreatedEmailEvent["data"];
   if (data.sourceType === "cart-checkout" || data.sourceType === "buy-now") return;
@@ -54,5 +90,6 @@ export function buildOrderingTransactionalEmailProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "ordering.order.created": (event) => projectOrderingEventToTransactionalEmail(outbox, event, projectionName),
+    "ordering.order.cancelled": (event) => projectOrderingEventToTransactionalEmail(outbox, event, projectionName),
   };
 }

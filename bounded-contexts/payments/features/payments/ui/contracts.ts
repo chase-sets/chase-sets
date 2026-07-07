@@ -108,6 +108,9 @@ export interface PaymentsAccountOrderInput {
   terms_agreement_id: string | null;
   terms_resolved_at: string;
   status: string;
+  pending_payment_at: string | null;
+  payment_deadline_at: string | null;
+  payment_deadline_policy: string | null;
 }
 
 export interface PaymentsMarketplaceCheckoutFeePolicy {

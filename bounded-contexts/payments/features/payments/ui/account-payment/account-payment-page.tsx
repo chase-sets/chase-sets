@@ -35,6 +35,13 @@ function PaymentTimestamp({ value }: { value: string }) {
   return <time dateTime={value}>{formatPaymentTimestamp(value)}</time>;
 }
 
+function earliestPaymentDeadline(orders: readonly AccountPaymentOrderView[]) {
+  return orders
+    .map((order) => order.payment_deadline_at)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => Date.parse(left) - Date.parse(right))[0];
+}
+
 export function AccountPaymentPage({
   payment,
   orders,
@@ -46,6 +53,7 @@ export function AccountPaymentPage({
   guestClaimSection,
 }: AccountPaymentPageProps) {
   const statusCopy = paymentStatusCopy(payment.status);
+  const paymentDeadlineAt = earliestPaymentDeadline(orders);
 
   return (
     <Page>
@@ -189,6 +197,16 @@ export function AccountPaymentPage({
           ) : null}
 
           {feedbackPrompt}
+
+          {paymentDeadlineAt && payment.status === "pending-confirmation" ? (
+            <MarketplaceNotice
+              tone="info"
+              title={t("payments.routes.marketplace.accountPayment.payment.deadline.title")}
+              description={t("payments.routes.marketplace.accountPayment.payment.deadline.description", {
+                deadline: formatPaymentTimestamp(paymentDeadlineAt),
+              })}
+            />
+          ) : null}
 
           <PageSection title={t("payments.routes.marketplace.accountPayment.payment.status")}>
             <Surface elevated>

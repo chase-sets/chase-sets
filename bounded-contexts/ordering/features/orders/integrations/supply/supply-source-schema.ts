@@ -131,4 +131,22 @@ CREATE TABLE IF NOT EXISTS ordering_payment_capture_inputs (
   captured_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ordering_payment_deadline_inputs (
+  order_id text PRIMARY KEY,
+  payment_id text NULL,
+  payment_method_category text NULL,
+  payment_deadline_at timestamptz NOT NULL,
+  payment_deadline_policy text NOT NULL,
+  terminal_failure_at timestamptz NULL,
+  failure_code text NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ordering_payment_deadline_inputs_due_idx
+  ON ordering_payment_deadline_inputs (payment_deadline_at, order_id);
+
+CREATE INDEX IF NOT EXISTS ordering_payment_deadline_inputs_payment_idx
+  ON ordering_payment_deadline_inputs (payment_id)
+  WHERE payment_id IS NOT NULL;
 `;

@@ -146,7 +146,12 @@
       "sourceContextName": "payments",
       "reactionName": "ordering-payment-capture",
       "subscriptionVersion": 1,
-      "eventTypes": ["payments.payment-captured"],
+      "eventTypes": [
+        "payments.payment-created",
+        "payments.payment-captured",
+        "payments.payment-failed",
+        "payments.payment-cancelled"
+      ],
       "order": 60,
       "reactionHandlerSetNames": ["ordering-payment-capture"],
       "idempotencyPolicy": "idempotent-command-dispatch",
@@ -203,7 +208,7 @@
       "projectionName": "ordering-payment-capture",
       "handlerKind": "reaction",
       "sourceContextNames": ["payments"],
-      "ownedTables": ["ordering_payment_capture_inputs"],
+      "ownedTables": ["ordering_payment_capture_inputs", "ordering_payment_deadline_inputs"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },

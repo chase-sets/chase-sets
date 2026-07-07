@@ -171,6 +171,55 @@ describe("ordering order domain", () => {
     expect(ready.readyForFulfillmentAt).toBe("2026-04-01T00:00:00.000Z");
   });
 
+  it("stamps a policy-tokenized payment deadline when reservations are confirmed", () => {
+    const createdState = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
+      evolveOrderingOrder,
+      initialOrderingOrderState,
+    );
+
+    const events = decideOrderingOrder(createdState, {
+      type: "RecordReservationConfirmed",
+      reservationRequestId: "rsv_1",
+      holdId: "hld_1",
+      confirmedAt: "2026-03-31T00:00:00.000Z",
+    });
+
+    expect(events).toContainEqual({
+      type: "ordering.order.pending-payment-recorded",
+      data: {
+        orderId: "ord_cart-checkout",
+        pendingPaymentAt: "2026-03-31T00:00:00.000Z",
+        paymentDeadlineAt: "2026-03-31T01:00:00.000Z",
+        paymentDeadlinePolicy: "ordering-payment-deadline-card-v1",
+      },
+    });
+  });
+
+  it("rejects payment-deadline cancellation after payment capture wins the race", () => {
+    const createdState = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
+      evolveOrderingOrder,
+      initialOrderingOrderState,
+    );
+    const pendingPaymentState = decideOrderingOrder(createdState, {
+      type: "RecordReservationConfirmed",
+      reservationRequestId: "rsv_1",
+      holdId: "hld_1",
+      confirmedAt: "2026-03-31T00:00:00.000Z",
+    }).reduce(evolveOrderingOrder, createdState);
+    const readyState = decideOrderingOrder(pendingPaymentState, {
+      type: "MarkReadyForFulfillment",
+      readyForFulfillmentAt: "2026-03-31T00:59:59.000Z",
+    }).reduce(evolveOrderingOrder, pendingPaymentState);
+
+    expect(() =>
+      decideOrderingOrder(readyState, {
+        type: "CancelOrder",
+        cancelledAt: "2026-03-31T01:00:00.000Z",
+        reason: "payment-deadline",
+      }),
+    ).toThrow("Payment-deadline cancellation requires a pending-payment order.");
+  });
+
   it("rejects invalid order creation", () => {
     expect(() =>
       decideOrderingOrder(initialOrderingOrderState, {

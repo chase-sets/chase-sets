@@ -17,6 +17,7 @@ import {
   type ShippingOption,
   type VersionSelectedOptionEntry,
 } from "./common";
+import { resolveOrderPaymentDeadline, type OrderPaymentDeadlinePolicyToken } from "./policies";
 
 export type OrderingOrderLine = Readonly<{
   lineId: OrderLineId;
@@ -100,6 +101,9 @@ export type OrderingOrderState = Readonly<{
   lines: OrderingOrderLine[];
   reservationRequests: OrderingReservationRequest[];
   status: OrderStatus | null;
+  pendingPaymentAt: string | null;
+  paymentDeadlineAt: string | null;
+  paymentDeadlinePolicy: OrderPaymentDeadlinePolicyToken | null;
   cancelledAt: string | null;
   cancellationReason: string | null;
   readyForFulfillmentAt: string | null;
@@ -128,6 +132,9 @@ export const initialOrderingOrderState: OrderingOrderState = {
   lines: [],
   reservationRequests: [],
   status: null,
+  pendingPaymentAt: null,
+  paymentDeadlineAt: null,
+  paymentDeadlinePolicy: null,
   cancelledAt: null,
   cancellationReason: null,
   readyForFulfillmentAt: null,
@@ -267,6 +274,8 @@ export type OrderPendingPaymentRecordedEvent = DomainEvent<
   Readonly<{
     orderId: OrderId;
     pendingPaymentAt: string;
+    paymentDeadlineAt: string;
+    paymentDeadlinePolicy: OrderPaymentDeadlinePolicyToken;
   }>
 >;
 
@@ -276,6 +285,7 @@ export type OrderCancelledEvent = DomainEvent<
     orderId: OrderId;
     cancelledAt: string;
     reason: string;
+    buyerEmail: string | null;
     reservationRequests: OrderingReservationRequest[];
   }>
 >;
@@ -605,11 +615,18 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
       ];
 
       if (!hasPendingReservations(nextState)) {
+        const pendingPaymentAt = normalizeRequiredText(
+          command.confirmedAt,
+          "Reservation confirmation must record a timestamp.",
+        );
+        const deadline = resolveOrderPaymentDeadline(pendingPaymentAt);
         events.push({
           type: "ordering.order.pending-payment-recorded",
           data: {
             orderId: state.orderId,
-            pendingPaymentAt: command.confirmedAt,
+            pendingPaymentAt,
+            paymentDeadlineAt: deadline.paymentDeadlineAt,
+            paymentDeadlinePolicy: deadline.paymentDeadlinePolicy,
           },
         });
       }
@@ -661,6 +678,7 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
             orderId: state.orderId,
             cancelledAt: command.rejectedAt,
             reason: "inventory-unavailable",
+            buyerEmail: state.shippingDestinationSnapshot?.email?.trim() || null,
             reservationRequests: updated.reservationRequests,
           },
         },
@@ -707,6 +725,12 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
       if (state.status === "cancelled") {
         return [];
       }
+      {
+        const reason = normalizeRequiredText(command.reason, "Order cancellation must include a reason.");
+        if (reason === "payment-deadline") {
+          assert(state.status === "pending-payment", "Payment-deadline cancellation requires a pending-payment order.");
+        }
+      }
       assert(
         state.status === "pending-reservation" ||
           state.status === "pending-payment" ||
@@ -720,6 +744,7 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
             orderId: state.orderId,
             cancelledAt: normalizeRequiredText(command.cancelledAt, "Order cancellation must record a timestamp."),
             reason: normalizeRequiredText(command.reason, "Order cancellation must include a reason."),
+            buyerEmail: state.shippingDestinationSnapshot?.email?.trim() || null,
             reservationRequests: state.reservationRequests,
           },
         },
@@ -784,6 +809,9 @@ export const evolveOrderingOrder: AggregateEvolver<OrderingOrderState, OrderingO
         status: "pending-reservation",
         cancelledAt: null,
         cancellationReason: null,
+        pendingPaymentAt: null,
+        paymentDeadlineAt: null,
+        paymentDeadlinePolicy: null,
         readyForFulfillmentAt: null,
       };
     case "ordering.order.reservation-confirmed":
@@ -816,6 +844,9 @@ export const evolveOrderingOrder: AggregateEvolver<OrderingOrderState, OrderingO
       return {
         ...state,
         status: "pending-payment",
+        pendingPaymentAt: event.data.pendingPaymentAt,
+        paymentDeadlineAt: event.data.paymentDeadlineAt,
+        paymentDeadlinePolicy: event.data.paymentDeadlinePolicy,
       };
     case "ordering.order.cancelled":
       return {

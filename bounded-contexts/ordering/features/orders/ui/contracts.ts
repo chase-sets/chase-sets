@@ -35,6 +35,9 @@ export interface OrderingOrderProjection {
   shipping_destination_snapshot: AddressSnapshot;
   shipping_origin_snapshot: AddressSnapshot;
   status: string;
+  pending_payment_at: string | null;
+  payment_deadline_at: string | null;
+  payment_deadline_policy: string | null;
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;

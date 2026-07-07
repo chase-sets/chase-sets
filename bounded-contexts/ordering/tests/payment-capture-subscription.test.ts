@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { module as orderingModule } from "../index";
 import type { OrderingServices } from "../support/runtime-support/services";
@@ -23,6 +23,7 @@ function createServices(
   commandHandler: OrderingServices["orders"]["commandHandler"],
   queryCalls: QueryCall[] = [],
   orderRows: readonly Readonly<{ order_id: string; status: string }>[] = [],
+  orderServiceOverrides: Partial<OrderingServices["orders"]> = {},
 ): OrderingServices {
   return {
     db: {
@@ -34,24 +35,31 @@ function createServices(
         return { rows: [], rowCount: 1 };
       },
     },
-    orders: { commandHandler } as OrderingServices["orders"],
+    orders: { commandHandler, ...orderServiceOverrides } as OrderingServices["orders"],
     postagePolicies: {} as OrderingServices["postagePolicies"],
     projectors: [],
     pool: {} as OrderingServices["pool"],
   };
 }
 
-function getPaymentCapturedHandler(services: OrderingServices) {
+function getPaymentHandler<T extends keyof ReturnType<typeof getPaymentCaptureSubscription>["handlers"]>(
+  services: OrderingServices,
+  eventType: T,
+) {
   const subscription = (orderingModule.buildSubscriptions?.(services) ?? []).find(
     (candidate) => candidate.subscriptionName === "ordering.payment-capture",
   );
-  const handler = subscription?.handlers["payments.payment-captured"];
+  const handler = subscription?.handlers[eventType];
 
   if (!handler) {
-    throw new Error("Ordering payment-capture subscription handler was not registered.");
+    throw new Error(`Ordering payment-capture subscription handler for ${String(eventType)} was not registered.`);
   }
 
   return handler;
+}
+
+function getPaymentCapturedHandler(services: OrderingServices) {
+  return getPaymentHandler(services, "payments.payment-captured");
 }
 
 function getPaymentCaptureSubscription(services: OrderingServices) {
@@ -102,6 +110,75 @@ function createPaymentCapturedEvent(orderIds: readonly string[]): TransportEvent
   } as unknown as TransportEvent;
 }
 
+function createPaymentCreatedEvent(orderIds: readonly string[]): TransportEvent {
+  const createdAt = "2026-06-12T10:00:00.000Z";
+
+  return {
+    id: "evt_payment_created",
+    type: "payments.payment-created",
+    streamId: "payments.payment-pay_1",
+    streamVersion: 1,
+    globalPosition: "1",
+    tenantId: "tenant_1",
+    data: {
+      paymentId: "pay_1",
+      orderIds: [...orderIds],
+      buyerAccountId: "acct_buyer",
+      amount: "42.00",
+      currencyCode: "USD",
+      paymentMethodCategory: "bank-account",
+      processorName: "stripe",
+      processorPaymentReference: "pi_1",
+      processorStatus: "requires_action",
+      createdAt,
+    },
+    metadata: {},
+    audit: {
+      performedByUserId: "usr_system",
+      forAccountId: "acct_buyer",
+    },
+    trace: {
+      traceId: "trace_1",
+    },
+    timing: {
+      occurredAt: createdAt,
+      recordedAt: createdAt,
+    },
+  } as unknown as TransportEvent;
+}
+
+function createPaymentFailedEvent(orderIds: readonly string[]): TransportEvent {
+  const failedAt = "2026-06-12T10:05:00.000Z";
+
+  return {
+    id: "evt_payment_failed",
+    type: "payments.payment-failed",
+    streamId: "payments.payment-pay_1",
+    streamVersion: 2,
+    globalPosition: "2",
+    tenantId: "tenant_1",
+    data: {
+      paymentId: "pay_1",
+      orderIds: [...orderIds],
+      failureCode: "requires_payment_method",
+      failureMessage: null,
+      failedAt,
+    },
+    metadata: {},
+    audit: {
+      performedByUserId: "usr_system",
+      forAccountId: "acct_buyer",
+    },
+    trace: {
+      traceId: "trace_1",
+    },
+    timing: {
+      occurredAt: failedAt,
+      recordedAt: failedAt,
+    },
+  } as unknown as TransportEvent;
+}
+
 describe("ordering payment-capture subscription", () => {
   it("registers payment capture as a reaction with explicit failure semantics", () => {
     expect(getPaymentCaptureSubscription(createServices(async () => undefined as never))).toMatchObject({
@@ -112,11 +189,56 @@ describe("ordering payment-capture subscription", () => {
     });
   });
 
-  it("does not dispatch fulfillment readiness for payment authorization events", () => {
+  it("registers only payment events that feed capture and deadline workflows", () => {
     const subscription = getPaymentCaptureSubscription(createServices(async () => undefined as never));
 
     expect(subscription.handlers["payments.payment-authorized"]).toBeUndefined();
-    expect(Object.keys(subscription.handlers)).toEqual(["payments.payment-captured"]);
+    expect(Object.keys(subscription.handlers)).toEqual([
+      "payments.payment-created",
+      "payments.payment-captured",
+      "payments.payment-failed",
+      "payments.payment-cancelled",
+    ]);
+  });
+
+  it("records payment-created deadlines without dispatching fulfillment readiness", async () => {
+    const recordPaymentDeadlineStarted = vi.fn(async () => 2);
+    const commandHandler = vi.fn(async () => undefined as never);
+    const handler = getPaymentHandler(
+      createServices(commandHandler, [], [], { recordPaymentDeadlineStarted } as Partial<OrderingServices["orders"]>),
+      "payments.payment-created",
+    );
+
+    await handler(createPaymentCreatedEvent(["ord_1", "ord_2"]));
+
+    expect(recordPaymentDeadlineStarted).toHaveBeenCalledWith({
+      paymentId: "pay_1",
+      orderIds: ["ord_1", "ord_2"],
+      paymentMethodCategory: "bank-account",
+      paymentStartedAt: "2026-06-12T10:00:00.000Z",
+    });
+    expect(commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("records terminal failure deadlines without dispatching fulfillment readiness", async () => {
+    const recordTerminalPaymentFailureDeadline = vi.fn(async () => 2);
+    const commandHandler = vi.fn(async () => undefined as never);
+    const handler = getPaymentHandler(
+      createServices(commandHandler, [], [], {
+        recordTerminalPaymentFailureDeadline,
+      } as Partial<OrderingServices["orders"]>),
+      "payments.payment-failed",
+    );
+
+    await handler(createPaymentFailedEvent(["ord_1", "ord_2"]));
+
+    expect(recordTerminalPaymentFailureDeadline).toHaveBeenCalledWith({
+      paymentId: "pay_1",
+      orderIds: ["ord_1", "ord_2"],
+      failedAt: "2026-06-12T10:05:00.000Z",
+      failureCode: "requires_payment_method",
+    });
+    expect(commandHandler).not.toHaveBeenCalled();
   });
 
   it("stores captured order IDs as JSONB and starts per-order command dispatch concurrently", async () => {

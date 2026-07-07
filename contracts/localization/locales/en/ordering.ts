@@ -173,6 +173,9 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.pay.now": "Pay now",
   "ordering.features.orders.ui.orderDetailPage.open.support": "Get help",
   "ordering.features.orders.ui.orderDetailPage.ask.to.cancel": "Ask to cancel",
+  "ordering.features.orders.ui.orderDetailPage.payment.deadline.title": "Complete payment by deadline",
+  "ordering.features.orders.ui.orderDetailPage.payment.deadline.description":
+    "Complete payment by {deadline} to keep this order.",
   "ordering.features.orders.ui.orderDetailPage.payment.state": "Payment State",
   "ordering.features.orders.ui.orderDetailPage.purchase": "Purchase",
   "ordering.features.orders.ui.orderDetailPage.quantity": "Quantity",

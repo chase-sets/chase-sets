@@ -18,6 +18,9 @@ const order = {
   shipping_charge_amount: "4.99",
   total_amount: "24.99",
   status: "pending-payment",
+  pending_payment_at: null,
+  payment_deadline_at: null,
+  payment_deadline_policy: null,
   created_at: "2026-04-02T00:00:00.000Z",
   updated_at: "2026-04-02T00:00:00.000Z",
   cancelled_at: null,
@@ -93,5 +96,25 @@ describe("ordering order detail page", () => {
     expect(markup).toContain('href="/account/shipments"');
     expect(markup).not.toContain("Latest seller confirmation");
     expect(markup).not.toContain("pending seller activity");
+  });
+
+  it("shows payment deadline guidance for pending-payment orders", () => {
+    const markup = renderToString(
+      <OrderingOrderDetailPage
+        role="buyer"
+        backHref="/account/purchases"
+        paymentHref="/account/payments/new?orderIds=ord_1"
+        order={
+          {
+            ...order,
+            payment_deadline_at: "2026-04-02T01:00:00.000Z",
+            payment_deadline_policy: "ordering-payment-deadline-card-v1",
+          } as never
+        }
+      />,
+    );
+
+    expect(markup).toContain("Complete payment by deadline");
+    expect(markup).toContain("Complete payment by");
   });
 });

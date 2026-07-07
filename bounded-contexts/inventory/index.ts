@@ -79,7 +79,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
                   {
                     accountId: request.sellerAccountId,
                     holdId: request.holdId,
-                    releaseReason: "order-cancelled",
+                    releaseReason: data.reason === "payment-deadline" ? "payment-deadline" : "order-cancelled",
                   },
                   withInventorySystemHoldReleaseAuthority(context),
                 );

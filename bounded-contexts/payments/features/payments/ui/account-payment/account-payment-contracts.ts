@@ -6,6 +6,7 @@ export type AccountPaymentOrderView = Readonly<{
   status: string;
   total_amount: string;
   seller_payout_amount: string;
+  payment_deadline_at: string | null;
 }>;
 
 export type GuestCheckoutClaimContext = Readonly<{
