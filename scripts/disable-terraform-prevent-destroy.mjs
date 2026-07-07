@@ -1,25 +1,58 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const files = process.argv.slice(2);
+export function disablePreventDestroyInTerraformContent(content) {
+  let disabledCount = 0;
+  const withoutPreventDestroy = content.replace(
+    /^[ \t]*prevent_destroy[ \t]*=[ \t]*true[ \t]*(?:#.*)?$(?:\r?\n)?/gm,
+    () => {
+      disabledCount += 1;
+      return "";
+    },
+  );
+  const withoutEmptyLifecycleBlocks = withoutPreventDestroy.replace(
+    /\r?\n[ \t]*lifecycle[ \t]*\{[ \t]*(?:\r?\n[ \t]*)*\r?\n[ \t]*\}(?=\r?\n|$)/g,
+    "\n",
+  );
 
-if (files.length === 0) {
-  console.error("Usage: node scripts/disable-terraform-prevent-destroy.mjs <file> [file...]");
-  process.exit(1);
+  return {
+    content: withoutEmptyLifecycleBlocks,
+    disabledCount,
+  };
 }
 
-const preventDestroyBlock = /\r?\n {2}lifecycle \{\r?\n {4}prevent_destroy = true\r?\n {2}\}\r?\n/g;
-
-for (const file of files) {
+export function disablePreventDestroyInTerraformFile(file) {
   const before = readFileSync(file, "utf8");
-  const after = before.replace(preventDestroyBlock, "\n");
+  const result = disablePreventDestroyInTerraformContent(before);
 
-  if (after === before) {
-    console.error(`No standalone prevent_destroy lifecycle block found in ${file}.`);
-    process.exitCode = 1;
-    continue;
+  if (result.disabledCount === 0) {
+    console.error(`No prevent_destroy = true lifecycle setting found in ${file}.`);
+    return false;
   }
 
-  writeFileSync(file, after);
-  console.log(`Disabled prevent_destroy lifecycle block(s) in ${file}.`);
+  writeFileSync(file, result.content);
+  console.log(`Disabled prevent_destroy lifecycle setting(s) in ${file}.`);
+  return true;
+}
+
+function main(argv) {
+  const files = argv.slice(2);
+
+  if (files.length === 0) {
+    console.error("Usage: node scripts/disable-terraform-prevent-destroy.mjs <file> [file...]");
+    process.exit(1);
+  }
+
+  let changedAllFiles = true;
+  for (const file of files) {
+    changedAllFiles = disablePreventDestroyInTerraformFile(file) && changedAllFiles;
+  }
+  if (!changedAllFiles) {
+    process.exitCode = 1;
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main(process.argv);
 }
