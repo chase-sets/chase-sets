@@ -41,7 +41,7 @@ Rejected patterns (per #1236, enforced by this budget and the guardrail inventor
 
 Tier limits used by `cluster_connection_limits` (DigitalOcean totals minus a conservative 3 reserved for maintenance): `db-s-1vcpu-1gb` 22→19, `db-s-1vcpu-2gb` 47→44, `db-s-2vcpu-4gb` 97→94, `db-s-4vcpu-8gb` 197→194. A database size missing from the map resolves to a limit of 0 and fails the check until the new tier is budgeted.
 
-### Staging (`staging_database_size` = `db-s-2vcpu-4gb`, budgeted limit 94)
+### Staging (`staging_database_size` = `db-s-2vcpu-4gb`, `staging_database_storage_size_mib` = `25600`, budgeted limit 94)
 
 Direct cluster backends (what the check asserts, from `push-wake-capacity-evidence/v1`):
 

@@ -62,6 +62,7 @@ locals {
   admin_web_internal_api_origin = local.api_private_url
   marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
+  database_storage_size_mib     = local.is_staging ? var.staging_database_storage_size_mib : null
 
   production_database_standby_desired_node_count = 2
   production_database_standby_posture = {

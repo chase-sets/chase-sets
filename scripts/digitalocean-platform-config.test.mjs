@@ -631,10 +631,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain('variable "worker_database_pool_max"');
     expect(platformVariables).toContain('default     = "db-s-2vcpu-4gb"');
     expect(platformVariables).toContain('variable "staging_database_size"');
+    expect(platformVariables).toContain('variable "staging_database_storage_size_mib"');
+    expect(platformVariables).toContain("default     = 25600");
     expect(platformLocals).toContain("local.is_staging ? var.staging_database_size");
+    expect(platformLocals).toContain("local.is_staging ? var.staging_database_storage_size_mib : null");
     expect(platformLocals).toContain("staging_context_database_connection_pool_sizes");
     expect(platformLocals).toContain("catalog         = 6");
     expect(platformLocals).toContain("control         = 4");
+    expect(platformMain).toContain("storage_size_mib = local.database_storage_size_mib");
+    expect(platformMain).toContain("ignore_changes  = [storage_size_mib]");
     expect(platformMain).toContain("size       = local.context_database_connection_pool_sizes[each.key]");
     expect(occurrenceCount(platformMain, "value = local.api_database_pool_max")).toBe(1);
     expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(1);
@@ -2757,7 +2762,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain('default     = "nyc"');
     expect(platformVariables).toContain('variable "data_region"');
     expect(platformVariables).toContain('default     = "nyc3"');
-    expect(platformMain).toContain("region     = var.data_region");
+    expect(platformMain).toContain("region           = var.data_region");
     expect(platformMain).toContain("region = var.app_region");
     expect(platformMain).toContain('resource "digitalocean_uptime_check" "platform"');
     expect(platformMain).toContain('resource "digitalocean_uptime_alert" "platform_down"');

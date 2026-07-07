@@ -4,16 +4,18 @@ moved {
 }
 
 resource "digitalocean_database_cluster" "postgres" {
-  name       = "${local.name_prefix}-postgres"
-  engine     = "pg"
-  version    = var.postgres_version
-  size       = local.database_size
-  region     = var.data_region
-  node_count = var.database_node_count
-  tags       = [var.environment, "platform", "managed-by-terraform"]
+  name             = "${local.name_prefix}-postgres"
+  engine           = "pg"
+  version          = var.postgres_version
+  size             = local.database_size
+  region           = var.data_region
+  node_count       = var.database_node_count
+  storage_size_mib = local.database_storage_size_mib
+  tags             = [var.environment, "platform", "managed-by-terraform"]
 
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [storage_size_mib]
   }
 }
 

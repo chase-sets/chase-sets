@@ -340,6 +340,17 @@ variable "staging_database_size" {
   description = "Staging database cluster size. Staging needs enough server connection capacity for the full-platform managed PgBouncer pool shape."
 }
 
+variable "staging_database_storage_size_mib" {
+  type        = number
+  default     = 25600
+  description = "Create-time storage allocation for the staging managed Postgres cluster. Existing clusters ignore drift so the smaller allocation activates only when staging reset recreates Postgres."
+
+  validation {
+    condition     = var.staging_database_storage_size_mib >= 25600
+    error_message = "staging_database_storage_size_mib must be at least 25600 MiB."
+  }
+}
+
 variable "database_node_count" {
   type        = number
   default     = 1
