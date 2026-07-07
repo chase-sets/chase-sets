@@ -562,6 +562,261 @@ describe("bounded context subscription runner", () => {
     });
   });
 
+  it("retries blocked streams with the currently supplied handler code", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_fixed" }, "catalog.item-cat_fixed"),
+    ]);
+
+    const failingRunner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw new Error("old handler failure");
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+
+    await failingRunner.runOnce();
+
+    const seen: string[] = [];
+    const currentRunner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          seen.push(`${event.streamId}:${event.globalPosition}`);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    await expect(
+      retryProjectionBlockedStream(
+        {
+          subscriptionRunners: [currentRunner],
+        },
+        projectionKey,
+        "catalog.item-cat_fixed",
+      ),
+    ).resolves.toMatchObject({
+      state: "resolved",
+      inspectedEvents: 1,
+      appliedEvents: 1,
+    });
+
+    expect(seen).toEqual(["catalog.item-cat_fixed:1"]);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("applied");
+  });
+
+  it("keeps retry-blocked transient projection failures retriable instead of re-poisoning", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_timeout" }, "catalog.item-cat_timeout"),
+    ]);
+
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+    let nextError: Error = new Error("bad catalog item shape");
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw nextError;
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    await runner.runOnce();
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("poison");
+    const initialPoisonInsertCount = targetQuery.mock.calls.filter(([sql]) =>
+      String(sql).includes("INSERT INTO event_projection_poison_events"),
+    ).length;
+    expect(initialPoisonInsertCount).toBe(1);
+
+    nextError = Object.assign(new Error("Projection transaction exceeded 50ms."), {
+      projectionFailureKind: "transient",
+    });
+
+    await expect(
+      retryProjectionBlockedStream(
+        {
+          subscriptionRunners: [runner],
+        },
+        projectionKey,
+        "catalog.item-cat_timeout",
+      ),
+    ).resolves.toMatchObject({
+      state: "still-blocked",
+      inspectedEvents: 1,
+      appliedEvents: 0,
+      errorMessage: "Projection transaction exceeded 50ms.",
+    });
+
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("transient");
+    expect(
+      targetQuery.mock.calls.filter(([sql]) => String(sql).includes("INSERT INTO event_projection_poison_events")),
+    ).toHaveLength(initialPoisonInsertCount);
+  });
+
+  it("keeps retry-blocked deterministic failures on the poison path", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_bad" }, "catalog.item-cat_bad"),
+    ]);
+
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+    let nextError = new Error("bad catalog item shape");
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw nextError;
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    await runner.runOnce();
+    const initialPoisonInsertCount = targetQuery.mock.calls.filter(([sql]) =>
+      String(sql).includes("INSERT INTO event_projection_poison_events"),
+    ).length;
+    expect(initialPoisonInsertCount).toBe(1);
+
+    nextError = new Error("still bad catalog item shape");
+
+    await expect(
+      retryProjectionBlockedStream(
+        {
+          subscriptionRunners: [runner],
+        },
+        projectionKey,
+        "catalog.item-cat_bad",
+      ),
+    ).resolves.toMatchObject({
+      state: "still-blocked",
+      inspectedEvents: 1,
+      appliedEvents: 0,
+      errorMessage: "still bad catalog item shape",
+    });
+
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("poison");
+    expect(
+      targetQuery.mock.calls.filter(([sql]) => String(sql).includes("INSERT INTO event_projection_poison_events")),
+    ).toHaveLength(initialPoisonInsertCount + 1);
+  });
+
+  it("treats normalized append failures as transient on first-pass applies", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_append" }, "catalog.item-cat_append"),
+    ]);
+
+    const appendFailure = Object.assign(new Error("Failed to append events to Postgres event store."), {
+      code: "infrastructure_failure",
+      details: { cause: "connection terminated unexpectedly" },
+    });
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw appendFailure;
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+
+    await expect(runner.runOnce()).rejects.toThrow("Failed to append events to Postgres event store.");
+
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("transient");
+    expect(getBlockedStreamStore(targetPool).size).toBe(0);
+    expect(getPoisonEventStore(targetPool).size).toBe(0);
+  });
+
+  it("keeps retry-blocked normalized append failures transient instead of re-poisoning", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_append" }, "catalog.item-cat_append"),
+    ]);
+
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+    let nextError: Error = new Error("bad catalog item shape");
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw nextError;
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    await runner.runOnce();
+    const initialPoisonInsertCount = targetQuery.mock.calls.filter(([sql]) =>
+      String(sql).includes("INSERT INTO event_projection_poison_events"),
+    ).length;
+    expect(initialPoisonInsertCount).toBe(1);
+
+    nextError = Object.assign(new Error("Failed to append events to Postgres event store."), {
+      code: "infrastructure_failure",
+      details: { cause: "connection terminated unexpectedly" },
+    });
+
+    await expect(
+      retryProjectionBlockedStream(
+        {
+          subscriptionRunners: [runner],
+        },
+        projectionKey,
+        "catalog.item-cat_append",
+      ),
+    ).resolves.toMatchObject({
+      state: "still-blocked",
+      inspectedEvents: 1,
+      appliedEvents: 0,
+      errorMessage: "Failed to append events to Postgres event store.",
+    });
+
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("transient");
+    expect(
+      targetQuery.mock.calls.filter(([sql]) => String(sql).includes("INSERT INTO event_projection_poison_events")),
+    ).toHaveLength(initialPoisonInsertCount);
+  });
+
   it("reports outstanding event counts from checkpoint to source head", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
