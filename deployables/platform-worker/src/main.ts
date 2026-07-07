@@ -20,6 +20,7 @@ import { settlementOperationLogFields, type SettlementServices } from "@chase-se
 import { createCommercialTermsResolver, type CommercialTermsAccountSource } from "@chase-sets/commercial-terms/server";
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
+  collectProjectionOperationRunners,
   collectWorkerRunners,
   createDurableJobLaneRunners,
   createWorkerHost,
@@ -256,10 +257,23 @@ function createIdentityCommercialTermsAccountSource(
 }
 
 const projectionRunners = collectWorkerRunners(runtime, {
+  workSignalStore,
+});
+// Projection operations get their own runner group (and loop) so queued
+// recovery operations are never starved by projection-group backlog priority,
+// and a hung operation cannot pin projection replay capacity (issue #4496).
+const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   controlPlane,
-  projectionOperationClaimTtlMs: config.leaseTtlMs * 4,
-  projectionOperationLeaseTtlMs: config.leaseTtlMs,
-  projectionOperationLeaseRenewIntervalMs: config.leaseRenewIntervalMs,
+  runnerCount: config.projectionOperations.runnerCount,
+  claimTtlMs: config.leaseTtlMs * 4,
+  leaseTtlMs: config.leaseTtlMs,
+  leaseRenewIntervalMs: config.leaseRenewIntervalMs,
+  operationTimeoutMs: config.projectionOperations.operationTimeoutMs,
+  rebuildOperationTimeoutMs: config.projectionOperations.rebuildOperationTimeoutMs,
+  maxAttempts: config.projectionOperations.maxAttempts,
+  retryBackoffBaseMs: config.projectionOperations.retryBackoffBaseMs,
+  retryBackoffMaxMs: config.projectionOperations.retryBackoffMaxMs,
+  leaseAcquireTimeoutMs: config.projectionOperations.leaseAcquireTimeoutMs,
   workSignalStore,
   observer: createWorkerObserver(workerKind),
 });
@@ -335,6 +349,7 @@ const projectionWakeRunners = config.projectionWakeScheduler.enabled
   : [];
 const runnerGroups = [
   createRunnerGroup("projections", projectionRunners, config.projectionMaxConcurrentRunners),
+  createRunnerGroup("operations", projectionOperationRunners, config.projectionOperations.runnerCount),
   createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
   createRunnerGroup("inventory-jobs", inventoryImportJobRunners, config.inventoryImportBatchJobMaxConcurrentRunners),
   createRunnerGroup("dispatch", notificationDispatchRunners, config.dispatchMaxConcurrentRunners),

@@ -175,6 +175,69 @@ describe("staging projection operations support-safe sanitization", () => {
     expect(serialized).not.toContain("user_123456");
     expect(serialized).not.toContain("event-private-1");
   });
+
+  it("summarizes failed-operation error classes and running operations support-safely", () => {
+    const failedOperation = (operationId, message) => ({
+      operationId,
+      operationKind: "retry-blocked-stream",
+      state: "failed",
+      contextName: "unknown",
+      projectionName: null,
+      projectionKey: "discovery-item-detail-projection:catalog:v2",
+      streamId: "stream-private-1",
+      requestedByUserId: "user-private-1",
+      claimOwnerId: null,
+      attemptCount: 5,
+      nextEligibleAt: "2026-07-07T19:00:00.000Z",
+      requestedAt: "2026-07-07T17:00:00.000Z",
+      startedAt: "2026-07-07T17:01:00.000Z",
+      updatedAt: "2026-07-07T17:02:00.000Z",
+      completedAt: "2026-07-07T17:02:00.000Z",
+      error: message == null ? null : { message },
+    });
+    const sanitized = sanitizeProjectionOperationsSnapshot({
+      ...sampleSnapshot(),
+      failedOperations: [
+        failedOperation("op-failed-1", "Projection runner lease 'projection-group:discovery.x' is already active."),
+        failedOperation("op-failed-2", "Projection runner lease 'projection-group:discovery.x' is already active."),
+        failedOperation("op-failed-3", "Projection operation 'op-failed-3' timed out after 600000ms and was aborted."),
+      ],
+      runningOperations: [
+        {
+          ...failedOperation("op-running-1", null),
+          state: "running",
+          attemptCount: 2,
+          completedAt: null,
+        },
+      ],
+    });
+    const report = buildProjectionAttentionReport(sanitized);
+
+    expect(sanitized.failedOperations).toHaveLength(3);
+    expect(sanitized.runningOperations).toHaveLength(1);
+    expect(sanitized.runningOperations[0]).toMatchObject({
+      attemptCount: 2,
+      streamIdFingerprint: expect.stringMatching(/^[a-f0-9]{16}$/),
+    });
+
+    const classEntries = Object.entries(report.failedOperationErrorClasses);
+    expect(classEntries).toHaveLength(2);
+    const timeoutClassEntry = classEntries.find(([errorClass]) => errorClass.includes("timed out after"));
+    expect(timeoutClassEntry?.[1]).toBe(1);
+    const leaseClassEntry = classEntries.find(([errorClass]) => errorClass.includes("already active"));
+    expect(leaseClassEntry?.[1]).toBe(2);
+    expect(report.runningOperations).toEqual([
+      expect.objectContaining({
+        operationKind: "retry-blocked-stream",
+        state: "running",
+        attemptCount: 2,
+      }),
+    ]);
+
+    const serialized = JSON.stringify({ sanitized, report });
+    expect(serialized).not.toContain("stream-private-1");
+    expect(serialized).not.toContain("user-private-1");
+  });
 });
 
 describe("staging projection operations runner", () => {
@@ -205,7 +268,11 @@ describe("staging projection operations runner", () => {
         ["GET", "/api/platform/projections"],
         ["GET", "/api/platform/projections/catalog-admin-catalog-item-projection:catalog:v1/blocked-streams"],
         ["GET", "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams"],
+        ["GET", "/api/platform/projections/operations"],
+        ["GET", "/api/platform/projections/operations"],
         ["GET", "/api/platform/projections"],
+        ["GET", "/api/platform/projections/operations"],
+        ["GET", "/api/platform/projections/operations"],
       ]);
 
       const report = JSON.parse(await readFile(join(outDir, "staging-projection-operations.json"), "utf8"));
@@ -256,11 +323,15 @@ describe("staging projection operations runner", () => {
         ["GET", "/api/platform/projections"],
         ["GET", "/api/platform/projections/catalog-admin-catalog-item-projection:catalog:v1/blocked-streams"],
         ["GET", "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams"],
+        ["GET", "/api/platform/projections/operations"],
+        ["GET", "/api/platform/projections/operations"],
         [
           "POST",
           "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams/stream-private-1/retry",
         ],
         ["GET", "/api/platform/projections"],
+        ["GET", "/api/platform/projections/operations"],
+        ["GET", "/api/platform/projections/operations"],
       ]);
 
       const reportText = await readFile(join(outDir, "staging-projection-operations.json"), "utf8");
@@ -321,6 +392,8 @@ describe("staging projection operations runner", () => {
         ["POST", "/api/auth/password-sign-in"],
         ["GET", "/api/platform/projections"],
         ["GET", "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams"],
+        ["GET", "/api/platform/projections/operations"],
+        ["GET", "/api/platform/projections/operations"],
         [
           "POST",
           "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams/stream-private-1/retry",
@@ -330,6 +403,8 @@ describe("staging projection operations runner", () => {
           "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams/stream-private-2/retry",
         ],
         ["GET", "/api/platform/projections"],
+        ["GET", "/api/platform/projections/operations"],
+        ["GET", "/api/platform/projections/operations"],
       ]);
     } finally {
       await rm(outDir, { recursive: true, force: true });
@@ -447,11 +522,15 @@ describe("staging projection operations runner", () => {
         ["GET", "/api/platform/projections"],
         ["GET", "/api/platform/projections/checkout.checkout.session-projection/blocked-streams"],
         ["GET", "/api/platform/projections/checkout.session-projection:checkout:v1/blocked-streams"],
+        ["GET", "/api/platform/projections/operations"],
+        ["GET", "/api/platform/projections/operations"],
         [
           "POST",
           "/api/platform/projections/checkout.session-projection:checkout:v1/blocked-streams/checkout.session-1/retry",
         ],
         ["GET", "/api/platform/projections"],
+        ["GET", "/api/platform/projections/operations"],
+        ["GET", "/api/platform/projections/operations"],
       ]);
     } finally {
       await rm(outDir, { recursive: true, force: true });

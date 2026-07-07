@@ -257,6 +257,111 @@ describe("platform runtime Postgres concurrency guards", () => {
     await expect(controlPlane.renewLease(firstLease, 30_000)).resolves.toBe(false);
   });
 
+  it("charges projection operation attempts at claim time, backs off reclaims, and quarantines at the cap", async () => {
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const enqueued = await controlPlane.enqueueProjectionOperation({
+      operationKind: "retry-blocked-stream",
+      contextName: "discovery",
+      projectionKey: "discovery-item-detail-projection:catalog:v2",
+      streamId: "stream_poison",
+    });
+
+    const claimed = await controlPlane.claimProjectionOperation({
+      ownerId: "worker_a",
+      claimTtlMs: 30_000,
+      maxAttempts: 2,
+    });
+    expect(claimed?.operationId).toBe(enqueued.operationId);
+    expect(claimed?.attemptCount).toBe(1);
+
+    // Simulate a worker that died without a terminal write: the claim expires
+    // but the backoff horizon set at claim time still blocks a hot reclaim.
+    await pools.platform.query(
+      `UPDATE platform_projection_operations
+       SET claimed_until = now() - interval '1 second'
+       WHERE operation_id = $1`,
+      [enqueued.operationId],
+    );
+    await expect(
+      controlPlane.claimProjectionOperation({ ownerId: "worker_b", claimTtlMs: 30_000, maxAttempts: 2 }),
+    ).resolves.toBeNull();
+
+    await pools.platform.query(
+      `UPDATE platform_projection_operations
+       SET next_eligible_at = now() - interval '1 second'
+       WHERE operation_id = $1`,
+      [enqueued.operationId],
+    );
+    const reclaimed = await controlPlane.claimProjectionOperation({
+      ownerId: "worker_b",
+      claimTtlMs: 30_000,
+      maxAttempts: 2,
+    });
+    expect(reclaimed?.operationId).toBe(enqueued.operationId);
+    expect(reclaimed?.attemptCount).toBe(2);
+    expect(reclaimed?.startedAt).toBe(claimed?.startedAt);
+
+    // Second death: the attempt budget is exhausted, so the sweep dead-letters
+    // the operation instead of reclaiming it forever.
+    await pools.platform.query(
+      `UPDATE platform_projection_operations
+       SET claimed_until = now() - interval '1 second',
+           next_eligible_at = now() - interval '1 second'
+       WHERE operation_id = $1`,
+      [enqueued.operationId],
+    );
+    await expect(
+      controlPlane.claimProjectionOperation({ ownerId: "worker_c", claimTtlMs: 30_000, maxAttempts: 2 }),
+    ).resolves.toBeNull();
+
+    const quarantined = await controlPlane.getProjectionOperation(enqueued.operationId);
+    expect(quarantined?.state).toBe("failed");
+    expect(quarantined?.error).toMatchObject({ code: "attempts_exhausted" });
+    expect(quarantined?.completedAt).not.toBeNull();
+  });
+
+  it("requeues a retryable projection operation failure with backoff so younger operations proceed", async () => {
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const head = await controlPlane.enqueueProjectionOperation({
+      operationKind: "retry-blocked-stream",
+      contextName: "discovery",
+      projectionKey: "discovery-search-item-projection:catalog:v5",
+      streamId: "stream_head",
+    });
+    const younger = await controlPlane.enqueueProjectionOperation({
+      operationKind: "retry-blocked-stream",
+      contextName: "identity",
+      projectionKey: "identity-consent-projection:identity:v1",
+      streamId: "stream_younger",
+    });
+
+    const claimed = await controlPlane.claimProjectionOperation({ ownerId: "worker_a", claimTtlMs: 30_000 });
+    expect(claimed?.operationId).toBe(head.operationId);
+
+    await expect(
+      controlPlane.failProjectionOperation({
+        operationId: head.operationId,
+        ownerId: "worker_a",
+        fencingToken: claimed?.claimFencingToken ?? "0",
+        error: { message: "Projection runner lease 'projection-group:x' is already active." },
+        retryable: true,
+      }),
+    ).resolves.toBe(true);
+
+    const requeued = await controlPlane.getProjectionOperation(head.operationId);
+    expect(requeued?.state).toBe("queued");
+    expect(requeued?.claimOwnerId).toBeNull();
+    expect(new Date(requeued?.nextEligibleAt ?? 0).getTime()).toBeGreaterThan(Date.now());
+    expect(requeued?.error).toMatchObject({
+      message: "Projection runner lease 'projection-group:x' is already active.",
+    });
+
+    // The requeued head operation is parked behind its backoff, so the
+    // younger operation is claimable instead of starving behind it.
+    const next = await controlPlane.claimProjectionOperation({ ownerId: "worker_a", claimTtlMs: 30_000 });
+    expect(next?.operationId).toBe(younger.operationId);
+  });
+
   it("lets only one scheduled runner claimant advance the cadence row", async () => {
     const controlPlane = createPostgresPlatformControlPlane(pools.platform);
 

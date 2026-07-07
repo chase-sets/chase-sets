@@ -319,6 +319,9 @@ describe("platform control plane", () => {
               rowCount: 1,
             };
           }
+          if (sql.includes("WITH exhausted")) {
+            return { rows: [], rowCount: 0 };
+          }
           if (sql.includes("RETURNING") && sql.includes("platform_projection_operations")) {
             return {
               rows: [
@@ -366,9 +369,15 @@ describe("platform control plane", () => {
       claimOwnerId: "worker-a",
       claimFencingToken: "1",
     });
-    const claimCall = calls.find((call) => call.sql.includes("FOR UPDATE SKIP LOCKED"));
+    const sweepCall = calls.find((call) => call.sql.includes("WITH exhausted"));
+    expect(sweepCall?.sql).toContain("attempt_count >= $2::integer");
+    expect(sweepCall?.sql).toContain("'attempts_exhausted'");
+    const claimCall = calls.find((call) => call.sql.includes("WITH claimable"));
     expect(claimCall?.sql).toContain("FOR UPDATE SKIP LOCKED");
     expect(claimCall?.sql).toContain("claim_fencing_token = COALESCE");
+    expect(claimCall?.sql).toContain("attempt_count < $4::integer");
+    expect(claimCall?.sql).toContain("next_eligible_at <= now()");
+    expect(claimCall?.sql).toContain("attempt_count = operation.attempt_count + 1");
     expect(claimCall?.sql).toContain("RETURNING operation.operation_id");
     expect(calls.some((call) => call.sql.includes("RETURNING event_sequence"))).toBe(true);
     const notifyCall = calls.find((call) => call.sql.includes("pg_notify"));
