@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const orderingSupplySourceSchemaSql = `
 CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   listing_id text PRIMARY KEY,
@@ -142,11 +144,18 @@ CREATE TABLE IF NOT EXISTS ordering_payment_deadline_inputs (
   failure_code text NULL,
   updated_at timestamptz NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS ordering_payment_deadline_inputs_due_idx
-  ON ordering_payment_deadline_inputs (payment_deadline_at, order_id);
-
-CREATE INDEX IF NOT EXISTS ordering_payment_deadline_inputs_payment_idx
-  ON ordering_payment_deadline_inputs (payment_id)
-  WHERE payment_id IS NOT NULL;
 `;
+
+export const orderingSupplySourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260707_ordering_payment_deadline_input_indexes",
+    description: "Build payment-deadline input lookup indexes outside boot-time schema SQL.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ordering_payment_deadline_inputs_due_idx
+  ON ordering_payment_deadline_inputs (payment_deadline_at, order_id)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ordering_payment_deadline_inputs_payment_idx
+  ON ordering_payment_deadline_inputs (payment_id)
+  WHERE payment_id IS NOT NULL`,
+    ],
+  },
+];

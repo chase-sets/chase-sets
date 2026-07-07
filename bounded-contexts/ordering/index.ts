@@ -23,7 +23,7 @@ import { buildOrderingFulfillmentCancellationProjectionHandlers } from "./featur
 import { buildOrderingReputationProjectionHandlers } from "./features/orders/integrations/reputation/reputation-projection";
 import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
-import { orderingSchemaSql } from "./support/runtime-support/schema";
+import { orderingSchemaMigrations, orderingSchemaSql } from "./support/runtime-support/schema";
 import { seedOrderingDatabase } from "./support/runtime-support/seed";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
@@ -79,6 +79,7 @@ async function filterCancelledOrderIds(
 export const module = defineBoundedContextModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions>({
   manifest: orderingContextManifest,
   schemaSql: orderingSchemaSql,
+  schemaMigrations: orderingSchemaMigrations,
   createServices: (pool, options) => createOrderingServices(pool, options),
   buildApis: (services) => [buildOrderingApi(services)],
   projectionHandlerSets: (services) => services.projectors,

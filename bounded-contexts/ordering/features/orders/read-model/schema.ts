@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const orderingOrderSchemaSql = `
 CREATE TABLE IF NOT EXISTS ordering_order_pages (
   order_id text PRIMARY KEY,
@@ -81,16 +83,6 @@ ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS shipping_plan_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE ordering_order_pages
-  ADD COLUMN IF NOT EXISTS pending_payment_at timestamptz NULL;
-ALTER TABLE ordering_order_pages
-  ADD COLUMN IF NOT EXISTS payment_deadline_at timestamptz NULL;
-ALTER TABLE ordering_order_pages
-  ADD COLUMN IF NOT EXISTS payment_deadline_policy text NULL;
-
-CREATE INDEX IF NOT EXISTS ordering_order_pages_payment_deadline_idx
-  ON ordering_order_pages (payment_deadline_at, order_id)
-  WHERE status = 'pending-payment' AND payment_deadline_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   order_id text NOT NULL,
@@ -160,3 +152,18 @@ CREATE TABLE IF NOT EXISTS ordering_listing_purchase_limit_usage (
   PRIMARY KEY (buyer_account_id, listing_id)
 );
 `;
+
+export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260707_ordering_order_payment_deadline_columns",
+    description: "Add payment-deadline read-model columns and due-order index outside boot-time schema SQL.",
+    statements: [
+      `ALTER TABLE ordering_order_pages ADD COLUMN IF NOT EXISTS pending_payment_at timestamptz NULL`,
+      `ALTER TABLE ordering_order_pages ADD COLUMN IF NOT EXISTS payment_deadline_at timestamptz NULL`,
+      `ALTER TABLE ordering_order_pages ADD COLUMN IF NOT EXISTS payment_deadline_policy text NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ordering_order_pages_payment_deadline_idx
+  ON ordering_order_pages (payment_deadline_at, order_id)
+  WHERE status = 'pending-payment' AND payment_deadline_at IS NOT NULL`,
+    ],
+  },
+];

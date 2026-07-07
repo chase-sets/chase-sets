@@ -1,10 +1,13 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { orderingAccountSchemaSql } from "../account-support/schema";
-import { orderingOrderSchemaSql } from "../../features/orders/read-model/schema";
+import { orderingOrderSchemaMigrations, orderingOrderSchemaSql } from "../../features/orders/read-model/schema";
 import { orderingFulfillmentSourceSchemaSql } from "../../features/orders/integrations/fulfillment/fulfillment-source-schema";
 import { orderingReputationSourceSchemaSql } from "../../features/orders/integrations/reputation/reputation-source-schema";
-import { orderingSupplySourceSchemaSql } from "../../features/orders/integrations/supply/supply-source-schema";
+import {
+  orderingSupplySourceSchemaMigrations,
+  orderingSupplySourceSchemaSql,
+} from "../../features/orders/integrations/supply/supply-source-schema";
 import { postagePolicySchemaSql } from "../../features/postage-policies/read-model/schema";
 
 export const orderingSchemaSql = [
@@ -17,3 +20,8 @@ export const orderingSchemaSql = [
   postagePolicySchemaSql,
   orderingOrderSchemaSql,
 ].join("\n\n");
+
+export const orderingSchemaMigrations = [
+  ...orderingSupplySourceSchemaMigrations,
+  ...orderingOrderSchemaMigrations,
+] as const;
