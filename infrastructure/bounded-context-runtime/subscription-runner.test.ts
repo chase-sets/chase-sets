@@ -1213,6 +1213,40 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(1);
   });
 
+  it("uses checkpoint batch size as the projection transaction chunk boundary", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-cat_1"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" }, "catalog.item-cat_2"),
+    ]);
+    const handler = vi.fn(async () => undefined);
+
+    const runner = createSubscriptionRunner("discovery", targetPool as never, sourcePool as never, {
+      subscriptionName: "discovery.catalog-search-projection",
+      sourceContextName: "catalog",
+      projectionName: "discovery-search-item-projection",
+      subscriptionVersion: 5,
+      handlers: {
+        "catalog.catalog-item.published": handler,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      batchSize: 100,
+      checkpointBatchSize: 1,
+    });
+
+    await runner.runOnce();
+
+    const targetSql = targetQuery.mock.calls.map(([sql]) => String(sql));
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(2);
+    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(2);
+    expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(2);
+    expect(getCheckpointWriteCountStore(targetPool).get("discovery-search-item-projection:catalog:v5")).toBe(2);
+  });
+
   it("applies reaction handlers one event per transaction even when configured for larger checkpoints", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

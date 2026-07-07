@@ -49,9 +49,13 @@ describe("fresh payments schemas", () => {
     const migrationSql = [...paymentsOrderInputSchemaMigrations, ...paymentsPaymentSchemaMigrations]
       .flatMap((migration) => migration.statements)
       .join("\n");
+    const migrationIds = paymentsOrderInputSchemaMigrations.map((migration) => migration.migrationId);
 
     expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS sales_tax_amount");
     expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_amount");
+    expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS seller_payout_amount");
+    expect(migrationSql).toContain("payments_order_inputs ADD COLUMN IF NOT EXISTS pending_payment_at");
+    expect(migrationIds).toContain("20260707_payments_order_inputs_checkout_terms_convergence");
     expect(migrationSql).toContain("payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payouts");
     expect(migrationSql).toContain("payments_payment_pages ADD COLUMN IF NOT EXISTS disputed_at");
   });
