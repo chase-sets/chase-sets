@@ -130,7 +130,38 @@ function isTransientSubscriptionApplyError(
   error: unknown,
   errorPolicy: BcEventSubscription["errorPolicy"] | undefined,
 ): boolean {
-  return errorPolicy === "global-strict" || isTransientProjectionError(error) || isPgRetryableTransientError(error);
+  return (
+    errorPolicy === "global-strict" ||
+    isTransientProjectionError(error) ||
+    isPgRetryableTransientError(error) ||
+    isRetryableEventStoreAppendFailure(error)
+  );
+}
+
+function isRetryableEventStoreAppendFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const candidate = error as Readonly<{
+    code?: unknown;
+    details?: unknown;
+    message?: unknown;
+  }>;
+  if (candidate.message === "Failed to append events to Postgres event store.") {
+    return true;
+  }
+
+  if (
+    candidate.code !== "concurrency_conflict" ||
+    typeof candidate.details !== "object" ||
+    candidate.details === null
+  ) {
+    return false;
+  }
+
+  const postgresCode = (candidate.details as Readonly<{ postgresCode?: unknown }>).postgresCode;
+  return typeof postgresCode === "string" && isPgRetryableTransientError({ code: postgresCode });
 }
 
 export type MountedContextRuntimeEntry = Readonly<{
