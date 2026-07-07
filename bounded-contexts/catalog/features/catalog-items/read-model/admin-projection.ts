@@ -7,6 +7,12 @@ import {
   type FieldValue,
   loadNameMap,
 } from "../../../support/projection-support/read-model-support";
+import {
+  localizedTextMapFromEnglish,
+  normalizeLocaleCode,
+  resolveLocalizedTextMap,
+  type LocalizedTextMap,
+} from "../../../support/runtime-support/common";
 import { resolveAndPersistCatalogItemDisplayIdentities, type PersistedDisplayIdentityResult } from "./display-identity";
 import {
   enqueueAllCatalogItemDisplayIdentityRecomputeWork,
@@ -72,6 +78,14 @@ type ReferenceRelationship = Readonly<{
   referenceId: string;
 }>;
 
+type CatalogItemCreatedEventData = Readonly<{
+  itemId?: unknown;
+  languageCode?: unknown;
+  title?: unknown;
+  subtitle?: unknown;
+  description?: unknown;
+}>;
+
 type ReferenceRecordRef = Readonly<{
   referenceId: string;
   typeKey: string;
@@ -86,6 +100,50 @@ type ReferenceRecordRef = Readonly<{
 
 export async function refreshCatalogAdminCatalogItemPages(db: PgQueryable, itemId: string): Promise<void> {
   await refreshCatalogAdminCatalogItemPagesForItems(db, [itemId]);
+}
+
+async function ensureCatalogItemParentForCreatedEvent(
+  db: PgQueryable,
+  event: Readonly<{ streamId: string; data: unknown; timing: { recordedAt: string } }>,
+): Promise<string> {
+  const data = event.data as CatalogItemCreatedEventData;
+  const itemId =
+    typeof data.itemId === "string" && data.itemId.trim()
+      ? data.itemId.trim()
+      : extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+  const titleI18n = coerceLocalizedTextMap(data.title);
+  const subtitleI18n = data.subtitle ? coerceLocalizedTextMap(data.subtitle) : null;
+  const descriptionI18n = coerceLocalizedTextMap(data.description ?? "");
+
+  await db.query(
+    `INSERT INTO catalog_items (
+       catalog_item_id,
+       language_code,
+       title_i18n,
+       title,
+       subtitle_i18n,
+       subtitle,
+       description_i18n,
+       description,
+       status,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9)
+     ON CONFLICT (catalog_item_id) DO NOTHING`,
+    [
+      itemId,
+      normalizeLocaleCode(typeof data.languageCode === "string" ? data.languageCode : "en"),
+      JSON.stringify(titleI18n),
+      resolveLocalizedTextMap(titleI18n),
+      subtitleI18n ? JSON.stringify(subtitleI18n) : null,
+      subtitleI18n ? resolveLocalizedTextMap(subtitleI18n) : null,
+      JSON.stringify(descriptionI18n),
+      resolveLocalizedTextMap(descriptionI18n),
+      event.timing.recordedAt,
+    ],
+  );
+
+  return itemId;
 }
 
 async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, itemIds: readonly string[]): Promise<void> {
@@ -757,7 +815,8 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
 
   return {
     "catalog.catalog-item.created": async (event) => {
-      await enqueueItemAndRefresh(db, event.data.itemId as string, "catalog-item-changed", sourceFromEvent(event));
+      const itemId = await ensureCatalogItemParentForCreatedEvent(db, event);
+      await enqueueItemAndRefresh(db, itemId, "catalog-item-changed", sourceFromEvent(event));
     },
     "catalog.catalog-item.blueprint-assigned": async (event) => {
       await enqueueItemAndRefresh(
@@ -990,6 +1049,12 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       await enqueueAllCatalogItemDisplayIdentityRecomputeWork(db, "display-template-changed", sourceFromEvent(event));
     },
   };
+}
+
+function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {
+  return typeof value === "object" && value !== null && "defaultLocale" in value && "values" in value
+    ? (value as LocalizedTextMap)
+    : localizedTextMapFromEnglish(String(value ?? ""));
 }
 
 function referenceIdFromValue(value: unknown): string | null {

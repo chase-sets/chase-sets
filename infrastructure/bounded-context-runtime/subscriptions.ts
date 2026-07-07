@@ -126,6 +126,28 @@ type ProjectionRunContextWithSourceHeadCache = ProjectionRunContext &
     sourceHeadGlobalPositionCache?: Map<string, Promise<GlobalPosition>>;
   }>;
 
+function projectionRunContextForSubscription(
+  subscription: Pick<BcEventSubscription, "projectionStatementTimeoutMs" | "projectionTransactionTimeoutMs">,
+  context: ProjectionRunContext | undefined,
+): ProjectionRunContext | undefined {
+  if (
+    subscription.projectionTransactionTimeoutMs === undefined &&
+    subscription.projectionStatementTimeoutMs === undefined
+  ) {
+    return context;
+  }
+
+  return {
+    ...context,
+    ...(subscription.projectionTransactionTimeoutMs !== undefined
+      ? { transactionTimeoutMs: subscription.projectionTransactionTimeoutMs }
+      : {}),
+    ...(subscription.projectionStatementTimeoutMs !== undefined
+      ? { statementTimeoutMs: subscription.projectionStatementTimeoutMs }
+      : {}),
+  };
+}
+
 function isTransientSubscriptionApplyError(
   error: unknown,
   errorPolicy: BcEventSubscription["errorPolicy"] | undefined,
@@ -551,6 +573,7 @@ export function createSubscriptionRunner(
       status.updatedAt = new Date().toISOString();
     },
     retryBlockedStream: async (streamId, context) => {
+      const projectionRunContext = projectionRunContextForSubscription(subscription, context);
       context?.throwIfLeaseLost?.();
       const blockedStream = await loadProjectionBlockedStream(targetPool, checkpointKey, streamId);
       if (!blockedStream) {
@@ -604,7 +627,7 @@ export function createSubscriptionRunner(
           try {
             const applicationResult = await withProjectionTransaction(
               targetPool,
-              context,
+              projectionRunContext,
               async (client) => {
                 const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
                 if (claimResult === "already-applied") {
@@ -722,6 +745,7 @@ export function createSubscriptionRunner(
       };
     },
     runOnce: async (context) => {
+      const projectionRunContext = projectionRunContextForSubscription(subscription, context);
       context?.throwIfLeaseLost?.();
       status.state = "running";
       status.lastError = null;
@@ -841,7 +865,7 @@ export function createSubscriptionRunner(
 
                 const applicationResult = await withProjectionTransaction(
                   targetPool,
-                  context,
+                  projectionRunContext,
                   async (client) => {
                     const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
                     if (claimResult === "already-applied") {
@@ -930,7 +954,7 @@ export function createSubscriptionRunner(
           const progress = initialProgress();
           await withProjectionTransaction(
             targetPool,
-            context,
+            projectionRunContext,
             async (client) => {
               context?.throwIfLeaseLost?.();
               const applicableEvents = events.flatMap((event) => {

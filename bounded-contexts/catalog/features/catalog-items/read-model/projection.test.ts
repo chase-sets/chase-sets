@@ -32,6 +32,12 @@ function baseCatalogItemRow(catalogItemId: string) {
   };
 }
 
+type CatalogItemTestRow = ReturnType<typeof baseCatalogItemRow>;
+
+function parseLocalizedTextFixture(value: unknown, fallback: CatalogItemTestRow["title_i18n"]) {
+  return typeof value === "string" ? (JSON.parse(value) as CatalogItemTestRow["title_i18n"]) : fallback;
+}
+
 function delayedAdminQuery(itemIds: readonly string[] = ["cat_1"]) {
   let activeQueries = 0;
   let maxActiveQueries = 0;
@@ -111,6 +117,68 @@ describe("Catalog Item projections", () => {
     expect(itemLoads).toHaveLength(1);
     expect(itemLoads[0]?.[1]).toEqual([["cat_1", "cat_2"]]);
     expect(maxActiveQueries()).toBe(1);
+  });
+
+  it("upserts the catalog item parent before admin rows for replayed created events", async () => {
+    const parents = new Map<string, CatalogItemTestRow>();
+    const calls: string[] = [];
+    const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      calls.push(sql);
+
+      if (sql.includes("INSERT INTO catalog_items")) {
+        const baseRow = baseCatalogItemRow(String(params?.[0] ?? ""));
+        const row: CatalogItemTestRow = {
+          ...baseRow,
+          language_code: String(params?.[1] ?? "en"),
+          title_i18n: parseLocalizedTextFixture(params?.[2], baseRow.title_i18n),
+          title: String(params?.[3] ?? ""),
+          subtitle_i18n: null,
+          subtitle: null,
+          description_i18n: parseLocalizedTextFixture(params?.[6], baseRow.description_i18n),
+          description: String(params?.[7] ?? ""),
+          updated_at: String(params?.[8] ?? ""),
+        };
+        parents.set(row.catalog_item_id, row);
+        return { rows: [] };
+      }
+
+      if (sql.includes("INSERT INTO catalog_item_display_identity_recompute_work")) {
+        const itemIds = Array.isArray(params?.[0]) ? (params[0] as string[]) : [];
+        for (const itemId of itemIds) {
+          if (!parents.has(itemId)) {
+            throw new Error("insert or update on table violates foreign key constraint");
+          }
+        }
+        return { rows: [] };
+      }
+
+      if (sql.includes("FROM catalog_items WHERE catalog_item_id = ANY($1)")) {
+        const ids = Array.isArray(params?.[0]) ? (params[0] as string[]) : [];
+        return { rows: ids.flatMap((itemId) => parents.get(itemId) ?? []) };
+      }
+
+      return { rows: [] };
+    });
+    const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+
+    await expect(
+      handlers["catalog.catalog-item.created"]?.({
+        type: "catalog.catalog-item.created",
+        streamId: "catalog.item-cat_replay",
+        data: {
+          itemId: "cat_replay",
+          languageCode: "en",
+          title: "Replay Parent",
+          subtitle: null,
+          description: "Created before admin retry.",
+        },
+        timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+      } as never),
+    ).resolves.toBeUndefined();
+
+    expect(calls.findIndex((sql) => sql.includes("INSERT INTO catalog_items"))).toBeLessThan(
+      calls.findIndex((sql) => sql.includes("INSERT INTO catalog_item_display_identity_recompute_work")),
+    );
   });
 
   it("batches multi-level reference graph fan-out by frontier", async () => {

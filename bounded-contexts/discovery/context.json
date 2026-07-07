@@ -126,6 +126,8 @@
         "catalog.dimension.options-reordered",
         "catalog.product-contents.resolved"
       ],
+      "projectionTransactionTimeoutMs": 120000,
+      "projectionStatementTimeoutMs": 120000,
       "order": 10,
       "projectionHandlerSetNames": ["discovery-search-item-projection"]
     },
@@ -174,6 +176,8 @@
         "catalog.dimension.option-revised",
         "catalog.dimension.options-reordered"
       ],
+      "projectionTransactionTimeoutMs": 120000,
+      "projectionStatementTimeoutMs": 120000,
       "order": 10,
       "projectionHandlerSetNames": ["discovery-item-detail-projection"]
     },
