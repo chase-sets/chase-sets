@@ -30,11 +30,14 @@ export type SupportFlowType =
 export type SupportEvidenceType =
   | "buyer-attestation"
   | "seller-attestation"
+  | "seller-condition-attestation"
   | "tracking-status"
   | "tracking-number"
   | "delivery-confirmation"
+  | "return-delivery-confirmation"
   | "photo"
   | "unboxing-photo"
+  | "return-discrepancy-photo"
   | "condition-notes"
   | "missing-quantity"
   | "authenticity-notes"
@@ -119,7 +122,26 @@ export type SupportResolution = Readonly<{
   summary: string;
   refundAmount: string | null;
   resolvedByAccountId: AccountId | null;
+  resolvedByRole: SupportRequesterRole | null;
   resolvedAt: string;
+}>;
+
+export type SupportOrderReturnContextLine = Readonly<{
+  lineId: string;
+  listingId: string;
+  itemTitle: string;
+  productSummary: string | null;
+  quantity: number;
+  gradedCard: Readonly<{
+    gradingCompany: string;
+    grade: string;
+    certificationNumber: string | null;
+  }> | null;
+}>;
+
+export type SupportReturnInvestigation = Readonly<{
+  reason: "seller-condition-discrepancy";
+  convertedAt: string;
 }>;
 
 export type SupportRequestSnapshot = Readonly<{
@@ -137,6 +159,9 @@ export type SupportRequestSnapshot = Readonly<{
   updatedAt: string;
   sellerResponseDueAt: string | null;
   supportReviewDueAt: string | null;
+  sellerConditionAttestationDueAt: string | null;
+  orderReturnContext: readonly SupportOrderReturnContextLine[];
+  returnInvestigation: SupportReturnInvestigation | null;
   checklist: readonly SupportChecklistItem[];
   evidence: readonly SupportEvidence[];
   responses: readonly SupportResponse[];
@@ -238,11 +263,14 @@ export function normalizeEvidenceType(value: string): SupportEvidenceType {
   switch (value.trim()) {
     case "buyer-attestation":
     case "seller-attestation":
+    case "seller-condition-attestation":
     case "tracking-status":
     case "tracking-number":
     case "delivery-confirmation":
+    case "return-delivery-confirmation":
     case "photo":
     case "unboxing-photo":
+    case "return-discrepancy-photo":
     case "condition-notes":
     case "missing-quantity":
     case "authenticity-notes":

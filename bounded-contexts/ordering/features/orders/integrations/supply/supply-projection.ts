@@ -70,6 +70,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         selectedOptions: unknown;
         productSummary: string | null;
         productMeasureSnapshot?: unknown;
+        gradedCard?: unknown;
         storageLocationName: string | null;
         shipFromCode: string | null;
         shipFromAddress: unknown;
@@ -100,6 +101,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            selected_options,
            product_summary,
            product_measure_snapshot,
+           graded_card,
            storage_location_name,
            ship_from_code,
            ship_from_address,
@@ -118,7 +120,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            status,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, COALESCE((SELECT status FROM ordering_seller_listing_availability_inputs WHERE account_id = $2), 'available'), 'draft', $25
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, COALESCE((SELECT status FROM ordering_seller_listing_availability_inputs WHERE account_id = $2), 'available'), 'draft', $26
          )
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
@@ -130,6 +132,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              selected_options = EXCLUDED.selected_options,
              product_summary = EXCLUDED.product_summary,
              product_measure_snapshot = EXCLUDED.product_measure_snapshot,
+             graded_card = EXCLUDED.graded_card,
              storage_location_name = EXCLUDED.storage_location_name,
              ship_from_code = EXCLUDED.ship_from_code,
              ship_from_address = EXCLUDED.ship_from_address,
@@ -160,6 +163,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.productMeasureSnapshot && typeof data.productMeasureSnapshot === "object"
             ? JSON.stringify(data.productMeasureSnapshot)
             : null,
+          data.gradedCard && typeof data.gradedCard === "object" ? JSON.stringify(data.gradedCard) : null,
           data.storageLocationName,
           data.shipFromCode,
           JSON.stringify(data.shipFromAddress),

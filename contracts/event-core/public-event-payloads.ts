@@ -115,6 +115,7 @@ export type MarketplaceListingCreatedPayload = Readonly<{
   selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
   productSummary: string | null;
   productMeasureSnapshot?: JsonValue;
+  gradedCard?: JsonValue;
   storageLocationName: string | null;
   shipFromCode: string | null;
   shipFromAddress: JsonValue;

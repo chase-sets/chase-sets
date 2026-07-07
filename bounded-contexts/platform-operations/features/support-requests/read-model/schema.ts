@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS support_request_pages (
   updated_at timestamptz NOT NULL,
   seller_response_due_at timestamptz NULL,
   support_review_due_at timestamptz NULL,
+  seller_condition_attestation_due_at timestamptz NULL,
+  order_return_context jsonb NOT NULL DEFAULT '[]'::jsonb,
+  return_investigation jsonb NULL,
   checklist jsonb NOT NULL DEFAULT '[]'::jsonb,
   evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
   responses jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -28,6 +31,11 @@ ALTER TABLE support_request_pages
 
 ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS pending_offer jsonb NULL;
+
+ALTER TABLE support_request_pages
+  ADD COLUMN IF NOT EXISTS seller_condition_attestation_due_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS order_return_context jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS return_investigation jsonb NULL;
 
 CREATE INDEX IF NOT EXISTS support_request_pages_buyer_idx
   ON support_request_pages (buyer_account_id, updated_at DESC, support_request_id DESC);

@@ -105,6 +105,7 @@ function pendingReservationOrderState() {
         itemSubtitle: null,
         selectedOptions: [],
         productSummary: null,
+        gradedCard: null,
         unitPriceAmount: "20.00",
         quantity: 1,
         lineTotalAmount: "20.00",

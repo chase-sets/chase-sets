@@ -14,6 +14,7 @@ type ListingInputRow = {
   selected_options: string;
   product_summary: string | null;
   product_measure_snapshot: string | null;
+  graded_card: string | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
   ship_from_address: string;
@@ -81,24 +82,25 @@ class ProjectionDb implements PgQueryable {
         selected_options: String(values[7]),
         product_summary: values[8] === null ? null : String(values[8]),
         product_measure_snapshot: values[9] === null ? null : String(values[9]),
-        storage_location_name: values[10] === null ? null : String(values[10]),
-        ship_from_code: values[11] === null ? null : String(values[11]),
-        ship_from_address: String(values[12]),
-        price_amount: String(values[13]),
-        marketplace_sales_fee_unit_amount: String(values[14]),
-        seller_net_unit_amount: String(values[15]),
-        shipping_allowance_percentage_bps: Number(values[16]),
-        terms_schedule_id: values[17] === null ? null : String(values[17]),
-        terms_agreement_id: values[18] === null ? null : String(values[18]),
-        terms_resolved_at: values[19] === null ? null : String(values[19]),
-        quantity_cap: Number(values[20]),
-        max_units_per_order: values[21] === null ? null : Number(values[21]),
-        max_units_per_day: values[22] === null ? null : Number(values[22]),
-        max_units_per_customer_account: values[23] === null ? null : Number(values[23]),
+        graded_card: values[10] === null ? null : String(values[10]),
+        storage_location_name: values[11] === null ? null : String(values[11]),
+        ship_from_code: values[12] === null ? null : String(values[12]),
+        ship_from_address: String(values[13]),
+        price_amount: String(values[14]),
+        marketplace_sales_fee_unit_amount: String(values[15]),
+        seller_net_unit_amount: String(values[16]),
+        shipping_allowance_percentage_bps: Number(values[17]),
+        terms_schedule_id: values[18] === null ? null : String(values[18]),
+        terms_agreement_id: values[19] === null ? null : String(values[19]),
+        terms_resolved_at: values[20] === null ? null : String(values[20]),
+        quantity_cap: Number(values[21]),
+        max_units_per_order: values[22] === null ? null : Number(values[22]),
+        max_units_per_day: values[23] === null ? null : Number(values[23]),
+        max_units_per_customer_account: values[24] === null ? null : Number(values[24]),
         seller_listing_availability_status:
           existing?.seller_listing_availability_status ?? this.sellerAvailability.get(String(values[1])) ?? "available",
         status: "draft",
-        updated_at: String(values[24]),
+        updated_at: String(values[25]),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -201,6 +203,7 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
     selectedOptions: [],
     productSummary: "Charizard - Base Set",
     productMeasureSnapshot: null,
+    gradedCard: null,
     storageLocationName: "Vault",
     shipFromCode: "VAULT",
     shipFromAddress: {
@@ -323,6 +326,29 @@ describe("ordering marketplace supply projection", () => {
       }),
       updated_at: "2026-05-09T00:00:00.000Z",
     });
+  });
+
+  it("stores graded-card snapshots for downstream order and return context", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildOrderingMarketplaceSupplyProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(
+      createdEvent({
+        gradedCard: {
+          gradingCompany: "PSA",
+          grade: "10",
+          certificationNumber: "81234567",
+        },
+      }),
+    );
+
+    expect(db.listings.get("lst_1")?.graded_card).toBe(
+      JSON.stringify({
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: "81234567",
+      }),
+    );
   });
 
   it("records accepted-offer inputs and hands them to Ordering order creation", async () => {

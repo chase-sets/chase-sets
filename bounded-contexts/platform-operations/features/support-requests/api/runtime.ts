@@ -19,6 +19,7 @@ import {
   SupportDomainError,
   type SupportEvidenceType,
   type SupportFlowType,
+  type SupportOrderReturnContextLine,
   type SupportRequesterRole,
   type SupportResolutionType,
   type SupportResponseType,
@@ -61,6 +62,7 @@ export type SupportOrderSource = Readonly<{
   seller_account_id: string;
   status: string;
   total_amount: string;
+  return_context: readonly SupportOrderReturnContextLine[];
 }>;
 
 export type SupportOrderContext = Readonly<{
@@ -189,7 +191,8 @@ async function getOrderSource(db: PgQueryable, orderId: string): Promise<Support
        buyer_account_id,
        seller_account_id,
        status,
-       total_amount::text AS total_amount
+       total_amount::text AS total_amount,
+       return_context
      FROM support_order_sources
      WHERE order_id = $1`,
     [orderId],
@@ -343,6 +346,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           openedByAccountId: params.accountId as AccountId,
           openedByRole,
           openedAt: new Date().toISOString(),
+          orderReturnContext: order.return_context,
         },
         context,
       });
@@ -351,6 +355,9 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     },
     submitEvidence: async (params, context) => {
       await requireMutableSupportRequest(deps.db, params);
+      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      const resolvedByRole =
+        params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
@@ -444,7 +451,9 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     resolveSupportRequest: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, params);
+      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      const resolvedByRole =
+        params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
@@ -453,6 +462,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           summary: params.summary,
           refundAmount: params.refundAmount ?? null,
           resolvedByAccountId: params.accountId as AccountId,
+          resolvedByRole,
           resolvedAt: new Date().toISOString(),
         },
         context,

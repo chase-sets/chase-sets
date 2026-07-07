@@ -88,6 +88,7 @@ describe("support request runtime", () => {
                 seller_account_id: "acc_seller",
                 status: "ready-for-fulfillment",
                 total_amount: "24.00",
+                return_context: [],
               },
             ],
           };
@@ -137,6 +138,7 @@ describe("support request runtime", () => {
                 seller_account_id: "acc_seller",
                 status: "ready-for-fulfillment",
                 total_amount: "24.00",
+                return_context: [],
               },
             ],
           };
@@ -245,6 +247,7 @@ describe("support request runtime", () => {
                 seller_account_id: "acc_seller",
                 status: "ready-for-fulfillment",
                 total_amount: "24.00",
+                return_context: [],
               },
             ],
           };

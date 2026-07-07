@@ -43,6 +43,70 @@ function openProductNotAsDescribed() {
   });
 }
 
+function openReturnRequest(orderTotalAmount = "249.99") {
+  return decideSupportRequest(initialSupportRequestState, {
+    type: "OpenSupportRequest",
+    supportRequestId: "sup_return" as never,
+    orderId: "ord_01" as never,
+    orderTotalAmount,
+    buyerAccountId: "acc_buyer" as never,
+    sellerAccountId: "acc_seller" as never,
+    flowType: "return-request",
+    openedByAccountId: "acc_buyer" as never,
+    openedByRole: "buyer",
+    openedAt,
+    orderReturnContext: [
+      {
+        lineId: "line_1",
+        listingId: "lst_1",
+        itemTitle: "Charizard",
+        productSummary: "Base Set",
+        quantity: 1,
+        gradedCard: {
+          gradingCompany: "PSA",
+          grade: "10",
+          certificationNumber: "81234567",
+        },
+      },
+    ],
+  });
+}
+
+function submitReturnEvidence(state: SupportRequestState) {
+  const reason = decideSupportRequest(state, {
+    type: "SubmitSupportEvidence",
+    evidenceId: "ev_reason",
+    submittedByAccountId: "acc_buyer" as never,
+    submittedByRole: "buyer",
+    evidenceType: "return-reason",
+    summary: "Changed mind within the return window.",
+    submittedAt: "2026-05-09T13:00:00.000Z",
+  });
+  const afterReason = fold([...openReturnRequest(), ...reason]);
+  const photo = decideSupportRequest(afterReason, {
+    type: "SubmitSupportEvidence",
+    evidenceId: "ev_photo",
+    submittedByAccountId: "acc_buyer" as never,
+    submittedByRole: "buyer",
+    evidenceType: "photo",
+    summary: "As-received front and back photos.",
+    attachments: ["att_front", "att_back"],
+    submittedAt: "2026-05-09T13:05:00.000Z",
+  });
+  const afterPhoto = fold([...openReturnRequest(), ...reason, ...photo]);
+  const notes = decideSupportRequest(afterPhoto, {
+    type: "SubmitSupportEvidence",
+    evidenceId: "ev_notes",
+    submittedByAccountId: "acc_buyer" as never,
+    submittedByRole: "buyer",
+    evidenceType: "condition-notes",
+    summary: "Card appears unchanged from delivery.",
+    submittedAt: "2026-05-09T13:10:00.000Z",
+  });
+
+  return [...reason, ...photo, ...notes];
+}
+
 function recordPartialRefundOffer(state: SupportRequestState, refundAmount = "12.50") {
   return decideSupportRequest(state, {
     type: "RecordSupportResponse",
@@ -128,6 +192,131 @@ describe("support request domain", () => {
       sellerResponseDueAt: "2026-05-10T12:00:00.000Z",
       supportReviewDueAt: "2026-05-10T00:00:00.000Z",
     });
+  });
+
+  it("requires return-request photo evidence with attachments before refund resolution", () => {
+    const opened = openReturnRequest();
+    const state = fold(opened);
+
+    expect(opened[0]).toMatchObject({
+      data: {
+        flowType: "return-request",
+        checklist: expect.arrayContaining([
+          expect.objectContaining({ key: "return-reason", required: true }),
+          expect.objectContaining({ key: "return-condition-evidence", required: true }),
+        ]),
+        orderReturnContext: [
+          {
+            gradedCard: {
+              certificationNumber: "81234567",
+            },
+          },
+        ],
+      },
+    });
+    expect(() =>
+      decideSupportRequest(state, {
+        type: "SubmitSupportEvidence",
+        evidenceId: "ev_photo",
+        submittedByAccountId: "acc_buyer" as never,
+        submittedByRole: "buyer",
+        evidenceType: "photo",
+        summary: "Photo evidence without an asset.",
+        submittedAt: "2026-05-09T13:00:00.000Z",
+      }),
+    ).toThrow("Return photo evidence requires at least one attachment.");
+    expect(() =>
+      decideSupportRequest(state, {
+        type: "ResolveSupportRequest",
+        resolutionType: "return-for-refund",
+        summary: "Refund approved.",
+        resolvedByAccountId: "acc_support" as never,
+        resolvedByRole: "support",
+        resolvedAt: "2026-05-09T14:00:00.000Z",
+      }),
+    ).toThrow("Return refund resolution requires completed return evidence.");
+  });
+
+  it("routes return requests at the high-value threshold to support review", () => {
+    const below = openReturnRequest("249.99");
+    const atThreshold = openReturnRequest("250.00");
+
+    expect(below[0]).toMatchObject({ data: { status: "waiting-on-seller" } });
+    expect(atThreshold[0]).toMatchObject({ data: { status: "ready-for-support" } });
+  });
+
+  it("requires support review before high-value return refund release", () => {
+    const opened = openReturnRequest("250.00");
+    const evidence = submitReturnEvidence(fold(opened));
+    const state = fold([...opened, ...evidence]);
+
+    expect(() =>
+      decideSupportRequest(state, {
+        type: "ResolveSupportRequest",
+        resolutionType: "return-for-refund",
+        summary: "Buyer and seller agreed.",
+        resolvedByAccountId: "acc_seller" as never,
+        resolvedByRole: "seller",
+        resolvedAt: "2026-05-09T14:00:00.000Z",
+      }),
+    ).toThrow("High-value return refunds require support review.");
+
+    expect(
+      decideSupportRequest(state, {
+        type: "ResolveSupportRequest",
+        resolutionType: "return-for-refund",
+        summary: "Support reviewed the high-value return.",
+        resolvedByAccountId: "acc_support" as never,
+        resolvedByRole: "support",
+        resolvedAt: "2026-05-09T14:00:00.000Z",
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("opens seller condition-attestation after return delivery and converts discrepancies to support review", () => {
+    const opened = openReturnRequest();
+    const evidence = submitReturnEvidence(fold(opened));
+    const ready = fold([...opened, ...evidence]);
+    const delivered = decideSupportRequest(ready, {
+      type: "SubmitSupportEvidence",
+      evidenceId: "ev_return_delivery",
+      submittedByAccountId: "acc_support" as never,
+      submittedByRole: "support",
+      evidenceType: "return-delivery-confirmation",
+      summary: "Return delivery scan confirmed.",
+      submittedAt: "2026-05-12T12:00:00.000Z",
+    });
+    const awaitingSeller = fold([...opened, ...evidence, ...delivered]);
+
+    expect(awaitingSeller.sellerConditionAttestationDueAt).toBe("2026-05-15T12:00:00.000Z");
+    expect(awaitingSeller.checklist).toContainEqual(
+      expect.objectContaining({
+        key: "seller-return-condition-attestation",
+        satisfiedAt: null,
+      }),
+    );
+
+    const discrepancy = decideSupportRequest(awaitingSeller, {
+      type: "SubmitSupportEvidence",
+      evidenceId: "ev_discrepancy",
+      submittedByAccountId: "acc_seller" as never,
+      submittedByRole: "seller",
+      evidenceType: "return-discrepancy-photo",
+      summary: "Returned card has a different certification number.",
+      attachments: ["att_discrepancy"],
+      submittedAt: "2026-05-12T13:00:00.000Z",
+    });
+    const converted = fold([...opened, ...evidence, ...delivered, ...discrepancy]);
+
+    expect(discrepancy[0]).toMatchObject({
+      data: {
+        status: "ready-for-support",
+        priority: "urgent",
+        returnInvestigation: { reason: "seller-condition-discrepancy" },
+      },
+    });
+    expect(converted.status).toBe("ready-for-support");
+    expect(converted.returnInvestigation).toMatchObject({ reason: "seller-condition-discrepancy" });
   });
 
   it("rejects flow evidence that would make the workflow ambiguous", () => {

@@ -10,7 +10,33 @@ export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): Proj
         shippingDestinationSnapshot?: { email?: string | null } | null;
         sellerAccountId: string;
         totalAmount: string;
+        lines?: Array<{
+          lineId?: string;
+          listingId?: string;
+          itemTitle?: string;
+          productSummary?: string | null;
+          quantity?: number;
+          gradedCard?: {
+            gradingCompany?: string;
+            grade?: string;
+            certificationNumber?: string | null;
+          } | null;
+        }>;
       };
+      const returnContext = (data.lines ?? []).map((line) => ({
+        lineId: String(line.lineId ?? ""),
+        listingId: String(line.listingId ?? ""),
+        itemTitle: String(line.itemTitle ?? "Item"),
+        productSummary: line.productSummary ?? null,
+        quantity: Math.max(1, Math.trunc(Number(line.quantity ?? 1))),
+        gradedCard: line.gradedCard
+          ? {
+              gradingCompany: String(line.gradedCard.gradingCompany ?? ""),
+              grade: String(line.gradedCard.grade ?? ""),
+              certificationNumber: line.gradedCard.certificationNumber ?? null,
+            }
+          : null,
+      }));
 
       await db.query(
         `INSERT INTO support_order_sources (
@@ -20,16 +46,18 @@ export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): Proj
            seller_account_id,
            status,
            total_amount,
+           return_context,
            created_at,
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at
-         ) VALUES ($1, $2, $3, $4, 'created', $5, now(), now(), NULL, NULL)
+         ) VALUES ($1, $2, $3, $4, 'created', $5, $6::jsonb, now(), now(), NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              buyer_email = EXCLUDED.buyer_email,
              seller_account_id = EXCLUDED.seller_account_id,
              total_amount = EXCLUDED.total_amount,
+             return_context = EXCLUDED.return_context,
              updated_at = now()`,
         [
           data.orderId,
@@ -37,6 +65,7 @@ export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): Proj
           data.shippingDestinationSnapshot?.email?.trim() || null,
           data.sellerAccountId,
           data.totalAmount,
+          JSON.stringify(returnContext),
         ],
       );
     },

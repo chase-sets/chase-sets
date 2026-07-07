@@ -119,7 +119,7 @@ function formatDateTime(value: string | null) {
 }
 
 function nextDeadline(request: SupportRequestListItem) {
-  return request.seller_response_due_at ?? request.support_review_due_at;
+  return request.seller_response_due_at ?? request.support_review_due_at ?? request.seller_condition_attestation_due_at;
 }
 
 function checklistSummary(request: SupportRequestListItem) {
@@ -248,7 +248,39 @@ function detailRows(request: SupportRequestDetail) {
       t("support.features.supportRequests.ui.supportOperationsPage.next.deadline"),
       formatDateTime(nextDeadline(request)),
     ],
+    [
+      t("support.features.supportRequests.ui.supportOperationsPage.seller.condition.attestation.due"),
+      formatDateTime(request.seller_condition_attestation_due_at),
+    ],
   ] as const;
+}
+
+function returnContextRows(request: SupportRequestDetail) {
+  return Array.isArray(request.order_return_context)
+    ? request.order_return_context
+        .map((line) => (line && typeof line === "object" ? (line as Record<string, unknown>) : null))
+        .filter((line): line is Record<string, unknown> => Boolean(line))
+    : [];
+}
+
+function gradedCardSummary(line: Record<string, unknown>) {
+  const gradedCard =
+    line.gradedCard && typeof line.gradedCard === "object" ? (line.gradedCard as Record<string, unknown>) : null;
+  if (!gradedCard) {
+    return t("support.features.supportRequests.ui.supportOperationsPage.not.applicable");
+  }
+
+  return [
+    gradedCard.gradingCompany,
+    gradedCard.grade,
+    gradedCard.certificationNumber
+      ? t("support.features.supportRequests.ui.supportOperationsPage.certification.number", {
+          certificationNumber: String(gradedCard.certificationNumber),
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function SupportOperationsDetailPage({
@@ -476,6 +508,43 @@ export function SupportOperationsDetailPage({
               cell: (item) => (
                 <Text element="span" wrap="anywhere">
                   {item.satisfiedAt ?? t("support.features.supportRequests.ui.supportOperationsPage.not.applicable")}
+                </Text>
+              ),
+            },
+          ]}
+        />
+      </PageSection>
+
+      <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.return.context")}>
+        <DataTable
+          density="compact"
+          rows={returnContextRows(request)}
+          getRowId={(item) => String(item.lineId)}
+          emptyTitle={t("support.features.supportRequests.ui.supportOperationsPage.no.return.context")}
+          emptyDescription={t(
+            "support.features.supportRequests.ui.supportOperationsPage.no.return.context.description",
+          )}
+          columns={[
+            {
+              key: "item",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.item"),
+              cell: (item) => (
+                <Text element="span" wrap="anywhere">
+                  {String(item.itemTitle ?? "")}
+                </Text>
+              ),
+            },
+            {
+              key: "listing",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.listing"),
+              cell: (item) => String(item.listingId ?? ""),
+            },
+            {
+              key: "gradedCard",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.graded.card"),
+              cell: (item) => (
+                <Text element="span" wrap="anywhere">
+                  {gradedCardSummary(item)}
                 </Text>
               ),
             },

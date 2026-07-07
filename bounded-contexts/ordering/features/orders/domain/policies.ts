@@ -32,6 +32,11 @@ export type MarketplaceSupplyCandidate = Readonly<{
   selectedOptions: readonly VersionSelectedOptionEntry[];
   productSummary: string | null;
   productMeasureSnapshot: ProductMeasureSnapshot | null;
+  gradedCard: Readonly<{
+    gradingCompany: string;
+    grade: string;
+    certificationNumber: string | null;
+  }> | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
   shipFromAddress: AddressSnapshot;

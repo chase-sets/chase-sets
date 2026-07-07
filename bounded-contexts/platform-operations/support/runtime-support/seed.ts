@@ -305,6 +305,7 @@ export async function seedSupportDatabase(
           summary: "Seeded support partial refund for shipping damage.",
           refundAmount: "5.00",
           resolvedByAccountId: identitySeedIds.demo.accountId,
+          resolvedByRole: "support",
           resolvedAt: "2026-03-25T10:30:00.000Z",
         },
         context: supportContext,

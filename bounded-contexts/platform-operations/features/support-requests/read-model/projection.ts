@@ -24,6 +24,9 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         openedAt: string;
         sellerResponseDueAt: string | null;
         supportReviewDueAt: string | null;
+        sellerConditionAttestationDueAt: string | null;
+        orderReturnContext: unknown;
+        returnInvestigation: unknown;
         checklist: readonly SupportChecklistItem[];
       };
 
@@ -42,6 +45,9 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
            updated_at,
            seller_response_due_at,
            support_review_due_at,
+           seller_condition_attestation_due_at,
+           order_return_context,
+           return_investigation,
            checklist,
            evidence,
            responses,
@@ -51,8 +57,8 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
            closed_at,
            cancellation_reason
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12,
-           $13::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13,
+           $14::jsonb, $15::jsonb, $16::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (support_request_id) DO UPDATE
          SET status = EXCLUDED.status,
@@ -60,6 +66,9 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
              updated_at = EXCLUDED.updated_at,
              seller_response_due_at = EXCLUDED.seller_response_due_at,
              support_review_due_at = EXCLUDED.support_review_due_at,
+             seller_condition_attestation_due_at = EXCLUDED.seller_condition_attestation_due_at,
+             order_return_context = EXCLUDED.order_return_context,
+             return_investigation = EXCLUDED.return_investigation,
              checklist = EXCLUDED.checklist`,
         [
           data.supportRequestId,
@@ -74,6 +83,9 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
           data.openedAt,
           data.sellerResponseDueAt,
           data.supportReviewDueAt,
+          data.sellerConditionAttestationDueAt,
+          JSON.stringify(data.orderReturnContext ?? []),
+          data.returnInvestigation ? JSON.stringify(data.returnInvestigation) : null,
           JSON.stringify(data.checklist),
         ],
       );
@@ -83,20 +95,29 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         supportRequestId: string;
         evidence: SupportEvidence;
         status: string;
+        priority: string;
+        sellerConditionAttestationDueAt: string | null;
+        returnInvestigation: unknown;
         updatedChecklist: readonly SupportChecklistItem[];
       };
 
       await db.query(
         `UPDATE support_request_pages
          SET status = $2,
-             updated_at = $3,
-             checklist = $4::jsonb,
-             evidence = evidence || $5::jsonb
+             priority = $3,
+             updated_at = $4,
+             seller_condition_attestation_due_at = $5,
+             return_investigation = $6::jsonb,
+             checklist = $7::jsonb,
+             evidence = evidence || $8::jsonb
          WHERE support_request_id = $1`,
         [
           data.supportRequestId,
           data.status,
+          data.priority,
           data.evidence.submittedAt,
+          data.sellerConditionAttestationDueAt,
+          data.returnInvestigation ? JSON.stringify(data.returnInvestigation) : null,
           JSON.stringify(data.updatedChecklist),
           JSON.stringify([data.evidence]),
         ],
