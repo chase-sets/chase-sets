@@ -222,6 +222,14 @@ export async function runRepresentativeCommerceState(): Promise<void> {
                 mode: config.postage.mode,
               })
             : createSandboxPostageLabelProvider(),
+        addressVerificationProvider:
+          config.postage.kind === "easypost"
+            ? createEasyPostPostageLabelProvider({
+                apiKey: config.postage.apiKey,
+                apiBaseUrl: config.postage.apiBaseUrl,
+                mode: config.postage.mode,
+              })
+            : createSandboxPostageLabelProvider(),
         catalogAssetStorage: createObjectStorage(config.catalogAssetStorage),
         listingPhotoStorage: createObjectStorage(config.listingPhotoStorage),
       },

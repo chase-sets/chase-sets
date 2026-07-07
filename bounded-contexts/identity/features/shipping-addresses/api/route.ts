@@ -22,6 +22,7 @@ type AddressBody = Readonly<{
   phone?: unknown;
   email?: unknown;
   makeDefault?: unknown;
+  addressVerificationDecision?: unknown;
 }>;
 
 function optionalText(value: unknown) {
@@ -53,6 +54,30 @@ function addressFromBody(body: AddressBody): ShippingAddressSnapshot {
 
 function isTrue(value: unknown) {
   return value === true || value === "true";
+}
+
+function parseAddressVerificationDecision(value: unknown) {
+  return value === "accept-suggested" || value === "keep-original" ? value : null;
+}
+
+function addressVerificationChoiceResponse(
+  choice: Extract<Awaited<ReturnType<ShippingAddressServices["verifyShippingAddress"]>>, { status: "choice-required" }>,
+) {
+  return {
+    error: {
+      code: "address_standardization_suggested",
+      message: t("identity.features.shippingAddresses.api.route.address.standardization.suggested"),
+    },
+    suggestedAddress: choice.suggestedAddress,
+    verification: choice.verification,
+    messages: choice.messages,
+  };
+}
+
+function shippingAddressError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Request failed.";
+  const code = message.includes("deliverable address") ? "shipping_address_undeliverable" : "validation_failed";
+  return { error: { code, message } };
 }
 
 function canAccessAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId: string, write: boolean) {
@@ -115,19 +140,31 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
     }
     const body = await c.req.json<AddressBody>();
     const shippingAddressId = createId("adr") as ShippingAddressId;
-    const result = await services.commandHandler({
-      streamId: `identity.shipping-address-book-${accountId}`,
-      command: {
-        type: "AddShippingAddress",
-        accountId: accountId as AccountId,
-        shippingAddressId,
-        label: optionalText(body.label),
-        address: addressFromBody(body),
-        makeDefault: isTrue(body.makeDefault),
-        addedAt: new Date().toISOString(),
-      },
-      context,
-    });
+    let result: Awaited<ReturnType<ShippingAddressServices["commandHandler"]>>;
+    try {
+      const verification = await services.verifyShippingAddress(
+        addressFromBody(body),
+        parseAddressVerificationDecision(body.addressVerificationDecision),
+      );
+      if (verification.status === "choice-required") {
+        return c.json(addressVerificationChoiceResponse(verification), 409);
+      }
+      result = await services.commandHandler({
+        streamId: `identity.shipping-address-book-${accountId}`,
+        command: {
+          type: "AddShippingAddress",
+          accountId: accountId as AccountId,
+          shippingAddressId,
+          label: optionalText(body.label),
+          address: verification.address,
+          makeDefault: isTrue(body.makeDefault),
+          addedAt: new Date().toISOString(),
+        },
+        context,
+      });
+    } catch (error) {
+      return c.json(shippingAddressError(error), 400);
+    }
     return c.json(
       {
         id: shippingAddressId,
@@ -157,18 +194,30 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
     }
     const body = await c.req.json<AddressBody>();
     const shippingAddressId = c.req.param("shippingAddressId") as ShippingAddressId;
-    const result = await services.commandHandler({
-      streamId: `identity.shipping-address-book-${accountId}`,
-      command: {
-        type: "UpdateShippingAddress",
-        shippingAddressId,
-        label: optionalText(body.label),
-        address: addressFromBody(body),
-        makeDefault: isTrue(body.makeDefault),
-        updatedAt: new Date().toISOString(),
-      },
-      context,
-    });
+    let result: Awaited<ReturnType<ShippingAddressServices["commandHandler"]>>;
+    try {
+      const verification = await services.verifyShippingAddress(
+        addressFromBody(body),
+        parseAddressVerificationDecision(body.addressVerificationDecision),
+      );
+      if (verification.status === "choice-required") {
+        return c.json(addressVerificationChoiceResponse(verification), 409);
+      }
+      result = await services.commandHandler({
+        streamId: `identity.shipping-address-book-${accountId}`,
+        command: {
+          type: "UpdateShippingAddress",
+          shippingAddressId,
+          label: optionalText(body.label),
+          address: verification.address,
+          makeDefault: isTrue(body.makeDefault),
+          updatedAt: new Date().toISOString(),
+        },
+        context,
+      });
+    } catch (error) {
+      return c.json(shippingAddressError(error), 400);
+    }
     return c.json({
       id: shippingAddressId,
       version: result.version,

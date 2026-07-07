@@ -96,7 +96,7 @@ describe("marketplace search", () => {
     const checkoutServices = checkoutModule.createServices(pools.checkout, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
-    const identityServices = identityModule.createServices(pools.identity, undefined);
+    const identityServices = identityModule.createServices(pools.identity, {});
     const inventoryServices = inventoryModule.createServices(pools.inventory, {});
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),

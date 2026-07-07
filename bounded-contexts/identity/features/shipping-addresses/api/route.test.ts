@@ -53,6 +53,7 @@ function buildServices(overrides: Partial<ShippingAddressServices> = {}) {
     })),
     listShippingAddresses: vi.fn(async () => []),
     getShippingAddress: vi.fn(async () => null),
+    verifyShippingAddress: vi.fn(async (address) => ({ status: "accepted", address }) as const),
     projectors: [],
     ...overrides,
   } as ShippingAddressServices;
@@ -70,6 +71,145 @@ describe("shipping address API route", () => {
 
     expect(response.status).toBe(201);
     expect(services.commandHandler).toHaveBeenCalledOnce();
+  });
+
+  it("saves the verified address snapshot returned by verification", async () => {
+    const verifiedAddress = {
+      name: "Alex Collector",
+      company: null,
+      line1: "100 Main St",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+      verification: {
+        status: "verified" as const,
+        source: "easypost:test",
+        checkedAt: "2026-07-07T00:00:00.000Z",
+      },
+    };
+    const services = buildServices({
+      verifyShippingAddress: vi.fn(async () => ({ status: "accepted", address: verifiedAddress }) as const),
+    });
+
+    const response = await buildApp(services).request("/accounts/acc_1/shipping-addresses", {
+      method: "POST",
+      body: JSON.stringify(addressBody),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(services.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({ address: verifiedAddress }),
+      }),
+    );
+  });
+
+  it("returns a standardized address choice before saving", async () => {
+    const suggestedAddress = {
+      name: "Alex Collector",
+      company: null,
+      line1: "100 W Main St",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601-1000",
+      country: "US",
+      phone: null,
+      email: null,
+    };
+    const services = buildServices({
+      verifyShippingAddress: vi.fn(
+        async () =>
+          ({
+            status: "choice-required",
+            suggestedAddress,
+            verification: {
+              status: "corrected",
+              source: "easypost:test",
+              checkedAt: "2026-07-07T00:00:00.000Z",
+              suggestedAddress,
+            },
+            messages: ["USPS standardized this address."],
+          }) as const,
+      ),
+    });
+
+    const response = await buildApp(services).request("/accounts/acc_1/shipping-addresses", {
+      method: "POST",
+      body: JSON.stringify(addressBody),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "address_standardization_suggested" },
+      suggestedAddress,
+    });
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("blocks undeliverable saved addresses", async () => {
+    const services = buildServices({
+      verifyShippingAddress: vi.fn(async () => {
+        throw new Error(
+          "We could not verify this as a deliverable address. Use a deliverable shipping address before saving.",
+        );
+      }),
+    });
+
+    const response = await buildApp(services).request("/accounts/acc_1/shipping-addresses", {
+      method: "POST",
+      body: JSON.stringify(addressBody),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "shipping_address_undeliverable" },
+    });
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("saves buyer-confirmed unverified addresses when verification is unavailable", async () => {
+    const unverifiedAddress = {
+      name: "Alex Collector",
+      company: null,
+      line1: "100 Main St",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+      verification: {
+        status: "unverified" as const,
+        source: "easypost:test",
+        checkedAt: "2026-07-07T00:00:00.000Z",
+        buyerDecision: "provider-unavailable" as const,
+      },
+    };
+    const services = buildServices({
+      verifyShippingAddress: vi.fn(async () => ({ status: "accepted", address: unverifiedAddress }) as const),
+    });
+
+    const response = await buildApp(services).request("/accounts/acc_1/shipping-addresses", {
+      method: "POST",
+      body: JSON.stringify(addressBody),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(services.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({ address: unverifiedAddress }),
+      }),
+    );
   });
 
   it("rejects same-permission owners reading another account's shipping addresses", async () => {

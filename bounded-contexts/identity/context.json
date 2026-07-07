@@ -98,7 +98,13 @@
       "resetStrategy": "truncate-owned-tables"
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "addressVerificationProvider",
+      "providedBy": "platform-api",
+      "purpose": "Verifies buyer-saved shipping addresses through the configured postage provider before Identity commits address snapshots."
+    }
+  ],
   "apiDeployables": ["platform-api"],
   "runtimeDeployables": ["platform-worker"],
   "apiMounts": [

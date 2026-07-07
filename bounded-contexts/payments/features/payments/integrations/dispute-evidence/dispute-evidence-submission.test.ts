@@ -232,6 +232,43 @@ describe("payment dispute evidence submission", () => {
     expect(assembled?.evidenceSummary.hasDeliveryProof).toBe(false);
   });
 
+  it("cites buyer-confirmed unverified address facts in dispute evidence", () => {
+    const assembled = assembleProcessorDisputeEvidence({
+      dispute: dispute(),
+      orders: [orderRow()],
+      fulfillmentSources: [
+        shipment({
+          shipping_destination_snapshot: {
+            ...shipment().shipping_destination_snapshot!,
+            verification: {
+              status: "unverified",
+              source: "easypost:test",
+              checkedAt: "2026-07-07T00:00:00.000Z",
+              buyerDecision: "kept-original",
+              suggestedAddress: {
+                name: "Buyer Example",
+                line1: "123 Test Street",
+                line2: null,
+                city: "Chicago",
+                state: "IL",
+                postalCode: "60601-1000",
+                country: "US",
+                email: "buyer@example.test",
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(assembled?.evidence.uncategorizedText).toContain(
+      "Address verification status: unverified via easypost:test at 2026-07-07T00:00:00.000Z.",
+    );
+    expect(assembled?.evidence.uncategorizedText).toContain(
+      "Buyer confirmed the original unverified shipping address.",
+    );
+  });
+
   it("records no tracking available without submitting to Stripe", async () => {
     const processorGateway = gateway();
     const commandHandler = paymentCommandHandler();

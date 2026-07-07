@@ -271,6 +271,8 @@ export const identityEnglishTranslations = {
   "identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses": "Manage shipping addresses",
   "identity.features.accounts.ui.accountProfilePage.manage.ship.from.locations": "Manage ship-from locations",
   "identity.features.shippingAddresses.api.route.authentication.context.missing": "Authentication context missing.",
+  "identity.features.shippingAddresses.api.route.address.standardization.suggested":
+    "We found a standardized version of this address. Choose the suggested address or confirm the address as entered.",
   "identity.features.shippingAddresses.api.route.forbidden": "Forbidden.",
   "identity.features.shippingAddresses.ui.shippingAddressPage.account": "Account",
   "identity.features.shippingAddresses.ui.shippingAddressPage.add.description":

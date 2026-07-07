@@ -6,6 +6,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, CheckoutSessionId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutCartServices } from "../../cart/api/runtime";
@@ -52,6 +53,11 @@ import {
 } from "../integrations/payments/payment-summary-queries";
 import { assertCheckoutLinesHaveAssignedFulfillment, unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import type { CheckoutSourceCommitPosition } from "../domain/domain";
+import {
+  verifyCheckoutShippingAddress,
+  type AddressVerificationDecision,
+  type CheckoutAddressVerificationOutcome,
+} from "./address-verification";
 
 export type CheckoutSessionMutationResult = Readonly<{
   sessionId: string;
@@ -81,6 +87,7 @@ export type CheckoutSessionRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   cart: CheckoutCartServices;
+  addressVerificationProvider?: PostageLabelProvider | null;
 }>;
 
 export type CheckoutSessionServices = Readonly<{
@@ -166,9 +173,14 @@ export type CheckoutSessionServices = Readonly<{
       sessionId: string;
       accountId: AccountId;
       shippingAddress: CheckoutShippingAddress;
+      addressVerificationDecision?: AddressVerificationDecision;
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  verifyShippingAddress: (
+    address: CheckoutShippingAddress,
+    decision?: AddressVerificationDecision,
+  ) => Promise<CheckoutAddressVerificationOutcome>;
   recordOrdersCreated: (
     params: Readonly<{
       sessionId: string;
@@ -821,19 +833,40 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       );
     },
     setShippingAddress: async (params, context) => {
+      const verification = params.shippingAddress.verification
+        ? ({ status: "accepted", shippingAddress: params.shippingAddress } as const)
+        : await verifyCheckoutShippingAddress(
+            deps.addressVerificationProvider,
+            params.shippingAddress,
+            params.addressVerificationDecision ?? null,
+          );
+      if (verification.status === "choice-required") {
+        throw new CheckoutDomainError(
+          "Confirm the suggested shipping address before continuing.",
+          "address_choice_required",
+        );
+      }
+      if (verification.status !== "accepted") {
+        throw new CheckoutDomainError(
+          "Confirm the suggested shipping address before continuing.",
+          "address_choice_required",
+        );
+      }
       return applySessionCommandForBuyer(
         {
           sessionId: params.sessionId,
           accountId: params.accountId,
           command: {
             type: "SetShippingAddress",
-            shippingAddress: params.shippingAddress,
+            shippingAddress: verification.shippingAddress,
             selectedAt: new Date().toISOString(),
           },
         },
         context,
       );
     },
+    verifyShippingAddress: (address, decision) =>
+      verifyCheckoutShippingAddress(deps.addressVerificationProvider, address, decision ?? null),
     assertReadyForOrderCreation: async (params) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);

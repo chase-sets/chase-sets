@@ -4,6 +4,17 @@ export function createSandboxPostageLabelProvider(): PostageLabelProvider {
   return {
     providerName: "sandbox-usps",
     providerMode: "test",
+    async verifyAddress(request) {
+      return {
+        providerName: "sandbox-usps",
+        providerMode: "test",
+        status: "verified",
+        checkedAt: new Date().toISOString(),
+        address: request.address,
+        suggestedAddress: null,
+        messages: [],
+      };
+    },
     async purchaseUspsLabel(request) {
       const suffix = request.idempotencyKey.replace(/[^a-zA-Z0-9]/g, "").slice(-10) || "TEST";
       return {

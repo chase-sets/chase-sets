@@ -21,6 +21,7 @@ describe("ShippingAddressPage", () => {
             country: "US",
             phone: null,
             email: null,
+            verification: null,
             is_default: true,
             is_archived: false,
             created_at: "2026-05-13T10:00:00.000Z",

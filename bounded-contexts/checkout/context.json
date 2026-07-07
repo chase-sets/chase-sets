@@ -257,6 +257,11 @@
       "portName": "checkoutObservabilityTelemetry",
       "providedBy": "platform-api",
       "purpose": "Emits bounded, redacted Milestone #17 Checkout observability events through the platform observability runtime."
+    },
+    {
+      "portName": "addressVerificationProvider",
+      "providedBy": "platform-api",
+      "purpose": "Verifies buyer-entered shipping addresses through the configured postage provider before checkout commits address snapshots."
     }
   ],
   "apiDeployables": ["platform-api"],

@@ -82,8 +82,8 @@ describe("shipping address projection", () => {
       }),
     );
 
-    expect(db.queries[0]?.sql).toContain("AND account_id = $15");
-    expect(db.queries[0]?.values[14]).toBe("acc_1");
+    expect(db.queries[0]?.sql).toContain("AND account_id = $16");
+    expect(db.queries[0]?.values[15]).toBe("acc_1");
     expect(db.queries[1]?.sql).toContain("AND account_id = $3");
     expect(db.queries[1]?.values[2]).toBe("acc_1");
   });

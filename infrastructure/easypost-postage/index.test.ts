@@ -37,6 +37,112 @@ const sampleRequest = {
 };
 
 describe("EasyPost postage adapter", () => {
+  it("verifies deliverable addresses through EasyPost delivery verification", async () => {
+    const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.address.verify).toEqual(["delivery"]);
+      expect(body.address.street1).toBe("2 Market St");
+
+      return Response.json({
+        id: "adr_provider_1",
+        mode: "test",
+        name: "Buyer",
+        street1: "2 Market St",
+        city: "Chicago",
+        state: "IL",
+        zip: "60601",
+        country: "US",
+        verifications: {
+          delivery: {
+            success: true,
+            errors: [],
+          },
+        },
+      });
+    });
+    const provider = createEasyPostPostageLabelProvider({
+      apiKey: "EZTK_test",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    const result = await provider.verifyAddress?.({ address: sampleRequest.recipient });
+
+    expect(result).toMatchObject({
+      providerName: "easypost",
+      providerMode: "test",
+      status: "verified",
+      suggestedAddress: null,
+      address: expect.objectContaining({ street1: "2 Market St" }),
+    });
+  });
+
+  it("returns standardized suggestions when EasyPost corrects a deliverable address", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        id: "adr_provider_1",
+        mode: "test",
+        name: "Buyer",
+        street1: "2 W Market St",
+        city: "Chicago",
+        state: "IL",
+        zip: "60601-1000",
+        country: "US",
+        verifications: {
+          delivery: {
+            success: true,
+            errors: [],
+          },
+        },
+      }),
+    );
+    const provider = createEasyPostPostageLabelProvider({
+      apiKey: "EZTK_test",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    const result = await provider.verifyAddress?.({ address: sampleRequest.recipient });
+
+    expect(result).toMatchObject({
+      status: "corrected",
+      address: expect.objectContaining({ street1: "2 W Market St", postalCode: "60601-1000" }),
+      suggestedAddress: expect.objectContaining({ street1: "2 W Market St", postalCode: "60601-1000" }),
+    });
+  });
+
+  it("maps EasyPost delivery errors to undeliverable address verification", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        id: "adr_provider_1",
+        mode: "test",
+        name: "Buyer",
+        street1: "999 Missing St",
+        city: "Chicago",
+        state: "IL",
+        zip: "60601",
+        country: "US",
+        verifications: {
+          delivery: {
+            success: false,
+            errors: [{ code: "E.ADDRESS.NOT_FOUND", message: "Address does not exist." }],
+          },
+        },
+      }),
+    );
+    const provider = createEasyPostPostageLabelProvider({
+      apiKey: "EZTK_test",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    const result = await provider.verifyAddress?.({
+      address: { ...sampleRequest.recipient, street1: "999 Missing St" },
+    });
+
+    expect(result).toMatchObject({
+      status: "undeliverable",
+      messages: ["E.ADDRESS.NOT_FOUND: Address does not exist."],
+    });
+  });
+
   it("creates a parcel shipment, buys a USPS rate, and maps label metadata", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

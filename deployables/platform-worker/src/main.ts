@@ -216,6 +216,7 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
+    addressVerificationProvider: postageLabelProvider,
     catalogAssetStorage,
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,

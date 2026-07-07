@@ -259,6 +259,7 @@ const runtime = createPlatformApiHost({
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
+    addressVerificationProvider: postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),

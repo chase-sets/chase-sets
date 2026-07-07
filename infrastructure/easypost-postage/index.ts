@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
+  AddressVerificationResult,
   PostageAddress,
   PostageLabelCapability,
   PostageLabelProvider,
@@ -123,6 +124,34 @@ type EasyPostShipment = Readonly<{
   refund_status?: string | null;
 }>;
 
+type EasyPostAddressVerification = Readonly<{
+  success?: boolean | null;
+  errors?: readonly Readonly<{ message?: string | null; code?: string | null; field?: string | null }>[];
+  details?: Readonly<{
+    latitude?: number | null;
+    longitude?: number | null;
+  }> | null;
+}>;
+
+type EasyPostAddress = Readonly<{
+  id?: string;
+  mode?: PostageProviderMode;
+  name?: string | null;
+  company?: string | null;
+  street1?: string | null;
+  street2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  verifications?: Readonly<{
+    delivery?: EasyPostAddressVerification | null;
+    zip4?: EasyPostAddressVerification | null;
+  }> | null;
+}>;
+
 type EasyPostWebhookEvent = Readonly<{
   id?: unknown;
   object?: unknown;
@@ -183,6 +212,84 @@ function mapPurchasedShipment(
   };
 }
 
+function postageAddressFromEasyPost(address: EasyPostAddress, fallback: PostageAddress): PostageAddress {
+  return {
+    name: normalizeOptionalText(address.name) ?? fallback.name,
+    company: normalizeOptionalText(address.company),
+    street1: normalizeOptionalText(address.street1) ?? fallback.street1,
+    street2: normalizeOptionalText(address.street2),
+    city: normalizeOptionalText(address.city) ?? fallback.city,
+    state: normalizeOptionalText(address.state) ?? fallback.state,
+    postalCode: normalizeOptionalText(address.zip) ?? fallback.postalCode,
+    country: normalizeOptionalText(address.country) ?? fallback.country,
+    phone: normalizeOptionalText(address.phone) ?? fallback.phone ?? null,
+    email: normalizeOptionalText(address.email) ?? fallback.email ?? null,
+  };
+}
+
+function normalizedComparableAddress(address: PostageAddress) {
+  return {
+    street1: address.street1.trim().toLocaleUpperCase("en-US"),
+    street2: (address.street2 ?? "").trim().toLocaleUpperCase("en-US"),
+    city: address.city.trim().toLocaleUpperCase("en-US"),
+    state: address.state.trim().toLocaleUpperCase("en-US"),
+    postalCode: address.postalCode.trim().toLocaleUpperCase("en-US"),
+    country: address.country.trim().toLocaleUpperCase("en-US"),
+  };
+}
+
+function addressesMatch(left: PostageAddress, right: PostageAddress) {
+  return JSON.stringify(normalizedComparableAddress(left)) === JSON.stringify(normalizedComparableAddress(right));
+}
+
+function verificationMessages(verification: EasyPostAddressVerification | null | undefined) {
+  return (verification?.errors ?? []).flatMap((error) => {
+    const message = normalizeOptionalText(error.message);
+    const code = normalizeOptionalText(error.code);
+    return message ? [`${code ? `${code}: ` : ""}${message}`] : [];
+  });
+}
+
+function mapAddressVerification(
+  address: EasyPostAddress,
+  requestedAddress: PostageAddress,
+  providerMode: PostageProviderMode,
+): AddressVerificationResult {
+  const normalizedAddress = postageAddressFromEasyPost(address, requestedAddress);
+  const delivery = address.verifications?.delivery ?? null;
+  const messages = verificationMessages(delivery);
+  const checkedAt = new Date().toISOString();
+  if (delivery?.success === true) {
+    const corrected = !addressesMatch(requestedAddress, normalizedAddress);
+    return {
+      providerName: "easypost",
+      providerMode: address.mode ?? providerMode,
+      status: corrected ? "corrected" : "verified",
+      checkedAt,
+      address: normalizedAddress,
+      suggestedAddress: corrected ? normalizedAddress : null,
+      messages,
+    };
+  }
+
+  const messageText = messages.join(" ").toLocaleLowerCase("en-US");
+  const undeliverable =
+    messageText.includes("undeliverable") ||
+    messageText.includes("not deliverable") ||
+    messageText.includes("invalid") ||
+    messageText.includes("does not exist");
+
+  return {
+    providerName: "easypost",
+    providerMode: address.mode ?? providerMode,
+    status: undeliverable ? "undeliverable" : "unverified",
+    checkedAt,
+    address: requestedAddress,
+    suggestedAddress: addressesMatch(requestedAddress, normalizedAddress) ? null : normalizedAddress,
+    messages,
+  };
+}
+
 export function createEasyPostPostageLabelProvider(
   options: Readonly<{
     apiKey: string;
@@ -211,6 +318,20 @@ export function createEasyPostPostageLabelProvider(
   return {
     providerName: "easypost",
     providerMode,
+    async verifyAddress(request) {
+      const requestedAddress = request.address;
+      const address = await easyPostRequest<EasyPostAddress>("/addresses", {
+        method: "POST",
+        body: JSON.stringify({
+          address: {
+            ...normalizeAddress(requestedAddress),
+            verify: ["delivery"],
+          },
+        }),
+      });
+
+      return mapAddressVerification(address, requestedAddress, providerMode);
+    },
     async purchaseUspsLabel(request) {
       const shipment = await easyPostRequest<EasyPostShipment>("/shipments", {
         method: "POST",

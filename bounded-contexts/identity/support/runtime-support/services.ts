@@ -2,6 +2,7 @@ import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import { createIdentitySecretAdapters } from "../../features/api-keys/api/secret-adapters";
 import { createAccountRuntime } from "../../features/accounts/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
@@ -29,7 +30,11 @@ export type IdentityServices = Readonly<{
   auth: ReturnType<typeof createIdentitySecretAdapters>;
 }>;
 
-export function createIdentityServices(pool: PgTransactionalPool): IdentityServices {
+export type IdentityHostPorts = Readonly<{
+  addressVerificationProvider?: PostageLabelProvider | null;
+}>;
+
+export function createIdentityServices(pool: PgTransactionalPool, ports: IdentityHostPorts = {}): IdentityServices {
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "identity" }),
@@ -37,7 +42,12 @@ export function createIdentityServices(pool: PgTransactionalPool): IdentityServi
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const auth = createIdentitySecretAdapters();
-  const deps = { eventStore, checkpointStore, db } as const;
+  const deps = {
+    eventStore,
+    checkpointStore,
+    db,
+    addressVerificationProvider: ports.addressVerificationProvider,
+  } as const;
 
   const accounts = createAccountRuntime(deps);
   const users = createUserRuntime(deps);

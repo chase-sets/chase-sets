@@ -1,10 +1,5 @@
-import {
-  createAccountUserTestActor,
-  createTestApp,
-  type TestActorOverrides,
-  useMockReset,
-} from "@chase-sets/bounded-context-runtime/test-support";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
 import type { CheckoutSessionServices } from "./runtime";
 
@@ -36,6 +31,58 @@ import { createAccountCheckoutSessionRoutes } from "./route";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
 import type { CheckoutObservabilityTelemetry } from "./checkout-observability-telemetry";
+
+type TestActorOverrides = Partial<NonNullable<CheckoutApiEnv["Variables"]["actor"]>>;
+
+function createAccountUserTestActor(
+  overrides: TestActorOverrides = {},
+): NonNullable<CheckoutApiEnv["Variables"]["actor"]> {
+  return {
+    sessionId: "ses_test",
+    tenantId: "tnt_identity" as never,
+    userId: "usr_test" as never,
+    accountId: "acc_test" as never,
+    membershipId: "mbr_test" as never,
+    roleKey: "owner",
+    permissions: ["accounts.view", "accounts.manage"],
+    ...overrides,
+  };
+}
+
+function useMockReset(...mocks: ReadonlyArray<{ mockReset: () => void }>) {
+  afterEach(() => {
+    for (const mock of mocks) {
+      mock.mockReset();
+    }
+  });
+}
+
+function createTestApp<TEnv extends CheckoutApiEnv>(
+  options: Readonly<{
+    actor: TEnv["Variables"]["actor"];
+    routes: (app: Hono<TEnv>) => void;
+  }>,
+) {
+  const app = new Hono<TEnv>();
+  app.use("*", async (c, next) => {
+    c.set("actor", options.actor as never);
+    c.set(
+      "context",
+      options.actor
+        ? ({
+            tenantId: options.actor.tenantId,
+            audit: {
+              performedByUserId: options.actor.userId,
+              forAccountId: options.actor.accountId,
+            },
+          } as never)
+        : null,
+    );
+    await next();
+  });
+  options.routes(app);
+  return app;
+}
 
 const shippingAddress = {
   name: "Jane Smith",
@@ -192,6 +239,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     selectOptimizationGoal: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordFulfillmentPreview: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     selectShippingOption: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    verifyShippingAddress: vi.fn(async (address) => ({ status: "accepted", shippingAddress: address }) as const),
     setShippingAddress: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     assertReadyForOrderCreation: vi.fn(async ({ sessionId }) => createSession({ session_id: sessionId })),
     recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
@@ -468,6 +516,101 @@ describe("checkout session routes", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("sets verified shipping addresses silently", async () => {
+    const verifiedAddress = {
+      ...shippingAddress,
+      verification: {
+        status: "verified" as const,
+        source: "easypost:test",
+        checkedAt: "2026-07-07T00:00:00.000Z",
+      },
+    };
+    const services = createServices({
+      verifyShippingAddress: vi.fn(async () => ({ status: "accepted", shippingAddress: verifiedAddress }) as const),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/shipping-address", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.setShippingAddress).toHaveBeenCalledWith(
+      expect.objectContaining({ shippingAddress: verifiedAddress }),
+      expect.any(Object),
+    );
+  });
+
+  it("returns a standardized address choice before mutating checkout", async () => {
+    const suggestedAddress = { ...shippingAddress, line1: "100 W Market St", postalCode: "60601-1000" };
+    const services = createServices({
+      verifyShippingAddress: vi.fn(
+        async () =>
+          ({
+            status: "choice-required",
+            suggestedAddress,
+            verification: {
+              status: "corrected",
+              source: "easypost:test",
+              checkedAt: "2026-07-07T00:00:00.000Z",
+              suggestedAddress,
+            },
+            messages: ["USPS standardized this address."],
+          }) as const,
+      ),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/shipping-address", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "address_standardization_suggested" },
+      suggestedAddress,
+    });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+  });
+
+  it("blocks undeliverable checkout shipping addresses", async () => {
+    const services = createServices({
+      verifyShippingAddress: vi.fn(async () => {
+        throw new CheckoutDomainError(
+          "We could not verify this as a deliverable address. Use a deliverable shipping address before continuing.",
+          "shipping_address_undeliverable",
+        );
+      }),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/shipping-address", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "shipping_address_undeliverable",
+        message:
+          "We could not verify this as a deliverable address. Use a deliverable shipping address before continuing.",
+      },
+    });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
   });
 
   it("uses checkout entry attempt keys as idempotent cart session overrides", async () => {
@@ -2568,6 +2711,67 @@ describe("checkout session routes", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/checkout/payments/:paymentId",
+      null,
+      undefined,
+    );
+  });
+
+  it("lets guest checkout proceed with buyer-confirmed unverified address when verification is unavailable", async () => {
+    const unverifiedAddress = {
+      ...shippingAddress,
+      verification: {
+        status: "unverified" as const,
+        source: "easypost:test",
+        checkedAt: "2026-07-07T00:00:00.000Z",
+        buyerDecision: "provider-unavailable" as const,
+      },
+    };
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
+      verifyShippingAddress: vi.fn(async () => ({ status: "accepted", shippingAddress: unverifiedAddress }) as const),
+      setShippingAddress: vi.fn(async ({ sessionId, shippingAddress }) => ({
+        sessionId,
+        session: createSession({ buyer_account_id: "acc_guest", shipping_address: shippingAddress }),
+      })),
+      assertReadyForOrderCreation: vi.fn(async ({ sessionId }) =>
+        createSession({ session_id: sessionId, buyer_account_id: "acc_guest", shipping_address: unverifiedAddress }),
+      ),
+    });
+    const app = buildApp(services, createGuestBuyerActor());
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.setShippingAddress).toHaveBeenCalledWith(
+      expect.objectContaining({ shippingAddress: unverifiedAddress }),
+      expect.any(Object),
+    );
+    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({ shipping_address: unverifiedAddress }),
+      expect.any(Object),
+    );
     expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
       expect.any(Request),
       "chk_1",
