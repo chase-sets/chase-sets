@@ -71,13 +71,30 @@ Values:
 
 ## Restock Decision
 
-A **Restock Decision** is a seller choice for returned stock after the item has already left pre-shipment handling.
+A **Restock Decision** is a seller choice for stock that has already left pre-shipment handling and later came back through a return or post-dispatch cancellation.
 
 Notes:
 
 - Restock Decisions are Inventory-owned because Inventory owns whether returned stock increases available quantity.
 - A pending Restock Decision asks the seller to choose whether returned stock should be restocked or written off.
 - Pre-shipment cancellations do not require Restock Decisions because the stock can return to available quantity automatically.
+- Pending restock-decision stock is not available and is not held.
+- `Restock` records the decision and adjusts the Inventory Item quantity up with reason `return-restocked`.
+- `Write off` records the decision with outcome `written-off` and does not change quantity.
+- Restock decisions carry order provenance so the Inventory Item ledger can link back to the sale.
+
+## Restock Decision Outcome
+
+Values:
+
+- `restocked`: the seller accepted the returned unit back into stock.
+- `written-off`: the seller chose not to return the unit to stock, usually because condition or identity is not acceptable.
+
+## Inventory Adjustment Reason
+
+Values added by returned-stock decisions:
+
+- `return-restocked`: a seller restocked units from a returned order after reviewing the item.
 
 ## Storage Location
 

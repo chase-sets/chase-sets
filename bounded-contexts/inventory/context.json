@@ -4,7 +4,7 @@
   "ownedNouns": ["inventory-item", "inventory-hold", "import-batch", "storage-location"],
   "streamPrefix": "inventory.",
   "apiBasePath": "/api/inventory",
-  "slices": ["inventory-items", "import-batches", "holds", "reservations", "storage-locations"],
+  "slices": ["inventory-items", "import-batches", "holds", "reservations", "restock-decisions", "storage-locations"],
   "allowedSupportDirectories": ["catalog-item-support", "request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/platform-operations"],
@@ -45,6 +45,15 @@
       "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "order": 20,
       "projectionHandlerSetNames": ["inventory-order-reservation-workflow"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "inventory-fulfillment-restock-workflow",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.returned"],
+      "order": 30,
+      "projectionHandlerSetNames": ["inventory-fulfillment-restock-workflow"]
     }
   ],
   "projectionGroups": [
@@ -71,9 +80,24 @@
       "sideEffectOnly": true
     },
     {
+      "projectionName": "inventory-fulfillment-restock-workflow",
+      "sourceContextNames": ["fulfillment"],
+      "optionalSourceContextNames": ["fulfillment"],
+      "ownedTables": ["inventory_fulfillment_shipment_sources"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "inventory-reservation-projection",
       "sourceContextNames": ["inventory"],
       "ownedTables": ["inventory_reservation_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "inventory-restock-decision-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_restock_decisions"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -142,6 +166,21 @@
           "dependencies": [
             {
               "readModelTable": "inventory_storage_locations"
+            }
+          ]
+        },
+        {
+          "routePath": "/restock-decisions",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "inventory_restock_decisions"
+            },
+            {
+              "readModelTable": "inventory_item_ledger"
+            },
+            {
+              "readModelTable": "inventory_items"
             }
           ]
         }
@@ -256,6 +295,33 @@
           "behavior": "Storage location writes redirect with afterWrite and the locations loader converts valid projection catch-up timeouts into route-owned temporary recovery copy."
         }
       }
+    },
+    {
+      "id": "inventory.restock-decision-list",
+      "owner": "inventory",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-inventory-restock-decisions",
+        "actions": ["Record restock decision"],
+        "command": "Restock decision command",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "account-inventory-restock-decisions",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/restock-decisions",
+        "readModelTables": ["inventory_restock_decisions", "inventory_item_ledger", "inventory_items"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Restock decision actions redirect with afterWrite to the pending queue so the list waits for the decision projection before rendering the updated queue."
+        }
+      }
     }
   ],
   "mutationConsistencyInventory": [
@@ -329,6 +395,35 @@
           "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
           "bounded-contexts/inventory/features/import-batches/api/route.test.ts",
           "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "inventory.restock-decision-record-to-list",
+      "owner": "inventory",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "api-route:bounded-contexts/inventory/features/restock-decisions/api/route.ts:POST /:id/decision",
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-inventory-restock-decisions",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/restock-decisions",
+        "readModelTables": ["inventory_restock_decisions", "inventory_item_ledger", "inventory_items"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Restock and write-off actions return a committed decision id/version and redirect to the queue with an afterWrite receipt so the updated pending list is projection-gated."
+        }
+      },
+      "proof": {
+        "authoritativeResponse": "recordRestockDecision returns the committed restock-decision aggregate id/version; restock uses a deterministic inventory adjustment idempotency key before recording the decision outcome.",
+        "tests": [
+          "bounded-contexts/inventory/tests/order-cancellation-subscription.test.ts",
+          "bounded-contexts/inventory/features/restock-decisions/domain/domain.test.ts"
         ]
       }
     },
@@ -444,6 +539,13 @@
           "fileExport": "./routes/marketplace/account-inventory-item",
           "routeType": "route",
           "sourceContext": "inventory"
+        },
+        {
+          "routeId": "account-inventory-restock-decisions",
+          "routePath": "account/inventory/restock-decisions",
+          "fileExport": "./routes/marketplace/account-inventory-restock-decisions",
+          "routeType": "route",
+          "sourceContext": "inventory"
         }
       ]
     }
@@ -472,6 +574,18 @@
       "order": 110,
       "visibility": "signed-in",
       "requiredPermissions": ["inventory.view"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": ["top-nav", "bottom-nav"],
+      "key": "inventory-restock-decisions",
+      "label": "Restock",
+      "icon": "package",
+      "href": "/account/inventory/restock-decisions",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": ["inventory.view"]
     }
   ],
   "directoryIntent": {
@@ -495,6 +609,11 @@
       "purpose": "Own reservations feature behavior, read models, and UI contracts for the inventory context.",
       "expectedConsumers": ["Internal inventory module composition"]
     },
+    "restock-decisions": {
+      "classification": "slice",
+      "purpose": "Own returned-stock seller decision behavior, read models, and UI contracts for the inventory context.",
+      "expectedConsumers": ["Internal inventory module composition"]
+    },
     "storage-locations": {
       "classification": "slice",
       "purpose": "Own storage-locations feature behavior, read models, and UI contracts for the inventory context.",
@@ -514,7 +633,14 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["holds", "import-batches", "inventory-items", "reservations", "storage-locations"]
+      "expectedConsumers": [
+        "holds",
+        "import-batches",
+        "inventory-items",
+        "reservations",
+        "restock-decisions",
+        "storage-locations"
+      ]
     },
     "seed-support": {
       "classification": "support",

@@ -9,7 +9,8 @@ type LedgerKind =
   | "hold-converted"
   | "hold-consumed"
   | "hold-released"
-  | "hold-expired";
+  | "hold-expired"
+  | "restock-decision";
 
 type HoldLookup = Readonly<{
   hold_id: string;
@@ -57,6 +58,7 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         itemId: string;
         quantityDelta: number;
         reason: string;
+        sourceRef?: InventoryHoldSourceRef;
       };
       const accountId = accountIdFromAudit(event.audit);
 
@@ -69,7 +71,7 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         holdQuantity: null,
         purpose: null,
         reason: data.reason,
-        sourceRef: null,
+        sourceRef: data.sourceRef ?? null,
         actor: actorFromAudit(event.audit),
       });
     },
@@ -124,6 +126,29 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
     },
     "inventory.hold.expired": async (event) => {
       await insertHoldTerminalLedgerEntry(db, event, "hold-expired", "Hold expired");
+    },
+    "inventory.restock-decision.recorded": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        itemId: string;
+        quantity: number;
+        outcome: string;
+        reason: string;
+        sourceRef?: InventoryHoldSourceRef;
+      };
+
+      await insertLedgerEntry(db, {
+        event,
+        itemId: data.itemId,
+        accountId: data.accountId,
+        kind: "restock-decision",
+        quantityDelta: null,
+        holdQuantity: data.quantity,
+        purpose: "order",
+        reason: data.reason || data.outcome,
+        sourceRef: data.sourceRef ?? null,
+        actor: "seller",
+      });
     },
   };
 }

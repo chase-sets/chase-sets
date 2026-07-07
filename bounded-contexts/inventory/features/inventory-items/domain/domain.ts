@@ -1,4 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { InventorySelectedOptionEntry } from "../integrations/catalog/versioning";
 import {
@@ -66,6 +67,7 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
   quantityDelta: number;
   heldQuantity: number;
   reason: string;
+  sourceRef?: InventoryAdjustmentSourceRef;
 }>;
 
 export type InventoryItemCommand = CreateInventoryItemCommand | AdjustInventoryItemQuantityCommand;
@@ -91,6 +93,7 @@ export type InventoryItemAdjustedEvent = DomainEvent<
     itemId: InventoryItemId;
     quantityDelta: number;
     reason: string;
+    sourceRef?: InventoryAdjustmentSourceRef;
   }>
 >;
 
@@ -141,6 +144,7 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             itemId: state.id!,
             quantityDelta: command.quantityDelta,
             reason: normalizeLabel(command.reason),
+            sourceRef: command.sourceRef ?? null,
           },
         },
       ];

@@ -12,6 +12,7 @@ export type {
   InventoryItemDetail,
   InventoryItemListItem,
   InventoryListingStockSnapshot,
+  InventoryRestockDecision,
   InventoryStorageLocation,
 } from "../../client";
 import { createInventoryApiClient, type InventoryApiClientOptions } from "../../client";

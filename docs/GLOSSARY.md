@@ -63,6 +63,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Hold | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Inventory-owned block against available stock. |
 | Hold Purpose | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Structured vocabulary for why stock is held; Marketplace mirrors it from Inventory events. |
 | Hold Release Reason | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Structured vocabulary for why held stock returned to availability without consumption. |
+| Restock Decision | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Seller choice for returned stock after dispatch; outcomes are `restocked` and `written-off`, with `return-restocked` as the restock adjustment reason. |
 | Listing | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Seller-published ask before an order exists. |
 | Offer | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-submitted purchase proposal before an order exists. |
 | Seller Listing Availability | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-level overlay that temporarily prevents active listings from creating new seller commitments without changing listing status. |

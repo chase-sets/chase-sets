@@ -95,6 +95,8 @@ function ledgerKindLabel(kind: InventoryItemDetail["ledger"][number]["kind"]) {
       return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.released");
     case "hold-expired":
       return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.expired");
+    case "restock-decision":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.restock.decision");
     default:
       return kind;
   }
@@ -372,7 +374,7 @@ export function InventoryItemDetailPage({
               steps={ledgerEntries.map((entry) => ({
                 label: ledgerKindLabel(entry.kind),
                 description: ledgerDescription(entry),
-                status: entry.kind === "hold-expired" ? "issue" : "complete",
+                status: entry.kind === "hold-expired" || entry.reason === "written-off" ? "issue" : "complete",
               }))}
             />
           )}

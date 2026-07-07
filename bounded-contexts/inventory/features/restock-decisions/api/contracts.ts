@@ -1,0 +1,20 @@
+export type InventoryRestockDecision = Readonly<{
+  decision_id: string;
+  account_id: string;
+  order_id: string;
+  item_id: string;
+  item_title: string | null;
+  item_subtitle: string | null;
+  product_summary: string | null;
+  quantity: number;
+  source: "order-cancelled-after-dispatch" | "shipment-returned";
+  source_ref: { orderId: string; reservationRequestId: string } | null;
+  shipment_id: string | null;
+  return_reason: string | null;
+  status: "pending" | "recorded";
+  outcome: "restocked" | "written-off" | null;
+  damage_note: string | null;
+  pending_at: string;
+  decided_at: string | null;
+  updated_at: string;
+}>;

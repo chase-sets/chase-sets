@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (92)
+## Projection Groups (94)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -77,11 +77,13 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `identity:identity-user-preferences-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-user-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
+| `inventory:inventory-fulfillment-restock-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
 | `inventory:inventory-hold-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-item-ledger-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-item-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-order-reservation-workflow` | Inventory | **ordering** | push-enabled | 1/1 |
 | `inventory:inventory-reservation-projection` | Inventory | **inventory** | push-enabled | 1/1 |
+| `inventory:inventory-restock-decision-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-storage-location-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `marketplace:marketplace-catalog-item-projection` | Marketplace | **catalog** | push-enabled | 1/1 |
 | `marketplace:marketplace-identity-account-projection` | Marketplace | **identity**, **marketplace** | push-enabled | 2/2 |
@@ -131,9 +133,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 78 `push-enabled`, 12 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 79 `push-enabled`, 13 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (69)
+## Read-After-Write Route Inventory (70)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -182,6 +184,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `inventory.import-batch-detail` | inventory | important | accepted exception (inventory, review 2026-07-31, #1809) | push-accelerated |
 | `inventory.item-adjust-to-detail` | inventory | critical | exact wait | push-accelerated |
 | `inventory.item-create-to-detail` | inventory | important | exact wait | push-accelerated |
+| `inventory.restock-decision-list` | inventory | important | exact wait | push-accelerated |
 | `inventory.storage-locations-list` | inventory | important | exact wait | push-accelerated |
 | `marketplace.import-listing-inventory-handoff` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.listing-availability-self-refresh` | marketplace | important | exact wait | push-accelerated |

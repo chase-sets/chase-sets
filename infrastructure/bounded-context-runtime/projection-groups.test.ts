@@ -151,6 +151,28 @@ describe("bounded context projection groups", () => {
     expect(group.subscriptionRunners.map((entry) => entry.sourceContextName)).toEqual(["platform-operations"]);
   });
 
+  it("omits projection groups whose only sources are explicitly optional and unmounted", () => {
+    const targetPool = createMockPool();
+
+    const groups = createProjectionGroupRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-fulfillment-restock-workflow",
+          sourceContextNames: ["fulfillment"],
+          optionalSourceContextNames: ["fulfillment"],
+          ownedTables: ["inventory_fulfillment_shipment_sources"],
+          resetStrategy: "truncate-owned-tables",
+          requiredDuringBootstrap: false,
+        },
+      ],
+      [],
+    );
+
+    expect(groups).toEqual([]);
+  });
+
   it("fails closed when a side-effect projection group declares owned tables", async () => {
     const targetPool = createMockPool();
 

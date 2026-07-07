@@ -66,6 +66,7 @@ export function resolveMarketplaceAccountMenuItems(
 const sellingWorkflowKeys = new Set([
   "inventory",
   "inventory-imports",
+  "inventory-restock-decisions",
   "listings",
   "offer-matches",
   "sales",
@@ -82,7 +83,15 @@ function isGuestCheckoutActor(actor?: Readonly<{ roleKey?: string | null }> | nu
 const accountChildKeys = new Set(["account", "wallet", "payouts", "submitted-offers", "reviews"]);
 const accountTopNavOrder = ["search", "cart", "purchases", "notifications", "account", "reviews"];
 const accountChildNavOrder = ["account", "wallet", "payouts", "submitted-offers", "reviews"];
-const sellingNavOrder = ["inventory", "inventory-imports", "listings", "offer-matches", "sales", "sale-shipments"];
+const sellingNavOrder = [
+  "inventory",
+  "inventory-imports",
+  "inventory-restock-decisions",
+  "listings",
+  "offer-matches",
+  "sales",
+  "sale-shipments",
+];
 
 const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   account: {

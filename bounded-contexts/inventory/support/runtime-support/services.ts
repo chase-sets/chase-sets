@@ -13,6 +13,7 @@ import {
 } from "../../features/import-batches/api/runtime";
 import { createInventoryItemRuntime } from "../../features/inventory-items/api/runtime";
 import { createInventoryReservationRuntime } from "../../features/reservations/api/runtime";
+import { createRestockDecisionRuntime } from "../../features/restock-decisions/api/runtime";
 import { createStorageLocationRuntime } from "../../features/storage-locations/api/runtime";
 
 export type InventoryServices = Readonly<{
@@ -22,6 +23,7 @@ export type InventoryServices = Readonly<{
   importBatches: ReturnType<typeof createInventoryImportBatchRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
+  restockDecisions: ReturnType<typeof createRestockDecisionRuntime>;
   appendToStreams: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
@@ -61,6 +63,7 @@ export function createInventoryServices(
   });
   const holds = createInventoryHoldRuntime(deps);
   const reservations = createInventoryReservationRuntime(deps);
+  const restockDecisions = createRestockDecisionRuntime(deps, items, reservations);
 
   return {
     catalogItems,
@@ -69,6 +72,7 @@ export function createInventoryServices(
     importBatches,
     holds,
     reservations,
+    restockDecisions,
     appendToStreams,
     projectors: [
       ...catalogItems.projectors,
@@ -76,6 +80,7 @@ export function createInventoryServices(
       ...items.projectors,
       ...holds.projectors,
       ...reservations.projectors,
+      ...restockDecisions.projectors,
     ],
     pool,
     db,

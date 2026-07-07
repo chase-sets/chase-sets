@@ -27,7 +27,15 @@ export type InventoryItemLedgerEntry = Readonly<{
   item_id: string;
   account_id: string;
   occurred_at: string;
-  kind: "created" | "adjusted" | "hold-placed" | "hold-converted" | "hold-consumed" | "hold-released" | "hold-expired";
+  kind:
+    | "created"
+    | "adjusted"
+    | "hold-placed"
+    | "hold-converted"
+    | "hold-consumed"
+    | "hold-released"
+    | "hold-expired"
+    | "restock-decision";
   quantity_delta: number | null;
   hold_quantity: number | null;
   purpose: InventoryHoldPurpose | null;

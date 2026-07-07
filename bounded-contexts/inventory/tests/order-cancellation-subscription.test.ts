@@ -59,12 +59,17 @@ describe("inventory ordering cancellation subscription", () => {
   it("releases confirmed holds with the payment-deadline reason", async () => {
     const releaseHold = vi.fn(async () => ({ holdId: "hld_1", version: 2 }));
     const reservationCommandHandler = vi.fn(async () => ({ version: 2, storedEvents: [] }));
+    const markPending = vi.fn();
     const services = {
-      holds: { releaseHold },
+      holds: {
+        getHold: vi.fn(async () => ({ status: "active" })),
+        releaseHold,
+      },
       reservations: {
         getReservationState: vi.fn(async () => ({ status: "confirmed" })),
         commandHandler: reservationCommandHandler,
       },
+      restockDecisions: { markPending },
       appendToStreams: vi.fn(),
       db: { query: vi.fn(async () => ({ rows: [] })) },
       projectors: [],
@@ -91,5 +96,48 @@ describe("inventory ordering cancellation subscription", () => {
         tenantId: "tenant_1",
       }),
     });
+    expect(markPending).not.toHaveBeenCalled();
+  });
+
+  it("routes consumed holds to a restock decision instead of releasing stock", async () => {
+    const releaseHold = vi.fn();
+    const reservationCommandHandler = vi.fn();
+    const markPending = vi.fn(async () => ({ decisionId: "rstk_1", version: 1 }));
+    const services = {
+      holds: {
+        getHold: vi.fn(async () => ({ status: "consumed" })),
+        releaseHold,
+      },
+      reservations: {
+        getReservationState: vi.fn(async () => ({ status: "confirmed" })),
+        commandHandler: reservationCommandHandler,
+      },
+      restockDecisions: { markPending },
+      appendToStreams: vi.fn(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      projectors: [],
+      pool: {},
+    } as unknown as InventoryServices;
+
+    await getOrderingCancellationHandler(services)(createCancellationEvent("buyer-returned"));
+
+    expect(markPending).toHaveBeenCalledWith(
+      {
+        accountId: "acc_seller",
+        orderId: "ord_1",
+        itemId: "inv_1",
+        quantity: 1,
+        reservationRequestId: "rsv_1",
+        source: "order-cancelled-after-dispatch",
+        shipmentId: null,
+        returnReason: "buyer-returned",
+        pendingAt: "2026-03-31T01:00:00.000Z",
+      },
+      expect.objectContaining({
+        tenantId: "tenant_1",
+      }),
+    );
+    expect(releaseHold).not.toHaveBeenCalled();
+    expect(reservationCommandHandler).not.toHaveBeenCalled();
   });
 });
