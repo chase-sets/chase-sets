@@ -8,6 +8,6 @@ scrape_configs:
       - targets: ["otel-collector:9464"]
     relabel_configs:
       - target_label: deployment_environment
-        replacement: ${deployment_environment}
+        replacement: ${stack_environment}
       - target_label: chase_sets_observability_stack
         replacement: single-shared-stack

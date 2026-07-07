@@ -708,6 +708,55 @@ jobs:
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
 
+  terraform-observability-plan:
+    name: Terraform Observability Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: change-scope
+    if: needs['change-scope'].outputs.terraform == 'true'
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_digitalocean_token: pr-validation-token
+      TF_VAR_spaces_access_id: pr-validation-access-id
+      TF_VAR_spaces_secret_key: pr-validation-secret-key
+      TF_VAR_grafana_admin_password: pr-validation-password-please-rotate
+      TF_VAR_otel_write_token: pr-validation-otel-token
+      TF_VAR_prometheus_query_token: pr-validation-prometheus-token
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init observability without remote backend
+        working-directory: infrastructure/digitalocean/observability
+        run: terraform init -backend=false
+
+      - name: Terraform format observability
+        working-directory: infrastructure/digitalocean/observability
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate observability
+        working-directory: infrastructure/digitalocean/observability
+        run: terraform validate
+
+      - name: Terraform plan shared observability
+        working-directory: infrastructure/digitalocean/observability
+        run: |
+          terraform plan -refresh=false -lock=false -out=tfplan
+          mkdir -p artifacts/terraform-plans
+          terraform show -no-color tfplan > artifacts/terraform-plans/observability-shared-tfplan.txt
+
+      - name: Upload shared observability Terraform plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: observability-shared-terraform-plan
+          path: infrastructure/digitalocean/observability/artifacts/terraform-plans/observability-shared-tfplan.txt
+          if-no-files-found: error
+          retention-days: 14
+
   preview-deploy-smoke:
     name: Deploy Preview and Smoke
     runs-on: ubuntu-latest
@@ -1130,6 +1179,7 @@ jobs:
       - terraform-preview-plan
       - terraform-staging-plan
       - terraform-production-plan
+      - terraform-observability-plan
       - preview-deploy-smoke
     steps:
       - name: Verify required jobs
@@ -1182,6 +1232,7 @@ jobs:
           require_heavy_job "Terraform Preview Plan" "${{ needs['terraform-preview-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
           require_heavy_job "Terraform Staging Plan" "${{ needs['terraform-staging-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
           require_heavy_job "Terraform Production Plan" "${{ needs['terraform-production-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
+          require_job "Terraform Observability Plan" "${{ needs['terraform-observability-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
 
           preview_result="${{ needs['preview-deploy-smoke'].result }}"
           preview_required="${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (needs['change-scope'].outputs.deploy == 'true' || contains(github.event.pull_request.labels.*.name, 'preview')) }}"

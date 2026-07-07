@@ -10,13 +10,13 @@
 	}
 }
 
-${grafana_domain} {
+${grafana_domains} {
 	encode zstd gzip
 	import observability_diagnostics
 	reverse_proxy grafana:3000
 }
 
-${otel_domain} {
+${otel_domains} {
 	import observability_diagnostics
 	route {
 		@authorized header X-Chase-Sets-Observability-Token ${otel_write_token}
@@ -26,7 +26,7 @@ ${otel_domain} {
 	}
 }
 
-${prometheus_domain} {
+${prometheus_domains} {
 	import observability_diagnostics
 	route {
 		@authorized header X-Chase-Sets-Observability-Query ${prometheus_query_token}

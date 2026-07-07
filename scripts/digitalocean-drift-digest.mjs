@@ -15,17 +15,12 @@ const RESTORE_DRILL_PREFIX = "cs-stg-drill-";
 const DEFAULT_REPOSITORY = "chase-sets-platform";
 
 const OBSERVABILITY_POLICIES = {
-  staging: {
+  shared: {
     dropletBackupsExpected: false,
     acceptableTelemetryDataLossWindowHours: 24,
     volumeProtection: "accepted-short-retention-with-manual-snapshot-before-maintenance",
+    volumeSizeGibMinimum: 50,
     volumeSizeGibMaximum: 100,
-  },
-  production: {
-    dropletBackupsExpected: false,
-    acceptableTelemetryDataLossWindowHours: 24,
-    volumeProtection: "accepted-short-retention-with-manual-snapshot-before-maintenance",
-    volumeSizeGibMinimum: 100,
   },
 };
 
@@ -133,8 +128,8 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
         "chase-sets-staging-catalog-assets",
         "chase-sets-production-catalog-assets",
       ],
-      observabilityHosts: ["chase-sets-observability", "chase-sets-staging-observability"],
-      observabilityVolumes: ["chase-sets-observability-data", "chase-sets-staging-observability-data"],
+      observabilityHosts: ["chase-sets-observability"],
+      observabilityVolumes: ["chase-sets-observability-data"],
     },
     resources: {
       apps,
@@ -679,18 +674,16 @@ function dropletFindings(droplet) {
     ];
   }
   if (droplet.classification === "terraform-managed" && droplet.observabilityBackupPosture?.matchesPolicy === false) {
-    const staging = droplet.environment === "staging";
     return [
       {
-        severity: staging ? "warning" : "advisory",
+        severity: "warning",
         category: "observability-backup-posture",
         resourceType: "droplet",
         resourceName: droplet.name,
         owner: "ops",
         terraformRoot: droplet.terraformRoot,
-        action: staging
-          ? "Disable staging observability Droplet backups unless an active drill or incident record explicitly needs them."
-          : "Confirm production observability Droplet backups are intentional; the default posture keeps the reproducible host backup-free and protects operational value through telemetry retention and manual snapshots before maintenance.",
+        action:
+          "Disable shared observability Droplet backups; the default pre-launch posture keeps the reproducible host backup-free and protects operational value through telemetry retention and manual snapshots before maintenance.",
         evidence: {
           backupsEnabled: droplet.backupsEnabled,
           expectedBackupsEnabled: droplet.observabilityBackupPosture.expectedBackupsEnabled,
@@ -729,7 +722,7 @@ function volumeFindings(volume) {
   if (volume.classification === "terraform-managed") {
     const policy = volume.observabilityDataPosture;
     if (
-      volume.environment === "staging" &&
+      volume.environment === "shared" &&
       policy?.expectedMaximumSizeGib !== null &&
       volume.sizeGib !== null &&
       volume.sizeGib > policy.expectedMaximumSizeGib
@@ -743,7 +736,7 @@ function volumeFindings(volume) {
           owner: "ops",
           terraformRoot: volume.terraformRoot,
           action:
-            "Reduce staging observability volume size or document the drill/incident that needs extra telemetry capacity.",
+            "Reduce shared pre-launch observability volume size or document the drill/incident that needs extra telemetry capacity.",
           evidence: {
             actualSizeGib: volume.sizeGib,
             expectedMaximumSizeGib: policy.expectedMaximumSizeGib,
@@ -753,7 +746,7 @@ function volumeFindings(volume) {
       ];
     }
     if (
-      volume.environment === "production" &&
+      volume.environment === "shared" &&
       policy?.expectedMinimumSizeGib !== null &&
       volume.sizeGib !== null &&
       volume.sizeGib < policy.expectedMinimumSizeGib
@@ -767,7 +760,7 @@ function volumeFindings(volume) {
           owner: "ops",
           terraformRoot: volume.terraformRoot,
           action:
-            "Increase production observability volume size or record the accepted short-retention posture before relying on this host for incident review.",
+            "Increase shared pre-launch observability volume size or record the accepted short-retention posture before relying on this host for incident review.",
           evidence: {
             actualSizeGib: volume.sizeGib,
             expectedMinimumSizeGib: policy.expectedMinimumSizeGib,
@@ -913,6 +906,9 @@ function databaseBackupManagedName(name) {
 }
 
 function classifyEnvironment(name) {
+  if (name === "chase-sets-observability" || name === "chase-sets-observability-data") {
+    return "shared";
+  }
   if (name.startsWith(RESTORE_DRILL_PREFIX)) {
     return "staging";
   }
@@ -929,11 +925,11 @@ function classifyEnvironment(name) {
 }
 
 function observabilityName(name) {
-  return ["chase-sets-observability", "chase-sets-staging-observability"].includes(name);
+  return name === "chase-sets-observability";
 }
 
 function observabilityVolumeName(name) {
-  return ["chase-sets-observability-data", "chase-sets-staging-observability-data"].includes(name);
+  return name === "chase-sets-observability-data";
 }
 
 function observabilityPolicy(environment) {

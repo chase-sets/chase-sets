@@ -32,12 +32,14 @@ processors:
         value: platform-api
         action: upsert
       - key: deployment.environment
-        value: ${deployment_environment}
+        value: ${stack_environment}
         action: upsert
 
 exporters:
   prometheus:
     endpoint: 0.0.0.0:9464
+    resource_to_telemetry_conversion:
+      enabled: true
   otlp/tempo:
     endpoint: tempo:4317
     tls:

@@ -13,13 +13,14 @@ variable "spaces_secret_key" {
   sensitive = true
 }
 
-variable "environment" {
+variable "stack_environment" {
   type        = string
-  description = "Long-lived observability environment to provision."
+  default     = "shared"
+  description = "Environment label for the consolidated observability host's own self-scrape and file-ingested host logs."
 
   validation {
-    condition     = contains(["staging", "production"], var.environment)
-    error_message = "observability currently provisions only staging or production."
+    condition     = var.stack_environment == "shared"
+    error_message = "The pre-launch observability root provisions only the shared stack."
   }
 }
 
@@ -49,7 +50,23 @@ variable "droplet_image" {
 variable "droplet_backups_enabled" {
   type        = bool
   default     = false
-  description = "Whether DigitalOcean Droplet backups are enabled for the reproducible observability host. Keep false unless an environment-specific drill or incident record intentionally accepts the extra cost."
+  description = "Whether DigitalOcean Droplet backups are enabled for the reproducible observability host. Keep false; use a manual volume snapshot before risky telemetry maintenance instead of recurring host-image backups."
+
+  validation {
+    condition     = !var.droplet_backups_enabled
+    error_message = "The consolidated pre-launch observability stack keeps DigitalOcean Droplet backups disabled."
+  }
+}
+
+variable "observability_environments" {
+  type        = set(string)
+  default     = ["staging", "production"]
+  description = "Long-lived environments served by the consolidated observability stack."
+
+  validation {
+    condition     = length(var.observability_environments) == 2 && length(setsubtract(var.observability_environments, toset(["staging", "production"]))) == 0 && length(setsubtract(toset(["staging", "production"]), var.observability_environments)) == 0
+    error_message = "The consolidated observability stack must serve exactly staging and production."
+  }
 }
 
 variable "ssh_key_fingerprints" {
@@ -66,12 +83,12 @@ variable "ssh_source_addresses" {
 
 variable "volume_size_gib" {
   type        = number
-  default     = 100
+  default     = 50
   description = "Persistent block volume size for Prometheus, Loki, Tempo, Grafana, and Caddy data."
 
   validation {
     condition     = var.volume_size_gib >= 50
-    error_message = "volume_size_gib must be at least 50 GiB for production observability data."
+    error_message = "volume_size_gib must be at least 50 GiB for the shared pre-launch observability data surface."
   }
 }
 
@@ -148,8 +165,8 @@ variable "otel_collector_image" {
 
 variable "prometheus_retention" {
   type        = string
-  default     = "30d"
-  description = "Prometheus TSDB retention window. Keep staging short and increase production only when incident-response evidence needs it."
+  default     = "14d"
+  description = "Prometheus TSDB retention window for the shared pre-launch stack. Increase only when incident-response evidence needs it."
 
   validation {
     condition     = can(regex("^[0-9]+[hd]$", var.prometheus_retention))

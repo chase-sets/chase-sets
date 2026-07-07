@@ -12,11 +12,11 @@ The existing DigitalOcean platform root deploys the customer/application runtime
 
 ## Decision
 
-Run staging and production observability as a separate DigitalOcean self-hosted stack, not as extra components inside the customer-facing App Platform app.
+Run staging and production observability as a separate DigitalOcean self-hosted stack, not as extra components inside the customer-facing App Platform app. Pre-launch, staging and production share one stack to reduce recurring DigitalOcean spend while operator load and telemetry volume are low.
 
 The production-ready topology is:
 
-- one observability host per long-lived environment (`staging`, `production`);
+- one shared pre-launch observability host serving the long-lived environments (`staging`, `production`);
 - persistent DigitalOcean Block Storage volumes for Prometheus-compatible metrics, Loki-compatible logs, Tempo-compatible traces, and Grafana state;
 - `infrastructure/digitalocean/observability` as the provisioning root for hosts, volumes, DNS, firewall rules, credentials, and bootstrap;
 - Docker Compose or equivalent systemd-managed containers using the checked-in `infrastructure/observability/stack` configuration as the source of truth;
@@ -24,6 +24,8 @@ The production-ready topology is:
 - Grafana with anonymous access disabled and credentials or SSO supplied by secret management;
 - OTLP ingestion behind a write credential, not a public unauthenticated endpoint;
 - Prometheus-compatible query access for release automation behind a separate scoped credential.
+
+Staging and production stay separated by bounded resource labels, especially `deployment.environment`, plus environment-specific DNS aliases (`otel.staging.chasesets.com` and `otel.chasesets.com`) pointing at the same protected collector. The OpenTelemetry Collector preserves application resource attributes and the Prometheus exporter converts them into metric labels for dashboard filtering.
 
 The application deployables continue to run in App Platform and export telemetry with standard OpenTelemetry environment variables. Telemetry export remains best effort: missing or unreachable observability infrastructure is an operations incident, not a customer-facing outage.
 
@@ -54,6 +56,7 @@ Rejected. Admin Platform Operations remains the canonical application operations
 - Operators have two complementary surfaces: Grafana for telemetry and Admin Platform Operations for domain/platform read models and actions.
 - Dashboard JSON and alert provisioning live under `infrastructure/observability`; bounded contexts own the semantics and bounded labels they emit.
 - Capacity, retention, backup, and credential rotation become explicit observability operations responsibilities.
+- Split the shared pre-launch stack back into isolated environment stacks when real production traffic, retention requirements, incident response, or blast-radius isolation justifies the extra Droplet and volume cost.
 
 ## Invariants
 

@@ -1,13 +1,19 @@
 locals {
-  is_production = var.environment == "production"
-  dns_zone      = local.is_production ? var.root_domain : "${var.environment}.${var.root_domain}"
-  name_prefix   = local.is_production ? "chase-sets-observability" : "chase-sets-${var.environment}-observability"
-  volume_name   = "${local.name_prefix}-data"
-  tags          = [var.environment, "observability", "managed-by-terraform"]
+  name_prefix = "chase-sets-observability"
+  volume_name = "${local.name_prefix}-data"
+  tags        = ["shared", "observability", "managed-by-terraform"]
 
-  grafana_domain    = "grafana.${local.dns_zone}"
-  otel_domain       = "otel.${local.dns_zone}"
-  prometheus_domain = "prometheus.${local.dns_zone}"
+  environment_zones = {
+    for environment in var.observability_environments :
+    environment => environment == "production" ? var.root_domain : "${environment}.${var.root_domain}"
+  }
+  endpoint_names       = toset(["grafana", "otel", "prometheus"])
+  endpoint_dns_records = { for pair in setproduct(var.observability_environments, local.endpoint_names) : "${pair[0]}-${pair[1]}" => { environment = pair[0], name = pair[1] } }
+
+  grafana_domains        = [for environment in sort(tolist(var.observability_environments)) : "grafana.${local.environment_zones[environment]}"]
+  otel_domains           = [for environment in sort(tolist(var.observability_environments)) : "otel.${local.environment_zones[environment]}"]
+  prometheus_domains     = [for environment in sort(tolist(var.observability_environments)) : "prometheus.${local.environment_zones[environment]}"]
+  primary_grafana_domain = "grafana.${local.environment_zones["production"]}"
 
   stack_source_dir = "${path.module}/../../observability/stack"
 
@@ -27,10 +33,10 @@ locals {
 
   generated_stack_files = {
     "collector-config.yml" = templatefile("${path.module}/templates/collector-config.yml.tftpl", {
-      deployment_environment = var.environment
+      stack_environment = var.stack_environment
     })
     "prometheus.yml" = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
-      deployment_environment = var.environment
+      stack_environment = var.stack_environment
     })
     "docker-compose.yml" = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {})
     ".env" = templatefile("${path.module}/templates/stack.env.tftpl", {
@@ -42,14 +48,14 @@ locals {
       otel_collector_image = var.otel_collector_image
       grafana_admin_user   = var.grafana_admin_user
       grafana_admin_pass   = var.grafana_admin_password
-      grafana_domain       = local.grafana_domain
+      grafana_domain       = local.primary_grafana_domain
       prometheus_retention = var.prometheus_retention
     })
     "Caddyfile" = templatefile("${path.module}/templates/Caddyfile.tftpl", {
       acme_email             = var.acme_email
-      grafana_domain         = local.grafana_domain
-      otel_domain            = local.otel_domain
-      prometheus_domain      = local.prometheus_domain
+      grafana_domains        = join(", ", local.grafana_domains)
+      otel_domains           = join(", ", local.otel_domains)
+      prometheus_domains     = join(", ", local.prometheus_domains)
       otel_write_token       = var.otel_write_token
       prometheus_query_token = var.prometheus_query_token
     })
@@ -76,7 +82,7 @@ locals {
   ])
 
   cloud_init_user_data = templatefile("${path.module}/templates/cloud-init.yml.tftpl", {
-    environment      = var.environment
+    environment      = var.stack_environment
     volume_name      = local.volume_name
     write_files_yaml = local.cloud_init_write_files_yaml
   })

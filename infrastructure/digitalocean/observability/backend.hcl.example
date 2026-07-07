@@ -1,5 +1,5 @@
 bucket                      = "chase-sets-terraform-state"
-key                         = "observability/staging.tfstate"
+key                         = "observability/shared.tfstate"
 region                      = "us-east-1"
 endpoints                   = { s3 = "https://nyc3.digitaloceanspaces.com" }
 skip_credentials_validation = true
