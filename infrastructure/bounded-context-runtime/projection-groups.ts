@@ -81,6 +81,7 @@ export type ContextProjectionGroup = Readonly<{
   projectionRevision: number;
   targetContextName: string;
   sourceContextNames: readonly string[];
+  optionalSourceContextNames: readonly string[];
   ownedTables: readonly string[];
   resetStrategy?: BcProjectionGroupResetStrategy;
   requiredDuringBootstrap: boolean;
@@ -359,6 +360,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
     seenProjectionNames.add(group.projectionName);
 
     const sourceContextNames = [...new Set(group.sourceContextNames)];
+    const optionalSourceContextNames = [...new Set(group.optionalSourceContextNames ?? [])];
     const ownedTables = [...new Set(group.ownedTables)];
     const handlerKind = group.handlerKind ?? "projection";
     const projectionRevision = assertProjectionRevision(group.projectionRevision);
@@ -383,6 +385,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
       projectionRevision,
       targetContextName: entry.contextName,
       sourceContextNames,
+      optionalSourceContextNames,
       ownedTables,
       resetStrategy: group.resetStrategy,
       requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
@@ -479,6 +482,7 @@ export function resolveModuleProjectionGroups(
   const groups: ContextProjectionGroup[] = [];
   const consumedCheckpointKeys = new Set<string>();
   const ownedTableOwners = new Map<string, string>();
+  const mountedContextNames = new Set(mountedContexts.map((entry) => entry.contextName));
 
   for (const entry of mountedContexts) {
     if (entry.mountRole === "source-only") {
@@ -530,16 +534,21 @@ export function resolveModuleProjectionGroups(
         );
       }
 
+      const optionalSourceContextNames = new Set(group.optionalSourceContextNames);
       const missingSources = group.sourceContextNames.filter(
         (sourceContextName) => !actualSources.includes(sourceContextName),
+      );
+      const unexpectedMissingSources = missingSources.filter(
+        (sourceContextName) =>
+          !optionalSourceContextNames.has(sourceContextName) || mountedContextNames.has(sourceContextName),
       );
       const unexpectedSources = actualSources.filter(
         (sourceContextName) => !group.sourceContextNames.includes(sourceContextName),
       );
 
-      if (missingSources.length > 0 || unexpectedSources.length > 0) {
+      if (unexpectedMissingSources.length > 0 || unexpectedSources.length > 0) {
         throw new Error(
-          `Context '${entry.contextName}' projection group '${group.projectionName}' sources do not match subscriptions. Missing: [${missingSources.join(", ")}]. Unexpected: [${unexpectedSources.join(", ")}].`,
+          `Context '${entry.contextName}' projection group '${group.projectionName}' sources do not match subscriptions. Missing: [${unexpectedMissingSources.join(", ")}]. Unexpected: [${unexpectedSources.join(", ")}].`,
         );
       }
 

@@ -31,6 +31,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "reported-content-queue-projection",
       "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
       "eventTypes": ["marketplace.report.submitted", "marketplace.listing.auto-unlisted"],
       "order": 60,
       "projectionHandlerSetNames": ["reported-content-queue-projection"]
@@ -81,6 +82,7 @@
     {
       "projectionName": "reported-content-queue-projection",
       "sourceContextNames": ["marketplace", "platform-operations"],
+      "optionalSourceContextNames": ["marketplace"],
       "ownedTables": ["platform_operations_reported_content_queue_pages"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"

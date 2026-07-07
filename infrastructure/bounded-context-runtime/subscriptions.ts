@@ -1105,6 +1105,10 @@ export function resolveModuleSubscriptions(
       validateSubscriptionEventFilters(entry.contextName, subscription);
       const sourceEntry = contextsByName.get(subscription.sourceContextName);
       if (!sourceEntry) {
+        if (subscription.sourceContextMount === "when-mounted") {
+          continue;
+        }
+
         throw new Error(
           `Context '${entry.contextName}' declared subscription '${subscription.subscriptionName}' for '${subscription.sourceContextName}', but that source context is not mounted in the runtime.`,
         );

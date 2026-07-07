@@ -142,11 +142,14 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly projectionName: string;
   readonly subscriptionVersion: number;
   readonly projectionHandlerSetNames: readonly string[];
+  readonly sourceContextMount?: BcSourceContextMount;
   readonly eventTypes?: readonly string[];
   readonly streamPrefixes?: readonly string[];
   readonly errorPolicy?: ProjectionErrorPolicy;
   readonly order?: number;
 }>;
+
+export type BcSourceContextMount = "required" | "when-mounted";
 
 export type BcSubscriptionHandlerKind = "projection" | "reaction";
 export type BcReactionIdempotencyPolicy = "idempotent-command-dispatch";
@@ -178,6 +181,7 @@ export type BcProjectionGroupDeclaration = Readonly<{
   readonly handlerKind?: BcSubscriptionHandlerKind;
   readonly projectionRevision?: number;
   readonly sourceContextNames: readonly string[];
+  readonly optionalSourceContextNames?: readonly string[];
   readonly ownedTables: readonly string[];
   readonly sideEffectOnly?: boolean;
   readonly resetStrategy?: BcProjectionGroupResetStrategy;
@@ -188,6 +192,7 @@ export type BcEventSubscription = Readonly<{
   readonly subscriptionName: string;
   readonly handlerKind?: BcSubscriptionHandlerKind;
   readonly sourceContextName: string;
+  readonly sourceContextMount?: BcSourceContextMount;
   readonly projectionName: string;
   readonly reactionName?: string;
   readonly subscriptionVersion: number;
@@ -266,6 +271,7 @@ export function buildEventSubscriptionsFromManifest<TEventPayloads extends Event
       subscriptionName: normalizedRegistration.subscriptionName,
       handlerKind: "projection",
       sourceContextName: declaration.sourceContextName,
+      ...(declaration.sourceContextMount ? { sourceContextMount: declaration.sourceContextMount } : {}),
       projectionName: declaration.projectionName,
       subscriptionVersion: declaration.subscriptionVersion,
       handlers: normalizedRegistration.filterToEventTypes
