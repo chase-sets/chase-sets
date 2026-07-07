@@ -34,6 +34,9 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Reference Type | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Reusable kind of rich descriptive catalog value, such as Expansion, Series, or Product Line. |
 | Reference Record | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Rich reusable catalog value that can be selected by item fields and carry attributes or relationships. |
 | Inventory Item | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Account-owned stock for one resolved product and storage location. |
+| Hold | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Inventory-owned block against available stock. |
+| Hold Purpose | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Structured vocabulary for why stock is held; Marketplace mirrors it from Inventory events. |
+| Hold Release Reason | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Structured vocabulary for why held stock returned to availability without consumption. |
 | Listing | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Seller-published ask before an order exists. |
 | Offer | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-submitted purchase proposal before an order exists. |
 | Seller Listing Availability | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-level overlay that temporarily prevents active listings from creating new seller commitments without changing listing status. |

@@ -173,6 +173,9 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
         quantity: Number(body.quantity ?? 0),
         reason: String(body.reason ?? ""),
         notes: typeof body.notes === "string" ? body.notes : null,
+        purpose: "manual",
+        sourceRef: null,
+        expiresAt: null,
       },
       c.get("context"),
     );

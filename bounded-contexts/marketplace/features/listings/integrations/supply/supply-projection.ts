@@ -1,5 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
+import type {
+  InventoryHoldPurpose,
+  InventoryHoldReleaseReason,
+  InventoryHoldSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildCatalogMirrorProjectionHandlers } from "@chase-sets/event-core-postgres/catalog-mirror";
 
@@ -435,7 +440,13 @@ export function buildMarketplaceInventoryProjectionHandlers(
         accountId: string;
         itemId: string;
         quantity: number;
+        reason?: string;
+        notes?: string | null;
+        purpose?: InventoryHoldPurpose;
+        sourceRef?: InventoryHoldSourceRef;
+        expiresAt?: string | null;
       };
+      const anatomy = holdAnatomyFromPlacedPayload(data);
 
       await db.query(
         `INSERT INTO marketplace_supply_holds (
@@ -443,21 +454,39 @@ export function buildMarketplaceInventoryProjectionHandlers(
            account_id,
            item_id,
            quantity,
+           purpose,
+           source_ref,
+           expires_at,
            status,
            released_at,
+           release_reason,
            last_stream_version,
            updated_at
-         ) VALUES ($1, $2, $3, $4, 'active', NULL, $5, $6)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', NULL, NULL, $8, $9)
          ON CONFLICT (hold_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
            item_id = EXCLUDED.item_id,
            quantity = EXCLUDED.quantity,
+           purpose = EXCLUDED.purpose,
+           source_ref = EXCLUDED.source_ref,
+           expires_at = EXCLUDED.expires_at,
            status = EXCLUDED.status,
            released_at = EXCLUDED.released_at,
+           release_reason = EXCLUDED.release_reason,
            last_stream_version = EXCLUDED.last_stream_version,
            updated_at = EXCLUDED.updated_at
          WHERE marketplace_supply_holds.last_stream_version < EXCLUDED.last_stream_version`,
-        [data.holdId, data.accountId, data.itemId, data.quantity, event.streamVersion, event.timing.recordedAt],
+        [
+          data.holdId,
+          data.accountId,
+          data.itemId,
+          data.quantity,
+          anatomy.purpose,
+          anatomy.sourceRef ? JSON.stringify(anatomy.sourceRef) : null,
+          anatomy.expiresAt,
+          event.streamVersion,
+          event.timing.recordedAt,
+        ],
       );
 
       await options.onInventoryItemChanged?.(data.itemId);
@@ -466,18 +495,20 @@ export function buildMarketplaceInventoryProjectionHandlers(
       const data = event.data as {
         holdId: string;
         releasedAt: string;
+        releaseReason?: InventoryHoldReleaseReason;
       };
 
       const released = await db.query<{ item_id: string }>(
         `UPDATE marketplace_supply_holds
          SET status = 'released',
              released_at = $2,
-             updated_at = $3,
-             last_stream_version = $4
+             release_reason = $3,
+             updated_at = $4,
+             last_stream_version = $5
          WHERE hold_id = $1
-           AND last_stream_version < $4
+           AND last_stream_version < $5
          RETURNING item_id`,
-        [data.holdId, data.releasedAt, event.timing.recordedAt, event.streamVersion],
+        [data.holdId, data.releasedAt, data.releaseReason ?? null, event.timing.recordedAt, event.streamVersion],
       );
 
       const itemId = released.rows[0]?.item_id;
@@ -485,5 +516,33 @@ export function buildMarketplaceInventoryProjectionHandlers(
         await options.onInventoryItemChanged?.(itemId);
       }
     },
+  };
+}
+
+type PlacedHoldPayload = Readonly<{
+  reason?: string;
+  notes?: string | null;
+  purpose?: InventoryHoldPurpose;
+  sourceRef?: InventoryHoldSourceRef;
+  expiresAt?: string | null;
+}>;
+
+function holdAnatomyFromPlacedPayload(data: PlacedHoldPayload): Readonly<{
+  purpose: InventoryHoldPurpose;
+  sourceRef: InventoryHoldSourceRef;
+  expiresAt: string | null;
+}> {
+  if (data.purpose) {
+    return {
+      purpose: data.purpose,
+      sourceRef: data.sourceRef ?? null,
+      expiresAt: data.expiresAt ?? null,
+    };
+  }
+
+  return {
+    purpose: data.reason === "Ordering commitment" ? "order" : "manual",
+    sourceRef: null,
+    expiresAt: null,
   };
 }

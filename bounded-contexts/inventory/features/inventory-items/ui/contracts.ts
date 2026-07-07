@@ -1,4 +1,9 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type {
+  InventoryHoldPurpose,
+  InventoryHoldReleaseReason,
+  InventoryHoldSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 
 export type InventoryHold = Readonly<{
   hold_id: string;
@@ -7,10 +12,14 @@ export type InventoryHold = Readonly<{
   quantity: number;
   reason: string;
   notes: string | null;
+  purpose: InventoryHoldPurpose;
+  source_ref: InventoryHoldSourceRef;
+  expires_at: string | null;
   status: string;
   created_at: string;
   updated_at: string;
   released_at: string | null;
+  release_reason: InventoryHoldReleaseReason | null;
 }>;
 
 export type InventoryGradedCardDetails = Readonly<{

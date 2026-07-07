@@ -5,6 +5,11 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type {
+  InventoryHoldPurpose,
+  InventoryHoldReleaseReason,
+  InventoryHoldSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
@@ -80,6 +85,9 @@ export type InventoryHoldServices = Readonly<{
       quantity: number;
       reason: string;
       notes?: string | null;
+      purpose: InventoryHoldPurpose;
+      sourceRef: InventoryHoldSourceRef;
+      expiresAt?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ holdId: InventoryHoldId; version: number }>;
@@ -87,6 +95,7 @@ export type InventoryHoldServices = Readonly<{
     params: Readonly<{
       accountId: string;
       holdId: string;
+      releaseReason: InventoryHoldReleaseReason;
     }>,
     context: EventStoreContext,
   ) => Promise<{ holdId: string; version: number }>;
@@ -120,7 +129,10 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
           existing.state.status === "active" &&
           existing.state.accountId === params.accountId &&
           existing.state.itemId === params.itemId &&
-          existing.state.quantity === params.quantity
+          existing.state.quantity === params.quantity &&
+          existing.state.purpose === params.purpose &&
+          JSON.stringify(existing.state.sourceRef) === JSON.stringify(params.sourceRef) &&
+          existing.state.expiresAt === (params.expiresAt ?? null)
         ) {
           return {
             holdId,
@@ -162,6 +174,9 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
           quantity: params.quantity,
           reason: params.reason,
           notes: params.notes ?? null,
+          purpose: params.purpose,
+          sourceRef: params.sourceRef,
+          expiresAt: params.expiresAt ?? null,
         },
         context,
       });
@@ -182,6 +197,7 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
         command: {
           type: "ReleaseInventoryHold",
           releasedAt: new Date().toISOString(),
+          releaseReason: params.releaseReason,
         },
         context,
       });

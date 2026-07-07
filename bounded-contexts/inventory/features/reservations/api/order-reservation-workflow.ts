@@ -48,6 +48,12 @@ export async function reserveOrderInventoryRequest(
         quantity: request.quantity,
         reason: "Ordering commitment",
         notes: null,
+        purpose: "order",
+        sourceRef: {
+          orderId,
+          reservationRequestId: request.reservationRequestId,
+        },
+        expiresAt: null,
       },
       context,
     );

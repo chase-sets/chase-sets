@@ -110,8 +110,12 @@ CREATE TABLE IF NOT EXISTS marketplace_supply_holds (
   account_id text NOT NULL,
   item_id text NOT NULL,
   quantity integer NOT NULL,
+  purpose text NOT NULL DEFAULT 'manual',
+  source_ref jsonb NULL,
+  expires_at timestamptz NULL,
   status text NOT NULL,
   released_at timestamptz NULL,
+  release_reason text NULL,
   last_stream_version integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -148,4 +152,10 @@ CREATE INDEX IF NOT EXISTS marketplace_supply_holds_item_idx
 
 ALTER TABLE marketplace_supply_locations
   ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE marketplace_supply_holds
+  ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'manual',
+  ADD COLUMN IF NOT EXISTS source_ref jsonb NULL,
+  ADD COLUMN IF NOT EXISTS expires_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS release_reason text NULL;
 `;

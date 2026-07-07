@@ -4,6 +4,7 @@ import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres
 import {
   buildMarketplaceAccountProjectionHandlers,
   buildMarketplaceCatalogProjectionHandlers,
+  buildMarketplaceInventoryProjectionHandlers,
 } from "./supply-projection";
 
 class ProjectionDb implements PgQueryable {
@@ -149,6 +150,99 @@ describe("marketplace account projection", () => {
       "acc_seller",
       "trusted-seller",
       true,
+      "2026-05-09T00:00:00.000Z",
+    ]);
+  });
+});
+
+describe("marketplace inventory supply projection", () => {
+  it("mirrors hold anatomy and structured release reasons", async () => {
+    const onInventoryItemChanged = vi.fn(async () => undefined);
+    const db = {
+      query: vi.fn(async (sql: string) => ({
+        rows: sql.includes("RETURNING item_id") ? [{ item_id: "inv_1" }] : [],
+      })),
+    };
+    const handlers = buildMarketplaceInventoryProjectionHandlers(db as never, { onInventoryItemChanged });
+
+    await handlers["inventory.hold.placed"]!(
+      event("inventory.hold.placed", {
+        holdId: "hld_order_reservation_rsv_1",
+        accountId: "acc_seller",
+        itemId: "inv_1",
+        quantity: 1,
+        reason: "Ordering commitment",
+        notes: null,
+        purpose: "order",
+        sourceRef: {
+          orderId: "ord_1",
+          reservationRequestId: "rsv_1",
+        },
+        expiresAt: null,
+      }),
+    );
+    await handlers["inventory.hold.released"]!(
+      event(
+        "inventory.hold.released",
+        {
+          holdId: "hld_order_reservation_rsv_1",
+          releasedAt: "2026-07-06T01:00:00.000Z",
+          releaseReason: "order-cancelled",
+        },
+        "inventory.hold-hld_order_reservation_rsv_1",
+      ),
+    );
+
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("source_ref"), [
+      "hld_order_reservation_rsv_1",
+      "acc_seller",
+      "inv_1",
+      1,
+      "order",
+      JSON.stringify({
+        orderId: "ord_1",
+        reservationRequestId: "rsv_1",
+      }),
+      null,
+      1,
+      "2026-05-09T00:00:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("release_reason = $3"), [
+      "hld_order_reservation_rsv_1",
+      "2026-07-06T01:00:00.000Z",
+      "order-cancelled",
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
+    expect(onInventoryItemChanged).toHaveBeenCalledWith("inv_1");
+  });
+
+  it("maps legacy order hold reasons into the marketplace mirror", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildMarketplaceInventoryProjectionHandlers(db as never);
+
+    await handlers["inventory.hold.placed"]!(
+      event("inventory.hold.placed", {
+        holdId: "hld_order_reservation_rsv_1",
+        accountId: "acc_seller",
+        itemId: "inv_1",
+        quantity: 1,
+        reason: "Ordering commitment",
+        notes: null,
+      }),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("marketplace_supply_holds"), [
+      "hld_order_reservation_rsv_1",
+      "acc_seller",
+      "inv_1",
+      1,
+      "order",
+      null,
+      null,
+      1,
       "2026-05-09T00:00:00.000Z",
     ]);
   });
