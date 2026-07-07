@@ -465,7 +465,7 @@ describe("checkout web routes: sell checkout session", () => {
     ["payout setup required", { payoutState: "setup-required" }, "payoutMethod", "Payout setup is required"],
     ["payout setup failure", { payoutState: "failed" }, "payoutMethod", "Payout setup is temporarily unavailable"],
     ["changed payout", { payoutEstimateState: "changed" }, "form", "The payout estimate changed"],
-    ["risk hold", { riskState: "hold" }, "form", "This sale review is on hold"],
+    ["risk hold", { riskState: "hold" }, "form", "This sale review needs support review"],
     ["risk block", { riskState: "block" }, "form", "This sale review cannot continue"],
     ["label failure", { labelState: "failed" }, "labelPreference", "Label readiness is unavailable"],
     ["seller readiness failure", { sellerReadinessState: "blocked" }, "form", "Seller readiness needs review"],
@@ -1150,7 +1150,7 @@ describe("checkout web routes: sell checkout session", () => {
     ["payout setup required", { payoutState: "setup-required" }, "payoutHandoff", "Payout setup is required"],
     ["payout setup failure", { payoutState: "failed" }, "payoutHandoff", "Payout setup is temporarily unavailable"],
     ["changed payout", { payoutEstimateState: "changed" }, "form", "The payout estimate changed"],
-    ["risk hold", { riskState: "hold" }, "form", "This sale review is on hold"],
+    ["risk hold", { riskState: "hold" }, "form", "This sale review needs support review"],
     ["risk block", { riskState: "block" }, "form", "This sale review cannot continue"],
     ["label failure", { labelState: "failed" }, "labelPreference", "Label readiness is unavailable"],
   ])("blocks guest seller checkout on %s without side effects", async (_label, overrides, fieldName, message) => {

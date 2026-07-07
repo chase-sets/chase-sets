@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
 import {
-  anonymousRailRateLimitedResponse,
+  anonymousRequestRateLimitedResponse,
   createAnonymousRailCaptureRateLimiter,
   createCheckoutAccessGuard,
   createGuestCheckoutContext,
@@ -475,8 +475,8 @@ export function createGuestCartRoutes(
 
     const rateLimit = anonymousCartCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
-      const response = anonymousRailRateLimitedResponse(
-        t("checkout.features.cart.api.route.anonymous.rail.rate.limited"),
+      const response = anonymousRequestRateLimitedResponse(
+        t("checkout.features.cart.api.route.anonymous.request.rate.limited"),
         rateLimit.retryAfterSeconds,
       );
       return c.json(response.body, 429, response.headers);
@@ -526,8 +526,8 @@ export function createGuestCartRoutes(
 
     const rateLimit = anonymousCartCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
-      const response = anonymousRailRateLimitedResponse(
-        t("checkout.features.cart.api.route.anonymous.rail.rate.limited"),
+      const response = anonymousRequestRateLimitedResponse(
+        t("checkout.features.cart.api.route.anonymous.request.rate.limited"),
         rateLimit.retryAfterSeconds,
       );
       return c.json(response.body, 429, response.headers);

@@ -31,7 +31,7 @@ export const marketplaceEnglishTranslations = {
     "Chase Sets needs a network connection before it can show live marketplace data.",
   "marketplace.app.routes.offline.heading": "You are offline",
   "marketplace.app.routes.offline.protection.description":
-    "Your account, cart intent, orders, and support records remain tied to your marketplace identity. Live pricing and fulfillment refresh when connection returns.",
+    "Your account, Buy Cart, orders, and support records remain tied to your marketplace identity. Live pricing and fulfillment refresh when connection returns.",
   "marketplace.app.routes.offline.protection.title": "Marketplace records stay protected",
   "marketplace.app.routes.offline.retry": "Try again",
   "marketplace.app.routes.offline.title": "Offline | Chase Sets",
@@ -50,7 +50,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.authentication.context.missing.6": "Authentication context missing.",
   "marketplace.features.listings.api.route.anonymous.listing.draft.required":
     "Listing draft session is missing. Start a new listing draft from the item page.",
-  "marketplace.features.listings.api.route.anonymous.rail.rate.limited":
+  "marketplace.features.listings.api.route.anonymous.request.rate.limited":
     "Too many anonymous listing draft requests. Wait a few minutes and try again.",
   "marketplace.features.listings.api.route.authentication.required": "Authentication required.",
   "marketplace.features.listings.api.route.forbidden": "Forbidden.",

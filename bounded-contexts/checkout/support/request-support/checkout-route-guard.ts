@@ -33,9 +33,9 @@ export function createGuestCheckoutContext(
   return { tenantId: "tnt_identity" as TenantId, audit: auditIdentity, trace: {} };
 }
 
-export function anonymousRailRateLimitedResponse(message: string, retryAfterSeconds: number) {
+export function anonymousRequestRateLimitedResponse(message: string, retryAfterSeconds: number) {
   return {
-    body: { error: { code: "anonymous_rail_rate_limited", message } },
+    body: { error: { code: "anonymous_request_rate_limited", message } },
     headers: { "Retry-After": String(retryAfterSeconds) },
   };
 }

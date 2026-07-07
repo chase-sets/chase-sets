@@ -563,10 +563,10 @@ describe("checkout session page", () => {
       />,
     );
 
-    expect(markup).toContain("Place purchase intent");
+    expect(markup).toContain("Submit offer");
     expect(markup).toContain("No payment today");
-    expect(markup).toContain("Sellers can accept your purchase intent");
-    expect(markup).toContain("Destination is required so a seller knows where the purchase intent would ship");
+    expect(markup).toContain("Sellers can accept your offer");
+    expect(markup).toContain("Delivery address is required so sellers know where the offer would ship");
     expect(markup).not.toContain("Secure Payment");
     expect(markup).not.toContain("Payment method");
     expect(markup).not.toContain("Live fulfillment preview");
@@ -576,7 +576,7 @@ describe("checkout session page", () => {
     // caption paragraph uses the `text-tertiary` recipe, so a tertiary caption
     // echoing the total value would be the regressed duplicate.
     expect(markup).not.toContain('text-tertiary">No payment today');
-    expect(markup).toContain("Sellers can accept your purchase intent before an order and payment are created.");
+    expect(markup).toContain("Sellers can accept your offer before an order and payment are created.");
   });
 
   it("keeps purchase intent submission on confirm checkout after destination edits", () => {
@@ -595,7 +595,7 @@ describe("checkout session page", () => {
 
     fireEvent.change(screen.getByLabelText(/Recipient name/), { target: { value: "Jamie Buyer" } });
 
-    const primaryActions = screen.getAllByRole("button", { name: "Place purchase intent" });
+    const primaryActions = screen.getAllByRole("button", { name: "Submit offer" });
     expect(primaryActions.length).toBeGreaterThan(0);
     expect(primaryActions.every((button) => (button as HTMLButtonElement).value === "confirm-checkout")).toBe(true);
     expect(primaryActions.some((button) => (button as HTMLButtonElement).value === "refresh-checkout-preview")).toBe(

@@ -81,7 +81,7 @@ function rateLimitedResponse(message: string, retryAfterSeconds: number) {
   return {
     body: {
       error: {
-        code: "anonymous_rail_rate_limited",
+        code: "anonymous_request_rate_limited",
         message,
       },
     },
@@ -911,7 +911,7 @@ export function createPublicListingRoutes(services: MarketplaceListingServices) 
     const rateLimit = anonymousListingDraftCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
       const response = rateLimitedResponse(
-        t("marketplace.features.listings.api.route.anonymous.rail.rate.limited"),
+        t("marketplace.features.listings.api.route.anonymous.request.rate.limited"),
         rateLimit.retryAfterSeconds,
       );
       return c.json(response.body, 429, response.headers);

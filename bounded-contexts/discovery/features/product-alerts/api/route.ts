@@ -77,12 +77,12 @@ function requireAnonymousProductAlertOwnerId(c: Context<DiscoveryApiEnv>) {
   return value.startsWith("anon_") ? value : null;
 }
 
-function anonymousRailRateLimitedResponse(retryAfterSeconds: number) {
+function anonymousRequestRateLimitedResponse(retryAfterSeconds: number) {
   return {
     body: {
       error: {
-        code: "anonymous_rail_rate_limited",
-        message: t("discovery.features.productAlerts.api.route.anonymous.rail.rate.limited"),
+        code: "anonymous_request_rate_limited",
+        message: t("discovery.features.productAlerts.api.route.anonymous.request.rate.limited"),
       },
     },
     headers: { "Retry-After": String(retryAfterSeconds) },
@@ -238,7 +238,7 @@ export function createGuestProductAlertRoutes(services: ProductAlertServices) {
 
     const rateLimit = anonymousProductAlertCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
-      const response = anonymousRailRateLimitedResponse(rateLimit.retryAfterSeconds);
+      const response = anonymousRequestRateLimitedResponse(rateLimit.retryAfterSeconds);
       return c.json(response.body, 429, response.headers);
     }
 
