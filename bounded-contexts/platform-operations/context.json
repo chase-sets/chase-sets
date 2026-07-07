@@ -67,6 +67,7 @@
       "sourceContextName": "payments",
       "projectionName": "risk-alert-queue-projection",
       "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
       "eventTypes": ["payments.payment-created", "payments.payment-disputed"],
       "order": 64,
       "projectionHandlerSetNames": ["risk-alert-queue-projection"]
@@ -125,7 +126,7 @@
     {
       "projectionName": "risk-alert-queue-projection",
       "sourceContextNames": ["identity", "marketplace", "payments", "platform-operations"],
-      "optionalSourceContextNames": ["marketplace"],
+      "optionalSourceContextNames": ["marketplace", "payments"],
       "ownedTables": [
         "platform_operations_risk_alert_account_sources",
         "platform_operations_risk_alert_velocity_sources",
