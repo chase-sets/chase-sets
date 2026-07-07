@@ -24,10 +24,16 @@ describe("public presence translator", () => {
       "publicPresence.faq.shipping.answer",
       "publicPresence.faq.shipping.question",
       "publicPresence.faq.title",
+      "publicPresence.footer.description",
       "publicPresence.info.buyerProtection.description",
-      "publicPresence.info.buyerProtection.help.body",
+      "publicPresence.info.buyerProtection.chargebacks.body",
+      "publicPresence.info.buyerProtection.disputeEvidence.body",
+      "publicPresence.info.buyerProtection.fraud.body",
+      "publicPresence.info.buyerProtection.negativeBalance.body",
       "publicPresence.info.buyerProtection.orders.body",
       "publicPresence.info.buyerProtection.payment.body",
+      "publicPresence.info.buyerProtection.returns.body",
+      "publicPresence.info.buyerProtection.shippingEvidence.body",
       "publicPresence.info.contact.description",
       "publicPresence.info.contact.status.body",
       "publicPresence.info.faq.description",
@@ -54,6 +60,8 @@ describe("public presence translator", () => {
       "publicPresence.routes.sellerFees.meta.description",
       "publicPresence.routes.terms.meta.description",
     ];
+
+    expect(launchPolicyKeys.every((key) => publicPresenceHasTranslation(key))).toBe(true);
 
     const copy = launchPolicyKeys.map((key) => publicPresenceT(key)).join(" ");
 

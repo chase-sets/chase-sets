@@ -24,8 +24,28 @@ export default function OrderProtectionRoute() {
             body: [t("publicPresence.info.buyerProtection.orders.body")],
           },
           {
-            title: t("publicPresence.info.buyerProtection.help.title"),
-            body: [t("publicPresence.info.buyerProtection.help.body")],
+            title: t("publicPresence.info.buyerProtection.fraud.title"),
+            body: [t("publicPresence.info.buyerProtection.fraud.body")],
+          },
+          {
+            title: t("publicPresence.info.buyerProtection.chargebacks.title"),
+            body: [t("publicPresence.info.buyerProtection.chargebacks.body")],
+          },
+          {
+            title: t("publicPresence.info.buyerProtection.disputeEvidence.title"),
+            body: [t("publicPresence.info.buyerProtection.disputeEvidence.body")],
+          },
+          {
+            title: t("publicPresence.info.buyerProtection.shippingEvidence.title"),
+            body: [t("publicPresence.info.buyerProtection.shippingEvidence.body")],
+          },
+          {
+            title: t("publicPresence.info.buyerProtection.returns.title"),
+            body: [t("publicPresence.info.buyerProtection.returns.body")],
+          },
+          {
+            title: t("publicPresence.info.buyerProtection.negativeBalance.title"),
+            body: [t("publicPresence.info.buyerProtection.negativeBalance.body")],
           },
         ],
       }}

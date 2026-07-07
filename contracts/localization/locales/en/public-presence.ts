@@ -49,7 +49,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.faq.shipping.question": "How does shipping work?",
   "publicPresence.faq.title": "Marketplace questions",
   "publicPresence.footer.description":
-    "Chase Sets is in prelaunch. Public policies cover privacy, support, marketplace availability, checkout, fees, refunds, returns, and order protection while public checkout remains gated.",
+    "Public policies cover privacy, support, marketplace availability, checkout, fees, refunds, returns, and protection rules while public checkout remains gated.",
   "publicPresence.footer.title": "Chase Sets prelaunch",
   "publicPresence.home.description":
     "Request early access to the seller-first beta for 0% fees on beta listings, no separate seller processing fee, bulk-friendly listing, and buyer-visible totals.",
@@ -155,18 +155,33 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.workflowImageAlt":
     "Three marketplace workflow panels showing organized card inventory, pricing review, and shipping preparation.",
   "publicPresence.info.buyerProtection.description":
-    "Order protection focuses on visible totals, payment clarity, order traceability, and support paths from checkout through delivery.",
+    "Order protection explains the buyer and seller safeguards Chase Sets applies around payment, fulfillment, disputes, returns, payout release, and negative balances.",
   "publicPresence.info.buyerProtection.eyebrow": "Trust",
-  "publicPresence.info.buyerProtection.help.body":
-    "If an order needs help, Chase Sets support reviews order, payment, shipment, and account context before a resolution is applied.",
-  "publicPresence.info.buyerProtection.help.title": "Support path",
+  "publicPresence.info.buyerProtection.chargebacks.body":
+    "When the payment processor reports a dispute or chargeback, Payments records the processor dispute id, lifecycle state, evidence deadline, charge reference, affected orders, and seller payout exposure. Settlement then holds pending seller funds, claws back released seller exposure when needed, and releases a chargeback hold only when the processor dispute is won.",
+  "publicPresence.info.buyerProtection.chargebacks.title": "Chargebacks and disputes",
+  "publicPresence.info.buyerProtection.disputeEvidence.body":
+    "Payments assembles dispute evidence from Chase Sets order records and Fulfillment shipment evidence. Evidence is submitted to the processor only when tracking proof is available; when no tracking proof exists, Payments records that evidence was unavailable instead of inventing proof.",
+  "publicPresence.info.buyerProtection.disputeEvidence.title": "Dispute evidence",
+  "publicPresence.info.buyerProtection.fraud.body":
+    "Early fraud warnings and processor fraud reviews are recorded against the Payment. If an early fraud warning arrives on a captured payment that is not already disputed, the current runtime attempts a refund for the remaining refundable amount when the refund service is configured.",
+  "publicPresence.info.buyerProtection.fraud.title": "Fraud signals",
+  "publicPresence.info.buyerProtection.negativeBalance.body":
+    "If chargebacks, refunds, or payout recovery obligations exceed an account's available wallet balance, Settlement records a negative balance. New sale proceeds and shipping allowances offset that balance before any remaining funds enter normal payout release. Accounts at or beyond the configured collections threshold for the configured grace period move to collections, which pauses new listing availability and payout requests until the wallet returns to good standing.",
+  "publicPresence.info.buyerProtection.negativeBalance.title": "Negative balances",
   "publicPresence.info.buyerProtection.orders.body":
-    "Orders show the product, seller, item price, shipping, shipping credit, checkout fee, order protection, and fulfillment state before and after payment.",
+    "Checkout and order views keep product, seller, item price, shipping, shipping credit, checkout fee, protection, and fulfillment status visible. Seller sale proceeds and shipping allowances stay pending until delivery, risk, support, and aging rules clear.",
   "publicPresence.info.buyerProtection.orders.title": "Order visibility",
   "publicPresence.info.buyerProtection.payment.body":
-    "Payments run through secure provider-backed checkout flows with final totals visible before confirmation. Lower-cost payment methods reduce buyer-side order processing when available.",
+    "Payments run through provider-backed checkout flows with final totals visible before confirmation. Card payments may request risk-based 3DS step-up; liability-shift facts inform payment risk and dispute posture, but they do not override Settlement payout-release rules.",
   "publicPresence.info.buyerProtection.payment.title": "Protected payment",
-  "publicPresence.info.buyerProtection.title": "Order Protection",
+  "publicPresence.info.buyerProtection.returns.body":
+    "Fulfillment records delivery, return-to-sender, carrier exceptions, and return outcomes from shipment and postage-provider events. Return and exception evidence can extend seller payout release and gives support a concrete order and shipment record to review.",
+  "publicPresence.info.buyerProtection.returns.title": "Returns and shipment exceptions",
+  "publicPresence.info.buyerProtection.shippingEvidence.body":
+    "Shipping evidence is set from the committed package plan. Current tiers are untracked letter mail, tracked parcel, signature-confirmed shipment, and carrier-insured shipment. Priority shipping requires signature confirmation; declared value at $250 or more requires signature confirmation; declared value at $500 or more requires carrier insurance.",
+  "publicPresence.info.buyerProtection.shippingEvidence.title": "Shipping evidence tiers",
+  "publicPresence.info.buyerProtection.title": "Protection Policy",
   "publicPresence.info.contact.description":
     "Use the public support email for early access, account review, partnership, marketplace policy, and customer questions.",
   "publicPresence.info.contact.eyebrow": "Support",
