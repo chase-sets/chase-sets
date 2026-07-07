@@ -263,6 +263,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "medium",
     affectedProjectionNames: [
       "fulfillment:fulfillment-shipment-projection",
+      "payments:payments-fulfillment-dispute-evidence-source-projection",
       "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-fulfillment-cancellation-inputs",
       "ordering:ordering-order-review-opportunity-projection",
@@ -479,6 +480,7 @@ export const sourceContextWakeRegistry = [
       "fulfillment:fulfillment-payment-fraud-source-projection",
       "ordering:ordering-payment-capture",
       "payments:payments-account-risk-source-projection",
+      "payments:payments-dispute-evidence-submission",
       "payments:payments-fraud-alert-projection",
       "payments:payments-order-cancellation-refund-effect",
       "payments:payments-payment-projection",
