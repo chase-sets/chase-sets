@@ -461,7 +461,10 @@ describe("platform runtime Postgres concurrency guards", () => {
        ORDER BY operation_id`,
     );
     expect(rows.rows).toHaveLength(3);
-    for (const row of rows.rows as ReadonlyArray<{ attempt_count: number; next_eligible_at: Date }>) {
+    for (const row of rows.rows as unknown as ReadonlyArray<{
+      attempt_count: number;
+      next_eligible_at: Date;
+    }>) {
       // Existing rows converge on a full attempt budget (0) and an immediate horizon
       // so queued/ghost operations become claimable right away.
       expect(Number(row.attempt_count)).toBe(0);
