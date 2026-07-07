@@ -7,10 +7,10 @@ import {
   validateStripeKeyModeForRun,
 } from "./stripe-money-smoke-test.mjs";
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -28,6 +28,33 @@ function createSmokeFetch(calls) {
         return jsonResponse({ type: "session-started", sessionToken: "session_seller_login" });
       }
       return jsonResponse({ type: "session-started", sessionToken: "session_admin" });
+    }
+    if (path === "/api/identity/current-actor-display") {
+      return jsonResponse({ account: { account_id: "acc_platform_admin" } });
+    }
+    if (path === "/api/identity/invitations") {
+      return jsonResponse({ invitationId: "ivt_stripe_money_smoke_test" }, 201, {
+        "chase-sets-commit-receipt": encodeURIComponent(
+          JSON.stringify([
+            {
+              sourceContextName: "identity",
+              maxGlobalPosition: "42",
+              eventIds: ["evt_identity_invitation"],
+            },
+          ]),
+        ),
+      });
+    }
+    if (path === "/api/platform/projections/refresh") {
+      return jsonResponse({
+        projectionGroups: [
+          {
+            targetContextName: "auth",
+            projectionName: "auth-identity-invitation-projection",
+            subscriptions: [{ sourceContextName: "identity", lastGlobalPosition: "42" }],
+          },
+        ],
+      });
     }
     if (path === "/api/auth/register") {
       return jsonResponse(
@@ -641,6 +668,8 @@ describe("stripe money smoke test", () => {
       fetchImpl: createSmokeFetch(calls),
       env: {
         PLATFORM_AUTH_BASE_URL: "https://marketplace.preview.test",
+        PLATFORM_ADMIN_EMAIL: "admin@example.test",
+        PLATFORM_ADMIN_PASSWORD: "correct horse battery staple",
         SMOKE_REGISTER_SELLER: "true",
         SMOKE_SELLER_EMAIL: "stripe-smoke@example.test",
         SMOKE_SELLER_PASSWORD: "preview smoke password",
@@ -648,10 +677,21 @@ describe("stripe money smoke test", () => {
     });
 
     expect(result.accountStatus).toBe("ok");
-    expect(calls[0]).toMatchObject({
-      url: "https://marketplace.preview.test/api/auth/register",
+    expect(calls.slice(0, 5).map((call) => new URL(call.url).pathname)).toEqual([
+      "/api/auth/password-sign-in",
+      "/api/identity/current-actor-display",
+      "/api/identity/invitations",
+      "/api/platform/projections/refresh",
+      "/api/auth/register",
+    ]);
+    const invitationBody = JSON.parse(calls[2].init.body);
+    expect(invitationBody).toMatchObject({
+      accountId: "acc_platform_admin",
+      email: "stripe-smoke@example.test",
+      roleKey: "viewer",
     });
-    const registrationBody = JSON.parse(calls[0].init.body);
+    expect(invitationBody.invitationId).toMatch(/^ivt_stripe_money_smoke_/);
+    const registrationBody = JSON.parse(calls[4].init.body);
     expect(registrationBody).toMatchObject({
       email: "stripe-smoke@example.test",
       displayName: "Stripe Preview Smoke stripe smoke",
@@ -662,8 +702,13 @@ describe("stripe money smoke test", () => {
         },
       ],
     });
-    const signInCall = calls.find((call) => call.url === "https://marketplace.preview.test/api/auth/password-sign-in");
-    expect(signInCall).toBeUndefined();
+    const sellerSignInCall = calls.find((call) => {
+      if (call.url !== "https://marketplace.preview.test/api/auth/password-sign-in") {
+        return false;
+      }
+      return JSON.parse(call.init.body).email === "stripe-smoke@example.test";
+    });
+    expect(sellerSignInCall).toBeUndefined();
     const accountStatusCall = calls.find(
       (call) => call.url === "https://marketplace.preview.test/api/settlement/account-status",
     );
