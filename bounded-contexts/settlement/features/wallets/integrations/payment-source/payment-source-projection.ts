@@ -5,8 +5,10 @@ import type { AccountId, LedgerEntryId, OrderId, PaymentId } from "@chase-sets/p
 import {
   allocateMoneyByLargestRemainder,
   centsToMoneyAmount,
+  centsToSignedMoneyAmount,
   moneyToCents,
   roundRational,
+  trySignedMoneyToCents,
 } from "@chase-sets/primitives/money";
 import type { WalletServices } from "../../api/runtime";
 import { compareMoney, normalizeCurrencyCode, SettlementDomainError } from "../../../../support/runtime-support/common";
@@ -184,55 +186,125 @@ async function creditSellerPayouts(
   if (!wallets) {
     return;
   }
+  const walletServices = wallets;
 
   const context = {
     tenantId: event.tenantId,
     audit: event.audit,
     trace: event.trace,
   };
+  const availableBalanceByAccount = new Map<string, string>();
 
-  for (const payout of data.sellerPayouts) {
-    const sellerAccountId = payout.sellerAccountId as AccountId;
-    const paymentId = data.paymentId as PaymentId;
+  async function getAvailableBalanceAmount(accountId: AccountId) {
+    const existing = availableBalanceByAccount.get(accountId);
+    if (existing !== undefined) {
+      return existing;
+    }
 
-    if (compareMoney(payout.sellerItemNetAmount, "0.00") > 0) {
+    if (typeof walletServices.getWallet !== "function") {
+      availableBalanceByAccount.set(accountId, "0.00");
+      return "0.00";
+    }
+
+    const wallet = await walletServices.getWallet(accountId);
+    availableBalanceByAccount.set(accountId, wallet.available_balance_amount);
+    return wallet.available_balance_amount;
+  }
+
+  async function postSellerCredit(
+    params: Readonly<{
+      accountId: AccountId;
+      ledgerEntryId: LedgerEntryId;
+      kind: "sale" | "rebate";
+      amount: string;
+      orderId: OrderId;
+      paymentId: PaymentId;
+      pendingDescription: string;
+      offsetDescription: string;
+    }>,
+  ) {
+    const availableBalanceAmount = await getAvailableBalanceAmount(params.accountId);
+    const availableBalanceCents = trySignedMoneyToCents(availableBalanceAmount) ?? 0n;
+    const amountCents = moneyToCents(params.amount);
+    const offsetCents =
+      availableBalanceCents < 0n && amountCents > 0n
+        ? amountCents < -availableBalanceCents
+          ? amountCents
+          : -availableBalanceCents
+        : 0n;
+    const remainingCents = amountCents - offsetCents;
+
+    if (remainingCents > 0n) {
       await postWalletEntryIdempotently(
-        wallets,
+        walletServices,
         {
-          accountId: sellerAccountId,
-          ledgerEntryId: `led_sale_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
-          kind: "sale",
+          accountId: params.accountId,
+          ledgerEntryId: offsetCents > 0n ? (`${params.ledgerEntryId}_pending` as LedgerEntryId) : params.ledgerEntryId,
+          kind: params.kind,
           direction: "credit",
-          amount: payout.sellerItemNetAmount,
+          amount: centsToMoneyAmount(remainingCents),
           currencyCode: normalizeCurrencyCode(data.currencyCode),
           fundsStatus: "pending",
-          orderId: payout.orderId as OrderId,
-          paymentId,
-          description: `Item sale proceeds for order ${payout.orderId}`,
+          orderId: params.orderId,
+          paymentId: params.paymentId,
+          description: params.pendingDescription,
           postedAt: data.capturedAt,
         },
         context,
       );
     }
 
-    if (compareMoney(payout.sellerShippingPayoutAmount, "0.00") > 0) {
+    if (offsetCents > 0n) {
+      const offsetAmount = centsToMoneyAmount(offsetCents);
       await postWalletEntryIdempotently(
-        wallets,
+        walletServices,
         {
-          accountId: sellerAccountId,
-          ledgerEntryId: `led_shipping_allowance_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
-          kind: "rebate",
+          accountId: params.accountId,
+          ledgerEntryId: params.ledgerEntryId,
+          kind: params.kind,
           direction: "credit",
-          amount: payout.sellerShippingPayoutAmount,
+          amount: offsetAmount,
           currencyCode: normalizeCurrencyCode(data.currencyCode),
-          fundsStatus: "pending",
-          orderId: payout.orderId as OrderId,
-          paymentId,
-          description: `Shipping allowance for order ${payout.orderId}`,
+          fundsStatus: "available",
+          orderId: params.orderId,
+          paymentId: params.paymentId,
+          description: params.offsetDescription,
           postedAt: data.capturedAt,
         },
         context,
       );
+      availableBalanceByAccount.set(params.accountId, centsToSignedMoneyAmount(availableBalanceCents + offsetCents));
+    }
+  }
+
+  for (const payout of data.sellerPayouts) {
+    const sellerAccountId = payout.sellerAccountId as AccountId;
+    const paymentId = data.paymentId as PaymentId;
+
+    if (compareMoney(payout.sellerItemNetAmount, "0.00") > 0) {
+      await postSellerCredit({
+        accountId: sellerAccountId,
+        ledgerEntryId: `led_sale_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+        kind: "sale",
+        amount: payout.sellerItemNetAmount,
+        orderId: payout.orderId as OrderId,
+        paymentId,
+        pendingDescription: `Item sale proceeds for order ${payout.orderId}`,
+        offsetDescription: `Negative balance offset from item sale proceeds for order ${payout.orderId}`,
+      });
+    }
+
+    if (compareMoney(payout.sellerShippingPayoutAmount, "0.00") > 0) {
+      await postSellerCredit({
+        accountId: sellerAccountId,
+        ledgerEntryId: `led_shipping_allowance_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+        kind: "rebate",
+        amount: payout.sellerShippingPayoutAmount,
+        orderId: payout.orderId as OrderId,
+        paymentId,
+        pendingDescription: `Shipping allowance for order ${payout.orderId}`,
+        offsetDescription: `Negative balance offset from shipping allowance for order ${payout.orderId}`,
+      });
     }
   }
 }

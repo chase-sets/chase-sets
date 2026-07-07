@@ -94,6 +94,17 @@ Notes:
 
 - Settlement records the balance truth in the Wallet ledger.
 - Follow-up consumers use this vocabulary to decide recovery, payout blocking, or operator workflows without reinterpreting the original payment processor dispute.
+- New sale proceeds and shipping allowances offset a Negative Balance before any remaining funds enter normal payout release holds.
+
+## Collections
+
+**Collections** is the Settlement-owned Negative Balance lifecycle state for an account whose Wallet remains negative at or beyond the configured threshold for the configured grace period.
+
+Notes:
+
+- Collections pauses new listings through Marketplace Seller Listing Availability with the platform `operations` reason.
+- Collections keeps payout requests paused until the Wallet recovers to `in-good-standing`.
+- Manual repayment through a payment against the balance is a follow-up path; the current recovery path is sale-credit offset or audited operator adjustment.
 
 ## Payout Batch
 

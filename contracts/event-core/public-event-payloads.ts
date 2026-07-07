@@ -278,8 +278,32 @@ export type PayoutReadinessRecordedPayload = Readonly<{
   recordedAt: string;
 }>;
 
+export type SettlementNegativeBalanceEnteredPayload = Readonly<{
+  accountId: AccountId;
+  balanceAmount: string;
+  enteredAt: string;
+}>;
+
+export type SettlementNegativeBalanceCollectionsOpenedPayload = Readonly<{
+  accountId: AccountId;
+  balanceAmount: string;
+  negativeSince: string;
+  thresholdAmount: string;
+  gracePeriodDays: number;
+  openedAt: string;
+}>;
+
+export type SettlementNegativeBalanceRecoveredPayload = Readonly<{
+  accountId: AccountId;
+  balanceAmount: string;
+  recoveredAt: string;
+}>;
+
 export type SettlementEventPayloads = Readonly<{
   "settlement.payout-readiness.recorded": PayoutReadinessRecordedPayload;
+  "settlement.wallet.negative-balance-entered": SettlementNegativeBalanceEnteredPayload;
+  "settlement.wallet.negative-balance-collections-opened": SettlementNegativeBalanceCollectionsOpenedPayload;
+  "settlement.wallet.negative-balance-recovered": SettlementNegativeBalanceRecoveredPayload;
 }>;
 
 export type WaitlistSourcePayload = Readonly<{

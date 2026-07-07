@@ -9,6 +9,8 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import {
   getWallet,
+  listNegativeBalanceAccounts,
+  listNegativeBalanceCollectionsCandidates,
   listPendingCreditEntriesMaturedBy,
   listWalletEntries,
   type SettlementLedgerEntryRow,
@@ -41,7 +43,18 @@ type WalletRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
+  negativeBalancePolicy?: NegativeBalancePolicy;
 }>;
+
+export type NegativeBalancePolicy = Readonly<{
+  collectionsThresholdAmount: string;
+  collectionsGracePeriodDays: number;
+}>;
+
+export const defaultNegativeBalancePolicy: NegativeBalancePolicy = {
+  collectionsThresholdAmount: "100.00",
+  collectionsGracePeriodDays: 14,
+};
 
 export type PostedLedgerEntrySnapshot = Readonly<{
   ledger_entry_id: string;
@@ -66,6 +79,9 @@ export type WalletServices = Readonly<{
   listWalletEntries: (
     params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
   ) => Promise<{ items: SettlementLedgerEntryRow[]; total: number }>;
+  listNegativeBalanceAccounts: (
+    params?: Readonly<{ limit?: number; offset?: number }>,
+  ) => Promise<{ items: SettlementWalletRow[]; total: number }>;
   ensureWallet: (
     params: Readonly<{
       accountId: AccountId;
@@ -109,6 +125,15 @@ export type WalletServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ released: number; skipped: number }>;
+  evaluateNegativeBalanceCollections: (
+    params: Readonly<{
+      now?: string;
+      limit?: number;
+      collectionsThresholdAmount?: string;
+      collectionsGracePeriodDays?: number;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ escalated: number; skipped: number }>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -132,6 +157,7 @@ function postedEntrySnapshot(event: WalletLedgerEntryPostedEvent): PostedLedgerE
 }
 
 export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
+  const negativeBalancePolicy = deps.negativeBalancePolicy ?? defaultNegativeBalancePolicy;
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<WalletEvent>(),
@@ -164,6 +190,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
     commandHandler,
     getWallet: (accountId) => getWallet(deps.db, accountId),
     listWalletEntries: (params) => listWalletEntries(deps.db, params),
+    listNegativeBalanceAccounts: (params = {}) => listNegativeBalanceAccounts(deps.db, params),
     ensureWallet,
     async postEntry(params, context) {
       const postedAt = params.postedAt ?? new Date().toISOString();
@@ -261,6 +288,41 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
       }
 
       return { released, skipped };
+    },
+    async evaluateNegativeBalanceCollections(params, context) {
+      const now = params.now ?? new Date().toISOString();
+      const collectionsThresholdAmount =
+        params.collectionsThresholdAmount ?? negativeBalancePolicy.collectionsThresholdAmount;
+      const collectionsGracePeriodDays =
+        params.collectionsGracePeriodDays ?? negativeBalancePolicy.collectionsGracePeriodDays;
+      const candidates = await listNegativeBalanceCollectionsCandidates(deps.db, {
+        now,
+        thresholdAmount: collectionsThresholdAmount,
+        gracePeriodDays: collectionsGracePeriodDays,
+        limit: params.limit,
+      });
+      let escalated = 0;
+      let skipped = 0;
+
+      for (const candidate of candidates) {
+        const result = await commandHandler({
+          streamId: `settlement.wallet-${candidate.account_id}`,
+          command: {
+            type: "EvaluateNegativeBalanceCollections",
+            collectionsThresholdAmount,
+            collectionsGracePeriodDays,
+            evaluatedAt: now,
+          },
+          context,
+        });
+        if (result.newEvents.some((event) => event.type === "settlement.wallet.negative-balance-collections-opened")) {
+          escalated += 1;
+        } else {
+          skipped += 1;
+        }
+      }
+
+      return { escalated, skipped };
     },
     projectors: [
       createProjectionHandlerSet({

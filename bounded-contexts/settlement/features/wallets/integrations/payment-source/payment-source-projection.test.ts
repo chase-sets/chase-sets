@@ -225,6 +225,70 @@ describe("settlement payment source projection", () => {
     );
   });
 
+  it("applies new sale credits to a negative balance before leaving excess funds pending", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const wallets = {
+      getWallet: vi.fn(async () => ({
+        available_balance_amount: "-15.00",
+      })),
+      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await handlers["payments.payment-captured"]!(
+      transportEvent("payments.payment-captured", {
+        paymentId: "pay_1",
+        buyerAccountId: "acc_buyer",
+        balanceCreditAmount: "0.00",
+        currencyCode: "usd",
+        processorStatus: "succeeded",
+        capturedAt: "2026-05-01T00:00:00.000Z",
+        sellerPayouts: [
+          {
+            orderId: "ord_1",
+            sellerAccountId: "acc_seller",
+            sellerItemNetAmount: "20.00",
+            shippingAllowanceAmount: "3.00",
+            sellerShippingPayoutAmount: "3.00",
+            sellerPayoutAmount: "23.00",
+          },
+        ],
+      }),
+    );
+
+    expect(wallets.postEntry).toHaveBeenCalledTimes(3);
+    expect(wallets.postEntry).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        ledgerEntryId: "led_sale_pay_1_ord_1_pending",
+        amount: "5.00",
+        fundsStatus: "pending",
+      }),
+      expect.anything(),
+    );
+    expect(wallets.postEntry).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        ledgerEntryId: "led_sale_pay_1_ord_1",
+        amount: "15.00",
+        fundsStatus: "available",
+        description: "Negative balance offset from item sale proceeds for order ord_1",
+      }),
+      expect.anything(),
+    );
+    expect(wallets.postEntry).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        ledgerEntryId: "led_shipping_allowance_pay_1_ord_1",
+        amount: "3.00",
+        fundsStatus: "pending",
+      }),
+      expect.anything(),
+    );
+  });
+
   it("posts idempotent seller refund debits when a payment refund webhook is projected", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {

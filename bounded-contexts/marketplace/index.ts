@@ -8,6 +8,7 @@ import {
   buildMarketplaceCatalogProjectionHandlers,
   buildMarketplaceInventoryProjectionHandlers,
 } from "./features/listings/integrations/supply/supply-projection";
+import { buildMarketplaceSettlementNegativeBalanceProjectionHandlers } from "./features/listings/integrations/settlement/negative-balance-projection";
 import { buildMarketplaceListingProjectionHandlers } from "./features/listings/read-model/projection";
 import {
   buildReviewAccountProjectionHandlers,
@@ -76,6 +77,10 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
         "platform-operations.marketplace-review-support-source-projection": {
           subscriptionName: "marketplace.review-support-source-projection",
           buildHandlers: () => buildReviewSupportSourceProjectionHandlers(services.db),
+        },
+        "settlement.marketplace-settlement-negative-balance-projection": {
+          buildHandlers: () => buildMarketplaceSettlementNegativeBalanceProjectionHandlers(services.listings),
+          filterToEventTypes: true,
         },
       },
     });

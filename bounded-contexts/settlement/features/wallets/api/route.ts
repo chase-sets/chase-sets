@@ -10,7 +10,7 @@ function requireWalletAccess(
   c: {
     get(key: "actor"): SettlementApiEnv["Variables"]["actor"];
   },
-  permission: "payouts.view" | "payouts.manage",
+  permission: "payouts.view" | "payouts.manage" | "payouts.reconcile",
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -349,6 +349,50 @@ export function createWalletRoutes(services: WalletServices) {
               error instanceof Error
                 ? error.message
                 : t("settlement.features.wallets.api.route.dispute.release.failed"),
+          },
+        },
+        400,
+      );
+    }
+  });
+
+  app.post("/wallet/negative-balances/evaluate-collections", async (c) => {
+    const access = requireWalletAccess(c, "payouts.reconcile");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.wallets.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const params = {
+      ...(body.limit === undefined ? {} : { limit: Number(body.limit) }),
+      ...(typeof body.collectionsThresholdAmount === "string"
+        ? { collectionsThresholdAmount: body.collectionsThresholdAmount }
+        : {}),
+      ...(body.collectionsGracePeriodDays === undefined
+        ? {}
+        : { collectionsGracePeriodDays: Number(body.collectionsGracePeriodDays) }),
+    };
+    try {
+      return c.json(await services.evaluateNegativeBalanceCollections(params, context));
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message:
+              error instanceof Error ? error.message : t("settlement.features.wallets.api.route.adjustment.failed"),
           },
         },
         400,

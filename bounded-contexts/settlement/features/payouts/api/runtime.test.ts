@@ -481,6 +481,72 @@ describe("settlement payout runtime", () => {
     ).rejects.toThrow("Open support requests must be resolved");
   });
 
+  it("pauses payout requests while the wallet has a negative balance", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("COUNT(*) FILTER")) {
+          return {
+            rows: [
+              {
+                failed_payout_count: "0",
+                stale_requested_payout_count: "0",
+                in_transit_payout_count: "0",
+              },
+            ],
+          };
+        }
+        if (sql.includes("COALESCE(SUM(entry.amount)")) {
+          return { rows: [{ amount: "0.00" }] };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const wallets = {
+      getWallet: vi.fn(async () => ({
+        account_id: "acc_seller",
+        currency_code: "usd",
+        pending_balance_amount: "0.00",
+        available_balance_amount: "-12.00",
+        total_credited_amount: "0.00",
+        total_debited_amount: "12.00",
+        negative_balance_status: "negative",
+        negative_balance_started_at: "2026-04-02T00:02:00.000Z",
+        collections_escalated_at: null,
+        opened_at: "2026-04-02T00:00:00.000Z",
+        updated_at: "2026-04-02T00:02:00.000Z",
+      })),
+    };
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets: wallets as never,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+    });
+
+    const preview = await payouts.previewPayoutRequest(
+      {
+        accountId: "acc_seller" as never,
+        amount: "10.00",
+      },
+      context,
+    );
+
+    expect(preview.can_request).toBe(false);
+    expect(preview.unavailable_reasons).toContain("negative-balance-active");
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "10.00",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Negative balance must be recovered before requesting payout.");
+  });
+
   it("blocks payout requests until payout readiness is ready", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {

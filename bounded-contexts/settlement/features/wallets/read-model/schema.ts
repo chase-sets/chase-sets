@@ -6,9 +6,17 @@ CREATE TABLE IF NOT EXISTS settlement_wallet_pages (
   available_balance_amount numeric(12, 2) NOT NULL,
   total_credited_amount numeric(12, 2) NOT NULL,
   total_debited_amount numeric(12, 2) NOT NULL,
+  negative_balance_status text NOT NULL DEFAULT 'in-good-standing'
+    CHECK (negative_balance_status IN ('in-good-standing', 'negative', 'collections')),
+  negative_balance_started_at timestamptz NULL,
+  collections_escalated_at timestamptz NULL,
   opened_at timestamptz NULL,
   updated_at timestamptz NULL
 );
+
+CREATE INDEX IF NOT EXISTS settlement_wallet_pages_negative_balance_idx
+  ON settlement_wallet_pages (negative_balance_status, negative_balance_started_at)
+  WHERE negative_balance_status <> 'in-good-standing';
 
 CREATE TABLE IF NOT EXISTS settlement_ledger_entry_pages (
   ledger_entry_id text PRIMARY KEY,
@@ -33,4 +41,14 @@ CREATE INDEX IF NOT EXISTS settlement_ledger_entry_pages_account_idx
 CREATE INDEX IF NOT EXISTS settlement_ledger_entry_pages_payout_idx
   ON settlement_ledger_entry_pages (payout_id)
   WHERE payout_id IS NOT NULL;
+
+ALTER TABLE settlement_wallet_pages
+  ADD COLUMN IF NOT EXISTS negative_balance_status text NOT NULL DEFAULT 'in-good-standing'
+    CHECK (negative_balance_status IN ('in-good-standing', 'negative', 'collections'));
+
+ALTER TABLE settlement_wallet_pages
+  ADD COLUMN IF NOT EXISTS negative_balance_started_at timestamptz NULL;
+
+ALTER TABLE settlement_wallet_pages
+  ADD COLUMN IF NOT EXISTS collections_escalated_at timestamptz NULL;
 `;
