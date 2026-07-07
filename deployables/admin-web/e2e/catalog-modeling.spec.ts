@@ -1,10 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   authenticateAdmin,
+  createReadAfterWriteHeaderFactoryFromResponse,
   expectAdminPageReady,
   expectAdminWebHydrated,
   expectPageOk,
+  isProjectionFreshnessTimeoutResponse,
   skipDeployedAdminE2e,
+  type ReadAfterWriteHeaderFactory,
 } from "./support/admin-e2e";
 
 type CatalogAuthoringStreamProbeResult = Readonly<{
@@ -265,7 +268,12 @@ test.describe("catalog admin modeling", () => {
       expect(createBody.status).toBe("draft");
       await expect(page.getByRole("heading", { name: "Create Catalog Item" })).toHaveCount(0);
 
-      const row = await waitForCatalogItemRow(page, catalogItemId);
+      const createReadAfterWriteHeaders = createReadAfterWriteHeaderFactoryFromResponse(createResponse, {
+        targetContextName: "catalog",
+        label: `create draft catalog item ${catalogItemId}`,
+      });
+
+      const row = await waitForCatalogItemRow(page, catalogItemId, createReadAfterWriteHeaders);
       await expect(row.getByRole("link", { name: "View" })).toBeVisible();
 
       await page.goto(`/catalog/catalog-items/${catalogItemId}`, { waitUntil: "domcontentloaded" });
@@ -309,7 +317,7 @@ test.describe("catalog admin modeling", () => {
         await expect(page.getByRole("button", { name: action }).first()).toBeVisible();
       }
 
-      await removeDraftCatalogItemThroughList(page, catalogItemId);
+      await removeDraftCatalogItemThroughList(page, catalogItemId, createReadAfterWriteHeaders);
       catalogItemId = null;
     } finally {
       if (catalogItemId) {
@@ -520,14 +528,18 @@ async function openCatalogModelingDetail(
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 }
 
-async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: string) {
-  await waitForDraftCatalogItemReadModel(page, catalogItemId);
+async function removeDraftCatalogItemThroughList(
+  page: Page,
+  catalogItemId: string,
+  createReadAfterWriteHeaders: ReadAfterWriteHeaderFactory,
+) {
+  await waitForDraftCatalogItemReadModel(page, catalogItemId, createReadAfterWriteHeaders);
   await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
     waitUntil: "domcontentloaded",
   });
-  await waitForCatalogItemRow(page, catalogItemId);
-  await removeDraftCatalogItemByApi(page, catalogItemId);
-  await waitForDraftCatalogItemReadModelRemoval(page, catalogItemId);
+  await waitForCatalogItemRow(page, catalogItemId, createReadAfterWriteHeaders);
+  const removeReadAfterWriteHeaders = await removeDraftCatalogItemByApi(page, catalogItemId);
+  await waitForDraftCatalogItemReadModelRemoval(page, catalogItemId, removeReadAfterWriteHeaders);
 
   await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
     waitUntil: "domcontentloaded",
@@ -540,7 +552,13 @@ async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: stri
 async function removeDraftCatalogItemFallback(page: Page, catalogItemId: string) {
   const response = await page.request.delete(`${apiOrigin(page)}/api/catalog/items/${catalogItemId}`).catch(() => null);
   if (response?.status() === 200) {
-    await waitForDraftCatalogItemReadModelRemoval(page, catalogItemId).catch(() => undefined);
+    const removeReadAfterWriteHeaders = createReadAfterWriteHeaderFactoryFromResponse(response, {
+      targetContextName: "catalog",
+      label: `fallback remove draft catalog item ${catalogItemId}`,
+    });
+    await waitForDraftCatalogItemReadModelRemoval(page, catalogItemId, removeReadAfterWriteHeaders).catch(
+      () => undefined,
+    );
   }
 }
 
@@ -623,8 +641,14 @@ async function firstVisibleRowForSeed(page: Page, seedLabels: readonly string[])
   return fallbackRow;
 }
 
-async function waitForCatalogItemRow(page: Page, catalogItemId: string) {
-  await waitForDraftCatalogItemReadModel(page, catalogItemId);
+type ProjectionGatedRead<T> = Readonly<{ kind: "fresh"; value: T } | { kind: "pending" }>;
+
+async function waitForCatalogItemRow(
+  page: Page,
+  catalogItemId: string,
+  readAfterWriteHeaders: ReadAfterWriteHeaderFactory,
+) {
+  await waitForDraftCatalogItemReadModel(page, catalogItemId, readAfterWriteHeaders);
   await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
     waitUntil: "domcontentloaded",
   });
@@ -658,51 +682,89 @@ async function removeDraftCatalogItemByApi(page: Page, catalogItemId: string) {
   const body = (await response.json()) as CatalogCommandResponse;
   expect(body.id).toBe(catalogItemId);
   expect(body.status).toBe("removed");
+  return createReadAfterWriteHeaderFactoryFromResponse(response, {
+    targetContextName: "catalog",
+    label: `remove draft catalog item ${catalogItemId}`,
+  });
 }
 
-async function waitForDraftCatalogItemReadModel(page: Page, catalogItemId: string) {
+async function waitForDraftCatalogItemReadModel(
+  page: Page,
+  catalogItemId: string,
+  readAfterWriteHeaders: ReadAfterWriteHeaderFactory,
+) {
   await expect
     .poll(
       async () => {
-        const item = await getDraftCatalogItemListEntry(page, catalogItemId);
-        return item ? `${item.catalog_item_id}:${item.status}` : "missing";
+        const itemRead = await getDraftCatalogItemListEntry(page, catalogItemId, readAfterWriteHeaders);
+        if (itemRead.kind === "pending") {
+          return "projection-pending";
+        }
+
+        return itemRead.value ? `${itemRead.value.catalog_item_id}:${itemRead.value.status}` : "missing";
       },
-      { intervals: [1_000, 2_000, 5_000], timeout: 60_000 },
+      { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
     )
     .toBe(`${catalogItemId}:draft`);
 }
 
-async function waitForDraftCatalogItemReadModelRemoval(page: Page, catalogItemId: string) {
+async function waitForDraftCatalogItemReadModelRemoval(
+  page: Page,
+  catalogItemId: string,
+  readAfterWriteHeaders: ReadAfterWriteHeaderFactory,
+) {
   await expect
     .poll(
       async () => {
-        const listItem = await getDraftCatalogItemListEntry(page, catalogItemId);
-        const detailStatus = await getCatalogItemDetailStatus(page, catalogItemId);
-        return listItem === null && detailStatus === 404 ? "removed" : "present";
+        const listItem = await getDraftCatalogItemListEntry(page, catalogItemId, readAfterWriteHeaders);
+        const detailStatus = await getCatalogItemDetailStatus(page, catalogItemId, readAfterWriteHeaders);
+        if (listItem.kind === "pending" || detailStatus.kind === "pending") {
+          return "projection-pending";
+        }
+
+        return listItem.value === null && detailStatus.value === 404 ? "removed" : "present";
       },
-      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
+      { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
     )
     .toBe("removed");
 }
 
-async function getDraftCatalogItemListEntry(page: Page, catalogItemId: string): Promise<CatalogItemListApiItem | null> {
+async function getDraftCatalogItemListEntry(
+  page: Page,
+  catalogItemId: string,
+  readAfterWriteHeaders: ReadAfterWriteHeaderFactory,
+): Promise<ProjectionGatedRead<CatalogItemListApiItem | null>> {
   const query = new URLSearchParams({
     search: catalogItemId,
     status: "draft",
     limit: "5",
     offset: "0",
   });
-  const response = await page.request.get(`${apiOrigin(page)}/api/catalog/items?${query.toString()}`);
+  const response = await page.request.get(`${apiOrigin(page)}/api/catalog/items?${query.toString()}`, {
+    headers: readAfterWriteHeaders(),
+  });
+  if (await isProjectionFreshnessTimeoutResponse(response)) {
+    return { kind: "pending" };
+  }
   expect(response.status(), `catalog item list read model query should return 200`).toBe(200);
 
   const body = (await response.json()) as CatalogItemListApiResponse;
-  return body.items.find((item) => item.catalog_item_id === catalogItemId) ?? null;
+  return { kind: "fresh", value: body.items.find((item) => item.catalog_item_id === catalogItemId) ?? null };
 }
 
-async function getCatalogItemDetailStatus(page: Page, catalogItemId: string) {
-  const response = await page.request.get(`${apiOrigin(page)}/api/catalog/items/${catalogItemId}`);
+async function getCatalogItemDetailStatus(
+  page: Page,
+  catalogItemId: string,
+  readAfterWriteHeaders: ReadAfterWriteHeaderFactory,
+): Promise<ProjectionGatedRead<number>> {
+  const response = await page.request.get(`${apiOrigin(page)}/api/catalog/items/${catalogItemId}`, {
+    headers: readAfterWriteHeaders(),
+  });
+  if (await isProjectionFreshnessTimeoutResponse(response)) {
+    return { kind: "pending" };
+  }
   expect([200, 404], `catalog item detail read model query should return 200 or 404`).toContain(response.status());
-  return response.status();
+  return { kind: "fresh", value: response.status() };
 }
 
 function apiOrigin(page: Page) {

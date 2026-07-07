@@ -1,4 +1,13 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type APIResponse, type Page, type Response as PlaywrightResponse } from "@playwright/test";
+import {
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  decodeCommitReceipt,
+  encodeFreshWriteReceipt,
+  readFreshWriteToken,
+  type SourceCommitPosition,
+} from "@chase-sets/http/responses";
 
 const configuredAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() ?? "";
 const configuredAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "";
@@ -12,6 +21,65 @@ const pageReadyTimeoutMs = 90_000;
 export const skipDeployedAdminE2e =
   process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true" &&
   (configuredAdminEmail.length === 0 || configuredAdminPassword.length === 0);
+
+export type ReadAfterWriteHeaderFactory = () => Record<string, string>;
+
+export function createReadAfterWriteHeaderFactoryFromResponse(
+  response: APIResponse | PlaywrightResponse,
+  options: Readonly<{ targetContextName: string; label: string }>,
+): ReadAfterWriteHeaderFactory {
+  const sources = decodeCommitReceipt(responseHeader(response, CHASE_SETS_COMMIT_RECEIPT_HEADER));
+  expect(sources.length, `${options.label} should include a commit receipt`).toBeGreaterThan(0);
+  return createReadAfterWriteHeaderFactory(sources, options.targetContextName);
+}
+
+export function createReadAfterWriteHeaderFactoryFromUrl(
+  url: string | URL,
+  options: Readonly<{ targetContextName: string; label: string }>,
+): ReadAfterWriteHeaderFactory {
+  const receipt = readFreshWriteToken(url);
+  expect(receipt, `${options.label} should include a fresh write token`).toBeTruthy();
+  return createReadAfterWriteHeaderFactory(receipt!.sources, options.targetContextName);
+}
+
+export async function isProjectionFreshnessTimeoutResponse(response: APIResponse): Promise<boolean> {
+  if (response.status() !== 503) {
+    return false;
+  }
+
+  const body = (await response.json().catch(() => null)) as { error?: { code?: unknown } } | null;
+  return body?.error?.code === "projection_freshness_timeout";
+}
+
+function createReadAfterWriteHeaderFactory(
+  sources: readonly SourceCommitPosition[],
+  targetContextName: string,
+): ReadAfterWriteHeaderFactory {
+  const stableSources = sources.map((source) => ({
+    sourceContextName: source.sourceContextName,
+    maxGlobalPosition: source.maxGlobalPosition,
+    eventIds: [...source.eventIds],
+  }));
+
+  return () => ({
+    [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: stableSources,
+    }),
+    [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: targetContextName,
+  });
+}
+
+function responseHeader(response: APIResponse | PlaywrightResponse, headerName: string): string | null {
+  const target = headerName.toLowerCase();
+  for (const [name, value] of Object.entries(response.headers())) {
+    if (name.toLowerCase() === target) {
+      return value;
+    }
+  }
+
+  return null;
+}
 
 export async function expectPageOk(page: Page, path: string) {
   const deadline = Date.now() + pageReadyTimeoutMs;
