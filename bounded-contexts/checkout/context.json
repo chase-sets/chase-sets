@@ -371,6 +371,14 @@
       ]
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "checkout.get-cart", "ownerSlice": "cart" },
+      { "name": "checkout.add-cart-line", "ownerSlice": "cart" },
+      { "name": "checkout.start-session", "ownerSlice": "sessions" }
+    ],
+    "resources": [{ "uriTemplate": "chase-sets://checkout/{accountId}/cart", "ownerSlice": "cart" }]
+  },
   "readAfterWriteRouteInventory": [
     {
       "id": "checkout.session-start-to-detail",

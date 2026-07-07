@@ -10,7 +10,7 @@ import {
 } from "@chase-sets/discovery/server";
 import { catalogRealtimeManifest, catalogRealtimeTopicPolicyManifest } from "@chase-sets/catalog/server";
 import { module as identityModule } from "@chase-sets/identity";
-import { createInventoryImportBatchMcpHandlers, type InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import { createOrderingUcpHandlers } from "@chase-sets/ordering/server";
 import { createPaymentsUcpHandoff, type UcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import { marketplaceRealtimeManifest, marketplaceRealtimeTopicPolicyManifest } from "@chase-sets/marketplace/server";
@@ -32,7 +32,11 @@ import {
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
-import { createMcpRoutes, type CreateMcpRoutesOptions } from "@chase-sets/platform-runtime/mcp";
+import {
+  buildMcpHandlersFromModules,
+  createMcpRoutes,
+  type CreateMcpRoutesOptions,
+} from "@chase-sets/platform-runtime/mcp";
 import {
   createProjectionOperationsRoutes,
   type ProjectionWakeStatusWorkSignalStore,
@@ -224,25 +228,18 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     : undefined;
   const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;
-  const inventoryServices = runtime.services.inventory as
-    | { importBatches?: Parameters<typeof createInventoryImportBatchMcpHandlers>[0] }
-    | undefined;
-  const inventoryMcpHandlers = inventoryServices?.importBatches
-    ? createInventoryImportBatchMcpHandlers(inventoryServices.importBatches)
-    : undefined;
-  const mcpOptions = inventoryMcpHandlers
-    ? {
-        ...options.mcp,
-        toolHandlers: {
-          ...inventoryMcpHandlers.toolHandlers,
-          ...options.mcp?.toolHandlers,
-        },
-        resourceHandlers: {
-          ...inventoryMcpHandlers.resourceHandlers,
-          ...options.mcp?.resourceHandlers,
-        },
-      }
-    : options.mcp;
+  const moduleMcpHandlers = buildMcpHandlersFromModules(runtime.mountedModules);
+  const mcpOptions = {
+    ...options.mcp,
+    toolHandlers: {
+      ...moduleMcpHandlers.toolHandlers,
+      ...options.mcp?.toolHandlers,
+    },
+    resourceHandlers: {
+      ...moduleMcpHandlers.resourceHandlers,
+      ...options.mcp?.resourceHandlers,
+    },
+  };
   const ucpOptions =
     discoveryUcpHandlers || checkoutUcpHandlers || orderingUcpHandlers
       ? {

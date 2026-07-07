@@ -470,6 +470,31 @@ const inventoryImportBatchDetailOutputSchema: McpJsonSchema = {
   ],
 };
 
+const checkoutCartLineOutputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Checkout cart line.",
+  additionalProperties: true,
+  required: ["line_id", "buyer_account_id", "quantity"],
+  properties: {
+    line_id: stringProperty("Checkout cart line identifier."),
+    buyer_account_id: stringProperty("Account that owns the cart line."),
+    catalog_item_id: stringProperty("Catalog item identifier."),
+    product_id: stringProperty("Resolved product identifier."),
+    item_title: stringProperty("Line item title."),
+    quantity: integerProperty("Requested quantity."),
+    updated_at: stringProperty("Last update timestamp."),
+  },
+};
+
+const checkoutCartOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    items: arrayProperty("Checkout cart lines visible to the actor.", checkoutCartLineOutputProperty),
+    total: integerProperty("Total cart line count."),
+  },
+  ["accountId", "items", "total"],
+);
+
 export const mcpServiceCatalog = [
   {
     ...service(
@@ -1092,16 +1117,20 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
-      readTool(
-        "checkout",
-        "get-cart",
-        "Get Cart",
-        "Read the actor account cart.",
-        "orders.view",
-        objectSchema({ accountId: stringProperty("Authenticated account scope.") }, ["accountId"]),
-        "cart",
-        ["Use before adding items or starting checkout."],
-      ),
+      {
+        ...readTool(
+          "checkout",
+          "get-cart",
+          "Get Cart",
+          "Read the actor account cart.",
+          "orders.view",
+          objectSchema({ accountId: stringProperty("Authenticated account scope.") }, ["accountId"]),
+          "cart",
+          ["Use before adding items or starting checkout."],
+        ),
+        availability: "available",
+        outputSchema: checkoutCartOutputSchema,
+      },
       writeTool(
         "checkout",
         "add-cart-line",
@@ -1135,14 +1164,17 @@ export const mcpServiceCatalog = [
       ),
     ],
     resources: [
-      resource(
-        "checkout",
-        "chase-sets://checkout/{accountId}/cart",
-        "Cart",
-        "Current account cart and checkout readiness.",
-        "orders.view",
-        ["Use before checkout mutations."],
-      ),
+      {
+        ...resource(
+          "checkout",
+          "chase-sets://checkout/{accountId}/cart",
+          "Cart",
+          "Current account cart and checkout readiness.",
+          "orders.view",
+          ["Use before checkout mutations."],
+        ),
+        availability: "available",
+      },
     ],
   },
   {
