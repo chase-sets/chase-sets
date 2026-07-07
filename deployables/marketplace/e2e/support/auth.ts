@@ -86,8 +86,8 @@ async function startPasswordSession(
 }
 
 async function provisionSyntheticAccountInvitation(page: Page, origin: string, email: string) {
-  const adminEmail = process.env.PLATFORM_ADMIN_EMAIL?.trim() ?? "";
-  const adminPassword = process.env.PLATFORM_ADMIN_PASSWORD?.trim() ?? "";
+  const adminEmail = firstConfiguredEnvValue("PLATFORM_ADMIN_EMAIL", "TF_VAR_platform_admin_email");
+  const adminPassword = firstConfiguredEnvValue("PLATFORM_ADMIN_PASSWORD", "TF_VAR_platform_admin_password");
   if (!adminEmail || !adminPassword) {
     return;
   }
@@ -182,6 +182,17 @@ function maxObservedPosition(group: ProjectionGroupStatus | undefined, sourceCon
 
 function createSmokeInvitationId() {
   return `ivt_smoke_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function firstConfiguredEnvValue(...names: readonly string[]) {
+  for (const name of names) {
+    const value = process.env[name]?.trim() ?? "";
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
 }
 
 async function parseJsonResponse(response: APIResponse) {
