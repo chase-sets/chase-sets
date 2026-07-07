@@ -1,3 +1,8 @@
+import {
+  createConfiguredInMemoryRateLimiter,
+  publicClientRequestKey,
+  rateLimitExceededJsonResponse,
+} from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -59,11 +64,48 @@ function buildInvitationAcceptanceLink(
   return url.toString();
 }
 
+const invitationAcceptanceLinkIpRateLimiter = createConfiguredInMemoryRateLimiter(
+  "auth.invitation.acceptance-link.ip",
+  {
+    max: 10,
+    windowMs: 60 * 60 * 1000,
+  },
+);
+
+const invitationAcceptanceLinkIdentifierRateLimiter = createConfiguredInMemoryRateLimiter(
+  "auth.invitation.acceptance-link.identifier",
+  {
+    max: 3,
+    windowMs: 60 * 60 * 1000,
+  },
+);
+
+const invitationAcceptIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.invitation.accept.ip", {
+  max: 10,
+  windowMs: 60 * 60 * 1000,
+});
+
+const invitationAcceptIdentifierRateLimiter = createConfiguredInMemoryRateLimiter("auth.invitation.accept.identifier", {
+  max: 5,
+  windowMs: 60 * 60 * 1000,
+});
+
 export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/invitations/acceptance-link/request", async (c) => {
     const body = await c.req.json();
     const identityMutations = createIdentityMutations(c);
     const invitationId = String(body.invitationId ?? "");
+    const ipDecision = invitationAcceptanceLinkIpRateLimiter.check(publicClientRequestKey(c.req.raw));
+    if (ipDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.invitation.acceptance-link.ip", ipDecision);
+    }
+    const invitationDecision = invitationAcceptanceLinkIdentifierRateLimiter.check(
+      `invitation:${invitationId || "unknown"}`,
+    );
+    if (invitationDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.invitation.acceptance-link.identifier", invitationDecision);
+    }
+
     const invitation = await services.identity.getInvitation(invitationId);
     if (!isPendingInvitationAvailable(invitation)) {
       return c.json(invitationUnavailable(), 404);
@@ -121,6 +163,15 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     const identityMutations = createIdentityMutations(c);
     const invitationId = String(body.invitationId ?? "");
     const token = String(body.token ?? "");
+    const ipDecision = invitationAcceptIpRateLimiter.check(publicClientRequestKey(c.req.raw));
+    if (ipDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.invitation.accept.ip", ipDecision);
+    }
+    const invitationDecision = invitationAcceptIdentifierRateLimiter.check(`invitation:${invitationId || "unknown"}`);
+    if (invitationDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.invitation.accept.identifier", invitationDecision);
+    }
+
     if (!invitationId || !token) {
       return c.json(invalidInvitationToken(), 401);
     }

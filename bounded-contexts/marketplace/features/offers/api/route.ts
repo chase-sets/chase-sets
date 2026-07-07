@@ -1,3 +1,8 @@
+import {
+  createConfiguredInMemoryRateLimiter,
+  publicClientRequestKey,
+  rateLimitExceededJsonResponse,
+} from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
@@ -126,6 +131,49 @@ function parseShippingDestination(value: unknown) {
   };
 }
 
+const offerSubmissionAccountRateLimiter = createConfiguredInMemoryRateLimiter("marketplace.offer.submit.account", {
+  max: 50,
+  windowMs: 24 * 60 * 60 * 1000,
+});
+
+const offerSubmissionIpRateLimiter = createConfiguredInMemoryRateLimiter("marketplace.offer.submit.ip", {
+  max: 20,
+  windowMs: 60 * 60 * 1000,
+});
+
+const offerAcceptanceAccountRateLimiter = createConfiguredInMemoryRateLimiter("marketplace.offer.accept.account", {
+  max: 100,
+  windowMs: 24 * 60 * 60 * 1000,
+});
+
+const offerAcceptanceIpRateLimiter = createConfiguredInMemoryRateLimiter("marketplace.offer.accept.ip", {
+  max: 60,
+  windowMs: 60 * 60 * 1000,
+});
+
+function rateLimitAccountCommand(
+  request: Request,
+  accountId: string,
+  limiters: Readonly<{
+    accountSurface: string;
+    ipSurface: string;
+    account: ReturnType<typeof createConfiguredInMemoryRateLimiter>;
+    ip: ReturnType<typeof createConfiguredInMemoryRateLimiter>;
+  }>,
+) {
+  const accountDecision = limiters.account.check(`account:${accountId}`);
+  if (accountDecision.limited) {
+    return rateLimitExceededJsonResponse(limiters.accountSurface, accountDecision);
+  }
+
+  const ipDecision = limiters.ip.check(publicClientRequestKey(request));
+  if (ipDecision.limited) {
+    return rateLimitExceededJsonResponse(limiters.ipSurface, ipDecision);
+  }
+
+  return null;
+}
+
 export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
@@ -173,6 +221,15 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     const access = requireSignedInAccount(c);
     if (access.response) {
       return access.response;
+    }
+    const rateLimited = rateLimitAccountCommand(c.req.raw, access.actor.accountId, {
+      accountSurface: "marketplace.offer.submit.account",
+      ipSurface: "marketplace.offer.submit.ip",
+      account: offerSubmissionAccountRateLimiter,
+      ip: offerSubmissionIpRateLimiter,
+    });
+    if (rateLimited) {
+      return rateLimited;
     }
 
     const context = c.get("context");
@@ -323,6 +380,15 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
         { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
         403,
       );
+    }
+    const rateLimited = rateLimitAccountCommand(c.req.raw, access.actor.accountId, {
+      accountSurface: "marketplace.offer.accept.account",
+      ipSurface: "marketplace.offer.accept.ip",
+      account: offerAcceptanceAccountRateLimiter,
+      ip: offerAcceptanceIpRateLimiter,
+    });
+    if (rateLimited) {
+      return rateLimited;
     }
 
     const context = c.get("context");

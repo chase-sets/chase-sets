@@ -178,6 +178,70 @@ describe("marketplace offer routes", () => {
     );
   });
 
+  it("rate limits repeated offer submissions for one account", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_limited_offer_buyer",
+        membershipId: "mbr_1",
+        roleKey: "viewer",
+        permissions: [],
+      },
+      services,
+    });
+
+    for (let attempt = 1; attempt <= 50; attempt += 1) {
+      const response = await app.fetch(
+        new Request("http://marketplace.test/account/offers/submitted", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": `198.51.100.${attempt}`,
+          },
+          body: JSON.stringify({
+            catalogItemId: "cat_charizard",
+            productId: "cat_charizard::",
+            itemTitle: "Charizard",
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            priceAmount: "350.00",
+            quantityRequested: 1,
+          }),
+        }),
+      );
+      expect(response.status).toBe(201);
+    }
+
+    const limited = await app.fetch(
+      new Request("http://marketplace.test/account/offers/submitted", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-for": "198.51.100.200",
+        },
+        body: JSON.stringify({
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::",
+          itemTitle: "Charizard",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          priceAmount: "350.00",
+          quantityRequested: 1,
+        }),
+      }),
+    );
+
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBeTruthy();
+    await expect(limited.json()).resolves.toMatchObject({
+      error: {
+        code: "rate_limited",
+        surface: "marketplace.offer.submit.account",
+      },
+    });
+  });
+
   it("omits private shipping destination snapshots from submitted offer responses", async () => {
     const services = createServices();
     vi.mocked(services.listSubmittedOffers).mockResolvedValue({

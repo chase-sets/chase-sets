@@ -1,3 +1,8 @@
+import {
+  createConfiguredInMemoryRateLimiter,
+  publicClientRequestKey,
+  rateLimitExceededJsonResponse,
+} from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -28,10 +33,42 @@ function safeReturnTo(value: unknown) {
   return path.startsWith("/") && !path.startsWith("//") ? path : null;
 }
 
+const magicLinkRequestIdentifierRateLimiter = createConfiguredInMemoryRateLimiter(
+  "auth.magic-link.request.identifier",
+  {
+    max: 3,
+    windowMs: 60 * 60 * 1000,
+  },
+);
+
+const magicLinkRequestIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.magic-link.request.ip", {
+  max: 10,
+  windowMs: 60 * 60 * 1000,
+});
+
+const magicLinkConsumeIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.magic-link.consume.ip", {
+  max: 10,
+  windowMs: 10 * 60 * 1000,
+});
+
+const magicLinkConsumeTokenRateLimiter = createConfiguredInMemoryRateLimiter("auth.magic-link.consume.token", {
+  max: 5,
+  windowMs: 10 * 60 * 1000,
+});
+
 export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/magic-link/request", async (c) => {
     const body = await c.req.json();
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
+    const identifierDecision = magicLinkRequestIdentifierRateLimiter.check(`email:${email || "unknown"}`);
+    if (identifierDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.magic-link.request.identifier", identifierDecision);
+    }
+    const ipDecision = magicLinkRequestIpRateLimiter.check(publicClientRequestKey(c.req.raw));
+    if (ipDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.magic-link.request.ip", ipDecision);
+    }
+
     const user = await services.identity.getUserByEmail(email);
     const tokenId = createId("cmd");
     const token = services.auth.issueOpaqueToken("magic");
@@ -71,8 +108,18 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
 
   app.post("/magic-link/consume", async (c) => {
     const body = await c.req.json();
+    const ipDecision = magicLinkConsumeIpRateLimiter.check(publicClientRequestKey(c.req.raw));
+    if (ipDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.magic-link.consume.ip", ipDecision);
+    }
+    const tokenHash = services.auth.hashSecret(String(body.token ?? ""));
+    const tokenDecision = magicLinkConsumeTokenRateLimiter.check(tokenHash);
+    if (tokenDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.magic-link.consume.token", tokenDecision);
+    }
+
     const identityMutations = createIdentityMutations(c);
-    const record = await consumeMagicLinkToken(services.db, services.auth.hashSecret(String(body.token ?? "")));
+    const record = await consumeMagicLinkToken(services.db, tokenHash);
     if (!record) {
       return c.json({ error: t("auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has") }, 401);
     }

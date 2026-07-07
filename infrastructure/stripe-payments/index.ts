@@ -104,6 +104,7 @@ type StripePaymentMethodResponse = Readonly<{
   card?: Readonly<{
     brand?: string | null;
     last4?: string | null;
+    fingerprint?: string | null;
   }> | null;
   us_bank_account?: Readonly<{
     bank_name?: string | null;
@@ -139,6 +140,7 @@ type StripeEventEnvelope = Readonly<{
       card?: Readonly<{
         brand?: string | null;
         last4?: string | null;
+        fingerprint?: string | null;
       }> | null;
       us_bank_account?: Readonly<{
         bank_name?: string | null;
@@ -590,6 +592,7 @@ function mapSavedPaymentMethod(method: StripePaymentMethodResponse): ProcessorSa
     processorName: "stripe",
     providerCustomerReference: customerReference(method.customer),
     providerReference,
+    paymentMethodFingerprint: method.type === "card" ? normalizeOptionalText(method.card?.fingerprint ?? null) : null,
     paymentMethodCategory: paymentMethodCategory(method),
     displayLabel: paymentMethodDisplayLabel(method),
     readiness: method.customer ? "ready" : "setup-required",
@@ -1583,6 +1586,20 @@ export function createStripePaymentProcessorGateway(
             liabilityShiftOutcome,
           };
         }
+      }
+
+      if (mapped.kind === "payment-failed") {
+        const object = event.data?.object;
+        const paymentIntentReference =
+          typeof object?.payment_intent === "string"
+            ? normalizeOptionalText(object.payment_intent)
+            : mapped.processorPaymentReference.startsWith("pi_")
+              ? mapped.processorPaymentReference
+              : null;
+        return {
+          ...mapped,
+          savedPaymentMethod: await retrievePaymentIntentPaymentMethod(paymentIntentReference),
+        };
       }
 
       if (mapped.kind === "payment-refunded") {

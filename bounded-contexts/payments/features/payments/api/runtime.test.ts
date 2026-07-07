@@ -9,7 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { createPaymentRuntime } from "./runtime";
+import { PaymentsRateLimitExceededError, createPaymentRuntime } from "./runtime";
 
 function createDeferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -239,16 +239,17 @@ function createOrderInputDb(
     provider: params[3],
     provider_customer_reference: params[4],
     provider_reference: params[5],
-    display_label: params[6],
-    confirmation_experience: params[7],
-    readiness: params[8],
-    allow_redisplay: params[9],
-    consent_id: params[10],
-    consent_text: params[11],
-    is_default: Boolean(params[12]),
-    removed_at: params[13],
-    created_at: params[14],
-    updated_at: params[14],
+    provider_fingerprint: params[6] ?? null,
+    display_label: params[7],
+    confirmation_experience: params[8],
+    readiness: params[9],
+    allow_redisplay: params[10],
+    consent_id: params[11],
+    consent_text: params[12],
+    is_default: Boolean(params[13]),
+    removed_at: params[14],
+    created_at: params[15],
+    updated_at: params[15],
   });
 
   return {
@@ -314,11 +315,11 @@ function createOrderInputDb(
       }
 
       if (sql.includes("INSERT INTO payments_saved_checkout_instruments")) {
-        if (params?.[12] === true) {
+        if (params?.[13] === true) {
           for (const row of savedCheckoutInstrumentRows) {
             if (row.account_id === params[1]) {
               row.is_default = false;
-              row.updated_at = params[14];
+              row.updated_at = params[15];
             }
           }
         }
@@ -330,15 +331,16 @@ function createOrderInputDb(
             account_id: params?.[1],
             payment_method_category: params?.[2],
             provider_customer_reference: params?.[4],
-            display_label: params?.[6],
-            confirmation_experience: params?.[7],
-            readiness: params?.[8],
-            allow_redisplay: params?.[9],
-            consent_id: params?.[10] ?? existing.consent_id,
-            consent_text: params?.[11] ?? existing.consent_text,
-            is_default: Boolean(params?.[12]),
-            removed_at: params?.[13],
-            updated_at: params?.[14],
+            provider_fingerprint: params?.[6] ?? existing.provider_fingerprint ?? null,
+            display_label: params?.[7],
+            confirmation_experience: params?.[8],
+            readiness: params?.[9],
+            allow_redisplay: params?.[10],
+            consent_id: params?.[11] ?? existing.consent_id,
+            consent_text: params?.[12] ?? existing.consent_text,
+            is_default: Boolean(params?.[13]),
+            removed_at: params?.[14],
+            updated_at: params?.[15],
           });
           return { rows: [existing] };
         }
@@ -1462,6 +1464,101 @@ describe("payment runtime", () => {
         }),
       }),
     );
+  });
+
+  it("blocks saved-card payment creation after repeated declines for the same card fingerprint", async () => {
+    const processorGateway = createProcessorGateway();
+    const declinedPayment = {
+      ...existingPaymentRow(),
+      payment_id: "pay_declined",
+      processor_payment_reference: "pi_declined",
+      status: "pending-confirmation",
+    };
+    const { db } = createReconciliationDb({
+      paymentById: (paymentId) => (paymentId === "pay_declined" ? declinedPayment : null),
+    });
+    const declineRuntime = createPaymentRuntime({
+      eventStore: createInMemoryEventStore().eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      processorGateway.parseWebhook.mockResolvedValueOnce({
+        eventId: `evt_decline_${attempt}`,
+        kind: "payment-failed",
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference: "pi_declined",
+        internalPaymentId: "pay_declined",
+        processorStatus: "requires_payment_method",
+        failureCode: "card_declined",
+        failureMessage: "Card was declined.",
+        occurredAt: `2026-04-29T00:0${attempt}:00.000Z`,
+        savedPaymentMethod: {
+          processorName: "stripe",
+          providerCustomerReference: "cus_buyer",
+          providerReference: `pm_declined_${attempt}`,
+          paymentMethodFingerprint: "fp_declined_card",
+          paymentMethodCategory: "card",
+          displayLabel: "Visa ending in 0002",
+          readiness: "ready",
+          allowRedisplay: "always",
+          removed: false,
+        },
+      } as never);
+      await declineRuntime.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context).catch(() => undefined);
+    }
+
+    const creationGateway = createProcessorGateway();
+    const creationRuntime = createPaymentRuntime({
+      eventStore: createInMemoryEventStore().eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb({
+        savedCheckoutInstrumentRows: [
+          {
+            instrument_id: "sci_declined_card",
+            account_id: "acc_buyer",
+            payment_method_category: "card",
+            provider: "stripe",
+            provider_customer_reference: "cus_buyer",
+            provider_reference: "pm_declined_saved",
+            provider_fingerprint: "fp_declined_card",
+            display_label: "Visa ending in 0002",
+            confirmation_experience: "off-session-token",
+            readiness: "ready",
+            allow_redisplay: "always",
+            consent_id: "consent_declined",
+            consent_text: "Save for future checkout.",
+            removed_at: null,
+            is_default: true,
+            created_at: "2026-04-29T00:00:00.000Z",
+            updated_at: "2026-04-29T00:00:00.000Z",
+          },
+        ],
+      }) as never,
+      processorGateway: creationGateway,
+    });
+    const status = await creationRuntime.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+
+    await expect(
+      creationRuntime.createAccountPayment(
+        {
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1" as never],
+          paymentMethodCategory: "card",
+          marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+          savedCheckoutInstrumentId: "sci_declined_card",
+        },
+        context,
+      ),
+    ).rejects.toBeInstanceOf(PaymentsRateLimitExceededError);
+    expect(creationGateway.createPaymentSession).not.toHaveBeenCalled();
   });
 
   it("makes the first consent-saved checkout instrument default", async () => {

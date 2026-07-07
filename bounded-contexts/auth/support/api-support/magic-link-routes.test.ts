@@ -146,6 +146,47 @@ describe("magic link auth routes", () => {
     );
   });
 
+  it("rate limits repeated magic link requests for one identifier", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const response = await app.request("http://internal-app/magic-link/request", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-for": "203.0.113.44",
+        },
+        body: JSON.stringify({
+          email: "limited-magic@example.test",
+          landingPath: "/sign-in/magic",
+        }),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    const limited = await app.request("http://internal-app/magic-link/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.44",
+      },
+      body: JSON.stringify({
+        email: "limited-magic@example.test",
+        landingPath: "/sign-in/magic",
+      }),
+    });
+
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBeTruthy();
+    await expect(limited.json()).resolves.toMatchObject({
+      error: {
+        code: "rate_limited",
+        surface: "auth.magic-link.request.identifier",
+      },
+    });
+  });
+
   it("still consumes a valid email-delivered magic link token", async () => {
     const services = createServices();
     mockConsumeMagicLinkToken.mockResolvedValue({

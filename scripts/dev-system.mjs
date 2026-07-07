@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { applyDevTargetEnvOverrides } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
 import {
@@ -497,7 +498,7 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
 
 async function runDev(targetName = "all") {
   await runBootstrap();
-  const selectedProcesses = resolveProcessesForTarget(targetName);
+  const selectedProcesses = applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName));
   printDevUrls(targetName, selectedProcesses, targetName === "all");
 
   const children = [];

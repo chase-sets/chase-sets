@@ -325,6 +325,56 @@ describe("payments routes", () => {
     );
   });
 
+  it("rate limits repeated account payment creation", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_limited_payment_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      const response = await app.fetch(
+        new Request("http://payments.test/account/payments", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": `203.0.113.${attempt}`,
+          },
+          body: JSON.stringify({ orderIds: ["ord_1"] }),
+        }),
+      );
+      expect(response.status).toBe(201);
+    }
+
+    const limited = await app.fetch(
+      new Request("http://payments.test/account/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-for": "203.0.113.200",
+        },
+        body: JSON.stringify({ orderIds: ["ord_1"] }),
+      }),
+    );
+
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBeTruthy();
+    await expect(limited.json()).resolves.toMatchObject({
+      error: {
+        code: "rate_limited",
+        surface: "payments.payment.create.account",
+      },
+    });
+  });
+
   it("preserves temporary order readiness error codes for checkout payment start", async () => {
     const services = createServices();
     vi.mocked(services.createAccountPayment).mockRejectedValue(

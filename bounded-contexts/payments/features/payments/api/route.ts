@@ -1,9 +1,14 @@
+import {
+  createConfiguredInMemoryRateLimiter,
+  publicClientRequestKey,
+  rateLimitExceededJsonResponse,
+} from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
-import type { PaymentServices } from "./runtime";
+import { PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
@@ -98,6 +103,29 @@ function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Re
   );
 }
 
+function paymentRateLimitResponse(error: unknown) {
+  if (!(error instanceof PaymentsRateLimitExceededError)) {
+    return null;
+  }
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: "rate_limited",
+        message: error.message,
+        surface: error.surface,
+        retryAfterSeconds: error.retryAfterSeconds,
+      },
+    }),
+    {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(error.retryAfterSeconds),
+      },
+    },
+  );
+}
+
 function resolvePublicOrigin(request: Request) {
   return resolvePublicRequestOrigin(request);
 }
@@ -121,6 +149,28 @@ function readAgenticPayment(value: unknown) {
 
 function canStorePaymentMethod(actor: NonNullable<PaymentsApiEnv["Variables"]["actor"]>) {
   return !actor.permissions.includes("guest-checkout.manage");
+}
+
+const paymentCreationAccountRateLimiter = createConfiguredInMemoryRateLimiter("payments.payment.create.account", {
+  max: 10,
+  windowMs: 10 * 60 * 1000,
+});
+
+const paymentCreationIpRateLimiter = createConfiguredInMemoryRateLimiter("payments.payment.create.ip", {
+  max: 20,
+  windowMs: 10 * 60 * 1000,
+});
+
+function enforcePaymentCreationLimit(request: Request, accountId: string) {
+  const accountDecision = paymentCreationAccountRateLimiter.check(`account:${accountId}`);
+  if (accountDecision.limited) {
+    return rateLimitExceededJsonResponse("payments.payment.create.account", accountDecision);
+  }
+  const ipDecision = paymentCreationIpRateLimiter.check(publicClientRequestKey(request));
+  if (ipDecision.limited) {
+    return rateLimitExceededJsonResponse("payments.payment.create.ip", ipDecision);
+  }
+  return null;
 }
 
 type SavedCheckoutInstrumentForApi = Awaited<ReturnType<PaymentServices["listSavedCheckoutInstruments"]>>[number];
@@ -200,6 +250,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     if (access.response) {
       return access.response;
     }
+    const rateLimited = enforcePaymentCreationLimit(c.req.raw, access.actor.accountId);
+    if (rateLimited) {
+      return rateLimited;
+    }
 
     const context = c.get("context");
     if (!context) {
@@ -260,6 +314,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(payment, 201);
     } catch (error) {
+      const rateLimited = paymentRateLimitResponse(error);
+      if (rateLimited) {
+        return rateLimited;
+      }
       const stale = staleFeeQuoteResponse(c, error);
       if (stale) {
         return stale;
@@ -517,6 +575,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     if (access.response) {
       return access.response;
     }
+    const rateLimited = enforcePaymentCreationLimit(c.req.raw, access.actor.accountId);
+    if (rateLimited) {
+      return rateLimited;
+    }
 
     const context = c.get("context");
     if (!context) {
@@ -571,6 +633,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(payment, 201);
     } catch (error) {
+      const rateLimited = paymentRateLimitResponse(error);
+      if (rateLimited) {
+        return rateLimited;
+      }
       const stale = staleFeeQuoteResponse(c, error);
       if (stale) {
         return stale;

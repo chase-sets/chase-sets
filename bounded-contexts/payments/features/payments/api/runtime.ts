@@ -7,6 +7,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
+import { createConfiguredInMemoryRateLimiter, recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
 import { hasProcessedProviderWebhookEvent, recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
@@ -109,6 +110,52 @@ type PaymentRuntimeDeps = Readonly<{
   balanceCreditResolver?: BalanceCreditResolver;
   notificationOutbox?: NotificationOutbox;
 }>;
+
+export class PaymentsRateLimitExceededError extends Error {
+  readonly code = "rate_limited";
+  constructor(
+    readonly surface: string,
+    readonly retryAfterSeconds: number,
+  ) {
+    super("Too many payment attempts. Please retry after the rate-limit window.");
+    this.name = "PaymentsRateLimitExceededError";
+  }
+}
+
+const cardDeclineVelocityRateLimiter = createConfiguredInMemoryRateLimiter("payments.card-decline.fingerprint", {
+  max: 5,
+  windowMs: 60 * 60 * 1000,
+});
+
+function enforceCardDeclineVelocity(fingerprint: string | null | undefined) {
+  const normalized = fingerprint?.trim();
+  if (!normalized) {
+    return;
+  }
+  const decision = cardDeclineVelocityRateLimiter.peek(`card:${normalized}`);
+  if (decision.limited) {
+    recordRateLimitExceeded("payments.card-decline.fingerprint");
+    throw new PaymentsRateLimitExceededError("payments.card-decline.fingerprint", decision.retryAfterSeconds);
+  }
+}
+
+function recordCardDeclineVelocity(
+  method:
+    | Readonly<{
+        paymentMethodCategory?: string | null;
+        paymentMethodFingerprint?: string | null;
+      }>
+    | null
+    | undefined,
+) {
+  if (method?.paymentMethodCategory !== "card" || !method.paymentMethodFingerprint?.trim()) {
+    return;
+  }
+  const decision = cardDeclineVelocityRateLimiter.check(`card:${method.paymentMethodFingerprint.trim()}`);
+  if (decision.limited) {
+    recordRateLimitExceeded("payments.card-decline.fingerprint");
+  }
+}
 
 type CheckoutStatusResult = Readonly<{
   order_ids: readonly string[];
@@ -620,6 +667,7 @@ async function persistProcessorSavedPaymentMethod(
     provider: params.savedPaymentMethod.processorName,
     providerCustomerReference: params.savedPaymentMethod.providerCustomerReference ?? params.providerCustomerReference,
     providerReference: params.savedPaymentMethod.providerReference,
+    providerFingerprint: params.savedPaymentMethod.paymentMethodFingerprint ?? null,
     displayLabel: params.savedPaymentMethod.displayLabel,
     confirmationExperience: "off-session-token",
     readiness: params.savedPaymentMethod.removed ? "removed" : params.savedPaymentMethod.readiness,
@@ -1467,6 +1515,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         instrumentId: params.savedCheckoutInstrumentId,
         paymentMethodCategory,
       });
+      enforceCardDeclineVelocity(savedCheckoutInstrument?.provider_fingerprint ?? null);
       const shouldSavePaymentMethod =
         Boolean(params.savePaymentMethodForFuture) &&
         !savedCheckoutInstrument &&
@@ -2146,6 +2195,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           }
           break;
         case "payment-failed":
+          recordCardDeclineVelocity(webhookEvent.savedPaymentMethod);
           await commandHandler({
             streamId,
             command: {
