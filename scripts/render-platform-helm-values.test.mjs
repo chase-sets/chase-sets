@@ -115,11 +115,12 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 13,
-      "platform-api": 81,
+      "platform-api": 82,
       "platform-bootstrap": 51,
       "platform-worker": 110,
       "public-web": 12,
     });
+    expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
     expect(componentEnvKeys(values.components["platform-api"])).toContain("DATABASE_URL_COMMERCIAL_TERMS");
     expect(componentEnvKeys(values.components["platform-api"])).toContain("DATABASE_URL_INVENTORY_WAITER");
     expect(componentEnvKeys(values.components["platform-worker"])).toContain(

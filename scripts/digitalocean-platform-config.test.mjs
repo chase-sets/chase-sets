@@ -512,6 +512,19 @@ describe("DigitalOcean platform configuration", () => {
     }
   });
 
+  it("keeps staging smoke under active auth registration rate limits", () => {
+    const platformApiService = terraformServiceBlock(platformMain, "platform-api");
+    const platformWorkerService = terraformWorkerBlock(platformMain, "platform-worker");
+    const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
+
+    expect(platformLocals).toContain("rate_limit_runtime_env = local.is_staging ? {");
+    expect(platformLocals).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX = {");
+    expect(platformLocals).toContain('value  = "30"');
+    expect(platformApiService).toContain("for_each = local.rate_limit_runtime_env");
+    expect(platformWorkerService).not.toContain("for_each = local.rate_limit_runtime_env");
+    expect(platformBootstrapJob).not.toContain("for_each = local.rate_limit_runtime_env");
+  });
+
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
     expect(catalogAssetsMain).toContain('resource "digitalocean_spaces_bucket" "catalog_assets"');
     expect(catalogAssetsMain).toContain('acl           = "private"');
