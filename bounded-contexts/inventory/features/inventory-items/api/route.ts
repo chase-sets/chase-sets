@@ -150,15 +150,35 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
   app.post("/:id/adjustments", async (c) => {
     const actor = c.get("actor");
     const body = await c.req.json();
-    const result = await items.adjustItem(
-      {
-        accountId: actor.accountId,
-        itemId: c.req.param("id"),
-        quantityDelta: Number(body.quantityDelta ?? 0),
-        reason: String(body.reason ?? ""),
-      },
-      c.get("context"),
-    );
+    let result: Awaited<ReturnType<InventoryItemServices["adjustItem"]>>;
+    try {
+      result = await items.adjustItem(
+        {
+          accountId: actor.accountId,
+          itemId: c.req.param("id"),
+          quantityDelta: Number(body.quantityDelta ?? 0),
+          reason: String(body.reason ?? ""),
+        },
+        c.get("context"),
+      );
+    } catch (error) {
+      const committedUnits =
+        error instanceof Error ? /^(\d+) units are committed to open orders\.$/.exec(error.message) : null;
+      if (committedUnits) {
+        return c.json(
+          {
+            error: {
+              code: "inventory_adjustment_below_committed_quantity",
+              message: t("inventory.features.inventoryItems.api.route.units.committed.to.open.orders", {
+                count: committedUnits[1] ?? 0,
+              }),
+            },
+          },
+          400,
+        );
+      }
+      throw error;
+    }
 
     return c.json({ id: result.itemId, version: result.version, status: "adjusted" });
   });

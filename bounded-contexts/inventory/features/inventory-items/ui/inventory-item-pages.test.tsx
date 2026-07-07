@@ -57,4 +57,54 @@ describe("inventory item pages", () => {
     expect(html).toContain("Japanese");
     expect(html).not.toContain(">ja<");
   });
+
+  it("renders order hold provenance without a seller release affordance", () => {
+    const detail: InventoryItemDetail = {
+      ...inventoryItem,
+      holds: [
+        {
+          hold_id: "hld_order",
+          account_id: "acc_1",
+          item_id: "inv_1",
+          quantity: 1,
+          reason: "Ordering commitment",
+          notes: null,
+          purpose: "order",
+          source_ref: {
+            orderId: "ord_1",
+            reservationRequestId: "rsv_1",
+          },
+          expires_at: null,
+          status: "active",
+          created_at: "2026-05-13T00:00:00.000Z",
+          updated_at: "2026-05-13T00:00:00.000Z",
+          released_at: null,
+          release_reason: null,
+        },
+        {
+          hold_id: "hld_manual",
+          account_id: "acc_1",
+          item_id: "inv_1",
+          quantity: 1,
+          reason: "Shelf audit",
+          notes: null,
+          purpose: "manual",
+          source_ref: null,
+          expires_at: null,
+          status: "active",
+          created_at: "2026-05-13T00:00:00.000Z",
+          updated_at: "2026-05-13T00:00:00.000Z",
+          released_at: null,
+          release_reason: null,
+        },
+      ],
+    };
+    const html = renderToString(<InventoryItemDetailPage item={detail} />);
+
+    expect(html).toContain("Order");
+    expect(html).toContain("/account/sales/ord_1");
+    expect(html).toContain("View order ord_1");
+    expect(html).toContain("Manual");
+    expect(html.match(/name="intent" value="release-hold"/g) ?? []).toHaveLength(1);
+  });
 });

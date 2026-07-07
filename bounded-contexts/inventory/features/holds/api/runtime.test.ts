@@ -3,7 +3,11 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { AccountId, EventId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
-import { createInventoryHoldRuntime, InventoryHoldPlacementError } from "./runtime";
+import {
+  createInventoryHoldRuntime,
+  InventoryHoldPlacementError,
+  withInventorySystemHoldReleaseAuthority,
+} from "./runtime";
 import type { InventoryHoldId } from "../../../support/runtime-support/common";
 
 const context = {
@@ -73,6 +77,7 @@ function createInventoryDb(
   options: Readonly<{
     itemRows?: Record<string, unknown>[];
     aggregateHoldRows?: Record<string, unknown>[];
+    holdRows?: Record<string, unknown>[];
   }> = {},
 ) {
   const itemRows = options.itemRows ?? [
@@ -103,6 +108,7 @@ function createInventoryDb(
     },
   ];
   const aggregateHoldRows = options.aggregateHoldRows ?? [];
+  const holdRows = options.holdRows ?? [];
 
   return {
     query: vi.fn(async (sql: string) => {
@@ -117,7 +123,7 @@ function createInventoryDb(
       }
 
       if (sql.includes("FROM inventory_holds")) {
-        return { rows: [] };
+        return { rows: holdRows };
       }
 
       if (sql.includes("to_regclass('public.inventory_catalog_items')")) {
@@ -359,5 +365,85 @@ describe("inventory hold runtime", () => {
     expect(aggregateHoldQuery).toContain("payload ->> 'accountId' = $2");
     expect(aggregateHoldQuery).toContain("payload ->> 'itemId' = $3");
     expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(0);
+  });
+
+  it("blocks seller release of order holds while system workflows release them with audit context", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const holdRow = {
+      hold_id: "hld_order_reservation_rsv_1",
+      account_id: "acc_seller",
+      item_id: "inv_1",
+      quantity: 1,
+      reason: "Ordering commitment",
+      notes: null,
+      purpose: "order",
+      source_ref: {
+        orderId: "ord_1",
+        reservationRequestId: "rsv_1",
+      },
+      expires_at: null,
+      status: "active",
+      created_at: "2026-06-24T00:00:00.000Z",
+      updated_at: "2026-06-24T00:00:00.000Z",
+      released_at: null,
+      release_reason: null,
+    };
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: createInventoryDb({ holdRows: [holdRow] }),
+    });
+    await eventStore.appendToStream({
+      streamId: "inventory.hold-hld_order_reservation_rsv_1",
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId: "hld_order_reservation_rsv_1",
+            accountId: "acc_seller",
+            itemId: "inv_1",
+            quantity: 1,
+            reason: "Ordering commitment",
+            notes: null,
+            purpose: "order",
+            sourceRef: {
+              orderId: "ord_1",
+              reservationRequestId: "rsv_1",
+            },
+            expiresAt: null,
+          },
+        },
+      ],
+      context,
+    });
+
+    await expect(
+      services.releaseHold(
+        {
+          accountId: "acc_seller",
+          holdId: "hld_order_reservation_rsv_1",
+          releaseReason: "manual",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Only manual inventory holds can be released by sellers.");
+    await services.releaseHold(
+      {
+        accountId: "acc_seller",
+        holdId: "hld_order_reservation_rsv_1",
+        releaseReason: "order-cancelled",
+      },
+      withInventorySystemHoldReleaseAuthority(context),
+    );
+
+    const released = readAllEvents().find((event) => event.eventType === "inventory.hold.released");
+    expect(released).toMatchObject({
+      performedByUserId: "usr_test",
+      forAccountId: "acc_seller",
+      payload: expect.objectContaining({
+        releaseReason: "order-cancelled",
+      }),
+    });
   });
 });

@@ -557,11 +557,13 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       await sendSeedCommand(services.items.commandHandler, streamId, {
         type: "AdjustInventoryItemQuantity",
         quantityDelta: 1,
+        heldQuantity: 0,
         reason: "Cycle count increase",
       });
       await sendSeedCommand(services.items.commandHandler, streamId, {
         type: "AdjustInventoryItemQuantity",
         quantityDelta: -1,
+        heldQuantity: 0,
         reason: "Reserve correction",
       });
     }

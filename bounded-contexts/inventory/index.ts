@@ -14,6 +14,7 @@ import contextManifest from "./context.json";
 import type { InventoryHostPorts, InventoryServices } from "./support/runtime-support/services";
 import { buildInventoryApi } from "./api";
 import { reserveOrderInventoryRequest } from "./features/reservations/api/order-reservation-workflow";
+import { withInventorySystemHoldReleaseAuthority } from "./features/holds/api/runtime";
 import { buildInventoryCatalogItemProjectionHandlers } from "./features/inventory-items/integrations/catalog/projection";
 import { InventoryDomainError } from "./support/runtime-support/common";
 import { createInventoryServices } from "./support/runtime-support/services";
@@ -80,7 +81,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
                     holdId: request.holdId,
                     releaseReason: "order-cancelled",
                   },
-                  context,
+                  withInventorySystemHoldReleaseAuthority(context),
                 );
               } catch (error) {
                 if (!(error instanceof InventoryDomainError) || error.message !== "Inventory hold not found.") {
