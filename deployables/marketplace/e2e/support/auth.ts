@@ -1,4 +1,5 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type APIResponse, type Page } from "@playwright/test";
+import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-sets/http/responses";
 
 export type MarketplaceE2EAccount = {
   email: string;
@@ -28,18 +29,10 @@ export async function signInWithPassword(
   origin: string,
   account: Pick<MarketplaceE2EAccount, "email" | "password">,
 ) {
-  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-    data: {
-      email: account.email,
-      password: account.password,
-    },
-  });
-
-  expect(response.status(), "password sign-in should start a session").toBe(200);
-  const body = (await response.json()) as { sessionToken?: string };
+  const body = await startPasswordSession(page, origin, account, "password sign-in");
   expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
-  return body.sessionToken!;
+  await addSessionCookie(page, origin, body.sessionToken);
+  return body.sessionToken;
 }
 
 export async function registerOrSignInSyntheticAccount(
@@ -47,6 +40,8 @@ export async function registerOrSignInSyntheticAccount(
   origin: string,
   account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password">,
 ) {
+  await provisionSyntheticAccountInvitation(page, origin, account.email);
+
   const response = await page.request.post(`${origin}/api/auth/register`, {
     data: {
       displayName: account.displayName,
@@ -59,9 +54,140 @@ export async function registerOrSignInSyntheticAccount(
     return signInWithPassword(page, origin, account);
   }
 
+  if (response.status() === 403) {
+    const body = await parseJsonResponse(response);
+    if (body?.error?.code === "registration_admission_required") {
+      return signInWithPassword(page, origin, account);
+    }
+  }
+
   expect(response.status(), "marketplace registration should start a session").toBe(201);
   const body = (await response.json()) as { sessionToken?: string };
   expect(body.sessionToken, "marketplace registration should return a session token").toBeTruthy();
   await addSessionCookie(page, origin, body.sessionToken!);
   return body.sessionToken!;
+}
+
+async function startPasswordSession(
+  page: Page,
+  origin: string,
+  account: Pick<MarketplaceE2EAccount, "email" | "password">,
+  label: string,
+) {
+  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
+    data: {
+      email: account.email,
+      password: account.password,
+    },
+  });
+
+  expect(response.status(), `${label} should start a session`).toBe(200);
+  return (await response.json()) as { sessionToken: string };
+}
+
+async function provisionSyntheticAccountInvitation(page: Page, origin: string, email: string) {
+  const adminEmail = process.env.PLATFORM_ADMIN_EMAIL?.trim() ?? "";
+  const adminPassword = process.env.PLATFORM_ADMIN_PASSWORD?.trim() ?? "";
+  if (!adminEmail || !adminPassword) {
+    return;
+  }
+
+  const adminSession = await startPasswordSession(
+    page,
+    origin,
+    { email: adminEmail, password: adminPassword },
+    "platform-admin password sign-in",
+  );
+  const adminCookie = `chase_sets_session=${adminSession.sessionToken}`;
+  const actor = await getCurrentActorDisplay(page, origin, adminCookie);
+  const invitationResponse = await page.request.post(`${origin}/api/identity/invitations`, {
+    headers: { Cookie: adminCookie },
+    data: {
+      invitationId: createSmokeInvitationId(),
+      accountId: actor.account.account_id,
+      email,
+      roleKey: "viewer",
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+  });
+
+  expect(invitationResponse.status(), "platform admin should create a smoke account invitation").toBe(201);
+  await waitForAuthInvitationProjection(page, origin, adminCookie, invitationResponse);
+}
+
+async function getCurrentActorDisplay(page: Page, origin: string, adminCookie: string) {
+  const response = await page.request.get(`${origin}/api/identity/current-actor-display`, {
+    headers: { Cookie: adminCookie },
+  });
+  expect(response.status(), "platform admin current actor should be readable").toBe(200);
+  return (await response.json()) as { account: { account_id: string } };
+}
+
+async function waitForAuthInvitationProjection(page: Page, origin: string, adminCookie: string, response: APIResponse) {
+  const identityCommit = decodeCommitReceipt(response.headers()[CHASE_SETS_COMMIT_RECEIPT_HEADER.toLowerCase()]).find(
+    (source) => source.sourceContextName === "identity",
+  );
+  if (!identityCommit) {
+    return;
+  }
+
+  const deadline = Date.now() + 90_000;
+  let lastObservedPosition = "0";
+  while (Date.now() < deadline) {
+    const refreshResponse = await page.request.post(`${origin}/api/platform/projections/refresh`, {
+      headers: { Cookie: adminCookie },
+    });
+    expect(refreshResponse.status(), "platform admin should refresh projection status").toBe(200);
+    const body = (await refreshResponse.json()) as ProjectionRefreshResponse;
+    const authInvitationProjection = body.projectionGroups?.find(
+      (group) => group.targetContextName === "auth" && group.projectionName === "auth-identity-invitation-projection",
+    );
+    lastObservedPosition = maxObservedPosition(authInvitationProjection, "identity") ?? lastObservedPosition;
+    if (BigInt(lastObservedPosition) >= BigInt(identityCommit.maxGlobalPosition)) {
+      return;
+    }
+
+    await page.waitForTimeout(1_000);
+  }
+
+  throw new Error(
+    `Auth invitation projection did not reach identity position ${identityCommit.maxGlobalPosition}; last observed ${lastObservedPosition}.`,
+  );
+}
+
+type ProjectionRefreshResponse = {
+  projectionGroups?: readonly ProjectionGroupStatus[];
+};
+
+type ProjectionGroupStatus = {
+  targetContextName?: string;
+  projectionName?: string;
+  subscriptions?: readonly ProjectionSubscriptionStatus[];
+};
+
+type ProjectionSubscriptionStatus = {
+  sourceContextName?: string;
+  lastGlobalPosition?: string;
+};
+
+function maxObservedPosition(group: ProjectionGroupStatus | undefined, sourceContextName: string) {
+  const positions =
+    group?.subscriptions
+      ?.filter((subscription) => subscription.sourceContextName === sourceContextName)
+      .map((subscription) => subscription.lastGlobalPosition)
+      .filter((position): position is string => typeof position === "string" && /^(0|[1-9]\d*)$/.test(position)) ?? [];
+
+  return positions.reduce((max, position) => (BigInt(position) > BigInt(max) ? position : max), "0");
+}
+
+function createSmokeInvitationId() {
+  return `ivt_smoke_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function parseJsonResponse(response: APIResponse) {
+  try {
+    return (await response.json()) as { error?: { code?: string } };
+  } catch {
+    return null;
+  }
 }
