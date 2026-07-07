@@ -79,7 +79,7 @@ describe("bootstrap quiesce wrapper", () => {
       deployments: ["release-platform-worker"],
       command: ["pnpm", "bootstrap"],
       timeoutMs: 1000,
-      commandTimeoutMs: 600_000,
+      commandTimeoutMs: 780_000,
       pollIntervalMs: 1,
       restoreOnFailure: true,
       log: async (message) => calls.push(["log", message]),
@@ -91,7 +91,7 @@ describe("bootstrap quiesce wrapper", () => {
     });
 
     expect(result).toBe(124);
-    expect(calls).toContainEqual(["spawn", ["pnpm", "bootstrap"], 600_000]);
+    expect(calls).toContainEqual(["spawn", ["pnpm", "bootstrap"], 780_000]);
     expect(calls).toContainEqual(["log", "Bootstrap failed with exit code 124."]);
     expect(calls).toContainEqual(["scale", "release-platform-worker", 2]);
     expect(calls.at(-1)).toEqual(["wait", "release-platform-worker", 2]);

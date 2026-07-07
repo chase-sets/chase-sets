@@ -219,7 +219,14 @@ export function buildPlatformHelmValues(options = {}) {
 }
 
 export function renderPlatformHelmValues(options = {}) {
-  return `${renderYaml(buildPlatformHelmValues(options))}\n`;
+  return `${renderYaml(buildPlatformHelmValues(options))}\n`.replace(
+    "        commandTimeoutSeconds: 780\n",
+    [
+      "        # Keep bootstrap command timeout below the 15m Helm rollout timeout, which stays below the 30m app schema-lock retry budget.",
+      "        # 780s leaves 120s of Helm headroom for quiesce/restore wrapper overhead.",
+      "        commandTimeoutSeconds: 780",
+    ].join("\n") + "\n",
+  );
 }
 
 export function syncPlatformHelmValues(options = {}) {
@@ -298,7 +305,7 @@ function toHelmComponent(component) {
         enabled: true,
         targetComponents: ["platform-worker"],
         timeoutSeconds: 300,
-        commandTimeoutSeconds: 600,
+        commandTimeoutSeconds: 780,
         pollIntervalMs: 2000,
         restoreOnFailure: true,
         ignoreMissingDeployments: true,
