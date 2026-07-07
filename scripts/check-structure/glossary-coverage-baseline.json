@@ -187,12 +187,6 @@
       "justification": "Support Request is currently modeled through Platform Operations but lacks a local term heading; remove when the ownership language is reconciled."
     },
     {
-      "id": "owned-noun:pricing:market-price-snapshot",
-      "kind": "owned-noun",
-      "issue": "#4421",
-      "justification": "The language epic calls out the Market Price Snapshot vs Market Price Estimate specimen; remove when #4421 settles and defines the canonical terms."
-    },
-    {
       "id": "owned-noun:settlement:payout-readiness",
       "kind": "owned-noun",
       "issue": "#4419",

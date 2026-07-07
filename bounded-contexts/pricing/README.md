@@ -7,7 +7,7 @@ Pricing owns product-scoped fair-value estimation, seller repricing intelligence
 ## Owns
 
 - Price signals
-- Market price estimates
+- Market price snapshots
 - Liquidity estimates
 - Repricing policies
 - Price recommendations
@@ -49,7 +49,7 @@ Pricing terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. Pricing recommends but does not directly mutate Marketplace or Inventory state.
-2. Market estimates must be tied to explicit source signals and time windows.
+2. Market price snapshots must be tied to explicit source signals and time windows.
 3. Pricing is downstream of transactional truth.
 4. Forecast inputs may influence automation policies but do not become transactional commitments on their own.
 

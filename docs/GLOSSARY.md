@@ -98,6 +98,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Tax Nexus Readiness | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | State-by-state sales-tax threshold and collection-provider readiness. |
 | Collection-Required Jurisdiction | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Jurisdiction where Chase Sets must collect sales tax before accepting covered marketplace orders. |
 | Price Signal | [Pricing](../bounded-contexts/pricing/GLOSSARY.md) | Observed input for product-scoped price estimation. |
+| Market Price Snapshot | [Pricing](../bounded-contexts/pricing/GLOSSARY.md) | Recorded fair-value output for a resolved product over a defined time window. |
 | Notification Center | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-level surface for recent marketplace updates and simple notification actions. |
 | Notification Feed Item | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-visible update projected into the Notification Center. |
 | Notification Preference | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-level setting that controls notification delivery or notification-center behavior. |
