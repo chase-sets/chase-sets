@@ -1,4 +1,13 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import {
+  inventoryHoldPurposes,
+  inventoryHoldReleaseReasons,
+  type InventoryHoldPlacedPayload,
+  type InventoryHoldPurpose,
+  type InventoryHoldReleaseReason,
+  type InventoryHoldReleasedPayload,
+  type InventoryHoldSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -17,8 +26,12 @@ export type InventoryHoldState = Readonly<{
   quantity: number;
   reason: string;
   notes: string | null;
+  purpose: InventoryHoldPurpose | null;
+  sourceRef: InventoryHoldSourceRef;
+  expiresAt: string | null;
   status: InventoryHoldStatus;
   releasedAt: string | null;
+  releaseReason: InventoryHoldReleaseReason | null;
 }>;
 
 export const initialInventoryHoldState: InventoryHoldState = {
@@ -28,8 +41,12 @@ export const initialInventoryHoldState: InventoryHoldState = {
   quantity: 0,
   reason: "",
   notes: null,
+  purpose: null,
+  sourceRef: null,
+  expiresAt: null,
   status: "active",
   releasedAt: null,
+  releaseReason: null,
 };
 
 export type PlaceInventoryHoldCommand = Readonly<{
@@ -40,33 +57,27 @@ export type PlaceInventoryHoldCommand = Readonly<{
   quantity: number;
   reason: string;
   notes?: string | null;
+  purpose: InventoryHoldPurpose;
+  sourceRef: InventoryHoldSourceRef;
+  expiresAt?: string | null;
 }>;
 
 export type ReleaseInventoryHoldCommand = Readonly<{
   type: "ReleaseInventoryHold";
   releasedAt: string;
+  releaseReason: InventoryHoldReleaseReason;
 }>;
 
 export type InventoryHoldCommand = PlaceInventoryHoldCommand | ReleaseInventoryHoldCommand;
 
 export type InventoryHeldEvent = DomainEvent<
   "inventory.hold.placed",
-  Readonly<{
-    holdId: InventoryHoldId;
-    accountId: AccountId;
-    itemId: string;
-    quantity: number;
-    reason: string;
-    notes: string | null;
-  }>
+  InventoryHoldPlacedPayload & Readonly<{ holdId: InventoryHoldId; accountId: AccountId }>
 >;
 
 export type InventoryReleasedEvent = DomainEvent<
   "inventory.hold.released",
-  Readonly<{
-    holdId: InventoryHoldId;
-    releasedAt: string;
-  }>
+  InventoryHoldReleasedPayload & Readonly<{ holdId: InventoryHoldId }>
 >;
 
 export type InventoryHoldEvent = InventoryHeldEvent | InventoryReleasedEvent;
@@ -79,6 +90,9 @@ export const decideInventoryHold: AggregateDecider<InventoryHoldState, Inventory
     case "PlaceInventoryHold":
       assert(state.id === null, "Inventory hold has already been created.");
       ensurePositiveInteger(command.quantity, "Inventory holds require a positive quantity.");
+      validateHoldPurpose(command.purpose);
+      validateHoldSourceRef(command.purpose, command.sourceRef);
+      validateHoldExpiry(command.purpose, command.expiresAt ?? null);
       return [
         {
           type: "inventory.hold.placed",
@@ -89,18 +103,23 @@ export const decideInventoryHold: AggregateDecider<InventoryHoldState, Inventory
             quantity: command.quantity,
             reason: normalizeLabel(command.reason),
             notes: normalizeOptionalText(command.notes),
+            purpose: command.purpose,
+            sourceRef: normalizeHoldSourceRef(command.sourceRef),
+            expiresAt: command.expiresAt ? normalizeLabel(command.expiresAt) : null,
           },
         },
       ];
     case "ReleaseInventoryHold":
       requireCreatedInventoryHold(state);
       assert(state.status === "active", "Only active holds can be released.");
+      validateReleaseReason(command.releaseReason);
       return [
         {
           type: "inventory.hold.released",
           data: {
             holdId: state.id!,
             releasedAt: command.releasedAt,
+            releaseReason: command.releaseReason,
           },
         },
       ];
@@ -119,14 +138,19 @@ export const evolveInventoryHold: AggregateEvolver<InventoryHoldState, Inventory
         quantity: event.data.quantity,
         reason: event.data.reason,
         notes: event.data.notes,
+        purpose: event.data.purpose,
+        sourceRef: event.data.sourceRef,
+        expiresAt: event.data.expiresAt,
         status: "active",
         releasedAt: null,
+        releaseReason: null,
       };
     case "inventory.hold.released":
       return {
         ...state,
         status: "released",
         releasedAt: event.data.releasedAt,
+        releaseReason: event.data.releaseReason,
       };
     default:
       return assertNever(event);
@@ -135,4 +159,53 @@ export const evolveInventoryHold: AggregateEvolver<InventoryHoldState, Inventory
 
 function requireCreatedInventoryHold(state: InventoryHoldState) {
   assert(state.id !== null, "Inventory hold must be created first.");
+}
+
+function validateHoldPurpose(purpose: InventoryHoldPurpose) {
+  assert(
+    (inventoryHoldPurposes as readonly string[]).includes(purpose),
+    `Unsupported inventory hold purpose: ${String(purpose)}.`,
+  );
+  assert(
+    purpose === "order" || purpose === "manual",
+    `Inventory hold purpose ${purpose} is planned but not active yet.`,
+  );
+}
+
+function validateReleaseReason(releaseReason: InventoryHoldReleaseReason) {
+  assert(
+    (inventoryHoldReleaseReasons as readonly string[]).includes(releaseReason),
+    `Unsupported inventory hold release reason: ${String(releaseReason)}.`,
+  );
+}
+
+function validateHoldSourceRef(purpose: InventoryHoldPurpose, sourceRef: InventoryHoldSourceRef) {
+  if (purpose === "order") {
+    assert(sourceRef !== null, "Order inventory holds require a source reference.");
+    assert(normalizeLabel(sourceRef.orderId).length > 0, "Order inventory holds require an order id.");
+    assert(
+      normalizeLabel(sourceRef.reservationRequestId).length > 0,
+      "Order inventory holds require a reservation request id.",
+    );
+    return;
+  }
+
+  assert(sourceRef === null, "Manual inventory holds cannot carry a source reference.");
+}
+
+function validateHoldExpiry(purpose: InventoryHoldPurpose, expiresAt: string | null) {
+  if (purpose === "order" || purpose === "manual") {
+    assert(expiresAt === null, `${purpose} inventory holds do not expire automatically.`);
+  }
+}
+
+function normalizeHoldSourceRef(sourceRef: InventoryHoldSourceRef): InventoryHoldSourceRef {
+  if (sourceRef === null) {
+    return null;
+  }
+
+  return {
+    orderId: normalizeLabel(sourceRef.orderId),
+    reservationRequestId: normalizeLabel(sourceRef.reservationRequestId),
+  };
 }

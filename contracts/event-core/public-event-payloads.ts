@@ -43,7 +43,46 @@ export type InventoryReservationReleasedPayload = Readonly<{
   releasedAt: string;
 }>;
 
+export const inventoryHoldPurposes = ["order", "manual", "checkout", "pos", "channel", "transfer"] as const;
+
+export type InventoryHoldPurpose = (typeof inventoryHoldPurposes)[number];
+
+export const inventoryHoldReleaseReasons = [
+  "order-cancelled",
+  "checkout-expired",
+  "payment-deadline",
+  "manual",
+  "superseded",
+] as const;
+
+export type InventoryHoldReleaseReason = (typeof inventoryHoldReleaseReasons)[number];
+
+export type InventoryHoldSourceRef = Readonly<{
+  orderId: string;
+  reservationRequestId: string;
+}> | null;
+
+export type InventoryHoldPlacedPayload = Readonly<{
+  holdId: string;
+  accountId: AccountId;
+  itemId: string;
+  quantity: number;
+  reason: string;
+  notes: string | null;
+  purpose: InventoryHoldPurpose;
+  sourceRef: InventoryHoldSourceRef;
+  expiresAt: string | null;
+}>;
+
+export type InventoryHoldReleasedPayload = Readonly<{
+  holdId: string;
+  releasedAt: string;
+  releaseReason: InventoryHoldReleaseReason;
+}>;
+
 export type InventoryEventPayloads = Readonly<{
+  "inventory.hold.placed": InventoryHoldPlacedPayload;
+  "inventory.hold.released": InventoryHoldReleasedPayload;
   "inventory.reservation.confirmed": InventoryReservationConfirmedPayload;
   "inventory.reservation.rejected": InventoryReservationRejectedPayload;
   "inventory.reservation.released": InventoryReservationReleasedPayload;

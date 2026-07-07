@@ -297,10 +297,14 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
        quantity,
        reason,
        notes,
+       purpose,
+       source_ref,
+       expires_at,
        status,
        created_at,
        updated_at,
-       released_at
+       released_at,
+       release_reason
      FROM inventory_holds
      WHERE item_id = $1
        AND account_id = $2

@@ -26,6 +26,49 @@ Notes:
 
 A **Hold** is a temporary block against available stock while checkout or another in-progress commerce flow completes.
 
+## Hold Purpose
+
+A **Hold Purpose** is the structured reason an Inventory Hold exists.
+
+Values:
+
+- `order`: active; stock committed to an Ordering-owned order reservation.
+- `manual`: active; stock held by an account-initiated Inventory action.
+- `checkout`: Planned; stock reserved during a checkout payment step.
+- `pos`: Planned; stock committed by a point-of-sale interaction.
+- `channel`: Planned; stock committed by an external sales channel.
+- `transfer`: Planned; stock committed for movement between Inventory locations or owners.
+
+## Hold Source Reference
+
+A **Hold Source Reference** is the structured owner reference for an Inventory Hold.
+
+Notes:
+
+- Order holds reference the `orderId` and `reservationRequestId` that own the commitment.
+- Manual holds have no source reference.
+
+## Hold Expiry
+
+A **Hold Expiry** is the optional time when an Inventory Hold can expire automatically.
+
+Notes:
+
+- Order and manual holds do not expire automatically.
+- Planned checkout holds will use expiry so abandoned payment-step reservations can release stock without manual action.
+
+## Hold Release Reason
+
+A **Hold Release Reason** is the structured reason an active Inventory Hold left the held state without consuming stock.
+
+Values:
+
+- `order-cancelled`: an Ordering-owned order cancellation released the hold.
+- `checkout-expired`: a planned checkout hold expired before order commitment.
+- `payment-deadline`: a planned payment-deadline cancellation released the hold.
+- `manual`: an account-initiated Inventory action released the hold.
+- `superseded`: a newer hold or lifecycle transition replaced the hold.
+
 ## Storage Location
 
 A **Storage Location** is a seller-defined place where stock is stored.

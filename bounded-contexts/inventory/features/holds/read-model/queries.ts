@@ -1,4 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type {
+  InventoryHoldPurpose,
+  InventoryHoldReleaseReason,
+  InventoryHoldSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 
 export type InventoryHoldRow = Readonly<{
   hold_id: string;
@@ -7,10 +12,14 @@ export type InventoryHoldRow = Readonly<{
   quantity: number;
   reason: string;
   notes: string | null;
+  purpose: InventoryHoldPurpose;
+  source_ref: InventoryHoldSourceRef;
+  expires_at: string | null;
   status: string;
   created_at: string;
   updated_at: string;
   released_at: string | null;
+  release_reason: InventoryHoldReleaseReason | null;
 }>;
 
 export async function getInventoryHold(db: PgQueryable, holdId: string, accountId: string) {
@@ -22,10 +31,14 @@ export async function getInventoryHold(db: PgQueryable, holdId: string, accountI
        quantity,
        reason,
        notes,
+       purpose,
+       source_ref,
+       expires_at,
        status,
        created_at,
        updated_at,
-       released_at
+       released_at,
+       release_reason
      FROM inventory_holds
      WHERE hold_id = $1
        AND account_id = $2`,

@@ -11,6 +11,7 @@ export function inventoryHoldRoutes(services: InventoryHoldServices) {
       {
         accountId: actor.accountId,
         holdId: c.req.param("id"),
+        releaseReason: "manual",
       },
       c.get("context"),
     );

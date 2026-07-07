@@ -580,12 +580,16 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       quantity: hold.quantity,
       reason: hold.reason,
       notes: hold.notes,
+      purpose: "manual",
+      sourceRef: null,
+      expiresAt: null,
     });
 
     if (hold.releasedAt) {
       await sendSeedCommand(services.holds.commandHandler, streamId, {
         type: "ReleaseInventoryHold",
         releasedAt: hold.releasedAt,
+        releaseReason: "manual",
       });
     }
 

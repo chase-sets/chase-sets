@@ -145,7 +145,13 @@ describe("inventory hold runtime", () => {
       quantity: 1,
       reason: "Ordering commitment",
       notes: null,
-    };
+      purpose: "order",
+      sourceRef: {
+        orderId: "ord_1",
+        reservationRequestId: "rsv_1",
+      },
+      expiresAt: null,
+    } as const;
 
     await services.createHold(params, context);
     await services.createHold(params, context);
@@ -181,6 +187,12 @@ describe("inventory hold runtime", () => {
         quantity: 1,
         reason: "Ordering commitment",
         notes: null,
+        purpose: "order",
+        sourceRef: {
+          orderId: "ord_1",
+          reservationRequestId: "rsv_1",
+        },
+        expiresAt: null,
       },
       context,
     );
@@ -208,6 +220,12 @@ describe("inventory hold runtime", () => {
           quantity: 1,
           reason: "Ordering commitment",
           notes: null,
+          purpose: "order",
+          sourceRef: {
+            orderId: "ord_1",
+            reservationRequestId: "rsv_1",
+          },
+          expiresAt: null,
         },
         context,
       ),
@@ -256,6 +274,12 @@ describe("inventory hold runtime", () => {
           quantity: 1,
           reason: "Ordering commitment",
           notes: null,
+          purpose: "order",
+          sourceRef: {
+            orderId: "ord_1",
+            reservationRequestId: "rsv_1",
+          },
+          expiresAt: null,
         },
         context,
       ),
@@ -315,6 +339,12 @@ describe("inventory hold runtime", () => {
           quantity: 1,
           reason: "Ordering commitment",
           notes: null,
+          purpose: "order",
+          sourceRef: {
+            orderId: "ord_1",
+            reservationRequestId: "rsv_1",
+          },
+          expiresAt: null,
         },
         context,
       ),

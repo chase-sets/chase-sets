@@ -96,6 +96,12 @@ describe("order inventory reservation workflow", () => {
         accountId: request.sellerAccountId as AccountId,
         itemId: request.inventoryItemId,
         quantity: request.quantity,
+        purpose: "order",
+        sourceRef: {
+          orderId: "ord_1",
+          reservationRequestId: request.reservationRequestId,
+        },
+        expiresAt: null,
       }),
       context,
     );
