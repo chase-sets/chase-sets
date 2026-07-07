@@ -139,3 +139,119 @@ Notes:
 ## Acquisition Cost
 
 **Acquisition Cost** is the seller's recorded cost to acquire stock in inventory.
+
+## Planned Store, Location, And Channel Inventory
+
+These planned terms pre-register upcoming store, multi-location, and channel inventory language. They are not shipped behavior until Inventory adds the corresponding aggregates, events, imports, exports, and read models.
+
+### Store
+
+A **Store** is the planned account-operated selling presence that may group inventory, listings, channels, and fulfillment preferences.
+
+### Storefront
+
+A **Storefront** is the planned public or channel-specific presentation of a Store's sellable inventory.
+
+### Store Profile
+
+A **Store Profile** is the planned account-managed descriptive and operational configuration for a Store.
+
+### Location Group
+
+A **Location Group** is the planned Inventory grouping for related Storage Locations.
+
+### Stock Zone
+
+A **Stock Zone** is the planned operational area inside a Storage Location.
+
+### Bin
+
+A **Bin** is the planned smallest named stock placement unit Inventory may track.
+
+### Shelf
+
+A **Shelf** is the planned storage subdivision used to organize Bins or stock.
+
+### Aisle
+
+An **Aisle** is the planned storage path grouping Shelves or Stock Zones.
+
+### Location Transfer
+
+A **Location Transfer** is the planned movement of stock between Storage Locations.
+
+### Transfer Batch
+
+A **Transfer Batch** is the planned group of Location Transfer lines moved together.
+
+### Transfer Line
+
+A **Transfer Line** is the planned product and quantity row inside a Transfer Batch.
+
+### Transfer Status
+
+**Transfer Status** is the planned lifecycle state of a Location Transfer.
+
+### Replenishment Need
+
+A **Replenishment Need** is the planned Inventory signal that stock should be moved or acquired.
+
+### Inventory Count
+
+An **Inventory Count** is the planned physical or operational count of stock on hand.
+
+### Cycle Count
+
+A **Cycle Count** is the planned recurring count of a subset of inventory.
+
+### Count Variance
+
+A **Count Variance** is the planned difference between recorded quantity and counted quantity.
+
+### Stock Ledger
+
+A **Stock Ledger** is the planned account-facing history of quantity-affecting Inventory facts.
+
+### Channel Stock Allocation
+
+A **Channel Stock Allocation** is the planned quantity reserved for a specific external or native sales channel.
+
+### Channel Allocation Mode
+
+A **Channel Allocation Mode** is the planned rule for how inventory quantity is shared, capped, or reserved across channels.
+
+### Channel Allocation
+
+A **Channel Allocation** is the planned Inventory quantity assignment for a native or external sales channel.
+
+### Channel Reservation
+
+A **Channel Reservation** is the planned temporary channel-sourced hold against available inventory.
+
+### Channel Listing Link
+
+A **Channel Listing Link** is the planned association between a Chase Sets Listing or Inventory Item and an external channel listing.
+
+### Channel Sync
+
+**Channel Sync** is the planned Inventory workflow that reconciles stock facts with an external sales channel.
+
+### Channel Sync Run
+
+A **Channel Sync Run** is the planned execution record for one Channel Sync attempt.
+
+### Channel Sync Error
+
+A **Channel Sync Error** is the planned actionable failure captured during Channel Sync.
+
+### Channel Inventory Snapshot
+
+A **Channel Inventory Snapshot** is the planned channel-reported quantity state captured for reconciliation.
+
+### Channel Fulfillment Rule
+
+A **Channel Fulfillment Rule** is the planned Inventory-owned rule that decides which stock can satisfy channel demand.
+
+### Offline Sale
+
+An **Offline Sale** is the planned Inventory fact that stock left availability through an in-person or non-channel sale.

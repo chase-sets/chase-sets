@@ -42,3 +42,59 @@
 - Buyer Cancellation Request: The support-owned fallback flow used when a buyer wants to cancel after Fulfillment has started package preparation.
 - Seller Condition Attestation: Seller-supplied support evidence confirming the returned item's condition after return delivery.
 - Return Investigation: Support-owned review opened when return discrepancy evidence indicates the returned item may not match the original sale condition.
+
+## Planned Platform Policy Enforcement
+
+These planned terms pre-register upcoming platform policy and enforcement language. They are not shipped behavior until Platform Operations adds the corresponding queues, operator workflows, and audit facts.
+
+### Platform Policy
+
+A **Platform Policy** is the planned operator-managed rule set for platform safety, eligibility, or enforcement.
+
+### Policy Version
+
+A **Policy Version** is the planned immutable revision of a Platform Policy.
+
+### Policy Scope
+
+A **Policy Scope** is the planned target area where a Platform Policy applies.
+
+### Policy Decision
+
+A **Policy Decision** is the planned evaluated outcome of a Platform Policy.
+
+### Policy Evaluation
+
+A **Policy Evaluation** is the planned operator or automated assessment that produces a Policy Decision.
+
+### Policy Override
+
+A **Policy Override** is the planned authorized exception to a Policy Decision.
+
+### Policy Exception
+
+A **Policy Exception** is the planned record that explains why normal Platform Policy handling did not apply.
+
+### Policy Review
+
+A **Policy Review** is the planned operator workflow for inspecting a Policy Evaluation, Policy Decision, or Policy Exception.
+
+### Policy Incident
+
+A **Policy Incident** is the planned grouped operational case created when platform policy signals require coordinated response.
+
+### Enforcement Action
+
+An **Enforcement Action** is the planned operator action that limits, restores, or annotates account or content behavior.
+
+### Moderation Action
+
+A **Moderation Action** is the planned operator action taken on reported or policy-violating content.
+
+### Trust Queue
+
+A **Trust Queue** is the planned Platform Operations work queue for account, content, and commerce safety review.
+
+### Safety Hold
+
+A **Safety Hold** is the planned Platform Operations restriction that pauses a risky workflow while review is pending.

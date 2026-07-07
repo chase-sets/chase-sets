@@ -93,3 +93,59 @@ Notes:
 - The window is open while the shipment is awaiting package preparation.
 - The window closes when packing starts.
 - After the cutoff, buyer cancellation requests use Support instead of direct cancellation.
+
+## Planned Multi-Location Fulfillment
+
+These planned terms pre-register upcoming multi-location fulfillment language. They are not shipped behavior until Fulfillment adds the corresponding assignment, packing, handoff, and shipment execution facts.
+
+### Fulfillment Location
+
+A **Fulfillment Location** is the planned place from which Fulfillment work can be executed.
+
+### Ship-From Location
+
+A **Ship-From Location** is the planned Fulfillment origin used for carrier rates, labels, and shipment execution.
+
+### Fulfillment Network
+
+A **Fulfillment Network** is the planned set of Fulfillment Locations available to an Account or Store.
+
+### Fulfillment Route
+
+A **Fulfillment Route** is the planned delivery or handoff path selected for a Shipment.
+
+### Fulfillment Assignment
+
+A **Fulfillment Assignment** is the planned decision assigning shipment work to a Fulfillment Location.
+
+### Origin Selection
+
+**Origin Selection** is the planned decision process that chooses a Ship-From Location.
+
+### Split Shipment
+
+A **Split Shipment** is the planned fulfillment outcome where one order requires more than one Shipment.
+
+### Pickup
+
+A **Pickup** is the planned Fulfillment handoff workflow where an order or shipment is collected without parcel delivery.
+
+### Intake
+
+**Intake** is the planned Fulfillment workflow that receives stock, returns, transfers, or authenticity-sensitive items for handling.
+
+### Transfer Shipment
+
+A **Transfer Shipment** is the planned shipment that moves stock between operational locations.
+
+### Packing Station
+
+A **Packing Station** is the planned workspace where Packing work is performed.
+
+### Handoff Scan
+
+A **Handoff Scan** is the planned recorded scan that confirms transfer to a carrier, pickup point, or internal location.
+
+### Location Service Area
+
+A **Location Service Area** is the planned geographic or channel scope a Fulfillment Location can serve.

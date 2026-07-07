@@ -144,3 +144,147 @@ Notes:
 ## Review Summary
 
 A **Review Summary** is the canonical aggregate snapshot for an account derived from active reviews, including average rating, review count, and distribution. Review summaries are projected read models, not emitted domain events.
+
+## Planned Reputation And Authenticity
+
+These planned terms pre-register upcoming reputation and authenticity language. They are not shipped behavior until their owning milestone adds events, read models, APIs, and UI.
+
+### Reputation Profile
+
+A **Reputation Profile** is the planned Marketplace-owned public trust summary for an Account.
+
+### Reputation Score
+
+A **Reputation Score** is the planned normalized account trust score derived from eligible reputation signals.
+
+### Reputation Band
+
+A **Reputation Band** is the planned public range label that explains a Reputation Score without exposing private scoring inputs.
+
+### Reputation Signal
+
+A **Reputation Signal** is the planned source fact Marketplace may evaluate when updating account reputation.
+
+### Reputation Event
+
+A **Reputation Event** is the planned append-only Marketplace fact recording a reputation-relevant account outcome.
+
+### Reputation Window
+
+A **Reputation Window** is the planned time range over which reputation signals are considered current.
+
+### Reputation Weight
+
+A **Reputation Weight** is the planned scoring influence assigned to a kind of Reputation Signal.
+
+### Reputation Adjustment
+
+A **Reputation Adjustment** is the planned operator-reviewed change that corrects or annotates an account's reputation state.
+
+### Reputation Hold
+
+A **Reputation Hold** is the planned Marketplace risk block that pauses reputation display or reputation-sensitive actions during review.
+
+### Reputation Appeal
+
+A **Reputation Appeal** is the planned account request to review a Reputation Adjustment, Reputation Hold, or Reputation Band.
+
+### Transaction Review Window
+
+A **Transaction Review Window** is the planned period after eligible order completion when counterparties may submit a Review.
+
+### Review Response
+
+A **Review Response** is the planned account-authored reply attached to a Review.
+
+### Review Revision
+
+A **Review Revision** is the planned edit record for review text, rating, response, or moderation outcome.
+
+### Review Moderation
+
+**Review Moderation** is the planned Marketplace workflow that hides, restores, or annotates Reviews under trust policy.
+
+### Feedback Tag
+
+A **Feedback Tag** is the planned structured label an account can attach to a Review.
+
+### Account Trust Signal
+
+An **Account Trust Signal** is the planned account-level input Marketplace may consume for trust, reputation, or listing publication decisions.
+
+### Seller Reliability
+
+**Seller Reliability** is the planned transaction-outcome reputation view focused on listing, fulfillment, cancellation, and dispute behavior.
+
+### Buyer Reliability
+
+**Buyer Reliability** is the planned transaction-outcome reputation view focused on payment, cancellation, dispute, and offer behavior.
+
+### On-Time Shipment Rate
+
+**On-Time Shipment Rate** is the planned seller reliability metric derived from eligible fulfillment facts.
+
+### Dispute Rate
+
+**Dispute Rate** is the planned reputation metric derived from eligible support, payment, or authenticity disputes.
+
+### Cancellation Rate
+
+**Cancellation Rate** is the planned reputation metric derived from eligible cancelled transaction commitments.
+
+### Authenticity Claim
+
+An **Authenticity Claim** is the planned seller assertion that a Listing or shipped Product is genuine.
+
+### Authenticity Case
+
+An **Authenticity Case** is the planned authenticity review record that groups claims, evidence, facility handling, verdicts, and disputes.
+
+### Authenticity Evidence
+
+**Authenticity Evidence** is the planned Marketplace evidence set supporting an Authenticity Claim.
+
+### Authenticity Facility
+
+An **Authenticity Facility** is the planned reviewed place or partner workflow where authenticity-sensitive products or evidence can be evaluated.
+
+### Authenticity Review
+
+**Authenticity Review** is the planned Marketplace workflow that evaluates Authenticity Evidence.
+
+### Authenticity Decision
+
+An **Authenticity Decision** is the planned outcome of Authenticity Review.
+
+### Authenticity Verdict
+
+An **Authenticity Verdict** is the planned public-safe conclusion produced by an Authenticity Decision.
+
+### Authenticity Exception
+
+An **Authenticity Exception** is the planned record of an authenticity-related problem that requires support, refund, or enforcement handling.
+
+### Authenticity Badge
+
+An **Authenticity Badge** is the planned public marker that a Listing, Product, or Account cleared a defined authenticity threshold.
+
+### Authenticity Guarantee
+
+An **Authenticity Guarantee** is the planned marketplace promise attached to eligible authenticity-reviewed commerce.
+
+### Authenticity Dispute
+
+An **Authenticity Dispute** is the planned counterparty challenge that questions an Authenticity Claim or Authenticity Decision.
+
+### Authenticity Chain Of Custody
+
+**Authenticity Chain Of Custody** is the planned provenance record for authenticity-sensitive products or evidence.
+
+### Listing Authenticity Requirement
+
+A **Listing Authenticity Requirement** is the planned Marketplace rule that requires Authenticity Evidence before a Listing can publish or transact.
+
+### Authenticity Photo Set
+
+An **Authenticity Photo Set** is the planned evidence photo collection attached to a Listing or Authenticity Review.
