@@ -92,4 +92,89 @@ describe("settlement account risk source projection", () => {
       "2026-07-06T12:05:00.000Z",
     ]);
   });
+
+  it("projects shared payment instrument clusters into account risk sources", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT DISTINCT account_id")) {
+          return { rows: [{ account_id: "acc_buyer" }, { account_id: "acc_linked" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db as never);
+
+    await handlers["payments.checkout-affordances-published"]!(
+      event(
+        "payments.checkout-affordances-published",
+        {
+          accountId: "acc_buyer",
+          savedCheckoutInstruments: [
+            {
+              instrumentId: "sci_card",
+              instrumentRiskClusterKey: "instrument:shared",
+              readiness: "ready",
+            },
+          ],
+          publishedAt: "2026-07-07T13:05:00.000Z",
+        },
+        "payments.checkout-affordances-acc_buyer",
+      ),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("settlement_account_instrument_risk_sources"), [
+      "acc_buyer",
+      "sci_card",
+      "instrument:shared",
+      true,
+      "2026-07-07T13:05:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("shared_instrument_cluster_count"), [
+      "acc_linked",
+      "2026-07-07T13:05:00.000Z",
+    ]);
+  });
+
+  it("projects shared shipping address clusters into account risk sources", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT DISTINCT account_id")) {
+          return { rows: [{ account_id: "acc_buyer" }, { account_id: "acc_linked" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildSettlementIdentityAccountRiskSourceProjectionHandlers(db as never);
+
+    await handlers["identity.shipping-address.added"]!(
+      event("identity.shipping-address.added", {
+        accountId: "acc_buyer",
+        shippingAddressId: "adr_1",
+        address: {
+          name: "Buyer",
+          company: null,
+          line1: "10 Main St",
+          line2: null,
+          city: "Austin",
+          state: "TX",
+          postalCode: "78701",
+          country: "US",
+          phone: null,
+          email: null,
+        },
+        addedAt: "2026-07-07T14:05:00.000Z",
+      }),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("settlement_account_address_risk_sources"), [
+      "acc_buyer",
+      "adr_1",
+      "us|78701|tx|austin|10 main st|",
+      "2026-07-07T14:05:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("shared_address_cluster_count"), [
+      "acc_linked",
+      "2026-07-07T14:05:00.000Z",
+    ]);
+  });
 });

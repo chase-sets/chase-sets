@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -207,6 +208,7 @@ type PaymentReconciliationResult = Readonly<{
 type CheckoutAffordanceInstrument = Readonly<{
   instrumentId: string;
   paymentMethodCategory: PaymentMethodCategory;
+  instrumentRiskClusterKey: string | null;
   displayLabel: string;
   confirmationExperience: SavedCheckoutConfirmationExperience;
   readiness: SavedCheckoutInstrumentReadiness;
@@ -216,6 +218,20 @@ type CheckoutAffordanceInstrument = Readonly<{
   createdAt: string;
   updatedAt: string;
 }>;
+
+function instrumentRiskClusterKey(
+  provider: string,
+  paymentMethodCategory: PaymentMethodCategory,
+  providerFingerprint: string | null | undefined,
+) {
+  if (!providerFingerprint || paymentMethodCategory === "platform-credit") {
+    return null;
+  }
+
+  return `instrument:${createHash("sha256")
+    .update(`${provider}:${paymentMethodCategory}:${providerFingerprint}`)
+    .digest("hex")}`;
+}
 
 function paymentCommandFromProviderResult(result: ProcessorPaymentReconciliationResult): PaymentCommand | null {
   switch (result.outcome) {
@@ -1006,6 +1022,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     return {
       instrumentId: row.instrument_id,
       paymentMethodCategory: row.payment_method_category as PaymentMethodCategory,
+      instrumentRiskClusterKey: instrumentRiskClusterKey(
+        row.provider,
+        row.payment_method_category as PaymentMethodCategory,
+        row.provider_fingerprint,
+      ),
       displayLabel: row.display_label,
       confirmationExperience: row.confirmation_experience as SavedCheckoutConfirmationExperience,
       readiness,
@@ -1429,6 +1450,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           provider: providerMethod.processorName,
           providerCustomerReference: providerMethod.providerCustomerReference ?? instrument.provider_customer_reference,
           providerReference: providerMethod.providerReference,
+          providerFingerprint: providerMethod.paymentMethodFingerprint ?? instrument.provider_fingerprint ?? null,
           displayLabel: providerMethod.displayLabel,
           confirmationExperience: instrument.confirmation_experience,
           readiness: providerMethod.readiness,

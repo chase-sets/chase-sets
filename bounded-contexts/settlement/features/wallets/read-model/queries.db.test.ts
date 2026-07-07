@@ -41,6 +41,8 @@ describeDb("settlement money maturity query persistence boundary", () => {
     await seedWallet("acc_trusted");
     await seedTrustedSeller("acc_trusted");
     await seedWallet("acc_default_risk");
+    await seedWallet("acc_linked_risk");
+    await seedTrustedSeller("acc_linked_risk", { sharedInstrumentClusterCount: 1 });
 
     await seedMaturityCandidate({
       ledgerEntryId: "led_ready_default_risk_long",
@@ -55,6 +57,14 @@ describeDb("settlement money maturity query persistence boundary", () => {
       accountId: "acc_trusted",
       orderId: "ord_ready_high_value_long",
       amount: "250.00",
+      postedDaysAgo: 8,
+      deliveredDaysAgo: 8,
+    });
+    await seedMaturityCandidate({
+      ledgerEntryId: "led_ready_linked_account_long",
+      accountId: "acc_linked_risk",
+      orderId: "ord_ready_linked_account_long",
+      amount: "40.00",
       postedDaysAgo: 8,
       deliveredDaysAgo: 8,
     });
@@ -141,6 +151,14 @@ describeDb("settlement money maturity query persistence boundary", () => {
       deliveredDaysAgo: 3,
     });
     await seedMaturityCandidate({
+      ledgerEntryId: "led_blocked_linked_account_short",
+      accountId: "acc_linked_risk",
+      orderId: "ord_blocked_linked_account_short",
+      amount: "40.00",
+      postedDaysAgo: 8,
+      deliveredDaysAgo: 3,
+    });
+    await seedMaturityCandidate({
       ledgerEntryId: "led_blocked_zero_fee_locked_short",
       accountId: "acc_trusted",
       orderId: "ord_blocked_zero_fee_locked_short",
@@ -197,6 +215,7 @@ describeDb("settlement money maturity query persistence boundary", () => {
       expect.objectContaining({ ledger_entry_id: "led_ready_default_risk_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_high_value_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_inactive_hold" }),
+      expect.objectContaining({ ledger_entry_id: "led_ready_linked_account_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_fast_trusted" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_rebate" }),
     ]);
@@ -249,18 +268,23 @@ describeDb("settlement money maturity query persistence boundary", () => {
     );
   }
 
-  async function seedTrustedSeller(accountId: string) {
+  async function seedTrustedSeller(
+    accountId: string,
+    risk: { sharedInstrumentClusterCount?: number; sharedAddressClusterCount?: number } = {},
+  ) {
     await pool.query(
       `INSERT INTO settlement_account_risk_sources (
          account_id,
          account_created_at,
          trusted_seller,
          manual_payout_review,
+         shared_instrument_cluster_count,
+         shared_address_cluster_count,
          review_count,
          average_rating,
          updated_at
-       ) VALUES ($1, $2, TRUE, FALSE, 4, 4.75, $3)`,
-      [accountId, daysAgo(365), now],
+       ) VALUES ($1, $2, TRUE, FALSE, $3, $4, 4, 4.75, $5)`,
+      [accountId, daysAgo(365), risk.sharedInstrumentClusterCount ?? 0, risk.sharedAddressClusterCount ?? 0, now],
     );
   }
 
