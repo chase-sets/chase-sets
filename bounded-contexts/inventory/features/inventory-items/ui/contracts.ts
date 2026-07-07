@@ -22,6 +22,24 @@ export type InventoryHold = Readonly<{
   release_reason: InventoryHoldReleaseReason | null;
 }>;
 
+export type InventoryItemLedgerEntry = Readonly<{
+  ledger_entry_id: string;
+  item_id: string;
+  account_id: string;
+  occurred_at: string;
+  kind: "created" | "adjusted" | "hold-placed" | "hold-converted" | "hold-consumed" | "hold-released" | "hold-expired";
+  quantity_delta: number | null;
+  hold_quantity: number | null;
+  purpose: InventoryHoldPurpose | null;
+  reason: string;
+  source_ref: InventoryHoldSourceRef;
+  actor: "seller" | "system";
+  event_type: string;
+  stream_id: string;
+  stream_version: number;
+  recorded_at: string;
+}>;
+
 export type InventoryGradedCardDetails = Readonly<{
   gradingCompany: string;
   grade: string;
@@ -61,4 +79,5 @@ export type InventoryItemListItem = Readonly<{
 export type InventoryItemDetail = InventoryItemListItem &
   Readonly<{
     holds: readonly InventoryHold[];
+    ledger: readonly InventoryItemLedgerEntry[];
   }>;

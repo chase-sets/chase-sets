@@ -352,6 +352,7 @@ export const sourceContextWakeRegistry = [
       "checkout:checkout-inventory-supply-projection",
       "discovery:discovery-market-projection",
       "inventory:inventory-hold-projection",
+      "inventory:inventory-item-ledger-projection",
       "inventory:inventory-item-projection",
       "inventory:inventory-reservation-projection",
       "inventory:inventory-storage-location-projection",

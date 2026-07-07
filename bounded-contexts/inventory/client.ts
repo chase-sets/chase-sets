@@ -23,6 +23,7 @@ export type {
   InventoryItemListItem,
   InventoryListingStockSnapshot,
   InventoryHold,
+  InventoryItemLedgerEntry,
 } from "./features/inventory-items/api/contracts";
 export type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 

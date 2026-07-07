@@ -51,7 +51,7 @@ describe("inventory item pages", () => {
   });
 
   it("renders inventory detail language codes as localized labels", () => {
-    const detail: InventoryItemDetail = { ...inventoryItem, holds: [] };
+    const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
     const html = renderToString(<InventoryItemDetailPage item={detail} />);
 
     expect(html).toContain("Japanese");
@@ -61,6 +61,7 @@ describe("inventory item pages", () => {
   it("renders order hold provenance without a seller release affordance", () => {
     const detail: InventoryItemDetail = {
       ...inventoryItem,
+      ledger: [],
       holds: [
         {
           hold_id: "hld_order",

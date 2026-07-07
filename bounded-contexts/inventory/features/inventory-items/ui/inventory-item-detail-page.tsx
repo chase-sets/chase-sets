@@ -6,7 +6,9 @@ import {
   Button,
   Badge,
   Card,
+  Inline,
   LinkButton,
+  MarketplaceStatusTimeline,
   Page,
   PageHeader,
   PageSection,
@@ -48,6 +50,110 @@ function orderSourceRef(sourceRef: InventoryItemDetail["holds"][number]["source_
   return sourceRef && "orderId" in sourceRef ? sourceRef.orderId : null;
 }
 
+function formatTimestamp(value: string | null) {
+  return value ? new Date(value).toLocaleString() : "";
+}
+
+function countdownLabel(expiresAt: string | null) {
+  if (!expiresAt) {
+    return null;
+  }
+
+  const remainingMs = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(remainingMs)) {
+    return null;
+  }
+  if (remainingMs <= 0) {
+    return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.expired");
+  }
+
+  const remainingMinutes = Math.ceil(remainingMs / 60_000);
+  if (remainingMinutes < 60) {
+    return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.expires.in.minutes", {
+      count: remainingMinutes,
+    });
+  }
+
+  return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.expires.in.hours", {
+    count: Math.ceil(remainingMinutes / 60),
+  });
+}
+
+function ledgerKindLabel(kind: InventoryItemDetail["ledger"][number]["kind"]) {
+  switch (kind) {
+    case "created":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.created");
+    case "adjusted":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.adjusted");
+    case "hold-placed":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.placed");
+    case "hold-converted":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.converted");
+    case "hold-consumed":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.consumed");
+    case "hold-released":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.released");
+    case "hold-expired":
+      return t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.expired");
+    default:
+      return kind;
+  }
+}
+
+function ledgerDescription(entry: InventoryItemDetail["ledger"][number]) {
+  const parts = [
+    entry.quantity_delta === null
+      ? null
+      : t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.quantity.delta.summary", {
+          count: entry.quantity_delta,
+        }),
+    entry.hold_quantity === null
+      ? null
+      : t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.quantity.summary", {
+          count: entry.hold_quantity,
+        }),
+    entry.purpose ? holdPurposeLabel(entry.purpose) : null,
+    entry.reason,
+    entry.actor === "seller"
+      ? t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.actor.seller")
+      : t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.actor.system"),
+    formatTimestamp(entry.occurred_at),
+  ].filter(Boolean);
+
+  const orderId = orderSourceRef(entry.source_ref);
+
+  return (
+    <Stack gap={1}>
+      <Text size="sm" tone="secondary">
+        {parts.join(" | ")}
+      </Text>
+      {orderId ? (
+        <LinkButton href={`/account/sales/${orderId}`} tone="secondary" size="sm">
+          {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.view.order", { orderId })}
+        </LinkButton>
+      ) : null}
+    </Stack>
+  );
+}
+
+function ledgerFilterHref(currentPath: string | null | undefined, kind: string | null) {
+  const [pathname = "", rawQuery = ""] = (currentPath ?? "").split("?");
+  const params = new URLSearchParams(rawQuery);
+  if (kind) {
+    params.set("ledgerKind", kind);
+  } else {
+    params.delete("ledgerKind");
+  }
+  const query = params.toString();
+  return `${pathname || "."}${query ? `?${query}` : ""}`;
+}
+
+function selectedLedgerKind(currentPath: string | null | undefined) {
+  const [, rawQuery = ""] = (currentPath ?? "").split("?");
+  const value = new URLSearchParams(rawQuery).get("ledgerKind");
+  return value?.trim() || null;
+}
+
 export function InventoryItemDetailPage({
   item,
   errorMessage,
@@ -59,6 +165,10 @@ export function InventoryItemDetailPage({
   feedbackPrompt?: ReactNode;
   currentPath?: string | null;
 }) {
+  const selectedKind = selectedLedgerKind(currentPath);
+  const ledgerEntries = selectedKind ? item.ledger.filter((entry) => entry.kind === selectedKind) : item.ledger;
+  const ledgerKinds = [...new Set(item.ledger.map((entry) => entry.kind))];
+
   return (
     <Page>
       <PageHeader
@@ -195,6 +305,9 @@ export function InventoryItemDetailPage({
                     <Badge tone={hold.purpose === "manual" ? "neutral" : "info"}>
                       {holdPurposeLabel(hold.purpose)}
                     </Badge>
+                    {hold.status === "active" && hold.expires_at ? (
+                      <Badge tone="warning">{countdownLabel(hold.expires_at)}</Badge>
+                    ) : null}
                     {orderSourceRef(hold.source_ref) ? (
                       <LinkButton href={`/account/sales/${orderSourceRef(hold.source_ref)}`} tone="secondary" size="sm">
                         {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.view.order", {
@@ -225,6 +338,43 @@ export function InventoryItemDetailPage({
                 </Stack>
               </Card>
             ))
+          )}
+        </Stack>
+      </PageSection>
+
+      <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.stock.ledger")}>
+        <Stack gap={4}>
+          <Inline>
+            <LinkButton
+              href={ledgerFilterHref(currentPath, null)}
+              tone={selectedKind ? "secondary" : "primary"}
+              size="sm"
+            >
+              {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.all.movements")}
+            </LinkButton>
+            {ledgerKinds.map((kind) => (
+              <LinkButton
+                key={kind}
+                href={ledgerFilterHref(currentPath, kind)}
+                tone={selectedKind === kind ? "primary" : "secondary"}
+                size="sm"
+              >
+                {ledgerKindLabel(kind)}
+              </LinkButton>
+            ))}
+          </Inline>
+          {ledgerEntries.length === 0 ? (
+            <Card>
+              <Text>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.no.stock.movements")}</Text>
+            </Card>
+          ) : (
+            <MarketplaceStatusTimeline
+              steps={ledgerEntries.map((entry) => ({
+                label: ledgerKindLabel(entry.kind),
+                description: ledgerDescription(entry),
+                status: entry.kind === "hold-expired" ? "issue" : "complete",
+              }))}
+            />
           )}
         </Stack>
       </PageSection>

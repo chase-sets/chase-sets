@@ -29,6 +29,7 @@ import {
   type InventoryItemState,
 } from "../domain/domain";
 import { buildInventoryItemProjectionHandlers } from "../read-model/projection";
+import { buildInventoryItemLedgerProjectionHandlers } from "../read-model/ledger-projection";
 import { getInventoryItem, getInventoryItemForListingStock, listInventoryItems } from "../read-model/queries";
 import type { InventoryEnsuredListingStock } from "./contracts";
 
@@ -462,6 +463,10 @@ export function createInventoryItemRuntime(
       };
     },
     projectors: [
+      createProjectionHandlerSet({
+        projectionName: "inventory-item-ledger-projection",
+        handlers: buildInventoryItemLedgerProjectionHandlers(deps.db),
+      }),
       createProjectionHandlerSet({
         projectionName: "inventory-item-projection",
         handlers: buildInventoryItemProjectionHandlers(deps.db),
