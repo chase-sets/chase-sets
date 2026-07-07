@@ -1,8 +1,9 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type {
@@ -59,6 +60,30 @@ type InventoryItemRepository = Readonly<{
   load: (streamId: string) => Promise<Readonly<{ state: InventoryItemState }>>;
 }>;
 
+export type InventoryHoldPlacementParams = Readonly<{
+  holdId?: InventoryHoldId | null;
+  accountId: AccountId;
+  itemId: string;
+  quantity: number;
+  reason: string;
+  notes?: string | null;
+  purpose: InventoryHoldPurpose;
+  sourceRef: InventoryHoldSourceRef;
+  expiresAt?: string | null;
+}>;
+
+export type InventoryHoldPlacementPlan =
+  | Readonly<{
+      kind: "already-placed";
+      holdId: InventoryHoldId;
+      version: number;
+    }>
+  | Readonly<{
+      kind: "append";
+      holdId: InventoryHoldId;
+      append: AppendToStreamInput;
+    }>;
+
 export type InventoryHoldPlacementFailureKind =
   | "hold-id-conflict"
   | "inventory-item-missing"
@@ -77,18 +102,12 @@ export class InventoryHoldPlacementError extends InventoryDomainError {
 
 export type InventoryHoldServices = Readonly<{
   commandHandler: CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>;
+  planCreateHold: (
+    params: InventoryHoldPlacementParams,
+    context: EventStoreContext,
+  ) => Promise<InventoryHoldPlacementPlan>;
   createHold: (
-    params: Readonly<{
-      holdId?: InventoryHoldId | null;
-      accountId: AccountId;
-      itemId: string;
-      quantity: number;
-      reason: string;
-      notes?: string | null;
-      purpose: InventoryHoldPurpose;
-      sourceRef: InventoryHoldSourceRef;
-      expiresAt?: string | null;
-    }>,
+    params: InventoryHoldPlacementParams,
     context: EventStoreContext,
   ) => Promise<{ holdId: InventoryHoldId; version: number }>;
   releaseHold: (
@@ -104,9 +123,10 @@ export type InventoryHoldServices = Readonly<{
 }>;
 
 export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): InventoryHoldServices {
+  const codec = createPassthroughDomainEventCodec<InventoryHoldEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<InventoryHoldEvent>(),
+    codec,
     initialState: () => initialInventoryHoldState,
     evolve: evolveInventoryHold,
     decide: decideInventoryHold,
@@ -119,71 +139,96 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
     decide: decideInventoryItem,
   });
 
+  const planCreateHold = async (
+    params: InventoryHoldPlacementParams,
+    context: EventStoreContext,
+  ): Promise<InventoryHoldPlacementPlan> => {
+    const holdId = params.holdId ?? (createId("hld") as InventoryHoldId);
+    const existing = await repository.load(`inventory.hold-${holdId}`);
+    if (existing.state.id !== null) {
+      if (
+        existing.state.status === "active" &&
+        existing.state.accountId === params.accountId &&
+        existing.state.itemId === params.itemId &&
+        existing.state.quantity === params.quantity &&
+        existing.state.purpose === params.purpose &&
+        JSON.stringify(existing.state.sourceRef) === JSON.stringify(params.sourceRef) &&
+        existing.state.expiresAt === (params.expiresAt ?? null)
+      ) {
+        return {
+          kind: "already-placed",
+          holdId,
+          version: existing.version,
+        };
+      }
+
+      throw new InventoryHoldPlacementError("hold-id-conflict", "Inventory hold already exists for different stock.");
+    }
+
+    const item = await getInventoryHoldableItem(deps.db, {
+      itemId: params.itemId,
+      accountId: params.accountId,
+    });
+    const stock = item
+      ? stockSnapshotFromReadModel(item)
+      : await loadAggregateStockSnapshot({
+          db: deps.db,
+          itemRepository,
+          itemId: params.itemId,
+          accountId: params.accountId,
+          context,
+        });
+
+    if (stock.availableQuantity < params.quantity) {
+      throw new InventoryHoldPlacementError(
+        "insufficient-available-quantity",
+        "Holds cannot exceed the available quantity for an inventory item.",
+      );
+    }
+
+    const events = decideInventoryHold(existing.state, {
+      type: "PlaceInventoryHold",
+      holdId,
+      accountId: params.accountId,
+      itemId: params.itemId,
+      quantity: params.quantity,
+      reason: params.reason,
+      notes: params.notes ?? null,
+      purpose: params.purpose,
+      sourceRef: params.sourceRef,
+      expiresAt: params.expiresAt ?? null,
+    });
+
+    return {
+      kind: "append",
+      holdId,
+      append: {
+        streamId: `inventory.hold-${holdId}`,
+        expectedVersion: existing.version,
+        events: events.map((event) => codec.encode(event)),
+        context,
+      },
+    };
+  };
+
   return {
     commandHandler,
+    planCreateHold,
     createHold: async (params, context) => {
-      const holdId = params.holdId ?? (createId("hld") as InventoryHoldId);
-      const existing = await repository.load(`inventory.hold-${holdId}`);
-      if (existing.state.id !== null) {
-        if (
-          existing.state.status === "active" &&
-          existing.state.accountId === params.accountId &&
-          existing.state.itemId === params.itemId &&
-          existing.state.quantity === params.quantity &&
-          existing.state.purpose === params.purpose &&
-          JSON.stringify(existing.state.sourceRef) === JSON.stringify(params.sourceRef) &&
-          existing.state.expiresAt === (params.expiresAt ?? null)
-        ) {
-          return {
-            holdId,
-            version: existing.version,
-          };
-        }
-
-        throw new InventoryHoldPlacementError("hold-id-conflict", "Inventory hold already exists for different stock.");
+      const plan = await planCreateHold(params, context);
+      if (plan.kind === "already-placed") {
+        return {
+          holdId: plan.holdId,
+          version: plan.version,
+        };
       }
 
-      const item = await getInventoryHoldableItem(deps.db, {
-        itemId: params.itemId,
-        accountId: params.accountId,
-      });
-      const stock = item
-        ? stockSnapshotFromReadModel(item)
-        : await loadAggregateStockSnapshot({
-            db: deps.db,
-            itemRepository,
-            itemId: params.itemId,
-            accountId: params.accountId,
-            context,
-          });
-
-      if (stock.availableQuantity < params.quantity) {
-        throw new InventoryHoldPlacementError(
-          "insufficient-available-quantity",
-          "Holds cannot exceed the available quantity for an inventory item.",
-        );
-      }
-
-      const result = await commandHandler({
-        streamId: `inventory.hold-${holdId}`,
-        command: {
-          type: "PlaceInventoryHold",
-          holdId,
-          accountId: params.accountId,
-          itemId: params.itemId,
-          quantity: params.quantity,
-          reason: params.reason,
-          notes: params.notes ?? null,
-          purpose: params.purpose,
-          sourceRef: params.sourceRef,
-          expiresAt: params.expiresAt ?? null,
-        },
-        context,
-      });
+      const storedEvents = await deps.eventStore.appendToStream(plan.append);
+      recordCommittedEvents(storedEvents);
 
       return {
-        holdId,
-        version: result.version,
+        holdId: plan.holdId,
+        version: storedEvents.length === 0 ? 0 : storedEvents[storedEvents.length - 1].streamVersion,
       };
     },
     releaseHold: async (params, context) => {

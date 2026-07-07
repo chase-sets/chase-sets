@@ -18,7 +18,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { escapeLikePattern, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, escapeLikePattern, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
@@ -27,6 +27,7 @@ import { module as catalogModule } from "@chase-sets/catalog";
 import { type InventoryApiEnv, buildInventoryApi } from "../../api";
 import { InventoryDomainError } from "../../support/runtime-support/common";
 import { createInventoryServices } from "../../support/runtime-support/services";
+import { reserveOrderInventoryRequest } from "../../features/reservations/api/order-reservation-workflow";
 import { module as inventoryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -80,6 +81,12 @@ async function countEvents(pool: PgTransactionalPool, prefix: string) {
     "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1 ESCAPE '\\'",
     [`${escapeLikePattern(prefix)}%`],
   );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function countStreamEvents(pool: PgTransactionalPool, streamId: string) {
+  const result = await pool.query("SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id = $1", [streamId]);
 
   return Number(result.rows[0]?.count ?? 0);
 }
@@ -266,6 +273,99 @@ describe("inventory api", () => {
       available_quantity: 10,
     });
     expect(updatedDetailBody.holds[0].status).toBe("released");
+  });
+
+  it("rolls back the order hold when reservation confirmation loses the dual append race", async () => {
+    const location = await services.storageLocations.createStorageLocation(
+      {
+        accountId: "acc_inventory" as never,
+        name: "Atomic shelf",
+        shipFromCode: "CHI-ATOMIC",
+        shipFromAddress,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({
+      subscriptionRunners,
+    });
+
+    const item = await services.items.createItem(
+      {
+        accountId: "acc_inventory" as never,
+        catalogItemId: catalogSeedIds.items.charizardBaseSet,
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+        ],
+        storageLocationId: location.storageLocationId,
+        totalQuantity: 1,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({
+      subscriptionRunners,
+    });
+
+    const eventStore = createPostgresEventStore({ pool: pools.inventory });
+    const reservationRequestId = "rsv_atomic_rollback";
+    const holdStreamId = `inventory.hold-hld_order_reservation_${reservationRequestId}`;
+    const reservationStreamId = `inventory.reservation-${reservationRequestId}`;
+    const planConfirmation = services.reservations.planConfirmation;
+
+    await expect(
+      reserveOrderInventoryRequest(
+        {
+          holds: services.holds,
+          reservations: {
+            ...services.reservations,
+            planConfirmation: async (params, context) => {
+              const plan = await planConfirmation(params, context);
+              await eventStore.appendToStream({
+                streamId: reservationStreamId,
+                expectedVersion: "no_stream",
+                context,
+                events: [
+                  {
+                    eventType: "inventory.reservation.rejected",
+                    payload: {
+                      reservationRequestId,
+                      orderId: params.orderId,
+                      sellerAccountId: params.sellerAccountId,
+                      inventoryItemId: params.inventoryItemId,
+                      quantity: params.quantity,
+                      reason: "simulated competing resolution",
+                    },
+                  },
+                ],
+              });
+              return plan;
+            },
+          },
+          appendToStreams: services.appendToStreams,
+        },
+        {
+          orderId: "ord_atomic_rollback",
+          request: {
+            reservationRequestId,
+            sellerAccountId: "acc_inventory",
+            inventoryItemId: item.itemId,
+            quantity: 1,
+          },
+          context: inventoryContext,
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "concurrency_conflict",
+    });
+
+    await expect(countStreamEvents(pools.inventory, holdStreamId)).resolves.toBe(0);
+    await expect(countStreamEvents(pools.inventory, reservationStreamId)).resolves.toBe(1);
   });
 
   it("prevents over-holds and invalid negative adjustments", async () => {

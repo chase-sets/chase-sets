@@ -1,4 +1,6 @@
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { createTransientProjectionError } from "@chase-sets/event-core/projector";
 import type { OrderingOrderCreatedPayload } from "@chase-sets/event-core/public-event-payloads";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
@@ -11,6 +13,7 @@ type OrderReservationRequest = NonNullable<OrderingOrderCreatedPayload["reservat
 export type InventoryOrderReservationWorkflowServices = Readonly<{
   holds: InventoryHoldServices;
   reservations: InventoryReservationServices;
+  appendToStreams: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
 }>;
 
 export type ReserveOrderInventoryRequestInput = Readonly<{
@@ -39,8 +42,9 @@ export async function reserveOrderInventoryRequest(
   }
 
   let holdId: InventoryHoldId;
+  let holdPlan: Awaited<ReturnType<InventoryHoldServices["planCreateHold"]>>;
   try {
-    const hold = await services.holds.createHold(
+    holdPlan = await services.holds.planCreateHold(
       {
         holdId: orderReservationHoldId(request.reservationRequestId),
         accountId: request.sellerAccountId as AccountId,
@@ -57,7 +61,7 @@ export async function reserveOrderInventoryRequest(
       },
       context,
     );
-    holdId = hold.holdId;
+    holdId = holdPlan.holdId;
   } catch (error) {
     if (isTransientHoldPlacementFailure(error)) {
       throw createTransientProjectionError(error.message, { cause: error });
@@ -82,10 +86,8 @@ export async function reserveOrderInventoryRequest(
     return;
   }
 
-  await services.reservations.commandHandler({
-    streamId: `inventory.reservation-${request.reservationRequestId}`,
-    command: {
-      type: "ConfirmInventoryReservation",
+  const reservationPlan = await services.reservations.planConfirmation(
+    {
       reservationRequestId: request.reservationRequestId,
       orderId,
       sellerAccountId: request.sellerAccountId,
@@ -94,7 +96,15 @@ export async function reserveOrderInventoryRequest(
       holdId,
     },
     context,
-  });
+  );
+
+  if (reservationPlan.kind === "already-resolved") {
+    return;
+  }
+
+  const appends = [...(holdPlan.kind === "append" ? [holdPlan.append] : []), reservationPlan.append];
+  const results = await services.appendToStreams(appends);
+  recordCommittedEvents(results.flatMap((result) => result.storedEvents));
 }
 
 function isTerminalHoldPlacementFailure(error: unknown): error is InventoryHoldPlacementError {

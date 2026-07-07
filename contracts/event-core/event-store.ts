@@ -1,7 +1,13 @@
 import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "./storage";
 
+export type AppendToStreamsResult = Readonly<{
+  streamId: string;
+  storedEvents: readonly StoredEvent[];
+}>;
+
 export type EventStore = Readonly<{
   appendToStream: (input: AppendToStreamInput) => Promise<readonly StoredEvent[]>;
+  appendToStreams?: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   readStream: (input: ReadStreamInput) => Promise<readonly StoredEvent[]>;
   readAll: (input?: ReadAllInput) => Promise<readonly StoredEvent[]>;
 }>;

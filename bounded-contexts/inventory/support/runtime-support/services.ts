@@ -1,4 +1,6 @@
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
+import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { BcCreateServicesOptions } from "@chase-sets/bounded-context-module";
@@ -20,6 +22,7 @@ export type InventoryServices = Readonly<{
   importBatches: ReturnType<typeof createInventoryImportBatchRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
+  appendToStreams: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -38,6 +41,10 @@ export function createInventoryServices(
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
   });
+  const appendToStreams = eventStore.appendToStreams;
+  if (!appendToStreams) {
+    throw new Error("Inventory order reservation workflow requires atomic multi-stream event appends.");
+  }
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const deps = { eventStore, checkpointStore, db } as const;
@@ -62,6 +69,7 @@ export function createInventoryServices(
     importBatches,
     holds,
     reservations,
+    appendToStreams,
     projectors: [
       ...catalogItems.projectors,
       ...storageLocations.projectors,
