@@ -40,16 +40,26 @@ variable "google_workspace_dkim_txt_value" {
   description = "Optional Google Workspace DKIM TXT value for google._domainkey.<environment>.<root_domain>."
 }
 
-variable "doks_ingress_dns_enabled" {
-  type        = bool
-  default     = false
-  description = "When true, point staging app host records at the DOKS ingress target instead of leaving App Platform as the DNS owner."
+variable "staging_app_serving" {
+  type        = string
+  default     = "app-platform"
+  description = "Which platform serves the live staging hosts. \"app-platform\" (default) leaves App Platform as the DNS owner and is the rollback state. \"doks\" points the released staging hosts at the DOKS ingress load balancer for the cutover flip. Shadow validation hosts do not depend on this switch."
+
+  validation {
+    condition     = contains(["app-platform", "doks"], var.staging_app_serving)
+    error_message = "staging_app_serving must be either \"app-platform\" or \"doks\"."
+  }
 }
 
 variable "doks_ingress_target" {
   type        = string
   default     = ""
-  description = "DOKS ingress load balancer IPv4 address. Required when doks_ingress_dns_enabled is true."
+  description = "DOKS ingress load balancer IPv4 address. When set, shadow validation hosts (doks.<zone>, www.doks.<zone>, ...) resolve to the load balancer so DOKS ingress and cert-manager can be proven before cutover. Required before staging_app_serving flips to \"doks\"."
+
+  validation {
+    condition     = trimspace(var.doks_ingress_target) == "" || can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", trimspace(var.doks_ingress_target)))
+    error_message = "doks_ingress_target must be a valid IPv4 address when set."
+  }
 }
 
 variable "doks_ingress_ttl" {

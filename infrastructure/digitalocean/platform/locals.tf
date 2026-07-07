@@ -687,7 +687,10 @@ locals {
       (local.admin_domain) = local.is_staging ? local.environment_zone : var.root_domain
     },
   )
-  staging_app_alias_record_names = local.is_staging ? toset([
+  # Released when staging_app_serving flips to "doks" so the environment-dns
+  # DOKS A records own these host names during cutover with no CNAME/A collision.
+  # Flipping back to "app-platform" restores the App Platform CNAMEs (rollback).
+  staging_app_alias_record_names = local.is_staging && var.staging_app_serving == "app-platform" ? toset([
     "admin",
     "marketplace",
     "www",
