@@ -4,6 +4,13 @@ import path from "node:path";
 const baselineDisplayPath = "scripts/check-structure/glossary-coverage-baseline.json";
 const masterGlossaryPath = "docs/GLOSSARY.md";
 const disambiguationSectionHeading = "Cross-Context Disambiguation";
+const requiredMasterSectionHeadings = [
+  "Language Constitution",
+  "Adaptation Rules",
+  "Ratchet Rules",
+  disambiguationSectionHeading,
+];
+const requiredDisambiguationFamilies = ["Hold family", "Policy family", "Channel family"];
 const eventDeclarationFields = new Set(["eventTypes", "publishedEvents", "events"]);
 const structuralGlossaryHeadings = new Set([
   "account address book",
@@ -338,15 +345,70 @@ function findBrokenWikiReferences({ relativePath, content, knownTerms }) {
   return issues;
 }
 
-function masterDisambiguatesTerm(masterContent, term) {
-  const headings = parseGlossary(masterContent);
-  const section = headings.find(
-    (heading) => heading.level === 2 && normalizeTerm(heading.term) === normalizeTerm(disambiguationSectionHeading),
+function findSectionByHeading(content, sectionHeading) {
+  const headings = parseGlossary(content);
+  return headings.find(
+    (heading) => heading.level === 2 && normalizeTerm(heading.term) === normalizeTerm(sectionHeading),
   );
+}
+
+function masterDisambiguatesTerm(masterContent, term) {
+  const section = findSectionByHeading(masterContent, disambiguationSectionHeading);
   if (!section) {
     return false;
   }
   return section.body.toLowerCase().includes(normalizeTerm(term));
+}
+
+function markdownTableRows(body) {
+  return body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|") && line.endsWith("|"))
+    .map((line) =>
+      line
+        .slice(1, -1)
+        .split("|")
+        .map((cell) => cell.trim()),
+    )
+    .filter((cells) => cells.length > 0 && !cells.every((cell) => /^-+$/.test(cell.replaceAll(" ", ""))));
+}
+
+function collectMasterGlossaryConstitutionIssues(masterGlossary) {
+  const issues = [];
+
+  for (const sectionHeading of requiredMasterSectionHeadings) {
+    const section = findSectionByHeading(masterGlossary.content, sectionHeading);
+    if (!section) {
+      issues.push({
+        id: `master-glossary-section:${normalizeTerm(sectionHeading).replaceAll(" ", "-")}`,
+        kind: "master-glossary-section",
+        message: `${masterGlossaryPath} must define a '${sectionHeading}' section for the ubiquitous-language constitution`,
+      });
+      continue;
+    }
+    if (!definitionBodyIsPresent(section)) {
+      issues.push({
+        id: `master-glossary-section-body:${normalizeTerm(sectionHeading).replaceAll(" ", "-")}`,
+        kind: "master-glossary-section-body",
+        message: `${masterGlossaryPath}:${section.line}: '${sectionHeading}' must document the ubiquitous-language constitution rule`,
+      });
+    }
+  }
+
+  const disambiguation = findSectionByHeading(masterGlossary.content, disambiguationSectionHeading);
+  const rowTerms = new Set(markdownTableRows(disambiguation?.body ?? "").map(([term]) => normalizeTerm(term)));
+  for (const family of requiredDisambiguationFamilies) {
+    if (!rowTerms.has(normalizeTerm(family))) {
+      issues.push({
+        id: `master-glossary-family:${normalizeTerm(family).replaceAll(" ", "-")}`,
+        kind: "master-glossary-family",
+        message: `${masterGlossaryPath} ${disambiguationSectionHeading} must disambiguate the ${family}`,
+      });
+    }
+  }
+
+  return issues;
 }
 
 function collectCollisionIssues({ contextGlossaries, masterGlossary }) {
@@ -494,6 +556,7 @@ export function collectGlossaryCoverageIssues(options) {
 
   const masterGlossary = readGlossary(repoRoot, masterGlossaryPath);
   rawGlossaries.set(masterGlossaryPath, masterGlossary);
+  issues.push(...collectMasterGlossaryConstitutionIssues(masterGlossary));
   issues.push(...collectCollisionIssues({ contextGlossaries, masterGlossary }));
 
   const knownTerms = new Set();

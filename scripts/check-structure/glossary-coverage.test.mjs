@@ -111,9 +111,25 @@ function writeGlossaries(
     `
       # Marketplace Glossary
 
+      ## Language Constitution
+
+      Bounded contexts own behavior and the words for that behavior.
+
+      ## Adaptation Rules
+
+      Use the owning context term when consuming published facts and qualify local adaptations.
+
+      ## Ratchet Rules
+
+      New owned nouns, event nouns, and cross-context ambiguity must stay inside this guard.
+
       ## Cross-Context Disambiguation
 
-      No overlapping test terms.
+      | Term | Source of truth | Other context use |
+      | --- | --- | --- |
+      | Hold family | Inventory owns stock holds. | Settlement qualifies payout release holds. |
+      | Policy family | The owning context owns each named policy. | Consumers reference the named policy and owner. |
+      | Channel family | Notifications owns delivery channels. | Platform docs qualify wake and listener channels. |
     `,
   );
 }
@@ -182,6 +198,78 @@ describe("glossary coverage guard", () => {
 
     expect(result.violations).toContain(
       "Cart appears in multiple context glossaries (checkout, marketplace) but docs/GLOSSARY.md has no Cross-Context Disambiguation entry for it",
+    );
+  });
+
+  it("requires the master glossary language constitution sections", () => {
+    const root = createTempRepo();
+    writeBaseline(root);
+    writeGlossaries(root);
+    writeSource(
+      root,
+      "docs/GLOSSARY.md",
+      `
+        # Marketplace Glossary
+
+        ## Cross-Context Disambiguation
+
+        | Term | Source of truth | Other context use |
+        | --- | --- | --- |
+        | Hold family | Inventory owns stock holds. | Settlement qualifies payout release holds. |
+        | Policy family | The owning context owns each named policy. | Consumers reference the named policy and owner. |
+        | Channel family | Notifications owns delivery channels. | Platform docs qualify wake and listener channels. |
+      `,
+    );
+
+    const result = validate(root);
+
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        "docs/GLOSSARY.md must define a 'Language Constitution' section for the ubiquitous-language constitution",
+        "docs/GLOSSARY.md must define a 'Adaptation Rules' section for the ubiquitous-language constitution",
+        "docs/GLOSSARY.md must define a 'Ratchet Rules' section for the ubiquitous-language constitution",
+      ]),
+    );
+  });
+
+  it("requires Hold, Policy, and Channel family disambiguation rows", () => {
+    const root = createTempRepo();
+    writeBaseline(root);
+    writeGlossaries(root);
+    writeSource(
+      root,
+      "docs/GLOSSARY.md",
+      `
+        # Marketplace Glossary
+
+        ## Language Constitution
+
+        Bounded contexts own behavior and the words for that behavior.
+
+        ## Adaptation Rules
+
+        Use the owning context term when consuming published facts and qualify local adaptations.
+
+        ## Ratchet Rules
+
+        New owned nouns, event nouns, and cross-context ambiguity must stay inside this guard.
+
+        ## Cross-Context Disambiguation
+
+        | Term | Source of truth | Other context use |
+        | --- | --- | --- |
+        | Shipping Evidence Tier | Ordering owns it. | Fulfillment consumes it. |
+      `,
+    );
+
+    const result = validate(root);
+
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        "docs/GLOSSARY.md Cross-Context Disambiguation must disambiguate the Hold family",
+        "docs/GLOSSARY.md Cross-Context Disambiguation must disambiguate the Policy family",
+        "docs/GLOSSARY.md Cross-Context Disambiguation must disambiguate the Channel family",
+      ]),
     );
   });
 
