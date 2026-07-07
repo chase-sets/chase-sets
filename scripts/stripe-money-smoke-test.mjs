@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { readEnv } from "./lib/cli-options.mjs";
+import { provisionSyntheticAccountInvitation } from "./lib/synthetic-account-invitations.mjs";
 import { PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 function stripTrailingSlash(value) {
@@ -64,6 +65,8 @@ async function resolveAuthHeaders(env = process.env, fetchImpl = fetch) {
           email: sellerEmail,
           password: sellerPassword,
           displayName: readEnv("SMOKE_SELLER_DISPLAY_NAME", env) ?? defaultSmokeSellerDisplayName(sellerEmail),
+          adminEmail: readEnv("PLATFORM_ADMIN_EMAIL", env),
+          adminPassword: readEnv("PLATFORM_ADMIN_PASSWORD", env),
         },
         fetchImpl,
       );
@@ -125,6 +128,16 @@ async function signInWithPassword(params, fetchImpl) {
 }
 
 async function registerSellerAccount(params, fetchImpl) {
+  await provisionSyntheticAccountInvitation({
+    baseUrl: params.authBaseUrl,
+    email: params.email,
+    adminEmail: params.adminEmail,
+    adminPassword: params.adminPassword,
+    fetchImpl,
+    label: "Stripe money smoke",
+    invitationIdPrefix: "ivt_stripe_money_smoke",
+  });
+
   const registration = await requestJson(
     `${stripTrailingSlash(params.authBaseUrl)}/api/auth/register`,
     {
