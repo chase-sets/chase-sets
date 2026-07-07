@@ -1,0 +1,28 @@
+{{- if .Values.clusterIssuers.enabled }}
+{{- $email := required "clusterIssuers.email is required for ACME registration" .Values.clusterIssuers.email }}
+{{- $ingressClassName := required "clusterIssuers.ingressClassName is required for the HTTP-01 solver" .Values.clusterIssuers.ingressClassName }}
+{{- $issuers := dict "staging" .Values.clusterIssuers.staging "production" .Values.clusterIssuers.production }}
+{{- range $tier := (keys $issuers | sortAlpha) }}
+{{- $issuer := index $issuers $tier }}
+{{- if $issuer.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ required "issuer name is required" $issuer.name | quote }}
+  labels:
+{{ include "chase-sets-doks-ingress.labels" $ | nindent 4 }}
+    chase-sets.com/acme-tier: {{ $tier | quote }}
+spec:
+  acme:
+    server: {{ required "issuer server is required" $issuer.server | quote }}
+    email: {{ $email | quote }}
+    privateKeySecretRef:
+      name: {{ required "issuer privateKeySecretName is required" $issuer.privateKeySecretName | quote }}
+    solvers:
+      - http01:
+          ingress:
+            class: {{ $ingressClassName | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

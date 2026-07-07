@@ -169,32 +169,91 @@ Rotation sequence:
 
 Manual `kubectl edit secret` is an emergency-only action. If used, immediately follow with the source-owned helper so the next deployment does not unintentionally revert the key set.
 
-## Ingress, Certificates, And DNS Cutover
+## Ingress Controller, Cert-Manager, And Load Balancer
 
-Ingress stays disabled until the ingress controller, cert-manager issuer, and DOKS load balancer target are known. The Helm chart owns application Ingress objects only after this cutover gate.
+The ingress controller (ingress-nginx), its DigitalOcean Load Balancer, cert-manager, and the ACME `ClusterIssuer`s are installed from the source-owned add-ons in [infrastructure/helm/doks-ingress](../../infrastructure/helm/doks-ingress/README.md). Versions and values stay in git; install through the helper, never ad hoc:
 
-Ingress inspection:
+```bash
+node ./scripts/doks-cluster-addons.mjs --environment staging --dry-run   # preview pinned commands
+node ./scripts/doks-cluster-addons.mjs --environment staging             # install / upgrade
+```
+
+This installs `ingress-nginx` (namespace `ingress-nginx`) whose `LoadBalancer` Service provisions the `chase-sets-<environment>-doks-ingress` DigitalOcean Load Balancer, `cert-manager` with CRDs (namespace `cert-manager`), and the `letsencrypt-staging` / `letsencrypt-production` `ClusterIssuer`s. The load balancer runs L4 pass-through for 80/443 so NGINX terminates TLS with cert-manager certificates; port 80 stays reachable for HTTP-01 challenges and PROXY protocol carries real client IPs.
+
+Confirm the load balancer IPv4 before touching DNS:
+
+```bash
+kubectl get service ingress-nginx-controller --namespace ingress-nginx -o wide
+kubectl get service --all-namespaces | grep -i loadbalancer
+kubectl get clusterissuers
+```
+
+Application `Ingress` objects (platform chart) publish through `ingressClassName: nginx` with the `cert-manager.io/cluster-issuer` annotation and are enabled at cutover, not before.
+
+Inspection:
 
 ```bash
 kubectl get ingress --namespace chase-sets-platform
 kubectl describe ingress --namespace chase-sets-platform
-kubectl get service --all-namespaces | grep -i loadbalancer
 kubectl get certificates,orders,challenges --namespace chase-sets-platform
 ```
 
-DNS cutover sequence:
+## DNS Cutover And Rehearsed Rollback
 
-1. Confirm the DOKS Ingress load balancer has a stable IPv4 address.
-2. Enable the matching `infrastructure/digitalocean/environment-dns` DOKS records for staging with the target address and low TTL.
-3. Wait for `scripts/platform-ingress-wait.mjs` or equivalent HTTPS probes to pass for landing, marketplace, admin, and `/api/health/ready`.
-4. Keep the App Platform rollback path available until the full staging UAT battery passes.
-5. Raise TTL only after rollback confidence and smoke evidence are recorded.
+The cutover keeps **both platforms serving** and makes the flip an instant, reversible DNS change. App Platform is kept warm through the entire staging soak and the production low-signup window (#4053) so rollback is always a DNS-only step. Two independent controls in [infrastructure/digitalocean/environment-dns](../../infrastructure/digitalocean/environment-dns/README.md) drive it, coordinated with the matching `staging_app_serving` switch in [infrastructure/digitalocean/platform](../../infrastructure/digitalocean/platform):
+
+- `doks_ingress_target` (load balancer IPv4) creates the **shadow validation hosts** `doks.staging.chasesets.com`, `www.doks.…`, `marketplace.doks.…`, `admin.doks.…`. DOKS serves and issues certificates on these while App Platform serves the live hosts. No live traffic moves.
+- `staging_app_serving=doks` creates the **live-host cutover records** (apex + `www`/`marketplace`/`admin` `A` records at the load balancer).
+
+### 1. Rehearse (both platforms serving)
+
+1. Install the add-ons and confirm a stable load balancer IPv4.
+2. Apply environment-dns with `doks_ingress_target=<lb-ip>` (leave `staging_app_serving=app-platform`). Only the shadow hosts appear; App Platform still owns every live host.
+3. Prove the DOKS pipeline against the shadow hosts:
+
+   ```bash
+   node ./scripts/platform-ingress-wait.mjs \
+     --url https://doks.staging.chasesets.com/ \
+     --url https://admin.doks.staging.chasesets.com/health/ready \
+     --url https://marketplace.doks.staging.chasesets.com/health/ready
+   ```
+
+4. Confirm `Certificate` resources are `Ready` and cert-manager `Order`/`Challenge` completed.
+
+### 2. Flip (instant cutover)
+
+1. Release the colliding App Platform records **before** adding the DOKS live-host records:
+   - Apply the platform root with `staging_app_serving=doks` to drop the `www`/`marketplace`/`admin` `staging_app_alias` CNAMEs.
+   - Release the App Platform staging apex domain so DO stops auto-managing the `staging.chasesets.com` apex record.
+2. Apply environment-dns with `doks_ingress_target=<lb-ip>` and `staging_app_serving=doks`. The apex + `www`/`marketplace`/`admin` `A` records now point at the load balancer.
+3. Wait for HTTPS probes on the live hosts:
+
+   ```bash
+   node ./scripts/platform-ingress-wait.mjs \
+     --url https://staging.chasesets.com/ \
+     --url https://admin.staging.chasesets.com/health/ready \
+     --url https://marketplace.staging.chasesets.com/health/ready
+   ```
+
+4. Run the staging UAT battery. Keep TTL low (`doks_ingress_ttl`, 300s default) until confidence is recorded.
+
+### 3. Rollback (rehearsed)
+
+1. Flip `staging_app_serving` back to `app-platform` in both the platform root and environment-dns and apply. The DOKS live-host records are removed; the App Platform `staging_app_alias` CNAMEs and apex domain management return.
+2. Re-attach the App Platform apex domain if it was released.
+3. Confirm HTTPS probes pass against App Platform and record the rollback evidence.
+
+Because App Platform never left, rollback is a DNS change plus apex re-attach — no redeploy. The shadow hosts stay in place, so the next flip attempt needs no re-rehearsal.
+
+### Production
+
+Production live hosts (root `chasesets.com` zone) are owned by the platform/runtime roots today, not environment-dns. The production flip in #4053 repoints those root-zone records at the production load balancer using the same shadow-then-flip pattern, during the low-signup window, with App Platform kept warm for the same DNS-only rollback.
 
 Certificate incidents:
 
 - If `Certificate` is pending, inspect cert-manager `Order` and `Challenge` resources before changing DNS.
-- If HTTP-01 challenges fail, confirm the Ingress class, host, DNS target, and any redirect middleware.
-- If production cert issuance fails during cutover, pause DNS promotion and keep App Platform serving until certificate evidence is green.
+- If HTTP-01 challenges fail, confirm the Ingress class, host, DNS target, PROXY protocol config, and any redirect middleware.
+- If production cert issuance fails during cutover, pause the flip and keep App Platform serving until certificate evidence is green.
 
 ## App Platform To DOKS Action Map
 
