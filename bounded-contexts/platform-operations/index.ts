@@ -1,6 +1,10 @@
 export { default as contextManifest } from "./context.json";
 
-import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventSubscriptionsFromManifest,
+  defineBoundedContextModule,
+  type BcContextManifest,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildPlatformOperationsApi } from "./api";
 import contextManifest from "./context.json";
@@ -22,12 +26,14 @@ import {
   type PlatformOperationsServices,
 } from "./support/runtime-support/services";
 
+const platformOperationsContextManifest = contextManifest as BcContextManifest;
+
 export const module = defineBoundedContextModule<
   PlatformOperationsServices,
   PgTransactionalPool,
   PlatformOperationsHostPorts
 >({
-  manifest: contextManifest,
+  manifest: platformOperationsContextManifest,
   schemaSql: platformOperationsSchemaSql,
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
@@ -39,7 +45,7 @@ export const module = defineBoundedContextModule<
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
       contextName: "platform-operations",
-      manifest: contextManifest,
+      manifest: platformOperationsContextManifest,
       handlers: {
         "ordering.support-order-source-projection": {
           subscriptionName: "support.order-source-projection",

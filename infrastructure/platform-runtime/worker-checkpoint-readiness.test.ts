@@ -107,6 +107,7 @@ function checkoutProjection(input: Readonly<{ position: bigint; headPosition: bi
     projectionRevision: 1,
     targetContextName: "checkout",
     sourceContextNames: ["checkout"],
+    optionalSourceContextNames: [],
     ownedTables: ["checkout_session_pages"],
     requiredDuringBootstrap: false,
     subscriptionRunners: [subscriptionRunner],

@@ -302,6 +302,7 @@ function projectionGroup(
     projectionRevision: 1,
     targetContextName: input.targetContextName,
     sourceContextNames: input.sourceContextNames,
+    optionalSourceContextNames: [],
     ownedTables: [],
     requiredDuringBootstrap: false,
     subscriptionRunners: input.sourceContextNames.map((sourceContextName) => ({
