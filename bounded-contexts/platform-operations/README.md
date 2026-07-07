@@ -11,6 +11,7 @@ Platform Operations owns internal operator workflows for cross-context platform 
 - Platform operation workflow tests
 - Cross-context analytical KPI dashboard-read-model contracts and dashboard query language (`features/insights-dashboards`)
 - Platform feedback submission, prompt dismissal, review queue status, reporting read models, and internal admin review surfaces (`features/platform-feedback`)
+- Reported content moderation queue read models and internal Trust & Safety surfaces (`features/reported-content`)
 - Structured marketplace support requests, support flows, evidence, and resolutions (`features/support-requests`)
 
 ## Does Not Own

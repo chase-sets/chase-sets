@@ -58,6 +58,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.public.standard.terms.preview.rate.limited":
     "Too many public terms preview requests. Wait a few minutes and try again.",
   "marketplace.features.listings.api.route.request.failed": "Request failed.",
+  "marketplace.features.reports.api.reporter.required": "Start a new report session before reporting this listing.",
+  "marketplace.features.reports.api.request.failed": "Report request failed.",
   "marketplace.features.listings.domain.domain.greater.than.zero": "greater than zero",
   "marketplace.features.listings.domain.domain.price.amount": "Price amount",
   "marketplace.features.listings.domain.domain.zero.or.greater": "zero or greater",

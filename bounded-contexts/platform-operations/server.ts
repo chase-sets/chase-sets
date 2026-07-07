@@ -4,7 +4,14 @@ export type {
   PlatformFeedbackMetrics,
   PlatformFeedbackPromptEligibility,
 } from "./features/platform-feedback/api/contracts";
+export type {
+  ReportedContentModerationAction,
+  ReportedContentQueueDetail,
+  ReportedContentQueueItem,
+  ReportedContentQueueMetrics,
+} from "./features/reported-content/api/contracts";
 export { createExperienceRequestApiClient } from "./support/request-support/api-client";
+export { createReportedContentRequestApiClient } from "./support/request-support/reported-content-client";
 export { PlatformFeedbackPrompt } from "./features/platform-feedback/ui/platform-feedback-prompt";
 export {
   platformFeedbackPlacementContract,

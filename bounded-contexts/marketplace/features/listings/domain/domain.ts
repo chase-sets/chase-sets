@@ -229,6 +229,13 @@ export type PublishListingCommand = Readonly<{
   feeQuoteFingerprint: string;
 }>;
 export type PauseListingCommand = Readonly<{ type: "PauseListing" }>;
+export type AutoUnlistListingCommand = Readonly<{
+  type: "AutoUnlistListing";
+  reportId: string;
+  reportCount: number;
+  threshold: number;
+  autoUnlistedAt: string;
+}>;
 export type WithdrawListingCommand = Readonly<{ type: "WithdrawListing" }>;
 
 export type MarketplaceListingCommand =
@@ -239,6 +246,7 @@ export type MarketplaceListingCommand =
   | AddListingPhotosCommand
   | PublishListingCommand
   | PauseListingCommand
+  | AutoUnlistListingCommand
   | WithdrawListingCommand;
 
 export type ListingCreatedEvent = DomainEvent<
@@ -324,6 +332,15 @@ export type ListingPublishedEvent = DomainEvent<
   }>
 >;
 export type ListingPausedEvent = DomainEvent<"marketplace.listing.paused", Readonly<Record<string, never>>>;
+export type ListingAutoUnlistedEvent = DomainEvent<
+  "marketplace.listing.auto-unlisted",
+  Readonly<{
+    reportId: string;
+    reportCount: number;
+    threshold: number;
+    autoUnlistedAt: string;
+  }>
+>;
 export type ListingWithdrawnEvent = DomainEvent<"marketplace.listing.withdrawn", Readonly<Record<string, never>>>;
 
 export type MarketplaceListingEvent =
@@ -334,6 +351,7 @@ export type MarketplaceListingEvent =
   | ListingPhotosAddedEvent
   | ListingPublishedEvent
   | ListingPausedEvent
+  | ListingAutoUnlistedEvent
   | ListingWithdrawnEvent;
 
 export const decideMarketplaceListing: AggregateDecider<
@@ -526,6 +544,25 @@ export const decideMarketplaceListing: AggregateDecider<
       }
       assert(state.status === "active", "Only active listings can be paused.");
       return [{ type: "marketplace.listing.paused", data: {} }];
+    case "AutoUnlistListing":
+      assert(state.listingId !== null, "Listing must be created first.");
+      if (state.status !== "active") {
+        return [];
+      }
+      assert(Number.isInteger(command.reportCount) && command.reportCount > 0, "Report count must be positive.");
+      assert(Number.isInteger(command.threshold) && command.threshold > 0, "Report threshold must be positive.");
+      assert(command.reportCount >= command.threshold, "Report threshold has not been reached.");
+      return [
+        {
+          type: "marketplace.listing.auto-unlisted",
+          data: {
+            reportId: normalizeRequiredText(command.reportId, "Report id is required."),
+            reportCount: command.reportCount,
+            threshold: command.threshold,
+            autoUnlistedAt: normalizeRequiredText(command.autoUnlistedAt, "Auto-unlist timestamp is required."),
+          },
+        },
+      ];
     case "WithdrawListing":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Listing has already been withdrawn.");
@@ -617,6 +654,8 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         status: "active",
       };
     case "marketplace.listing.paused":
+      return { ...state, status: "paused" };
+    case "marketplace.listing.auto-unlisted":
       return { ...state, status: "paused" };
     case "marketplace.listing.withdrawn":
       return { ...state, status: "withdrawn" };

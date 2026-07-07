@@ -114,6 +114,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `payments:payments-payment-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:payments-support-refund-effect` | Payments | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:experience-platform-feedback-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
+| `platform-operations:platform-operations-reported-content-action-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
+| `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace** | push-enabled | 1/1 |
 | `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
 | `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
 | `pricing:pricing-catalog-input-projection` | Pricing | **catalog** | push-enabled | 1/1 |
@@ -130,7 +132,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 78 `push-enabled`, 12 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 79 `push-enabled`, 12 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (69)
 

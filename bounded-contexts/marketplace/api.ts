@@ -5,6 +5,7 @@ import { createCommercialTermsResolver, type CommercialTermsResolver } from "@ch
 import type { MarketplaceServices } from "./support/runtime-support/services";
 import { createPublicListingRoutes, createAccountListingRoutes } from "./features/listings/api/route";
 import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./features/offers/api/route";
+import { createMarketplaceReportRoutes } from "./features/reports/api/route";
 
 export type MarketplaceApiEnv = AuthenticatedApiEnv;
 
@@ -21,6 +22,7 @@ export function buildMarketplaceApi(services: MarketplaceServices) {
   app.route("/account", createAccountListingRoutes(services.listings));
   app.route("/account", createAccountOfferMatchRoutes(services.offers));
   app.route("/", createPublicListingRoutes(services.listings));
+  app.route("/", createMarketplaceReportRoutes(services.reports));
 
   return app;
 }

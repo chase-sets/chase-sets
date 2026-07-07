@@ -23,6 +23,14 @@
 - Source Workflow: The user task that produced a platform-feedback prompt, such as checkout payment, listing publish, offer submit, offer accept, inventory create, or inventory adjust.
 - Prompt Dismissal: A record that a user chose not to leave platform feedback for a Source Workflow at that time.
 - Review Queue Status: The internal lifecycle state for Platform Feedback: new, reviewed, or archived.
+## Reported Content
+
+**Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report facts.
+
+## Moderation Queue
+
+**Moderation Queue** is the Platform Operations queue that groups content reports by target and highlights auto-unlisted targets for operator review.
+
 - Support Request: A structured request for help with a marketplace order.
 - Support Flow: The issue-specific checklist, response options, and resolution policy for a support request.
 - Support Evidence: Structured information supplied by the buyer, seller, or platform on a support request.

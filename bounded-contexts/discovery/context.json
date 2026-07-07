@@ -260,6 +260,7 @@
         "marketplace.listing.purchase-limits-updated",
         "marketplace.listing.published",
         "marketplace.listing.paused",
+        "marketplace.listing.auto-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
@@ -282,6 +283,7 @@
         "marketplace.listing.quantity-cap-updated",
         "marketplace.listing.published",
         "marketplace.listing.paused",
+        "marketplace.listing.auto-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
         "marketplace.offer.accepted"
@@ -863,6 +865,24 @@
         "reviewBy": "2026-09-30",
         "issue": "#1819",
         "reason": "Discovery owns the item-detail rail analytics vocabulary and documents the marketplace deployable bridge as observability-only capture in bounded-contexts/discovery/docs/item-detail-rail-analytics.md. deployables/marketplace/app/root.test.tsx proves the route accepts only bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
+      }
+    },
+    {
+      "id": "discovery.public-listing-report-snapshot",
+      "owner": "discovery",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/discovery/routes/public-listing.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "public-listing",
+        "description": "The public listing report form posts to the Discovery-owned route action, which receives Marketplace's report submission snapshot and redirects back with a reported marker instead of waiting on a projection."
+      },
+      "proof": {
+        "authoritativeResponse": "Marketplace Report Listing returns id, version, target, report count, threshold, and auto-unlisted directly from the command result.",
+        "tests": ["bounded-contexts/marketplace/features/reports/api/runtime.test.ts"]
       }
     }
   ],

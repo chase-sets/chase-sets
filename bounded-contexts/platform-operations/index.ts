@@ -5,6 +5,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildPlatformOperationsApi } from "./api";
 import contextManifest from "./context.json";
 import { buildExperienceApi } from "./features/platform-feedback/api/http";
+import { buildReportedContentProjectionHandlers } from "./features/reported-content/read-model/projection";
 import { buildSupportApi } from "./features/support-requests/api/http";
 import {
   buildSupportOrderSourceProjectionHandlers,
@@ -28,7 +29,7 @@ export const module = defineBoundedContextModule<
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
     buildPlatformOperationsApi(services),
-    buildExperienceApi(services.platformFeedback),
+    buildExperienceApi(services.platformFeedback, services.reportedContent),
     buildSupportApi(services.supportRequests),
   ],
   projectionHandlerSets: (services) => services.projectors,
@@ -44,6 +45,10 @@ export const module = defineBoundedContextModule<
         "fulfillment.support-shipment-source-projection": {
           subscriptionName: "support.shipment-source-projection",
           buildHandlers: () => buildSupportShipmentSourceProjectionHandlers(services.db),
+        },
+        "marketplace.reported-content-queue-projection": {
+          subscriptionName: "platform-operations.reported-content-queue-projection",
+          buildHandlers: () => buildReportedContentProjectionHandlers(services.db),
         },
       },
     }),

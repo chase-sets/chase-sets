@@ -1,0 +1,227 @@
+import { describe, expect, it } from "vitest";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type {
+  AppendToStreamInput,
+  GlobalPosition,
+  ReadAllInput,
+  ReadStreamInput,
+  StoredEvent,
+} from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import {
+  createMarketplaceReportRuntime,
+  LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+  LISTING_REPORT_AUTO_UNLIST_WINDOW_MS,
+} from "./runtime";
+
+function createInMemoryEventStore() {
+  let globalPosition = 0;
+  const streams = new Map<string, StoredEvent[]>();
+  const allEvents: StoredEvent[] = [];
+
+  const eventStore: EventStore = {
+    appendToStream: async (input: AppendToStreamInput) => {
+      const existing = streams.get(input.streamId) ?? [];
+      if (input.expectedVersion !== "any" && input.expectedVersion !== existing.length) {
+        throw new Error("Unexpected stream version.");
+      }
+      const stored = input.events.map((event, index) => {
+        globalPosition += 1;
+        return {
+          eventId: `evt_${globalPosition}` as never,
+          streamId: input.streamId,
+          streamVersion: existing.length + index + 1,
+          globalPosition: String(globalPosition) as GlobalPosition,
+          tenantId: input.context.tenantId,
+          eventType: event.eventType,
+          payload: event.payload,
+          metadata: event.metadata ?? {},
+          occurredAt: new Date().toISOString() as never,
+          recordedAt: new Date().toISOString() as never,
+          performedByUserId: input.context.audit.performedByUserId,
+          forAccountId: input.context.audit.forAccountId,
+        } satisfies StoredEvent;
+      });
+
+      streams.set(input.streamId, [...existing, ...stored]);
+      allEvents.push(...stored);
+      return stored;
+    },
+    readStream: async (input: ReadStreamInput) =>
+      [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
+    readAll: async (input?: ReadAllInput) => {
+      const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
+      return allEvents.filter((event) => Number(event.globalPosition) > after);
+    },
+  };
+
+  return { eventStore, allEvents };
+}
+
+const context = {
+  tenantId: "tnt_marketplace" as never,
+  audit: {
+    performedByUserId: "usr_reporter" as never,
+    forAccountId: "acc_reporter" as never,
+  },
+};
+
+async function seedActiveListing(eventStore: EventStore, listingId = "lst_reported") {
+  await eventStore.appendToStream({
+    streamId: `marketplace.listing-${listingId}` as never,
+    expectedVersion: 0,
+    events: [
+      {
+        eventType: "marketplace.listing.created",
+        payload: {
+          listingId,
+          accountId: "acc_seller",
+          inventoryItemId: "inv_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemLanguageCode: "en",
+          itemTitle: "Reported listing",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          productMeasureSnapshot: { productId: "cat_1::" },
+          gradedCard: null,
+          storageLocationName: "Warehouse",
+          shipFromCode: "CHI",
+          shipFromAddress: {
+            name: "Seller",
+            line1: "1 Main",
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          },
+          priceAmount: "12.00",
+          marketplaceSalesFeeUnitAmount: "1.20",
+          sellerNetUnitAmount: "10.80",
+          shippingAllowancePercentageBps: 500,
+          termsScheduleId: null,
+          termsAgreementId: null,
+          termsResolvedAt: null,
+          feeQuoteFingerprint: "fee_1",
+          quantityCap: 1,
+          purchaseLimits: {
+            maxUnitsPerOrder: null,
+            maxUnitsPerDay: null,
+            maxUnitsPerCustomerAccount: null,
+          },
+          listingPhotos: [],
+        },
+      },
+      {
+        eventType: "marketplace.listing.published",
+        payload: {
+          marketplaceSalesFeeUnitAmount: "1.20",
+          sellerNetUnitAmount: "10.80",
+          shippingAllowancePercentageBps: 500,
+          termsScheduleId: null,
+          termsAgreementId: null,
+          termsResolvedAt: null,
+          feeQuoteFingerprint: "fee_1",
+        },
+      },
+    ],
+    context,
+  });
+}
+
+async function seedOldListingReport(eventStore: EventStore, listingId = "lst_reported") {
+  const submittedAt = new Date(Date.now() - LISTING_REPORT_AUTO_UNLIST_WINDOW_MS - 60_000).toISOString();
+  await eventStore.appendToStream({
+    streamId: `marketplace.report-listing-${listingId}-anon_old` as never,
+    expectedVersion: 0,
+    events: [
+      {
+        eventType: "marketplace.report.submitted",
+        payload: {
+          reportId: "rpt_old",
+          targetType: "listing",
+          targetId: listingId,
+          targetOwnerAccountId: "acc_seller",
+          reporterKind: "visitor",
+          reporterKey: "anon_old",
+          reporterAccountId: null,
+          reporterUserId: null,
+          reason: "counterfeit-concern",
+          details: null,
+          sourceRoutePath: "/listings/reported-listing",
+          submittedAt,
+        },
+      },
+    ],
+    context,
+  });
+}
+
+describe("Marketplace report runtime", () => {
+  it("auto-unlists an active listing only when the distinct reporter window threshold is reached", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await seedActiveListing(eventStore);
+    await seedOldListingReport(eventStore);
+    const reports = createMarketplaceReportRuntime({ eventStore });
+
+    for (let index = 1; index < LISTING_REPORT_AUTO_UNLIST_THRESHOLD; index += 1) {
+      const result = await reports.reportListing(
+        {
+          listingId: "lst_reported",
+          reporterKind: "visitor",
+          reporterKey: `anon_${index}`,
+          reporterAccountId: null,
+          reporterUserId: null,
+          reason: "counterfeit-concern",
+          details: null,
+          sourceRoutePath: "/listings/reported-listing",
+        },
+        context,
+      );
+
+      expect(result.autoUnlisted).toBe(false);
+      expect(result.reportCount).toBe(index);
+    }
+
+    const thresholdResult = await reports.reportListing(
+      {
+        listingId: "lst_reported",
+        reporterKind: "account",
+        reporterKey: "acc_buyer",
+        reporterAccountId: "acc_buyer",
+        reporterUserId: "usr_buyer",
+        reason: "stolen-photos",
+        details: "Wrong card shown.",
+        sourceRoutePath: "/listings/reported-listing",
+      },
+      context,
+    );
+
+    expect(thresholdResult).toMatchObject({
+      reportCount: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+      threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+      autoUnlisted: true,
+    });
+    expect(allEvents.map((event) => event.eventType)).toContain("marketplace.listing.auto-unlisted");
+  });
+
+  it("rejects duplicate reports from the same reporter for the same listing", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await seedActiveListing(eventStore);
+    const reports = createMarketplaceReportRuntime({ eventStore });
+    const input = {
+      listingId: "lst_reported",
+      reporterKind: "visitor" as const,
+      reporterKey: "anon_dup",
+      reporterAccountId: null,
+      reporterUserId: null,
+      reason: "other" as const,
+      details: null,
+      sourceRoutePath: "/listings/reported-listing",
+    };
+
+    await reports.reportListing(input, context);
+    await expect(reports.reportListing(input, context)).rejects.toThrow("already reported");
+  });
+});

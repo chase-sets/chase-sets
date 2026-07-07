@@ -6,6 +6,7 @@ export const experienceEnglishTranslations = {
   "experience.api.authentication.required": "Sign in to share platform feedback.",
   "experience.api.forbidden": "You do not have access to platform feedback.",
   "experience.api.platform.feedback.not.found": "Platform feedback was not found.",
+  "experience.api.reported.content.not.found": "Reported content was not found.",
   "experience.api.request.failed": "Experience request failed.",
   "experience.platformFeedback.topic.checkoutPayment": "Checkout or payment",
   "experience.platformFeedback.topic.easeOfUse": "Ease of use",

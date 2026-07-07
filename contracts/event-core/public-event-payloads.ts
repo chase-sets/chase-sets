@@ -195,6 +195,38 @@ export type MarketplaceSellerListingAvailabilityPayload = Readonly<{
   accountId: AccountId;
 }>;
 
+export type MarketplaceListingAutoUnlistedPayload = Readonly<{
+  reportId: string;
+  reportCount: number;
+  threshold: number;
+  autoUnlistedAt: string;
+}>;
+
+export type MarketplaceReportSubmittedPayload = Readonly<{
+  reportId: string;
+  targetType: "listing" | "review";
+  targetId: string;
+  targetOwnerAccountId: string | null;
+  reporterKind: "account" | "visitor";
+  reporterKey: string;
+  reporterAccountId: string | null;
+  reporterUserId: string | null;
+  reason: string;
+  details: string | null;
+  sourceRoutePath: string;
+  submittedAt: string;
+}>;
+
+export type PlatformOperationsReportedContentActionRecordedPayload = Readonly<{
+  actionId: string;
+  targetType: "listing" | "review";
+  targetId: string;
+  action: "dismiss" | "contact-seller" | "unlist" | "escalate-account-suspension";
+  note: string | null;
+  operatorUserId: string | null;
+  recordedAt: string;
+}>;
+
 export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.created": MarketplaceListingCreatedPayload;
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
@@ -202,9 +234,12 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.purchase-limits-updated": MarketplaceListingPurchaseLimitsUpdatedPayload;
   "marketplace.listing.published": MarketplaceListingPriceUpdatedPayload;
   "marketplace.listing.paused": EmptyEventPayload;
+  "marketplace.listing.auto-unlisted": MarketplaceListingAutoUnlistedPayload;
   "marketplace.listing.withdrawn": EmptyEventPayload;
   "marketplace.seller-listing-availability.disabled": MarketplaceSellerListingAvailabilityPayload;
   "marketplace.seller-listing-availability.enabled": MarketplaceSellerListingAvailabilityPayload;
+  "marketplace.report.submitted": MarketplaceReportSubmittedPayload;
+  "platform-operations.reported-content.action-recorded": PlatformOperationsReportedContentActionRecordedPayload;
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
 }>;
 

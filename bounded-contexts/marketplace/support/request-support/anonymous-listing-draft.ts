@@ -1,6 +1,7 @@
 import { createId } from "@chase-sets/primitives/typed-ids";
 
 export const MARKETPLACE_ANONYMOUS_LISTING_DRAFT_COOKIE_NAME = "chase_sets_anonymous_listing_drafts";
+export const MARKETPLACE_ANONYMOUS_REPORT_COOKIE_NAME = "chase_sets_anonymous_reports";
 const THIRTY_DAYS_SECONDS = 60 * 60 * 24 * 30;
 
 function parseCookieHeader(cookieHeader: string | null) {
@@ -53,5 +54,21 @@ export function appendAnonymousListingDraftCookie(headers: Headers, anonymousOwn
   headers.append(
     "Set-Cookie",
     serializeCookie(MARKETPLACE_ANONYMOUS_LISTING_DRAFT_COOKIE_NAME, anonymousOwnerId, THIRTY_DAYS_SECONDS, request),
+  );
+}
+
+export function readAnonymousReportId(request: Request) {
+  const value = parseCookieHeader(request.headers.get("cookie")).get(MARKETPLACE_ANONYMOUS_REPORT_COOKIE_NAME) ?? null;
+  return value?.startsWith("anon_") ? value : null;
+}
+
+export function ensureAnonymousReportId(request: Request) {
+  return readAnonymousReportId(request) ?? `anon_${createId("cmd")}`;
+}
+
+export function appendAnonymousReportCookie(headers: Headers, anonymousReportId: string, request?: Request) {
+  headers.append(
+    "Set-Cookie",
+    serializeCookie(MARKETPLACE_ANONYMOUS_REPORT_COOKIE_NAME, anonymousReportId, THIRTY_DAYS_SECONDS, request),
   );
 }

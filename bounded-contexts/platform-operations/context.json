@@ -10,16 +10,31 @@
     "dashboard-read-model",
     "platform-feedback",
     "platform-feedback-prompt",
+    "reported-content",
     "support-request"
   ],
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
-  "slices": ["projection-operations", "insights-dashboards", "platform-feedback", "support-requests"],
+  "slices": [
+    "projection-operations",
+    "insights-dashboards",
+    "platform-feedback",
+    "reported-content",
+    "support-requests"
+  ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "reported-content-queue-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["marketplace.report.submitted", "marketplace.listing.auto-unlisted"],
+      "order": 60,
+      "projectionHandlerSetNames": ["reported-content-queue-projection"]
+    },
     {
       "sourceContextName": "ordering",
       "projectionName": "support-order-source-projection",
@@ -52,6 +67,20 @@
       "projectionName": "experience-platform-feedback-projection",
       "sourceContextNames": ["platform-operations"],
       "ownedTables": ["experience_platform_feedback_pages", "experience_platform_feedback_prompt_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "reported-content-queue-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["platform_operations_reported_content_queue_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "platform-operations-reported-content-action-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["platform_operations_reported_content_queue_pages"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -243,6 +272,28 @@
       }
     },
     {
+      "id": "platform-operations.reported-content-action-snapshots",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/platform-operations/support/request-support/reported-content-client.ts:POST H59fa1e9ad454#1",
+        "api-route:bounded-contexts/platform-operations/features/reported-content/api/http.ts:POST /:targetType/:targetId/actions",
+        "post-form:bounded-contexts/platform-operations/features/reported-content/ui/admin-pages.tsx:H901edc92b88e#1",
+        "route-action:bounded-contexts/platform-operations/routes/admin/reported-content-detail.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Reported content moderation actions return the recorded action id and timestamp; the detail route redirects back to the same queue item so the loader refetches the projected action status and audit fields."
+      },
+      "proof": {
+        "authoritativeResponse": "Reported content action recording appends a platform-operations action event and returns the action id with recorded timestamp; the action projection updates the queue row status and latest action audit fields.",
+        "tests": [
+          "bounded-contexts/platform-operations/features/reported-content/read-model/projection.test.ts",
+          "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
+    },
+    {
       "id": "platform-operations.support-request-command-snapshots",
       "owner": "platform-operations",
       "risk": "important",
@@ -330,6 +381,22 @@
           "section": "support"
         },
         {
+          "routeId": "reported-content",
+          "routePath": "reported-content",
+          "fileExport": "./routes/admin/reported-content",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
+        {
+          "routeId": "reported-content-detail",
+          "routePath": "reported-content/:targetType/:targetId",
+          "fileExport": "./routes/admin/reported-content-detail",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
+        {
           "routeId": "platform-feedback",
           "routePath": "platform-feedback",
           "fileExport": "./routes/admin/platform-feedback",
@@ -378,6 +445,18 @@
       "order": 200,
       "visibility": "signed-in",
       "requiredPermissions": ["support.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "reported-content",
+      "label": "Reported Content",
+      "icon": "flag",
+      "href": "/reported-content",
+      "section": "support",
+      "order": 15,
+      "visibility": "signed-in",
+      "requiredPermissions": ["reported-content.view"]
     },
     {
       "deployable": "admin-web",
@@ -434,6 +513,11 @@
         "Internal platform-operations module composition",
         "Marketplace contextual feedback prompts"
       ]
+    },
+    "reported-content": {
+      "classification": "slice",
+      "purpose": "Own reported-content operator queue read models and admin moderation surfaces for Marketplace reports.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
     },
     "support-requests": {
       "classification": "slice",
