@@ -215,6 +215,8 @@ components:
         value: ""
       - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
         value: "http://platform-api:8080"
+      - name: "CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX"
+        value: "30"
       - name: "CHASE_SETS_RUNTIME_PROFILE"
         value: "public"
       - name: "CHASE_SETS_TRUST_FORWARDED_HEADERS"

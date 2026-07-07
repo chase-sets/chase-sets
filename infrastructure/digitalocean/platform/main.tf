@@ -738,6 +738,16 @@ resource "digitalocean_app" "platform" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.rate_limit_runtime_env
+        content {
+          key   = env.key
+          value = env.value.value
+          type  = env.value.secret ? "SECRET" : "GENERAL"
+          scope = "RUN_TIME"
+        }
+      }
+
       env {
         key   = "PORT"
         value = "8080"

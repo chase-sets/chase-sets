@@ -136,6 +136,12 @@ locals {
       secret = false
     }
   }
+  rate_limit_runtime_env = local.is_staging ? {
+    CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX = {
+      value  = "30"
+      secret = false
+    }
+  } : {}
 
   api_database_pool_max               = "6"
   worker_default_database_pool_max    = local.is_staging ? 12 : 7

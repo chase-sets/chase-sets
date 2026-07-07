@@ -67,6 +67,7 @@ const envValueDefaults = {
   CHASE_SETS_PUBLIC_INDEXING: "false",
   CHASE_SETS_MARKETPLACE_INDEXING: "false",
   CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE: "false",
+  CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX: "30",
   ADMIN_REGISTRATION_ENABLED: "false",
   REALTIME_BACKGROUND_MAINTENANCE_ENABLED: "false",
   REALTIME_WAKE_SIGNAL_ENABLED: "false",
@@ -393,6 +394,10 @@ function expandDynamicEnv(dynamicBlock, locals) {
     return locals.catalogProviderRuntimeEnv;
   }
 
+  if (forEachExpression === "local.rate_limit_runtime_env") {
+    return locals.rateLimitRuntimeEnv;
+  }
+
   if (forEachExpression === "local.context_database_env") {
     return locals.contextDatabaseEnv.map((name) => ({ name, secret: true }));
   }
@@ -419,6 +424,7 @@ function parsePlatformLocals(localsSource) {
     workerListenerSourceContexts,
     observabilityRuntimeEnv: extractEnvMapLocal(localsSource, "observability_runtime_env"),
     catalogProviderRuntimeEnv: extractEnvMapLocal(localsSource, "catalog_provider_runtime_env"),
+    rateLimitRuntimeEnv: extractEnvMapLocal(localsSource, "rate_limit_runtime_env"),
     contextDatabaseEnv: platformContextNames
       .filter((contextName) => contextName !== "control")
       .map((contextName) => `DATABASE_URL_${envToken(contextName)}`),
