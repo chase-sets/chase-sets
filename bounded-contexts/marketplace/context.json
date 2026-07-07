@@ -1275,5 +1275,7 @@
   },
   "runtimeDeployables": ["platform-worker"],
   "apiRuntimeProfiles": ["proof", "public"],
-  "workerRuntimeProfiles": ["proof", "public"]
+  "workerRuntimeProfiles": ["proof", "public"],
+  "sourceRuntimeDeployables": ["platform-worker"],
+  "sourceRuntimeProfiles": ["landing"]
 }

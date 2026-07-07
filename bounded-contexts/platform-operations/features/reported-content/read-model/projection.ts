@@ -47,7 +47,7 @@ function appendReport(existing: readonly ReportSummary[], report: ReportSummary)
   return [...existing, report].sort((left, right) => left.submittedAt.localeCompare(right.submittedAt));
 }
 
-export function buildReportedContentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildMarketplaceReportedContentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "marketplace.report.submitted": async (event) => {
       const data = event.data as {
@@ -133,6 +133,11 @@ export function buildReportedContentProjectionHandlers(db: PgQueryable): Project
         [listingId, data.autoUnlistedAt, data.reportId, data.threshold, event.timing.recordedAt],
       );
     },
+  };
+}
+
+export function buildPlatformOperationsReportedContentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
     "platform-operations.reported-content.action-recorded": async (event) => {
       const data = event.data as {
         targetType: string;
@@ -166,5 +171,12 @@ export function buildReportedContentProjectionHandlers(db: PgQueryable): Project
         [data.targetType, data.targetId, status, data.action, data.recordedAt, data.note, data.operatorUserId],
       );
     },
+  };
+}
+
+export function buildReportedContentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
+    ...buildMarketplaceReportedContentProjectionHandlers(db),
+    ...buildPlatformOperationsReportedContentProjectionHandlers(db),
   };
 }

@@ -5,7 +5,10 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildPlatformOperationsApi } from "./api";
 import contextManifest from "./context.json";
 import { buildExperienceApi } from "./features/platform-feedback/api/http";
-import { buildReportedContentProjectionHandlers } from "./features/reported-content/read-model/projection";
+import {
+  buildMarketplaceReportedContentProjectionHandlers,
+  buildPlatformOperationsReportedContentProjectionHandlers,
+} from "./features/reported-content/read-model/projection";
 import { buildSupportApi } from "./features/support-requests/api/http";
 import {
   buildSupportOrderSourceProjectionHandlers,
@@ -48,7 +51,11 @@ export const module = defineBoundedContextModule<
         },
         "marketplace.reported-content-queue-projection": {
           subscriptionName: "platform-operations.reported-content-queue-projection",
-          buildHandlers: () => buildReportedContentProjectionHandlers(services.db),
+          buildHandlers: () => buildMarketplaceReportedContentProjectionHandlers(services.db),
+        },
+        "platform-operations.reported-content-queue-projection": {
+          subscriptionName: "platform-operations.reported-content-queue-projection",
+          buildHandlers: () => buildPlatformOperationsReportedContentProjectionHandlers(services.db),
         },
       },
     }),

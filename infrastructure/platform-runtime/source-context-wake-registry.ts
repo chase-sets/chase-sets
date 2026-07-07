@@ -513,7 +513,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: [
       "platform-operations:experience-platform-feedback-projection",
-      "platform-operations:platform-operations-reported-content-action-projection",
+      "platform-operations:reported-content-queue-projection",
       "payments:payments-support-refund-effect",
       "marketplace:marketplace-review-support-source-projection",
       "ordering:ordering-order-review-opportunity-projection",

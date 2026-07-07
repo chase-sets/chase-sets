@@ -36,6 +36,14 @@
       "projectionHandlerSetNames": ["reported-content-queue-projection"]
     },
     {
+      "sourceContextName": "platform-operations",
+      "projectionName": "reported-content-queue-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "order": 61,
+      "projectionHandlerSetNames": ["reported-content-queue-projection"]
+    },
+    {
       "sourceContextName": "ordering",
       "projectionName": "support-order-source-projection",
       "subscriptionVersion": 1,
@@ -72,14 +80,7 @@
     },
     {
       "projectionName": "reported-content-queue-projection",
-      "sourceContextNames": ["marketplace"],
-      "ownedTables": ["platform_operations_reported_content_queue_pages"],
-      "requiredDuringBootstrap": true,
-      "resetStrategy": "replay-only"
-    },
-    {
-      "projectionName": "platform-operations-reported-content-action-projection",
-      "sourceContextNames": ["platform-operations"],
+      "sourceContextNames": ["marketplace", "platform-operations"],
       "ownedTables": ["platform_operations_reported_content_queue_pages"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
