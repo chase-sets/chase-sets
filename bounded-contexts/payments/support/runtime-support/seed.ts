@@ -25,6 +25,10 @@ type OrderRow = Readonly<{
 
 class SeedOrderMissingError extends Error {}
 
+function logWaitingForSeedOrder(orderDescription: string) {
+  console.log(`Payments seed is waiting for ${orderDescription}. Skipping dependent payment data for this pass.`);
+}
+
 function createSeedContext(accountId: string, userId: string): EventStoreContext {
   return {
     tenantId: "tnt_seed_development" as TenantId,
@@ -117,7 +121,23 @@ async function getSeedOrderForSource(
   return order ? requirePendingPaymentOrder(order, `${sourceType} ${sourceReferenceId}`) : null;
 }
 
-async function getAcceptedOfferSeedOrder(pool: PgTransactionalPool): Promise<OrderRow> {
+async function getSeedOrderIfAvailable(
+  pool: PgTransactionalPool,
+  orderId: string,
+  buyerAccountId: string,
+): Promise<OrderRow | null> {
+  try {
+    return await getSeedOrder(pool, orderId, buyerAccountId);
+  } catch (error) {
+    if (error instanceof SeedOrderMissingError) {
+      logWaitingForSeedOrder(`order ${orderId} to be projected`);
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function getAcceptedOfferSeedOrder(pool: PgTransactionalPool): Promise<OrderRow | null> {
   try {
     return await getSeedOrder(
       pool,
@@ -139,14 +159,15 @@ async function getAcceptedOfferSeedOrder(pool: PgTransactionalPool): Promise<Ord
     );
 
     if (!sourceOrder) {
-      throw error;
+      logWaitingForSeedOrder(`accepted-offer order ${sourceReferenceId} to be projected`);
+      return null;
     }
 
     return sourceOrder;
   }
 }
 
-async function getReviewEligibleSeedOrder(pool: PgTransactionalPool): Promise<OrderRow> {
+async function getReviewEligibleSeedOrder(pool: PgTransactionalPool): Promise<OrderRow | null> {
   try {
     return await getSeedOrder(
       pool,
@@ -168,7 +189,8 @@ async function getReviewEligibleSeedOrder(pool: PgTransactionalPool): Promise<Or
     );
 
     if (!sourceOrder) {
-      throw error;
+      logWaitingForSeedOrder(`review-eligible order ${sourceReferenceId} to be projected`);
+      return null;
     }
 
     return sourceOrder;
@@ -277,13 +299,17 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     // Table may not exist yet. Proceed with seeding.
   }
 
-  const pendingCheckoutOrder = await getSeedOrder(
+  const pendingCheckoutOrder = await getSeedOrderIfAvailable(
     pool,
     orderingReservedSeedIds.orders.checkoutPending,
     identitySeedIds.collector.accountId,
   );
   const acceptedOfferOrder = await getAcceptedOfferSeedOrder(pool);
   const reviewEligibleOrder = await getReviewEligibleSeedOrder(pool);
+  if (!pendingCheckoutOrder || !acceptedOfferOrder || !reviewEligibleOrder) {
+    return;
+  }
+
   const buyerContext = createSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
   const sellerContext = createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 

@@ -76,7 +76,7 @@ async function loadOrderLines(pool: PgTransactionalPool, orderId: string): Promi
 // for the marketplace reviews seed.
 async function loadSeedOrders(
   pool: PgTransactionalPool,
-): Promise<Readonly<{ referenceOrder: OrderSnapshot; reviewEligibleOrder: OrderSnapshot }>> {
+): Promise<Readonly<{ referenceOrder: OrderSnapshot; reviewEligibleOrder: OrderSnapshot }> | null> {
   const orderResult = await pool.query<OrderSnapshotRow>(
     `SELECT
        order_id,
@@ -91,13 +91,9 @@ async function loadSeedOrders(
      LIMIT 2`,
   );
   const [referenceOrder, reviewEligibleOrder] = orderResult.rows;
-  if (!referenceOrder) {
-    throw new Error("Fulfillment seed requires at least one ready-for-fulfillment order.");
-  }
-  if (!reviewEligibleOrder) {
-    throw new Error(
-      "Fulfillment seed requires a second ready-for-fulfillment order to deliver as the review-eligible order.",
-    );
+  if (!referenceOrder || !reviewEligibleOrder) {
+    console.log("Fulfillment seed is waiting for two ready-for-fulfillment orders. Skipping shipments for this pass.");
+    return null;
   }
 
   return {
@@ -125,7 +121,11 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     // Table may not exist yet. Proceed with seeding.
   }
 
-  const { referenceOrder, reviewEligibleOrder } = await loadSeedOrders(pool);
+  const seedOrders = await loadSeedOrders(pool);
+  if (!seedOrders) {
+    return;
+  }
+  const { referenceOrder, reviewEligibleOrder } = seedOrders;
   const context = createSeedContext();
 
   const ensureShipmentCreated = async (order: OrderSnapshot, shipmentId: string, createdAt: string) => {

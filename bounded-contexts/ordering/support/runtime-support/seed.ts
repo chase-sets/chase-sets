@@ -4,6 +4,7 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { OrderingDomainError } from "../../features/orders/domain/common";
 import { orderingReservedSeedIds } from "../seed-support/ids";
 import { createOrderingServices, type OrderingServices } from "./services";
 
@@ -168,9 +169,9 @@ async function buildCheckoutLine(
   };
 }
 
-function logMissingCheckoutSupply(line: (typeof checkoutCartLines)[number] | (typeof cancelledCartLines)[number]) {
+function logWaitingForActiveSupply(itemTitle: string, dependentOrder: "checkout order" | "accepted-offer order") {
   console.log(
-    `Ordering seed is waiting for active Marketplace supply for ${line.itemTitle}. Skipping the dependent checkout order for this pass.`,
+    `Ordering seed is waiting for active Marketplace supply for ${itemTitle}. Skipping the dependent ${dependentOrder} for this pass.`,
   );
 }
 
@@ -196,6 +197,31 @@ async function getAcceptedOfferInput(services: ReturnType<typeof createOrderingS
   );
 
   return result.rows[0] ?? null;
+}
+
+function isWaitingForActiveSupply(error: unknown) {
+  return (
+    error instanceof OrderingDomainError &&
+    error.message.startsWith("Not enough active supply is available for ") &&
+    error.message.endsWith(".")
+  );
+}
+
+async function createSupplyBackedSeedOrder(
+  itemTitle: string,
+  dependentOrder: "checkout order" | "accepted-offer order",
+  createOrder: () => Promise<void>,
+) {
+  try {
+    await createOrder();
+    return true;
+  } catch (error) {
+    if (isWaitingForActiveSupply(error)) {
+      logWaitingForActiveSupply(itemTitle, dependentOrder);
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function seedOrderingDatabase(
@@ -257,21 +283,23 @@ export async function seedOrderingDatabase(
   if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
     const checkoutLine = await buildCheckoutLine(ordering, checkoutCartLines[0]!);
     if (checkoutLine) {
-      const checkoutResult = await ordering.orders.createOrdersFromCheckout(
-        {
-          buyerAccountId,
-          checkoutSessionId: "chk_seed_checkout_pending",
-          sourceType: "cart-checkout",
-          shippingOption: "standard",
-          shippingAddress: seedShippingAddress,
-          lines: [checkoutLine],
-          orderIdsOverride: [orderingReservedSeedIds.orders.checkoutPending],
-        },
-        buyerContext,
-      );
-      console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
+      await createSupplyBackedSeedOrder(checkoutCartLines[0]!.itemTitle, "checkout order", async () => {
+        const checkoutResult = await ordering.orders.createOrdersFromCheckout(
+          {
+            buyerAccountId,
+            checkoutSessionId: "chk_seed_checkout_pending",
+            sourceType: "cart-checkout",
+            shippingOption: "standard",
+            shippingAddress: seedShippingAddress,
+            lines: [checkoutLine],
+            orderIdsOverride: [orderingReservedSeedIds.orders.checkoutPending],
+          },
+          buyerContext,
+        );
+        console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
+      });
     } else {
-      logMissingCheckoutSupply(checkoutCartLines[0]!);
+      logWaitingForActiveSupply(checkoutCartLines[0]!.itemTitle, "checkout order");
     }
   }
 
@@ -279,27 +307,29 @@ export async function seedOrderingDatabase(
   if (!cancelledOrderStatus) {
     const cancelledLine = await buildCheckoutLine(ordering, cancelledCartLines[0]!);
     if (cancelledLine) {
-      const cancelledOrderResult = await ordering.orders.createOrdersFromCheckout(
-        {
-          buyerAccountId,
-          checkoutSessionId: "chk_seed_cancelled",
-          sourceType: "cart-checkout",
-          shippingOption: "expedited",
-          shippingAddress: seedShippingAddress,
-          lines: [cancelledLine],
-          orderIdsOverride: [orderingReservedSeedIds.orders.cancelled],
-        },
-        buyerContext,
-      );
+      await createSupplyBackedSeedOrder(cancelledCartLines[0]!.itemTitle, "checkout order", async () => {
+        const cancelledOrderResult = await ordering.orders.createOrdersFromCheckout(
+          {
+            buyerAccountId,
+            checkoutSessionId: "chk_seed_cancelled",
+            sourceType: "cart-checkout",
+            shippingOption: "expedited",
+            shippingAddress: seedShippingAddress,
+            lines: [cancelledLine],
+            orderIdsOverride: [orderingReservedSeedIds.orders.cancelled],
+          },
+          buyerContext,
+        );
 
-      const cancelledOrderId = cancelledOrderResult.orderIds[0];
-      if (!cancelledOrderId) {
-        throw new Error("Ordering demo seed could not create the cancellable order.");
-      }
+        const cancelledOrderId = cancelledOrderResult.orderIds[0];
+        if (!cancelledOrderId) {
+          throw new Error("Ordering demo seed could not create the cancellable order.");
+        }
 
-      console.log(`  Cancellable order seeded (${cancelledOrderId})`);
+        console.log(`  Cancellable order seeded (${cancelledOrderId})`);
+      });
     } else {
-      logMissingCheckoutSupply(cancelledCartLines[0]!);
+      logWaitingForActiveSupply(cancelledCartLines[0]!.itemTitle, "checkout order");
     }
   } else if (cancelledOrderStatus !== "cancelled") {
     await ordering.orders.cancelPurchase(
@@ -323,30 +353,36 @@ export async function seedOrderingDatabase(
     } else {
       const acceptedOfferInput = await getAcceptedOfferInput(ordering, acceptedOfferSeed.offerId);
 
-      await ordering.orders.createOrdersFromAcceptedOffer(
-        {
-          offerId: acceptedOfferSeed.offerId,
-          buyerAccountId,
-          sellerAccountId: identitySeedIds.demo.accountId,
-          catalogItemId: acceptedOfferSeed.catalogItemId,
-          productId: acceptedOfferInput?.product_id ?? "",
-          itemTitle: acceptedOfferSeed.itemTitle,
-          itemSubtitle: acceptedOfferSeed.itemSubtitle,
-          selectedOptions: [...acceptedOfferSeed.selectedOptions],
-          productSummary: acceptedOfferSeed.productSummary,
-          priceAmount: acceptedOfferSeed.priceAmount,
-          marketplaceSalesFeeUnitAmount: acceptedOfferInput?.marketplace_sales_fee_unit_amount ?? "0.00",
-          sellerNetUnitAmount: acceptedOfferInput?.seller_net_unit_amount ?? "44.00",
-          termsScheduleId: acceptedOfferInput?.terms_schedule_id ?? null,
-          termsAgreementId: acceptedOfferInput?.terms_agreement_id ?? null,
-          termsResolvedAt: acceptedOfferInput?.terms_resolved_at ?? new Date().toISOString(),
-          shippingDestinationSnapshot: seedShippingAddress,
-          quantityRequested: acceptedOfferSeed.quantityRequested,
-          orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
-        },
-        sellerContext,
-      );
-      console.log(`  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`);
+      if (acceptedOfferInput) {
+        await createSupplyBackedSeedOrder(acceptedOfferSeed.itemTitle, "accepted-offer order", async () => {
+          await ordering.orders.createOrdersFromAcceptedOffer(
+            {
+              offerId: acceptedOfferSeed.offerId,
+              buyerAccountId,
+              sellerAccountId: identitySeedIds.demo.accountId,
+              catalogItemId: acceptedOfferSeed.catalogItemId,
+              productId: acceptedOfferInput.product_id,
+              itemTitle: acceptedOfferSeed.itemTitle,
+              itemSubtitle: acceptedOfferSeed.itemSubtitle,
+              selectedOptions: [...acceptedOfferSeed.selectedOptions],
+              productSummary: acceptedOfferSeed.productSummary,
+              priceAmount: acceptedOfferSeed.priceAmount,
+              marketplaceSalesFeeUnitAmount: acceptedOfferInput.marketplace_sales_fee_unit_amount,
+              sellerNetUnitAmount: acceptedOfferInput.seller_net_unit_amount,
+              termsScheduleId: acceptedOfferInput.terms_schedule_id,
+              termsAgreementId: acceptedOfferInput.terms_agreement_id,
+              termsResolvedAt: acceptedOfferInput.terms_resolved_at,
+              shippingDestinationSnapshot: seedShippingAddress,
+              quantityRequested: acceptedOfferSeed.quantityRequested,
+              orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
+            },
+            sellerContext,
+          );
+          console.log(`  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`);
+        });
+      } else {
+        logWaitingForActiveSupply(acceptedOfferSeed.itemTitle, "accepted-offer order");
+      }
     }
   }
 
@@ -361,30 +397,36 @@ export async function seedOrderingDatabase(
     } else {
       const reviewEligibleOfferInput = await getAcceptedOfferInput(ordering, reviewEligibleOfferSeed.offerId);
 
-      await ordering.orders.createOrdersFromAcceptedOffer(
-        {
-          offerId: reviewEligibleOfferSeed.offerId,
-          buyerAccountId,
-          sellerAccountId: identitySeedIds.demo.accountId,
-          catalogItemId: reviewEligibleOfferSeed.catalogItemId,
-          productId: reviewEligibleOfferInput?.product_id ?? "",
-          itemTitle: reviewEligibleOfferSeed.itemTitle,
-          itemSubtitle: reviewEligibleOfferSeed.itemSubtitle,
-          selectedOptions: [...reviewEligibleOfferSeed.selectedOptions],
-          productSummary: reviewEligibleOfferSeed.productSummary,
-          priceAmount: reviewEligibleOfferSeed.priceAmount,
-          marketplaceSalesFeeUnitAmount: reviewEligibleOfferInput?.marketplace_sales_fee_unit_amount ?? "0.00",
-          sellerNetUnitAmount: reviewEligibleOfferInput?.seller_net_unit_amount ?? "44.50",
-          termsScheduleId: reviewEligibleOfferInput?.terms_schedule_id ?? null,
-          termsAgreementId: reviewEligibleOfferInput?.terms_agreement_id ?? null,
-          termsResolvedAt: reviewEligibleOfferInput?.terms_resolved_at ?? new Date().toISOString(),
-          shippingDestinationSnapshot: seedShippingAddress,
-          quantityRequested: reviewEligibleOfferSeed.quantityRequested,
-          orderIdsOverride: [reputationReservedSeedIds.orders.reviewEligibleDelivered],
-        },
-        sellerContext,
-      );
-      console.log(`  Review-eligible order seeded (${reputationReservedSeedIds.orders.reviewEligibleDelivered})`);
+      if (reviewEligibleOfferInput) {
+        await createSupplyBackedSeedOrder(reviewEligibleOfferSeed.itemTitle, "accepted-offer order", async () => {
+          await ordering.orders.createOrdersFromAcceptedOffer(
+            {
+              offerId: reviewEligibleOfferSeed.offerId,
+              buyerAccountId,
+              sellerAccountId: identitySeedIds.demo.accountId,
+              catalogItemId: reviewEligibleOfferSeed.catalogItemId,
+              productId: reviewEligibleOfferInput.product_id,
+              itemTitle: reviewEligibleOfferSeed.itemTitle,
+              itemSubtitle: reviewEligibleOfferSeed.itemSubtitle,
+              selectedOptions: [...reviewEligibleOfferSeed.selectedOptions],
+              productSummary: reviewEligibleOfferSeed.productSummary,
+              priceAmount: reviewEligibleOfferSeed.priceAmount,
+              marketplaceSalesFeeUnitAmount: reviewEligibleOfferInput.marketplace_sales_fee_unit_amount,
+              sellerNetUnitAmount: reviewEligibleOfferInput.seller_net_unit_amount,
+              termsScheduleId: reviewEligibleOfferInput.terms_schedule_id,
+              termsAgreementId: reviewEligibleOfferInput.terms_agreement_id,
+              termsResolvedAt: reviewEligibleOfferInput.terms_resolved_at,
+              shippingDestinationSnapshot: seedShippingAddress,
+              quantityRequested: reviewEligibleOfferSeed.quantityRequested,
+              orderIdsOverride: [reputationReservedSeedIds.orders.reviewEligibleDelivered],
+            },
+            sellerContext,
+          );
+          console.log(`  Review-eligible order seeded (${reputationReservedSeedIds.orders.reviewEligibleDelivered})`);
+        });
+      } else {
+        logWaitingForActiveSupply(reviewEligibleOfferSeed.itemTitle, "accepted-offer order");
+      }
     }
   }
 
