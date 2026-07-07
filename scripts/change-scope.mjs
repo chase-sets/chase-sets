@@ -10,6 +10,11 @@ const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
 const docsOnlyPatterns = [/^docs\//, /^artifacts\//, /^\.codex\//, /^README\.md$/, /^AGENTS\.md$/, /^.*\.md$/];
 const platformApiParityDocPatterns = [/^docs\/api\/marketplace\.openapi\.json$/];
+const contextMetadataRoutePatterns = [
+  /^bounded-contexts\/[^/]+\/context\.json$/,
+  /^infrastructure\/platform-runtime\/source-context-wake-registry\.ts$/,
+  /^docs\/architecture\/push-first-projection-migration\.md$/,
+];
 
 const workflowPatterns = [/^\.github\/workflows\//, /^\.github\/actions\//];
 const terraformPatterns = [/^infrastructure\/digitalocean\//];
@@ -166,6 +171,22 @@ function platformApiWorkspaceName(workspaces) {
   return workspaces.find((workspace) => workspace.root === "deployables" && workspace.dirName === "platform-api")?.name;
 }
 
+function platformRuntimeWorkspaceName(workspaces) {
+  return workspaces.find((workspace) => workspace.root === "infrastructure" && workspace.dirName === "platform-runtime")
+    ?.name;
+}
+
+function addTestOnlyWorkspace(workspaceName, filePath, directlyTestOnlyAffectedWorkspaces, testOnlyFilesByWorkspace) {
+  if (!workspaceName) {
+    return;
+  }
+
+  directlyTestOnlyAffectedWorkspaces.add(workspaceName);
+  const existing = testOnlyFilesByWorkspace.get(workspaceName) ?? [];
+  existing.push(filePath);
+  testOnlyFilesByWorkspace.set(workspaceName, existing);
+}
+
 export function classifyChanges({
   changedFiles,
   workspaces = listWorkspacePackages({ repoRoot: rootDir }),
@@ -189,6 +210,7 @@ export function classifyChanges({
   const exposurePostureCategories = new Set();
   let nonDocumentationChanged = false;
   const platformApiWorkspace = platformApiWorkspaceName(workspaces);
+  const platformRuntimeWorkspace = platformRuntimeWorkspaceName(workspaces);
 
   for (const filePath of normalizedFiles) {
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
@@ -203,13 +225,29 @@ export function classifyChanges({
 
     if (matchesAny(filePath, platformApiParityDocPatterns)) {
       nonDocumentationChanged = true;
-      if (platformApiWorkspace) {
-        directlyTestOnlyAffectedWorkspaces.add(platformApiWorkspace);
-        const existing = testOnlyFilesByWorkspace.get(platformApiWorkspace) ?? [];
-        existing.push(filePath);
-        testOnlyFilesByWorkspace.set(platformApiWorkspace, existing);
-      }
+      addTestOnlyWorkspace(
+        platformApiWorkspace,
+        filePath,
+        directlyTestOnlyAffectedWorkspaces,
+        testOnlyFilesByWorkspace,
+      );
       continue;
+    }
+
+    if (matchesAny(filePath, contextMetadataRoutePatterns)) {
+      nonDocumentationChanged = true;
+      addTestOnlyWorkspace(
+        platformRuntimeWorkspace,
+        filePath,
+        directlyTestOnlyAffectedWorkspaces,
+        testOnlyFilesByWorkspace,
+      );
+      addTestOnlyWorkspace(
+        platformApiWorkspace,
+        filePath,
+        directlyTestOnlyAffectedWorkspaces,
+        testOnlyFilesByWorkspace,
+      );
     }
 
     const workspace = workspaceForFile(filePath, workspaces, baseDir);
