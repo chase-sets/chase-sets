@@ -492,6 +492,28 @@ export function resolveModuleProjectionGroups(
     const contextGroups = resolveContextProjectionGroups(entry);
 
     for (const group of contextGroups) {
+      if (group.sourceContextNames.length === 0) {
+        throw new Error(
+          `Context '${entry.contextName}' projection group '${group.projectionName}' must declare at least one source context.`,
+        );
+      }
+
+      const optionalSourceContextNames = new Set(group.optionalSourceContextNames);
+      const groupRunners = sortSubscriptionRunners(
+        subscriptionRunners.filter(
+          (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
+        ),
+      );
+      if (groupRunners.length === 0) {
+        const onlyUnmountedOptionalSources = group.sourceContextNames.every(
+          (sourceContextName) =>
+            optionalSourceContextNames.has(sourceContextName) && !mountedContextNames.has(sourceContextName),
+        );
+        if (onlyUnmountedOptionalSources) {
+          continue;
+        }
+      }
+
       for (const tableName of group.ownedTables) {
         const ownershipKey = `${entry.contextName}.${tableName}`;
         const existingOwner = ownedTableOwners.get(ownershipKey);
@@ -503,11 +525,6 @@ export function resolveModuleProjectionGroups(
         ownedTableOwners.set(ownershipKey, group.projectionName);
       }
 
-      const groupRunners = sortSubscriptionRunners(
-        subscriptionRunners.filter(
-          (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
-        ),
-      );
       const groupHandlerKind = group.handlerKind ?? "projection";
       const unexpectedHandlerKinds = [
         ...new Set(
@@ -515,12 +532,6 @@ export function resolveModuleProjectionGroups(
         ),
       ];
       const actualSources = [...new Set(groupRunners.map((runner) => runner.sourceContextName))];
-
-      if (group.sourceContextNames.length === 0) {
-        throw new Error(
-          `Context '${entry.contextName}' projection group '${group.projectionName}' must declare at least one source context.`,
-        );
-      }
 
       if (groupRunners.length === 0) {
         throw new Error(
@@ -534,7 +545,6 @@ export function resolveModuleProjectionGroups(
         );
       }
 
-      const optionalSourceContextNames = new Set(group.optionalSourceContextNames);
       const missingSources = group.sourceContextNames.filter(
         (sourceContextName) => !actualSources.includes(sourceContextName),
       );
