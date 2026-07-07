@@ -40,15 +40,18 @@ describe("ordering seed", () => {
     };
 
     try {
-      await seedOrderingDatabase({} as never, {
-        db,
-        orders: {
-          createOrdersFromCheckout,
-          createOrdersFromAcceptedOffer,
-          cancelPurchase,
-        },
-        postagePolicies: { commandHandler },
-      } as never);
+      await seedOrderingDatabase(
+        {} as never,
+        {
+          db,
+          orders: {
+            createOrdersFromCheckout,
+            createOrdersFromAcceptedOffer,
+            cancelPurchase,
+          },
+          postagePolicies: { commandHandler },
+        } as never,
+      );
     } finally {
       logSpy.mockRestore();
     }
