@@ -6,7 +6,7 @@ function transportEvent(type: string, data: Record<string, unknown>): TransportE
   return {
     id: "evt_test" as never,
     type,
-    streamId: "experience.platform-feedback-pfb_test",
+    streamId: "platform-operations.platform-feedback-pfb_test",
     streamVersion: 1,
     globalPosition: "1" as never,
     tenantId: "tnt_test" as never,

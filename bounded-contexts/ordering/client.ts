@@ -39,6 +39,13 @@ export type OrderingCheckoutLineSnapshot = Readonly<{
   sellerPreferenceId?: string | null;
 }>;
 
+export type OrderingCheckoutReservationInput = Readonly<{
+  holdId: string;
+  sellerAccountId: string;
+  inventoryItemId: string;
+  quantity: number;
+}>;
+
 export type CreateCheckoutOrdersRequest = Readonly<{
   checkoutSessionId: string;
   sourceType: CheckoutOrderingSourceType;
@@ -59,6 +66,7 @@ export type CreateCheckoutOrdersRequest = Readonly<{
   optimizationGoal?: "lowest-total" | "fewest-shipments";
   fulfillmentPreviewRevision?: string | null;
   acknowledgedMaterialChanges?: boolean;
+  checkoutReservations?: readonly OrderingCheckoutReservationInput[];
 }>;
 
 export type CreateCheckoutOrdersResponse = Readonly<{
@@ -116,6 +124,8 @@ export type CheckoutFulfillmentPreview = Readonly<{
     lines: readonly Readonly<{
       lineKey: string;
       listingId: string;
+      sellerAccountId: string;
+      inventoryItemId: string;
       catalogItemId: string;
       productId: string;
       itemTitle: string;

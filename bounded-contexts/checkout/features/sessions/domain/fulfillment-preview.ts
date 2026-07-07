@@ -41,6 +41,8 @@ export type CheckoutFulfillmentPreview = Readonly<{
     lines: readonly Readonly<{
       lineKey: string;
       listingId: string;
+      sellerAccountId: string;
+      inventoryItemId: string;
       catalogItemId: string;
       productId: string;
       itemTitle: string;

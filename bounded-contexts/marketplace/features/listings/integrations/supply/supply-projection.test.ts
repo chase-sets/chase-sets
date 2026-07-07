@@ -207,8 +207,9 @@ describe("marketplace inventory supply projection", () => {
       1,
       "2026-05-09T00:00:00.000Z",
     ]);
-    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("release_reason = $3"), [
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("release_reason = $4"), [
       "hld_order_reservation_rsv_1",
+      "released",
       "2026-07-06T01:00:00.000Z",
       "order-cancelled",
       "2026-05-09T00:00:00.000Z",

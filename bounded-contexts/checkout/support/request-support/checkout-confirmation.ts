@@ -1,6 +1,7 @@
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient, hasPaymentsFreshReadAfterWriteSource } from "@chase-sets/payments/server";
 import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
+import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -15,6 +16,34 @@ import {
 } from "@chase-sets/checkout-order-source";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
+
+export type CheckoutInventoryReservation = Readonly<{
+  holdId: string;
+  lineKey: string;
+  sellerAccountId: string;
+  inventoryItemId: string;
+  quantity: number;
+  expiresAt: string;
+  extensionCount: number;
+  status: "active" | "expired" | "converted";
+}>;
+
+export type CheckoutInventoryReservationUnavailableLine = Readonly<{
+  lineKey: string;
+  sellerAccountId: string;
+  inventoryItemId: string;
+  catalogItemId: string;
+  productId: string;
+  itemTitle: string;
+  productSummary: string | null;
+  quantity: number;
+  reason: "reserved-by-another-buyer";
+}>;
+
+export type CheckoutInventoryReservationAttempt = Readonly<{
+  reservations: readonly CheckoutInventoryReservation[];
+  unavailableLines: readonly CheckoutInventoryReservationUnavailableLine[];
+}>;
 
 function parseOrderIds(value: unknown) {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
@@ -57,6 +86,22 @@ function paymentOrderReadinessIsPending(error: unknown) {
   return status === 400 && paymentOrderReadinessPendingCodes.has(code ?? "");
 }
 
+function checkoutReservationIsUnavailable(error: unknown) {
+  return (
+    responseLikeErrorStatus(error) === 409 &&
+    readApiErrorCode(responseLikeErrorBody(error)) === "checkout_reservation_unavailable"
+  );
+}
+
+function reservationIsUsable(reservation: CheckoutInventoryReservation, nowMs: number) {
+  if (reservation.status !== "active") {
+    return false;
+  }
+
+  const expiresAtMs = Date.parse(reservation.expiresAt);
+  return Number.isFinite(expiresAtMs) && expiresAtMs > nowMs;
+}
+
 function normalizeRetryAttemptCount(value: number | undefined) {
   if (value === undefined || !Number.isFinite(value)) {
     return defaultPaymentStartReadinessRetry.maxAttempts;
@@ -87,6 +132,7 @@ export async function createCheckoutOrdersThroughOrdering(
   options: Readonly<{
     fulfillmentPreviewRevision?: string | null;
     acknowledgedMaterialChanges?: boolean;
+    checkoutReservations?: readonly CheckoutInventoryReservation[];
   }> = {},
 ) {
   if (!session.shipping_address) {
@@ -115,6 +161,12 @@ export async function createCheckoutOrdersThroughOrdering(
     optimizationGoal: session.optimization_goal,
     fulfillmentPreviewRevision: options.fulfillmentPreviewRevision ?? preview.revision,
     acknowledgedMaterialChanges: options.acknowledgedMaterialChanges,
+    checkoutReservations: options.checkoutReservations?.map((reservation) => ({
+      holdId: reservation.holdId,
+      sellerAccountId: reservation.sellerAccountId,
+      inventoryItemId: reservation.inventoryItemId,
+      quantity: reservation.quantity,
+    })),
     lines: session.lines,
   });
 
@@ -123,6 +175,66 @@ export async function createCheckoutOrdersThroughOrdering(
     readyLineKeys: preview.readyLineKeys,
     writeResult: result,
   };
+}
+
+export async function createCheckoutInventoryReservations(
+  request: Request,
+  session: CheckoutSessionRow,
+  preview = session.fulfillment_preview_snapshot,
+): Promise<CheckoutInventoryReservationAttempt> {
+  if (!preview) {
+    return { reservations: [], unavailableLines: [] };
+  }
+
+  const inventoryApi = createInventoryRequestApiClient(request);
+  const nowMs = Date.now();
+  const existingByLine = new Map<string, CheckoutInventoryReservation[]>();
+  for (const reservation of session.checkout_reservations) {
+    const key = `${reservation.lineKey}|${reservation.sellerAccountId}|${reservation.inventoryItemId}`;
+    existingByLine.set(key, [...(existingByLine.get(key) ?? []), reservation]);
+  }
+  const reservations: CheckoutInventoryReservation[] = [];
+  const unavailableLines: CheckoutInventoryReservationUnavailableLine[] = [];
+
+  for (const line of preview.sellerGroups.flatMap((group) => group.lines)) {
+    const key = `${line.lineKey}|${line.sellerAccountId}|${line.inventoryItemId}`;
+    const existingReservations = existingByLine.get(key) ?? [];
+    const existingReservation = existingReservations.find((reservation) => reservationIsUsable(reservation, nowMs));
+    if (existingReservation) {
+      reservations.push(existingReservation);
+      continue;
+    }
+
+    try {
+      const reservation = (await inventoryApi.createCheckoutReservation({
+        checkoutSessionId: session.session_id,
+        lineKey: line.lineKey,
+        sellerAccountId: line.sellerAccountId,
+        inventoryItemId: line.inventoryItemId,
+        quantity: line.quantity,
+        reservationAttempt: existingReservations.length + 1,
+      })) as CheckoutInventoryReservation;
+      reservations.push(reservation);
+    } catch (error) {
+      if (!checkoutReservationIsUnavailable(error)) {
+        throw error;
+      }
+
+      unavailableLines.push({
+        lineKey: line.lineKey,
+        sellerAccountId: line.sellerAccountId,
+        inventoryItemId: line.inventoryItemId,
+        catalogItemId: line.catalogItemId,
+        productId: line.productId,
+        itemTitle: line.itemTitle,
+        productSummary: line.productSummary,
+        quantity: line.quantity,
+        reason: "reserved-by-another-buyer",
+      });
+    }
+  }
+
+  return { reservations, unavailableLines };
 }
 
 export async function previewBuyNowCheckoutSupplyThroughOrdering(

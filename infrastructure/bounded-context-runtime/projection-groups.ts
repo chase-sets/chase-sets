@@ -273,6 +273,16 @@ function sumDecimalCounts(counts: readonly string[]): string {
   return counts.reduce((total, count) => total + BigInt(count), 0n).toString();
 }
 
+function resetContextWithoutStatementTimeout(context?: ProjectionRunContext): ProjectionRunContext | undefined {
+  if (!context || context.statementTimeoutMs === undefined) {
+    return context;
+  }
+
+  const { statementTimeoutMs, ...resetContext } = context;
+  void statementTimeoutMs;
+  return resetContext;
+}
+
 function createDefaultProjectionGroupReset(
   pool: PgTransactionalPool,
   ownedTables: readonly string[],
@@ -673,17 +683,18 @@ export async function resetProjectionGroup(
   context?: ProjectionRunContext,
 ): Promise<void> {
   context?.throwIfLeaseLost?.();
+  const resetContext = resetContextWithoutStatementTimeout(context);
   const reset = async (db?: PgQueryable) => {
-    await group.reset(context, { db });
+    await group.reset(resetContext, { db });
 
     for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
-      context?.throwIfLeaseLost?.();
-      await runner.reset(context, { db });
+      resetContext?.throwIfLeaseLost?.();
+      await runner.reset(resetContext, { db });
     }
   };
 
   if (group.targetPool) {
-    await withProjectionTransaction(group.targetPool, context, reset);
+    await withProjectionTransaction(group.targetPool, resetContext, reset);
     return;
   }
 

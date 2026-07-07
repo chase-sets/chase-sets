@@ -93,6 +93,8 @@ export const checkoutEnglishTranslations = {
     "We found a standardized version of this address. Choose the suggested address or confirm the address as entered.",
   "checkout.features.sessions.api.route.checkout.session.not.found": "Checkout session not found.",
   "checkout.features.sessions.api.route.checkout.session.not.found.2": "Checkout session not found.",
+  "checkout.features.sessions.api.route.checkout.reservation.unavailable":
+    "One or more checkout items were just reserved by another buyer.",
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",
   "checkout.features.sessions.api.route.payment.summary.not.found": "Payment summary not found.",
   "checkout.features.sessions.api.route.payment.quote.required":
@@ -191,6 +193,16 @@ export const checkoutEnglishTranslations = {
     "Review the latest total before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next.with.wallet":
     "Up to {amount} {currency} wallet balance can be applied before payment starts.",
+  "checkout.features.sessions.ui.checkoutPage.reserved.for.you": "Reserved for you - {time}",
+  "checkout.features.sessions.ui.checkoutPage.reservation.expired": "Reservation expired",
+  "checkout.features.sessions.ui.checkoutPage.reservation.expired.description":
+    "Reserve again to continue checkout if the item is still available.",
+  "checkout.features.sessions.ui.checkoutPage.reservation.unavailable.title": "Some items are already reserved",
+  "checkout.features.sessions.ui.checkoutPage.reservation.unavailable.description.one":
+    "{items} was just reserved by another buyer. Review your buy cart for seller options.",
+  "checkout.features.sessions.ui.checkoutPage.reservation.unavailable.description.many":
+    "{count} items were just reserved by another buyer. Review your buy cart for seller options.",
+  "checkout.features.sessions.ui.checkoutPage.reserve.again": "Reserve again",
   "checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are":
     "Payment starts only after final checkout review.",
   "checkout.features.sessions.ui.checkoutPage.guest.data.description":

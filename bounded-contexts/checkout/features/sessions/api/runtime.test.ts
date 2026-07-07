@@ -241,6 +241,7 @@ function createSessionPageRow(
     shipping_option: "standard",
     shipping_address_id: null,
     shipping_address: null,
+    checkout_reservations: [],
     lines: [
       {
         listingId: "lst_1",

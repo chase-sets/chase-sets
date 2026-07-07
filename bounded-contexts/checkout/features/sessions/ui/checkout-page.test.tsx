@@ -70,6 +70,7 @@ const session: CheckoutSessionRow = {
   ],
   order_ids: [],
   order_write_commit_positions: [],
+  checkout_reservations: [],
   payment_id: null,
   submitted_offer_id: null,
   created_at: "2026-05-06T00:00:00.000Z",
@@ -121,6 +122,8 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
         {
           lineKey: "cli_opt",
           listingId: "lst_card_vault_charizard",
+          sellerAccountId: "acc_card_vault",
+          inventoryItemId: "inv_charizard",
           catalogItemId: "cat_charizard",
           productId: "prod_charizard_nm",
           itemTitle: "Charizard",
@@ -134,6 +137,8 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
         {
           lineKey: "cli_locked",
           listingId: "lst_card_vault_blastoise",
+          sellerAccountId: "acc_card_vault",
+          inventoryItemId: "inv_blastoise",
           catalogItemId: "cat_blastoise",
           productId: "prod_blastoise_nm",
           itemTitle: "Blastoise",
@@ -285,6 +290,60 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("lst_card_vault");
     expect(markup).not.toContain("cat_bulbasaur");
     expect(markup).not.toContain("acc_card_vault");
+  });
+
+  it("surfaces checkout reservation failures as line-level cart review", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        reservationUnavailableLines={[
+          {
+            lineKey: "cli_locked",
+            sellerAccountId: "acc_card_vault",
+            inventoryItemId: "inv_blastoise",
+            itemTitle: "Blastoise",
+            productSummary: "Form: Raw | Condition: Near Mint",
+            quantity: 1,
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Some items are already reserved");
+    expect(markup).toContain("Blastoise was just reserved by another buyer.");
+    expect(markup).toContain("Review buy cart");
+    expect(markup).not.toContain("Pay now");
+  });
+
+  it("blocks elapsed checkout reservations with a reserve-again affordance", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={{
+          ...readySession,
+          checkout_reservations: [
+            {
+              holdId: "hld_elapsed",
+              lineKey: "cli_opt",
+              sellerAccountId: "acc_card_vault",
+              inventoryItemId: "inv_charizard",
+              quantity: 1,
+              expiresAt: "2000-01-01T00:00:00.000Z",
+              extensionCount: 0,
+              status: "active",
+            },
+          ],
+        }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+      />,
+    );
+
+    expect(markup).toContain("Reservation expired");
+    expect(markup).toContain("Reserve again");
+    expect(markup).toContain('value="confirm-checkout"');
+    expect(markup).not.toContain("Pay now");
   });
 
   it("keeps saved payment affordances signed-in only even when instruments are supplied", () => {

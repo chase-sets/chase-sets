@@ -345,7 +345,9 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
+        "api-route:bounded-contexts/inventory/features/holds/api/route.ts:POST /",
         "api-route:bounded-contexts/inventory/features/holds/api/route.ts:POST /:id/release",
+        "api-route:bounded-contexts/inventory/features/holds/api/route.ts:POST /:id/extend",
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /",
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/commit",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /",
@@ -359,9 +361,10 @@
         "description": "Inventory API commands return command-owned ids, versions, durable job statuses, or listing-stock snapshots that callers can render or carry into a fresh-read route without trusting a stale projection response."
       },
       "proof": {
-        "authoritativeResponse": "Item, hold, and storage-location commands return the committed aggregate id/version; import-batch commands return durable job public snapshots; listing-stock ensure returns the command-owned inventory stock snapshot.",
+        "authoritativeResponse": "Item, hold, checkout-reservation, and storage-location commands return the committed aggregate id/version or reservation snapshot; import-batch commands return durable job public snapshots; listing-stock ensure returns the command-owned inventory stock snapshot.",
         "tests": [
           "bounded-contexts/inventory/tests/acceptance/inventory-api.test.ts",
+          "bounded-contexts/inventory/features/holds/api/route.test.ts",
           "bounded-contexts/inventory/features/inventory-items/api/route.test.ts",
           "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts"
         ]

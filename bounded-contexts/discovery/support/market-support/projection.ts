@@ -441,6 +441,31 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   );
 }
 
+async function markDiscoveryMarketSupplyHoldTerminal(
+  db: PgQueryable,
+  params: Readonly<{
+    holdId: string;
+    status: "released" | "expired";
+    releasedAt: string;
+    recordedAt: string;
+    streamVersion: number;
+  }>,
+): Promise<string | null> {
+  const released = await db.query<{ item_id: string }>(
+    `UPDATE discovery_market_supply_holds
+     SET status = $2,
+         released_at = $3,
+         updated_at = $4,
+         last_stream_version = $5
+     WHERE hold_id = $1
+       AND last_stream_version < $5
+     RETURNING item_id`,
+    [params.holdId, params.status, params.releasedAt, params.recordedAt, params.streamVersion],
+  );
+
+  return released.rows[0]?.item_id ?? null;
+}
+
 export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
@@ -918,25 +943,65 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       const listingIds = await recomputeDiscoveryMarketListingSupply(db, data.itemId);
       await refreshAvailabilityListingPatches(db, event, listingIds);
     },
+    "inventory.hold.converted": async (event) => {
+      const data = event.data as {
+        holdId: string;
+      };
+
+      await db.query(
+        `UPDATE discovery_market_supply_holds
+         SET updated_at = $2,
+             last_stream_version = $3
+         WHERE hold_id = $1
+           AND last_stream_version < $3`,
+        [data.holdId, event.timing.recordedAt, event.streamVersion],
+      );
+    },
+    "inventory.hold.extended": async (event) => {
+      const data = event.data as {
+        holdId: string;
+      };
+
+      await db.query(
+        `UPDATE discovery_market_supply_holds
+         SET updated_at = $2,
+             last_stream_version = $3
+         WHERE hold_id = $1
+           AND last_stream_version < $3`,
+        [data.holdId, event.timing.recordedAt, event.streamVersion],
+      );
+    },
     "inventory.hold.released": async (event) => {
       const data = event.data as {
         holdId: string;
         releasedAt: string;
       };
 
-      const released = await db.query<{ item_id: string }>(
-        `UPDATE discovery_market_supply_holds
-         SET status = 'released',
-             released_at = $2,
-             updated_at = $3,
-             last_stream_version = $4
-         WHERE hold_id = $1
-           AND last_stream_version < $4
-         RETURNING item_id`,
-        [data.holdId, data.releasedAt, event.timing.recordedAt, event.streamVersion],
-      );
+      const itemId = await markDiscoveryMarketSupplyHoldTerminal(db, {
+        holdId: data.holdId,
+        status: "released",
+        releasedAt: data.releasedAt,
+        recordedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
+      });
+      if (itemId) {
+        const listingIds = await recomputeDiscoveryMarketListingSupply(db, itemId);
+        await refreshAvailabilityListingPatches(db, event, listingIds);
+      }
+    },
+    "inventory.hold.expired": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        expiredAt: string;
+      };
 
-      const itemId = released.rows[0]?.item_id;
+      const itemId = await markDiscoveryMarketSupplyHoldTerminal(db, {
+        holdId: data.holdId,
+        status: "expired",
+        releasedAt: data.expiredAt,
+        recordedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
+      });
       if (itemId) {
         const listingIds = await recomputeDiscoveryMarketListingSupply(db, itemId);
         await refreshAvailabilityListingPatches(db, event, listingIds);

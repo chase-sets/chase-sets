@@ -21,6 +21,8 @@ export type InventoryHoldRow = Readonly<{
   released_at: string | null;
   release_reason: InventoryHoldReleaseReason | null;
   consumed_at: string | null;
+  expired_at: string | null;
+  extension_count: number;
 }>;
 
 export async function getInventoryHold(db: PgQueryable, holdId: string, accountId: string) {
@@ -40,7 +42,9 @@ export async function getInventoryHold(db: PgQueryable, holdId: string, accountI
        updated_at,
        released_at,
        release_reason,
-       consumed_at
+       consumed_at,
+       expired_at,
+       extension_count
      FROM inventory_holds
      WHERE hold_id = $1
        AND account_id = $2`,

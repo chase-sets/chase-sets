@@ -282,6 +282,33 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
   };
 }
 
+async function markMarketplaceSupplyHoldTerminal(
+  db: PgQueryable,
+  params: Readonly<{
+    holdId: string;
+    status: "released" | "expired";
+    releasedAt: string;
+    releaseReason: InventoryHoldReleaseReason | null;
+    recordedAt: string;
+    streamVersion: number;
+  }>,
+): Promise<string | null> {
+  const released = await db.query<{ item_id: string }>(
+    `UPDATE marketplace_supply_holds
+     SET status = $2,
+         released_at = $3,
+         release_reason = $4,
+         updated_at = $5,
+         last_stream_version = $6
+     WHERE hold_id = $1
+       AND last_stream_version < $6
+     RETURNING item_id`,
+    [params.holdId, params.status, params.releasedAt, params.releaseReason, params.recordedAt, params.streamVersion],
+  );
+
+  return released.rows[0]?.item_id ?? null;
+}
+
 export function buildMarketplaceInventoryProjectionHandlers(
   db: PgQueryable,
   options: Readonly<{
@@ -491,6 +518,49 @@ export function buildMarketplaceInventoryProjectionHandlers(
 
       await options.onInventoryItemChanged?.(data.itemId);
     },
+    "inventory.hold.converted": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        purpose: InventoryHoldPurpose;
+        sourceRef: InventoryHoldSourceRef;
+        expiresAt: string | null;
+      };
+
+      await db.query(
+        `UPDATE marketplace_supply_holds
+         SET purpose = $2,
+             source_ref = $3,
+             expires_at = $4,
+             updated_at = $5,
+             last_stream_version = $6
+         WHERE hold_id = $1
+           AND last_stream_version < $6`,
+        [
+          data.holdId,
+          data.purpose,
+          data.sourceRef ? JSON.stringify(data.sourceRef) : null,
+          data.expiresAt,
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    },
+    "inventory.hold.extended": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        expiresAt: string;
+      };
+
+      await db.query(
+        `UPDATE marketplace_supply_holds
+         SET expires_at = $2,
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE hold_id = $1
+           AND last_stream_version < $4`,
+        [data.holdId, data.expiresAt, event.timing.recordedAt, event.streamVersion],
+      );
+    },
     "inventory.hold.released": async (event) => {
       const data = event.data as {
         holdId: string;
@@ -498,20 +568,32 @@ export function buildMarketplaceInventoryProjectionHandlers(
         releaseReason?: InventoryHoldReleaseReason;
       };
 
-      const released = await db.query<{ item_id: string }>(
-        `UPDATE marketplace_supply_holds
-         SET status = 'released',
-             released_at = $2,
-             release_reason = $3,
-             updated_at = $4,
-             last_stream_version = $5
-         WHERE hold_id = $1
-           AND last_stream_version < $5
-         RETURNING item_id`,
-        [data.holdId, data.releasedAt, data.releaseReason ?? null, event.timing.recordedAt, event.streamVersion],
-      );
+      const itemId = await markMarketplaceSupplyHoldTerminal(db, {
+        holdId: data.holdId,
+        status: "released",
+        releasedAt: data.releasedAt,
+        releaseReason: data.releaseReason ?? null,
+        recordedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
+      });
+      if (itemId) {
+        await options.onInventoryItemChanged?.(itemId);
+      }
+    },
+    "inventory.hold.expired": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        expiredAt: string;
+      };
 
-      const itemId = released.rows[0]?.item_id;
+      const itemId = await markMarketplaceSupplyHoldTerminal(db, {
+        holdId: data.holdId,
+        status: "expired",
+        releasedAt: data.expiredAt,
+        releaseReason: "checkout-expired",
+        recordedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
+      });
       if (itemId) {
         await options.onInventoryItemChanged?.(itemId);
       }

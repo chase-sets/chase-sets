@@ -27,6 +27,16 @@ Examples:
 
 A **Checkout Session** is a short-lived active purchase workflow snapshot created from the cart, a buy-now action, or an offer-intent action.
 
+## Checkout Reservation
+
+A **Checkout Reservation** is a checkout-purpose Inventory hold created per buy-checkout line when the buyer reaches the payment step.
+
+Notes:
+
+- Checkout Reservations are not created when an item is added to the cart.
+- Checkout Reservations expire if the buyer abandons checkout before order creation.
+- Order creation converts Checkout Reservations to order holds without releasing and replacing the stock commitment.
+
 ## Source Intent
 
 **Source Intent** describes how a checkout session began: cart checkout, buy now, or offer intent.

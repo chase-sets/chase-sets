@@ -115,4 +115,91 @@ describe("inventory hold projection", () => {
       1,
     ]);
   });
+
+  it("projects checkout hold conversion without terminal release fields", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildInventoryHoldProjectionHandlers(db);
+
+    await handlers["inventory.hold.converted"]!(
+      event(
+        "inventory.hold.converted",
+        {
+          holdId: "hld_checkout_1",
+          purpose: "order",
+          sourceRef: {
+            orderId: "ord_1",
+            reservationRequestId: "rsv_1",
+          },
+          expiresAt: null,
+        },
+        2,
+      ),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("purpose = $2"), [
+      "hld_checkout_1",
+      "order",
+      JSON.stringify({
+        orderId: "ord_1",
+        reservationRequestId: "rsv_1",
+      }),
+      null,
+      "2026-07-06T00:00:00.000Z",
+      2,
+    ]);
+  });
+
+  it("projects checkout hold expiry as a distinct terminal state", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildInventoryHoldProjectionHandlers(db);
+
+    await handlers["inventory.hold.expired"]!(
+      event(
+        "inventory.hold.expired",
+        {
+          holdId: "hld_checkout_1",
+          expiredAt: "2026-07-06T00:15:00.000Z",
+        },
+        2,
+      ),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("status = 'expired'"), [
+      "hld_checkout_1",
+      "2026-07-06T00:00:00.000Z",
+      "2026-07-06T00:15:00.000Z",
+      2,
+    ]);
+  });
+
+  it("projects checkout hold extension counts and expiry", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildInventoryHoldProjectionHandlers(db);
+
+    await handlers["inventory.hold.extended"]!(
+      event(
+        "inventory.hold.extended",
+        {
+          holdId: "hld_checkout_1",
+          expiresAt: "2026-07-06T00:20:00.000Z",
+          extensionCount: 1,
+        },
+        2,
+      ),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("extension_count = $3"), [
+      "hld_checkout_1",
+      "2026-07-06T00:20:00.000Z",
+      1,
+      "2026-07-06T00:00:00.000Z",
+      2,
+    ]);
+  });
 });

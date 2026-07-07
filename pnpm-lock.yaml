@@ -213,6 +213,9 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../identity
+      '@chase-sets/inventory':
+        specifier: workspace:*
+        version: link:../inventory
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization

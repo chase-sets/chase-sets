@@ -283,6 +283,23 @@ export function createInventoryApiClient({
         }),
       );
     },
+    async createCheckoutReservation(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client["checkout-reservations"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async extendCheckoutReservation(id: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client["checkout-reservations"][":id"].extend.$post({
+          param: { id },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async recordRestockDecision(id: string, body: Record<string, unknown>) {
       return parseJsonResponse(
         await client["restock-decisions"][":id"].decision.$post({

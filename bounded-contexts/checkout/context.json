@@ -107,6 +107,7 @@
         "checkout.session.fulfillment-preview-recorded",
         "checkout.session.shipping-option-selected",
         "checkout.session.shipping-address-set",
+        "checkout.session.reservations-recorded",
         "checkout.session.orders-created",
         "checkout.session.payment-started",
         "checkout.session.offer-submitted"
@@ -130,7 +131,10 @@
         "inventory.item.created",
         "inventory.item.adjusted",
         "inventory.hold.placed",
+        "inventory.hold.converted",
+        "inventory.hold.extended",
         "inventory.hold.released",
+        "inventory.hold.expired",
         "inventory.storage-location.created",
         "inventory.storage-location.updated",
         "inventory.storage-location.archived"

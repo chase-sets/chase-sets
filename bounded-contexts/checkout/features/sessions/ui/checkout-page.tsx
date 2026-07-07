@@ -100,6 +100,11 @@ export type GuestCheckoutContact = Readonly<{
   contactName: string | null;
 }>;
 
+export type CheckoutReservationUnavailableLine = Pick<
+  CheckoutFulfillmentPreview["sellerGroups"][number]["lines"][number],
+  "lineKey" | "sellerAccountId" | "inventoryItemId" | "itemTitle" | "productSummary" | "quantity"
+>;
+
 function deliveryWindowLabel(group: CheckoutFulfillmentPreview["sellerGroups"][number]) {
   return `${group.deliveryEstimate.earliestDate} - ${group.deliveryEstimate.latestDate}`;
 }
@@ -193,6 +198,19 @@ function formatMoney(value: string | null | undefined) {
   return value ? `$${value}` : t("checkout.features.sessions.ui.checkoutPage.pending");
 }
 
+function formatReservationTime(msRemaining: number) {
+  const totalSeconds = Math.max(0, Math.floor(msRemaining / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function reservationUnavailableItemsLabel(lines: readonly CheckoutReservationUnavailableLine[]) {
+  return [...new Set(lines.map((line) => line.itemTitle).filter((title) => title.trim().length > 0))]
+    .slice(0, 3)
+    .join(", ");
+}
+
 function previewLineForSessionLine(
   line: CheckoutSessionRow["lines"][number],
   previewLines: readonly CheckoutFulfillmentPreview["sellerGroups"][number]["lines"][number][],
@@ -222,6 +240,7 @@ export function CheckoutSessionPage({
   paymentPreview,
   selectedPaymentMethodCategory = "card",
   fulfillmentPreview,
+  reservationUnavailableLines = [],
   errorMessage,
   reviewRefreshed = false,
   paymentQuoteRequired = false,
@@ -240,6 +259,7 @@ export function CheckoutSessionPage({
   paymentPreview?: CheckoutPaymentPreview | null;
   selectedPaymentMethodCategory?: string;
   fulfillmentPreview?: CheckoutFulfillmentPreview | null;
+  reservationUnavailableLines?: readonly CheckoutReservationUnavailableLine[];
   errorMessage?: string | null;
   reviewRefreshed?: boolean;
   paymentQuoteRequired?: boolean;
@@ -275,13 +295,29 @@ export function CheckoutSessionPage({
   );
   const [hasPendingReviewChanges, setHasPendingReviewChanges] = useState(false);
   const [editingSection, setEditingSection] = useState<CheckoutEditSection | null>(initialEditSection);
+  const [reservationClock, setReservationClock] = useState(() => Date.now());
+  const activeReservations = session.checkout_reservations.filter((reservation) => reservation.status === "active");
+  const nextReservationExpiry = activeReservations
+    .map((reservation) => Date.parse(reservation.expiresAt))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right)[0];
+  const reservationMsRemaining = nextReservationExpiry ? nextReservationExpiry - reservationClock : null;
+  const reservationExpired = Boolean(
+    activeReservations.length > 0 && reservationMsRemaining !== null && reservationMsRemaining <= 0,
+  );
   const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
   const unavailableCount = isOfferIntent ? lines.length : (preview?.unavailableLineKeys.length ?? 0);
   const needsPaymentQuote = !isOfferIntent && !hasPayment && !payment;
   const needsReviewRefresh = needsPaymentQuote || hasPendingReviewChanges;
   const previewOrderLines = preview?.sellerGroups.flatMap((group) => group.lines) ?? [];
   const unavailableCheckoutLines = !isOfferIntent ? (preview?.unavailableLines ?? []) : [];
-  const hasUnavailableCheckoutLines = unavailableCheckoutLines.length > 0 || unavailableCount > 0;
+  const reservationUnavailableCheckoutLines = !isOfferIntent ? reservationUnavailableLines : [];
+  const hasReservationUnavailableCheckoutLines = reservationUnavailableCheckoutLines.length > 0;
+  const hasUnavailableCheckoutLines =
+    unavailableCheckoutLines.length > 0 ||
+    unavailableCount > 0 ||
+    hasReservationUnavailableCheckoutLines ||
+    reservationExpired;
   const canConfirm = isOfferIntent ? lines.length > 0 : readyCount > 0 && !hasUnavailableCheckoutLines;
   const firstDeliveryGroup = firstSellerGroup(preview);
   const savedAddressesForCheckout = signedInBuyCheckout ? savedShippingAddresses : [];
@@ -412,6 +448,15 @@ export function CheckoutSessionPage({
       setHasPendingReviewChanges(true);
     }
   }
+
+  useEffect(() => {
+    if (!activeReservations.length || hasPayment) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => setReservationClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [activeReservations.length, hasPayment]);
 
   // The flow spine. Each step is `complete` once its data is collected and the
   // section is collapsed, `current` for the first step still presented as a form,
@@ -567,6 +612,7 @@ export function CheckoutSessionPage({
   const shouldRefreshBeforeCommit = !isOfferIntent && needsReviewRefresh;
   const commitIntent = shouldRefreshBeforeCommit ? "refresh-checkout-preview" : "confirm-checkout";
   const commitIcon = shouldRefreshBeforeCommit ? "refreshCcw" : "lock";
+  const reReserveIntent = "confirm-checkout";
   const hasAutoResumedPaymentStartRef = useRef(false);
   const canAutoResumePaymentStart = Boolean(
     autoResumePaymentStart &&
@@ -664,7 +710,59 @@ export function CheckoutSessionPage({
   const noticeCandidates: CheckoutNoticeCandidate[] = [
     {
       priority: "needs-review",
-      active: !isOfferIntent && hasUnavailableCheckoutLines,
+      active: hasReservationUnavailableCheckoutLines,
+      notice: (
+        <CheckoutStateNotice
+          tone="warning"
+          title={t("checkout.features.sessions.ui.checkoutPage.reservation.unavailable.title")}
+          description={t(
+            reservationUnavailableCheckoutLines.length === 1
+              ? "checkout.features.sessions.ui.checkoutPage.reservation.unavailable.description.one"
+              : "checkout.features.sessions.ui.checkoutPage.reservation.unavailable.description.many",
+            {
+              count: reservationUnavailableCheckoutLines.length,
+              items: reservationUnavailableItemsLabel(reservationUnavailableCheckoutLines),
+            },
+          )}
+          action={
+            <LinkButton href="/account/cart" tone="secondary" size="sm">
+              {t("checkout.features.sessions.ui.checkoutPage.review.buy.cart")}
+            </LinkButton>
+          }
+        />
+      ),
+    },
+    {
+      priority: "needs-review",
+      active: !isOfferIntent && reservationExpired,
+      notice: (
+        <CheckoutStateNotice
+          tone="warning"
+          title={t("checkout.features.sessions.ui.checkoutPage.reservation.expired")}
+          description={t("checkout.features.sessions.ui.checkoutPage.reservation.expired.description")}
+          action={
+            <Button
+              type="submit"
+              form="checkout-confirmation-form"
+              name="intent"
+              value={reReserveIntent}
+              leadingIcon="refreshCcw"
+              loading={isSubmitting}
+              size="sm"
+            >
+              {t("checkout.features.sessions.ui.checkoutPage.reserve.again")}
+            </Button>
+          }
+        />
+      ),
+    },
+    {
+      priority: "needs-review",
+      active:
+        !isOfferIntent &&
+        !hasReservationUnavailableCheckoutLines &&
+        !reservationExpired &&
+        (unavailableCheckoutLines.length > 0 || unavailableCount > 0),
       notice: (
         <CheckoutStateNotice
           tone="warning"
@@ -776,6 +874,21 @@ export function CheckoutSessionPage({
       <LinkButton href={`/account/payments/${session.payment_id}`} block>
         {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
       </LinkButton>
+    ) : !isOfferIntent && reservationExpired ? (
+      <Button
+        type="submit"
+        form={form}
+        name="intent"
+        value={reReserveIntent}
+        leadingIcon="refreshCcw"
+        loading={isSubmitting}
+        disabled={isSubmitting}
+        block
+      >
+        {isSubmitting
+          ? t("checkout.features.sessions.ui.checkoutPage.processing.payment")
+          : t("checkout.features.sessions.ui.checkoutPage.reserve.again")}
+      </Button>
     ) : !canConfirm && !isOfferIntent ? (
       <LinkButton href="/account/cart" leadingIcon="cart" block>
         {t("checkout.features.sessions.ui.checkoutPage.review.buy.cart")}
@@ -1234,6 +1347,23 @@ export function CheckoutSessionPage({
                       description={t("checkout.features.sessions.ui.checkoutPage.save.payment.method.description")}
                       name="savePaymentMethodForFuture"
                       value="true"
+                    />
+                  ) : null}
+                  {activeReservations.length > 0 ? (
+                    <CheckoutStateNotice
+                      tone={reservationExpired ? "warning" : "success"}
+                      title={
+                        reservationExpired
+                          ? t("checkout.features.sessions.ui.checkoutPage.reservation.expired")
+                          : t("checkout.features.sessions.ui.checkoutPage.reserved.for.you", {
+                              time: formatReservationTime(reservationMsRemaining ?? 0),
+                            })
+                      }
+                      description={
+                        reservationExpired
+                          ? t("checkout.features.sessions.ui.checkoutPage.reservation.expired.description")
+                          : t("checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are")
+                      }
                     />
                   ) : null}
                   <CheckoutStateNotice

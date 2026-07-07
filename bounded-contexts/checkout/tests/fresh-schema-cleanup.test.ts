@@ -11,7 +11,7 @@ import {
 } from "../features/cart/integrations/marketplace/marketplace-schema";
 import { checkoutCartSchemaSql } from "../features/cart/read-model/schema";
 import { checkoutSellListSchemaSql } from "../features/sell-list/read-model/schema";
-import { checkoutSessionSchemaSql } from "../features/sessions/read-model/schema";
+import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../features/sessions/read-model/schema";
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(checkoutRoot, "..", "..");
@@ -94,6 +94,20 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSessionSchemaSql).toContain("cart_readiness_snapshot jsonb NULL");
     expect(checkoutSessionSchemaSql).toContain("submitted_offer_id text NULL");
     expect(checkoutSessionSchemaSql).toContain("order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb");
+    expect(checkoutSessionSchemaSql).toContain("checkout_reservations jsonb NOT NULL DEFAULT '[]'::jsonb");
+    expect(checkoutSessionSchemaSql).not.toContain("ADD COLUMN IF NOT EXISTS checkout_reservations");
+    expect(checkoutSessionSchemaMigrations).toEqual([
+      expect.objectContaining({
+        migrationId: "20260707_checkout_session_reservations",
+        statements: [
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS checkout_reservations jsonb NULL"),
+          expect.stringContaining("SET checkout_reservations = '[]'::jsonb"),
+          expect.stringContaining("ALTER COLUMN checkout_reservations SET DEFAULT '[]'::jsonb"),
+          expect.stringContaining("SET lock_timeout = '5s'"),
+          expect.stringContaining("ALTER COLUMN checkout_reservations SET NOT NULL"),
+        ],
+      }),
+    ]);
   });
 
   it("keeps checkout inventory schema evolution before indexes that use evolved columns", () => {
@@ -225,6 +239,7 @@ describe("fresh checkout read-model schemas", () => {
             "checkout.session.fulfillment-preview-recorded",
             "checkout.session.shipping-option-selected",
             "checkout.session.shipping-address-set",
+            "checkout.session.reservations-recorded",
             "checkout.session.orders-created",
             "checkout.session.payment-started",
             "checkout.session.offer-submitted",

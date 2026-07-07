@@ -91,6 +91,15 @@ async function countStreamEvents(pool: PgTransactionalPool, streamId: string) {
   return Number(result.rows[0]?.count ?? 0);
 }
 
+async function countStreamEventsByType(pool: PgTransactionalPool, streamId: string, eventType: string) {
+  const result = await pool.query(
+    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id = $1 AND event_type = $2",
+    [streamId, eventType],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 describe("inventory api", () => {
   let databaseUrls: Readonly<Record<(typeof inventoryContextNames)[number], string>>;
   let pools: Readonly<Record<(typeof inventoryContextNames)[number], PgTransactionalPool>>;
@@ -366,6 +375,235 @@ describe("inventory api", () => {
 
     await expect(countStreamEvents(pools.inventory, holdStreamId)).resolves.toBe(0);
     await expect(countStreamEvents(pools.inventory, reservationStreamId)).resolves.toBe(1);
+  });
+
+  it("converts checkout holds without opening an interleaved placement window", async () => {
+    const location = await services.storageLocations.createStorageLocation(
+      {
+        accountId: "acc_inventory" as never,
+        name: "Checkout conversion shelf",
+        shipFromCode: "CHI-CONVERT",
+        shipFromAddress,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const item = await services.items.createItem(
+      {
+        accountId: "acc_inventory" as never,
+        catalogItemId: catalogSeedIds.items.charizardBaseSet,
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+        ],
+        storageLocationId: location.storageLocationId,
+        totalQuantity: 1,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const checkoutHoldId = "hld_checkout_conversion_atomic" as never;
+    await services.holds.createHold(
+      {
+        holdId: checkoutHoldId,
+        accountId: "acc_inventory" as never,
+        itemId: item.itemId,
+        quantity: 1,
+        reason: "Checkout reservation",
+        notes: null,
+        purpose: "checkout",
+        sourceRef: {
+          checkoutSessionId: "chk_conversion_atomic" as never,
+          lineKey: "cli_conversion_atomic",
+        },
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    await expect(services.items.getItem(item.itemId, "acc_inventory")).resolves.toMatchObject({
+      held_quantity: 1,
+      available_quantity: 0,
+    });
+
+    const conversion = reserveOrderInventoryRequest(services, {
+      orderId: "ord_checkout_conversion_atomic",
+      request: {
+        reservationRequestId: "rsv_checkout_conversion_atomic",
+        sellerAccountId: "acc_inventory",
+        inventoryItemId: item.itemId,
+        quantity: 1,
+        holdId: checkoutHoldId,
+      },
+      context: inventoryContext,
+    });
+    const competingPlacement = services.holds.createHold(
+      {
+        holdId: "hld_order_competing_checkout_conversion" as never,
+        accountId: "acc_inventory" as never,
+        itemId: item.itemId,
+        quantity: 1,
+        reason: "Competing order commitment",
+        notes: null,
+        purpose: "order",
+        sourceRef: {
+          orderId: "ord_competing_checkout_conversion",
+          reservationRequestId: "rsv_competing_checkout_conversion",
+        },
+        expiresAt: null,
+      },
+      inventoryContext,
+    );
+    const [conversionResult, competingPlacementResult] = await Promise.allSettled([conversion, competingPlacement]);
+
+    expect(conversionResult.status).toBe("fulfilled");
+    expect(competingPlacementResult.status).toBe("rejected");
+    if (competingPlacementResult.status === "rejected") {
+      expect(competingPlacementResult.reason).toMatchObject({
+        kind: "insufficient-available-quantity",
+      });
+    }
+
+    await drainContextProcesses({ subscriptionRunners });
+
+    await expect(services.holds.getHold(checkoutHoldId, "acc_inventory")).resolves.toMatchObject({
+      hold_id: checkoutHoldId,
+      status: "active",
+      purpose: "order",
+      source_ref: {
+        orderId: "ord_checkout_conversion_atomic",
+        reservationRequestId: "rsv_checkout_conversion_atomic",
+      },
+      expires_at: null,
+    });
+    const convertedItem = await services.items.getItem(item.itemId, "acc_inventory");
+    expect(convertedItem).toMatchObject({
+      held_quantity: 1,
+      available_quantity: 0,
+    });
+    expect(convertedItem?.holds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hold_id: checkoutHoldId,
+          status: "active",
+          purpose: "order",
+        }),
+      ]),
+    );
+    await expect(
+      countStreamEventsByType(pools.inventory, `inventory.hold-${checkoutHoldId}`, "inventory.hold.converted"),
+    ).resolves.toBe(1);
+    await expect(
+      countStreamEvents(pools.inventory, "inventory.hold-hld_order_competing_checkout_conversion"),
+    ).resolves.toBe(0);
+    await expect(
+      countStreamEvents(pools.inventory, "inventory.reservation-rsv_checkout_conversion_atomic"),
+    ).resolves.toBe(1);
+  });
+
+  it("expires abandoned checkout holds in one sweep and restores availability", async () => {
+    const location = await services.storageLocations.createStorageLocation(
+      {
+        accountId: "acc_inventory" as never,
+        name: "Checkout expiry shelf",
+        shipFromCode: "CHI-EXPIRE",
+        shipFromAddress,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const item = await services.items.createItem(
+      {
+        accountId: "acc_inventory" as never,
+        catalogItemId: catalogSeedIds.items.pikachuJungle,
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+        ],
+        storageLocationId: location.storageLocationId,
+        totalQuantity: 1,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const checkoutHoldId = "hld_checkout_expiry_drill" as never;
+    await services.holds.createHold(
+      {
+        holdId: checkoutHoldId,
+        accountId: "acc_inventory" as never,
+        itemId: item.itemId,
+        quantity: 1,
+        reason: "Checkout reservation",
+        notes: null,
+        purpose: "checkout",
+        sourceRef: {
+          checkoutSessionId: "chk_expiry_drill" as never,
+          lineKey: "cli_expiry_drill",
+        },
+        expiresAt: "2026-07-07T00:00:00.000Z",
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    await expect(services.items.getItem(item.itemId, "acc_inventory")).resolves.toMatchObject({
+      held_quantity: 1,
+      available_quantity: 0,
+    });
+
+    await expect(
+      services.holds.expireDueCheckoutHolds(
+        {
+          now: "2026-07-07T00:01:00.000Z",
+          limit: 10,
+        },
+        inventoryContext,
+      ),
+    ).resolves.toEqual([{ holdId: checkoutHoldId, version: 2 }]);
+    await drainContextProcesses({ subscriptionRunners });
+
+    await expect(services.holds.getHold(checkoutHoldId, "acc_inventory")).resolves.toMatchObject({
+      hold_id: checkoutHoldId,
+      status: "expired",
+      release_reason: "checkout-expired",
+      expired_at: new Date("2026-07-07T00:01:00.000Z"),
+    });
+    const expiredItem = await services.items.getItem(item.itemId, "acc_inventory");
+    expect(expiredItem).toMatchObject({
+      held_quantity: 0,
+      available_quantity: 1,
+    });
+    expect(expiredItem?.holds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hold_id: checkoutHoldId,
+          status: "expired",
+        }),
+      ]),
+    );
+    await expect(
+      countStreamEventsByType(pools.inventory, `inventory.hold-${checkoutHoldId}`, "inventory.hold.expired"),
+    ).resolves.toBe(1);
+    await expect(
+      countStreamEventsByType(pools.inventory, `inventory.hold-${checkoutHoldId}`, "inventory.hold.released"),
+    ).resolves.toBe(0);
   });
 
   it("prevents over-holds and invalid negative adjustments", async () => {

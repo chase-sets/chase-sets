@@ -85,12 +85,13 @@ class InventoryProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
-    if (sql.includes("UPDATE checkout_supply_holds") && sql.includes("status = 'released'")) {
+    if (sql.includes("UPDATE checkout_supply_holds") && sql.includes("RETURNING item_id")) {
       const holdId = String(values[0]);
-      const streamVersion = Number(values[3]);
+      const status = String(values[1]);
+      const streamVersion = Number(values[4]);
       const existing = this.supplyHolds.get(holdId);
       if (existing && existing.last_stream_version < streamVersion) {
-        existing.status = "released";
+        existing.status = status;
         existing.last_stream_version = streamVersion;
         return { rows: [{ item_id: existing.item_id }] as Row[], rowCount: 1 };
       }

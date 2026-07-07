@@ -34,6 +34,7 @@ import {
   type CheckoutSessionCommand,
   type CheckoutSessionEvent,
   type CheckoutSessionLine,
+  type CheckoutSessionReservation,
   type CheckoutShippingAddress,
   type CheckoutOptimizationGoal,
   type CheckoutSessionState,
@@ -191,6 +192,14 @@ export type CheckoutSessionServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  recordCheckoutReservations: (
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+      reservations: readonly CheckoutSessionReservation[];
+    }>,
+    context: EventStoreContext,
+  ) => Promise<CheckoutSessionMutationResult>;
   assertReadyForOrderCreation: (
     params: Readonly<{
       sessionId: string;
@@ -257,6 +266,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     lines: [...state.lines],
     order_ids: [...state.orderIds],
     order_write_commit_positions: [...state.orderWriteCommitPositions],
+    checkout_reservations: [...state.checkoutReservations],
     payment_id: state.paymentId,
     submitted_offer_id: state.submittedOfferId,
     created_at: state.createdAt,
@@ -920,6 +930,23 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       }
 
       return result;
+    },
+    recordCheckoutReservations: async (params, context) => {
+      const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
+      assertOrderableSessionFulfillmentAssigned(state);
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "RecordCheckoutReservations",
+            reservations: params.reservations,
+            recordedAt: new Date().toISOString(),
+          },
+        },
+        context,
+      );
     },
     recordPaymentStarted: async (params, context) => {
       return applySessionCommandForBuyer(
