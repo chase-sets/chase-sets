@@ -24,7 +24,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     normalizeAction(formData.get("action")),
     String(formData.get("note") ?? "").trim() || null,
   );
-  return redirect(`/risk-alerts/${encodeURIComponent(alertId)}`);
+  return redirect(`/support/risk-alerts/${encodeURIComponent(alertId)}`);
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
