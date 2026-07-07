@@ -23,7 +23,7 @@ const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir 
 applySandboxEnv(sandboxEnv);
 const localEnvScript = fileURLToPath(new URL("./local-env.mjs", import.meta.url));
 const stripeCliScript = fileURLToPath(new URL("./stripe-cli.mjs", import.meta.url));
-const dockerComposeArgs = buildDockerComposeArgs(sandbox);
+const dockerComposeInvocation = resolveDockerComposeInvocation(buildDockerComposeArgs(sandbox));
 const localAdminDatabaseUrl =
   process.env.POSTGRES_DEV_ADMIN_DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres";
 const devDatabaseUrl = process.env.POSTGRES_DEV_DATABASE_URL ?? sandbox.controlDatabaseUrl;
@@ -451,7 +451,7 @@ async function assertSandboxPortAvailable(port, label) {
 
 async function ensureDevDatabase() {
   prefixedConsole("dev", `Starting sandbox Postgres for ${sandbox.id}...`);
-  await runCommand("docker", [...dockerComposeArgs, "up", "-d"], {
+  await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "up", "-d"], {
     env: sandboxEnv,
     prefix: "docker",
   });
@@ -632,7 +632,7 @@ async function runDev(targetName = "all") {
 
 async function runDown() {
   prefixedConsole("dev", `Stopping sandbox ${sandbox.id}...`);
-  await runCommand("docker", [...dockerComposeArgs, "down"], {
+  await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "down"], {
     env: sandboxEnv,
     prefix: "docker",
   });
@@ -640,11 +640,25 @@ async function runDown() {
 
 async function runRefresh() {
   prefixedConsole("dev", `Destroying sandbox ${sandbox.id} Postgres data...`);
-  await runCommand("docker", [...dockerComposeArgs, "down", "-v"], {
+  await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "down", "-v"], {
     env: sandboxEnv,
     prefix: "docker",
   });
   await runBootstrap();
+}
+
+function resolveDockerComposeInvocation(dockerComposeArgs) {
+  const standaloneComposeArgs = dockerComposeArgs[0] === "compose" ? dockerComposeArgs.slice(1) : dockerComposeArgs;
+
+  if (spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0) {
+    return { command: "docker", args: dockerComposeArgs };
+  }
+
+  if (spawnSync("docker-compose", ["--version"], { stdio: "ignore" }).status === 0) {
+    return { command: "docker-compose", args: standaloneComposeArgs };
+  }
+
+  return { command: "docker", args: dockerComposeArgs };
 }
 
 try {

@@ -132,6 +132,49 @@ describeDb("postgres event store real database integration", () => {
     });
   });
 
+  it("rolls back earlier stream appends when a later stream append conflicts", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+
+    await store.appendToStream({
+      streamId: "commerce.order-ord_dual_conflict",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("commerce.order.created", { orderId: "ord_dual_conflict" })],
+    });
+
+    await expect(
+      store.appendToStreams!([
+        {
+          streamId: "commerce.order-ord_dual_new",
+          expectedVersion: "no_stream",
+          context: eventContext("tenant_a"),
+          events: [eventToStore("commerce.order.created", { orderId: "ord_dual_new" })],
+        },
+        {
+          streamId: "commerce.order-ord_dual_conflict",
+          expectedVersion: "no_stream",
+          context: eventContext("tenant_a"),
+          events: [eventToStore("commerce.order.confirmed", { orderId: "ord_dual_conflict" })],
+        },
+      ]),
+    ).rejects.toMatchObject({
+      code: "concurrency_conflict",
+      details: {
+        expectedVersion: "no_stream",
+        currentVersion: 1,
+      },
+    });
+
+    await expect(store.readStream({ streamId: "commerce.order-ord_dual_new", limit: 10 })).resolves.toEqual([]);
+    await expect(store.readStream({ streamId: "commerce.order-ord_dual_conflict", limit: 10 })).resolves.toHaveLength(
+      1,
+    );
+  });
+
   it("allows exactly one simultaneous append with the same expected stream revision", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,

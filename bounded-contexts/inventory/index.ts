@@ -41,6 +41,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
                 {
                   holds: services.holds,
                   reservations: services.reservations,
+                  appendToStreams: services.appendToStreams,
                 },
                 {
                   orderId: data.orderId,

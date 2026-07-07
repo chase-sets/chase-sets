@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { InventoryHoldPlacementError, type InventoryHoldServices } from "../../holds/api/runtime";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
@@ -38,19 +41,45 @@ function reservationState(status: InventoryReservationState["status"] = null): I
 
 function createServices(
   options: Readonly<{
-    createHold?: InventoryHoldServices["createHold"];
+    planCreateHold?: InventoryHoldServices["planCreateHold"];
     commandHandler?: InventoryReservationServices["commandHandler"];
+    appendToStreams?: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   }> = {},
 ) {
   let status: InventoryReservationState["status"] = null;
+  const planCreateHold =
+    options.planCreateHold ??
+    vi.fn<InventoryHoldServices["planCreateHold"]>(async (params, planContext) => {
+      const holdId = params.holdId ?? ("hld_generated" as InventoryHoldId);
+      return {
+        kind: "append",
+        holdId,
+        append: appendInput(`inventory.hold-${holdId}`, "inventory.hold.placed", { holdId }, planContext),
+      };
+    });
+  const planConfirmation = vi.fn<InventoryReservationServices["planConfirmation"]>(async (params, planContext) => ({
+    kind: "append",
+    append: appendInput(
+      `inventory.reservation-${params.reservationRequestId}`,
+      "inventory.reservation.confirmed",
+      {
+        reservationRequestId: params.reservationRequestId,
+        orderId: params.orderId,
+        sellerAccountId: params.sellerAccountId,
+        inventoryItemId: params.inventoryItemId,
+        quantity: params.quantity,
+        holdId: params.holdId,
+      },
+      planContext,
+    ),
+  }));
   const holds = {
     commandHandler: vi.fn(),
-    createHold:
-      options.createHold ??
-      vi.fn(async (params) => ({
-        holdId: params.holdId ?? ("hld_generated" as InventoryHoldId),
-        version: 1,
-      })),
+    planCreateHold,
+    createHold: vi.fn(async (params) => ({
+      holdId: params.holdId ?? ("hld_generated" as InventoryHoldId),
+      version: 1,
+    })),
     releaseHold: vi.fn(),
     getHold: vi.fn(),
     projectors: [],
@@ -69,10 +98,36 @@ function createServices(
       }),
     getReservation: vi.fn(),
     getReservationState: vi.fn(async () => reservationState(status)),
+    planConfirmation,
     projectors: [],
   } satisfies InventoryReservationServices;
 
-  return { holds, reservations };
+  const appendToStreams =
+    options.appendToStreams ??
+    vi.fn(async (inputs: readonly AppendToStreamInput[]) => {
+      status = "confirmed";
+      return inputs.map((input, index) => ({
+        streamId: input.streamId,
+        storedEvents: [
+          {
+            eventId: `evt_${index + 1}` as never,
+            streamId: input.streamId,
+            streamVersion: 1,
+            globalPosition: String(index + 1) as never,
+            tenantId: input.context.tenantId,
+            eventType: input.events[0]?.eventType ?? "inventory.noop",
+            payload: input.events[0]?.payload ?? {},
+            metadata: {},
+            occurredAt: "2026-07-06T00:00:00.000Z" as never,
+            recordedAt: "2026-07-06T00:00:00.000Z" as never,
+            performedByUserId: input.context.audit.performedByUserId,
+            forAccountId: input.context.audit.forAccountId,
+          },
+        ],
+      }));
+    });
+
+  return { holds, reservations, appendToStreams };
 }
 
 describe("order inventory reservation workflow", () => {
@@ -89,8 +144,8 @@ describe("order inventory reservation workflow", () => {
     await reserveOrderInventoryRequest(services, { orderId: "ord_1", request, context });
     await reserveOrderInventoryRequest(services, { orderId: "ord_1", request, context });
 
-    expect(services.holds.createHold).toHaveBeenCalledTimes(1);
-    expect(services.holds.createHold).toHaveBeenCalledWith(
+    expect(services.holds.planCreateHold).toHaveBeenCalledTimes(1);
+    expect(services.holds.planCreateHold).toHaveBeenCalledWith(
       expect.objectContaining({
         holdId: orderReservationHoldId(request.reservationRequestId),
         accountId: request.sellerAccountId as AccountId,
@@ -105,31 +160,30 @@ describe("order inventory reservation workflow", () => {
       }),
       context,
     );
-    expect(services.reservations.commandHandler).toHaveBeenCalledTimes(1);
-    expect(services.reservations.commandHandler).toHaveBeenCalledWith(
+    expect(services.reservations.planConfirmation).toHaveBeenCalledTimes(1);
+    expect(services.reservations.planConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({
-        command: expect.objectContaining({
-          type: "ConfirmInventoryReservation",
-          holdId: orderReservationHoldId(request.reservationRequestId),
-        }),
+        holdId: orderReservationHoldId(request.reservationRequestId),
       }),
+      context,
+    );
+    expect(services.appendToStreams).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ streamId: `inventory.hold-${orderReservationHoldId(request.reservationRequestId)}` }),
+        expect.objectContaining({ streamId: `inventory.reservation-${request.reservationRequestId}` }),
+      ]),
     );
   });
 
-  it("uses the same hold id when confirmation is retried after a transient failure", async () => {
+  it("uses the same hold id when the dual append is retried after a transient failure", async () => {
     let attempts = 0;
     const services = createServices({
-      commandHandler: vi.fn(async () => {
+      appendToStreams: vi.fn(async (inputs: readonly AppendToStreamInput[]) => {
         attempts += 1;
         if (attempts === 1) {
           throw new Error("temporary commit failure");
         }
-        return {
-          state: reservationState("confirmed"),
-          version: 1,
-          newEvents: [],
-          storedEvents: [],
-        } as never;
+        return inputs.map((input) => ({ streamId: input.streamId, storedEvents: [] }));
       }),
     });
 
@@ -138,13 +192,13 @@ describe("order inventory reservation workflow", () => {
     );
     await reserveOrderInventoryRequest(services, { orderId: "ord_1", request, context });
 
-    expect(services.holds.createHold).toHaveBeenCalledTimes(2);
-    expect(services.holds.createHold).toHaveBeenNthCalledWith(
+    expect(services.holds.planCreateHold).toHaveBeenCalledTimes(2);
+    expect(services.holds.planCreateHold).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ holdId: orderReservationHoldId(request.reservationRequestId) }),
       context,
     );
-    expect(services.holds.createHold).toHaveBeenNthCalledWith(
+    expect(services.holds.planCreateHold).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ holdId: orderReservationHoldId(request.reservationRequestId) }),
       context,
@@ -153,7 +207,7 @@ describe("order inventory reservation workflow", () => {
 
   it("rejects a reservation for terminal stock exhaustion", async () => {
     const services = createServices({
-      createHold: vi.fn(async () => {
+      planCreateHold: vi.fn(async () => {
         throw new InventoryHoldPlacementError(
           "insufficient-available-quantity",
           "Holds cannot exceed the available quantity for an inventory item.",
@@ -175,7 +229,7 @@ describe("order inventory reservation workflow", () => {
 
   it("rejects a reservation for terminal missing inventory items", async () => {
     const services = createServices({
-      createHold: vi.fn(async () => {
+      planCreateHold: vi.fn(async () => {
         throw new InventoryHoldPlacementError("inventory-item-missing", "Inventory item not found.");
       }),
     });
@@ -194,7 +248,7 @@ describe("order inventory reservation workflow", () => {
 
   it("does not cancel an order for transient inventory projection misses", async () => {
     const services = createServices({
-      createHold: vi.fn(async () => {
+      planCreateHold: vi.fn(async () => {
         throw new InventoryHoldPlacementError("inventory-item-projection-missing", "Inventory item not found.");
       }),
     });
@@ -206,3 +260,22 @@ describe("order inventory reservation workflow", () => {
     expect(services.reservations.commandHandler).not.toHaveBeenCalled();
   });
 });
+
+function appendInput(
+  streamId: string,
+  eventType: string,
+  payload: JsonObject,
+  inputContext: EventStoreContext,
+): AppendToStreamInput {
+  return {
+    streamId,
+    expectedVersion: 0,
+    events: [
+      {
+        eventType,
+        payload,
+      },
+    ],
+    context: inputContext,
+  };
+}

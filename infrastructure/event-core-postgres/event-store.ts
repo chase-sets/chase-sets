@@ -3,7 +3,12 @@ import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { EventId } from "@chase-sets/primitives/typed-ids";
-import { createEventStoreError, EventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
+import {
+  createEventStoreError,
+  EventStoreError,
+  type AppendToStreamsResult,
+  type EventStore,
+} from "@chase-sets/event-core/event-store";
 import { ZERO_GLOBAL_POSITION, globalPositionFromBigInt, parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { observeEventStoreOperation } from "@chase-sets/observability";
 import type {
@@ -252,6 +257,61 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         },
       );
     },
+    appendToStreams: async (inputs) => {
+      const appendInputs = inputs.filter((input) => input.events.length > 0);
+      if (appendInputs.length === 0) {
+        return inputs.map((input) => ({ streamId: input.streamId, storedEvents: [] }));
+      }
+
+      return observeEventStoreOperation(
+        "append_to_streams",
+        {
+          event_count: appendInputs.reduce((count, input) => count + input.events.length, 0),
+          event_type: "multiple",
+        },
+        async () => {
+          try {
+            return await withPgTransaction(
+              pool,
+              async (client) =>
+                appendEventsToStreams({
+                  client,
+                  inputs,
+                  now,
+                  createEventId,
+                  upsertStreamSql,
+                  readCurrentVersionSql,
+                  eventsTable,
+                  readEventsByIdsSql,
+                  updateStreamVersionSql,
+                }),
+              {
+                afterCommit: wakeNotifications
+                  ? async (client, results) => {
+                      for (let index = 0; index < inputs.length; index += 1) {
+                        const input = inputs[index];
+                        if (!input) {
+                          continue;
+                        }
+                        const storedEvents = results[index]?.storedEvents ?? [];
+                        await emitEventStoreWakeNotificationAfterCommit({
+                          client,
+                          config: wakeNotifications,
+                          input,
+                          storedEvents,
+                          emittedAt: now(),
+                        });
+                      }
+                    }
+                  : undefined,
+              },
+            );
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to append events to Postgres event store.");
+          }
+        },
+      );
+    },
 
     readStream: async (input: ReadStreamInput) => {
       const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
@@ -314,6 +374,11 @@ type AppendInTransactionArgs = Readonly<{
   readEventsByIdsSql: string;
   updateStreamVersionSql: string;
 }>;
+
+type AppendStreamsInTransactionArgs = Omit<AppendInTransactionArgs, "input"> &
+  Readonly<{
+    inputs: readonly AppendToStreamInput[];
+  }>;
 
 type ReadAllQueryInput = Readonly<{
   afterGlobalPosition: GlobalPosition;
@@ -489,6 +554,26 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
   await args.client.query(args.updateStreamVersionSql, [args.input.streamId, updatedStreamVersion, now]);
 
   return storedEvents;
+}
+
+async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Promise<readonly AppendToStreamsResult[]> {
+  const results: AppendToStreamsResult[] = [];
+
+  for (const input of args.inputs) {
+    const storedEvents =
+      input.events.length === 0
+        ? []
+        : await appendEventsToStream({
+            ...args,
+            input,
+          });
+    results.push({
+      streamId: input.streamId,
+      storedEvents,
+    });
+  }
+
+  return results;
 }
 
 type AppendEventCandidate = Readonly<{
