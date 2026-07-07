@@ -10,8 +10,15 @@ export type {
   ReportedContentQueueItem,
   ReportedContentQueueMetrics,
 } from "./features/reported-content/api/contracts";
+export type {
+  RiskAlertAction,
+  RiskAlertQueueDetail,
+  RiskAlertQueueItem,
+  RiskAlertQueueMetrics,
+} from "./features/risk-alerts/api/contracts";
 export { createExperienceRequestApiClient } from "./support/request-support/api-client";
 export { createReportedContentRequestApiClient } from "./support/request-support/reported-content-client";
+export { createRiskAlertRequestApiClient } from "./support/request-support/risk-alert-client";
 export { PlatformFeedbackPrompt } from "./features/platform-feedback/ui/platform-feedback-prompt";
 export {
   platformFeedbackPlacementContract,

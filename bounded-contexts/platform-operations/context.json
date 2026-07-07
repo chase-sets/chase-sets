@@ -11,6 +11,7 @@
     "platform-feedback",
     "platform-feedback-prompt",
     "reported-content",
+    "risk-alert",
     "support-request"
   ],
   "streamPrefix": "platform-operations.",
@@ -20,6 +21,7 @@
     "insights-dashboards",
     "platform-feedback",
     "reported-content",
+    "risk-alerts",
     "support-requests"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
@@ -43,6 +45,40 @@
       "eventTypes": ["platform-operations.reported-content.action-recorded"],
       "order": 61,
       "projectionHandlerSetNames": ["reported-content-queue-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "risk-alert-queue-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account.created"],
+      "order": 62,
+      "projectionHandlerSetNames": ["risk-alert-queue-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "risk-alert-queue-projection",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["marketplace.listing.created", "marketplace.review.submitted"],
+      "order": 63,
+      "projectionHandlerSetNames": ["risk-alert-queue-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "risk-alert-queue-projection",
+      "subscriptionVersion": 1,
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["payments.payment-created", "payments.payment-disputed"],
+      "order": 64,
+      "projectionHandlerSetNames": ["risk-alert-queue-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "risk-alert-queue-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["platform-operations.risk-alert.action-recorded"],
+      "order": 65,
+      "projectionHandlerSetNames": ["risk-alert-queue-projection"]
     },
     {
       "sourceContextName": "ordering",
@@ -84,6 +120,18 @@
       "sourceContextNames": ["marketplace", "platform-operations"],
       "optionalSourceContextNames": ["marketplace"],
       "ownedTables": ["platform_operations_reported_content_queue_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "risk-alert-queue-projection",
+      "sourceContextNames": ["identity", "marketplace", "payments", "platform-operations"],
+      "optionalSourceContextNames": ["marketplace", "payments"],
+      "ownedTables": [
+        "platform_operations_risk_alert_account_sources",
+        "platform_operations_risk_alert_velocity_sources",
+        "platform_operations_risk_alert_queue_pages"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -349,6 +397,25 @@
           "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
         ]
       }
+    },
+    {
+      "id": "platform-operations.risk-alert-action-snapshots",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/platform-operations/support/request-support/risk-alert-client.ts:POST Hf4a5fa16a0a6#1",
+        "api-route:bounded-contexts/platform-operations/features/risk-alerts/api/http.ts:POST /:alertId/actions",
+        "post-form:bounded-contexts/platform-operations/features/risk-alerts/ui/admin-pages.tsx:H901edc92b88e#1",
+        "route-action:bounded-contexts/platform-operations/routes/admin/risk-alert-detail.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Risk alert actions return the recorded action id and timestamp; the detail route redirects back to the same queue item so the loader refetches the projected action status and audit fields."
+      },
+      "proof": {
+        "authoritativeResponse": "recordRiskAlertAction returns the appended action id and recorded timestamp, while the action projection owns status changes for acknowledgement and manual-payout-review-requested.",
+        "tests": ["bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.test.ts"]
+      }
     }
   ],
   "deployableContributions": [
@@ -395,6 +462,22 @@
           "routeId": "reported-content-detail",
           "routePath": "reported-content/:targetType/:targetId",
           "fileExport": "./routes/admin/reported-content-detail",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
+        {
+          "routeId": "risk-alerts",
+          "routePath": "risk-alerts",
+          "fileExport": "./routes/admin/risk-alerts",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
+        {
+          "routeId": "risk-alert-detail",
+          "routePath": "risk-alerts/:alertId",
+          "fileExport": "./routes/admin/risk-alert-detail",
           "routeType": "route",
           "sourceContext": "platform-operations",
           "section": "support"
@@ -464,6 +547,18 @@
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
+      "key": "risk-alerts",
+      "label": "Risk Alerts",
+      "icon": "bell",
+      "href": "/risk-alerts",
+      "section": "support",
+      "order": 16,
+      "visibility": "signed-in",
+      "requiredPermissions": ["reported-content.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
       "key": "support-requests",
       "label": "Support",
       "icon": "help",
@@ -520,6 +615,11 @@
     "reported-content": {
       "classification": "slice",
       "purpose": "Own reported-content operator queue read models and admin moderation surfaces for Marketplace reports.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
+    },
+    "risk-alerts": {
+      "classification": "slice",
+      "purpose": "Own risk-alert operator queue read models and admin Trust & Safety surfaces for account velocity signals.",
       "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
     },
     "support-requests": {

@@ -13,6 +13,12 @@ import {
   buildMarketplaceReportedContentProjectionHandlers,
   buildPlatformOperationsReportedContentProjectionHandlers,
 } from "./features/reported-content/read-model/projection";
+import {
+  buildIdentityRiskAlertProjectionHandlers,
+  buildMarketplaceRiskAlertProjectionHandlers,
+  buildPaymentsRiskAlertProjectionHandlers,
+  buildPlatformOperationsRiskAlertProjectionHandlers,
+} from "./features/risk-alerts/read-model/projection";
 import { buildSupportApi } from "./features/support-requests/api/http";
 import {
   buildSupportOrderSourceProjectionHandlers,
@@ -38,7 +44,7 @@ export const module = defineBoundedContextModule<
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
     buildPlatformOperationsApi(services),
-    buildExperienceApi(services.platformFeedback, services.reportedContent),
+    buildExperienceApi(services.platformFeedback, services.reportedContent, services.riskAlerts),
     buildSupportApi(services.supportRequests),
   ],
   projectionHandlerSets: (services) => services.projectors,
@@ -62,6 +68,22 @@ export const module = defineBoundedContextModule<
         "platform-operations.reported-content-queue-projection": {
           subscriptionName: "platform-operations.reported-content-queue-projection",
           buildHandlers: () => buildPlatformOperationsReportedContentProjectionHandlers(services.db),
+        },
+        "identity.risk-alert-queue-projection": {
+          subscriptionName: "platform-operations.risk-alert-queue-projection",
+          buildHandlers: () => buildIdentityRiskAlertProjectionHandlers(services.db),
+        },
+        "marketplace.risk-alert-queue-projection": {
+          subscriptionName: "platform-operations.risk-alert-queue-projection",
+          buildHandlers: () => buildMarketplaceRiskAlertProjectionHandlers(services.db),
+        },
+        "payments.risk-alert-queue-projection": {
+          subscriptionName: "platform-operations.risk-alert-queue-projection",
+          buildHandlers: () => buildPaymentsRiskAlertProjectionHandlers(services.db),
+        },
+        "platform-operations.risk-alert-queue-projection": {
+          subscriptionName: "platform-operations.risk-alert-queue-projection",
+          buildHandlers: () => buildPlatformOperationsRiskAlertProjectionHandlers(services.db),
         },
       },
     }),

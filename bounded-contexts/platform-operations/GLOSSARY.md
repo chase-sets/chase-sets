@@ -31,6 +31,10 @@
 
 **Moderation Queue** is the Platform Operations queue that groups content reports by target and highlights auto-unlisted targets for operator review.
 
+## Risk Alert
+
+**Risk Alert** is an operator-facing Trust & Safety queue item created when event-sourced account risk counters cross configured velocity thresholds.
+
 - Support Request: A structured request for help with a marketplace order.
 - Support Flow: The issue-specific checklist, response options, and resolution policy for a support request.
 - Support Evidence: Structured information supplied by the buyer, seller, or platform on a support request.

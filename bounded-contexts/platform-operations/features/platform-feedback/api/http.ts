@@ -5,6 +5,8 @@ import type { PlatformFeedbackServices } from "./runtime";
 import { normalizeTopic, normalizeWorkflow, type PlatformFeedbackRelatedEntity } from "../domain/common";
 import { createReportedContentRoutes } from "../../reported-content/api/http";
 import type { ReportedContentServices } from "../../reported-content/api/runtime";
+import { createRiskAlertRoutes } from "../../risk-alerts/api/http";
+import type { RiskAlertServices } from "../../risk-alerts/api/runtime";
 
 export type ExperienceApiEnv = AuthenticatedApiEnv;
 
@@ -409,11 +411,15 @@ export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices)
 export function buildExperienceApi(
   platformFeedback: PlatformFeedbackServices,
   reportedContent?: ReportedContentServices,
+  riskAlerts?: RiskAlertServices,
 ) {
   const app = new Hono<ExperienceApiEnv>();
   app.route("/platform-feedback", createPlatformFeedbackRoutes(platformFeedback));
   if (reportedContent) {
     app.route("/reported-content", createReportedContentRoutes(reportedContent));
+  }
+  if (riskAlerts) {
+    app.route("/risk-alerts", createRiskAlertRoutes(riskAlerts));
   }
   return app;
 }
