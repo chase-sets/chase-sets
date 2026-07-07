@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const discoveryMarketSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_market_accounts (
   account_id text PRIMARY KEY,
   seller_slug text NOT NULL DEFAULT '',
@@ -23,9 +25,6 @@ ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS rating_4_count integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_5_count integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS reputation_updated_at timestamptz NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS discovery_market_accounts_seller_slug_idx
-  ON discovery_market_accounts (seller_slug) WHERE seller_slug <> '';
 
 CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
   review_id text PRIMARY KEY,
@@ -97,12 +96,6 @@ ALTER TABLE discovery_market_listings
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS discovery_market_listings_listing_slug_idx
-  ON discovery_market_listings (listing_slug) WHERE listing_slug <> '';
-
-CREATE INDEX IF NOT EXISTS discovery_market_listings_product_slug_idx
-  ON discovery_market_listings (product_slug);
-
 CREATE INDEX IF NOT EXISTS discovery_market_listings_catalog_item_idx
   ON discovery_market_listings (catalog_catalog_item_id);
 CREATE INDEX IF NOT EXISTS discovery_market_listings_version_idx
@@ -134,12 +127,6 @@ ALTER TABLE discovery_market_supply_items
   ADD COLUMN IF NOT EXISTS selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS graded_card jsonb NULL,
   ADD COLUMN IF NOT EXISTS storage_location_id text NULL;
-
-CREATE INDEX IF NOT EXISTS discovery_market_supply_items_account_catalog_idx
-  ON discovery_market_supply_items (account_id, catalog_catalog_item_id);
-
-CREATE INDEX IF NOT EXISTS discovery_market_supply_items_storage_location_idx
-  ON discovery_market_supply_items (storage_location_id);
 
 CREATE TABLE IF NOT EXISTS discovery_market_supply_holds (
   hold_id text PRIMARY KEY,
@@ -225,3 +212,22 @@ CREATE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_seller_idx
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_offer_unique_idx
   ON discovery_item_detail_sell_list_lines (seller_account_id, offer_id)
   WHERE offer_id IS NOT NULL;`;
+
+export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260707_discovery_market_slug_and_supply_lookup_indexes",
+    description: "Create Discovery market lookup indexes for seller, listing, product, and supply facts.",
+    statements: [
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_market_accounts_seller_slug_idx
+  ON discovery_market_accounts (seller_slug) WHERE seller_slug <> '';`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_market_listings_listing_slug_idx
+  ON discovery_market_listings (listing_slug) WHERE listing_slug <> '';`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_market_listings_product_slug_idx
+  ON discovery_market_listings (product_slug);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_market_supply_items_account_catalog_idx
+  ON discovery_market_supply_items (account_id, catalog_catalog_item_id);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_market_supply_items_storage_location_idx
+  ON discovery_market_supply_items (storage_location_id);`,
+    ],
+  },
+];
