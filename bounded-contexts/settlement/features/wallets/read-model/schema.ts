@@ -39,34 +39,26 @@ CREATE INDEX IF NOT EXISTS settlement_ledger_entry_pages_account_idx
 CREATE INDEX IF NOT EXISTS settlement_ledger_entry_pages_payout_idx
   ON settlement_ledger_entry_pages (payout_id)
   WHERE payout_id IS NOT NULL;
-
-ALTER TABLE settlement_wallet_pages
-  ADD COLUMN IF NOT EXISTS negative_balance_status text NOT NULL DEFAULT 'in-good-standing'
-    CHECK (negative_balance_status IN ('in-good-standing', 'negative', 'collections'));
-
-ALTER TABLE settlement_wallet_pages
-  ADD COLUMN IF NOT EXISTS negative_balance_started_at timestamptz NULL;
-
-ALTER TABLE settlement_wallet_pages
-  ADD COLUMN IF NOT EXISTS collections_escalated_at timestamptz NULL;
 `;
+
+const settlementWalletNegativeBalanceColumnsSql = `ALTER TABLE settlement_wallet_pages
+  ADD COLUMN IF NOT EXISTS negative_balance_status text NOT NULL DEFAULT 'in-good-standing'
+    CHECK (negative_balance_status IN ('in-good-standing', 'negative', 'collections')),
+  ADD COLUMN IF NOT EXISTS negative_balance_started_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS collections_escalated_at timestamptz NULL;`;
+
+const settlementWalletNegativeBalanceIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_pages_negative_balance_idx
+  ON settlement_wallet_pages (negative_balance_status, negative_balance_started_at)
+  WHERE negative_balance_status <> 'in-good-standing';`;
 
 export const settlementWalletSchemaMigrations: readonly BcSchemaMigration[] = [
   {
-    migrationId: "20260707_settlement_wallet_negative_balance_index",
-    description: "Create the settlement wallet negative-balance lookup index after compatibility columns exist.",
+    migrationId: "20260707_settlement_wallet_negative_balance_columns",
+    description: "Backfill settlement wallet negative-balance columns and create the lookup index.",
     statements: [
-      `SET lock_timeout = '5s';`,
-      `ALTER TABLE settlement_wallet_pages
-  ADD COLUMN IF NOT EXISTS negative_balance_status text NOT NULL DEFAULT 'in-good-standing'
-    CHECK (negative_balance_status IN ('in-good-standing', 'negative', 'collections'));`,
-      `ALTER TABLE settlement_wallet_pages
-  ADD COLUMN IF NOT EXISTS negative_balance_started_at timestamptz NULL;`,
-      `ALTER TABLE settlement_wallet_pages
-  ADD COLUMN IF NOT EXISTS collections_escalated_at timestamptz NULL;`,
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_pages_negative_balance_idx
-  ON settlement_wallet_pages (negative_balance_status, negative_balance_started_at)
-  WHERE negative_balance_status <> 'in-good-standing';`,
+      "SET lock_timeout = '5s';",
+      settlementWalletNegativeBalanceColumnsSql,
+      settlementWalletNegativeBalanceIndexSql,
     ],
   },
 ];

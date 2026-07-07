@@ -3,10 +3,6 @@ import { settlementWalletSchemaMigrations, settlementWalletSchemaSql } from "./s
 
 describe("settlement wallet schema", () => {
   it("creates the negative-balance index through a migration after compatibility columns exist", () => {
-    expect(settlementWalletSchemaSql).not.toContain(
-      "CREATE INDEX IF NOT EXISTS settlement_wallet_pages_negative_balance_idx",
-    );
-
     const statements = settlementWalletSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
     const addStatusColumn = statements.indexOf("ADD COLUMN IF NOT EXISTS negative_balance_status");
     const addStartedAtColumn = statements.indexOf("ADD COLUMN IF NOT EXISTS negative_balance_started_at");
@@ -15,6 +11,8 @@ describe("settlement wallet schema", () => {
       "CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_pages_negative_balance_idx",
     );
 
+    expect(settlementWalletSchemaSql).not.toContain("ADD COLUMN IF NOT EXISTS negative_balance_status");
+    expect(settlementWalletSchemaSql).not.toContain("settlement_wallet_pages_negative_balance_idx");
     expect(addStatusColumn).toBeGreaterThan(-1);
     expect(addStartedAtColumn).toBeGreaterThan(-1);
     expect(addCollectionsColumn).toBeGreaterThan(-1);

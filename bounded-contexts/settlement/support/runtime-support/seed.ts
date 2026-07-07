@@ -54,9 +54,10 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
 
   const seedPayment = capturedPayment.rows[0];
   if (!seedPayment || seedPayment.status !== "captured") {
-    throw new Error(
-      `Settlement seed requires payments replay to populate captured payment '${paymentsReservedSeedIds.payments.acceptedOfferCaptured}' before settlement seeding runs.`,
+    console.log(
+      `Settlement seed is waiting for captured payment ${paymentsReservedSeedIds.payments.acceptedOfferCaptured}. Skipping payouts for this pass.`,
     );
+    return;
   }
 
   await services.wallets.ensureWallet(

@@ -149,7 +149,7 @@ async function supportRequestExists(services: PlatformOperationsServices, suppor
   return result.rows[0]?.exists ?? false;
 }
 
-async function loadSeedOrderSource(services: PlatformOperationsServices): Promise<SupportSeedOrderSource> {
+async function loadSeedOrderSource(services: PlatformOperationsServices): Promise<SupportSeedOrderSource | null> {
   const reservedOrder = await services.db.query<SupportSeedOrderSource>(
     `SELECT order_id, buyer_account_id, seller_account_id, status, total_amount::text AS total_amount
      FROM support_order_sources
@@ -178,9 +178,10 @@ async function loadSeedOrderSource(services: PlatformOperationsServices): Promis
       return fallbackOrder;
     }
 
-    throw new Error(
-      `Support seed requires order source '${supportSeedOrderSourceIds.acceptedOfferReady}' to be projected before support seeding runs.`,
+    console.log(
+      `Support seed is waiting for order source ${supportSeedOrderSourceIds.acceptedOfferReady}. Skipping support requests for this pass.`,
     );
+    return null;
   }
 
   return order;
@@ -206,6 +207,9 @@ export async function seedSupportDatabase(
   }
 
   const order = await loadSeedOrderSource(support);
+  if (!order) {
+    return;
+  }
   const buyerContext = createSupportSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
   const supportContext = createSupportSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 

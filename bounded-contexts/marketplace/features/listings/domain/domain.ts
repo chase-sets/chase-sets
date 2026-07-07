@@ -89,6 +89,76 @@ export type MarketplaceGradedCardDetails = Readonly<{
   conditionDescriptors: string[];
 }>;
 
+type MarketplaceGradingCompanyPolicy = Readonly<{
+  gradingCompany: string;
+  certificationNumberPattern: RegExp;
+  certificationNumberDescription: string;
+  labels: readonly string[];
+}>;
+
+export const marketplaceGradingCompanyPolicies = {
+  PSA: {
+    gradingCompany: "PSA",
+    certificationNumberPattern: /^\d{8,10}$/,
+    certificationNumberDescription: "8 to 10 digits",
+    labels: ["Authentic", "Authentic Altered"],
+  },
+  BGS: {
+    gradingCompany: "BGS",
+    certificationNumberPattern: /^\d{8,10}$/,
+    certificationNumberDescription: "8 to 10 digits",
+    labels: ["Authentic"],
+  },
+  CGC: {
+    gradingCompany: "CGC",
+    certificationNumberPattern: /^\d{7,10}$/,
+    certificationNumberDescription: "7 to 10 digits",
+    labels: ["Authentic"],
+  },
+  SGC: {
+    gradingCompany: "SGC",
+    certificationNumberPattern: /^\d{6,10}$/,
+    certificationNumberDescription: "6 to 10 digits",
+    labels: ["Authentic"],
+  },
+} as const satisfies Record<string, MarketplaceGradingCompanyPolicy>;
+
+const gradingCompanyAliases = new Map<string, keyof typeof marketplaceGradingCompanyPolicies>([
+  ["BGS BECKETT", "BGS"],
+  ["BECKETT", "BGS"],
+]);
+
+const numericGradeValues = new Set(
+  Array.from({ length: 19 }, (_, index) => {
+    const value = 1 + index * 0.5;
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }),
+);
+
+const gradeLabelAliases = new Map(
+  [
+    ["pristine 10", "10"],
+    ["gem mint 10", "10"],
+    ["mint 9.5", "9.5"],
+    ["mint 9", "9"],
+    ["nm mt 8.5", "8.5"],
+    ["near mint mint 8.5", "8.5"],
+    ["nm mt 8", "8"],
+    ["near mint mint 8", "8"],
+    ["nm 7", "7"],
+    ["near mint 7", "7"],
+    ["ex 6", "6"],
+    ["excellent 6", "6"],
+    ["ex 5", "5"],
+    ["excellent 5", "5"],
+    ["vg 4", "4"],
+    ["very good 4", "4"],
+    ["good 3", "3"],
+    ["good 2", "2"],
+    ["poor 1", "1"],
+  ].map(([label, grade]) => [normalizeGradeLabelAlias(label), grade] as const),
+);
+
 export type MarketplaceListingState = Readonly<{
   listingId: ListingId | null;
   accountId: AccountId | null;
@@ -509,7 +579,7 @@ export const decideMarketplaceListing: AggregateDecider<
       assert(state.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
       assert(
         !requiresListingPhotoEvidence(state) || state.listingPhotos.length > 0,
-        "Pristine and Mint listings require at least one listing photo before publication.",
+        "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
       );
       return [
         {
@@ -670,8 +740,16 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
 }
 
 export function requiresListingPhotoEvidence(
-  listing: Pick<MarketplaceListingState, "selectedOptions" | "productSummary">,
+  listing: Readonly<{
+    selectedOptions: MarketplaceListingState["selectedOptions"];
+    productSummary: MarketplaceListingState["productSummary"];
+    gradedCard?: MarketplaceListingState["gradedCard"];
+  }>,
 ): boolean {
+  if (listing.gradedCard) {
+    return true;
+  }
+
   const values = [
     listing.productSummary ?? "",
     ...listing.selectedOptions.flatMap((selection) => [selection.dimensionId, selection.optionId]),
@@ -839,10 +917,18 @@ function normalizeGradedCardDetails(details: MarketplaceGradedCardDetails | null
     return null;
   }
 
-  const gradingCompany = details.gradingCompany.trim();
-  const grade = details.grade.trim();
+  const gradingCompany = normalizeGradingCompany(details.gradingCompany);
+  const policy = marketplaceGradingCompanyPolicies[gradingCompany];
+  const grade = normalizeGradedCardGrade(details.grade, policy);
+  const certificationNumber = normalizeRequiredText(
+    details.certificationNumber ?? "",
+    "Graded cards require a certification number.",
+  ).replaceAll(/\s+/g, "");
   assert(gradingCompany.length > 0, "Graded cards require a grading company.");
-  assert(grade.length > 0, "Graded cards require a grade.");
+  assert(
+    policy.certificationNumberPattern.test(certificationNumber),
+    `${policy.gradingCompany} certification numbers must use ${policy.certificationNumberDescription}.`,
+  );
 
   const population = details.population
     ? {
@@ -863,9 +949,9 @@ function normalizeGradedCardDetails(details: MarketplaceGradedCardDetails | null
   }
 
   return {
-    gradingCompany,
+    gradingCompany: policy.gradingCompany,
     grade,
-    certificationNumber: normalizeOptionalText(details.certificationNumber),
+    certificationNumber,
     population,
     conditionDescriptors: [
       ...new Set(
@@ -875,4 +961,58 @@ function normalizeGradedCardDetails(details: MarketplaceGradedCardDetails | null
       ),
     ],
   };
+}
+
+function normalizeGradingCompany(value: string): keyof typeof marketplaceGradingCompanyPolicies {
+  const normalized = normalizeGradingCompanyAlias(value);
+  const canonical = gradingCompanyAliases.get(normalized) ?? normalized;
+  assert(normalized.length > 0, "Graded cards require a grading company.");
+  assert(
+    canonical in marketplaceGradingCompanyPolicies,
+    `Grading company must be one of ${Object.keys(marketplaceGradingCompanyPolicies).join(", ")}.`,
+  );
+
+  return canonical as keyof typeof marketplaceGradingCompanyPolicies;
+}
+
+function normalizeGradedCardGrade(grade: string, policy: MarketplaceGradingCompanyPolicy): string {
+  const normalized = grade.trim().replaceAll(/\s+/g, " ");
+  assert(normalized.length > 0, "Graded cards require a grade.");
+
+  const numeric = Number(normalized);
+  if (Number.isFinite(numeric)) {
+    const canonical = Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1);
+    assert(
+      numericGradeValues.has(canonical),
+      `${policy.gradingCompany} grades must be 1 through 10 in 0.5-point steps or an allowed label.`,
+    );
+    return canonical;
+  }
+
+  const gradeAlias = gradeLabelAliases.get(normalizeGradeLabelAlias(normalized));
+  if (gradeAlias) {
+    return gradeAlias;
+  }
+
+  const label = policy.labels.find((allowed) => allowed.toLowerCase() === normalized.toLowerCase());
+  assert(label, `${policy.gradingCompany} grades must be 1 through 10 in 0.5-point steps or an allowed label.`);
+  return label;
+}
+
+function normalizeGradeLabelAlias(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9.]+/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeGradingCompanyAlias(value: string): string {
+  return value
+    .trim()
+    .toUpperCase()
+    .replaceAll(/[^A-Z0-9]+/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim();
 }

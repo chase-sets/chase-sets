@@ -184,7 +184,7 @@ const dimensionDefs: DimensionDef[] = [
       {
         optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.bgs as OptionId,
         code: "bgs",
-        label: "BGS/Beckett",
+        label: "BGS",
       },
       {
         optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.cgc as OptionId,

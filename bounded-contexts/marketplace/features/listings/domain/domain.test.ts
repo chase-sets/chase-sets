@@ -180,7 +180,7 @@ describe("marketplace listing photos", () => {
     expect(state.listingPhotos[0]?.assetSet.variants[0]?.mediaType).toBe("image/webp");
   });
 
-  it("requires listing photos before publishing Mint or Pristine listings", () => {
+  it("requires listing photos before publishing Mint, Pristine, or graded-card listings", () => {
     const mintDraft = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
       selectedOptions: [{ dimensionId: "dim_condition", optionId: "mint" }],
@@ -194,7 +194,32 @@ describe("marketplace listing photos", () => {
         sellerNetUnitAmount: "9.00",
         feeQuoteFingerprint: "fee_test",
       }),
-    ).toThrow("Pristine and Mint listings require at least one listing photo before publication.");
+    ).toThrow(
+      "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
+    );
+
+    const gradedDraft = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      listingId: "lst_graded" as never,
+      gradedCard: {
+        gradingCompany: "PSA",
+        grade: "10",
+        certificationNumber: "12345678",
+        population: null,
+        conditionDescriptors: [],
+      },
+    }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+
+    expect(() =>
+      decideMarketplaceListing(gradedDraft, {
+        type: "PublishListing",
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_test",
+      }),
+    ).toThrow(
+      "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
+    );
 
     const nearMintDraft = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
@@ -228,5 +253,133 @@ describe("marketplace listing photos", () => {
         feeQuoteFingerprint: "fee_test",
       }),
     ).toThrow("Listings require a resolved shipping measure before publication.");
+  });
+});
+
+describe("marketplace graded-card validation", () => {
+  it.each([
+    ["PSA", "12345678", "10.0", "10"],
+    ["PSA", "12345678", "Gem Mint 10", "10"],
+    ["PSA", "12345678", "NM-MT 8", "8"],
+    ["BGS", "1234567890", "9.5", "9.5"],
+    ["BGS", "1234567890", "Mint 9.5", "9.5"],
+    ["CGC", "1234567", "Authentic", "Authentic"],
+    ["SGC", "123456", " authentic ", "Authentic"],
+  ])(
+    "accepts %s certification numbers and normalizes grades",
+    (gradingCompany, certificationNumber, grade, expected) => {
+      const events = decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        gradedCard: {
+          gradingCompany,
+          grade,
+          certificationNumber,
+          population: null,
+          conditionDescriptors: [" slabbed ", "slabbed"],
+        },
+      });
+
+      expect(events[0]?.type).toBe("marketplace.listing.created");
+      const [created] = events;
+      if (created?.type !== "marketplace.listing.created") {
+        throw new Error("Expected listing created event.");
+      }
+      expect(created.data.gradedCard).toMatchObject({
+        gradingCompany,
+        grade: expected,
+        certificationNumber,
+        conditionDescriptors: ["slabbed"],
+      });
+    },
+  );
+
+  it("normalizes the BGS catalog seed label alias to the supported grading company code", () => {
+    const events = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      gradedCard: {
+        gradingCompany: "BGS/Beckett",
+        grade: "Mint 9.5",
+        certificationNumber: "0012345678",
+        population: null,
+        conditionDescriptors: ["Encapsulated"],
+      },
+    });
+
+    expect(events[0]?.type).toBe("marketplace.listing.created");
+    const [created] = events;
+    if (created?.type !== "marketplace.listing.created") {
+      throw new Error("Expected listing created event.");
+    }
+    expect(created.data.gradedCard).toMatchObject({
+      gradingCompany: "BGS",
+      grade: "9.5",
+      certificationNumber: "0012345678",
+      conditionDescriptors: ["Encapsulated"],
+    });
+  });
+
+  it.each([
+    ["PSA", "ABC12345", "PSA certification numbers must use 8 to 10 digits."],
+    ["BGS", "1234567", "BGS certification numbers must use 8 to 10 digits."],
+    ["CGC", "123456", "CGC certification numbers must use 7 to 10 digits."],
+    ["SGC", "12345", "SGC certification numbers must use 6 to 10 digits."],
+  ])("rejects malformed %s certification numbers", (gradingCompany, certificationNumber, message) => {
+    expect(() =>
+      decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        gradedCard: {
+          gradingCompany,
+          grade: "9",
+          certificationNumber,
+          population: null,
+          conditionDescriptors: [],
+        },
+      }),
+    ).toThrow(message);
+  });
+
+  it("requires certification numbers for graded cards", () => {
+    expect(() =>
+      decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        gradedCard: {
+          gradingCompany: "PSA",
+          grade: "9",
+          certificationNumber: null,
+          population: null,
+          conditionDescriptors: [],
+        },
+      }),
+    ).toThrow("Graded cards require a certification number.");
+  });
+
+  it.each(["0.5", "10.5", "9.3", "Gem Mint"])("rejects unsupported grade value %s", (grade) => {
+    expect(() =>
+      decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        gradedCard: {
+          gradingCompany: "PSA",
+          grade,
+          certificationNumber: "12345678",
+          population: null,
+          conditionDescriptors: [],
+        },
+      }),
+    ).toThrow("PSA grades must be 1 through 10 in 0.5-point steps or an allowed label.");
+  });
+
+  it("rejects unsupported grading companies", () => {
+    expect(() =>
+      decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        gradedCard: {
+          gradingCompany: "ACE",
+          grade: "10",
+          certificationNumber: "12345678",
+          population: null,
+          conditionDescriptors: [],
+        },
+      }),
+    ).toThrow("Grading company must be one of PSA, BGS, CGC, SGC.");
   });
 });
