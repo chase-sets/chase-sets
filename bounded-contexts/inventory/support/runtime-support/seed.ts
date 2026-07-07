@@ -250,7 +250,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
       catalogSeedIds.dimensions.grade.optionIds.mint95,
     ),
     gradedCard: {
-      gradingCompany: "BGS/Beckett",
+      gradingCompany: "BGS",
       grade: "Mint 9.5",
       certificationNumber: "0012345678",
       population: null,

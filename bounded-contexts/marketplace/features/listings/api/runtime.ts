@@ -1058,7 +1058,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       assert(listing.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
       assert(
         !requiresListingPhotoEvidence(listing) || listing.listingPhotos.length > 0,
-        "Pristine and Mint listings require at least one listing photo before publication.",
+        "Pristine, Mint, and graded-card listings require at least one listing photo before publication; graded-card listings must include a slab photo.",
       );
       await assertListingPublicationRiskAccepted(listing);
       const quote = await quoteListingTerms(params.accountId, listing.priceAmount);

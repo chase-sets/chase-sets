@@ -11,7 +11,7 @@ import {
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
 import type { ReviewRole } from "../../features/reviews/domain/common";
-import { requiresListingPhotoEvidence } from "../../features/listings/domain/domain";
+import { requiresListingPhotoEvidence, type MarketplaceListingState } from "../../features/listings/domain/domain";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
@@ -614,6 +614,7 @@ function requiresSeedListingPhotoUpload(
   supply: Readonly<{
     selected_options: readonly { dimensionId: string; optionId: string }[];
     product_summary: string | null;
+    graded_card: MarketplaceListingState["gradedCard"];
   }>,
   listing: ListingSeed,
 ) {
@@ -621,6 +622,7 @@ function requiresSeedListingPhotoUpload(
     requiresListingPhotoEvidence({
       selectedOptions: supply.selected_options,
       productSummary: supply.product_summary,
+      gradedCard: supply.graded_card,
     }) || Number.parseFloat(listing.priceAmount) >= HIGH_DOLLAR_SEED_LISTING_AMOUNT
   );
 }
