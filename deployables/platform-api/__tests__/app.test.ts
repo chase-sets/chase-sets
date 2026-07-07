@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
+import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as identityModule } from "@chase-sets/identity";
+import { module as inventoryModule } from "@chase-sets/inventory";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -34,10 +36,13 @@ function platformActor(permissions: readonly string[]) {
   };
 }
 
-function createEmptyRuntime(services: Record<string, unknown> = {}) {
+function createEmptyRuntime(
+  services: Record<string, unknown> = {},
+  mountedModules: readonly { module: unknown; services: unknown }[] = [],
+) {
   return {
     mountedContexts: [],
-    mountedModules: [],
+    mountedModules,
     services: {
       auth: {},
       identity: {},
@@ -626,24 +631,23 @@ describe("platform api app wiring", () => {
     });
   });
 
-  it("registers Inventory import MCP handlers from platform runtime services", async () => {
+  it("registers Inventory import MCP handlers from the context module contract", async () => {
     const importBatchDetail = {
       batchId: "batch_1",
       accountId: "account_1",
       rows: [],
     };
+    const inventoryServices = {
+      importBatches: {
+        createBatch: vi.fn(async () => importBatchDetail),
+        getBatch: vi.fn(async () => importBatchDetail),
+        listBatches: vi.fn(),
+        commitBatch: vi.fn(async () => ({ ...importBatchDetail, committed: true })),
+      },
+    };
     const auditRecords: unknown[] = [];
     const app = buildPlatformApiApp(
-      createEmptyRuntime({
-        inventory: {
-          importBatches: {
-            createBatch: vi.fn(async () => importBatchDetail),
-            getBatch: vi.fn(async () => importBatchDetail),
-            listBatches: vi.fn(),
-            commitBatch: vi.fn(async () => ({ ...importBatchDetail, committed: true })),
-          },
-        },
-      }),
+      createEmptyRuntime({ inventory: inventoryServices }, [{ module: inventoryModule, services: inventoryServices }]),
       {
         resolveActor: vi.fn(async () => platformActor(["inventory.view", "inventory.manage"])),
         mcp: {
@@ -664,12 +668,12 @@ describe("platform api app wiring", () => {
     });
     await expect(toolsResponse.json()).resolves.toMatchObject({
       result: {
-        tools: [
+        tools: expect.arrayContaining([
           expect.objectContaining({ name: "inventory.list-import-sources" }),
           expect.objectContaining({ name: "inventory.create-import-batch" }),
           expect.objectContaining({ name: "inventory.get-import-batch" }),
           expect.objectContaining({ name: "inventory.commit-import-batch" }),
-        ],
+        ]),
       },
     });
 
@@ -770,11 +774,11 @@ describe("platform api app wiring", () => {
     });
     await expect(resourcesResponse.json()).resolves.toMatchObject({
       result: {
-        resources: [
+        resources: expect.arrayContaining([
           expect.objectContaining({
             uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
           }),
-        ],
+        ]),
       },
     });
 
@@ -846,6 +850,57 @@ describe("platform api app wiring", () => {
         }),
       ]),
     );
+  });
+
+  it("registers Checkout cart MCP handlers from the context module contract", async () => {
+    const checkoutServices = {
+      cart: {
+        listCartLines: vi.fn(async (accountId: string) => [
+          {
+            line_id: "cli_1",
+            buyer_account_id: accountId,
+            catalog_item_id: "cat_1",
+            product_id: "cat_1::condition:near-mint",
+            item_title: "Charizard",
+            quantity: 1,
+            updated_at: "2026-07-07T00:00:00.000Z",
+          },
+        ]),
+      },
+    };
+    const app = buildPlatformApiApp(
+      createEmptyRuntime({ checkout: checkoutServices }, [{ module: checkoutModule, services: checkoutServices }]),
+      {
+        resolveActor: vi.fn(async () => platformActor(["orders.view"])),
+      },
+    );
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "checkout_cart",
+        method: "tools/call",
+        params: {
+          name: "checkout.get-cart",
+          arguments: {
+            accountId: "account_1",
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          accountId: "account_1",
+          total: 1,
+          items: [expect.objectContaining({ line_id: "cli_1", item_title: "Charizard" })],
+        },
+      },
+    });
+    expect(checkoutServices.cart.listCartLines).toHaveBeenCalledWith("account_1");
   });
 
   it("rejects anonymous native MCP discovery through the composed platform API", async () => {

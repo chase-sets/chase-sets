@@ -22,6 +22,7 @@ import { InventoryDomainError } from "./support/runtime-support/common";
 import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaMigrations, inventorySchemaSql } from "./support/runtime-support/schema";
 import { seedInventoryDatabase } from "./support/runtime-support/seed";
+import { createInventoryImportBatchMcpHandlers } from "./features/import-batches/api/mcp";
 
 const inventoryContextManifest = contextManifest as BcContextManifest;
 
@@ -31,6 +32,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
   schemaMigrations: inventorySchemaMigrations,
   createServices: (pool, ports, options) => createInventoryServices(pool, ports, options),
   buildApis: (services) => [buildInventoryApi(services)],
+  buildMcpHandlers: (services) => createInventoryImportBatchMcpHandlers(services.importBatches),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
