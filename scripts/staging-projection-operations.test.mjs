@@ -336,6 +336,60 @@ describe("staging projection operations runner", () => {
     }
   });
 
+  it("retries dotted projection-name targets using blocked stream checkpoint keys", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "projection-operations-"));
+    const calls = [];
+    const groupProjectionKey = "checkout.checkout.session-projection";
+    const checkpointKey = "checkout.session-projection:checkout:v1";
+    try {
+      const result = await runStagingProjectionOperations(
+        parseStagingProjectionOperationsArgs(
+          ["--mode", "retry-blocked", "--targets", groupProjectionKey, "--out-dir", outDir],
+          baseEnv,
+        ),
+        {
+          fetchImpl: fakeFetch(
+            calls,
+            [checkoutDottedProjectionCounterSnapshot(), healthySnapshot()],
+            new Map([
+              [
+                groupProjectionKey,
+                {
+                  projectionKey: groupProjectionKey,
+                  blockedStreams: [sampleBlockedStream(checkpointKey, "checkout.session-1")],
+                  poisonEvents: [],
+                },
+              ],
+            ]),
+          ),
+          now: () => "2026-07-06T00:01:00.000Z",
+        },
+      );
+
+      expect(result.record.result).toBe("success");
+      expect(result.record.commands[0]).toMatchObject({
+        operationKind: "retry-blocked",
+        target: groupProjectionKey,
+        status: "requested",
+        streamCount: 1,
+        sourceProjectionKeys: [groupProjectionKey, checkpointKey],
+      });
+      expect(calls.map((call) => [call.method, call.path])).toEqual([
+        ["POST", "/api/auth/password-sign-in"],
+        ["GET", "/api/platform/projections"],
+        ["GET", "/api/platform/projections/checkout.checkout.session-projection/blocked-streams"],
+        ["GET", "/api/platform/projections/checkout.session-projection:checkout:v1/blocked-streams"],
+        [
+          "POST",
+          "/api/platform/projections/checkout.session-projection:checkout:v1/blocked-streams/checkout.session-1/retry",
+        ],
+        ["GET", "/api/platform/projections"],
+      ]);
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("requests rebuilds with the API confirm payload", async () => {
     const outDir = await mkdtemp(join(tmpdir(), "projection-operations-"));
     const calls = [];
@@ -523,6 +577,47 @@ function poisonClassSnapshot() {
         ],
       },
     ],
+  };
+}
+
+function checkoutDottedProjectionCounterSnapshot() {
+  return {
+    ...sampleSnapshot(),
+    projectionGroups: [
+      {
+        projectionName: "checkout.session-projection",
+        targetContextName: "checkout",
+        sourceContextNames: ["checkout"],
+        state: "degraded",
+        initialized: true,
+        caughtUp: false,
+        revisionStale: false,
+        projectionRevision: 1,
+        storedProjectionRevision: 1,
+        outstandingEventCount: "1",
+        blockedStreamCount: 1,
+        poisonEventCount: 0,
+        updatedAt: "2026-07-06T00:00:00.000Z",
+        subscriptions: [
+          {
+            checkpointKey: "checkout.session-projection:checkout:v1",
+            subscriptionName: "checkout.checkout.session-projection",
+            projectionName: "checkout.session-projection",
+            sourceContextName: "checkout",
+            targetContextName: "checkout",
+            subscriptionVersion: 1,
+            lastGlobalPosition: "7",
+            sourceHeadGlobalPosition: "8",
+            outstandingEventCount: "1",
+            state: "degraded",
+            lastError: null,
+            blockedStreamCount: 1,
+            poisonEventCount: 0,
+          },
+        ],
+      },
+    ],
+    blockedProjections: [],
   };
 }
 

@@ -1719,6 +1719,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
       '@chase-sets/realtime':
         specifier: workspace:*
         version: link:../../contracts/realtime

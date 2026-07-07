@@ -1175,22 +1175,33 @@ export async function syncContextSubscriptions(
   });
 }
 
-function getProjectionOperationsPool(
+function getProjectionOperationTargets(
   runtime: Readonly<{
     mountedContexts: readonly MountedContextRuntimeEntry[];
     subscriptionRunners: readonly ContextSubscriptionRunner[];
   }>,
   projectionKey: string,
-): PgTransactionalPool {
-  const subscriptionRunner = runtime.subscriptionRunners.find((runner) => runner.checkpointKey === projectionKey);
-  const subscriptionTarget = subscriptionRunner
-    ? runtime.mountedContexts.find((entry) => entry.contextName === subscriptionRunner.targetContextName)
-    : null;
-  if (subscriptionTarget) {
-    return subscriptionTarget.pool;
+): readonly Readonly<{ projectionKey: string; pool: PgTransactionalPool }>[] {
+  const poolsByContextName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry.pool]));
+  const exactRunner = runtime.subscriptionRunners.find((runner) => runner.checkpointKey === projectionKey);
+  const runners = exactRunner
+    ? [exactRunner]
+    : runtime.subscriptionRunners.filter(
+        (runner) => `${runner.targetContextName}.${runner.projectionName}` === projectionKey,
+      );
+
+  if (runners.length === 0) {
+    throw new Error(`Runtime is missing projection operations storage for '${projectionKey}'.`);
   }
 
-  throw new Error(`Runtime is missing projection operations storage for '${projectionKey}'.`);
+  return runners.map((runner) => {
+    const pool = poolsByContextName.get(runner.targetContextName);
+    if (!pool) {
+      throw new Error(`Runtime is missing projection operations storage for '${runner.checkpointKey}'.`);
+    }
+
+    return { projectionKey: runner.checkpointKey, pool };
+  });
 }
 
 export async function listProjectionBlockedStreamDetails(
@@ -1203,13 +1214,28 @@ export async function listProjectionBlockedStreamDetails(
     poisonEventLimit?: number;
   }> = {},
 ): Promise<ProjectionBlockedStreamDetails> {
-  const pool = getProjectionOperationsPool(runtime, projectionKey);
-  const store = createPostgresProjectionStore({ db: pool });
+  const targets = getProjectionOperationTargets(runtime, projectionKey);
+  const storesByPool = new Map<PgTransactionalPool, ReturnType<typeof createPostgresProjectionStore>>();
+  const blockedStreams: ProjectionBlockedStream[] = [];
+  const poisonEvents: ProjectionPoisonEvent[] = [];
+
+  for (const target of targets) {
+    let store = storesByPool.get(target.pool);
+    if (!store) {
+      store = createPostgresProjectionStore({ db: target.pool });
+      storesByPool.set(target.pool, store);
+    }
+
+    blockedStreams.push(...((await store.listBlockedStreams?.(target.projectionKey)) ?? []));
+    poisonEvents.push(
+      ...((await store.listPoisonEvents?.(target.projectionKey, options.poisonEventLimit ?? 50)) ?? []),
+    );
+  }
 
   return {
     projectionKey,
-    blockedStreams: (await store.listBlockedStreams?.(projectionKey)) ?? [],
-    poisonEvents: (await store.listPoisonEvents?.(projectionKey, options.poisonEventLimit ?? 50)) ?? [],
+    blockedStreams,
+    poisonEvents,
   };
 }
 
