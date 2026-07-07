@@ -22,6 +22,7 @@ import {
   resolveGuestBuyNowItemCandidates,
   resolveGuestBuyNowItemPath,
   runGuestBuyNowFreshnessProbe,
+  startAccountSession,
   submitAccountBuyNowActionFallback,
   validateGuestBuyNowProbeOptions,
   waitForWakeRuntimePreflight,
@@ -52,6 +53,56 @@ const unreadyWakeStatusSnapshot = {
   schedulers: { available: true, activeWakeCapableWorkerCount: 0 },
   relay: { available: true, lease: { state: "standby", ownerId: null } },
 };
+
+class FakeResponse {
+  constructor(statusCode, body = {}, responseHeaders = {}) {
+    this.statusCode = statusCode;
+    this.body = body;
+    this.responseHeaders = responseHeaders;
+  }
+
+  status() {
+    return this.statusCode;
+  }
+
+  async json() {
+    return this.body;
+  }
+
+  headers() {
+    return this.responseHeaders;
+  }
+}
+
+function createFakeAccountSessionPage(route) {
+  const calls = [];
+  const cookies = [];
+  const page = {
+    request: {
+      post: vi.fn(async (url, options = {}) => {
+        const call = { method: "POST", url, headers: options.headers, data: options.data };
+        calls.push(call);
+        return route(call);
+      }),
+      get: vi.fn(async (url, options = {}) => {
+        const call = { method: "GET", url, headers: options.headers };
+        calls.push(call);
+        return route(call);
+      }),
+    },
+    waitForTimeout: vi.fn(async () => undefined),
+  };
+  const context = {
+    addCookies: vi.fn(async (newCookies) => {
+      cookies.push(...newCookies);
+    }),
+  };
+  return { calls, context, cookies, page };
+}
+
+function commitReceiptFor(sources) {
+  return encodeURIComponent(JSON.stringify(sources));
+}
 
 describe("guest Buy Now freshness probe", () => {
   it("classifies pay-ready checkout inside the readiness SLO as promote", () => {
@@ -523,6 +574,98 @@ describe("guest Buy Now freshness probe", () => {
       skipNegativeProbe: true,
       diagnosticCorrelationId: "diag_1",
     });
+  });
+
+  it("uses Terraform deploy admin credentials for freshness probe synthetic account provisioning", () => {
+    const parsed = parseGuestBuyNowProbeArgs(["--item-path", "/items/canary"], {
+      GUEST_BUY_NOW_PROBE_BASE_URL: "https://marketplace.staging.chasesets.com",
+      GUEST_BUY_NOW_PROBE_ADMIN_BASE_URL: "https://admin.staging.chasesets.com",
+      GUEST_BUY_NOW_PROBE_FIXTURE_KEY: "canary-fixture",
+      GUEST_BUY_NOW_PROBE_GUEST_EMAIL: "guest-buy-now-canary@example.test",
+      GUEST_BUY_NOW_PROBE_SEARCH_QUERY: "pikachu",
+      TF_VAR_platform_admin_email: "platform-admin@example.test",
+      TF_VAR_platform_admin_password: "platform-admin-password",
+    });
+
+    expect(parsed.adminEmail).toBe("platform-admin@example.test");
+    expect(parsed.adminPassword).toBe("platform-admin-password");
+    expect(validateGuestBuyNowProbeOptions(parsed)).toEqual([]);
+  });
+
+  it("provisions a gated synthetic account invitation before account-flow registration", async () => {
+    const invitationReceipt = commitReceiptFor([
+      {
+        sourceContextName: "identity",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_invitation"],
+      },
+    ]);
+    const { calls, context, cookies, page } = createFakeAccountSessionPage((call) => {
+      if (call.url.endsWith("/api/auth/password-sign-in")) {
+        expect(call.data).toEqual({
+          email: "platform-admin@example.test",
+          password: "platform-admin-password",
+        });
+        return new FakeResponse(200, { sessionToken: "admin_session" });
+      }
+      if (call.url.endsWith("/api/identity/current-actor-display")) {
+        expect(call.headers?.Cookie).toBe("chase_sets_session=admin_session");
+        return new FakeResponse(200, { account: { account_id: "acc_platform" } });
+      }
+      if (call.url.endsWith("/api/identity/invitations")) {
+        expect(call.headers?.Cookie).toBe("chase_sets_session=admin_session");
+        expect(call.data).toMatchObject({
+          accountId: "acc_platform",
+          email: expect.stringMatching(/^buy-now-probe\+account-/),
+          roleKey: "viewer",
+        });
+        return new FakeResponse(
+          201,
+          { id: "ivt_probe", status: "pending" },
+          { "chase-sets-commit-receipt": invitationReceipt },
+        );
+      }
+      if (call.url.endsWith("/api/platform/projections/refresh")) {
+        expect(call.headers?.Cookie).toBe("chase_sets_session=admin_session");
+        return new FakeResponse(200, {
+          projectionGroups: [
+            {
+              targetContextName: "auth",
+              projectionName: "auth-identity-invitation-projection",
+              subscriptions: [{ sourceContextName: "identity", lastGlobalPosition: "42" }],
+            },
+          ],
+        });
+      }
+      if (call.url.endsWith("/api/auth/register")) {
+        expect(call.data).toMatchObject({
+          displayName: expect.stringMatching(/^Buy Now Probe Account /),
+          email: expect.stringMatching(/^buy-now-probe\+account-/),
+          password: expect.stringMatching(/^buy-now-probe-/),
+        });
+        return new FakeResponse(201, { sessionToken: "synthetic_session" });
+      }
+      throw new Error(`Unexpected request: ${call.method} ${call.url}`);
+    });
+
+    await startAccountSession(
+      page,
+      context,
+      {
+        adminEmail: "platform-admin@example.test",
+        adminPassword: "platform-admin-password",
+      },
+      "https://marketplace.test",
+    );
+
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+      "/api/auth/password-sign-in",
+      "/api/identity/current-actor-display",
+      "/api/identity/invitations",
+      "/api/platform/projections/refresh",
+      "/api/auth/register",
+    ]);
+    expect(cookies).toContainEqual(expect.objectContaining({ name: "chase_sets_session", value: "synthetic_session" }));
   });
 
   it("requires probe configuration and rejects public production browser probes", () => {
