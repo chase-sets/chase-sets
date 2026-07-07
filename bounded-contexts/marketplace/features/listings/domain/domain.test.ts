@@ -293,6 +293,31 @@ describe("marketplace graded-card validation", () => {
     },
   );
 
+  it("normalizes the BGS catalog seed label alias to the supported grading company code", () => {
+    const events = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      gradedCard: {
+        gradingCompany: "BGS/Beckett",
+        grade: "Mint 9.5",
+        certificationNumber: "0012345678",
+        population: null,
+        conditionDescriptors: ["Encapsulated"],
+      },
+    });
+
+    expect(events[0]?.type).toBe("marketplace.listing.created");
+    const [created] = events;
+    if (created?.type !== "marketplace.listing.created") {
+      throw new Error("Expected listing created event.");
+    }
+    expect(created.data.gradedCard).toMatchObject({
+      gradingCompany: "BGS",
+      grade: "9.5",
+      certificationNumber: "0012345678",
+      conditionDescriptors: ["Encapsulated"],
+    });
+  });
+
   it.each([
     ["PSA", "ABC12345", "PSA certification numbers must use 8 to 10 digits."],
     ["BGS", "1234567", "BGS certification numbers must use 8 to 10 digits."],

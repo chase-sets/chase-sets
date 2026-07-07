@@ -123,6 +123,11 @@ export const marketplaceGradingCompanyPolicies = {
   },
 } as const satisfies Record<string, MarketplaceGradingCompanyPolicy>;
 
+const gradingCompanyAliases = new Map<string, keyof typeof marketplaceGradingCompanyPolicies>([
+  ["BGS BECKETT", "BGS"],
+  ["BECKETT", "BGS"],
+]);
+
 const numericGradeValues = new Set(
   Array.from({ length: 19 }, (_, index) => {
     const value = 1 + index * 0.5;
@@ -959,14 +964,15 @@ function normalizeGradedCardDetails(details: MarketplaceGradedCardDetails | null
 }
 
 function normalizeGradingCompany(value: string): keyof typeof marketplaceGradingCompanyPolicies {
-  const normalized = value.trim().toUpperCase();
+  const normalized = normalizeGradingCompanyAlias(value);
+  const canonical = gradingCompanyAliases.get(normalized) ?? normalized;
   assert(normalized.length > 0, "Graded cards require a grading company.");
   assert(
-    normalized in marketplaceGradingCompanyPolicies,
+    canonical in marketplaceGradingCompanyPolicies,
     `Grading company must be one of ${Object.keys(marketplaceGradingCompanyPolicies).join(", ")}.`,
   );
 
-  return normalized as keyof typeof marketplaceGradingCompanyPolicies;
+  return canonical as keyof typeof marketplaceGradingCompanyPolicies;
 }
 
 function normalizeGradedCardGrade(grade: string, policy: MarketplaceGradingCompanyPolicy): string {
@@ -998,6 +1004,15 @@ function normalizeGradeLabelAlias(value: string): string {
     .trim()
     .toLowerCase()
     .replaceAll(/[^a-z0-9.]+/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeGradingCompanyAlias(value: string): string {
+  return value
+    .trim()
+    .toUpperCase()
+    .replaceAll(/[^A-Z0-9]+/g, " ")
     .replaceAll(/\s+/g, " ")
     .trim();
 }
