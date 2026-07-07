@@ -55,6 +55,7 @@ const sampleValues = {
       resources: {},
       podLabels: {},
       job: {
+        activeDeadlineSeconds: 890,
         quiesce: {
           enabled: true,
           targetComponents: ["platform-worker"],
@@ -79,6 +80,7 @@ describe("platform Helm local boot", () => {
     expect(values.components["public-web"].command).toContain("http.createServer");
     expect(values.components["platform-worker"].command).toContain("local boot proof ready");
     expect(values.components["platform-bootstrap"].command).toContain("local boot proof complete");
+    expect(values.components["platform-bootstrap"].job.activeDeadlineSeconds).toBe(890);
     expect(values.components["platform-bootstrap"].job.quiesce.enabled).toBe(false);
     expect(values.components["platform-worker"].env).toEqual([
       { name: "DATABASE_URL_CHECKOUT", value: "postgres://local-boot:not-used@localhost:5432/local_boot" },

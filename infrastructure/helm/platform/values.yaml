@@ -807,6 +807,8 @@ components:
     job:
       suspend: false
       backoffLimit: 0
+      # Fail the hook inside Helm's 15m rollout timeout so atomic rollback sees a Kubernetes Job failure instead of a generic Helm condition timeout.
+      activeDeadlineSeconds: 890
       ttlSecondsAfterFinished: 600
       hook:
         enabled: true
@@ -821,9 +823,8 @@ components:
         enabled: true
         targetComponents:
           - "platform-worker"
-        timeoutSeconds: 300
-        # Keep bootstrap command timeout below the 15m Helm rollout timeout, which stays below the 30m app schema-lock retry budget.
-        # 780s leaves 120s of Helm headroom for quiesce/restore wrapper overhead.
+        # Keep 45s drain + 780s bootstrap command + 5s kill grace + 45s restore below the hook deadline.
+        timeoutSeconds: 45
         commandTimeoutSeconds: 780
         pollIntervalMs: 2000
         restoreOnFailure: true

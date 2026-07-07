@@ -16,6 +16,9 @@ metadata:
 spec:
   suspend: {{ $component.job.suspend }}
   backoffLimit: {{ $component.job.backoffLimit }}
+{{ if $component.job.activeDeadlineSeconds }}
+  activeDeadlineSeconds: {{ $component.job.activeDeadlineSeconds }}
+{{ end }}
   ttlSecondsAfterFinished: {{ $component.job.ttlSecondsAfterFinished }}
   template:
     metadata:
