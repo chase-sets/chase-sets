@@ -548,6 +548,50 @@ describeDb("projection operations Postgres integration", () => {
     await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("3");
   });
 
+  it("records projection transaction timeouts as transient and replays them", async () => {
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const runner = createSubscriptionRunner("target", pools.target, pools.source, createItemsSubscription());
+
+    targetPorts.beforeProjectionWrite = async () => {
+      await delay(550);
+    };
+
+    await sourceEventStore.appendToStream({
+      streamId: "source.item-timeout",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [
+        {
+          eventType: "source.item-recorded",
+          payload: { itemId: "item-timeout" },
+        },
+      ],
+    });
+
+    await expect(runner.runOnce(createProjectionRunContext({ transactionTimeoutMs: 500 }))).rejects.toThrow(
+      "Projection transaction exceeded 500ms.",
+    );
+    await expect(readProjectedItems()).resolves.toEqual([]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "transient" },
+    ]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
+
+    targetPorts.beforeProjectionWrite = undefined;
+
+    await expect(runner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
+      processed: 1,
+      lastGlobalPosition: "1",
+      blockedStreams: 0,
+      poisonEvents: 0,
+    });
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-timeout", seen_count: 1 }]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "applied" },
+    ]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
+  });
+
   it("rolls back owned-table and subscription-ledger reset when the rebuild lease is lost", async () => {
     const runtime = createMountedContextTestRuntime([
       { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
@@ -823,6 +867,12 @@ async function hasSettledWithin(promise: Promise<unknown>, timeoutMs: number): P
       setTimeout(() => resolve(false), timeoutMs);
     }),
   ]);
+}
+
+async function delay(timeoutMs: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, timeoutMs);
+  });
 }
 
 function createProjectionRunContext(overrides: Partial<ProjectionRunContext> = {}): ProjectionRunContext {

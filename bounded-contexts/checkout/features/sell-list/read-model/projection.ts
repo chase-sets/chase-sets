@@ -55,6 +55,16 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         ? "(seller_account_id, offer_id) WHERE offer_id IS NOT NULL"
         : "(seller_account_id, line_id)";
 
+      if (data.offerId) {
+        await db.query(
+          `DELETE FROM checkout_sell_list_line_pages
+           WHERE seller_account_id = $1
+             AND (line_id = $2 OR offer_id = $3)
+             AND NOT (line_id = $2 AND offer_id = $3)`,
+          [data.sellerAccountId, data.lineId, data.offerId],
+        );
+      }
+
       await db.query(
         `INSERT INTO checkout_sell_list_line_pages (
            seller_account_id,

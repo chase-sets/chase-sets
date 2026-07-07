@@ -469,7 +469,12 @@ export function createMockPool(): MockPool {
 export function createEventCoreMock() {
   return {
     ZERO_GLOBAL_POSITION: "0",
-    isTransientProjectionError: () => false,
+    isTransientProjectionError: (error: unknown) =>
+      Boolean(
+        error &&
+        typeof error === "object" &&
+        (error as { projectionFailureKind?: unknown }).projectionFailureKind === "transient",
+      ),
     toTransportEvent: (storedEvent: MockStoredEvent) => ({
       id: storedEvent.eventId,
       type: storedEvent.eventType,

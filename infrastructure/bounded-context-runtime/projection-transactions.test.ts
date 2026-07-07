@@ -1,12 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { metrics } from "@opentelemetry/api";
-import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
+import { isTransientProjectionError, type ProjectionRunContext } from "@chase-sets/event-core/projector";
 import {
   EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
   withPgTransaction,
   type PgPoolClient,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+
+const recordEventStoreAppendAdvisoryLockHold = vi.hoisted(() => vi.fn());
+
+vi.mock("@chase-sets/observability", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/observability")>()),
+  recordEventStoreAppendAdvisoryLockHold,
+}));
+
 import {
   createProjectionAwarePool,
   runInProjectionDbContext,
@@ -174,22 +181,26 @@ describe("projection transactions", () => {
     const originalNow = Date.now;
     Date.now = () => now;
 
+    let thrown: unknown;
     try {
-      await expect(
-        withProjectionTransaction(
-          pool,
-          { transactionTimeoutMs: 50, throwIfLeaseLost: () => undefined },
-          async (client) => {
-            await client.query("SELECT first");
-            now = 1_051;
-            await client.query("SELECT second");
-          },
-        ),
-      ).rejects.toThrow("Projection transaction exceeded 50ms.");
+      await withProjectionTransaction(
+        pool,
+        { transactionTimeoutMs: 50, throwIfLeaseLost: () => undefined },
+        async (client) => {
+          await client.query("SELECT first");
+          now = 1_051;
+          await client.query("SELECT second");
+        },
+      );
+    } catch (error) {
+      thrown = error;
     } finally {
       Date.now = originalNow;
     }
 
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe("Projection transaction exceeded 50ms.");
+    expect(isTransientProjectionError(thrown)).toBe(true);
     expect(calls).toEqual([
       { sql: "BEGIN", values: undefined },
       { sql: "SELECT set_config('idle_in_transaction_session_timeout', $1, true)", values: ["15000ms"] },
@@ -201,15 +212,6 @@ describe("projection transactions", () => {
 
   it("records append advisory-lock hold duration at the outer projection transaction boundary", async () => {
     const { pool } = createRecordingPool();
-    const histogramRecords: unknown[] = [];
-    const createHistogram = vi.fn((name: string) => ({
-      record: (value: number, attributes?: unknown) => histogramRecords.push({ name, value, attributes }),
-    }));
-    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
-      createCounter: vi.fn(),
-      createHistogram,
-      createUpDownCounter: vi.fn(),
-    } as never);
     let now = 1_000;
     const originalNow = Date.now;
     Date.now = () => now;
@@ -232,23 +234,17 @@ describe("projection transactions", () => {
       );
     } finally {
       Date.now = originalNow;
-      getMeter.mockRestore();
     }
 
-    expect(histogramRecords).toEqual([
-      {
-        name: "chase_sets_event_store_append_advisory_lock_hold_duration_ms",
-        value: 42,
-        attributes: {
-          outcome: "committed",
-          holder_kind: "reaction",
-          target_context: "ordering",
-          source_context: "marketplace",
-          projection: "ordering-marketplace-offer-acceptance",
-          subscription: "ordering.marketplace-offer-acceptance",
-        },
-      },
-    ]);
+    expect(recordEventStoreAppendAdvisoryLockHold).toHaveBeenCalledWith({
+      durationMs: 42,
+      outcome: "committed",
+      holderKind: "reaction",
+      targetContextName: "ordering",
+      sourceContextName: "marketplace",
+      projectionName: "ordering-marketplace-offer-acceptance",
+      subscriptionName: "ordering.marketplace-offer-acceptance",
+    });
   });
 
   it("routes nested projection connections through savepoints on the scoped client", async () => {

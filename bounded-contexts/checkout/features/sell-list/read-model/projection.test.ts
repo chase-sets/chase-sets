@@ -43,6 +43,13 @@ class SellListProjectionDb implements PgQueryable {
           this.lines.delete(this.key(existing.seller_account_id, existing.line_id));
         }
       }
+      if (
+        sql.includes("ON CONFLICT (seller_account_id, offer_id)") &&
+        row.offer_id &&
+        this.lines.has(this.key(row.seller_account_id, row.line_id))
+      ) {
+        throw new Error('duplicate key value violates unique constraint "checkout_sell_list_line_pages_pkey"');
+      }
       this.lines.set(this.key(row.seller_account_id, row.line_id), row);
       return { rows: [], rowCount: 1 };
     }
@@ -92,6 +99,21 @@ class SellListProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("DELETE FROM checkout_sell_list_line_pages")) {
+      if (sql.includes("OR offer_id = $3")) {
+        let affected = 0;
+        for (const row of [...this.lines.values()]) {
+          if (
+            row.seller_account_id === String(values[0]) &&
+            (row.line_id === String(values[1]) || row.offer_id === String(values[2])) &&
+            !(row.line_id === String(values[1]) && row.offer_id === String(values[2]))
+          ) {
+            this.lines.delete(this.key(row.seller_account_id, row.line_id));
+            affected++;
+          }
+        }
+        return { rows: [], rowCount: affected };
+      }
+
       if (sql.includes("line_type = 'selected-offer'")) {
         let affected = 0;
         for (const row of [...this.lines.values()]) {
@@ -312,6 +334,54 @@ describe("checkout Sell List projection", () => {
       offer_id: "off_duplicate",
       quantity: 1,
     });
+  });
+
+  it("replaces a stale product row when selected-offer replay reuses the line id", async () => {
+    const db = new SellListProjectionDb();
+    const handlers = buildCheckoutSellListProjectionHandlers(db);
+
+    await handlers["checkout.sell-list.line-added"]!(lineAddedEvent("acc_seller", "sll_reused", 1));
+    await handlers["checkout.sell-list.line-added"]!(
+      lineAddedEvent("acc_seller", "sll_reused", 1, {
+        lineType: "selected-offer",
+        offerId: "off_reused",
+        fallbackMode: "none",
+      }),
+    );
+
+    expect(db.getLine("acc_seller", "sll_reused")).toMatchObject({
+      line_type: "selected-offer",
+      offer_id: "off_reused",
+      quantity: 1,
+    });
+    expect(db.lines.size).toBe(1);
+  });
+
+  it("replaces a stale selected-offer row when replay reuses the line id with a new offer", async () => {
+    const db = new SellListProjectionDb();
+    const handlers = buildCheckoutSellListProjectionHandlers(db);
+
+    await handlers["checkout.sell-list.line-added"]!(
+      lineAddedEvent("acc_seller", "sll_reused", 1, {
+        lineType: "selected-offer",
+        offerId: "off_old",
+        fallbackMode: "none",
+      }),
+    );
+    await handlers["checkout.sell-list.line-added"]!(
+      lineAddedEvent("acc_seller", "sll_reused", 1, {
+        lineType: "selected-offer",
+        offerId: "off_new",
+        fallbackMode: "none",
+      }),
+    );
+
+    expect(db.getLine("acc_seller", "sll_reused")).toMatchObject({
+      line_type: "selected-offer",
+      offer_id: "off_new",
+      quantity: 1,
+    });
+    expect(db.lines.size).toBe(1);
   });
 
   it("mirrors Settlement payout readiness into the Checkout sell projection", async () => {

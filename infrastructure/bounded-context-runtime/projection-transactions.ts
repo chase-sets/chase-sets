@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
+import { createTransientProjectionError, type ProjectionRunContext } from "@chase-sets/event-core/projector";
 import { recordEventStoreAppendAdvisoryLockHold } from "@chase-sets/observability";
 import {
   EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
@@ -249,7 +249,7 @@ function throwIfProjectionTransactionExpired(
 
   const elapsedMs = Date.now() - options.startedAtMs;
   if (elapsedMs > options.transactionTimeoutMs) {
-    throw new Error(`Projection transaction exceeded ${options.transactionTimeoutMs}ms.`);
+    throw createTransientProjectionError(`Projection transaction exceeded ${options.transactionTimeoutMs}ms.`);
   }
 }
 
