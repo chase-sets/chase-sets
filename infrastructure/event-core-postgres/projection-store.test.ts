@@ -51,6 +51,42 @@ describe("postgres projection store", () => {
       poisonEventCount: 0,
     });
   });
+
+  it("lists legacy poison rows with non-positive optional projection metadata", async () => {
+    const db = createProjectionStoreDb();
+    const store = createPostgresProjectionStore({
+      db,
+      now: () => "2026-05-24T00:00:00.000Z" as never,
+    });
+
+    await store.recordPoisonEvent?.({
+      projectionKey: "identity-consent-projection:identity:v1",
+      projectionName: "identity-consent-projection",
+      projectionKind: "subscription",
+      targetContextName: "identity",
+      sourceContextName: "identity",
+      projectionRevision: 0,
+      subscriptionVersion: 0,
+      streamId: "identity.legacy-fact-1",
+      streamVersion: 1,
+      eventId: "evt_identity_legacy_1",
+      eventType: "identity.legacy-fact-recorded",
+      globalPosition: "1" as never,
+      failureKind: "poison",
+      errorMessage: null as never,
+      errorStack: null,
+    });
+
+    await expect(store.listPoisonEvents?.("identity-consent-projection:identity:v1", 50)).resolves.toEqual([
+      expect.objectContaining({
+        projectionKey: "identity-consent-projection:identity:v1",
+        projectionName: "identity-consent-projection",
+        projectionRevision: null,
+        subscriptionVersion: null,
+        errorMessage: "Projection failed without a recorded error message.",
+      }),
+    ]);
+  });
 });
 
 function createProjectionStoreDb(): PgQueryable {
@@ -66,12 +102,58 @@ function createProjectionStoreDb(): PgQueryable {
       state: "blocked" | "retrying" | "resolved";
     }
   >();
-  const poisonEvents = new Set<string>();
+  const poisonEvents = new Map<
+    string,
+    {
+      projectionKey: string;
+      eventId: string;
+      projectionName: string;
+      projectionKind: "projector" | "subscription";
+      targetContextName: string | null;
+      sourceContextName: string | null;
+      projectionRevision: string | number | bigint | null;
+      subscriptionVersion: string | number | bigint | null;
+      streamId: string;
+      streamVersion: string | number | bigint;
+      eventType: string;
+      globalPosition: string | number | bigint;
+      failureKind: "poison" | "transient";
+      errorMessage: string | null;
+      errorStack: string | null;
+      state: "blocked" | "retrying" | "resolved" | "ignored";
+      retryCount: number;
+      firstSeenAt: Date | string;
+      lastSeenAt: Date | string;
+      resolvedAt: Date | string | null;
+    }
+  >();
 
   return {
     query: async <Row>(sql: string, params: readonly unknown[] = []) => {
       if (sql.includes("INSERT INTO event_projection_poison_events")) {
-        poisonEvents.add(`${String(params[0])}:${String(params[1])}`);
+        const key = `${String(params[0])}:${String(params[1])}`;
+        poisonEvents.set(key, {
+          projectionKey: String(params[0]),
+          eventId: String(params[1]),
+          projectionName: String(params[2]),
+          projectionKind: String(params[3]) === "subscription" ? "subscription" : "projector",
+          targetContextName: params[4] == null ? null : String(params[4]),
+          sourceContextName: params[5] == null ? null : String(params[5]),
+          projectionRevision: params[6] as string | number | bigint | null,
+          subscriptionVersion: params[7] as string | number | bigint | null,
+          streamId: String(params[8]),
+          streamVersion: params[9] as string | number | bigint,
+          eventType: String(params[10]),
+          globalPosition: params[11] as string | number | bigint,
+          failureKind: String(params[12]) === "transient" ? "transient" : "poison",
+          errorMessage: params[13] == null ? null : String(params[13]),
+          errorStack: params[14] == null ? null : String(params[14]),
+          state: "blocked",
+          retryCount: 0,
+          firstSeenAt: String(params[15]),
+          lastSeenAt: String(params[15]),
+          resolvedAt: null,
+        });
         return { rows: [] as Row[], rowCount: 1 };
       }
 
@@ -104,10 +186,46 @@ function createProjectionStoreDb(): PgQueryable {
               blocked_stream_count: [...blockedStreams.values()].filter(
                 (stream) => stream.projectionKey === projectionKey && stream.state !== "resolved",
               ).length,
-              poison_event_count: [...poisonEvents].filter((key) => key.startsWith(`${projectionKey}:`)).length,
+              poison_event_count: [...poisonEvents.values()].filter(
+                (event) => event.projectionKey === projectionKey && event.state !== "resolved",
+              ).length,
             } as Row,
           ],
           rowCount: 1,
+        };
+      }
+
+      if (sql.includes("FROM event_projection_poison_events") && sql.includes("ORDER BY global_position")) {
+        const projectionKey = String(params[0]);
+        return {
+          rows: [...poisonEvents.values()]
+            .filter((event) => event.projectionKey === projectionKey && event.state !== "resolved")
+            .map(
+              (event) =>
+                ({
+                  projection_key: event.projectionKey,
+                  event_id: event.eventId,
+                  projection_name: event.projectionName,
+                  projection_kind: event.projectionKind,
+                  target_context_name: event.targetContextName,
+                  source_context_name: event.sourceContextName,
+                  projection_revision: event.projectionRevision,
+                  subscription_version: event.subscriptionVersion,
+                  stream_id: event.streamId,
+                  stream_version: event.streamVersion,
+                  event_type: event.eventType,
+                  global_position: event.globalPosition,
+                  failure_kind: event.failureKind,
+                  error_message: event.errorMessage,
+                  error_stack: event.errorStack,
+                  state: event.state,
+                  retry_count: event.retryCount,
+                  first_seen_at: event.firstSeenAt,
+                  last_seen_at: event.lastSeenAt,
+                  resolved_at: event.resolvedAt,
+                }) as Row,
+            ),
+          rowCount: poisonEvents.size,
         };
       }
 
@@ -166,12 +284,12 @@ function createProjectionStoreDb(): PgQueryable {
       if (sql.includes("UPDATE event_projection_poison_events")) {
         const projectionKey = String(params[0]);
         const streamId = params[1] ? String(params[1]) : null;
-        for (const key of [...poisonEvents]) {
+        for (const [key, event] of poisonEvents) {
           if (
             key.startsWith(`${projectionKey}:`) &&
             (!streamId || blockedStreams.has(`${projectionKey}:${streamId}`))
           ) {
-            poisonEvents.delete(key);
+            poisonEvents.set(key, { ...event, state: "resolved" });
           }
         }
         return { rows: [] as Row[], rowCount: 1 };

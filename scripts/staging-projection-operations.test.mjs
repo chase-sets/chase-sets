@@ -336,6 +336,74 @@ describe("staging projection operations runner", () => {
     }
   });
 
+  it("records a retry-blocked target error and continues remaining targets", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "projection-operations-"));
+    const calls = [];
+    try {
+      const result = await runStagingProjectionOperations(
+        parseStagingProjectionOperationsArgs(
+          [
+            "--mode",
+            "retry-blocked",
+            "--targets",
+            "identity.identity-consent-projection,catalog.catalog-admin-catalog-item-projection",
+            "--out-dir",
+            outDir,
+          ],
+          baseEnv,
+        ),
+        {
+          fetchImpl: fakeFetch(
+            calls,
+            [multiTargetRetryCounterSnapshot(), healthySnapshot()],
+            new Map([
+              [
+                "catalog.catalog-admin-catalog-item-projection",
+                {
+                  projectionKey: "catalog.catalog-admin-catalog-item-projection",
+                  blockedStreams: [
+                    sampleBlockedStream("catalog.catalog-admin-catalog-item-projection", "stream-private-1"),
+                  ],
+                  poisonEvents: [],
+                },
+              ],
+            ]),
+            new Set(["identity.identity-consent-projection"]),
+          ),
+          now: () => "2026-07-06T00:01:00.000Z",
+        },
+      );
+
+      expect(result.record.result).toBe("completed-with-errors");
+      expect(result.record.commands).toEqual([
+        expect.objectContaining({
+          operationKind: "retry-blocked",
+          target: "identity.identity-consent-projection",
+          status: "error",
+          reason: "blocked-stream-detail-failed",
+          errors: [
+            {
+              projectionKey: "identity.identity-consent-projection",
+              error: "Projection blocked streams identity.identity-consent-projection failed with HTTP 500.",
+            },
+          ],
+        }),
+        expect.objectContaining({
+          operationKind: "retry-blocked",
+          target: "catalog.catalog-admin-catalog-item-projection",
+          status: "requested",
+          streamCount: 1,
+        }),
+      ]);
+      expect(calls.map((call) => [call.method, call.path])).toContainEqual([
+        "POST",
+        "/api/platform/projections/catalog.catalog-admin-catalog-item-projection/blocked-streams/stream-private-1/retry",
+      ]);
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("retries dotted projection-name targets using blocked stream checkpoint keys", async () => {
     const outDir = await mkdtemp(join(tmpdir(), "projection-operations-"));
     const calls = [];
@@ -424,7 +492,7 @@ describe("staging projection operations runner", () => {
   });
 });
 
-function fakeFetch(calls, snapshots, blockedDetailsByProjectionKey = new Map()) {
+function fakeFetch(calls, snapshots, blockedDetailsByProjectionKey = new Map(), failedBlockedDetails = new Set()) {
   return async (input, init = {}) => {
     const url = new URL(input);
     const body = init.body ? JSON.parse(init.body) : null;
@@ -445,6 +513,9 @@ function fakeFetch(calls, snapshots, blockedDetailsByProjectionKey = new Map()) 
       const projectionKey = decodeURIComponent(
         url.pathname.replace(/^\/api\/platform\/projections\//, "").replace(/\/blocked-streams$/, ""),
       );
+      if (failedBlockedDetails.has(projectionKey)) {
+        return jsonResponse({ error: "blocked stream detail unavailable" }, 500);
+      }
       return jsonResponse(
         blockedDetailsByProjectionKey.get(projectionKey) ?? sampleBlockedProjectionDetails(projectionKey),
       );
@@ -618,6 +689,55 @@ function checkoutDottedProjectionCounterSnapshot() {
       },
     ],
     blockedProjections: [],
+  };
+}
+
+function multiTargetRetryCounterSnapshot() {
+  return {
+    ...counterOnlySnapshot({ blockedStreamCount: 1 }),
+    projectionGroups: [
+      ...counterOnlySnapshot({ blockedStreamCount: 1 }).projectionGroups,
+      {
+        projectionName: "identity-consent-projection",
+        targetContextName: "identity",
+        sourceContextNames: ["identity"],
+        state: "degraded",
+        initialized: true,
+        caughtUp: false,
+        revisionStale: false,
+        projectionRevision: 1,
+        storedProjectionRevision: 1,
+        outstandingEventCount: "1",
+        blockedStreamCount: 1,
+        poisonEventCount: 1,
+        updatedAt: "2026-07-06T00:00:00.000Z",
+        subscriptions: [
+          {
+            checkpointKey: "identity-consent-projection:identity:v1",
+            subscriptionName: "identity.identity-consent-projection",
+            projectionName: "identity-consent-projection",
+            sourceContextName: "identity",
+            targetContextName: "identity",
+            subscriptionVersion: 1,
+            lastGlobalPosition: "7",
+            sourceHeadGlobalPosition: "8",
+            outstandingEventCount: "1",
+            state: "degraded",
+            lastError: null,
+            blockedStreamCount: 1,
+            poisonEventCount: 1,
+          },
+        ],
+      },
+    ],
+    blockedProjections: [
+      ...counterOnlySnapshot({ blockedStreamCount: 1 }).blockedProjections,
+      {
+        projectionKey: "identity.identity-consent-projection",
+        blockedStreamCount: 1,
+        poisonEventCount: 1,
+      },
+    ],
   };
 }
 

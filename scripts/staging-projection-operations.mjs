@@ -111,6 +111,7 @@ export async function runStagingProjectionOperations(options, dependencies = {})
       await fetchProjectionOperationsSnapshot(auth),
       auth,
       options.mode === "retry-blocked" ? options.targets : [],
+      options.mode === "retry-blocked" ? { onDetailError: () => undefined } : {},
     );
     const safeBeforeSnapshot = sanitizeProjectionOperationsSnapshot(beforeSnapshot);
     record.beforeSnapshot = summarizeSnapshotArtifact("before-snapshot.json", safeBeforeSnapshot);
@@ -125,6 +126,14 @@ export async function runStagingProjectionOperations(options, dependencies = {})
     const afterSnapshot = await hydrateProjectionOperationsBlockedDetails(
       await fetchProjectionOperationsSnapshot(auth),
       auth,
+      [],
+      options.mode === "retry-blocked"
+        ? {
+            onDetailError: (projectionKey, error) => {
+              record.errors.push(`Projection blocked streams ${projectionKey}: ${summarizeSafeError(error)}`);
+            },
+          }
+        : {},
     );
     const safeAfterSnapshot = sanitizeProjectionOperationsSnapshot(afterSnapshot);
     record.afterSnapshot = summarizeSnapshotArtifact("after-snapshot.json", safeAfterSnapshot);
@@ -251,19 +260,29 @@ export function redactSupportUnsafeText(value) {
 async function retryBlockedStreamsForTargets(targets, beforeSnapshot, auth) {
   const commands = [];
   for (const projectionKey of targets) {
-    const resolution = resolveRetryBlockedStreamsForTarget(projectionKey, beforeSnapshot);
+    let resolution = resolveRetryBlockedStreamsForTarget(projectionKey, beforeSnapshot);
+    let detailErrors = [];
+    if (resolution.streams.length === 0 && retryTargetHasBlockedAttention(projectionKey, beforeSnapshot)) {
+      const hydrated = await hydrateRetryTargetBlockedDetails(projectionKey, beforeSnapshot, auth);
+      detailErrors = hydrated.errors;
+      resolution = resolveRetryBlockedStreamsForTarget(projectionKey, hydrated.snapshot);
+    }
     const streams = resolution.streams;
     const command = {
       operationKind: "retry-blocked",
       target: projectionKey,
-      status: streams.length > 0 ? "running" : "skipped",
+      status: streams.length > 0 ? "running" : detailErrors.length > 0 ? "error" : "skipped",
       streamCount: streams.length,
       streamIdFingerprints: streams.map((stream) => fingerprint(stream?.streamId ?? "")),
       sourceProjectionKeys: resolution.sourceProjectionKeys,
       responses: [],
     };
+    if (detailErrors.length > 0) {
+      command.errors = detailErrors;
+    }
     if (streams.length === 0) {
-      command.reason = "no-blocked-streams-in-before-snapshot";
+      command.reason =
+        detailErrors.length > 0 ? "blocked-stream-detail-failed" : "no-blocked-streams-in-before-snapshot";
       commands.push(command);
       continue;
     }
@@ -275,18 +294,32 @@ async function retryBlockedStreamsForTargets(targets, beforeSnapshot, auth) {
         command.responses.push({ status: "skipped", reason: "missing-stream-id" });
         continue;
       }
-      const response = await postProjectionOperation(
-        auth,
-        [streamProjectionKey, "blocked-streams", streamId, "retry"],
-        {},
-      );
-      command.responses.push({
-        status: "requested",
-        streamIdFingerprint: fingerprint(streamId),
-        response: sanitizeCommandResponse(response),
-      });
+      try {
+        const response = await postProjectionOperation(
+          auth,
+          [streamProjectionKey, "blocked-streams", streamId, "retry"],
+          {},
+        );
+        command.responses.push({
+          status: "requested",
+          streamIdFingerprint: fingerprint(streamId),
+          response: sanitizeCommandResponse(response),
+        });
+      } catch (error) {
+        command.responses.push({
+          status: "error",
+          streamIdFingerprint: fingerprint(streamId),
+          error: summarizeSafeError(error),
+        });
+      }
     }
-    command.status = command.responses.every((response) => response.status === "requested") ? "requested" : "partial";
+    const requestedCount = command.responses.filter((response) => response.status === "requested").length;
+    command.status =
+      requestedCount === command.responses.length && detailErrors.length === 0
+        ? "requested"
+        : requestedCount > 0
+          ? "partial"
+          : "error";
     commands.push(command);
   }
   return commands;
@@ -345,15 +378,23 @@ async function fetchProjectionOperationsSnapshot(auth) {
   return result.body;
 }
 
-async function hydrateProjectionOperationsBlockedDetails(snapshot, auth, extraProjectionKeys = []) {
+async function hydrateProjectionOperationsBlockedDetails(snapshot, auth, extraProjectionKeys = [], options = {}) {
   const projectionKeys = resolveProjectionKeysWithBlockedAttention(snapshot, extraProjectionKeys);
   if (projectionKeys.length === 0) {
     return snapshot;
   }
 
-  const details = await Promise.all(
-    projectionKeys.map((projectionKey) => fetchProjectionBlockedStreamDetails(auth, projectionKey)),
-  );
+  const details = [];
+  for (const projectionKey of projectionKeys) {
+    try {
+      details.push(await fetchProjectionBlockedStreamDetails(auth, projectionKey));
+    } catch (error) {
+      if (!options.onDetailError) {
+        throw error;
+      }
+      options.onDetailError(projectionKey, error);
+    }
+  }
   return mergeBlockedProjectionDetails(snapshot, details);
 }
 
@@ -454,7 +495,18 @@ function finalizeRecord(record, finishedAt) {
     (command) =>
       command.status !== "requested" && !(command.operationKind === "retry-blocked" && command.status === "skipped"),
   );
-  record.result = record.errors.length === 0 && failedCommands.length === 0 ? "success" : "failure";
+  if (record.errors.length === 0 && failedCommands.length === 0) {
+    record.result = "success";
+    return;
+  }
+
+  const completedCommands = record.commands.filter(
+    (command) =>
+      command.status === "requested" ||
+      command.status === "partial" ||
+      (command.operationKind === "retry-blocked" && command.status === "skipped"),
+  );
+  record.result = completedCommands.length > 0 ? "completed-with-errors" : "failure";
 }
 
 async function writeReport(options, record) {
@@ -869,6 +921,59 @@ function resolveRetryBlockedStreamsForTarget(target, snapshot) {
   }
 
   return { sourceProjectionKeys, streams };
+}
+
+async function hydrateRetryTargetBlockedDetails(target, snapshot, auth) {
+  const details = [];
+  const errors = [];
+  for (const sourceProjectionKey of resolveProjectionKeysForRetryTarget(target, snapshot)) {
+    try {
+      details.push(await fetchProjectionBlockedStreamDetails(auth, sourceProjectionKey));
+    } catch (error) {
+      errors.push({
+        projectionKey: sourceProjectionKey,
+        error: summarizeSafeError(error),
+      });
+    }
+  }
+
+  return {
+    snapshot: mergeBlockedProjectionDetails(snapshot, details),
+    errors,
+  };
+}
+
+function retryTargetHasBlockedAttention(target, snapshot) {
+  for (const projectionKey of resolveProjectionKeysForRetryTarget(target, snapshot)) {
+    const blockedProjection = readArray(snapshot?.blockedProjections).find(
+      (projection) => String(projection?.projectionKey ?? "") === projectionKey,
+    );
+    if (
+      blockedProjection &&
+      (readNumber(blockedProjection.blockedStreamCount) > 0 ||
+        readNumber(blockedProjection.poisonEventCount) > 0 ||
+        readArray(blockedProjection.blockedStreams).length > 0 ||
+        readArray(blockedProjection.poisonEvents).length > 0)
+    ) {
+      return true;
+    }
+  }
+
+  for (const group of readArray(snapshot?.projectionGroups)) {
+    if (readRawGroupProjectionKey(group) !== target) {
+      continue;
+    }
+    if (readNumber(group?.blockedStreamCount) > 0 || readNumber(group?.poisonEventCount) > 0) {
+      return true;
+    }
+    for (const subscription of readArray(group?.subscriptions)) {
+      if (readNumber(subscription?.blockedStreamCount) > 0 || readNumber(subscription?.poisonEventCount) > 0) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function resolveProjectionKeysForRetryTarget(target, snapshot) {

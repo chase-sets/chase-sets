@@ -46,7 +46,7 @@ type DbProjectionPoisonEventRow = Readonly<{
   event_type: string;
   global_position: string | number | bigint;
   failure_kind: string;
-  error_message: string;
+  error_message: string | null;
   error_stack: string | null;
   state: string;
   retry_count: string | number | bigint;
@@ -430,18 +430,14 @@ function mapPoisonEventRow(row: DbProjectionPoisonEventRow): ProjectionPoisonEve
     projectionKind: coerceProjectionKind(row.projection_kind),
     targetContextName: row.target_context_name,
     sourceContextName: row.source_context_name,
-    projectionRevision:
-      row.projection_revision === null ? null : coercePositiveInteger(row.projection_revision, "projection_revision"),
-    subscriptionVersion:
-      row.subscription_version === null
-        ? null
-        : coercePositiveInteger(row.subscription_version, "subscription_version"),
+    projectionRevision: coerceOptionalPositiveInteger(row.projection_revision),
+    subscriptionVersion: coerceOptionalPositiveInteger(row.subscription_version),
     streamId: row.stream_id,
     streamVersion: coerceDbStreamVersion(row.stream_version, "stream_version"),
     eventType: row.event_type,
     globalPosition: coerceDbGlobalPosition(row.global_position, "global_position"),
     failureKind: coerceFailureKind(row.failure_kind),
-    errorMessage: row.error_message,
+    errorMessage: row.error_message ?? "Projection failed without a recorded error message.",
     errorStack: row.error_stack,
     state: coercePoisonState(row.state),
     retryCount: coerceDbCount(row.retry_count, "retry_count"),
@@ -498,11 +494,14 @@ function coerceBlockedStreamState(value: string): ProjectionBlockedStreamState {
   throw new Error(`Unexpected projection blocked stream state "${value}".`);
 }
 
-function coercePositiveInteger(value: string | number | bigint, fieldName: string): number {
-  const parsed = typeof value === "bigint" ? Number(value) : typeof value === "string" ? Number(value) : value;
+function coerceOptionalPositiveInteger(value: string | number | bigint | null): number | null {
+  if (value === null) {
+    return null;
+  }
 
+  const parsed = typeof value === "bigint" ? Number(value) : typeof value === "string" ? Number(value) : value;
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`Expected "${fieldName}" to be a positive safe integer.`);
+    return null;
   }
 
   return parsed;
