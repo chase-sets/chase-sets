@@ -97,6 +97,28 @@ describe("projection operations API client", () => {
     expect(cancelled).toEqual({ result: { cancelled: true } });
   });
 
+  it("preserves dotted projection names when posting blocked-stream retries", async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async () =>
+        new Response(JSON.stringify({ operation: { operationId: "op_queued", state: "queued" } }), {
+          status: 202,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("https://admin.example.com/platform/projections", {
+      headers: { cookie: "session=abc" },
+    });
+
+    await retryBlockedStream(request, {
+      projectionKey: "checkout.checkout.session-projection",
+      streamId: "checkout.session-1",
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://admin.example.com/api/platform/projections/checkout.checkout.session-projection/blocked-streams/checkout.session-1/retry",
+    );
+  });
+
   it("uses the configured internal API origin for production-safe server calls", async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
       async () =>

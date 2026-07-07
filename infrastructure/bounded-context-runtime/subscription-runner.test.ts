@@ -1168,4 +1168,55 @@ describe("bounded context subscription runner", () => {
       ],
     });
   });
+
+  it("lists blocked stream details for dotted projection group keys", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const runner = createSubscriptionRunner("checkout", targetPool as never, sourcePool as never, {
+      subscriptionName: "checkout.checkout.session-projection",
+      sourceContextName: "checkout",
+      projectionName: "checkout.session-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "checkout.session.updated": async () => undefined,
+      },
+      eventTypes: ["checkout.session.updated"],
+    });
+    const checkpointKey = "checkout.session-projection:checkout:v1";
+    getBlockedStreamStore(targetPool).set(`${checkpointKey}:checkout.session-1`, {
+      projectionKey: checkpointKey,
+      streamId: "checkout.session-1",
+      firstBlockedGlobalPosition: "7",
+      firstBlockedStreamVersion: 2,
+      lastSeenGlobalPosition: "9",
+      deferredEventCount: 1,
+      state: "blocked",
+    });
+
+    await expect(
+      listProjectionBlockedStreamDetails(
+        {
+          mountedContexts: [
+            {
+              contextName: "checkout",
+              module: {} as unknown as BcApiModule,
+              services: {},
+              pool: targetPool as never,
+              projectionHandlerSets: [],
+            },
+          ],
+          subscriptionRunners: [runner],
+        },
+        "checkout.checkout.session-projection",
+      ),
+    ).resolves.toMatchObject({
+      projectionKey: "checkout.checkout.session-projection",
+      blockedStreams: [
+        {
+          projectionKey: checkpointKey,
+          streamId: "checkout.session-1",
+        },
+      ],
+    });
+  });
 });

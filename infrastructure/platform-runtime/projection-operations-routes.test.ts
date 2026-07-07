@@ -147,6 +147,27 @@ describe("projection operations routes", () => {
     expect((await operatorApp.request("/operations/op_1/cancel", { method: "POST" })).status).toBe(200);
   });
 
+  it("preserves dotted projection names when enqueueing blocked-stream retries", async () => {
+    const enqueueProjectionOperation = vi.fn(async () => projectionOperation("op_retry"));
+    const app = createRouteApp(platformActor, createRuntime(), {
+      controlPlane: createControlPlane({ enqueueProjectionOperation }),
+    });
+
+    const response = await app.request("/checkout.checkout.session-projection/blocked-streams/stream_1/retry", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(202);
+    expect(enqueueProjectionOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationKind: "retry-blocked-stream",
+        contextName: "checkout",
+        projectionKey: "checkout.checkout.session-projection",
+        streamId: "stream_1",
+      }),
+    );
+  });
+
   it("requires rebuild permission and records actor attribution for destructive rebuilds", async () => {
     const enqueueProjectionOperation = vi.fn(async () => projectionOperation("op_rebuild", "rebuild-projection-group"));
     const controlPlane = createControlPlane({ enqueueProjectionOperation });

@@ -854,16 +854,17 @@ function resolveRetryBlockedStreamsForTarget(target, snapshot) {
   for (const sourceProjectionKey of sourceProjectionKeys) {
     for (const stream of readArray(blockedByProjectionKey.get(sourceProjectionKey)?.blockedStreams)) {
       const streamId = String(stream?.streamId ?? "");
+      const streamProjectionKey = String(stream?.projectionKey ?? sourceProjectionKey);
       if (!streamId) {
-        streams.push({ ...stream, projectionKey: sourceProjectionKey });
+        streams.push({ ...stream, projectionKey: streamProjectionKey });
         continue;
       }
-      const dedupeKey = `${sourceProjectionKey}\u0000${streamId}`;
+      const dedupeKey = `${streamProjectionKey}\u0000${streamId}`;
       if (seen.has(dedupeKey)) {
         continue;
       }
       seen.add(dedupeKey);
-      streams.push({ ...stream, projectionKey: sourceProjectionKey });
+      streams.push({ ...stream, projectionKey: streamProjectionKey });
     }
   }
 

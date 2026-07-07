@@ -226,6 +226,50 @@ describe("platform api app wiring", () => {
     });
   });
 
+  it("routes dotted projection names through projection operation retry endpoints", async () => {
+    const enqueueProjectionOperation = vi.fn(async () => ({
+      operationId: "op_retry",
+      operationKind: "retry-blocked-stream",
+      state: "queued",
+      contextName: "checkout",
+      projectionName: null,
+      projectionKey: "checkout.checkout.session-projection",
+      streamId: "checkout.session-1",
+      requestedByUserId: "user_1",
+      requestedByAccountId: "account_1",
+      claimOwnerId: null,
+      claimFencingToken: null,
+      claimedUntil: null,
+      progress: {},
+      result: null,
+      error: null,
+      requestedAt: "2026-06-29T00:00:00.000Z",
+      startedAt: null,
+      updatedAt: "2026-06-29T00:00:00.000Z",
+      completedAt: null,
+    }));
+    const app = buildPlatformApiApp(createEmptyRuntime(), {
+      resolveActor: vi.fn(async () => platformActor(["projection-operations.view", "projection-operations.operate"])),
+      controlPlane: {
+        enqueueProjectionOperation,
+      } as never,
+    });
+
+    const response = await app.request(
+      "/api/platform/projections/checkout.checkout.session-projection/blocked-streams/checkout.session-1/retry",
+      { method: "POST" },
+    );
+
+    expect(response.status).toBe(202);
+    expect(enqueueProjectionOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextName: "checkout",
+        projectionKey: "checkout.checkout.session-projection",
+        streamId: "checkout.session-1",
+      }),
+    );
+  });
+
   it("keeps marketplace platform surfaces out of the landing runtime profile", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime(), {
       runtimeProfile: "landing",
