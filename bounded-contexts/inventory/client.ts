@@ -26,6 +26,7 @@ export type {
   InventoryItemLedgerEntry,
 } from "./features/inventory-items/api/contracts";
 export type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
+export type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
 
 import type {
   InventoryEnsuredListingStock,
@@ -33,6 +34,7 @@ import type {
   InventoryItemListItem,
 } from "./features/inventory-items/api/contracts";
 import type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
+import type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
 
 type InventoryApiApp = ReturnType<typeof buildInventoryApi>;
 
@@ -267,6 +269,23 @@ export function createInventoryApiClient({
     async releaseHold(id: string, body: Record<string, unknown> = {}) {
       return parseJsonResponse(
         await client.holds[":id"].release.$post({
+          param: { id },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async listRestockDecisions(query = ""): Promise<ListResponse<InventoryRestockDecision>> {
+      return parseJsonResponse(
+        await client["restock-decisions"].$get({
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async recordRestockDecision(id: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client["restock-decisions"][":id"].decision.$post({
           param: { id },
           json: body,
           header: headers,

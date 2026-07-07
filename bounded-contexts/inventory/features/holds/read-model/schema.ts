@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS inventory_holds (
   updated_at timestamptz NOT NULL DEFAULT now(),
   released_at timestamptz NULL,
   release_reason text NULL,
+  consumed_at timestamptz NULL,
   last_stream_version bigint NOT NULL DEFAULT 0
 );
 
@@ -21,7 +22,8 @@ ALTER TABLE inventory_holds
   ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'manual',
   ADD COLUMN IF NOT EXISTS source_ref jsonb NULL,
   ADD COLUMN IF NOT EXISTS expires_at timestamptz NULL,
-  ADD COLUMN IF NOT EXISTS release_reason text NULL;
+  ADD COLUMN IF NOT EXISTS release_reason text NULL,
+  ADD COLUMN IF NOT EXISTS consumed_at timestamptz NULL;
 
 CREATE INDEX IF NOT EXISTS inventory_holds_account_idx
   ON inventory_holds (account_id, status, created_at DESC);

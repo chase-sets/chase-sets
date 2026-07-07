@@ -7,6 +7,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryCatalogItemServices } from "../integrations/catalog/runtime";
 import {
   createInventoryProductDescriptor,
@@ -73,6 +74,7 @@ export type InventoryItemServices = Readonly<{
       quantityDelta: number;
       reason: string;
       idempotencyKey?: string | null;
+      sourceRef?: InventoryAdjustmentSourceRef;
     }>,
     context: EventStoreContext,
   ) => Promise<{ itemId: string; version: number }>;
@@ -238,6 +240,7 @@ export function createInventoryItemRuntime(
         itemId: params.itemId,
         quantityDelta: params.quantityDelta,
         reason: params.reason,
+        sourceRef: params.sourceRef ?? null,
       });
       if (idempotencyKey) {
         const existing = await claimInventoryAdjustmentIdempotency(deps.db, {
@@ -263,6 +266,7 @@ export function createInventoryItemRuntime(
             itemId: params.itemId,
             quantityDelta: params.quantityDelta,
             reason: params.reason,
+            sourceRef: params.sourceRef ?? null,
           });
           if (recovered) {
             return recovered;
@@ -280,6 +284,7 @@ export function createInventoryItemRuntime(
             quantityDelta: params.quantityDelta,
             heldQuantity: stock.heldQuantity,
             reason: params.reason,
+            sourceRef: params.sourceRef ?? null,
           },
           context,
         });
@@ -495,6 +500,7 @@ function inventoryAdjustmentCommandFingerprint(
     itemId: string;
     quantityDelta: number;
     reason: string;
+    sourceRef?: InventoryAdjustmentSourceRef;
   }>,
 ): string {
   return createHash("sha256")
@@ -504,6 +510,7 @@ function inventoryAdjustmentCommandFingerprint(
         itemId: input.itemId,
         quantityDelta: input.quantityDelta,
         reason: input.reason.trim(),
+        sourceRef: input.sourceRef ?? null,
       }),
     )
     .digest("hex");
@@ -554,6 +561,7 @@ async function recoverInventoryAdjustmentIdempotency(
     itemId: string;
     quantityDelta: number;
     reason: string;
+    sourceRef?: InventoryAdjustmentSourceRef;
   }>,
 ): Promise<{ itemId: string; version: number } | null> {
   const createdAt = new Date(input.existing.created_at).getTime();
@@ -567,11 +575,17 @@ async function recoverInventoryAdjustmentIdempotency(
       return false;
     }
 
-    const payload = event.payload as { itemId?: unknown; quantityDelta?: unknown; reason?: unknown };
+    const payload = event.payload as {
+      itemId?: unknown;
+      quantityDelta?: unknown;
+      reason?: unknown;
+      sourceRef?: unknown;
+    };
     return (
       payload.itemId === input.itemId &&
       payload.quantityDelta === input.quantityDelta &&
       payload.reason === normalizedReason &&
+      JSON.stringify(payload.sourceRef ?? null) === JSON.stringify(input.sourceRef ?? null) &&
       event.forAccountId === input.accountId
     );
   });

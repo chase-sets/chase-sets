@@ -32,6 +32,7 @@ export type InventoryHoldState = Readonly<{
   status: InventoryHoldStatus;
   releasedAt: string | null;
   releaseReason: InventoryHoldReleaseReason | null;
+  consumedAt: string | null;
 }>;
 
 export const initialInventoryHoldState: InventoryHoldState = {
@@ -47,6 +48,7 @@ export const initialInventoryHoldState: InventoryHoldState = {
   status: "active",
   releasedAt: null,
   releaseReason: null,
+  consumedAt: null,
 };
 
 export type PlaceInventoryHoldCommand = Readonly<{
@@ -68,7 +70,16 @@ export type ReleaseInventoryHoldCommand = Readonly<{
   releaseReason: InventoryHoldReleaseReason;
 }>;
 
-export type InventoryHoldCommand = PlaceInventoryHoldCommand | ReleaseInventoryHoldCommand;
+export type ConsumeInventoryHoldCommand = Readonly<{
+  type: "ConsumeInventoryHold";
+  consumedAt: string;
+  consumptionReason: string;
+}>;
+
+export type InventoryHoldCommand =
+  | PlaceInventoryHoldCommand
+  | ReleaseInventoryHoldCommand
+  | ConsumeInventoryHoldCommand;
 
 export type InventoryHeldEvent = DomainEvent<
   "inventory.hold.placed",
@@ -80,7 +91,17 @@ export type InventoryReleasedEvent = DomainEvent<
   InventoryHoldReleasedPayload & Readonly<{ holdId: InventoryHoldId }>
 >;
 
-export type InventoryHoldEvent = InventoryHeldEvent | InventoryReleasedEvent;
+export type InventoryConsumedEvent = DomainEvent<
+  "inventory.hold.consumed",
+  Readonly<{
+    holdId: InventoryHoldId;
+    consumedAt: string;
+    consumptionReason: string;
+    sourceRef: InventoryHoldSourceRef;
+  }>
+>;
+
+export type InventoryHoldEvent = InventoryHeldEvent | InventoryReleasedEvent | InventoryConsumedEvent;
 
 export const decideInventoryHold: AggregateDecider<InventoryHoldState, InventoryHoldCommand, InventoryHoldEvent> = (
   state,
@@ -123,6 +144,21 @@ export const decideInventoryHold: AggregateDecider<InventoryHoldState, Inventory
           },
         },
       ];
+    case "ConsumeInventoryHold":
+      requireCreatedInventoryHold(state);
+      assert(state.status === "active", "Only active holds can be consumed.");
+      assert(state.sourceRef !== null, "Consumed inventory holds require order provenance.");
+      return [
+        {
+          type: "inventory.hold.consumed",
+          data: {
+            holdId: state.id!,
+            consumedAt: command.consumedAt,
+            consumptionReason: normalizeLabel(command.consumptionReason),
+            sourceRef: state.sourceRef,
+          },
+        },
+      ];
     default:
       return assertNever(command);
   }
@@ -144,6 +180,7 @@ export const evolveInventoryHold: AggregateEvolver<InventoryHoldState, Inventory
         status: "active",
         releasedAt: null,
         releaseReason: null,
+        consumedAt: null,
       };
     case "inventory.hold.released":
       return {
@@ -151,6 +188,13 @@ export const evolveInventoryHold: AggregateEvolver<InventoryHoldState, Inventory
         status: "released",
         releasedAt: event.data.releasedAt,
         releaseReason: event.data.releaseReason,
+        consumedAt: null,
+      };
+    case "inventory.hold.consumed":
+      return {
+        ...state,
+        status: "consumed",
+        consumedAt: event.data.consumedAt,
       };
     default:
       return assertNever(event);

@@ -16,6 +16,7 @@ import { buildInventoryApi } from "./api";
 import { reserveOrderInventoryRequest } from "./features/reservations/api/order-reservation-workflow";
 import { withInventorySystemHoldReleaseAuthority } from "./features/holds/api/runtime";
 import { buildInventoryCatalogItemProjectionHandlers } from "./features/inventory-items/integrations/catalog/projection";
+import { buildInventoryFulfillmentSourceProjectionHandlers } from "./features/restock-decisions/read-model/projection";
 import { InventoryDomainError } from "./support/runtime-support/common";
 import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaMigrations, inventorySchemaSql } from "./support/runtime-support/schema";
@@ -76,6 +77,29 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
               }
 
               try {
+                const hold = await services.holds.getHold(request.holdId, request.sellerAccountId);
+                if (!hold) {
+                  throw new InventoryDomainError("Inventory hold not found.");
+                }
+
+                if (hold.status === "consumed") {
+                  await services.restockDecisions.markPending(
+                    {
+                      accountId: request.sellerAccountId,
+                      orderId: data.orderId,
+                      itemId: request.inventoryItemId,
+                      quantity: request.quantity,
+                      reservationRequestId: request.reservationRequestId,
+                      source: "order-cancelled-after-dispatch",
+                      shipmentId: null,
+                      returnReason: data.reason ?? null,
+                      pendingAt: data.cancelledAt,
+                    },
+                    context,
+                  );
+                  continue;
+                }
+
                 await services.holds.releaseHold(
                   {
                     accountId: request.sellerAccountId,
@@ -100,6 +124,33 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
             }
           },
         }),
+        "fulfillment.inventory-fulfillment-restock-workflow": () => {
+          const sourceHandlers = buildInventoryFulfillmentSourceProjectionHandlers(services.db);
+
+          return {
+            "fulfillment.shipment.created": sourceHandlers["fulfillment.shipment.created"]!,
+            "fulfillment.shipment.returned": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
+              const data = event.data as {
+                shipmentId: string;
+                reason: string | null;
+                returnedAt: string;
+              };
+
+              await services.restockDecisions.markShipmentReturned(
+                {
+                  shipmentId: data.shipmentId,
+                  returnReason: data.reason,
+                  returnedAt: data.returnedAt,
+                },
+                {
+                  tenantId: event.tenantId,
+                  audit: event.audit,
+                  trace: event.trace,
+                },
+              );
+            },
+          };
+        },
       },
     }),
   seed: seedInventoryDatabase,

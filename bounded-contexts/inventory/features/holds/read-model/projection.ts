@@ -35,9 +35,10 @@ export function buildInventoryHoldProjectionHandlers(db: PgQueryable): Projector
            updated_at,
            released_at,
            release_reason,
+           consumed_at,
            last_stream_version
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $10, NULL, NULL, $11)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $10, NULL, NULL, NULL, $11)
          ON CONFLICT (hold_id) DO UPDATE
          SET account_id = $2,
              item_id = $3,
@@ -51,6 +52,7 @@ export function buildInventoryHoldProjectionHandlers(db: PgQueryable): Projector
              updated_at = $10,
              released_at = NULL,
              release_reason = NULL,
+             consumed_at = NULL,
              last_stream_version = $11
          WHERE inventory_holds.last_stream_version < $11`,
         [
@@ -85,6 +87,23 @@ export function buildInventoryHoldProjectionHandlers(db: PgQueryable): Projector
          WHERE hold_id = $1
            AND last_stream_version < $5`,
         [holdId, event.timing.recordedAt, releasedAt, releaseReason ?? null, event.streamVersion],
+      );
+    },
+    "inventory.hold.consumed": async (event) => {
+      const { holdId, consumedAt } = event.data as {
+        holdId: string;
+        consumedAt: string;
+      };
+
+      await db.query(
+        `UPDATE inventory_holds
+         SET status = 'consumed',
+             updated_at = $2,
+             consumed_at = $3,
+             last_stream_version = $4
+         WHERE hold_id = $1
+           AND last_stream_version < $4`,
+        [holdId, event.timing.recordedAt, consumedAt, event.streamVersion],
       );
     },
   };

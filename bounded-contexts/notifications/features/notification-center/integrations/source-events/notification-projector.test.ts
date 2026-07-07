@@ -285,4 +285,42 @@ describe("notifications source event projector", () => {
       }),
     );
   });
+
+  it("turns restock decision facts into seller notification-center deliveries", async () => {
+    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+
+    await projectSourceEventToNotification(
+      outbox,
+      {
+        ...baseEvent,
+        type: "inventory.restock-decision.pending",
+        data: {
+          decisionId: "rstk_1",
+          accountId: "acc_seller" as never,
+          orderId: "ord_1",
+          quantity: 2,
+        },
+      },
+      NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+    );
+
+    expect(outbox.enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          messageType: "inventory.restock-decision.pending",
+          actionHref: "/account/inventory/restock-decisions",
+          templateId: "restock_decision_pending",
+          templateData: expect.objectContaining({
+            decisionId: "rstk_1",
+            orderId: "ord_1",
+            quantity: 2,
+          }),
+          actor: { userId: null, accountId: "acc_seller" },
+        }),
+        source: expect.objectContaining({
+          projectionName: NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+        }),
+      }),
+    );
+  });
 });

@@ -263,6 +263,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "medium",
     affectedProjectionNames: [
       "fulfillment:fulfillment-shipment-projection",
+      "inventory:inventory-fulfillment-restock-workflow",
       "payments:payments-fulfillment-dispute-evidence-source-projection",
       "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-fulfillment-cancellation-inputs",
@@ -355,7 +356,9 @@ export const sourceContextWakeRegistry = [
       "inventory:inventory-item-ledger-projection",
       "inventory:inventory-item-projection",
       "inventory:inventory-reservation-projection",
+      "inventory:inventory-restock-decision-projection",
       "inventory:inventory-storage-location-projection",
+      "notifications:notifications-source-facts-outbox-projection",
       "marketplace:marketplace-inventory-supply-projection",
       "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-inventory-reservation-outcomes",

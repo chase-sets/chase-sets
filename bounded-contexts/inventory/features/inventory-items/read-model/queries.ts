@@ -44,7 +44,8 @@ export type InventoryItemLedgerKind =
   | "hold-converted"
   | "hold-consumed"
   | "hold-released"
-  | "hold-expired";
+  | "hold-expired"
+  | "restock-decision";
 
 export type InventoryItemLedgerRow = Readonly<{
   ledger_entry_id: string;

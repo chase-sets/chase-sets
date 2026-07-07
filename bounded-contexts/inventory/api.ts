@@ -5,6 +5,7 @@ import { inventoryCatalogItemRoutes } from "./support/catalog-item-support/route
 import { inventoryHoldRoutes } from "./features/holds/api/route";
 import { inventoryImportBatchRoutes } from "./features/import-batches/api/route";
 import { inventoryItemRoutes } from "./features/inventory-items/api/route";
+import { inventoryRestockDecisionRoutes } from "./features/restock-decisions/api/route";
 import { inventoryStorageLocationRoutes } from "./features/storage-locations/api/route";
 
 export type InventoryActor = Readonly<{
@@ -66,6 +67,7 @@ export function buildInventoryApi(services: InventoryServices) {
   app.route("/storage-locations", inventoryStorageLocationRoutes(services.storageLocations));
   app.route("/import-batches", inventoryImportBatchRoutes(services.importBatches));
   app.route("/items", inventoryItemRoutes(services.items, services.holds));
+  app.route("/restock-decisions", inventoryRestockDecisionRoutes(services.restockDecisions));
   app.route("/holds", inventoryHoldRoutes(services.holds));
 
   return app;

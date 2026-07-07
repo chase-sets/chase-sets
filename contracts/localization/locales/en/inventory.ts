@@ -45,6 +45,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.expired": "Hold expired",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.placed": "Hold placed",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.released": "Hold released",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.restock.decision": "Restock decision",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.location": "Location:",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.no.holds.have.been.created.for":
     "No holds have been created for this inventory item.",
@@ -112,6 +113,22 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity": "Total quantity",
   "inventory.features.reservations.readModel.schema.create.table.if.not.exists.inventory":
     "\nCREATE TABLE IF NOT EXISTS inventory_reservation_pages (\n  reservation_request_id text PRIMARY KEY,\n  order_id text NOT NULL,\n  seller_account_id text NOT NULL,\n  inventory_item_id text NOT NULL,\n  quantity integer NOT NULL CHECK (quantity > 0),\n  hold_id text NULL,\n  status text NOT NULL,\n  rejection_reason text NULL,\n  released_at timestamptz NULL,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS inventory_reservation_pages_order_idx\n  ON inventory_reservation_pages (order_id, updated_at DESC);\n",
+  "inventory.features.restockDecisions.api.route.unsupported.outcome": "Unsupported restock decision outcome.",
+  "inventory.features.restockDecisions.ui.queue.back.to.inventory": "Back to inventory",
+  "inventory.features.restockDecisions.ui.queue.damage.note": "Damage note",
+  "inventory.features.restockDecisions.ui.queue.description":
+    "Review returned items and choose whether stock should come back on hand.",
+  "inventory.features.restockDecisions.ui.queue.empty": "No returned stock needs a decision.",
+  "inventory.features.restockDecisions.ui.queue.pending": "Pending decisions",
+  "inventory.features.restockDecisions.ui.queue.quantity": "{count} returned",
+  "inventory.features.restockDecisions.ui.queue.restock": "Restock",
+  "inventory.features.restockDecisions.ui.queue.seller": "Seller",
+  "inventory.features.restockDecisions.ui.queue.source.cancelled.after.dispatch": "Cancelled after dispatch",
+  "inventory.features.restockDecisions.ui.queue.source.shipment.returned": "Shipment returned",
+  "inventory.features.restockDecisions.ui.queue.title": "Restock Decisions",
+  "inventory.features.restockDecisions.ui.queue.view.ledger": "View ledger",
+  "inventory.features.restockDecisions.ui.queue.view.order": "View order {orderId}",
+  "inventory.features.restockDecisions.ui.queue.write.off": "Write off",
   "inventory.features.storageLocations.readModel.queries.account.id.1": "account_id = $1",
   "inventory.features.storageLocations.readModel.queries.storage.location.id.1": "storage_location_id = $1",
   "inventory.features.storageLocations.readModel.schema.create.table.if.not.exists.inventory":
@@ -142,6 +159,9 @@ export const inventoryEnglishTranslations = {
     "Inspect a specific inventory item, its quantities, and any active holds.",
   "inventory.routes.marketplace.accountInventoryItem.inventory.item.marketplace": "Inventory Item | Marketplace",
   "inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found": "Inventory item not found.",
+  "inventory.routes.marketplace.accountInventoryRestockDecisions.description":
+    "Choose whether returned stock is restocked or written off.",
+  "inventory.routes.marketplace.accountInventoryRestockDecisions.title": "Restock Decisions | Marketplace",
   "inventory.routes.marketplace.accountInventoryLocations.inventory.locations.marketplace":
     "Inventory Locations | Marketplace",
   "inventory.routes.marketplace.accountInventoryLocations.manage.the.storage.locations.and.ship":

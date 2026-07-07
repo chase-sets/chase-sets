@@ -80,12 +80,62 @@ export type InventoryHoldReleasedPayload = Readonly<{
   releaseReason: InventoryHoldReleaseReason;
 }>;
 
+export type InventoryHoldConsumedPayload = Readonly<{
+  holdId: string;
+  consumedAt: string;
+  consumptionReason: string;
+  sourceRef: InventoryHoldSourceRef;
+}>;
+
+export const inventoryRestockDecisionOutcomes = ["restocked", "written-off"] as const;
+
+export type InventoryRestockDecisionOutcome = (typeof inventoryRestockDecisionOutcomes)[number];
+
+export type InventoryAdjustmentSourceRef = InventoryHoldSourceRef;
+
+export type InventoryItemAdjustedPayload = Readonly<{
+  itemId: string;
+  quantityDelta: number;
+  reason: string;
+  sourceRef?: InventoryAdjustmentSourceRef;
+}>;
+
+export type InventoryRestockDecisionPendingPayload = Readonly<{
+  decisionId: string;
+  accountId: AccountId;
+  orderId: string;
+  itemId: string;
+  quantity: number;
+  source: "order-cancelled-after-dispatch" | "shipment-returned";
+  sourceRef: InventoryHoldSourceRef;
+  shipmentId: string | null;
+  returnReason: string | null;
+  pendingAt: string;
+}>;
+
+export type InventoryRestockDecisionRecordedPayload = Readonly<{
+  decisionId: string;
+  accountId: AccountId;
+  orderId: string;
+  itemId: string;
+  quantity: number;
+  outcome: InventoryRestockDecisionOutcome;
+  reason: "return-restocked" | "written-off";
+  sourceRef: InventoryHoldSourceRef;
+  damageNote: string | null;
+  decidedAt: string;
+}>;
+
 export type InventoryEventPayloads = Readonly<{
+  "inventory.item.adjusted": InventoryItemAdjustedPayload;
   "inventory.hold.placed": InventoryHoldPlacedPayload;
   "inventory.hold.released": InventoryHoldReleasedPayload;
+  "inventory.hold.consumed": InventoryHoldConsumedPayload;
   "inventory.reservation.confirmed": InventoryReservationConfirmedPayload;
   "inventory.reservation.rejected": InventoryReservationRejectedPayload;
   "inventory.reservation.released": InventoryReservationReleasedPayload;
+  "inventory.restock-decision.pending": InventoryRestockDecisionPendingPayload;
+  "inventory.restock-decision.recorded": InventoryRestockDecisionRecordedPayload;
 }>;
 
 export type OrderingReservationRequestPayload = Readonly<{
