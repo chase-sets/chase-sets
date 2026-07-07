@@ -467,6 +467,19 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
+    "marketplace.listing.auto-unlisted": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+
+      const result = await db.query(
+        `UPDATE marketplace_listing_pages
+         SET status = 'paused',
+             updated_at = $2
+         WHERE listing_id = $1`,
+        [listingId, event.timing.recordedAt],
+      );
+      assertUpdatedListingRow(result, event.type, listingId);
+      await emitListingPatch(db, event, listingId);
+    },
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
 

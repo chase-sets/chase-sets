@@ -165,6 +165,8 @@ export function buildProductAlertNotificationProjectionHandlers(
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.listing.paused": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
+    "marketplace.listing.auto-unlisted": (event) =>
+      projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.listing.withdrawn": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.offer.submitted": (event) =>
@@ -263,7 +265,7 @@ async function upsertMarketActivityFromEvent(
          WHERE activity_id = $1`,
         [activityId, event.timing.recordedAt],
       );
-    } else if (event.type === "marketplace.listing.paused") {
+    } else if (event.type === "marketplace.listing.paused" || event.type === "marketplace.listing.auto-unlisted") {
       await db.query(
         `UPDATE discovery_product_alert_market_activity
          SET status = 'paused',

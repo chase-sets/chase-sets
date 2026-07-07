@@ -81,6 +81,37 @@ describe("bounded context subscription runner", () => {
     );
   });
 
+  it("skips opt-in subscriptions when their source context is not mounted", () => {
+    const targetPool = createMockPool();
+
+    const runners = resolveModuleSubscriptions([
+      {
+        contextName: "platform-operations",
+        module: {
+          contextName: "platform-operations",
+          buildSubscriptions: () => [
+            {
+              subscriptionName: "platform-operations.reported-content-queue-projection",
+              sourceContextName: "marketplace",
+              sourceContextMount: "when-mounted",
+              projectionName: "reported-content-queue-projection",
+              subscriptionVersion: 1,
+              handlers: {
+                "marketplace.report.submitted": async () => undefined,
+              },
+              eventTypes: ["marketplace.report.submitted"],
+            },
+          ],
+        } as unknown as BcApiModule,
+        services: {},
+        pool: targetPool as never,
+        projectionHandlerSets: [],
+      },
+    ]);
+
+    expect(runners).toEqual([]);
+  });
+
   it("derives event filters from handler keys when no eventTypes are declared", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

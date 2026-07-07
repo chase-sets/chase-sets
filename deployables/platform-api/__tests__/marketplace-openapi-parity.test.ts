@@ -141,6 +141,7 @@ function createRouteInventoryRuntime(): RouteInventoryRuntime {
       projectionRevision: group.projectionRevision ?? 1,
       targetContextName: entry.contextName,
       sourceContextNames: group.sourceContextNames,
+      optionalSourceContextNames: group.optionalSourceContextNames ?? [],
       ownedTables: group.ownedTables,
       resetStrategy: group.resetStrategy,
       requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,

@@ -1271,6 +1271,7 @@ function checkoutProjection(
     projectionRevision: 1,
     targetContextName: "checkout",
     sourceContextNames: ["checkout"],
+    optionalSourceContextNames: [],
     ownedTables: ["checkout_session_pages"],
     requiredDuringBootstrap: false,
     subscriptionRunners: [subscriptionRunner],

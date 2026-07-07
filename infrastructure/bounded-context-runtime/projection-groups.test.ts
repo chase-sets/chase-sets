@@ -118,6 +118,39 @@ describe("bounded context projection groups", () => {
     ).toThrow("owns read-model tables but does not declare resetStrategy");
   });
 
+  it("allows projection groups to omit explicitly optional unmounted sources", () => {
+    const targetPool = createMockPool();
+    const runner = createSubscriptionRunner("platform-operations", targetPool as never, targetPool as never, {
+      subscriptionName: "platform-operations.reported-content-queue-projection",
+      sourceContextName: "platform-operations",
+      projectionName: "reported-content-queue-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "platform-operations.reported-content.action-recorded": async () => undefined,
+      },
+      eventTypes: ["platform-operations.reported-content.action-recorded"],
+    });
+
+    const [group] = createProjectionGroupRuntime(
+      "platform-operations",
+      targetPool,
+      [
+        {
+          projectionName: "reported-content-queue-projection",
+          sourceContextNames: ["marketplace", "platform-operations"],
+          optionalSourceContextNames: ["marketplace"],
+          ownedTables: ["platform_operations_reported_content_queue_pages"],
+          resetStrategy: "replay-only",
+          requiredDuringBootstrap: true,
+        },
+      ],
+      [runner],
+    );
+
+    expect(group.sourceContextNames).toEqual(["marketplace", "platform-operations"]);
+    expect(group.subscriptionRunners.map((entry) => entry.sourceContextName)).toEqual(["platform-operations"]);
+  });
+
   it("fails closed when a side-effect projection group declares owned tables", async () => {
     const targetPool = createMockPool();
 

@@ -1038,6 +1038,18 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshGoogleShoppingListing(db, event, listingId, "visibility");
       await emitListingPatch(db, event, listingId);
     },
+    "marketplace.listing.auto-unlisted": async (event) => {
+      const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
+      await transitionStatus(db, {
+        table: MARKET_LISTINGS_TABLE,
+        idColumn: "listing_id",
+        id: listingId,
+        status: "paused",
+        updatedAt: event.timing.recordedAt,
+      });
+      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
+      await emitListingPatch(db, event, listingId);
+    },
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
       await transitionStatus(db, {

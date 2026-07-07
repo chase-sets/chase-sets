@@ -25,6 +25,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 - Marketplace-wide demand visibility for matching seller supply
 - Source liquidity lists that let sellers send selected offers to Checkout Sell List
 - Post-transaction reviews, ratings, written feedback, review eligibility, and canonical review summaries (`features/reviews`)
+- Buyer and visitor content reports plus report-driven Listing visibility policy (`features/reports`)
 
 ## Does Not Own
 
@@ -52,6 +53,7 @@ Offer Matches is a Marketplace source list. It can surface matching demand and p
 - Offer
 - Seller Listing Availability
 - Listing Publication Policy
+- Report
 - Offer Visibility Projection
 
 ## Incoming Dependencies

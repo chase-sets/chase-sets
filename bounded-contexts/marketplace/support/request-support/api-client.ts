@@ -18,6 +18,8 @@ export type {
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
+  MarketplaceReportSubmissionSnapshot,
+  ReportListingRequest,
   SubmittedOfferDetail,
   SubmittedOfferListItem,
 } from "../../client";

@@ -1015,4 +1015,13 @@ export const discoveryEnglishTranslations = {
   "discovery.googleShoppingOperations.totalRows": "Total rows",
   "discovery.googleShoppingOperations.unknown": "Unknown",
   "discovery.googleShoppingOperations.updated": "Updated",
+  "discovery.routes.publicListing.report.details": "Details",
+  "discovery.routes.publicListing.report.reason": "Reason",
+  "discovery.routes.publicListing.report.reason.counterfeit": "Counterfeit or authenticity concern",
+  "discovery.routes.publicListing.report.reason.other": "Other",
+  "discovery.routes.publicListing.report.reason.pricingScam": "Pricing scam",
+  "discovery.routes.publicListing.report.reason.prohibited": "Prohibited item",
+  "discovery.routes.publicListing.report.reason.stolenPhotos": "Stolen photos",
+  "discovery.routes.publicListing.report.submit": "Report listing",
+  "discovery.routes.publicListing.report.title": "Report Listing",
 } as const;

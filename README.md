@@ -55,11 +55,11 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `fulfillment` ([README](bounded-contexts/fulfillment/README.md), `@chase-sets/fulfillment`): owned nouns `shipment`.
 - `identity` ([README](bounded-contexts/identity/README.md), `@chase-sets/identity`): owned nouns `user`, `account`, `membership`, `invitation`, `api-key`, `consent`, `shipping-address`, `user-preference`.
 - `inventory` ([README](bounded-contexts/inventory/README.md), `@chase-sets/inventory`): owned nouns `inventory-item`, `inventory-hold`, `import-batch`, `storage-location`.
-- `marketplace` ([README](bounded-contexts/marketplace/README.md), `@chase-sets/marketplace`): owned nouns `listing`, `offer`, `seller-listing-availability`, `review`, `review-summary`.
+- `marketplace` ([README](bounded-contexts/marketplace/README.md), `@chase-sets/marketplace`): owned nouns `listing`, `offer`, `seller-listing-availability`, `report`, `review`, `review-summary`.
 - `notifications` ([README](bounded-contexts/notifications/README.md), `@chase-sets/notifications`): owned nouns `notification-center`, `notification-feed-item`, `notification-preference`.
 - `ordering` ([README](bounded-contexts/ordering/README.md), `@chase-sets/ordering`): owned nouns `order`, `postage-policy`, `tax quote`, `tax nexus readiness`.
 - `payments` ([README](bounded-contexts/payments/README.md), `@chase-sets/payments`): owned nouns `payment`, `refund`.
-- `platform-operations` ([README](bounded-contexts/platform-operations/README.md), `@chase-sets/platform-operations`): owned nouns `projection-operation`, `platform-operation-attention`, `sales-performance-kpi`, `fulfillment-latency-kpi`, `conversion-order-kpi`, `dashboard-read-model`, `platform-feedback`, `platform-feedback-prompt`, `support-request`.
+- `platform-operations` ([README](bounded-contexts/platform-operations/README.md), `@chase-sets/platform-operations`): owned nouns `projection-operation`, `platform-operation-attention`, `sales-performance-kpi`, `fulfillment-latency-kpi`, `conversion-order-kpi`, `dashboard-read-model`, `platform-feedback`, `platform-feedback-prompt`, `reported-content`, `support-request`.
 - `pricing` ([README](bounded-contexts/pricing/README.md), `@chase-sets/pricing`): owned nouns `market-price-snapshot`, `price-recommendation`, `price-signal`.
 - `public-presence` ([README](bounded-contexts/public-presence/README.md), `@chase-sets/public-presence`): owned nouns `public-presence`, `waitlist-signup`, `promo-bar-message`.
 - `settlement` ([README](bounded-contexts/settlement/README.md), `@chase-sets/settlement`): owned nouns `wallet`, `payout`, `payout-readiness`, `ledger-entry`.

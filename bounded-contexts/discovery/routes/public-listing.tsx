@@ -1,21 +1,31 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
   AccountReputationSummary,
   Badge,
+  Button,
   Container,
+  Form,
   Grid,
   Heading,
+  HiddenInput,
   LinkButton,
   ListingPurchasePanel,
+  NativeSelect,
   PageSection,
   AccountTrustCard,
   ProductOptions,
   Stack,
   Text,
+  Textarea,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
+import {
+  appendAnonymousReportCookie,
+  createMarketplaceRequestApiClient,
+  ensureAnonymousReportId,
+} from "@chase-sets/marketplace/server";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
@@ -239,6 +249,28 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 }
 
+export async function action({ request, params }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "");
+  const listingId = String(formData.get("listingId") ?? "");
+  const slug = params.listingSlug ?? "";
+
+  if (intent !== "report-listing" || !listingId || !slug) {
+    throw redirect(`/listings/${slug}`);
+  }
+
+  const anonymousReportId = ensureAnonymousReportId(request);
+  await createMarketplaceRequestApiClient(request).reportListing(listingId, anonymousReportId, {
+    reason: String(formData.get("reason") ?? "") as never,
+    details: String(formData.get("details") ?? "") || null,
+    sourceRoutePath: `/listings/${slug}`,
+  });
+
+  const headers = new Headers();
+  appendAnonymousReportCookie(headers, anonymousReportId, request);
+  throw redirect(`/listings/${slug}?reported=1`, { headers });
+}
+
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({
     title: data?.listing
@@ -291,6 +323,13 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const fulfillment = buyerFulfillmentLabel(listing.ship_from_code);
   const sellerRating = parseRating(listing.seller_average_rating);
   const productJsonLd = buildPublicListingProductJsonLd({ listing, canonicalUrl: data.canonicalUrl });
+  const reportReasonItems = [
+    { value: "counterfeit-concern", label: t("discovery.routes.publicListing.report.reason.counterfeit") },
+    { value: "stolen-photos", label: t("discovery.routes.publicListing.report.reason.stolenPhotos") },
+    { value: "prohibited-item", label: t("discovery.routes.publicListing.report.reason.prohibited") },
+    { value: "pricing-scam", label: t("discovery.routes.publicListing.report.reason.pricingScam") },
+    { value: "other", label: t("discovery.routes.publicListing.report.reason.other") },
+  ];
 
   return (
     <Container width="content">
@@ -411,6 +450,27 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                 ) : null
               }
             />
+            <PageSection title={t("discovery.routes.publicListing.report.title")}>
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="report-listing" readOnly />
+                <HiddenInput type="hidden" name="listingId" value={listing.listing_id} readOnly />
+                <NativeSelect
+                  name="reason"
+                  label={t("discovery.routes.publicListing.report.reason")}
+                  items={reportReasonItems}
+                  required
+                />
+                <Textarea
+                  name="details"
+                  label={t("discovery.routes.publicListing.report.details")}
+                  rows={3}
+                  maxLength={1000}
+                />
+                <Button type="submit" tone="secondary" leadingIcon="warning">
+                  {t("discovery.routes.publicListing.report.submit")}
+                </Button>
+              </Form>
+            </PageSection>
           </Stack>
         </Grid>
       </Stack>

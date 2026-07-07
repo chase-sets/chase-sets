@@ -11,8 +11,11 @@ export type {
 } from "./support/request-support/api-client";
 export {
   appendAnonymousListingDraftCookie,
+  appendAnonymousReportCookie,
   ensureAnonymousListingDraftOwnerId,
+  ensureAnonymousReportId,
   readAnonymousListingDraftOwnerId,
+  readAnonymousReportId,
 } from "./support/request-support/anonymous-listing-draft";
 export type { ListingPhotoStorage } from "./support/runtime-support";
 export {

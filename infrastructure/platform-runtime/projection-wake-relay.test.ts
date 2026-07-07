@@ -1315,6 +1315,7 @@ function projectionGroup(
     projectionRevision: 1,
     targetContextName: input.targetContextName,
     sourceContextNames: input.runners.map((entry) => entry.sourceContextName),
+    optionalSourceContextNames: [],
     ownedTables: input.ownedTables,
     requiredDuringBootstrap: false,
     subscriptionRunners: input.runners,

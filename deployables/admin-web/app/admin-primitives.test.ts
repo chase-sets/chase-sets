@@ -27,6 +27,7 @@ const featureContextAdminSections = new Map([
 ]);
 const featureSliceAdminSections = new Map([
   ["platform-operations/features/platform-feedback", "support"],
+  ["platform-operations/features/reported-content", "support"],
   ["platform-operations/features/support-requests", "support"],
 ]);
 

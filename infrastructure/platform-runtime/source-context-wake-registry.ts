@@ -399,6 +399,7 @@ export const sourceContextWakeRegistry = [
       "ordering:ordering-marketplace-offer-acceptance",
       "ordering:ordering-marketplace-supply-input-projection",
       "ordering:ordering-order-review-opportunity-projection",
+      "platform-operations:reported-content-queue-projection",
       "pricing:pricing-market-input-projection",
       "settlement:settlement-account-risk-source-projection",
     ],
@@ -513,6 +514,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: [
       "platform-operations:experience-platform-feedback-projection",
+      "platform-operations:reported-content-queue-projection",
       "payments:payments-support-refund-effect",
       "marketplace:marketplace-review-support-source-projection",
       "ordering:ordering-order-review-opportunity-projection",

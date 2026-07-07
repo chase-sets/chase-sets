@@ -173,6 +173,7 @@ describe("platform worker config", () => {
       "catalog",
       "fulfillment",
       "identity",
+      "marketplace",
       "ordering",
       "platform-operations",
       "public-presence",

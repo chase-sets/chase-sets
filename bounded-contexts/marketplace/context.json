@@ -1,10 +1,10 @@
 {
   "contextName": "marketplace",
   "packageName": "@chase-sets/marketplace",
-  "ownedNouns": ["listing", "offer", "seller-listing-availability", "review", "review-summary"],
+  "ownedNouns": ["listing", "offer", "seller-listing-availability", "report", "review", "review-summary"],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["listings", "offers", "reviews"],
+  "slices": ["listings", "offers", "reports", "reviews"],
   "allowedSupportDirectories": [
     "request-support",
     "realtime-support",
@@ -82,6 +82,7 @@
         "marketplace.listing.purchase-limits-updated",
         "marketplace.listing.published",
         "marketplace.listing.paused",
+        "marketplace.listing.auto-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled"
@@ -1051,6 +1052,20 @@
           "bounded-contexts/marketplace/tests/account-sale-review-route.test.tsx"
         ]
       }
+    },
+    {
+      "id": "marketplace.report-listing-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /listings/:id/report"],
+      "visibleDestination": {
+        "description": "Report Listing returns the command-owned report id, version, target, distinct report count, threshold, and auto-unlisted flag. The public listing action redirects with a static reported marker and does not depend on a just-written projection."
+      },
+      "proof": {
+        "authoritativeResponse": "Report listing writes return the report submission snapshot directly from the Marketplace report command and the immediate event-stream threshold count.",
+        "tests": ["bounded-contexts/marketplace/features/reports/api/runtime.test.ts"]
+      }
     }
   ],
   "deployableContributions": [
@@ -1215,6 +1230,11 @@
       "purpose": "Own offers feature behavior, read models, and UI contracts for the marketplace context.",
       "expectedConsumers": ["Internal marketplace module composition"]
     },
+    "reports": {
+      "classification": "slice",
+      "purpose": "Own buyer and visitor reports about Marketplace content plus report-driven listing visibility policy.",
+      "expectedConsumers": ["Internal marketplace module composition", "Platform Operations reported-content queue"]
+    },
     "reviews": {
       "classification": "slice",
       "purpose": "Own post-transaction review behavior, review-summary read models, review eligibility, and UI contracts for the marketplace context.",
@@ -1255,5 +1275,7 @@
   },
   "runtimeDeployables": ["platform-worker"],
   "apiRuntimeProfiles": ["proof", "public"],
-  "workerRuntimeProfiles": ["proof", "public"]
+  "workerRuntimeProfiles": ["proof", "public"],
+  "sourceRuntimeDeployables": ["platform-worker"],
+  "sourceRuntimeProfiles": ["landing"]
 }

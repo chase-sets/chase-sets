@@ -90,6 +90,17 @@ Notes:
 - Existing carts, checkout sessions, orders, payments, fulfillment, and account buying ability are not changed by this overlay.
 - `availableAgainOn` is private operational context, not an automatic resume trigger.
 
+## Report
+
+A **Report** is a buyer or visitor submission that flags Marketplace content for Trust & Safety review.
+
+Notes:
+
+- Reports are owned by Marketplace.
+- Reports are grouped by reported target and reporter; one reporter may report the same target once.
+- Listing Reports can automatically unlist an active Listing when the distinct-reporter threshold is reached.
+- Platform Operations consumes Report facts to render the operator moderation queue, but Marketplace owns report capture and listing visibility consequences.
+
 ## Offer Status
 
 **Offer Status** is the lifecycle state of an offer.

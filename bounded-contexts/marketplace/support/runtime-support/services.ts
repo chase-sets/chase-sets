@@ -10,6 +10,7 @@ import type { ListingPhotoStorage } from ".";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";
+import { createMarketplaceReportRuntime } from "../../features/reports/api/runtime";
 import { createReviewRuntime } from "../../features/reviews/api/runtime";
 
 export type MarketplaceServiceOptions = Readonly<{
@@ -20,6 +21,7 @@ export type MarketplaceServiceOptions = Readonly<{
 export type MarketplaceServices = Readonly<{
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
+  reports: ReturnType<typeof createMarketplaceReportRuntime>;
   reviews: ReturnType<typeof createReviewRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   commercialTermsResolver: CommercialTermsResolver;
@@ -47,6 +49,9 @@ export function createMarketplaceServices(
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
   const offers = createMarketplaceOfferRuntime(deps);
+  const reports = createMarketplaceReportRuntime({
+    eventStore,
+  });
   const reviews = createReviewRuntime({
     eventStore,
     checkpointStore,
@@ -56,6 +61,7 @@ export function createMarketplaceServices(
   return {
     listings,
     offers,
+    reports,
     reviews,
     projectors: [...listings.projectors, ...offers.projectors, ...reviews.projectors],
     commercialTermsResolver,

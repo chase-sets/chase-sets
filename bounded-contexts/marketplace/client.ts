@@ -16,6 +16,7 @@ export type {
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
+export type { MarketplaceReportSubmissionSnapshot, ReportListingRequest } from "./features/reports/api/contracts";
 export type {
   OfferMatchDetail,
   OfferMatchListItem,
@@ -39,6 +40,7 @@ import type {
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
+import type { MarketplaceReportSubmissionSnapshot, ReportListingRequest } from "./features/reports/api/contracts";
 import type {
   OfferMatchDetail,
   OfferMatchListItem,
@@ -186,6 +188,22 @@ export function createMarketplaceApiClient({
           },
           body: JSON.stringify(body),
           signal: options.signal,
+        }),
+      );
+    },
+    async reportListing(
+      listingId: string,
+      anonymousReporterId: string | null,
+      body: ReportListingRequest,
+    ): Promise<MarketplaceReportSubmissionSnapshot> {
+      return parseJsonResponse(
+        await client.listings[":id"].report.$post({
+          param: { id: listingId },
+          json: body,
+          header: {
+            ...headersToRecord(headers),
+            ...(anonymousReporterId ? { "x-marketplace-anonymous-report-id": anonymousReporterId } : {}),
+          },
         }),
       );
     },

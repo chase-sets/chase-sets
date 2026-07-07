@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { PlatformFeedbackServices } from "./runtime";
 import { normalizeTopic, normalizeWorkflow, type PlatformFeedbackRelatedEntity } from "../domain/common";
+import { createReportedContentRoutes } from "../../reported-content/api/http";
+import type { ReportedContentServices } from "../../reported-content/api/runtime";
 
 export type ExperienceApiEnv = AuthenticatedApiEnv;
 
@@ -404,8 +406,14 @@ export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices)
   return app;
 }
 
-export function buildExperienceApi(platformFeedback: PlatformFeedbackServices) {
+export function buildExperienceApi(
+  platformFeedback: PlatformFeedbackServices,
+  reportedContent?: ReportedContentServices,
+) {
   const app = new Hono<ExperienceApiEnv>();
   app.route("/platform-feedback", createPlatformFeedbackRoutes(platformFeedback));
+  if (reportedContent) {
+    app.route("/reported-content", createReportedContentRoutes(reportedContent));
+  }
   return app;
 }
