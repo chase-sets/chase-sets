@@ -6,7 +6,11 @@ import {
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
-import { MarketplaceOfferFeeQuoteStaleError, type MarketplaceOfferServices } from "./runtime";
+import {
+  MarketplaceOfferAbuseControlError,
+  MarketplaceOfferFeeQuoteStaleError,
+  type MarketplaceOfferServices,
+} from "./runtime";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 import { omitPrivateOfferResponseFields, publicOfferListResponse } from "./response-shape";
 
@@ -99,7 +103,43 @@ function validationError(
     );
   }
 
+  if (error instanceof MarketplaceOfferAbuseControlError) {
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: offerAbuseControlMessage(error),
+          details: error.details,
+        },
+      },
+      400,
+    );
+  }
+
   return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+}
+
+function offerAbuseControlMessage(error: MarketplaceOfferAbuseControlError) {
+  switch (error.code) {
+    case "offer_daily_submission_cap_reached":
+      return t("marketplace.features.offers.api.route.offer.daily.submission.cap.reached", {
+        limit: String(error.details.limit ?? ""),
+      });
+    case "offer_listing_submission_cap_reached":
+      return t("marketplace.features.offers.api.route.offer.listing.submission.cap.reached", {
+        limit: String(error.details.limit ?? ""),
+      });
+    case "offer_price_floor_not_met":
+      return t("marketplace.features.offers.api.route.offer.price.floor.not.met", {
+        amount: `$${error.details.minimumOfferAmount}`,
+      });
+    case "offer_lowball_cooldown":
+      return t("marketplace.features.offers.api.route.offer.lowball.cooldown");
+    case "offer_muted_by_sellers":
+      return t("marketplace.features.offers.api.route.offer.muted.by.sellers");
+    default:
+      return error.message;
+  }
 }
 
 function parseVersionSelection(value: unknown) {
@@ -269,7 +309,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
 
       return c.json({ id: result.offerId, version: result.version, status: "submitted" }, 201);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return validationError(c, error);
     }
   });
 
@@ -323,6 +363,27 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     return c.json({
       ...response,
       count: response.items.length,
+    });
+  });
+
+  app.get("/offers/mutes", async (c) => {
+    const access = requireOfferAccess(c, "offers.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
+        403,
+      );
+    }
+
+    const result = await services.listOfferBuyerMutes(access.actor.accountId);
+
+    return c.json({
+      ...result,
+      count: result.items.length,
     });
   });
 
@@ -421,6 +482,138 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       );
 
       return c.json({ id: result.offerId, version: result.version, status: "accepted" }, 201);
+    } catch (error) {
+      return validationError(c, error);
+    }
+  });
+
+  app.post("/offers/matches/:id/decline", async (c) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
+        403,
+      );
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.declineOfferMatch(
+        {
+          offerId: c.req.param("id") as OfferId,
+          sellerAccountId: access.actor.accountId as AccountId,
+        },
+        context,
+      );
+
+      return c.json({ id: result.offerId, version: result.version, status: "declined" }, 201);
+    } catch (error) {
+      return validationError(c, error);
+    }
+  });
+
+  app.post("/offers/matches/:id/mute-buyer", async (c) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
+        403,
+      );
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.muteBuyerOffers(
+        {
+          offerId: c.req.param("id") as OfferId,
+          sellerAccountId: access.actor.accountId as AccountId,
+        },
+        context,
+      );
+
+      return c.json({ id: result.offerId, version: result.version, status: "muted" }, 201);
+    } catch (error) {
+      return validationError(c, error);
+    }
+  });
+
+  app.post("/offers/mutes/:listingId/:buyerAccountId/unmute", async (c) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
+        403,
+      );
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.unmuteBuyerOffers(
+        {
+          listingId: c.req.param("listingId"),
+          buyerAccountId: c.req.param("buyerAccountId") as AccountId,
+          sellerAccountId: access.actor.accountId as AccountId,
+        },
+        context,
+      );
+
+      return c.json(
+        {
+          listingId: result.listingId,
+          buyerAccountId: result.buyerAccountId,
+          version: result.version,
+          status: "unmuted",
+        },
+        201,
+      );
     } catch (error) {
       return validationError(c, error);
     }

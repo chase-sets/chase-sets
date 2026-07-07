@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import { DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY } from "../domain/offer-abuse-policy";
 
 export type MarketplaceOfferListRow = Readonly<{
   offer_id: string;
@@ -38,6 +39,16 @@ export type OfferMatchRow = MarketplaceOfferListRow &
     can_fulfill: boolean;
   }>;
 
+export type OfferBuyerMuteRow = Readonly<{
+  seller_account_id: string;
+  buyer_account_id: string;
+  buyer_display_name: string | null;
+  listing_id: string;
+  product_id: string;
+  muted_at: string;
+  updated_at: string;
+}>;
+
 type MarketplaceOfferPageRow = Readonly<{
   offer_id: string;
   buyer_account_id: string;
@@ -58,6 +69,8 @@ type MarketplaceOfferPageRow = Readonly<{
   created_at: string;
   updated_at: string;
 }>;
+
+const offerFloorBps = DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY.minimumOfferToListingPriceBps;
 
 function mapOfferRow(row: MarketplaceOfferPageRow): MarketplaceOfferListRow {
   return {
@@ -133,6 +146,33 @@ function sellerBestListingJoinSql(sellerAccountSql: string) {
       listing.listing_id ASC
     LIMIT 1
   ) AS matched_listing ON TRUE`;
+}
+
+function sellerOfferControlsJoinSql(sellerAccountSql: string) {
+  return `
+    LEFT JOIN marketplace_offer_seller_controls AS seller_offer_control
+      ON seller_offer_control.seller_account_id = ${sellerAccountSql}
+     AND seller_offer_control.buyer_account_id = offer.buyer_account_id
+     AND seller_offer_control.listing_id = matched_listing.listing_id
+    LEFT JOIN marketplace_offer_seller_declines AS seller_offer_decline
+      ON seller_offer_decline.seller_account_id = ${sellerAccountSql}
+     AND seller_offer_decline.listing_id = matched_listing.listing_id
+     AND seller_offer_decline.offer_id = offer.offer_id`;
+}
+
+function sellerOfferControlsWhereSql(sellerAccountSql: string) {
+  return `
+      seller_offer_control.muted_at IS NULL
+      AND seller_offer_decline.offer_id IS NULL
+      AND offer.price_amount >= (
+        CEIL((matched_listing.listing_price_amount * 100)::numeric * ${offerFloorBps} / 10000) / 100
+      )::numeric
+      AND (
+        seller_offer_control.lowball_cooldown_until IS NULL
+        OR seller_offer_control.lowball_cooldown_until <= now()
+        OR seller_offer_control.last_lowball_declined_amount IS NULL
+        OR offer.price_amount >= seller_offer_control.last_lowball_declined_amount
+      )`;
 }
 
 function sellerOfferSelectSql(sellerAccountSql: string) {
@@ -311,11 +351,13 @@ export async function listOfferMatches(
       ${sellerOfferSelectSql("$1")}
     FROM marketplace_offer_pages AS offer
     ${sellerBestListingJoinSql("$1")}
+    ${sellerOfferControlsJoinSql("$1")}
     LEFT JOIN marketplace_account_pages AS buyer
       ON buyer.account_id = offer.buyer_account_id
     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
       ON availability.account_id = $1
-    WHERE ${innerWhere.join("\n      AND ")}`;
+    WHERE ${innerWhere.join("\n      AND ")}
+      AND ${sellerOfferControlsWhereSql("$1")}`;
 
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
@@ -351,13 +393,15 @@ export async function getOfferMatch(
        ${sellerOfferSelectSql("$1")}
      FROM marketplace_offer_pages AS offer
      ${sellerBestListingJoinSql("$1")}
+     ${sellerOfferControlsJoinSql("$1")}
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
        ON availability.account_id = $1
      WHERE offer.offer_id = $2
        AND offer.status = 'submitted'
-       AND ${sellerVisibilitySql}`,
+       AND ${sellerVisibilitySql}
+       AND ${sellerOfferControlsWhereSql("$1")}`,
     [sellerAccountId, offerId],
   );
 
@@ -387,6 +431,7 @@ export async function listOfferMatchesForSellers(
      INNER JOIN marketplace_offer_pages AS offer
        ON offer.offer_id = $1
      ${sellerBestListingJoinSql("seller_account.seller_account_id")}
+     ${sellerOfferControlsJoinSql("seller_account.seller_account_id")}
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
@@ -398,9 +443,64 @@ export async function listOfferMatchesForSellers(
          WHERE listing.account_id = seller_account.seller_account_id
            AND listing.status = 'active'
            AND listing.product_id = offer.product_id
-       )`,
+       )
+       AND ${sellerOfferControlsWhereSql("seller_account.seller_account_id")}`,
     [offerId, uniqueSellerAccountIds],
   );
 
   return new Map(result.rows.map((row) => [row.seller_account_id, mapOfferMatchRow(row)]));
+}
+
+export async function listOfferBuyerMutes(
+  db: PgQueryable,
+  sellerAccountId: string,
+): Promise<{ items: OfferBuyerMuteRow[]; total: number }> {
+  const result = await db.query<OfferBuyerMuteRow>(
+    `SELECT
+       control.seller_account_id,
+       control.buyer_account_id,
+       buyer.display_name AS buyer_display_name,
+       control.listing_id,
+       control.product_id,
+       control.muted_at::text,
+       control.updated_at::text
+     FROM marketplace_offer_seller_controls AS control
+     LEFT JOIN marketplace_account_pages AS buyer
+       ON buyer.account_id = control.buyer_account_id
+     WHERE control.seller_account_id = $1
+       AND control.muted_at IS NOT NULL
+     ORDER BY control.updated_at DESC, control.buyer_account_id ASC, control.listing_id ASC`,
+    [sellerAccountId],
+  );
+
+  return {
+    items: result.rows,
+    total: result.rows.length,
+  };
+}
+
+export async function getOfferBuyerMute(
+  db: PgQueryable,
+  params: Readonly<{ sellerAccountId: string; buyerAccountId: string; listingId: string }>,
+): Promise<OfferBuyerMuteRow | null> {
+  const result = await db.query<OfferBuyerMuteRow>(
+    `SELECT
+       control.seller_account_id,
+       control.buyer_account_id,
+       buyer.display_name AS buyer_display_name,
+       control.listing_id,
+       control.product_id,
+       control.muted_at::text,
+       control.updated_at::text
+     FROM marketplace_offer_seller_controls AS control
+     LEFT JOIN marketplace_account_pages AS buyer
+       ON buyer.account_id = control.buyer_account_id
+     WHERE control.seller_account_id = $1
+       AND control.buyer_account_id = $2
+       AND control.listing_id = $3
+       AND control.muted_at IS NOT NULL`,
+    [params.sellerAccountId, params.buyerAccountId, params.listingId],
+  );
+
+  return result.rows[0] ?? null;
 }

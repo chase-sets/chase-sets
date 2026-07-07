@@ -39,6 +39,13 @@ function buildApp(
 function createServices(): MarketplaceOfferServices {
   const submitOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 1 }));
   const acceptOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 2 }));
+  const declineOfferMatch = vi.fn(async () => ({ offerId: "off_1" as never, version: 3 }));
+  const muteBuyerOffers = vi.fn(async () => ({ offerId: "off_1" as never, version: 4 }));
+  const unmuteBuyerOffers = vi.fn(async () => ({
+    listingId: "lst_1",
+    buyerAccountId: "acc_buyer" as never,
+    version: 5,
+  }));
   const previewOfferAcceptanceTerms = vi.fn(async () => ({
     account_type: "personal" as const,
     basis_amount: "350.00",
@@ -54,17 +61,23 @@ function createServices(): MarketplaceOfferServices {
   const getPublicOffer = vi.fn(async () => null);
   const listOfferMatches = vi.fn(async () => ({ items: [], total: 0 }));
   const getOfferMatch = vi.fn(async () => null);
+  const listOfferBuyerMutes = vi.fn(async () => ({ items: [], total: 0 }));
 
   return {
     commandHandler: vi.fn(async () => ({ version: 1 })),
+    sellerControlCommandHandler: vi.fn(async () => ({ version: 1 })),
     submitOffer,
     acceptOffer,
+    declineOfferMatch,
+    muteBuyerOffers,
+    unmuteBuyerOffers,
     previewOfferAcceptanceTerms,
     listSubmittedOffers,
     getSubmittedOffer,
     getPublicOffer,
     listOfferMatches,
     getOfferMatch,
+    listOfferBuyerMutes,
     projectors: [],
   } as unknown as MarketplaceOfferServices;
 }
@@ -524,5 +537,135 @@ describe("marketplace offer routes", () => {
         },
       },
     });
+  });
+
+  it("declines an offer match", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/offers/matches/off_1/decline", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      id: "off_1",
+      version: 3,
+      status: "declined",
+    });
+    expect(services.declineOfferMatch).toHaveBeenCalledWith(
+      {
+        offerId: "off_1",
+        sellerAccountId: "acc_seller",
+      },
+      expect.any(Object),
+    );
+  });
+
+  it("mutes offer matches from a buyer", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/offers/matches/off_1/mute-buyer", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      id: "off_1",
+      version: 4,
+      status: "muted",
+    });
+    expect(services.muteBuyerOffers).toHaveBeenCalledWith(
+      {
+        offerId: "off_1",
+        sellerAccountId: "acc_seller",
+      },
+      expect.any(Object),
+    );
+  });
+
+  it("returns and removes muted offer buyers", async () => {
+    const services = createServices();
+    vi.mocked(services.listOfferBuyerMutes).mockResolvedValue({
+      items: [
+        {
+          seller_account_id: "acc_seller",
+          buyer_account_id: "acc_buyer",
+          buyer_display_name: "Buyer One",
+          listing_id: "lst_1",
+          product_id: "cat_charizard::",
+          muted_at: "2026-07-05T12:00:00.000Z",
+          updated_at: "2026-07-05T12:00:00.000Z",
+        },
+      ],
+      total: 1,
+    });
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const listResponse = await app.fetch(new Request("http://marketplace.test/account/offers/mutes"));
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toMatchObject({
+      count: 1,
+      items: [{ buyer_account_id: "acc_buyer", listing_id: "lst_1" }],
+    });
+
+    const unmuteResponse = await app.fetch(
+      new Request("http://marketplace.test/account/offers/mutes/lst_1/acc_buyer/unmute", {
+        method: "POST",
+      }),
+    );
+    expect(unmuteResponse.status).toBe(201);
+    await expect(unmuteResponse.json()).resolves.toEqual({
+      listingId: "lst_1",
+      buyerAccountId: "acc_buyer",
+      version: 5,
+      status: "unmuted",
+    });
+    expect(services.unmuteBuyerOffers).toHaveBeenCalledWith(
+      {
+        listingId: "lst_1",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+      },
+      expect.any(Object),
+    );
   });
 });

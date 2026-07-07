@@ -42,6 +42,7 @@ Marketplace sales fee confirmation rules are documented in [Marketplace Sales Fe
 Limited Product Alert demand visibility is documented in [Limited Offer Demand Signals](./docs/limited-offer-demand-signals.md).
 Seller Listing Availability is documented in [Seller Listing Availability](./docs/seller-listing-availability.md).
 Standard listing Inventory disclosure is documented in [Standard Listing Inventory Disclosure](./docs/standard-listing-inventory-disclosure.md).
+Offer abuse controls are documented in [Offer Abuse Controls](./docs/offer-abuse-controls.md).
 
 Offer Matches is a Marketplace source list. It can surface matching demand and post selected offer ids to the Checkout-owned Sell List route, but it must not own durable Sell List review, fee readiness, payout, fulfillment, or seller checkout orchestration.
 

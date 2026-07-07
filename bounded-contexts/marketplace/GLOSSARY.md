@@ -107,6 +107,14 @@ A **Commerce Commitment Request** is the integration fact emitted when Marketpla
 
 **Offer Acceptance** is the selling-account action that ends marketplace-wide demand visibility for an offer and emits the fact Ordering uses to create an order.
 
+## Offer Decline
+
+An **Offer Decline** is a seller action that hides one Offer Match from that seller's listing-specific match surface without ending the marketplace-wide Offer.
+
+## Buyer Offer Mute
+
+A **Buyer Offer Mute** is a seller action that hides current and future Offer Matches from one buyer account for a specific Listing until removed.
+
 ## Review
 
 A **Review** is the full post-transaction evaluation record one account records about another, scoped to a single order.

@@ -205,7 +205,11 @@
     {
       "projectionName": "marketplace-offer-projection",
       "sourceContextNames": ["marketplace"],
-      "ownedTables": ["marketplace_offer_pages"],
+      "ownedTables": [
+        "marketplace_offer_pages",
+        "marketplace_offer_seller_controls",
+        "marketplace_offer_seller_declines"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -342,6 +346,27 @@
           "dependencies": [
             {
               "readModelTable": "marketplace_offer_pages"
+            },
+            {
+              "readModelTable": "marketplace_offer_seller_controls"
+            },
+            {
+              "readModelTable": "marketplace_offer_seller_declines"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/offers/matches",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_offer_pages"
+            },
+            {
+              "readModelTable": "marketplace_offer_seller_controls"
+            },
+            {
+              "readModelTable": "marketplace_offer_seller_declines"
             }
           ]
         },
@@ -643,6 +668,37 @@
       }
     },
     {
+      "id": "marketplace.offer-match-seller-control-list-refresh",
+      "owner": "marketplace",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["account-offer-match", "account-offer-matches"],
+        "actions": ["Decline offer match", "Mute offer buyer", "Unmute offer buyer"],
+        "command": "Marketplace offer seller-control commands",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "account-offer-matches",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/offers/matches",
+        "readModelTables": [
+          "marketplace_offer_pages",
+          "marketplace_offer_seller_controls",
+          "marketplace_offer_seller_declines"
+        ],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Decline and mute offer-match actions redirect to Offer Matches with a Marketplace commit receipt; the list loader waits on offer seller-control projections before rendering the seller's remaining matches."
+        }
+      }
+    },
+    {
       "id": "marketplace.review-submit-to-detail",
       "owner": "marketplace",
       "risk": "important",
@@ -738,16 +794,55 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/accept",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/decline",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/mute-buyer",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/mutes/:listingId/:buyerAccountId/unmute",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted"
       ],
       "visibleDestination": {
-        "description": "Offer API commands return command-owned id/version/status snapshots; submitted-offer and accepted-offer browser destinations use the receipt for fresh offer reads."
+        "description": "Offer API commands return command-owned id/version/status snapshots; submitted-offer, accepted-offer, declined-offer, and muted-buyer browser destinations use the receipt for fresh offer reads."
       },
       "proof": {
-        "authoritativeResponse": "SubmitOffer returns id/version/status=submitted and AcceptOffer returns id/version/status=accepted directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
+        "authoritativeResponse": "SubmitOffer returns id/version/status=submitted, AcceptOffer returns id/version/status=accepted, DeclineOfferMatch returns id/version/status=declined, and MuteBuyerOffers returns id/version/status=muted directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
         "tests": [
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
           "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.offer-match-seller-control-fresh-read-forms",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#4",
+        "route-action:bounded-contexts/marketplace/routes/account-offer-matches.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-offer-matches",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/offers/matches",
+        "readModelTables": [
+          "marketplace_offer_pages",
+          "marketplace_offer_seller_controls",
+          "marketplace_offer_seller_declines"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Decline and mute offer-match forms redirect to Offer Matches with a Marketplace commit receipt; the list loader forwards afterWrite to the offer match read so seller controls hide declined or muted matches only after the offer projection catches up."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/offers/api/route.test.ts",
+          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
+          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
           "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
         ]
       }

@@ -32,4 +32,37 @@ CREATE INDEX IF NOT EXISTS marketplace_offer_pages_selected_options_idx
 
 ALTER TABLE marketplace_offer_pages
   ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS marketplace_offer_seller_controls (
+  seller_account_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  listing_id text NOT NULL,
+  product_id text NOT NULL,
+  muted_at timestamptz NULL,
+  declined_offer_count integer NOT NULL DEFAULT 0,
+  lowball_decline_count integer NOT NULL DEFAULT 0,
+  last_lowball_declined_amount numeric(12,2) NULL,
+  lowball_cooldown_until timestamptz NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (seller_account_id, buyer_account_id, listing_id)
+);
+
+CREATE INDEX IF NOT EXISTS marketplace_offer_seller_controls_buyer_idx
+  ON marketplace_offer_seller_controls (buyer_account_id, product_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS marketplace_offer_seller_declines (
+  seller_account_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  listing_id text NOT NULL,
+  product_id text NOT NULL,
+  offer_id text NOT NULL,
+  offer_price_amount numeric(12,2) NOT NULL,
+  listing_price_amount numeric(12,2) NOT NULL,
+  declined_at timestamptz NOT NULL,
+  lowball_cooldown_until timestamptz NULL,
+  PRIMARY KEY (seller_account_id, listing_id, offer_id)
+);
+
+CREATE INDEX IF NOT EXISTS marketplace_offer_seller_declines_buyer_listing_idx
+  ON marketplace_offer_seller_declines (buyer_account_id, listing_id, declined_at DESC);
 `;
