@@ -83,6 +83,13 @@ function withCommandReceipt<T extends object>(body: T, source: SourceCommitPosit
   return body;
 }
 
+function registrationRequestHeaders(clientAddress: string) {
+  return {
+    "Content-Type": "application/json",
+    "x-forwarded-for": clientAddress,
+  };
+}
+
 useMockReset();
 
 describe("registration auth routes", () => {
@@ -97,7 +104,7 @@ describe("registration auth routes", () => {
 
     const response = await app.request("/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: registrationRequestHeaders("203.0.113.10"),
       body: JSON.stringify({
         email: "new.user@chasesets.test",
         displayName: "New User",
@@ -151,7 +158,7 @@ describe("registration auth routes", () => {
 
     const response = await app.request("/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: registrationRequestHeaders("203.0.113.11"),
       body: JSON.stringify({
         email: "New.User@ChaseSets.test",
         displayName: "New User",
@@ -184,7 +191,7 @@ describe("registration auth routes", () => {
 
     const response = await app.request("/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: registrationRequestHeaders("203.0.113.12"),
       body: JSON.stringify({
         email: "new.user@chasesets.test",
         displayName: "New User",
@@ -195,13 +202,44 @@ describe("registration auth routes", () => {
     expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
   });
 
+  it("rate limits registration before admission screening", async () => {
+    const services = createServices();
+    services.registrationAdmission = {
+      mode: "invitation",
+      disposableEmailMode: "enforce",
+      disposableEmailDomains: ["mailinator.com"],
+    };
+    const app = buildApp(services);
+    const request = {
+      method: "POST",
+      headers: registrationRequestHeaders("203.0.113.13"),
+      body: JSON.stringify({
+        email: "new.user@chasesets.test",
+        displayName: "New User",
+      }),
+    };
+
+    expect((await app.request("/register", request)).status).toBe(403);
+    expect((await app.request("/register", request)).status).toBe(403);
+    expect((await app.request("/register", request)).status).toBe(403);
+    services.identity.findPendingInvitationByEmail.mockClear();
+
+    const rateLimitedResponse = await app.request("/register", request);
+
+    expect(rateLimitedResponse.status).toBe(429);
+    await expect(rateLimitedResponse.json()).resolves.toMatchObject({
+      error: { code: "rate_limited", surface: "auth.register.ip" },
+    });
+    expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
+  });
+
   it("rejects disposable email domains when enforcement is enabled", async () => {
     const services = createServices();
     const app = buildApp(services);
 
     const response = await app.request("/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: registrationRequestHeaders("203.0.113.14"),
       body: JSON.stringify({
         email: "new.user@mailinator.com",
         displayName: "New User",
@@ -246,7 +284,7 @@ describe("registration auth routes", () => {
 
     const response = await app.request("/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: registrationRequestHeaders("203.0.113.15"),
       body: JSON.stringify({
         email: "new.user@mailinator.com",
         displayName: "New User",
@@ -307,7 +345,7 @@ describe("registration auth routes", () => {
 
     const response = await app.request("/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: registrationRequestHeaders("203.0.113.16"),
       body: JSON.stringify({
         email: " New.User@ChaseSets.test ",
         password: "correct horse battery staple",
