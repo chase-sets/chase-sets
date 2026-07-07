@@ -822,7 +822,9 @@ components:
         targetComponents:
           - "platform-worker"
         timeoutSeconds: 300
-        commandTimeoutSeconds: 600
+        # Keep bootstrap command timeout below the 15m Helm rollout timeout, which stays below the 30m app schema-lock retry budget.
+        # 780s leaves 120s of Helm headroom for quiesce/restore wrapper overhead.
+        commandTimeoutSeconds: 780
         pollIntervalMs: 2000
         restoreOnFailure: true
         ignoreMissingDeployments: true

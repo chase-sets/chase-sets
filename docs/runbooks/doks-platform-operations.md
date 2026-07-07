@@ -23,7 +23,7 @@ The chart renders these runtime Deployments when their component is enabled:
 - `platform-api`
 - `platform-worker`
 
-`platform-bootstrap` is a Helm pre-install/pre-upgrade Job. It quiesces worker Deployments before bootstrap and restores them when bootstrap fails.
+`platform-bootstrap` is a Helm pre-install/pre-upgrade Job. It quiesces worker Deployments before bootstrap and restores them when bootstrap fails. Keep the release-time timeout budget ordered as: bootstrap quiesce command timeout `780s` < Helm rollout timeout `15m` < app schema-lock retry budget `30m`. The `780s` command budget gives heavy bootstrap work more room than the old 600-second fuse while leaving 120 seconds inside Helm's 900-second rollout window for quiesce and restore wrapper overhead.
 
 ## Operator Shell Setup
 
@@ -62,7 +62,7 @@ pnpm run platform:kubernetes-deployment -- deploy \
   --release chase-sets-platform \
   --namespace chase-sets-platform \
   --image registry.digitalocean.com/chase-sets/chase-sets-platform:<release-commit> \
-  --timeout 10m
+  --timeout 15m
 ```
 
 Quick inspection commands:
@@ -70,7 +70,7 @@ Quick inspection commands:
 ```bash
 helm status chase-sets-platform --namespace chase-sets-platform
 helm history chase-sets-platform --namespace chase-sets-platform
-kubectl rollout status deployment/chase-sets-platform-chase-sets-platform-platform-api --namespace chase-sets-platform --timeout=10m
+kubectl rollout status deployment/chase-sets-platform-chase-sets-platform-platform-api --namespace chase-sets-platform --timeout=15m
 kubectl get deployments,jobs,pods,events --namespace chase-sets-platform --sort-by=.metadata.creationTimestamp
 ```
 
@@ -124,7 +124,7 @@ Rollback uses Helm release history, not App Platform image mutation. The automat
 pnpm run platform:kubernetes-deployment -- rollback \
   --release chase-sets-platform \
   --namespace chase-sets-platform \
-  --timeout 10m
+  --timeout 15m
 ```
 
 For staging DOKS release-lane recovery, dispatch `Platform Staging Helm Recovery` with the exact confirmation phrase `recover staging helm release`, a recovery reference, and an optional Helm revision. The workflow shares the staging deploy concurrency group, configures the staging DOKS kubeconfig from Terraform state, captures Helm status/history plus source-owned diagnostics before and after rollback, runs the same `platform:kubernetes-deployment -- rollback` helper for release `chase-sets-platform` in namespace `chase-sets-platform`, and uploads `platform-staging-helm-recovery-<run>-<attempt>` evidence.
@@ -136,7 +136,7 @@ pnpm run platform:kubernetes-deployment -- rollback \
   --release chase-sets-platform \
   --namespace chase-sets-platform \
   --revision <revision> \
-  --timeout 10m
+  --timeout 15m
 ```
 
 After rollback:

@@ -15,7 +15,7 @@ export function parseQuiesceOptions(argv, env = process.env) {
     command,
     namespace: env.CHASE_SETS_KUBERNETES_NAMESPACE ?? null,
     timeoutMs: Number(env.CHASE_SETS_QUIESCE_TIMEOUT_SECONDS ?? "300") * 1000,
-    commandTimeoutMs: Number(env.CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS ?? "600") * 1000,
+    commandTimeoutMs: Number(env.CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS ?? "780") * 1000,
     pollIntervalMs: Number(env.CHASE_SETS_QUIESCE_POLL_INTERVAL_MS ?? "2000"),
     restoreOnFailure: env.CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE !== "false",
     ignoreMissingDeployments: env.CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS !== "false",

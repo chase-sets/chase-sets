@@ -201,7 +201,7 @@ describe("render platform Helm values", () => {
         enabled: true,
         targetComponents: ["platform-worker"],
         timeoutSeconds: 300,
-        commandTimeoutSeconds: 600,
+        commandTimeoutSeconds: 780,
         pollIntervalMs: 2000,
         restoreOnFailure: true,
         ignoreMissingDeployments: true,
