@@ -55,6 +55,7 @@ const MARKET_LISTING_CREATED_COLUMNS = [
   "selected_options",
   "product_summary",
   "product_measure_snapshot",
+  "graded_card",
   "storage_location_name",
   "ship_from_code",
   "price_amount",
@@ -81,6 +82,7 @@ const MARKET_LISTING_CREATED_UPDATE_COLUMNS = [
   "selected_options",
   "product_summary",
   "product_measure_snapshot",
+  "graded_card",
   "storage_location_name",
   "ship_from_code",
   "price_amount",
@@ -600,6 +602,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         selectedOptions: unknown;
         productSummary: string | null;
         productMeasureSnapshot?: unknown;
+        gradedCard?: unknown;
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
@@ -650,6 +653,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           selected_options: Array.isArray(data.selectedOptions) ? data.selectedOptions : [],
           product_summary: data.productSummary,
           product_measure_snapshot: productMeasureSnapshot,
+          graded_card: data.gradedCard && typeof data.gradedCard === "object" ? data.gradedCard : null,
           storage_location_name: data.storageLocationName,
           ship_from_code: data.shipFromCode,
           price_amount: data.priceAmount,
@@ -664,7 +668,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           created_at: event.timing.recordedAt,
           updated_at: event.timing.recordedAt,
         },
-        casts: { selected_options: "jsonb", product_measure_snapshot: "jsonb" },
+        casts: { selected_options: "jsonb", product_measure_snapshot: "jsonb", graded_card: "jsonb" },
       });
       await recomputeDiscoveryMarketListingSupply(db, data.inventoryItemId);
       await rememberSlugRedirect(db, {

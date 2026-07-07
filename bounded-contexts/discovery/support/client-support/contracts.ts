@@ -210,6 +210,25 @@ export interface DiscoveryMarketSummary {
   total_visible_quantity: number;
 }
 
+export interface DiscoveryGradedCardDetails {
+  gradingCompany: string;
+  grade: string;
+  certificationNumber: string | null;
+  population: {
+    populationAtGrade: number | null;
+    populationHigher: number | null;
+    source: string | null;
+    asOf: string | null;
+  } | null;
+  conditionDescriptors: string[];
+  registryVerification?: {
+    state: "verified" | "mismatch" | "unavailable";
+    provider: string;
+    verifiedAt: string | null;
+    lookupUrl: string | null;
+  } | null;
+}
+
 export interface DiscoveryMarketListing {
   listing_id: string;
   listing_slug: string;
@@ -223,6 +242,7 @@ export interface DiscoveryMarketListing {
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  graded_card?: DiscoveryGradedCardDetails | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;

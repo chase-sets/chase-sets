@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS discovery_market_listings (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   product_measure_snapshot jsonb NULL,
+  graded_card jsonb NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount text NOT NULL,
@@ -87,6 +88,7 @@ ALTER TABLE discovery_market_listings
 
 ALTER TABLE discovery_market_listings
   ADD COLUMN IF NOT EXISTS product_measure_snapshot jsonb NULL,
+  ADD COLUMN IF NOT EXISTS graded_card jsonb NULL,
   ADD COLUMN IF NOT EXISTS supply_total_quantity integer NULL,
   ADD COLUMN IF NOT EXISTS active_held_quantity integer NULL;
 

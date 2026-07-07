@@ -875,6 +875,19 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.mobile.watch.title": "Watch this product",
   "discovery.routes.itemDetail.watch.offers": "Watch offers",
   "discovery.routes.itemDetail.watch.offers.description": "Offers at or above your target.",
+  "discovery.routes.itemDetail.grading.cert.lookup": "View registry lookup",
+  "discovery.routes.itemDetail.grading.cert.summary": "{company} {grade} cert {cert}",
+  "discovery.routes.itemDetail.grading.cert.verified.badge": "Registry match",
+  "discovery.routes.itemDetail.grading.summary": "{company} {grade}",
+  "discovery.routes.itemDetail.referenceInfo.gradingCert.aria": "View grading certificate verification details",
+  "discovery.routes.itemDetail.referenceInfo.gradingCert.line1":
+    "The grading company registry returned card identity and grade data that matched this listing's catalog item and grade.",
+  "discovery.routes.itemDetail.referenceInfo.gradingCert.line2":
+    "This is a registry data match only. It is not Chase Sets authentication of the physical card or slab.",
+  "discovery.routes.itemDetail.referenceInfo.gradingCert.summary":
+    "Registry match means the cert data matched the listing facts.",
+  "discovery.routes.itemDetail.referenceInfo.gradingCert.title": "Grading cert registry match",
+  "discovery.routes.itemDetail.referenceInfo.gradingCert.trigger": "What this means",
   "discovery.googleShoppingOperations.account": "Account",
   "discovery.googleShoppingOperations.action": "Action",
   "discovery.googleShoppingOperations.api.accessRequired": "Google Shopping sync requires Google Shopping access.",
