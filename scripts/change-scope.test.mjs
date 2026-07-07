@@ -91,6 +91,45 @@ describe("change-scope", () => {
     expect(scope.deployRequired).toBe(false);
   });
 
+  it("maps context metadata route changes to platform-runtime and OpenAPI parity coverage", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/inventory/context.json"],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "inventory", "@test/inventory"),
+        workspace(baseDir, "infrastructure", "platform-runtime", "@test/platform-runtime"),
+        workspace(baseDir, "deployables", "platform-api", "@test/app-platform-api", {
+          "@test/inventory": "workspace:*",
+        }),
+      ],
+    });
+
+    expect(scope.affectedWorkspaces).toEqual(["@test/inventory", "@test/platform-runtime", "@test/app-platform-api"]);
+    expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual(["@test/app-platform-api", "@test/platform-runtime"]);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.buildRequired).toBe(true);
+  });
+
+  it("keeps unrelated bounded-context changes from pulling platform-runtime into scope", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/inventory/features/import-batches/domain/import-batch.ts"],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "inventory", "@test/inventory"),
+        workspace(baseDir, "infrastructure", "platform-runtime", "@test/platform-runtime"),
+        workspace(baseDir, "deployables", "platform-api", "@test/app-platform-api", {
+          "@test/inventory": "workspace:*",
+        }),
+      ],
+    });
+
+    expect(scope.affectedWorkspaces).toEqual(["@test/inventory", "@test/app-platform-api"]);
+    expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual([]);
+    expect(scope.affectedWorkspaces).not.toContain("@test/platform-runtime");
+  });
+
   it("expands affected workspaces through workspace dependents", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
