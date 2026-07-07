@@ -224,6 +224,16 @@ export async function listPendingCreditEntriesMaturedBy(
                      FROM settlement_account_risk_sources risk
                      WHERE risk.account_id = settlement_ledger_entry_pages.account_id
                    ), 0) = 0
+                   OR COALESCE((
+                     SELECT risk.shared_instrument_cluster_count
+                     FROM settlement_account_risk_sources risk
+                     WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                   ), 0) > 0
+                   OR COALESCE((
+                     SELECT risk.shared_address_cluster_count
+                     FROM settlement_account_risk_sources risk
+                     WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                   ), 0) > 0
                    OR NOT EXISTS (
                      SELECT 1
                      FROM settlement_order_trust_signal_sources trust_source
@@ -351,6 +361,16 @@ export async function listPendingCreditEntriesMaturedBy(
                    FROM settlement_account_risk_sources risk
                    WHERE risk.account_id = settlement_ledger_entry_pages.account_id
                  ), 0) = 0
+                 OR COALESCE((
+                   SELECT risk.shared_instrument_cluster_count
+                   FROM settlement_account_risk_sources risk
+                   WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                 ), 0) > 0
+                 OR COALESCE((
+                   SELECT risk.shared_address_cluster_count
+                   FROM settlement_account_risk_sources risk
+                   WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                 ), 0) > 0
                  OR NOT EXISTS (
                    SELECT 1
                    FROM settlement_order_trust_signal_sources trust_source

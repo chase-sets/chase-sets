@@ -74,7 +74,14 @@
       "sourceContextName": "identity",
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["identity.account.created", "identity.account.badge-assigned", "identity.account.badge-removed"],
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.badge-assigned",
+        "identity.account.badge-removed",
+        "identity.shipping-address.added",
+        "identity.shipping-address.updated",
+        "identity.shipping-address.archived"
+      ],
       "order": 20,
       "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
     },
@@ -94,7 +101,8 @@
       "eventTypes": [
         "payments.payment-fraud-warning-received",
         "payments.payment-fraud-review-opened",
-        "payments.payment-fraud-review-closed"
+        "payments.payment-fraud-review-closed",
+        "payments.checkout-affordances-published"
       ],
       "order": 71,
       "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
@@ -125,7 +133,12 @@
     {
       "projectionName": "settlement-account-risk-source-projection",
       "sourceContextNames": ["identity", "marketplace", "payments"],
-      "ownedTables": ["settlement_account_risk_sources", "settlement_account_review_sources"],
+      "ownedTables": [
+        "settlement_account_risk_sources",
+        "settlement_account_review_sources",
+        "settlement_account_instrument_risk_sources",
+        "settlement_account_address_risk_sources"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },

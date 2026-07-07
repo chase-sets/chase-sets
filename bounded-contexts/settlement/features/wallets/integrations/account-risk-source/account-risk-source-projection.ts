@@ -2,6 +2,128 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
+type ShippingAddressSnapshot = Readonly<{
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+}>;
+
+function normalizeClusterPart(value: string | null | undefined) {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function addressClusterKey(address: ShippingAddressSnapshot) {
+  return [
+    normalizeClusterPart(address.country),
+    normalizeClusterPart(address.postalCode),
+    normalizeClusterPart(address.state),
+    normalizeClusterPart(address.city),
+    normalizeClusterPart(address.line1),
+    normalizeClusterPart(address.line2),
+  ].join("|");
+}
+
+async function refreshSharedInstrumentClusters(db: PgQueryable, accountId: string, updatedAt: string) {
+  await db.query(
+    `INSERT INTO settlement_account_risk_sources (
+       account_id,
+       shared_instrument_cluster_count,
+       updated_at
+     )
+     SELECT
+       $1,
+       COUNT(DISTINCT account_instruments.instrument_cluster_key)::integer,
+       $2
+     FROM settlement_account_instrument_risk_sources account_instruments
+     WHERE account_instruments.account_id = $1
+       AND account_instruments.active = TRUE
+       AND account_instruments.instrument_cluster_key IS NOT NULL
+       AND EXISTS (
+         SELECT 1
+         FROM settlement_account_instrument_risk_sources linked_instruments
+         WHERE linked_instruments.instrument_cluster_key = account_instruments.instrument_cluster_key
+           AND linked_instruments.active = TRUE
+           AND linked_instruments.account_id <> $1
+       )
+     ON CONFLICT (account_id) DO UPDATE SET
+       shared_instrument_cluster_count = EXCLUDED.shared_instrument_cluster_count,
+       updated_at = EXCLUDED.updated_at`,
+    [accountId, updatedAt],
+  );
+}
+
+async function refreshInstrumentClusterAccounts(
+  db: PgQueryable,
+  instrumentClusterKey: string | null,
+  updatedAt: string,
+) {
+  if (!instrumentClusterKey) {
+    return;
+  }
+  const result = await db.query<{ account_id: string }>(
+    `SELECT DISTINCT account_id
+     FROM settlement_account_instrument_risk_sources
+     WHERE instrument_cluster_key = $1
+       AND active = TRUE`,
+    [instrumentClusterKey],
+  );
+  for (const row of result.rows) {
+    await refreshSharedInstrumentClusters(db, row.account_id, updatedAt);
+  }
+}
+
+async function refreshSharedAddressClusters(db: PgQueryable, accountId: string, updatedAt: string) {
+  await db.query(
+    `INSERT INTO settlement_account_risk_sources (
+       account_id,
+       shared_address_cluster_count,
+       updated_at
+     )
+     SELECT
+       $1,
+       COUNT(DISTINCT account_addresses.address_cluster_key)::integer,
+       $2
+     FROM settlement_account_address_risk_sources account_addresses
+     WHERE account_addresses.account_id = $1
+       AND account_addresses.active = TRUE
+       AND account_addresses.address_cluster_key IS NOT NULL
+       AND EXISTS (
+         SELECT 1
+         FROM settlement_account_address_risk_sources linked_addresses
+         WHERE linked_addresses.address_cluster_key = account_addresses.address_cluster_key
+           AND linked_addresses.active = TRUE
+           AND linked_addresses.account_id <> $1
+       )
+     ON CONFLICT (account_id) DO UPDATE SET
+       shared_address_cluster_count = EXCLUDED.shared_address_cluster_count,
+       updated_at = EXCLUDED.updated_at`,
+    [accountId, updatedAt],
+  );
+}
+
+async function refreshAddressClusterAccounts(
+  db: PgQueryable,
+  addressClusterKeyValue: string | null,
+  updatedAt: string,
+) {
+  if (!addressClusterKeyValue) {
+    return;
+  }
+  const result = await db.query<{ account_id: string }>(
+    `SELECT DISTINCT account_id
+     FROM settlement_account_address_risk_sources
+     WHERE address_cluster_key = $1
+       AND active = TRUE`,
+    [addressClusterKeyValue],
+  );
+  for (const row of result.rows) {
+    await refreshSharedAddressClusters(db, row.account_id, updatedAt);
+  }
+}
+
 async function refreshAccountReviews(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO settlement_account_risk_sources (
@@ -87,6 +209,90 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(db: P
         assigned: false,
         updatedAt: event.timing.recordedAt,
       });
+    },
+    "identity.shipping-address.added": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        shippingAddressId: string;
+        address: ShippingAddressSnapshot;
+        addedAt: string;
+      };
+      const clusterKey = addressClusterKey(data.address);
+      await db.query(
+        `INSERT INTO settlement_account_address_risk_sources (
+           account_id,
+           shipping_address_id,
+           address_cluster_key,
+           active,
+           updated_at
+         ) VALUES ($1, $2, $3, TRUE, $4)
+         ON CONFLICT (account_id, shipping_address_id) DO UPDATE SET
+           address_cluster_key = EXCLUDED.address_cluster_key,
+           active = TRUE,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, data.shippingAddressId, clusterKey, data.addedAt],
+      );
+      await refreshSharedAddressClusters(db, data.accountId, data.addedAt);
+      await refreshAddressClusterAccounts(db, clusterKey, data.addedAt);
+    },
+    "identity.shipping-address.updated": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        shippingAddressId: string;
+        address: ShippingAddressSnapshot;
+        updatedAt: string;
+      };
+      const previousResult = await db.query<{ address_cluster_key: string | null }>(
+        `SELECT address_cluster_key
+         FROM settlement_account_address_risk_sources
+         WHERE account_id = $1
+           AND shipping_address_id = $2`,
+        [data.accountId, data.shippingAddressId],
+      );
+      const previousClusterKey = previousResult.rows[0]?.address_cluster_key ?? null;
+      const clusterKey = addressClusterKey(data.address);
+      await db.query(
+        `INSERT INTO settlement_account_address_risk_sources (
+           account_id,
+           shipping_address_id,
+           address_cluster_key,
+           active,
+           updated_at
+         ) VALUES ($1, $2, $3, TRUE, $4)
+         ON CONFLICT (account_id, shipping_address_id) DO UPDATE SET
+           address_cluster_key = EXCLUDED.address_cluster_key,
+           active = TRUE,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, data.shippingAddressId, clusterKey, data.updatedAt],
+      );
+      await refreshSharedAddressClusters(db, data.accountId, data.updatedAt);
+      await refreshAddressClusterAccounts(db, previousClusterKey, data.updatedAt);
+      await refreshAddressClusterAccounts(db, clusterKey, data.updatedAt);
+    },
+    "identity.shipping-address.archived": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        shippingAddressId: string;
+        archivedAt: string;
+      };
+      const previousResult = await db.query<{ address_cluster_key: string | null }>(
+        `SELECT address_cluster_key
+         FROM settlement_account_address_risk_sources
+         WHERE account_id = $1
+           AND shipping_address_id = $2`,
+        [data.accountId, data.shippingAddressId],
+      );
+      const previousClusterKey = previousResult.rows[0]?.address_cluster_key ?? null;
+      await db.query(
+        `UPDATE settlement_account_address_risk_sources
+         SET active = FALSE,
+             updated_at = $3
+         WHERE account_id = $1
+           AND shipping_address_id = $2`,
+        [data.accountId, data.shippingAddressId, data.archivedAt],
+      );
+      await refreshSharedAddressClusters(db, data.accountId, data.archivedAt);
+      await refreshAddressClusterAccounts(db, previousClusterKey, data.archivedAt);
     },
   };
 }
@@ -215,6 +421,50 @@ export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(db: P
            updated_at = EXCLUDED.updated_at`,
         [data.buyerAccountId, data.outcome !== "approved", data.closedAt],
       );
+    },
+    "payments.checkout-affordances-published": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        savedCheckoutInstruments: readonly {
+          instrumentId: string;
+          instrumentRiskClusterKey: string | null;
+          readiness: string;
+        }[];
+        publishedAt: string;
+      };
+      for (const instrument of data.savedCheckoutInstruments) {
+        const previousResult = await db.query<{ instrument_cluster_key: string | null }>(
+          `SELECT instrument_cluster_key
+           FROM settlement_account_instrument_risk_sources
+           WHERE account_id = $1
+             AND instrument_id = $2`,
+          [data.accountId, instrument.instrumentId],
+        );
+        const previousClusterKey = previousResult.rows[0]?.instrument_cluster_key ?? null;
+        await db.query(
+          `INSERT INTO settlement_account_instrument_risk_sources (
+             account_id,
+             instrument_id,
+             instrument_cluster_key,
+             active,
+             updated_at
+           ) VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (account_id, instrument_id) DO UPDATE SET
+             instrument_cluster_key = EXCLUDED.instrument_cluster_key,
+             active = EXCLUDED.active,
+             updated_at = EXCLUDED.updated_at`,
+          [
+            data.accountId,
+            instrument.instrumentId,
+            instrument.instrumentRiskClusterKey,
+            instrument.readiness !== "removed" && instrument.instrumentRiskClusterKey !== null,
+            data.publishedAt,
+          ],
+        );
+        await refreshInstrumentClusterAccounts(db, previousClusterKey, data.publishedAt);
+        await refreshInstrumentClusterAccounts(db, instrument.instrumentRiskClusterKey, data.publishedAt);
+      }
+      await refreshSharedInstrumentClusters(db, data.accountId, data.publishedAt);
     },
   };
 }

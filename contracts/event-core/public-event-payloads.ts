@@ -336,6 +336,7 @@ export type PaymentCancelledPayload = Readonly<{
 export type PaymentsCheckoutAffordanceInstrumentPayload = Readonly<{
   instrumentId: string;
   paymentMethodCategory: "card" | "bank-account" | "platform-credit";
+  instrumentRiskClusterKey: string | null;
   displayLabel: string;
   confirmationExperience: "trusted-payment-step" | "off-session-token";
   readiness: "ready" | "setup-required" | "removed";
