@@ -1176,6 +1176,28 @@ export async function recordPaymentProviderOperationFailed(
   );
 }
 
+export async function getPaymentProviderIdempotencyKey(
+  db: PgQueryable,
+  operationKey: string,
+): Promise<PaymentProviderIdempotencyKeyRow | null> {
+  const result = await db.query<PaymentProviderIdempotencyKeyRow>(
+    `SELECT
+       operation_key,
+       provider_name,
+       operation_kind,
+       account_id,
+       provider_object_reference,
+       idempotency_key,
+       created_at
+     FROM payments_provider_idempotency_keys
+     WHERE operation_key = $1
+     LIMIT 1`,
+    [operationKey],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 export async function listPaymentProviderOperationsNeedingReconciliation(
   db: PgQueryable,
   params: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }> = {},

@@ -183,6 +183,33 @@ export type CreatedProcessorRefund = Readonly<{
   processorStatus: string;
 }>;
 
+export type ProcessorDisputeEvidence = Readonly<{
+  customerEmailAddress?: string | null;
+  customerName?: string | null;
+  productDescription?: string | null;
+  shippingAddress?: string | null;
+  shippingCarrier?: string | null;
+  shippingDate?: string | null;
+  shippingTrackingNumber?: string | null;
+  uncategorizedText?: string | null;
+}>;
+
+export type SubmitProcessorDisputeEvidenceInput = Readonly<{
+  paymentId: PaymentId;
+  providerDisputeId: string;
+  providerChargeReference?: string | null;
+  processorPaymentReference: string;
+  evidence: ProcessorDisputeEvidence;
+  idempotencyKey?: string | null;
+}>;
+
+export type SubmittedProcessorDisputeEvidence = Readonly<{
+  processorName: PaymentProcessorName;
+  providerDisputeId: string;
+  processorStatus: string;
+  submittedAt: string;
+}>;
+
 export type ProcessorWebhookEventKind =
   | "payment-authorized"
   | "payment-captured"
@@ -251,6 +278,7 @@ export interface PaymentProcessorGateway {
   retrievePaymentResult(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult | null>;
   retrievePaymentResultByPaymentId?(paymentId: PaymentId): Promise<ProcessorPaymentReconciliationResult | null>;
   createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund>;
+  submitDisputeEvidence?(input: SubmitProcessorDisputeEvidenceInput): Promise<SubmittedProcessorDisputeEvidence>;
   parseWebhook(
     input: Readonly<{ rawBody: string; signatureHeader: string | null }>,
   ): Promise<PaymentProcessorWebhookEvent | null>;

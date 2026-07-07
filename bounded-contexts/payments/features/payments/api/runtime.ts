@@ -33,6 +33,10 @@ import type {
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
 import { listPaymentOrderInputs, type PaymentOrderInputRow } from "../integrations/order-input/order-input-queries";
 import {
+  submitPaymentDisputeEvidence,
+  type PaymentDisputeEvidenceSubmissionResult,
+} from "../integrations/dispute-evidence/dispute-evidence-submission";
+import {
   buildPaymentTransactionalEmailProjectionHandlers,
   PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 } from "../integrations/transactional-email/transactional-email-projector";
@@ -85,6 +89,7 @@ import {
   evolvePayment,
   initialPaymentState,
   type PaymentCommand,
+  type PaymentDisputedEvent,
   type PaymentEvent,
   type PaymentState,
   type SellerPayoutComponent,
@@ -837,6 +842,10 @@ export type PaymentServices = Readonly<{
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
     context: EventStoreContext,
   ) => Promise<{ received: boolean; ignored: boolean }>;
+  submitDisputeEvidence: (
+    dispute: PaymentDisputedEvent["data"],
+    context: EventStoreContext,
+  ) => Promise<PaymentDisputeEvidenceSubmissionResult>;
   publicConfig: PaymentProcessorPublicConfig;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -2370,6 +2379,16 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       await recordProcessed();
       return { received: true, ignored: false };
     },
+    submitDisputeEvidence: (dispute, context) =>
+      submitPaymentDisputeEvidence(
+        {
+          db: deps.db,
+          processorGateway: deps.processorGateway,
+          commandHandler,
+        },
+        dispute,
+        context,
+      ),
     publicConfig,
     projectors: [
       createProjectionHandlerSet({

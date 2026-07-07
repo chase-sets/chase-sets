@@ -55,6 +55,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Cancellation Cutoff | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Shipment state boundary that closes self-service purchase cancellation. |
 | Review | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Post-transaction account evaluation. |
 | Payment | [Payments](../bounded-contexts/payments/GLOSSARY.md) | External charge or refund workflow. |
+| Payment Dispute Evidence | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Processor dispute evidence assembled from Payments-owned order mirrors and Fulfillment-owned shipment facts. |
 | Buyer-Paid Share | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Captured payment amount attributable to a cancelled order, including allocated checkout fee. |
 | Wallet | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Marketplace ledger balance container. |
 | Payout | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Transfer of eligible funds to an account. |

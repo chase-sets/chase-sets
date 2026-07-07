@@ -173,6 +173,31 @@ describe("fulfillment shipment domain", () => {
     expect(deliveredState.deliveredAt).toBe("2026-04-03T12:00:00.000Z");
   });
 
+  it("emits delivery proof fields used for payment dispute evidence", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+    const dispatchedState = decideFulfillmentShipment(labeledState, {
+      type: "DispatchShipment",
+      dispatchedAt: "2026-04-02T00:20:00.000Z",
+    }).reduce(evolveFulfillmentShipment, labeledState);
+
+    const [event] = decideFulfillmentShipment(dispatchedState, {
+      type: "RecordShipmentDelivery",
+      deliveredAt: "2026-04-03T12:00:00.000Z",
+    });
+
+    expect(event).toMatchObject({
+      type: "fulfillment.shipment.delivered",
+      data: {
+        shipmentId: "shp_1",
+        orderId: "ord_1",
+        buyerAccountId: "acc_buyer",
+        trackingIdentifier: "trk_123",
+        deliveredAt: "2026-04-03T12:00:00.000Z",
+        shippingDestinationSnapshot: shipmentAddressSnapshots.shippingDestinationSnapshot,
+      },
+    });
+  });
+
   it("requires every unit of multi-quantity lines before package preparation", () => {
     const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
       type: "CreateShipment",

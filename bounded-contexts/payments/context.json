@@ -24,6 +24,21 @@
       "projectionHandlerSetNames": ["payments-order-input-projection"]
     },
     {
+      "sourceContextName": "fulfillment",
+      "projectionName": "payments-fulfillment-dispute-evidence-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered",
+        "fulfillment.shipment.cancelled",
+        "fulfillment.shipment.returned"
+      ],
+      "order": 11,
+      "projectionHandlerSetNames": ["payments-fulfillment-dispute-evidence-source-projection"]
+    },
+    {
       "sourceContextName": "platform-operations",
       "projectionName": "payments-support-refund-effect",
       "subscriptionVersion": 1,
@@ -68,12 +83,32 @@
       "projectionHandlerSetNames": ["payments-account-risk-source-projection"]
     }
   ],
+  "eventReactions": [
+    {
+      "sourceContextName": "payments",
+      "reactionName": "payments-dispute-evidence-submission",
+      "subscriptionVersion": 1,
+      "eventTypes": ["payments.payment-disputed"],
+      "order": 32,
+      "reactionHandlerSetNames": ["payments-dispute-evidence-submission"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "payments-order-input-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["payments_order_inputs"],
       "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "payments-fulfillment-dispute-evidence-source-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["payments_fulfillment_dispute_evidence_sources"],
+      "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
@@ -101,6 +136,14 @@
       "projectionName": "payments-account-risk-source-projection",
       "sourceContextNames": ["identity", "payments"],
       "ownedTables": ["payments_account_risk_sources"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "payments-dispute-evidence-submission",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["payments"],
+      "ownedTables": [],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },

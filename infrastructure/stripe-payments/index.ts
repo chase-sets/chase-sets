@@ -11,6 +11,7 @@ import type {
   CreateProcessorSetupSessionInput,
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
+  ProcessorDisputeEvidence,
   ProcessorPaymentDisputeLifecycleState,
   ProcessorPaymentReconciliationResult,
   PaymentProcessorWebhookEvent,
@@ -113,6 +114,11 @@ type StripePaymentMethodResponse = Readonly<{
 }>;
 
 type StripeRefundResponse = Readonly<{
+  id: string;
+  status?: string | null;
+}>;
+
+type StripeDisputeResponse = Readonly<{
   id: string;
   status?: string | null;
 }>;
@@ -296,6 +302,26 @@ function marketplaceRiskMetadataEntries(
       const safeValue = stripeMetadataValue(value);
 
       return safeKey && safeValue ? [[`${prefix}[${safeKey}]`, safeValue]] : [];
+    }),
+  );
+}
+
+function disputeEvidenceEntries(evidence: ProcessorDisputeEvidence) {
+  const fields: Record<string, string | null | undefined> = {
+    customer_email_address: evidence.customerEmailAddress,
+    customer_name: evidence.customerName,
+    product_description: evidence.productDescription,
+    shipping_address: evidence.shippingAddress,
+    shipping_carrier: evidence.shippingCarrier,
+    shipping_date: evidence.shippingDate,
+    shipping_tracking_number: evidence.shippingTrackingNumber,
+    uncategorized_text: evidence.uncategorizedText,
+  };
+
+  return Object.fromEntries(
+    Object.entries(fields).flatMap(([key, value]) => {
+      const normalized = normalizeOptionalText(value ?? null);
+      return normalized ? [[`evidence[${key}]`, normalized]] : [];
     }),
   );
 }
@@ -1501,6 +1527,42 @@ export function createStripePaymentProcessorGateway(
         processorName: "stripe",
         processorRefundReference: body.id,
         processorStatus: body.status?.trim() ?? "pending",
+      };
+    },
+    async submitDisputeEvidence(input) {
+      const providerDisputeId = normalizeOptionalText(input.providerDisputeId);
+      if (!providerDisputeId) {
+        throw new Error("Stripe dispute evidence submission requires a dispute id.");
+      }
+
+      const body = await stripeRequest<StripeDisputeResponse>(
+        `/v1/disputes/${encodeURIComponent(providerDisputeId)}`,
+        {
+          method: "POST",
+          body: toFormBody({
+            ...disputeEvidenceEntries(input.evidence),
+            submit: "true",
+            "metadata[payment_id]": input.paymentId,
+            "metadata[processor_payment_reference]": input.processorPaymentReference,
+            ...(input.providerChargeReference
+              ? { "metadata[provider_charge_reference]": input.providerChargeReference }
+              : {}),
+          }),
+        },
+        {
+          idempotencyKey: input.idempotencyKey ?? `payments:dispute:${providerDisputeId}:evidence`,
+        },
+      );
+
+      if (!body.id?.trim()) {
+        throw new Error("Stripe did not return a dispute id after evidence submission.");
+      }
+
+      return {
+        processorName: "stripe",
+        providerDisputeId: body.id,
+        processorStatus: body.status?.trim() ?? "unknown",
+        submittedAt: new Date().toISOString(),
       };
     },
     async parseWebhook(input) {
