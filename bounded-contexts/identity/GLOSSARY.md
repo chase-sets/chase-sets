@@ -352,6 +352,90 @@ The following rules must always hold:
 2. Accounts are the root of all commerce activity.
 3. Users never directly own listings, offers, wallets, or orders.
 
+## Planned Account Capabilities And Channel Connections
+
+These planned terms pre-register upcoming account capability, store team, and external channel connection language. They are not shipped behavior until Identity adds the corresponding consent, membership, authorization, and account-management facts.
+
+### Account Capability
+
+An **Account Capability** is the planned account-level ability to use a marketplace or integration workflow.
+
+### Capability Grant
+
+A **Capability Grant** is the planned fact that an Account has been approved for an Account Capability.
+
+### Capability Restriction
+
+A **Capability Restriction** is the planned fact that limits or suspends an Account Capability.
+
+### Capability Requirement
+
+A **Capability Requirement** is the planned prerequisite an Account must satisfy before a Capability Grant.
+
+### Capability Level
+
+A **Capability Level** is the planned graduated operating range for an Account Capability.
+
+### Account Standing
+
+**Account Standing** is the planned account-level eligibility posture used by capability, trust, and policy decisions.
+
+### Capability Status
+
+**Capability Status** is the planned lifecycle state of an Account Capability.
+
+### Capability Review
+
+**Capability Review** is the planned workflow that evaluates whether an Account should receive, keep, or lose a Capability Grant.
+
+### Sales Channel
+
+A **Sales Channel** is the planned external or native commerce surface connected to an Account.
+
+### Channel Connection
+
+A **Channel Connection** is the planned linked relationship between a Chase Sets Account and a Sales Channel.
+
+### BYO Channel
+
+A **BYO Channel** is the planned account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.
+
+### Channel Account
+
+A **Channel Account** is the planned external account identity linked to a Chase Sets Account for a Sales Channel.
+
+### Channel Authorization
+
+A **Channel Authorization** is the planned consent that allows Chase Sets to act with scoped access on a Sales Channel.
+
+### Channel Credential
+
+A **Channel Credential** is the planned secret or token reference used to access a Sales Channel.
+
+### Channel Webhook
+
+A **Channel Webhook** is the planned inbound event subscription configured for a Sales Channel.
+
+### Channel Health
+
+**Channel Health** is the planned account-visible operational state of a Sales Channel connection.
+
+### Channel Mapping
+
+A **Channel Mapping** is the planned account-owned configuration that maps channel fields, SKUs, locations, or policies to Chase Sets terms.
+
+### Store Team
+
+A **Store Team** is the planned group of Memberships that can operate a Store.
+
+### Store Role
+
+A **Store Role** is the planned role assignment that scopes a Membership's authority within a Store.
+
+### Store Invitation
+
+A **Store Invitation** is the planned request for a User or email address to join a Store Team.
+
 ## Language Rules
 
 To maintain consistency:

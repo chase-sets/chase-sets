@@ -31,3 +31,131 @@ A **Price Recommendation** is the suggested listing or offer strategy generated 
 ## Historical Price Trend
 
 A **Historical Price Trend** is an analysis view over prior Market Price Snapshots used for trend analysis and forecasting.
+
+## Planned Market Analytics And Repricing
+
+These planned terms pre-register upcoming market, analytics, and repricing language. They are not shipped behavior until Pricing adds the corresponding projections, policies, commands, and UI.
+
+### Price Observation
+
+A **Price Observation** is a planned Pricing input captured from a marketplace, provider, or commerce fact before it becomes a Price Signal.
+
+### Trades Tape
+
+A **Trades Tape** is the planned ordered stream of eligible market transactions used as pricing evidence.
+
+### Market-Value Estimate
+
+A **Market-Value Estimate** is the planned derived fair-value answer calculated from Price Signals and Market Price Snapshots.
+
+### Comparable Sale
+
+A **Comparable Sale** is a planned completed-transaction input selected as relevant to a product's price estimate.
+
+### Active Ask
+
+An **Active Ask** is a planned current listing-price input used to evaluate seller-side market position.
+
+### Demand Bid
+
+A **Demand Bid** is a planned offer-price input used to evaluate buyer-side demand.
+
+### Spread
+
+**Spread** is the planned distance between seller asks and buyer demand for a resolved product.
+
+### Market Depth
+
+**Market Depth** is the planned estimate of available supply and demand across price levels.
+
+### Liquidity Score
+
+A **Liquidity Score** is the planned normalized expression of a Liquidity Estimate.
+
+### Sell-Through Rate
+
+**Sell-Through Rate** is the planned ratio of sold quantity to available quantity over a pricing window.
+
+### Price Volatility
+
+**Price Volatility** is the planned measure of how much Market Price Snapshots change over time.
+
+### Confidence Band
+
+A **Confidence Band** is the planned uncertainty range around a price estimate.
+
+### Market Segment
+
+A **Market Segment** is the planned product, condition, channel, or time grouping used for pricing analysis.
+
+### Price Index
+
+A **Price Index** is the planned normalized trend line for a Market Segment.
+
+### Price Benchmark
+
+A **Price Benchmark** is the planned reference price used to compare listings, offers, or recommendations.
+
+### Repricing Run
+
+A **Repricing Run** is the planned batch evaluation of Repricing Candidates under a Repricing Policy.
+
+### Repricing Candidate
+
+A **Repricing Candidate** is the planned listing, offer, or inventory item considered for a Price Recommendation.
+
+### Repricing Recommendation
+
+A **Repricing Recommendation** is the planned suggested price change produced by a Repricing Run.
+
+### Repricing Guardrail
+
+A **Repricing Guardrail** is the planned rule that prevents a recommendation from violating account or marketplace constraints.
+
+### Repricing Anchor
+
+A **Repricing Anchor** is the planned reference price a Repricing Policy uses as the starting point for a recommendation.
+
+### Repricing Tolerance
+
+A **Repricing Tolerance** is the planned allowed movement range around a Repricing Anchor.
+
+### Terminal Price
+
+A **Terminal Price** is the planned final bounded price after applying Repricing Policy, guardrails, anchors, and tolerances.
+
+### Floor Price
+
+A **Floor Price** is the planned minimum account-approved price for a repricing decision.
+
+### Ceiling Price
+
+A **Ceiling Price** is the planned maximum account-approved price for a repricing decision.
+
+### Target Margin
+
+**Target Margin** is the planned account goal for margin-aware repricing.
+
+### Margin Band
+
+A **Margin Band** is the planned acceptable range around Target Margin.
+
+### Markdown
+
+A **Markdown** is the planned intentional price reduction used to improve sell-through or inventory freshness.
+
+### Price Experiment
+
+A **Price Experiment** is the planned controlled pricing test for a product, segment, or account inventory group.
+
+### Pricing Alert
+
+A **Pricing Alert** is the planned notification-worthy pricing condition produced by Pricing.
+
+### Competitive Position
+
+**Competitive Position** is the planned comparison between an account's price and relevant Price Benchmarks.
+
+### Market Movement
+
+**Market Movement** is the planned material change in pricing inputs over a defined window.

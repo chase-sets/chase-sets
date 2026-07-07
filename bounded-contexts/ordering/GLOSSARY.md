@@ -152,3 +152,15 @@ A **Local Tax Rule** is a development/test rule used by the local stub resolver 
 ## Collection-Required Jurisdiction
 
 A **Collection-Required Jurisdiction** is a state or district where tax readiness shows Chase Sets has crossed the reviewed nexus threshold, has registration coverage or a collection start decision, and must collect sales tax before accepting covered marketplace orders.
+
+## Planned Counter Orders
+
+These planned terms pre-register upcoming counter-order language. They are not shipped behavior until Ordering adds the corresponding commerce commitments, drawer accounting, order facts, and read models.
+
+### Counter Order
+
+A **Counter Order** is the planned in-person or counter-originated commercial commitment owned by Ordering.
+
+### Drawer Session
+
+A **Drawer Session** is the planned register or counter accounting window associated with Counter Orders.
