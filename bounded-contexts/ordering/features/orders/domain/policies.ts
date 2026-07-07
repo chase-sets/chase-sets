@@ -75,6 +75,84 @@ export interface ShippingQuotePolicy {
   ): ShippingQuoteResult;
 }
 
+export type OrderPaymentMethodCategory = "card" | "bank-account" | "platform-credit";
+
+export type OrderPaymentDeadlinePolicyToken =
+  | "ordering-payment-deadline-card-v1"
+  | "ordering-payment-deadline-bank-account-v1"
+  | "ordering-payment-deadline-platform-credit-v1"
+  | "ordering-payment-deadline-terminal-failure-grace-v1";
+
+export type OrderPaymentDeadlinePolicy = Readonly<{
+  card: Readonly<{ token: "ordering-payment-deadline-card-v1"; durationMs: number }>;
+  bankAccount: Readonly<{ token: "ordering-payment-deadline-bank-account-v1"; durationMs: number }>;
+  platformCredit: Readonly<{ token: "ordering-payment-deadline-platform-credit-v1"; durationMs: number }>;
+  terminalFailureGrace: Readonly<{
+    token: "ordering-payment-deadline-terminal-failure-grace-v1";
+    durationMs: number;
+  }>;
+}>;
+
+export const defaultOrderPaymentDeadlinePolicy: OrderPaymentDeadlinePolicy = {
+  card: { token: "ordering-payment-deadline-card-v1", durationMs: 60 * 60 * 1000 },
+  bankAccount: { token: "ordering-payment-deadline-bank-account-v1", durationMs: 5 * 24 * 60 * 60 * 1000 },
+  platformCredit: { token: "ordering-payment-deadline-platform-credit-v1", durationMs: 15 * 60 * 1000 },
+  terminalFailureGrace: {
+    token: "ordering-payment-deadline-terminal-failure-grace-v1",
+    durationMs: 5 * 60 * 1000,
+  },
+};
+
+export function normalizeOrderPaymentMethodCategory(paymentMethodCategory?: string | null): OrderPaymentMethodCategory {
+  if (paymentMethodCategory === "bank-account" || paymentMethodCategory === "platform-credit") {
+    return paymentMethodCategory;
+  }
+
+  return "card";
+}
+
+export function resolveOrderPaymentDeadlinePolicy(
+  policy: OrderPaymentDeadlinePolicy,
+  paymentMethodCategory?: string | null,
+) {
+  switch (normalizeOrderPaymentMethodCategory(paymentMethodCategory)) {
+    case "bank-account":
+      return policy.bankAccount;
+    case "platform-credit":
+      return policy.platformCredit;
+    case "card":
+      return policy.card;
+  }
+}
+
+export function resolveOrderPaymentDeadline(
+  pendingPaymentAt: string,
+  paymentMethodCategory?: string | null,
+  policy: OrderPaymentDeadlinePolicy = defaultOrderPaymentDeadlinePolicy,
+) {
+  const token = resolveOrderPaymentDeadlinePolicy(policy, paymentMethodCategory);
+  const startedAtMs = Date.parse(pendingPaymentAt);
+  assert(Number.isFinite(startedAtMs), "Payment deadline requires a valid pending-payment timestamp.");
+
+  return {
+    paymentDeadlineAt: new Date(startedAtMs + token.durationMs).toISOString(),
+    paymentDeadlinePolicy: token.token,
+  };
+}
+
+export function resolveTerminalPaymentFailureDeadline(
+  failedAt: string,
+  policy: OrderPaymentDeadlinePolicy = defaultOrderPaymentDeadlinePolicy,
+) {
+  const failedAtMs = Date.parse(failedAt);
+  assert(Number.isFinite(failedAtMs), "Terminal payment failure grace requires a valid failure timestamp.");
+
+  return {
+    paymentDeadlineAt: new Date(failedAtMs + policy.terminalFailureGrace.durationMs).toISOString(),
+    paymentDeadlinePolicy: policy.terminalFailureGrace.token,
+  };
+}
+
 export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
   quote({ shippingOption, itemSubtotalAmount, quantity, listingCount, packagePlan }) {
     const subtotal = Number.parseFloat(

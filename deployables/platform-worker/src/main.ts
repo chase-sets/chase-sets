@@ -1178,6 +1178,7 @@ function createScheduledJobRunners(
   input: Pick<
     ReturnType<typeof loadConfig>,
     | "paymentReconciliationIntervalMs"
+    | "paymentDeadlineSweepIntervalMs"
     | "sellerFundsReleaseIntervalMs"
     | "payoutReconciliationIntervalMs"
     | "googleMerchant"
@@ -1190,6 +1191,16 @@ function createScheduledJobRunners(
   controlPlane: PlatformControlPlane,
 ): readonly WorkerRunner[] {
   const payments = services.payments as PaymentsServices | undefined;
+  const ordering = services.ordering as
+    | {
+        orders?: {
+          sweepBreachedPaymentDeadlines?: (
+            params: { now?: Date; limit?: number } | undefined,
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<{ checked: number; cancelled: number; progressed: number; failed: number }>;
+        };
+      }
+    | undefined;
   const settlement = services.settlement as SettlementServices | undefined;
   const fulfillment = services.fulfillment as
     | {
@@ -1243,6 +1254,28 @@ function createScheduledJobRunners(
             result,
           });
           return result.checked;
+        },
+      ),
+    );
+  }
+
+  const sweepBreachedPaymentDeadlines = ordering?.orders?.sweepBreachedPaymentDeadlines;
+  if (sweepBreachedPaymentDeadlines && input.paymentDeadlineSweepIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "ordering.payment-deadline-sweep",
+        input.paymentDeadlineSweepIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await sweepBreachedPaymentDeadlines({ limit: 100 }, SYSTEM_CONTEXT);
+          logger.info("Ordering payment deadline sweep completed.", {
+            type: "ordering.payment-deadline-sweep",
+            result,
+          });
+          if (result.failed > 0) {
+            throw new Error(`Payment deadline sweep failed for ${result.failed} candidate(s).`);
+          }
+          return result.cancelled + result.progressed;
         },
       ),
     );

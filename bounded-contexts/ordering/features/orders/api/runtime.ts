@@ -37,11 +37,22 @@ import {
 } from "../domain/common";
 import {
   assertSupplyAvailable,
+  defaultOrderPaymentDeadlinePolicy,
+  resolveOrderPaymentDeadline,
+  resolveTerminalPaymentFailureDeadline,
+  type OrderPaymentDeadlinePolicy,
   type MarketplaceDemand,
   type MarketplaceSupplyCandidate,
   type ShippingQuotePolicy,
 } from "../domain/policies";
-import { getPurchase, getSale, listOrderIdsForSource, listPurchases, listSales } from "../read-model/queries";
+import {
+  getPurchase,
+  getSale,
+  listOrderIdsForSource,
+  listPendingPaymentOrdersPastDeadline,
+  listPurchases,
+  listSales,
+} from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { buildOrderingReputationProjectionHandlers } from "../integrations/reputation/reputation-projection";
 import { getOrderingOrderReviewOpportunity } from "../integrations/reputation/reputation-queries";
@@ -121,11 +132,56 @@ const zeroTaxQuoteResolver: TaxQuoteResolver = {
   },
 };
 
+function normalizeSweepNow(now?: string | Date) {
+  if (!now) {
+    return new Date().toISOString();
+  }
+  return typeof now === "string" ? now : now.toISOString();
+}
+
+function isPaymentDeadlineRaceProgression(error: unknown) {
+  return (
+    error instanceof OrderingDomainError &&
+    error.message === "Payment-deadline cancellation requires a pending-payment order."
+  );
+}
+
+async function getOrderPurchaseLimitReleaseInput(db: PgTransactionalPool, orderId: string) {
+  const [orderResult, linesResult] = await Promise.all([
+    db.query<{
+      source_type: string;
+      source_reference_id: string | null;
+      buyer_account_id: string;
+    }>(
+      `SELECT source_type, source_reference_id, buyer_account_id
+       FROM ordering_order_pages
+       WHERE order_id = $1`,
+      [orderId],
+    ),
+    db.query<{ listing_id: string }>(
+      `SELECT listing_id
+       FROM ordering_order_line_pages
+       WHERE order_id = $1`,
+      [orderId],
+    ),
+  ]);
+  const order = orderResult.rows[0];
+  if (!order) {
+    return null;
+  }
+
+  return {
+    ...order,
+    lines: linesResult.rows,
+  };
+}
+
 type OrderRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgTransactionalPool;
   shippingQuotePolicy: ShippingQuotePolicy;
+  paymentDeadlinePolicy?: OrderPaymentDeadlinePolicy;
   postagePolicyResolver?: PostagePolicyResolver;
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
@@ -386,6 +442,26 @@ export type OrderingOrderServices = Readonly<{
     params: Readonly<{ orderId: string; sellerAccountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ orderId: string; version: number }>;
+  recordPaymentDeadlineStarted: (
+    params: Readonly<{
+      paymentId: string;
+      orderIds: readonly string[];
+      paymentMethodCategory?: string | null;
+      paymentStartedAt: string;
+    }>,
+  ) => Promise<number>;
+  recordTerminalPaymentFailureDeadline: (
+    params: Readonly<{
+      paymentId: string;
+      orderIds: readonly string[];
+      failedAt: string;
+      failureCode?: string | null;
+    }>,
+  ) => Promise<number>;
+  sweepBreachedPaymentDeadlines: (
+    params: Readonly<{ now?: string | Date; limit?: number }> | undefined,
+    context: EventStoreContext,
+  ) => Promise<{ checked: number; cancelled: number; progressed: number; failed: number }>;
   listPurchases: (params: Parameters<typeof listPurchases>[1]) => ReturnType<typeof listPurchases>;
   getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchase>;
   listSales: (params: Parameters<typeof listSales>[1]) => ReturnType<typeof listSales>;
@@ -1089,6 +1165,7 @@ function planToPreview(
 export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const postagePolicyResolver = deps.postagePolicyResolver ?? defaultPostagePolicyResolver;
+  const paymentDeadlinePolicy = deps.paymentDeadlinePolicy ?? defaultOrderPaymentDeadlinePolicy;
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -1715,6 +1792,144 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       await releasePurchaseLimitClaimsForOrder(deps.db, order);
 
       return { orderId: params.orderId, version: result.version };
+    },
+    recordPaymentDeadlineStarted: async (params) => {
+      if (params.orderIds.length === 0) {
+        return 0;
+      }
+      const startedOrders = await deps.db.query<{
+        order_id: string;
+        pending_payment_at: string;
+      }>(
+        `SELECT order_id, pending_payment_at::text AS pending_payment_at
+         FROM ordering_order_pages
+         WHERE order_id = ANY($1)
+           AND pending_payment_at IS NOT NULL`,
+        [params.orderIds],
+      );
+      let recorded = 0;
+
+      for (const order of startedOrders.rows) {
+        const deadline = resolveOrderPaymentDeadline(
+          order.pending_payment_at,
+          params.paymentMethodCategory,
+          paymentDeadlinePolicy,
+        );
+        await deps.db.query(
+          `INSERT INTO ordering_payment_deadline_inputs (
+             order_id,
+             payment_id,
+             payment_method_category,
+             payment_deadline_at,
+             payment_deadline_policy,
+             terminal_failure_at,
+             failure_code,
+             updated_at
+           ) VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6)
+           ON CONFLICT (order_id) DO UPDATE
+           SET payment_id = EXCLUDED.payment_id,
+               payment_method_category = EXCLUDED.payment_method_category,
+               payment_deadline_at = EXCLUDED.payment_deadline_at,
+               payment_deadline_policy = EXCLUDED.payment_deadline_policy,
+               terminal_failure_at = NULL,
+               failure_code = NULL,
+               updated_at = EXCLUDED.updated_at`,
+          [
+            order.order_id,
+            params.paymentId,
+            params.paymentMethodCategory ?? null,
+            deadline.paymentDeadlineAt,
+            deadline.paymentDeadlinePolicy,
+            params.paymentStartedAt,
+          ],
+        );
+        recorded += 1;
+      }
+
+      return recorded;
+    },
+    recordTerminalPaymentFailureDeadline: async (params) => {
+      if (params.orderIds.length === 0) {
+        return 0;
+      }
+      const deadline = resolveTerminalPaymentFailureDeadline(params.failedAt, paymentDeadlinePolicy);
+      const result = await deps.db.query(
+        `INSERT INTO ordering_payment_deadline_inputs (
+           order_id,
+           payment_id,
+           payment_method_category,
+           payment_deadline_at,
+           payment_deadline_policy,
+           terminal_failure_at,
+           failure_code,
+           updated_at
+         )
+         SELECT
+           order_id,
+           $2,
+           NULL,
+           $3,
+           $4,
+           $5,
+           $6,
+           $5
+         FROM unnest($1::text[]) AS order_id
+         ON CONFLICT (order_id) DO UPDATE
+         SET payment_id = EXCLUDED.payment_id,
+             payment_deadline_at = EXCLUDED.payment_deadline_at,
+             payment_deadline_policy = EXCLUDED.payment_deadline_policy,
+             terminal_failure_at = EXCLUDED.terminal_failure_at,
+             failure_code = EXCLUDED.failure_code,
+             updated_at = EXCLUDED.updated_at`,
+        [
+          params.orderIds,
+          params.paymentId,
+          deadline.paymentDeadlineAt,
+          deadline.paymentDeadlinePolicy,
+          params.failedAt,
+          params.failureCode ?? null,
+        ],
+      );
+
+      return result.rowCount ?? params.orderIds.length;
+    },
+    sweepBreachedPaymentDeadlines: async (params, context) => {
+      const now = normalizeSweepNow(params?.now);
+      const candidates = await listPendingPaymentOrdersPastDeadline(deps.db, { now, limit: params?.limit });
+      let cancelled = 0;
+      let progressed = 0;
+      let failed = 0;
+
+      for (const candidate of candidates) {
+        try {
+          const result = await commandHandler({
+            streamId: `ordering.order-${candidate.order_id}`,
+            command: {
+              type: "CancelOrder",
+              cancelledAt: now,
+              reason: "payment-deadline",
+            },
+            context,
+          });
+          if (result.storedEvents.length > 0) {
+            cancelled += 1;
+            const order = await getOrderPurchaseLimitReleaseInput(deps.db, candidate.order_id);
+            if (order) {
+              await releasePurchaseLimitClaimsForOrder(deps.db, order);
+            }
+          } else {
+            progressed += 1;
+          }
+        } catch (error) {
+          if (isPaymentDeadlineRaceProgression(error)) {
+            progressed += 1;
+            continue;
+          }
+          failed += 1;
+        }
+      }
+
+      return { checked: candidates.length, cancelled, progressed, failed };
     },
     listPurchases: (params) => listPurchases(deps.db, params),
     getPurchase: (orderId, buyerAccountId) => getPurchase(deps.db, orderId, buyerAccountId),

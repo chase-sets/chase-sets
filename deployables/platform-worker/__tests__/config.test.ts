@@ -64,6 +64,7 @@ const envNames = [
   "DATABASE_POOL_IDLE_TIMEOUT_MS",
   "DATABASE_POOL_CONNECTION_TIMEOUT_MS",
   "PAYMENT_RECONCILIATION_INTERVAL_MS",
+  "PAYMENT_DEADLINE_SWEEP_INTERVAL_MS",
   "SELLER_FUNDS_RELEASE_INTERVAL_MS",
   "PAYOUT_RECONCILIATION_INTERVAL_MS",
   "MOBILE_MESSAGING_PROVIDER",
@@ -373,6 +374,7 @@ describe("platform worker config", () => {
     process.env.EASYPOST_API_BASE_URL = "https://api.easypost.shared.test/v2";
     process.env.EASYPOST_MODE = "production";
     process.env.PAYMENT_RECONCILIATION_INTERVAL_MS = "600000";
+    process.env.PAYMENT_DEADLINE_SWEEP_INTERVAL_MS = "120000";
     process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS = "900000";
     process.env.PAYOUT_RECONCILIATION_INTERVAL_MS = "1200000";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
@@ -393,6 +395,7 @@ describe("platform worker config", () => {
       moneyMovement: config.moneyMovement,
       postage: config.postage,
       paymentReconciliationIntervalMs: config.paymentReconciliationIntervalMs,
+      paymentDeadlineSweepIntervalMs: config.paymentDeadlineSweepIntervalMs,
       sellerFundsReleaseIntervalMs: config.sellerFundsReleaseIntervalMs,
       payoutReconciliationIntervalMs: config.payoutReconciliationIntervalMs,
     }).toEqual({
@@ -432,6 +435,7 @@ describe("platform worker config", () => {
         mode: "production",
       },
       paymentReconciliationIntervalMs: 600_000,
+      paymentDeadlineSweepIntervalMs: 120_000,
       sellerFundsReleaseIntervalMs: 900_000,
       payoutReconciliationIntervalMs: 1_200_000,
     });

@@ -21,6 +21,9 @@ export type PaymentOrderInputRow = Readonly<{
   terms_agreement_id: string | null;
   terms_resolved_at: string;
   status: string;
+  pending_payment_at: string | null;
+  payment_deadline_at: string | null;
+  payment_deadline_policy: string | null;
 }>;
 
 export async function listPaymentOrderInputs(
@@ -52,7 +55,10 @@ export async function listPaymentOrderInputs(
        terms_schedule_id,
        terms_agreement_id,
        terms_resolved_at,
-       status
+       status,
+       pending_payment_at,
+       payment_deadline_at,
+       payment_deadline_policy
      FROM payments_order_inputs
      WHERE buyer_account_id = $1
        AND order_id = ANY($2)`,

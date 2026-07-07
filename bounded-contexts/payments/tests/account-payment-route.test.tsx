@@ -24,6 +24,7 @@ type PurchaseDetail = Readonly<{
   marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
   status: string;
+  payment_deadline_at: string | null;
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
@@ -160,6 +161,7 @@ function buildPurchase(overrides: Partial<PurchaseDetail> = {}): PurchaseDetail 
     marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "9.50",
     status: "pending-payment",
+    payment_deadline_at: null,
     created_at: "2026-04-01T00:00:00.000Z",
     updated_at: "2026-04-01T00:00:00.000Z",
     cancelled_at: null,
@@ -276,6 +278,27 @@ describe("marketplace account payment route", () => {
         { type: "order", id: "ord_1" },
       ],
     });
+  });
+
+  it("renders payment deadline guidance for pending confirmations", () => {
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "pending-confirmation",
+      }),
+      orders: [
+        buildPurchase({
+          payment_deadline_at: "2026-04-01T01:00:00.000Z",
+        }),
+      ],
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByText("Complete payment by deadline")).toBeTruthy();
   });
 
   it("shows checkout feedback for zero-dollar completed outcomes but not unresolved or failed statuses", () => {

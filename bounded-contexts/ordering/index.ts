@@ -250,6 +250,16 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
           },
           "payments.ordering-payment-capture": () =>
             defineEventReactionHandlers<ChaseSetsEventPayloads>({
+              "payments.payment-created": async (event) => {
+                const data = event.data;
+
+                await services.orders.recordPaymentDeadlineStarted({
+                  paymentId: data.paymentId,
+                  orderIds: data.orderIds ?? [],
+                  paymentMethodCategory: data.paymentMethodCategory ?? null,
+                  paymentStartedAt: data.createdAt,
+                });
+              },
               "payments.payment-captured": async (event) => {
                 const data = event.data;
 
@@ -310,6 +320,32 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
                 if (dispatchFailures.length > 0) {
                   throw createPaymentCaptureDispatchError(dispatchFailures, readyOrderIds.length);
                 }
+              },
+              "payments.payment-failed": async (event) => {
+                const data = event.data;
+
+                await services.orders.recordTerminalPaymentFailureDeadline({
+                  paymentId: data.paymentId,
+                  orderIds: data.orderIds ?? [],
+                  failedAt: data.failedAt,
+                  failureCode: data.failureCode ?? null,
+                });
+              },
+              "payments.payment-cancelled": async (event) => {
+                const data = event.data;
+                const orderResult = await services.db.query<{ order_id: string }>(
+                  `SELECT order_id
+                   FROM ordering_payment_deadline_inputs
+                   WHERE payment_id = $1`,
+                  [data.paymentId],
+                );
+
+                await services.orders.recordTerminalPaymentFailureDeadline({
+                  paymentId: data.paymentId,
+                  orderIds: orderResult.rows.map((row) => row.order_id),
+                  failedAt: data.cancelledAt,
+                  failureCode: "payment-cancelled",
+                });
               },
             }),
         },

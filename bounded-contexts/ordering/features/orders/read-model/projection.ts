@@ -296,14 +296,19 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
       const data = event.data as {
         orderId: string;
         pendingPaymentAt: string;
+        paymentDeadlineAt: string;
+        paymentDeadlinePolicy: string;
       };
 
       await db.query(
         `UPDATE ordering_order_pages
-         SET status = 'pending-payment',
-             updated_at = $2
-         WHERE order_id = $1`,
-        [data.orderId, data.pendingPaymentAt],
+          SET status = 'pending-payment',
+              pending_payment_at = $2,
+              payment_deadline_at = $3,
+              payment_deadline_policy = $4,
+              updated_at = $2
+          WHERE order_id = $1`,
+        [data.orderId, data.pendingPaymentAt, data.paymentDeadlineAt, data.paymentDeadlinePolicy],
       );
     },
     "ordering.order.cancelled": async (event) => {

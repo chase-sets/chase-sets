@@ -27,6 +27,10 @@ function formatMoney(amount: string) {
   return `$${amount}`;
 }
 
+function formatTimestamp(value: string) {
+  return new Date(value).toLocaleString();
+}
+
 function isPendingStatus(status: string) {
   return status === "pending-payment" || status === "pending-reservation";
 }
@@ -98,6 +102,7 @@ export function OrderingOrderDetailPage({
   const sourceReference = order.source_reference_id?.trim() || order.order_id;
   const canViewFulfillment =
     Boolean(fulfillmentHref) && order.status !== "pending-payment" && order.status !== "pending-reservation";
+  const paymentDeadlineAt = order.status === "pending-payment" ? order.payment_deadline_at : null;
   const supportLabel =
     role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
       ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")
@@ -194,7 +199,11 @@ export function OrderingOrderDetailPage({
                 },
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.payment.state"),
-                  description: order.status,
+                  description: paymentDeadlineAt
+                    ? t("ordering.features.orders.ui.orderDetailPage.payment.deadline.description", {
+                        deadline: formatTimestamp(paymentDeadlineAt),
+                      })
+                    : order.status,
                 },
               ]}
             />
@@ -233,6 +242,15 @@ export function OrderingOrderDetailPage({
                 </Stack>
               </Grid>
               <Divider />
+              {paymentDeadlineAt ? (
+                <MarketplaceNotice
+                  tone="info"
+                  title={t("ordering.features.orders.ui.orderDetailPage.payment.deadline.title")}
+                  description={t("ordering.features.orders.ui.orderDetailPage.payment.deadline.description", {
+                    deadline: formatTimestamp(paymentDeadlineAt),
+                  })}
+                />
+              ) : null}
               <Stack gap={3} direction={{ base: "column", sm: "row" }}>
                 {canPay ? (
                   <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton>

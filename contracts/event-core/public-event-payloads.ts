@@ -105,6 +105,8 @@ export type OrderingOrderCreatedPayload = Readonly<{
 export type OrderingOrderCancelledPayload = Readonly<{
   orderId: string;
   cancelledAt: string;
+  reason?: string | null;
+  buyerEmail?: string | null;
   reservationRequests: readonly OrderingReservationRequestPayload[];
 }>;
 
@@ -238,6 +240,64 @@ export type PaymentCapturedPayload = Readonly<{
   capturedAt: string;
 }>;
 
+export type PaymentCreatedPayload = Readonly<{
+  paymentId: PaymentId;
+  orderIds: readonly string[];
+  buyerAccountId: AccountId;
+  amount: string;
+  balanceCreditAmount?: string;
+  processorAmount?: string;
+  marketplaceSalesFeeAmount?: string;
+  marketplaceCheckoutFeeAmount?: string;
+  marketplaceCheckoutFeePolicyVersion?: string | null;
+  marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+  paymentMethodCategory?: string | null;
+  sellerNetAmount?: string;
+  sellerPayoutAmount?: string;
+  sellerPayouts?: readonly JsonObject[];
+  currencyCode: string;
+  processorName: string;
+  processorPaymentKind?: "checkout-session" | "payment-intent" | "balance-credit";
+  processorPaymentReference: string;
+  processorClientSecret?: string | null;
+  processorRedirectUrl?: string | null;
+  processorStatus: string;
+  sourceContext?: string | null;
+  sourceReferenceId?: string | null;
+  threeDSecureRequest?: string | null;
+  threeDSecureReasonCodes?: readonly string[];
+  createdAt: string;
+}>;
+
+export type PaymentFailedPayload = Readonly<{
+  paymentId: PaymentId;
+  orderIds: readonly string[];
+  buyerAccountId: AccountId;
+  amount: string;
+  balanceCreditAmount?: string;
+  processorAmount?: string;
+  marketplaceSalesFeeAmount?: string;
+  marketplaceCheckoutFeeAmount?: string;
+  marketplaceCheckoutFeePolicyVersion?: string | null;
+  marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+  paymentMethodCategory?: string | null;
+  sellerNetAmount?: string;
+  sellerPayoutAmount?: string;
+  sellerPayouts?: readonly JsonObject[];
+  currencyCode: string;
+  processorName: string;
+  processorPaymentReference: string;
+  processorStatus: string;
+  failureCode: string | null;
+  failureMessage: string | null;
+  failedAt: string;
+}>;
+
+export type PaymentCancelledPayload = Readonly<{
+  paymentId: PaymentId;
+  cancelledAt: string;
+}>;
+
 export type PaymentsCheckoutAffordanceInstrumentPayload = Readonly<{
   instrumentId: string;
   paymentMethodCategory: "card" | "bank-account" | "platform-credit";
@@ -258,7 +318,10 @@ export type PaymentsCheckoutAffordancesPublishedPayload = Readonly<{
 }>;
 
 export type PaymentsEventPayloads = Readonly<{
+  "payments.payment-created": PaymentCreatedPayload;
   "payments.payment-captured": PaymentCapturedPayload;
+  "payments.payment-failed": PaymentFailedPayload;
+  "payments.payment-cancelled": PaymentCancelledPayload;
   "payments.checkout-affordances-published": PaymentsCheckoutAffordancesPublishedPayload;
 }>;
 

@@ -61,6 +61,9 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPayment.payment.preparing": "Preparing payment",
   "payments.routes.marketplace.accountPayment.payment.preparing.description":
     "We are getting your secure payment ready. Refresh in a moment and your payment details should appear.",
+  "payments.routes.marketplace.accountPayment.payment.deadline.title": "Complete payment by deadline",
+  "payments.routes.marketplace.accountPayment.payment.deadline.description":
+    "Complete payment by {deadline} to keep this order.",
   "payments.routes.marketplace.accountPayment.payment.session.closed": "Payment session closed",
   "payments.routes.marketplace.accountPayment.payment.status": "Payment Status",
   "payments.routes.marketplace.accountPayment.payment.summary": "Payment Summary",

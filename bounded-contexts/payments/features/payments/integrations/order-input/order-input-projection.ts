@@ -50,13 +50,16 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
            shipping_allowance_percentage_bps,
            terms_schedule_id,
            terms_agreement_id,
-           terms_resolved_at,
-           status,
-           created_at,
+            terms_resolved_at,
+            status,
+            pending_payment_at,
+            payment_deadline_at,
+            payment_deadline_policy,
+            created_at,
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'pending-reservation', $21, $21, NULL, NULL)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'pending-reservation', NULL, NULL, NULL, $21, $21, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
              source_reference_id = EXCLUDED.source_reference_id,
@@ -76,9 +79,12 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
              shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
-             terms_resolved_at = EXCLUDED.terms_resolved_at,
-             status = EXCLUDED.status,
-             updated_at = EXCLUDED.updated_at,
+              terms_resolved_at = EXCLUDED.terms_resolved_at,
+              status = EXCLUDED.status,
+              pending_payment_at = EXCLUDED.pending_payment_at,
+              payment_deadline_at = EXCLUDED.payment_deadline_at,
+              payment_deadline_policy = EXCLUDED.payment_deadline_policy,
+              updated_at = EXCLUDED.updated_at,
              cancelled_at = EXCLUDED.cancelled_at,
              ready_for_fulfillment_at = EXCLUDED.ready_for_fulfillment_at`,
         [
@@ -123,14 +129,19 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
       const data = event.data as {
         orderId: string;
         pendingPaymentAt: string;
+        paymentDeadlineAt: string;
+        paymentDeadlinePolicy: string;
       };
 
       await db.query(
         `UPDATE payments_order_inputs
-         SET status = 'pending-payment',
-             updated_at = $2
-         WHERE order_id = $1`,
-        [data.orderId, data.pendingPaymentAt],
+          SET status = 'pending-payment',
+              pending_payment_at = $2,
+              payment_deadline_at = $3,
+              payment_deadline_policy = $4,
+              updated_at = $2
+          WHERE order_id = $1`,
+        [data.orderId, data.pendingPaymentAt, data.paymentDeadlineAt, data.paymentDeadlinePolicy],
       );
     },
     "ordering.order.cancelled": async (event) => {
