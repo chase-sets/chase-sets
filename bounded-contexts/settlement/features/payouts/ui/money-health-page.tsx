@@ -11,6 +11,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow, SettlementReconciliationRunRow } from "../read-model/queries";
+import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -18,11 +19,13 @@ function formatMoney(amount: string, currencyCode: string) {
 
 export function SettlementMoneyHealthPage({
   payouts,
+  negativeBalanceAccounts,
   reconciliationRuns,
   platformBalanceForecast,
   providerHealth,
 }: {
   payouts: readonly SettlementPayoutRow[];
+  negativeBalanceAccounts: readonly SettlementWalletRow[];
   reconciliationRuns: readonly SettlementReconciliationRunRow[];
   platformBalanceForecast: Readonly<{
     currency_code: string;
@@ -128,6 +131,48 @@ export function SettlementMoneyHealthPage({
               cell: (row) => row.value,
             },
           ]}
+        />
+      </PageSection>
+
+      <PageSection title={t("settlement.features.payouts.ui.moneyHealthPage.negative.balance.accounts")}>
+        <DataTable
+          rows={[...negativeBalanceAccounts]}
+          getRowId={(row) => row.account_id}
+          columns={[
+            {
+              key: "account",
+              header: t("settlement.features.payouts.ui.moneyHealthPage.account"),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text weight="semibold">{row.account_id}</Text>
+                  <Badge tone={row.negative_balance_status === "collections" ? "warning" : "neutral"}>
+                    {row.negative_balance_status}
+                  </Badge>
+                </Stack>
+              ),
+            },
+            {
+              key: "amount",
+              header: t("settlement.features.payouts.ui.moneyHealthPage.negative.amount"),
+              cell: (row) => formatMoney(row.available_balance_amount, row.currency_code),
+            },
+            {
+              key: "age",
+              header: t("settlement.features.payouts.ui.moneyHealthPage.negative.since"),
+              cell: (row) =>
+                row.negative_balance_started_at ? new Date(row.negative_balance_started_at).toLocaleString() : "-",
+            },
+            {
+              key: "collections",
+              header: t("settlement.features.payouts.ui.moneyHealthPage.collections"),
+              cell: (row) =>
+                row.collections_escalated_at ? new Date(row.collections_escalated_at).toLocaleString() : "-",
+            },
+          ]}
+          emptyTitle={t("settlement.features.payouts.ui.moneyHealthPage.no.negative.balances")}
+          emptyDescription={t(
+            "settlement.features.payouts.ui.moneyHealthPage.accounts.with.negative.wallet.balances.appear",
+          )}
         />
       </PageSection>
 

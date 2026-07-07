@@ -74,7 +74,7 @@ import {
   type SettlementPayoutRow,
 } from "../read-model/queries";
 import type { WalletServices } from "../../wallets/api/runtime";
-import { getAccountActiveSupportHoldAmount } from "../../wallets/read-model/queries";
+import { getAccountActiveSupportHoldAmount, type SettlementWalletRow } from "../../wallets/read-model/queries";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 import {
   decidePayout,
@@ -204,6 +204,9 @@ export type PayoutServices = Readonly<{
     params: Readonly<{ accountId: string; limit?: number }>,
   ) => Promise<SettlementProviderIdempotencyKeyRow[]>;
   listReconciliationRuns: (params?: Readonly<{ limit?: number }>) => Promise<SettlementReconciliationRunRow[]>;
+  listNegativeBalanceAccounts: (
+    params?: Readonly<{ limit?: number; offset?: number }>,
+  ) => Promise<{ items: SettlementWalletRow[]; total: number }>;
   getPlatformBalanceForecast: (params?: Readonly<{ currencyCode?: "usd" }>) => Promise<
     Readonly<{
       currency_code: string;
@@ -1221,6 +1224,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     listPayoutsNeedingReconciliation: (params) => listPayoutsNeedingReconciliation(deps.db, params),
     listProviderIdempotencyKeys: (params) => listSettlementProviderIdempotencyKeys(deps.db, params),
     listReconciliationRuns: (params) => listSettlementReconciliationRuns(deps.db, params),
+    listNegativeBalanceAccounts: (params = {}) => deps.wallets.listNegativeBalanceAccounts(params),
     async getPlatformBalanceForecast(params) {
       const currencyCode = normalizeCurrencyCode(params?.currencyCode ?? "usd");
       const [platformBalance, payouts] = await Promise.all([
@@ -1289,6 +1293,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       }
       if (compareMoney(payoutAvailableBalanceAmount, "0.00") <= 0) {
         unavailableReasons.push("no-available-wallet-balance");
+      }
+      if (
+        wallet.negative_balance_status !== "in-good-standing" ||
+        compareMoney(wallet.available_balance_amount, "0.00") < 0
+      ) {
+        unavailableReasons.push("negative-balance-active");
       }
       if (
         compareMoney(payoutAvailableBalanceAmount, "0.00") <= 0 &&
@@ -1429,6 +1439,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
 
       const activeSupportHoldAmount = await getAccountActiveSupportHoldAmount(deps.db, params.accountId);
       const payoutAvailableBalanceAmount = subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount);
+      if (
+        wallet.negative_balance_status !== "in-good-standing" ||
+        compareMoney(wallet.available_balance_amount, "0.00") < 0
+      ) {
+        throw new SettlementDomainError("Negative balance must be recovered before requesting payout.");
+      }
       if (compareMoney(activeSupportHoldAmount, "0.00") > 0) {
         throw new SettlementDomainError("Open support requests must be resolved before requesting this payout.");
       }

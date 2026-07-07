@@ -563,6 +563,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: [
       "checkout:checkout.sell-list-projection",
+      "marketplace:marketplace-settlement-negative-balance-projection",
       "settlement:settlement-payout-projection",
       "settlement:settlement-payout-readiness-projection",
     ],

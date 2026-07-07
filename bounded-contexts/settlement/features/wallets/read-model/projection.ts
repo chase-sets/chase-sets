@@ -18,10 +18,13 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
            available_balance_amount,
            total_credited_amount,
            total_debited_amount,
+           negative_balance_status,
+           negative_balance_started_at,
+           collections_escalated_at,
            opened_at,
            updated_at
          ) VALUES (
-           $1, $2, 0, 0, 0, 0, $3, $3
+           $1, $2, 0, 0, 0, 0, 'in-good-standing', NULL, NULL, $3, $3
          )
          ON CONFLICT (account_id) DO UPDATE
          SET currency_code = EXCLUDED.currency_code,
@@ -132,6 +135,55 @@ export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandler
              updated_at = $3
          WHERE account_id = $1`,
         [data.accountId, data.amount, data.availableAt],
+      );
+    },
+    "settlement.wallet.negative-balance-entered": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        enteredAt: string;
+      };
+
+      await db.query(
+        `UPDATE settlement_wallet_pages
+         SET negative_balance_status = 'negative',
+             negative_balance_started_at = $2,
+             collections_escalated_at = NULL,
+             updated_at = $2
+         WHERE account_id = $1`,
+        [data.accountId, data.enteredAt],
+      );
+    },
+    "settlement.wallet.negative-balance-collections-opened": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        negativeSince: string;
+        openedAt: string;
+      };
+
+      await db.query(
+        `UPDATE settlement_wallet_pages
+         SET negative_balance_status = 'collections',
+             negative_balance_started_at = $2,
+             collections_escalated_at = $3,
+             updated_at = $3
+         WHERE account_id = $1`,
+        [data.accountId, data.negativeSince, data.openedAt],
+      );
+    },
+    "settlement.wallet.negative-balance-recovered": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        recoveredAt: string;
+      };
+
+      await db.query(
+        `UPDATE settlement_wallet_pages
+         SET negative_balance_status = 'in-good-standing',
+             negative_balance_started_at = NULL,
+             collections_escalated_at = NULL,
+             updated_at = $2
+         WHERE account_id = $1`,
+        [data.accountId, data.recoveredAt],
       );
     },
   };

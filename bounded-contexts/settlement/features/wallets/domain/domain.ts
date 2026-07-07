@@ -33,6 +33,8 @@ export type WalletLedgerEntry = Readonly<{
   availableAt: string | null;
 }>;
 
+export type WalletNegativeBalanceStatus = "in-good-standing" | "negative" | "collections";
+
 export type WalletState = Readonly<{
   accountId: AccountId | null;
   currencyCode: CurrencyCode | null;
@@ -40,6 +42,9 @@ export type WalletState = Readonly<{
   availableBalanceAmount: string;
   totalCreditedAmount: string;
   totalDebitedAmount: string;
+  negativeBalanceStatus: WalletNegativeBalanceStatus;
+  negativeBalanceStartedAt: string | null;
+  collectionsEscalatedAt: string | null;
   entries: readonly WalletLedgerEntry[];
   openedAt: string | null;
   updatedAt: string | null;
@@ -52,6 +57,9 @@ export const initialWalletState: WalletState = {
   availableBalanceAmount: "0.00",
   totalCreditedAmount: "0.00",
   totalDebitedAmount: "0.00",
+  negativeBalanceStatus: "in-good-standing",
+  negativeBalanceStartedAt: null,
+  collectionsEscalatedAt: null,
   entries: [],
   openedAt: null,
   updatedAt: null,
@@ -86,7 +94,18 @@ export type MarkLedgerEntryAvailableCommand = Readonly<{
   availableAt: string;
 }>;
 
-export type WalletCommand = OpenWalletCommand | PostLedgerEntryCommand | MarkLedgerEntryAvailableCommand;
+export type EvaluateNegativeBalanceCollectionsCommand = Readonly<{
+  type: "EvaluateNegativeBalanceCollections";
+  collectionsThresholdAmount: string;
+  collectionsGracePeriodDays: number;
+  evaluatedAt: string;
+}>;
+
+export type WalletCommand =
+  | OpenWalletCommand
+  | PostLedgerEntryCommand
+  | MarkLedgerEntryAvailableCommand
+  | EvaluateNegativeBalanceCollectionsCommand;
 
 export type WalletOpenedEvent = DomainEvent<
   "settlement.wallet.opened",
@@ -125,10 +144,87 @@ export type WalletLedgerEntryAvailableEvent = DomainEvent<
   }>
 >;
 
-export type WalletEvent = WalletOpenedEvent | WalletLedgerEntryPostedEvent | WalletLedgerEntryAvailableEvent;
+export type WalletNegativeBalanceEnteredEvent = DomainEvent<
+  "settlement.wallet.negative-balance-entered",
+  Readonly<{
+    accountId: AccountId;
+    balanceAmount: string;
+    enteredAt: string;
+  }>
+>;
+
+export type WalletNegativeBalanceCollectionsOpenedEvent = DomainEvent<
+  "settlement.wallet.negative-balance-collections-opened",
+  Readonly<{
+    accountId: AccountId;
+    balanceAmount: string;
+    negativeSince: string;
+    thresholdAmount: string;
+    gracePeriodDays: number;
+    openedAt: string;
+  }>
+>;
+
+export type WalletNegativeBalanceRecoveredEvent = DomainEvent<
+  "settlement.wallet.negative-balance-recovered",
+  Readonly<{
+    accountId: AccountId;
+    balanceAmount: string;
+    recoveredAt: string;
+  }>
+>;
+
+export type WalletEvent =
+  | WalletOpenedEvent
+  | WalletLedgerEntryPostedEvent
+  | WalletLedgerEntryAvailableEvent
+  | WalletNegativeBalanceEnteredEvent
+  | WalletNegativeBalanceCollectionsOpenedEvent
+  | WalletNegativeBalanceRecoveredEvent;
 
 function hasLedgerEntry(entries: readonly WalletLedgerEntry[], ledgerEntryId: LedgerEntryId) {
   return entries.some((entry) => entry.ledgerEntryId === ledgerEntryId);
+}
+
+function negativeBalanceTransitionEvents(
+  state: WalletState,
+  nextAvailableBalanceAmount: string,
+  occurredAt: string,
+): WalletNegativeBalanceEnteredEvent[] | WalletNegativeBalanceRecoveredEvent[] {
+  if (state.accountId === null) {
+    return [];
+  }
+
+  const wasNegative = state.negativeBalanceStatus !== "in-good-standing";
+  const isNegative = compareMoney(nextAvailableBalanceAmount, "0.00") < 0;
+
+  if (!wasNegative && isNegative) {
+    return [
+      {
+        type: "settlement.wallet.negative-balance-entered",
+        data: {
+          accountId: state.accountId,
+          balanceAmount: nextAvailableBalanceAmount,
+          enteredAt: occurredAt,
+        },
+      },
+    ];
+  }
+
+  if (wasNegative && !isNegative) {
+    return [
+      {
+        type: "settlement.wallet.negative-balance-recovered",
+        data: {
+          accountId: state.accountId,
+          balanceAmount: nextAvailableBalanceAmount,
+          recoveredAt: occurredAt,
+        },
+      },
+    ];
+  }
+
+  return [];
 }
 
 export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEvent> = (state, command) => {
@@ -163,6 +259,15 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
         "Available balance is too low for this ledger entry.",
       );
 
+      const ledgerAmount = normalizeMoneyAmount(command.amount, {
+        fieldName: "Ledger entry amount",
+      });
+      const signedAmount = command.direction === "credit" ? ledgerAmount : `-${ledgerAmount}`;
+      const nextAvailableBalanceAmount =
+        command.fundsStatus === "available"
+          ? addMoney(state.availableBalanceAmount, signedAmount)
+          : state.availableBalanceAmount;
+
       return [
         {
           type: "settlement.wallet.ledger-entry-posted",
@@ -171,9 +276,7 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
             ledgerEntryId: command.ledgerEntryId,
             kind: normalizeLedgerEntryKind(command.kind),
             direction: normalizeLedgerEntryDirection(command.direction),
-            amount: normalizeMoneyAmount(command.amount, {
-              fieldName: "Ledger entry amount",
-            }),
+            amount: ledgerAmount,
             currencyCode: normalizeCurrencyCode(command.currencyCode),
             fundsStatus: normalizeLedgerEntryFundsStatus(command.fundsStatus),
             orderId: command.orderId ?? null,
@@ -183,6 +286,11 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
             postedAt: ensureIsoTimestamp(command.postedAt, "Ledger entry posting must record a timestamp."),
           },
         },
+        ...negativeBalanceTransitionEvents(
+          state,
+          nextAvailableBalanceAmount,
+          ensureIsoTimestamp(command.postedAt, "Ledger entry posting must record a timestamp."),
+        ),
       ];
     case "MarkLedgerEntryAvailable": {
       assert(state.accountId !== null, "Wallet must be opened first.");
@@ -193,6 +301,9 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
       }
       assert(entry.direction === "credit", "Only pending credit entries can become available.");
 
+      const availableAt = ensureIsoTimestamp(command.availableAt, "Ledger entry availability must record a timestamp.");
+      const nextAvailableBalanceAmount = addMoney(state.availableBalanceAmount, entry.amount);
+
       return [
         {
           type: "settlement.wallet.ledger-entry-available-recorded",
@@ -200,7 +311,44 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
             accountId: state.accountId,
             ledgerEntryId: entry.ledgerEntryId,
             amount: entry.amount,
-            availableAt: ensureIsoTimestamp(command.availableAt, "Ledger entry availability must record a timestamp."),
+            availableAt,
+          },
+        },
+        ...negativeBalanceTransitionEvents(state, nextAvailableBalanceAmount, availableAt),
+      ];
+    }
+    case "EvaluateNegativeBalanceCollections": {
+      assert(state.accountId !== null, "Wallet must be opened first.");
+      const evaluatedAt = ensureIsoTimestamp(command.evaluatedAt, "Collections evaluation must record a timestamp.");
+      const thresholdAmount = normalizeMoneyAmount(command.collectionsThresholdAmount, {
+        fieldName: "Collections threshold amount",
+      });
+      assert(
+        Number.isInteger(command.collectionsGracePeriodDays) && command.collectionsGracePeriodDays >= 0,
+        "Collections grace period must be a whole number of days.",
+      );
+      if (state.negativeBalanceStatus !== "negative" || state.negativeBalanceStartedAt === null) {
+        return [];
+      }
+      if (compareMoney(state.availableBalanceAmount, `-${thresholdAmount}`) > 0) {
+        return [];
+      }
+      const earliestCollectionsAt =
+        Date.parse(state.negativeBalanceStartedAt) + command.collectionsGracePeriodDays * 24 * 60 * 60 * 1000;
+      if (Date.parse(evaluatedAt) < earliestCollectionsAt) {
+        return [];
+      }
+
+      return [
+        {
+          type: "settlement.wallet.negative-balance-collections-opened",
+          data: {
+            accountId: state.accountId,
+            balanceAmount: state.availableBalanceAmount,
+            negativeSince: state.negativeBalanceStartedAt,
+            thresholdAmount,
+            gracePeriodDays: command.collectionsGracePeriodDays,
+            openedAt: evaluatedAt,
           },
         },
       ];
@@ -220,6 +368,9 @@ export const evolveWallet: AggregateEvolver<WalletState, WalletEvent> = (state, 
         availableBalanceAmount: "0.00",
         totalCreditedAmount: "0.00",
         totalDebitedAmount: "0.00",
+        negativeBalanceStatus: "in-good-standing",
+        negativeBalanceStartedAt: null,
+        collectionsEscalatedAt: null,
         entries: [],
         openedAt: event.data.openedAt,
         updatedAt: event.data.openedAt,
@@ -282,6 +433,30 @@ export const evolveWallet: AggregateEvolver<WalletState, WalletEvent> = (state, 
             : entry,
         ),
         updatedAt: event.data.availableAt,
+      };
+    case "settlement.wallet.negative-balance-entered":
+      return {
+        ...state,
+        negativeBalanceStatus: "negative",
+        negativeBalanceStartedAt: event.data.enteredAt,
+        collectionsEscalatedAt: null,
+        updatedAt: event.data.enteredAt,
+      };
+    case "settlement.wallet.negative-balance-collections-opened":
+      return {
+        ...state,
+        negativeBalanceStatus: "collections",
+        negativeBalanceStartedAt: event.data.negativeSince,
+        collectionsEscalatedAt: event.data.openedAt,
+        updatedAt: event.data.openedAt,
+      };
+    case "settlement.wallet.negative-balance-recovered":
+      return {
+        ...state,
+        negativeBalanceStatus: "in-good-standing",
+        negativeBalanceStartedAt: null,
+        collectionsEscalatedAt: null,
+        updatedAt: event.data.recoveredAt,
       };
     default:
       return assertNever(event);

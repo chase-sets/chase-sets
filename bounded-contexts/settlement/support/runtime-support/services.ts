@@ -9,6 +9,7 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
+import type { NegativeBalancePolicy } from "../../features/wallets/api/runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
@@ -18,6 +19,7 @@ export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
   notificationOutbox?: NotificationOutbox;
+  negativeBalancePolicy?: NegativeBalancePolicy;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -67,6 +69,7 @@ export function createSettlementServices(
     eventStore,
     checkpointStore,
     db,
+    ...(ports.negativeBalancePolicy ? { negativeBalancePolicy: ports.negativeBalancePolicy } : {}),
   });
   const payoutReadiness = createPayoutReadinessRuntime({
     eventStore,

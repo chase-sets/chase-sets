@@ -7,11 +7,14 @@ import {
   createSettlementRequestApiClient,
   type SettlementPayoutRow,
   type SettlementReconciliationRunRow,
+  type SettlementWalletRow,
 } from "../../support/request-support/api-client";
 import { SettlementMoneyHealthPage } from "../../features/payouts/ui/money-health-page";
 
 type MoneyHealthData = Readonly<{
   payouts_needing_attention: readonly SettlementPayoutRow[];
+  negative_balance_accounts: readonly SettlementWalletRow[];
+  negative_balance_total: number;
   reconciliation_runs: readonly SettlementReconciliationRunRow[];
   platform_balance_forecast: Readonly<{
     currency_code: string;
@@ -47,6 +50,7 @@ export default function MarketplaceAccountMoneyHealthRoute() {
   return (
     <SettlementMoneyHealthPage
       payouts={data.payouts_needing_attention}
+      negativeBalanceAccounts={data.negative_balance_accounts}
       reconciliationRuns={data.reconciliation_runs}
       platformBalanceForecast={data.platform_balance_forecast}
       providerHealth={data.provider_health}

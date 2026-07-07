@@ -6,6 +6,7 @@ export const moneyStatusLabels = {
   "payout-setup-refresh-required": "Refresh payout setup status in Chase Sets before requesting funds.",
   "provider-requirements-open": "Complete the requested payout setup details before requesting funds.",
   "no-available-wallet-balance": "Available balance is zero.",
+  "negative-balance-active": "Recover the negative wallet balance before requesting a payout.",
   "recent-payout-failure": "Review the recent payout failure before requesting more funds.",
   "payout-reconciliation-required": "A previous payout request needs reconciliation.",
   "platform-balance-insufficient": "Funds are temporarily unavailable for payout.",

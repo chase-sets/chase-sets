@@ -166,6 +166,14 @@
       ],
       "order": 90,
       "projectionHandlerSetNames": ["marketplace-review-support-source-projection"]
+    },
+    {
+      "sourceContextName": "settlement",
+      "projectionName": "marketplace-settlement-negative-balance-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["settlement.wallet.negative-balance-collections-opened"],
+      "order": 91,
+      "projectionHandlerSetNames": ["marketplace-settlement-negative-balance-projection"]
     }
   ],
   "projectionGroups": [
@@ -247,6 +255,14 @@
       "ownedTables": ["marketplace_review_eligibility_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-settlement-negative-balance-projection",
+      "sourceContextNames": ["settlement"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only",
+      "sideEffectOnly": true
     }
   ],
   "hostPorts": [

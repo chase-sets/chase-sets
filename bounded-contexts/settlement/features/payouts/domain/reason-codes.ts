@@ -5,6 +5,7 @@ export const payoutUnavailableReasonLabels = {
   "payout-setup-refresh-required": moneyStatusLabel("payout-setup-refresh-required"),
   "provider-requirements-open": moneyStatusLabel("provider-requirements-open"),
   "no-available-wallet-balance": moneyStatusLabel("no-available-wallet-balance"),
+  "negative-balance-active": moneyStatusLabel("negative-balance-active"),
   "recent-payout-failure": moneyStatusLabel("recent-payout-failure"),
   "payout-reconciliation-required": moneyStatusLabel("payout-reconciliation-required"),
   "platform-balance-insufficient": moneyStatusLabel("platform-balance-insufficient"),

@@ -9,6 +9,9 @@ export type SettlementWalletRow = Readonly<{
   available_balance_amount: string;
   total_credited_amount: string;
   total_debited_amount: string;
+  negative_balance_status: "in-good-standing" | "negative" | "collections";
+  negative_balance_started_at: string | null;
+  collections_escalated_at: string | null;
   opened_at: string | null;
   updated_at: string | null;
 }>;
@@ -38,10 +41,22 @@ const walletSelect = `
     available_balance_amount::text AS available_balance_amount,
     total_credited_amount::text AS total_credited_amount,
     total_debited_amount::text AS total_debited_amount,
+    negative_balance_status,
+    negative_balance_started_at,
+    collections_escalated_at,
     opened_at,
     updated_at
   FROM settlement_wallet_pages
 `;
+
+function normalizeWalletRow(row: SettlementWalletRow): SettlementWalletRow {
+  return {
+    ...row,
+    negative_balance_status: row.negative_balance_status ?? "in-good-standing",
+    negative_balance_started_at: row.negative_balance_started_at ?? null,
+    collections_escalated_at: row.collections_escalated_at ?? null,
+  };
+}
 
 export async function getWallet(db: PgQueryable, accountId: string): Promise<SettlementWalletRow> {
   const result = await db.query<SettlementWalletRow>(
@@ -52,7 +67,7 @@ export async function getWallet(db: PgQueryable, accountId: string): Promise<Set
 
   const row = result.rows[0];
   if (row) {
-    return row;
+    return normalizeWalletRow(row);
   }
 
   const empty = createEmptyWalletSummary(accountId as AccountId);
@@ -63,9 +78,63 @@ export async function getWallet(db: PgQueryable, accountId: string): Promise<Set
     available_balance_amount: empty.availableBalanceAmount,
     total_credited_amount: empty.totalCreditedAmount,
     total_debited_amount: empty.totalDebitedAmount,
+    negative_balance_status: "in-good-standing",
+    negative_balance_started_at: null,
+    collections_escalated_at: null,
     opened_at: empty.openedAt,
     updated_at: empty.updatedAt,
   };
+}
+
+export async function listNegativeBalanceAccounts(
+  db: PgQueryable,
+  params: Readonly<{ limit?: number; offset?: number }> = {},
+): Promise<{ items: SettlementWalletRow[]; total: number }> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const offset = Math.max(0, params.offset ?? 0);
+
+  const [countResult, itemsResult] = await Promise.all([
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM settlement_wallet_pages
+       WHERE negative_balance_status <> 'in-good-standing'`,
+    ),
+    db.query<SettlementWalletRow>(
+      `${walletSelect}
+       WHERE negative_balance_status <> 'in-good-standing'
+       ORDER BY negative_balance_started_at ASC NULLS LAST, account_id ASC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    ),
+  ]);
+
+  return {
+    items: itemsResult.rows.map(normalizeWalletRow),
+    total: Number(countResult.rows[0]?.count ?? 0),
+  };
+}
+
+export async function listNegativeBalanceCollectionsCandidates(
+  db: PgQueryable,
+  params: Readonly<{
+    now: string;
+    thresholdAmount: string;
+    gracePeriodDays: number;
+    limit?: number;
+  }>,
+): Promise<SettlementWalletRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 250, 1000));
+  const result = await db.query<SettlementWalletRow>(
+    `${walletSelect}
+     WHERE negative_balance_status = 'negative'
+       AND available_balance_amount <= -($2::numeric)
+       AND negative_balance_started_at <= ($1::timestamptz - ($3::text || ' days')::interval)
+     ORDER BY negative_balance_started_at ASC, account_id ASC
+     LIMIT $4`,
+    [params.now, params.thresholdAmount, params.gracePeriodDays, limit],
+  );
+
+  return result.rows.map(normalizeWalletRow);
 }
 
 export async function listWalletEntries(

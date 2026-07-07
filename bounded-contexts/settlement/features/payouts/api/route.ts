@@ -184,18 +184,22 @@ export function createPayoutRoutes(services: PayoutServices) {
       return access.response;
     }
 
-    const [payouts, reconciliationRuns, platformBalanceForecast, providerHealth] = await Promise.all([
-      services.listPayoutsNeedingReconciliation({ accountId: access.actor.accountId, limit: 25 }),
-      services.listReconciliationRuns({ limit: 10 }),
-      services.getPlatformBalanceForecast({ currencyCode: "usd" }),
-      services.getProviderHealth(),
-    ]);
+    const [payouts, reconciliationRuns, platformBalanceForecast, providerHealth, negativeBalanceAccounts] =
+      await Promise.all([
+        services.listPayoutsNeedingReconciliation({ accountId: access.actor.accountId, limit: 25 }),
+        services.listReconciliationRuns({ limit: 10 }),
+        services.getPlatformBalanceForecast({ currencyCode: "usd" }),
+        services.getProviderHealth(),
+        services.listNegativeBalanceAccounts({ limit: 25 }),
+      ]);
 
     return c.json({
       payouts_needing_attention: payouts,
       reconciliation_runs: reconciliationRuns,
       platform_balance_forecast: platformBalanceForecast,
       provider_health: providerHealth,
+      negative_balance_accounts: negativeBalanceAccounts.items,
+      negative_balance_total: negativeBalanceAccounts.total,
     });
   });
 
