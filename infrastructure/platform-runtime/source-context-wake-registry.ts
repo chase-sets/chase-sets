@@ -159,6 +159,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "high",
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
+      "catalog:catalog-admin-catalog-item-projection",
       "catalog:catalog-product-contents-projection",
       "catalog:catalog-scope-registry-projection",
       "catalog:catalog-source-observation-projection",
@@ -175,7 +176,7 @@ export const sourceContextWakeRegistry = [
       "ordering:ordering-marketplace-supply-input-projection",
       "pricing:pricing-catalog-input-projection",
     ],
-    routeDependencyIds: [],
+    routeDependencyIds: ["catalog.catalog-item-command-to-admin-detail", "catalog.catalog-item-command-to-admin-list"],
   }),
   registryEntry({
     sourceContextName: "checkout",
