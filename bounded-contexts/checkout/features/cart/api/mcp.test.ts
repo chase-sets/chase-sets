@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createCheckoutCartMcpHandlers } from "./mcp";
 import type { CheckoutCartServices } from "./runtime";
 
@@ -12,6 +13,13 @@ const actor = {
   roleKey: "manager",
   permissions: ["orders.view"],
 } satisfies ResolvedActor;
+
+const legacyMcpProtocol = {
+  protocolVersion: "2025-06-18",
+  stateless: false,
+  clientInfo: null,
+  clientCapabilities: null,
+} satisfies McpRequestProtocolContext;
 
 function services(): Pick<CheckoutCartServices, "listCartLines"> {
   return {
@@ -38,6 +46,7 @@ describe("checkout cart MCP handlers", () => {
       tool: null as never,
       arguments: { accountId: "acc_1" },
       request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
     });
 
     expect(result).toMatchObject({
@@ -58,6 +67,7 @@ describe("checkout cart MCP handlers", () => {
         tool: null as never,
         arguments: { accountId: "acc_other" },
         request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
       }),
     ).rejects.toThrow("accountId must match the authenticated actor account.");
     expect(fakeServices.listCartLines).not.toHaveBeenCalled();
@@ -70,6 +80,7 @@ describe("checkout cart MCP handlers", () => {
       resource: null as never,
       uri: "chase-sets://checkout/acc_1/cart",
       request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
     });
 
     expect(result).toMatchObject({

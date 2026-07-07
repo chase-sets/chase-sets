@@ -51,19 +51,39 @@ $body = '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolV
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $body
 ```
 
-Verify native `/mcp` and UCP `/ucp/mcp` negotiate the same protocol baseline:
+Verify the MCP protocol matrix. Native `/mcp` supports legacy `initialize` for `2025-06-18` and `2025-11-25`, plus handshakeless stateless requests for `2026-07-28`. UCP `/ucp/mcp` remains the UCP commerce facade and currently negotiates only the legacy initialize revisions.
 
 ```powershell
+$authHeaders = @{ Authorization = "Bearer <session-token>" }
+
 $init20250618 = '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-smoke","version":"0.1.0"}}}'
-Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Body $init20250618
+Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Headers $authHeaders -Body $init20250618
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $init20250618
 
-$init20251125 = '{"jsonrpc":"2.0","id":"future","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"mcp-smoke","version":"0.1.0"}}}'
-Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Body $init20251125
+$init20251125 = '{"jsonrpc":"2.0","id":"rev-20251125","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"mcp-smoke","version":"0.1.0"}}}'
+Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Headers $authHeaders -Body $init20251125
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $init20251125
+
+$meta20260728 = @{
+  "io.modelcontextprotocol/protocolVersion" = "2026-07-28"
+  "io.modelcontextprotocol/clientInfo" = @{ name = "mcp-smoke"; version = "0.1.0" }
+  "io.modelcontextprotocol/clientCapabilities" = @{}
+}
+$statelessHeaders = @{
+  Authorization = "Bearer <session-token>"
+  "MCP-Protocol-Version" = "2026-07-28"
+  "Mcp-Method" = "tools/list"
+}
+$statelessBody = @{
+  jsonrpc = "2.0"
+  id = "tools-20260728"
+  method = "tools/list"
+  params = @{ _meta = $meta20260728 }
+} | ConvertTo-Json -Depth 8
+Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Headers $statelessHeaders -Body $statelessBody
 ```
 
-Expected result for all four initialize calls: `result.protocolVersion` is `2025-06-18`.
+Expected result: native `/mcp` initialize returns the requested legacy revision for `2025-06-18` and `2025-11-25`; UCP `/ucp/mcp` does the same for its legacy facade. Native `2026-07-28` requests must not call `initialize`; each request includes `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` for tool/resource targets, and client info/capabilities in `_meta` or the supported client headers. The platform must not require or return `Mcp-Session-Id`.
 
 Verify ChatGPT-compatible tool metadata:
 
@@ -78,21 +98,17 @@ Verify a public catalog call returns `structuredContent`:
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"search","method":"tools/call","params":{"name":"search_catalog","arguments":{"query":"charizard","limit":3}}}'
 ```
 
-JSON-RPC MCP transport status convention: `/ucp/mcp` and the native `/mcp` endpoint return HTTP 200 with an in-band JSON-RPC `error` object for protocol/application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Reserve non-2xx transport status for malformed JSON-RPC bodies, unsupported JSON-RPC batch arrays, and authentication failures that prevent discovery from producing a normal JSON-RPC response. Both MCP surfaces negotiate the `2025-06-18` protocol baseline and fall back to it for unsupported client proposals; batch arrays are rejected explicitly instead of being partially executed.
+JSON-RPC MCP transport status convention: `/ucp/mcp` and native `/mcp` return HTTP 200 with an in-band JSON-RPC `error` object for application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Reserve non-2xx transport status for malformed JSON-RPC bodies, unsupported JSON-RPC batch arrays, authentication failures that prevent discovery, unsupported protocol revision headers, and stateless routing/header metadata failures. Native `2026-07-28` header mismatches use JSON-RPC code `-32001`; invalid stateless params and unknown tools/resources use `-32602`.
 
-MCP protocol revision decision, 2026-06-28: Chase Sets intentionally supports only the `2025-06-18` MCP protocol revision. The official `2025-11-25` changelog adds contract surfaces that are not yet wired in both Chase Sets MCP transports, including authorization discovery and incremental consent changes, icon metadata for tools/resources/prompts, guidance around tool names, elicitation and sampling additions, task polling/deferred-result support, and JSON Schema 2020-12 defaults for schemas. Native `/mcp` and UCP `/ucp/mcp` therefore continue to negotiate `2025-06-18` and fall back to it when a client proposes `2025-11-25`. Do not add `2025-11-25` to `SUPPORTED_MCP_PROTOCOL_VERSIONS` until both surfaces expose the same lifecycle, tools, resources, authentication, metadata, batching, and smoke-test behavior for that revision.
-
-| Area | `2025-11-25` delta | Chase Sets posture |
-| --- | --- | --- |
-| Lifecycle | New clients may propose `2025-11-25` during `initialize`. | Both MCP surfaces negotiate only `2025-06-18` and return that baseline for `2025-11-25` proposals. |
-| Tools | Tool-name guidance, sampling tool calls, and JSON Schema 2020-12 schema defaults need contract review. | Keep current tool descriptors and `outputSchema` behavior on `2025-06-18`; do not advertise the newer revision. |
-| Resources | Resource, resource-template, and prompt metadata can expose icons. | Keep existing resource list shape until native `/mcp` and UCP `/ucp/mcp` can expose the same metadata. |
-| Batching | Chase Sets already rejects JSON-RPC batch arrays on both transports. | Preserve explicit batch rejection; do not claim a revision upgrade without rechecking batching semantics. |
-| Authentication | Protected Resource Metadata discovery and incremental scope consent through `WWW-Authenticate` need end-to-end OAuth posture. | Keep current OAuth/UCP auth posture and do not advertise `2025-11-25` until discovery/challenge behavior is reviewed. |
-| Metadata | Icons, titles, task metadata, and schema dialect defaults expand the advertised contract. | Keep `2025-06-18` metadata until both surfaces and smoke tests prove parity. |
+MCP protocol revision decision, 2026-07-07: native `/mcp` advertises `2025-06-18`, `2025-11-25`, and `2026-07-28`. The first two revisions keep the legacy handshake path; `2026-07-28` is request-scoped and must not rely on session affinity. Extension negotiation is scaffolded through `capabilities.extensions`, but Tasks (`io.modelcontextprotocol/tasks`) and MCP Apps (`io.modelcontextprotocol/ui`) are advertised only when the owning slices provide real handlers/resources. Operator review remains required when the public final `2026-07-28` specification page is published; as of 2026-07-07, the public Model Context Protocol specification site still exposes `2025-11-25` as the latest stable revision, so this implementation follows issue #3767 and the finalized stateless/header/error-code SEPs.
 
 Primary references:
 
+- `2026-07-28` stateless migration issue: https://github.com/chase-sets/chase-sets/issues/3767
+- SEP-2575 stateless MCP transport
+- SEP-2243 HTTP header standardization
+- SEP-2164 resource-not-found `-32602` error code
+- SEP-2133 MCP extensions
 - `2025-11-25` changelog: https://modelcontextprotocol.io/specification/2025-11-25/changelog
 - `2025-11-25` lifecycle: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
 - `2025-11-25` authorization: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
@@ -100,7 +116,7 @@ Primary references:
 
 MCP tool calls are concurrency-limited before handler execution by the platform realtime limiter. Production-like deployments should keep `REALTIME_STREAM_LIMITER=postgres` or `redis`; local mode uses in-memory process limits. Tune `MCP_MAX_CONCURRENT_TOOL_CALLS`, `MCP_MAX_CONCURRENT_TOOL_CALLS_PER_PRINCIPAL`, `MCP_MAX_CONCURRENT_WRITE_TOOL_CALLS_PER_PRINCIPAL`, and `MCP_MAX_CONCURRENT_EXTERNAL_PROVIDER_TOOL_CALLS_PER_PRINCIPAL` when staging evidence shows legitimate agent fan-out needs more headroom. Limit rejections return a clear MCP error and are logged through native MCP audit or the UCP observer.
 
-The platform smoke script checks native `/mcp` anonymous discovery on every run. When admin credentials produce a session with an account id, or `SMOKE_NATIVE_MCP_ACCOUNT_ID` is supplied, it also performs authenticated native discovery and the safe `inventory.list-import-sources` read with that account.
+The platform smoke script checks native `/mcp` anonymous discovery on every run. When admin credentials produce a session with an account id, or `SMOKE_NATIVE_MCP_ACCOUNT_ID` is supplied, it performs authenticated native discovery and the safe `inventory.list-import-sources` read across the `2025-06-18`, `2025-11-25`, and `2026-07-28` native MCP matrix with the same deployment.
 
 Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or AP2 mandate effects.
 

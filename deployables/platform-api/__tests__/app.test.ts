@@ -10,6 +10,15 @@ import {
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   encodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
+import {
+  MCP_META_CLIENT_CAPABILITIES_KEY,
+  MCP_META_CLIENT_INFO_KEY,
+  MCP_META_PROTOCOL_VERSION_KEY,
+  MCP_METHOD_HEADER,
+  MCP_NAME_HEADER,
+  MCP_PROTOCOL_VERSION_2026_07_28,
+  MCP_PROTOCOL_VERSION_HEADER,
+} from "@chase-sets/platform-runtime/mcp-protocol";
 import { createUcpEnvelope, UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
 
@@ -51,6 +60,38 @@ function createEmptyRuntime(
     projectionGroups: [],
     subscriptionRunners: [],
   } as never;
+}
+
+function statelessMcpMeta() {
+  return {
+    [MCP_META_PROTOCOL_VERSION_KEY]: MCP_PROTOCOL_VERSION_2026_07_28,
+    [MCP_META_CLIENT_INFO_KEY]: {
+      name: "platform-api-vitest",
+      version: "0.1.0",
+    },
+    [MCP_META_CLIENT_CAPABILITIES_KEY]: {},
+  };
+}
+
+function statelessMcpRequest(method: string, params: Readonly<Record<string, unknown>> = {}, id = method) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method,
+    params: {
+      ...params,
+      _meta: statelessMcpMeta(),
+    },
+  };
+}
+
+function statelessMcpHeaders(method: string, name?: string) {
+  return {
+    "Content-Type": "application/json",
+    [MCP_PROTOCOL_VERSION_HEADER]: MCP_PROTOCOL_VERSION_2026_07_28,
+    [MCP_METHOD_HEADER]: method,
+    ...(name ? { [MCP_NAME_HEADER]: name } : {}),
+  };
 }
 
 function createCatalogRuntime() {
@@ -850,6 +891,96 @@ describe("platform api app wiring", () => {
         }),
       ]),
     );
+  });
+
+  it("serves stateless native MCP requests across composed platform API instances without session affinity", async () => {
+    const importBatchDetail = {
+      batchId: "batch_1",
+      accountId: "account_1",
+      rows: [],
+    };
+    const inventoryServices = {
+      importBatches: {
+        createBatch: vi.fn(async () => importBatchDetail),
+        getBatch: vi.fn(async () => importBatchDetail),
+        listBatches: vi.fn(),
+        commitBatch: vi.fn(async () => ({ ...importBatchDetail, committed: true })),
+      },
+    };
+    const createApp = () =>
+      buildPlatformApiApp(
+        createEmptyRuntime({ inventory: inventoryServices }, [
+          { module: inventoryModule, services: inventoryServices },
+        ]),
+        {
+          resolveActor: vi.fn(async () => platformActor(["inventory.view", "inventory.manage"])),
+        },
+      );
+    const firstInstance = createApp();
+    const secondInstance = createApp();
+
+    const toolsResponse = await firstInstance.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify(statelessMcpRequest("tools/list", {}, "tools_20260728")),
+      headers: statelessMcpHeaders("tools/list"),
+    });
+    const toolCallResponse = await secondInstance.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify(
+        statelessMcpRequest(
+          "tools/call",
+          {
+            name: "inventory.list-import-sources",
+            arguments: {
+              accountId: "account_1",
+            },
+          },
+          "tool_call_20260728",
+        ),
+      ),
+      headers: statelessMcpHeaders("tools/call", "inventory.list-import-sources"),
+    });
+    const resourceResponse = await firstInstance.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify(
+        statelessMcpRequest(
+          "resources/read",
+          {
+            uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+          },
+          "resource_read_20260728",
+        ),
+      ),
+      headers: statelessMcpHeaders("resources/read", "chase-sets://inventory/account_1/import-batches/batch_1"),
+    });
+
+    expect(toolsResponse.status).toBe(200);
+    expect(toolCallResponse.status).toBe(200);
+    expect(resourceResponse.status).toBe(200);
+    expect(toolsResponse.headers.get("Mcp-Session-Id")).toBeNull();
+    expect(toolCallResponse.headers.get("Mcp-Session-Id")).toBeNull();
+    expect(resourceResponse.headers.get("Mcp-Session-Id")).toBeNull();
+    await expect(toolsResponse.json()).resolves.toMatchObject({
+      result: {
+        tools: expect.arrayContaining([expect.objectContaining({ name: "inventory.list-import-sources" })]),
+      },
+    });
+    await expect(toolCallResponse.json()).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          items: expect.arrayContaining([expect.objectContaining({ sourceKey: "tcgplayer-csv" })]),
+        },
+      },
+    });
+    await expect(resourceResponse.json()).resolves.toMatchObject({
+      result: {
+        contents: [
+          expect.objectContaining({
+            uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+          }),
+        ],
+      },
+    });
   });
 
   it("registers Checkout cart MCP handlers from the context module contract", async () => {

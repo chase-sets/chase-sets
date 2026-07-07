@@ -7,8 +7,23 @@ import {
   createMcpRoutes,
   validateMcpModuleRegistrations,
   type McpAuditRecord,
+  type McpToolHandlerInput,
 } from "./mcp";
-import { MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from "./mcp-protocol";
+import {
+  MCP_EXTENSION_TASKS,
+  MCP_EXTENSION_UI,
+  MCP_META_CLIENT_CAPABILITIES_KEY,
+  MCP_META_CLIENT_INFO_KEY,
+  MCP_META_PROTOCOL_VERSION_KEY,
+  MCP_METHOD_HEADER,
+  MCP_NAME_HEADER,
+  MCP_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_2025_11_25,
+  MCP_PROTOCOL_VERSION_2026_07_28,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_UI_RESOURCE_MIME_TYPE,
+  SUPPORTED_MCP_PROTOCOL_VERSIONS,
+} from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import type { McpServiceDescriptor } from "./mcp-contracts";
 
@@ -28,6 +43,33 @@ function createRequest(method: string, params?: unknown) {
     id: "request_1",
     method,
     params,
+  };
+}
+
+function statelessMcpMeta(clientCapabilities: Readonly<Record<string, unknown>> = {}) {
+  return {
+    [MCP_META_PROTOCOL_VERSION_KEY]: MCP_PROTOCOL_VERSION_2026_07_28,
+    [MCP_META_CLIENT_INFO_KEY]: {
+      name: "vitest-mcp-client",
+      version: "0.1.0",
+    },
+    [MCP_META_CLIENT_CAPABILITIES_KEY]: clientCapabilities,
+  };
+}
+
+function statelessRequest(method: string, params: Readonly<Record<string, unknown>> = {}) {
+  return createRequest(method, {
+    ...params,
+    _meta: statelessMcpMeta(),
+  });
+}
+
+function statelessHeaders(method: string, name?: string) {
+  return {
+    "Content-Type": "application/json",
+    [MCP_PROTOCOL_VERSION_HEADER]: MCP_PROTOCOL_VERSION_2026_07_28,
+    [MCP_METHOD_HEADER]: method,
+    ...(name ? { [MCP_NAME_HEADER]: name } : {}),
   };
 }
 
@@ -434,12 +476,20 @@ describe("MCP runtime routes", () => {
       method: "POST",
       body: JSON.stringify(createRequest("initialize", { protocolVersion: "2025-03-26" })),
     });
-    const futureRevisionResponse = await app.request("/", {
+    const revision20251125Response = await app.request("/", {
       method: "POST",
-      body: JSON.stringify(createRequest("initialize", { protocolVersion: "2025-11-25" })),
+      body: JSON.stringify(createRequest("initialize", { protocolVersion: MCP_PROTOCOL_VERSION_2025_11_25 })),
+    });
+    const statelessInitializeResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("initialize", { protocolVersion: MCP_PROTOCOL_VERSION_2026_07_28 })),
     });
 
-    expect(SUPPORTED_MCP_PROTOCOL_VERSIONS).toEqual([MCP_PROTOCOL_VERSION]);
+    expect(SUPPORTED_MCP_PROTOCOL_VERSIONS).toEqual([
+      MCP_PROTOCOL_VERSION,
+      MCP_PROTOCOL_VERSION_2025_11_25,
+      MCP_PROTOCOL_VERSION_2026_07_28,
+    ]);
     expect(supportedResponse.status).toBe(200);
     await expect(supportedResponse.json()).resolves.toMatchObject({
       result: {
@@ -455,10 +505,173 @@ describe("MCP runtime routes", () => {
         protocolVersion: MCP_PROTOCOL_VERSION,
       },
     });
-    expect(futureRevisionResponse.status).toBe(200);
-    await expect(futureRevisionResponse.json()).resolves.toMatchObject({
+    expect(revision20251125Response.status).toBe(200);
+    await expect(revision20251125Response.json()).resolves.toMatchObject({
       result: {
-        protocolVersion: MCP_PROTOCOL_VERSION,
+        protocolVersion: MCP_PROTOCOL_VERSION_2025_11_25,
+      },
+    });
+    expect(statelessInitializeResponse.status).toBe(200);
+    await expect(statelessInitializeResponse.json()).resolves.toMatchObject({
+      error: {
+        code: -32601,
+        message: expect.stringContaining(MCP_PROTOCOL_VERSION_2026_07_28),
+      },
+    });
+  });
+
+  it("discovers stateless native MCP capabilities without issuing a session id", async () => {
+    const app = createActorApp(actor, {
+      extensionCapabilities: {
+        [MCP_EXTENSION_TASKS]: {},
+        [MCP_EXTENSION_UI]: {
+          mimeTypes: [MCP_UI_RESOURCE_MIME_TYPE],
+        },
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(statelessRequest("server/discover")),
+      headers: statelessHeaders("server/discover"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Mcp-Session-Id")).toBeNull();
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        protocolVersions: [MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_2025_11_25, MCP_PROTOCOL_VERSION_2026_07_28],
+        capabilities: {
+          tools: {},
+          resources: {},
+          extensions: {
+            [MCP_EXTENSION_TASKS]: {},
+            [MCP_EXTENSION_UI]: {
+              mimeTypes: [MCP_UI_RESOURCE_MIME_TYPE],
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("handles handshakeless stateless native MCP tool requests with per-request client metadata", async () => {
+    const handler = vi.fn(async ({ protocol }: McpToolHandlerInput) => ({
+      protocolVersion: protocol.protocolVersion,
+      clientName: protocol.clientInfo?.name,
+      clientCapabilities: protocol.clientCapabilities,
+    }));
+    const app = createActorApp(actor, {
+      services: accountDefaultedToolServices,
+      toolHandlers: {
+        "inventory.account-defaulted-summary": handler,
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        statelessRequest("tools/call", {
+          name: "inventory.account-defaulted-summary",
+          arguments: {},
+        }),
+      ),
+      headers: statelessHeaders("tools/call", "inventory.account-defaulted-summary"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Mcp-Session-Id")).toBeNull();
+    await expect(response.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", {
+        protocolVersion: MCP_PROTOCOL_VERSION_2026_07_28,
+        clientName: "vitest-mcp-client",
+        clientCapabilities: {},
+      }),
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects stateless native MCP requests with missing or mismatched routing headers", async () => {
+    const app = createActorApp(actor);
+
+    const missingNameResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        statelessRequest("tools/call", {
+          name: "inventory.list-import-sources",
+          arguments: {
+            accountId: "account_1",
+          },
+        }),
+      ),
+      headers: statelessHeaders("tools/call"),
+    });
+    const mismatchedMethodResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(statelessRequest("tools/list")),
+      headers: statelessHeaders("resources/list"),
+    });
+
+    expect(missingNameResponse.status).toBe(400);
+    await expect(missingNameResponse.json()).resolves.toMatchObject({
+      error: {
+        code: -32001,
+        message: `${MCP_NAME_HEADER} is required for tools/call.`,
+      },
+    });
+    expect(mismatchedMethodResponse.status).toBe(400);
+    await expect(mismatchedMethodResponse.json()).resolves.toMatchObject({
+      error: {
+        code: -32001,
+        message: `${MCP_METHOD_HEADER} must match the JSON-RPC method.`,
+      },
+    });
+  });
+
+  it("rejects stateless native MCP requests that omit required per-request metadata", async () => {
+    const app = createActorApp(actor);
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/list", {
+          _meta: {
+            [MCP_META_PROTOCOL_VERSION_KEY]: MCP_PROTOCOL_VERSION_2026_07_28,
+          },
+        }),
+      ),
+      headers: statelessHeaders("tools/list"),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: -32602,
+        message: expect.stringContaining(MCP_META_CLIENT_INFO_KEY),
+      },
+    });
+  });
+
+  it("rejects unsupported native MCP protocol revision headers", async () => {
+    const app = createActorApp(actor);
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+      headers: {
+        [MCP_PROTOCOL_VERSION_HEADER]: "2025-03-26",
+        [MCP_METHOD_HEADER]: "tools/list",
+      },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: -32004,
+        data: {
+          requestedVersion: "2025-03-26",
+          supportedVersions: [MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_2025_11_25, MCP_PROTOCOL_VERSION_2026_07_28],
+        },
       },
     });
   });
@@ -466,7 +679,7 @@ describe("MCP runtime routes", () => {
   it("requires an authenticated actor for JSON-RPC discovery methods", async () => {
     const app = createMcpRoutes();
 
-    for (const method of ["initialize", "tools/list", "resources/list"]) {
+    for (const method of ["initialize", "server/discover", "tools/list", "resources/list"]) {
       const response = await app.request("/", {
         method: "POST",
         body: JSON.stringify(createRequest(method)),

@@ -1,3 +1,13 @@
+export const nativeMcpProtocolMatrix = Object.freeze(["2025-06-18", "2025-11-25", "2026-07-28"]);
+
+const statelessProtocolVersion = "2026-07-28";
+const protocolVersionHeader = "MCP-Protocol-Version";
+const methodHeader = "Mcp-Method";
+const nameHeader = "Mcp-Name";
+const metaProtocolVersionKey = "io.modelcontextprotocol/protocolVersion";
+const metaClientInfoKey = "io.modelcontextprotocol/clientInfo";
+const metaClientCapabilitiesKey = "io.modelcontextprotocol/clientCapabilities";
+
 export function isNativeMcpAnonymousDiscoveryRejected(response) {
   return [401, 403, 405].includes(response.status);
 }
@@ -73,4 +83,59 @@ export function summarizeNativeMcpImportSourceKeys(result) {
         ? `Native MCP import source keys: ${sourceKeys.join(", ")}.`
         : "Native MCP import source result had an empty items array or items without sourceKey.",
   };
+}
+
+function statelessMcpMeta() {
+  return {
+    [metaProtocolVersionKey]: statelessProtocolVersion,
+    [metaClientInfoKey]: {
+      name: "platform-smoke",
+      version: "0.1.0",
+    },
+    [metaClientCapabilitiesKey]: {},
+  };
+}
+
+function requestParamsForRevision(revision, params) {
+  if (revision !== statelessProtocolVersion) {
+    return params;
+  }
+
+  return {
+    ...(params && typeof params === "object" && !Array.isArray(params) ? params : {}),
+    _meta: statelessMcpMeta(),
+  };
+}
+
+export function nativeMcpHeadersForRevision(revision, method, name, extraHeaders = {}) {
+  return {
+    "Content-Type": "application/json",
+    ...extraHeaders,
+    ...(revision === statelessProtocolVersion
+      ? {
+          [protocolVersionHeader]: statelessProtocolVersion,
+          [methodHeader]: method,
+          ...(name ? { [nameHeader]: name } : {}),
+        }
+      : revision === "2025-11-25"
+        ? {
+            [protocolVersionHeader]: revision,
+          }
+        : {}),
+  };
+}
+
+export function nativeMcpJsonRpcRequestForRevision(revision, id, method, params) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method,
+    ...(params === undefined && revision !== statelessProtocolVersion
+      ? {}
+      : { params: requestParamsForRevision(revision, params) }),
+  };
+}
+
+export function shouldInitializeNativeMcpRevision(revision) {
+  return revision !== statelessProtocolVersion;
 }

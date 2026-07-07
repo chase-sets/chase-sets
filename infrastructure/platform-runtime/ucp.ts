@@ -14,7 +14,7 @@ import {
   type PlatformIdempotencyRecord,
   type PlatformIdempotencyStore,
 } from "./idempotency";
-import { negotiateMcpProtocolVersion } from "./mcp-protocol";
+import { MCP_LEGACY_PROTOCOL_VERSIONS, negotiateMcpProtocolVersion } from "./mcp-protocol";
 import {
   buildUcpBusinessProfile,
   createUcpEnvelope,
@@ -1599,7 +1599,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
     if (request.method === "initialize") {
       return c.json(
         jsonRpcResult(request.id, {
-          protocolVersion: negotiateMcpProtocolVersion(request.params),
+          protocolVersion: negotiateMcpProtocolVersion(request.params, MCP_LEGACY_PROTOCOL_VERSIONS),
           serverInfo: {
             name: "chase-sets-ucp",
             title: "Chase Sets UCP",
