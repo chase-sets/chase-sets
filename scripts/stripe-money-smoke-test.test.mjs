@@ -714,4 +714,48 @@ describe("stripe money smoke test", () => {
     );
     expect(accountStatusCall.init.headers.get("Authorization")).toBe("Bearer session_seller");
   });
+
+  it("uses Terraform admin credential fallbacks when registering a throwaway seller", async () => {
+    const calls = [];
+    const result = await runSellerFlow("https://marketplace.preview.test", {
+      fetchImpl: createSmokeFetch(calls),
+      env: {
+        PLATFORM_AUTH_BASE_URL: "https://marketplace.preview.test",
+        TF_VAR_platform_admin_email: "admin@example.test",
+        TF_VAR_platform_admin_password: "correct horse battery staple",
+        SMOKE_REGISTER_SELLER: "true",
+        SMOKE_SELLER_EMAIL: "stripe-smoke@example.test",
+        SMOKE_SELLER_PASSWORD: "preview smoke password",
+      },
+    });
+
+    expect(result.accountStatus).toBe("ok");
+    expect(calls.slice(0, 5).map((call) => new URL(call.url).pathname)).toEqual([
+      "/api/auth/password-sign-in",
+      "/api/identity/current-actor-display",
+      "/api/identity/invitations",
+      "/api/platform/projections/refresh",
+      "/api/auth/register",
+    ]);
+  });
+
+  it("fails before seller registration when invitation admin credentials are missing", async () => {
+    const calls = [];
+
+    await expect(
+      runSellerFlow("https://marketplace.preview.test", {
+        fetchImpl: createSmokeFetch(calls),
+        env: {
+          PLATFORM_AUTH_BASE_URL: "https://marketplace.preview.test",
+          SMOKE_REGISTER_SELLER: "true",
+          SMOKE_SELLER_EMAIL: "stripe-smoke@example.test",
+          SMOKE_SELLER_PASSWORD: "preview smoke password",
+        },
+      }),
+    ).rejects.toThrow(
+      "Missing PLATFORM_ADMIN_EMAIL or TF_VAR_platform_admin_email, PLATFORM_ADMIN_PASSWORD or TF_VAR_platform_admin_password.",
+    );
+
+    expect(calls.map((call) => new URL(call.url).pathname)).not.toContain("/api/auth/register");
+  });
 });

@@ -2986,6 +2986,7 @@ describe("DigitalOcean platform configuration", () => {
     const stagingBuyNowProbesStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
     const stagingBuyNowEvidenceStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
     const stagingMoneySmokeStep = workflowStep(platformProductionWorkflow, "Staging Stripe money smoke");
+    const previewMoneySmokeStep = workflowStep(platformPrWorkflow, "Stripe money smoke");
     const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging deployed");
 
     expect(stagingPlaywrightVersionStep).toContain("id: staging-playwright-chromium");
@@ -3099,6 +3100,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).toContain(
       "SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke ${{ github.run_id }}-${{ github.run_attempt }}",
     );
+    expect(stagingMoneySmokeStep).toContain(
+      "PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}",
+    );
+    expect(stagingMoneySmokeStep).toContain(
+      "PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}",
+    );
     expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_RETURN_URL");
     expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_REFRESH_URL");
     expect(stagingMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: staging");
@@ -3115,8 +3122,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID");
     expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID");
     expect(platformPrWorkflow).toContain("Preview deployments require Stripe test-mode keys.");
-    expect(platformPrWorkflow).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: preview");
-    expect(platformPrWorkflow).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
+    expect(previewMoneySmokeStep).toContain("SMOKE_REGISTER_SELLER");
+    expect(previewMoneySmokeStep).toContain(
+      "PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}",
+    );
+    expect(previewMoneySmokeStep).toContain(
+      "PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}",
+    );
+    expect(previewMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: preview");
+    expect(previewMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
+    expect(previewMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
 
     expect(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows")).toBeLessThan(
       markStagingDeployedIndex,
