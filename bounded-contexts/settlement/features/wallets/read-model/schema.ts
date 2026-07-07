@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const settlementWalletSchemaSql = `
 CREATE TABLE IF NOT EXISTS settlement_wallet_pages (
   account_id text PRIMARY KEY,
@@ -13,10 +15,6 @@ CREATE TABLE IF NOT EXISTS settlement_wallet_pages (
   opened_at timestamptz NULL,
   updated_at timestamptz NULL
 );
-
-CREATE INDEX IF NOT EXISTS settlement_wallet_pages_negative_balance_idx
-  ON settlement_wallet_pages (negative_balance_status, negative_balance_started_at)
-  WHERE negative_balance_status <> 'in-good-standing';
 
 CREATE TABLE IF NOT EXISTS settlement_ledger_entry_pages (
   ledger_entry_id text PRIMARY KEY,
@@ -52,3 +50,23 @@ ALTER TABLE settlement_wallet_pages
 ALTER TABLE settlement_wallet_pages
   ADD COLUMN IF NOT EXISTS collections_escalated_at timestamptz NULL;
 `;
+
+export const settlementWalletSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260707_settlement_wallet_negative_balance_index",
+    description: "Create the settlement wallet negative-balance lookup index after compatibility columns exist.",
+    statements: [
+      `SET lock_timeout = '5s';`,
+      `ALTER TABLE settlement_wallet_pages
+  ADD COLUMN IF NOT EXISTS negative_balance_status text NOT NULL DEFAULT 'in-good-standing'
+    CHECK (negative_balance_status IN ('in-good-standing', 'negative', 'collections'));`,
+      `ALTER TABLE settlement_wallet_pages
+  ADD COLUMN IF NOT EXISTS negative_balance_started_at timestamptz NULL;`,
+      `ALTER TABLE settlement_wallet_pages
+  ADD COLUMN IF NOT EXISTS collections_escalated_at timestamptz NULL;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_wallet_pages_negative_balance_idx
+  ON settlement_wallet_pages (negative_balance_status, negative_balance_started_at)
+  WHERE negative_balance_status <> 'in-good-standing';`,
+    ],
+  },
+];
