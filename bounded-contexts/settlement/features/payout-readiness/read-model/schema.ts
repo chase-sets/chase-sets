@@ -49,14 +49,6 @@ ALTER TABLE settlement_payout_readiness_pages
 
 ALTER TABLE settlement_payout_readiness_pages
   ADD COLUMN IF NOT EXISTS requirements_collector text NOT NULL DEFAULT 'unknown';
-
-CREATE INDEX IF NOT EXISTS settlement_payout_readiness_pages_provider_posture_idx
-  ON settlement_payout_readiness_pages (
-    payout_account_dashboard,
-    requirements_collector,
-    provider_reference
-  )
-  WHERE provider_reference IS NOT NULL;
 `;
 
 export const settlementPayoutReadinessSchemaMigrations = [
@@ -68,6 +60,13 @@ export const settlementPayoutReadinessSchemaMigrations = [
       `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS contact_email text NULL`,
       `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS payout_destination_fingerprint text NULL`,
       `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS payout_destination_changed_at timestamptz NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_payout_readiness_pages_provider_posture_idx
+  ON settlement_payout_readiness_pages (
+    payout_account_dashboard,
+    requirements_collector,
+    provider_reference
+  )
+  WHERE provider_reference IS NOT NULL`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_payout_readiness_destination_changed_idx
   ON settlement_payout_readiness_pages (payout_destination_changed_at DESC, account_id)
   WHERE payout_destination_changed_at IS NOT NULL`,
