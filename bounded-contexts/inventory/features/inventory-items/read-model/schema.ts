@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const inventoryItemSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_items (
   item_id text PRIMARY KEY,
@@ -41,12 +43,6 @@ CREATE TABLE IF NOT EXISTS inventory_item_ledger (
   recorded_at timestamptz NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS inventory_item_ledger_item_occurred_idx
-  ON inventory_item_ledger (item_id, occurred_at DESC, ledger_entry_id DESC);
-
-CREATE INDEX IF NOT EXISTS inventory_item_ledger_account_item_idx
-  ON inventory_item_ledger (account_id, item_id, occurred_at DESC);
-
 CREATE TABLE IF NOT EXISTS inventory_item_adjustment_idempotency (
   idempotency_key text PRIMARY KEY,
   account_id text NOT NULL,
@@ -62,3 +58,16 @@ CREATE TABLE IF NOT EXISTS inventory_item_adjustment_idempotency (
 CREATE INDEX IF NOT EXISTS inventory_item_adjustment_idempotency_item_idx
   ON inventory_item_adjustment_idempotency (account_id, item_id, created_at DESC);
 `;
+
+export const inventoryItemSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260707_inventory_item_ledger_indexes",
+    description: "Build stock-ledger read indexes outside boot-time schema SQL.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_item_ledger_item_occurred_idx
+  ON inventory_item_ledger (item_id, occurred_at DESC, ledger_entry_id DESC)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_item_ledger_account_item_idx
+  ON inventory_item_ledger (account_id, item_id, occurred_at DESC)`,
+    ],
+  },
+];

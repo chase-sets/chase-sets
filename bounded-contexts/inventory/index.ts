@@ -18,12 +18,13 @@ import { withInventorySystemHoldReleaseAuthority } from "./features/holds/api/ru
 import { buildInventoryCatalogItemProjectionHandlers } from "./features/inventory-items/integrations/catalog/projection";
 import { InventoryDomainError } from "./support/runtime-support/common";
 import { createInventoryServices } from "./support/runtime-support/services";
-import { inventorySchemaSql } from "./support/runtime-support/schema";
+import { inventorySchemaMigrations, inventorySchemaSql } from "./support/runtime-support/schema";
 import { seedInventoryDatabase } from "./support/runtime-support/seed";
 
 export const module = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
   manifest: contextManifest,
   schemaSql: inventorySchemaSql,
+  schemaMigrations: inventorySchemaMigrations,
   createServices: (pool, ports, options) => createInventoryServices(pool, ports, options),
   buildApis: (services) => [buildInventoryApi(services)],
   projectionHandlerSets: (services) => services.projectors,

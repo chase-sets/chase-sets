@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractExportedBootSchemaSqlTemplates,
   extractSchemaMigrationStatements,
+  findBootSchemaMigrationAddedIndexViolationsInSource,
   findBootSchemaDdlDisciplineViolations,
   findSchemaMigrationDdlSafetyViolationsInSource,
 } from "./boot-schema-ddl-discipline.mjs";
@@ -138,6 +139,31 @@ export const exampleSchemaMigrations = [
     expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
   });
 
+  it("flags boot-time indexes over columns added to existing tables in boot SQL", () => {
+    const source = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (
+  id text PRIMARY KEY,
+  due_at timestamptz NULL
+);
+
+ALTER TABLE example_pages
+  ADD COLUMN IF NOT EXISTS due_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS policy text NULL;
+
+CREATE INDEX IF NOT EXISTS example_pages_due_idx
+  ON example_pages (due_at, id)
+  WHERE due_at IS NOT NULL;
+\`;
+`;
+
+    expect(findBootSchemaMigrationAddedIndexViolationsInSource(source)).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("example_pages_due_idx"),
+      }),
+    ]);
+  });
+
   it("checks migration DDL only for changed schema files", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "chase-sets-ddl-discipline-"));
     const source = `
@@ -171,6 +197,49 @@ export const exampleSchemaMigrations = [
         expect.objectContaining({
           file: "bounded-contexts/example/features/pages/read-model/schema.ts",
           message: expect.stringContaining("CREATE INDEX without CONCURRENTLY"),
+        }),
+      ]);
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("checks boot-time indexes over migration-added columns only for changed schema files", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "chase-sets-ddl-discipline-"));
+    const source = `
+export const exampleSchemaSql = \`
+CREATE TABLE IF NOT EXISTS example_pages (
+  id text PRIMARY KEY,
+  due_at timestamptz NULL
+);
+
+ALTER TABLE example_pages
+  ADD COLUMN IF NOT EXISTS due_at timestamptz NULL;
+
+CREATE INDEX IF NOT EXISTS example_pages_due_idx
+  ON example_pages (due_at, id);
+\`;
+`;
+    const readModelPath = path.join(repoRoot, "bounded-contexts/example/features/pages/read-model");
+    await mkdir(readModelPath, { recursive: true });
+    await writeFile(path.join(readModelPath, "schema.ts"), source, "utf8");
+
+    try {
+      await expect(
+        findBootSchemaDdlDisciplineViolations({
+          repoRoot,
+          changedFilePaths: [],
+        }),
+      ).resolves.toEqual([]);
+      await expect(
+        findBootSchemaDdlDisciplineViolations({
+          repoRoot,
+          changedFilePaths: ["bounded-contexts/example/features/pages/read-model/schema.ts"],
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          file: "bounded-contexts/example/features/pages/read-model/schema.ts",
+          message: expect.stringContaining("example_pages_due_idx"),
         }),
       ]);
     } finally {

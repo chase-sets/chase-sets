@@ -164,6 +164,55 @@ export function findSchemaMigrationDdlSafetyViolationsInSource(source) {
   });
 }
 
+export function findBootSchemaMigrationAddedIndexViolationsInSource(source) {
+  return extractExportedBootSchemaSqlTemplates(source).flatMap((template) => {
+    const addedColumnsByTable = new Map();
+    for (const statement of splitSqlStatements(template.sql)) {
+      const tableMatch = /\bALTER\s+TABLE(?:\s+IF\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_.]*)/i.exec(statement.sql);
+      if (!tableMatch) {
+        continue;
+      }
+
+      const tableName = tableMatch[1];
+      const addedColumns = addedColumnsByTable.get(tableName) ?? new Set();
+      for (const columnMatch of statement.sql.matchAll(
+        /\bADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\b/gi,
+      )) {
+        addedColumns.add(columnMatch[1]);
+      }
+      if (addedColumns.size > 0) {
+        addedColumnsByTable.set(tableName, addedColumns);
+      }
+    }
+
+    const violations = [];
+    const createIndexPattern =
+      /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s+ON\s+([A-Za-z_][A-Za-z0-9_.]*)\s*\(([\s\S]*?)\)/gi;
+
+    for (const match of template.sql.matchAll(createIndexPattern)) {
+      const [, indexName, tableName, indexedColumnsSql] = match;
+      const addedColumns = addedColumnsByTable.get(tableName);
+      if (!addedColumns) {
+        continue;
+      }
+
+      const migrationAddedColumns = [...addedColumns].filter((columnName) =>
+        new RegExp(`\\b${escapeRegExp(columnName)}\\b`, "i").test(indexedColumnsSql),
+      );
+      if (migrationAddedColumns.length === 0) {
+        continue;
+      }
+
+      violations.push({
+        line: template.startLine + countNewlines(template.sql.slice(0, match.index)),
+        message: `${template.name} creates boot-time index ${indexName} on migration-added ${tableName} column(s): ${migrationAddedColumns.join(", ")}; move the index into an exported schemaMigrations ledger.`,
+      });
+    }
+
+    return violations;
+  });
+}
+
 export async function findBootSchemaDdlDisciplineViolations({ repoRoot, changedFilePaths } = {}) {
   const schemaFiles = await listSchemaFiles(path.join(repoRoot, "bounded-contexts"));
   const changedSchemaFiles = new Set(
@@ -193,6 +242,14 @@ export async function findBootSchemaDdlDisciplineViolations({ repoRoot, changedF
 
     if (!changedSchemaFiles.has(filePath)) {
       continue;
+    }
+
+    for (const violation of findBootSchemaMigrationAddedIndexViolationsInSource(source)) {
+      violations.push({
+        file: normalizeRelative(repoRoot, filePath),
+        line: violation.line,
+        message: violation.message,
+      });
     }
 
     for (const violation of findSchemaMigrationDdlSafetyViolationsInSource(source)) {
@@ -294,6 +351,49 @@ function extractStatementsFromArray(statementsArray, constants) {
   }
 
   return statements;
+}
+
+function splitSqlStatements(sql) {
+  const statements = [];
+  let statementStart = 0;
+  let quote = null;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (quote) {
+      if (character === quote && sql[index - 1] !== "\\") {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (character === "`" || character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character !== ";") {
+      continue;
+    }
+
+    statements.push({
+      sql: sql.slice(statementStart, index + 1),
+      startIndex: statementStart,
+    });
+    statementStart = index + 1;
+  }
+
+  if (statementStart < sql.length) {
+    statements.push({
+      sql: sql.slice(statementStart),
+      startIndex: statementStart,
+    });
+  }
+
+  return statements.filter((statement) => statement.sql.trim().length > 0);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function findBalancedEnd(source, startIndex, open, close) {
