@@ -65,6 +65,23 @@ export type PaymentLiabilityShiftOutcome = Readonly<{
   recordedAt: string;
 }>;
 export type PaymentDisputeLifecycleState = "created" | "updated" | "won" | "lost";
+export type PaymentDisputeEvidenceStatus = "submitted" | "unavailable";
+
+export type PaymentDisputeEvidenceRecord = Readonly<{
+  providerDisputeId: string;
+  status: PaymentDisputeEvidenceStatus;
+  reason: string | null;
+  submittedAt: string | null;
+  recordedAt: string;
+}>;
+
+export type PaymentDisputeEvidenceSummary = Readonly<{
+  trackingNumbers: readonly string[];
+  carriers: readonly string[];
+  deliveredAt: string | null;
+  orderIds: readonly OrderId[];
+  hasDeliveryProof: boolean;
+}>;
 
 export type PaymentState = Readonly<{
   paymentId: PaymentId | null;
@@ -106,6 +123,7 @@ export type PaymentState = Readonly<{
   issuedRefunds: readonly IssuedPaymentRefund[];
   disputedAt: string | null;
   disputeProviderEventIds: readonly string[];
+  disputeEvidenceRecords: readonly PaymentDisputeEvidenceRecord[];
   earlyFraudWarningIds: readonly string[];
   fraudReviews: readonly PaymentFraudReview[];
   threeDSecureRequest: ThreeDSecureRequest | null;
@@ -162,6 +180,7 @@ export const initialPaymentState: PaymentState = {
   issuedRefunds: [],
   disputedAt: null,
   disputeProviderEventIds: [],
+  disputeEvidenceRecords: [],
   earlyFraudWarningIds: [],
   fraudReviews: [],
   threeDSecureRequest: null,
@@ -260,6 +279,22 @@ export type RecordPaymentDisputeCommand = Readonly<{
   disputedAt: string;
 }>;
 
+export type RecordPaymentDisputeEvidenceSubmittedCommand = Readonly<{
+  type: "RecordPaymentDisputeEvidenceSubmitted";
+  providerDisputeId: string;
+  processorStatus: string;
+  evidenceSummary: PaymentDisputeEvidenceSummary;
+  submittedAt: string;
+}>;
+
+export type RecordPaymentDisputeEvidenceUnavailableCommand = Readonly<{
+  type: "RecordPaymentDisputeEvidenceUnavailable";
+  providerDisputeId: string;
+  reason: string;
+  evidenceSummary: PaymentDisputeEvidenceSummary;
+  recordedAt: string;
+}>;
+
 export type RecordPaymentEarlyFraudWarningCommand = Readonly<{
   type: "RecordPaymentEarlyFraudWarning";
   providerEventId: string;
@@ -311,6 +346,8 @@ export type PaymentCommand =
   | RequestPaymentRefundCommand
   | RecordPaymentRefundCommand
   | RecordPaymentDisputeCommand
+  | RecordPaymentDisputeEvidenceSubmittedCommand
+  | RecordPaymentDisputeEvidenceUnavailableCommand
   | RecordPaymentEarlyFraudWarningCommand
   | RecordPaymentFraudReviewOpenedCommand
   | RecordPaymentFraudReviewClosedCommand
@@ -475,6 +512,32 @@ export type PaymentDisputedEvent = DomainEvent<
   }>
 >;
 
+export type PaymentDisputeEvidenceSubmittedEvent = DomainEvent<
+  "payments.payment-dispute-evidence-submitted",
+  Readonly<{
+    paymentId: PaymentId;
+    orderIds: OrderId[];
+    providerDisputeId: string;
+    processorName: PaymentProcessorName;
+    processorPaymentReference: string;
+    processorStatus: string;
+    evidenceSummary: PaymentDisputeEvidenceSummary;
+    submittedAt: string;
+  }>
+>;
+
+export type PaymentDisputeEvidenceUnavailableEvent = DomainEvent<
+  "payments.payment-dispute-evidence-unavailable",
+  Readonly<{
+    paymentId: PaymentId;
+    orderIds: OrderId[];
+    providerDisputeId: string;
+    reason: string;
+    evidenceSummary: PaymentDisputeEvidenceSummary;
+    recordedAt: string;
+  }>
+>;
+
 export type PaymentEarlyFraudWarningReceivedEvent = DomainEvent<
   "payments.payment-fraud-warning-received",
   Readonly<{
@@ -557,6 +620,8 @@ export type PaymentEvent =
   | PaymentRefundRequestedEvent
   | PaymentRefundedEvent
   | PaymentDisputedEvent
+  | PaymentDisputeEvidenceSubmittedEvent
+  | PaymentDisputeEvidenceUnavailableEvent
   | PaymentEarlyFraudWarningReceivedEvent
   | PaymentFraudReviewOpenedEvent
   | PaymentFraudReviewClosedEvent
@@ -589,6 +654,33 @@ function normalizeSellerPayoutComponents(components: readonly SellerPayoutCompon
       allowZero: true,
     }),
   }));
+}
+
+function normalizePaymentDisputeEvidenceSummary(
+  summary: PaymentDisputeEvidenceSummary,
+): PaymentDisputeEvidenceSummary {
+  const orderIds = normalizeOrderIds(summary.orderIds);
+  return {
+    trackingNumbers: [
+      ...new Set(
+        summary.trackingNumbers.map((value) => normalizeOptionalText(value)).filter((value): value is string =>
+          Boolean(value),
+        ),
+      ),
+    ],
+    carriers: [
+      ...new Set(
+        summary.carriers.map((value) => normalizeOptionalText(value)).filter((value): value is string =>
+          Boolean(value),
+        ),
+      ),
+    ],
+    deliveredAt: summary.deliveredAt
+      ? ensureIsoTimestamp(summary.deliveredAt, "Dispute evidence delivery proof must be an ISO timestamp.")
+      : null,
+    orderIds,
+    hasDeliveryProof: Boolean(summary.hasDeliveryProof),
+  };
 }
 
 function arraysEqual(left: readonly string[], right: readonly string[]) {
@@ -1071,6 +1163,60 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
         },
       ];
     }
+    case "RecordPaymentDisputeEvidenceSubmitted": {
+      assert(state.paymentId !== null, "Payment must be created first.");
+      const providerDisputeId = normalizeRequiredText(
+        command.providerDisputeId,
+        "Dispute evidence submission must include a dispute id.",
+      );
+      if (state.disputeEvidenceRecords.some((record) => record.providerDisputeId === providerDisputeId)) {
+        return [];
+      }
+      return [
+        {
+          type: "payments.payment-dispute-evidence-submitted",
+          data: {
+            paymentId: state.paymentId,
+            orderIds: [...state.orderIds],
+            providerDisputeId,
+            processorName: state.processorName!,
+            processorPaymentReference: state.processorPaymentReference!,
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            evidenceSummary: normalizePaymentDisputeEvidenceSummary(command.evidenceSummary),
+            submittedAt: ensureIsoTimestamp(
+              command.submittedAt,
+              "Dispute evidence submission must include a timestamp.",
+            ),
+          },
+        },
+      ];
+    }
+    case "RecordPaymentDisputeEvidenceUnavailable": {
+      assert(state.paymentId !== null, "Payment must be created first.");
+      const providerDisputeId = normalizeRequiredText(
+        command.providerDisputeId,
+        "Dispute evidence unavailability must include a dispute id.",
+      );
+      if (state.disputeEvidenceRecords.some((record) => record.providerDisputeId === providerDisputeId)) {
+        return [];
+      }
+      return [
+        {
+          type: "payments.payment-dispute-evidence-unavailable",
+          data: {
+            paymentId: state.paymentId,
+            orderIds: [...state.orderIds],
+            providerDisputeId,
+            reason: normalizeRequiredText(command.reason, "Dispute evidence unavailability requires a reason."),
+            evidenceSummary: normalizePaymentDisputeEvidenceSummary(command.evidenceSummary),
+            recordedAt: ensureIsoTimestamp(
+              command.recordedAt,
+              "Dispute evidence unavailability must include a timestamp.",
+            ),
+          },
+        },
+      ];
+    }
     case "RecordPaymentEarlyFraudWarning": {
       assert(state.paymentId !== null, "Payment must be created first.");
       const earlyFraudWarningId = normalizeRequiredText(
@@ -1243,6 +1389,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         issuedRefunds: [],
         disputedAt: null,
         disputeProviderEventIds: [],
+        disputeEvidenceRecords: [],
         earlyFraudWarningIds: [],
         fraudReviews: [],
         liabilityShiftOutcomes: [],
@@ -1329,6 +1476,34 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
           event.data.providerEventId && !state.disputeProviderEventIds.includes(event.data.providerEventId)
             ? [...state.disputeProviderEventIds, event.data.providerEventId]
             : state.disputeProviderEventIds,
+      };
+    case "payments.payment-dispute-evidence-submitted":
+      return {
+        ...state,
+        disputeEvidenceRecords: [
+          ...state.disputeEvidenceRecords.filter((record) => record.providerDisputeId !== event.data.providerDisputeId),
+          {
+            providerDisputeId: event.data.providerDisputeId,
+            status: "submitted",
+            reason: null,
+            submittedAt: event.data.submittedAt,
+            recordedAt: event.data.submittedAt,
+          },
+        ],
+      };
+    case "payments.payment-dispute-evidence-unavailable":
+      return {
+        ...state,
+        disputeEvidenceRecords: [
+          ...state.disputeEvidenceRecords.filter((record) => record.providerDisputeId !== event.data.providerDisputeId),
+          {
+            providerDisputeId: event.data.providerDisputeId,
+            status: "unavailable",
+            reason: event.data.reason,
+            submittedAt: null,
+            recordedAt: event.data.recordedAt,
+          },
+        ],
       };
     case "payments.payment-fraud-warning-received":
       return {

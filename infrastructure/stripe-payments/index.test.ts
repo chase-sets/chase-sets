@@ -12,6 +12,70 @@ function formSnapshot(body: BodyInit | null | undefined) {
 }
 
 describe("Stripe payment processor gateway", () => {
+  it("submits dispute evidence with Stripe evidence fields and idempotency", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "dp_123", status: "under_review" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    const result = await gateway.submitDisputeEvidence!({
+      paymentId: "pay_123" as never,
+      providerDisputeId: "dp_123",
+      providerChargeReference: "ch_123",
+      processorPaymentReference: "pi_123",
+      idempotencyKey: "payments:dispute:dp_123:evidence",
+      evidence: {
+        customerEmailAddress: "buyer@example.test",
+        customerName: "Buyer Example",
+        productDescription: "1 x Test card",
+        shippingAddress: "Buyer Example\n123 Test St\nChicago, IL 60601\nUS",
+        shippingCarrier: "USPS",
+        shippingDate: "2026-07-02",
+        shippingTrackingNumber: "940000000000000000",
+        uncategorizedText: "Delivery confirmed at 2026-07-04T15:00:00.000Z.",
+      },
+    });
+
+    expect(result).toMatchObject({
+      processorName: "stripe",
+      providerDisputeId: "dp_123",
+      processorStatus: "under_review",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://stripe.test/v1/disputes/dp_123",
+      expect.objectContaining({ method: "POST", headers: expect.any(Headers) }),
+    );
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Headers).get("Idempotency-Key")).toBe("payments:dispute:dp_123:evidence");
+    expect(formSnapshot(init.body)).toMatchObject({
+      "evidence[customer_email_address]": "buyer@example.test",
+      "evidence[customer_name]": "Buyer Example",
+      "evidence[product_description]": "1 x Test card",
+      "evidence[shipping_address]": "Buyer Example\n123 Test St\nChicago, IL 60601\nUS",
+      "evidence[shipping_carrier]": "USPS",
+      "evidence[shipping_date]": "2026-07-02",
+      "evidence[shipping_tracking_number]": "940000000000000000",
+      "evidence[uncategorized_text]": "Delivery confirmed at 2026-07-04T15:00:00.000Z.",
+      "metadata[payment_id]": "pay_123",
+      "metadata[provider_charge_reference]": "ch_123",
+      "metadata[processor_payment_reference]": "pi_123",
+      submit: "true",
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it("creates Checkout Sessions through Stripe with API version, managed Elements, and metadata", async () => {
     const fetchMock = vi.fn(
       async () =>

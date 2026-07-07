@@ -4,6 +4,10 @@ import {
   paymentsOrderInputSchemaMigrations,
   paymentsOrderInputSchemaSql,
 } from "../../features/payments/integrations/order-input/order-input-schema";
+import {
+  paymentsDisputeEvidenceSourceSchemaMigrations,
+  paymentsDisputeEvidenceSourceSchemaSql,
+} from "../../features/payments/integrations/dispute-evidence/dispute-evidence-schema";
 import { paymentsPaymentSchemaMigrations, paymentsPaymentSchemaSql } from "../../features/payments/read-model/schema";
 import { paymentsOrderCancellationRefundEffectSchemaSql } from "../../features/refunds/integrations/ordering/order-cancellation-refund-effect-schema";
 import { paymentsSupportRefundEffectSchemaSql } from "../../features/refunds/integrations/support/support-refund-effect-schema";
@@ -33,6 +37,7 @@ export const paymentsSchemaSql = [
   eventCorePostgresSchemaSql,
   notificationOutboxSchemaSql,
   paymentsOrderInputSchemaSql,
+  paymentsDisputeEvidenceSourceSchemaSql,
   paymentsOrderCancellationRefundEffectSchemaSql,
   paymentsSupportRefundEffectSchemaSql,
   paymentsPaymentSchemaSql,
@@ -42,5 +47,6 @@ export const paymentsSchemaSql = [
 
 export const paymentsSchemaMigrations = [
   ...paymentsOrderInputSchemaMigrations,
+  ...paymentsDisputeEvidenceSourceSchemaMigrations,
   ...paymentsPaymentSchemaMigrations,
 ] as const;

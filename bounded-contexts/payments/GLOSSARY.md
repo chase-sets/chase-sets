@@ -27,6 +27,16 @@ Notes:
 - Payments owns the processor dispute identifier, lifecycle state, evidence deadline, charge reference, and affected Payment references.
 - Settlement consumes this fact to hold pending seller funds, claw back released seller funds, or release chargeback holds when the dispute is won.
 
+## Payment Dispute Evidence
+
+**Payment Dispute Evidence** is the support-safe fulfillment and order proof that Payments submits to the payment processor for a processor dispute.
+
+Notes:
+
+- Payments owns the processor submission state and idempotency key for dispute evidence.
+- Fulfillment remains the source of truth for shipment tracking, carrier, delivery confirmation, and shipping address facts; Payments consumes those facts through its own replayable projection.
+- A Payment Dispute Evidence unavailable event records that no tracking proof was available from the Payments-owned projection when the dispute evidence workflow ran.
+
 ## Payment Fraud Warning Received
 
 A **Payment Fraud Warning Received** event records that the payment processor reported an early fraud warning for a Payment.
