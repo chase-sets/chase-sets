@@ -211,6 +211,10 @@ function sourceLabel(messageType: string) {
     return t("notifications.features.notificationCenter.ui.shell.source.shipments");
   }
 
+  if (messageType.startsWith("inventory.")) {
+    return t("notifications.features.notificationCenter.ui.shell.source.inventory");
+  }
+
   if (messageType.startsWith("discovery.product-alert")) {
     return t("notifications.features.notificationCenter.ui.shell.source.productAlerts");
   }

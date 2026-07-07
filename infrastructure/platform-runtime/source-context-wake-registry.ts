@@ -357,6 +357,7 @@ export const sourceContextWakeRegistry = [
       "inventory:inventory-reservation-projection",
       "inventory:inventory-storage-location-projection",
       "marketplace:marketplace-inventory-supply-projection",
+      "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-inventory-reservation-outcomes",
       "ordering:ordering-inventory-supply-input-projection",
       "pricing:pricing-inventory-input-projection",

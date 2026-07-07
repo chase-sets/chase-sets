@@ -20,10 +20,23 @@ export const notificationsEnglishTranslations = {
     "Listings - at or below ${amount}",
   "notifications.features.notificationCenter.ui.shell.productAlerts.offers.allNewMatches": "Offers - all new matches",
   "notifications.features.notificationCenter.ui.shell.productAlerts.offers.atOrAbove": "Offers - at or above ${amount}",
+  "notifications.features.notificationCenter.ui.shell.source.inventory": "Inventory",
   "notifications.features.notificationCenter.ui.shell.source.marketplace": "Marketplace",
   "notifications.features.notificationCenter.ui.shell.source.orders": "Orders",
   "notifications.features.notificationCenter.ui.shell.source.productAlerts": "Product alerts",
   "notifications.features.notificationCenter.ui.shell.source.shipments": "Shipments",
+  "notifications.intents.restockDecisionPending.body":
+    "{quantity} returned units need a restock or write-off decision.",
+  "notifications.intents.restockDecisionPending.title": "Restock decision pending for order {orderId}",
+  "notifications.intents.saleRecorded.body": "{quantity} units across {lineCount} lines were recorded as sold.",
+  "notifications.intents.saleRecorded.title": "Sale recorded for order {orderId}",
+  "notifications.intents.stockCommitted.body": "{quantity} units across {lineCount} lines are committed to this sale.",
+  "notifications.intents.stockCommitted.title": "Stock committed for order {orderId}",
+  "notifications.intents.stockReturned.body.orderCancelled":
+    "{quantity} units across {lineCount} lines returned to available stock after the order was cancelled.",
+  "notifications.intents.stockReturned.body.paymentDeadline":
+    "{quantity} units across {lineCount} lines returned to available stock after the payment deadline passed.",
+  "notifications.intents.stockReturned.title": "Stock returned for order {orderId}",
   "notifications.routes.accountNotifications.description": "Review marketplace updates from the notification center.",
   "notifications.routes.accountNotifications.title": "Notifications | Marketplace",
 } as const;

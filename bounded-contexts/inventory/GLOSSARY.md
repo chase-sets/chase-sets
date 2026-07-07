@@ -69,6 +69,16 @@ Values:
 - `manual`: an account-initiated Inventory action released the hold.
 - `superseded`: a newer hold or lifecycle transition replaced the hold.
 
+## Restock Decision
+
+A **Restock Decision** is a seller choice for returned stock after the item has already left pre-shipment handling.
+
+Notes:
+
+- Restock Decisions are Inventory-owned because Inventory owns whether returned stock increases available quantity.
+- A pending Restock Decision asks the seller to choose whether returned stock should be restocked or written off.
+- Pre-shipment cancellations do not require Restock Decisions because the stock can return to available quantity automatically.
+
 ## Storage Location
 
 A **Storage Location** is a seller-defined place where stock is stored.
