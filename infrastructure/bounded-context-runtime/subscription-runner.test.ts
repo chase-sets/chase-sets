@@ -189,6 +189,100 @@ describe("bounded context subscription runner", () => {
     expect(throwIfLeaseLost).toHaveBeenCalled();
   });
 
+  it("uses subscription projection budget overrides for oversized normal applies", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_heavy" }, "catalog.item-cat_heavy"),
+    ]);
+    let now = 1_000;
+    const originalNow = Date.now;
+    Date.now = () => now;
+    const runner = createSubscriptionRunner("discovery", targetPool as never, sourcePool as never, {
+      subscriptionName: "discovery.catalog-search-projection",
+      sourceContextName: "catalog",
+      projectionName: "discovery-search-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          now = 61_000;
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      projectionTransactionTimeoutMs: 120_000,
+      projectionStatementTimeoutMs: 120_000,
+    });
+
+    try {
+      await expect(runner.runOnce({ statementTimeoutMs: 30_000 })).resolves.toMatchObject({
+        processed: 1,
+        lastGlobalPosition: "1",
+      });
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(targetQuery).toHaveBeenCalledWith("SELECT set_config('statement_timeout', $1, true)", ["120000ms"]);
+    expect(getApplicationStatusStore(targetPool).get("discovery-search-item-projection:catalog:v1:evt_1")).toBe(
+      "applied",
+    );
+    expect(getCheckpointStore(targetPool).get("discovery-search-item-projection:catalog:v1")).toBe("1");
+  });
+
+  it("uses subscription projection budget overrides when retrying blocked streams", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    const streamId = "catalog.item-cat_heavy";
+    const projectionKey = "discovery-item-detail-projection:catalog:v1";
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_heavy" }, streamId),
+    ]);
+    getBlockedStreamStore(targetPool).set(`${projectionKey}:${streamId}`, {
+      projectionKey,
+      streamId,
+      firstBlockedGlobalPosition: "1",
+      firstBlockedStreamVersion: 1,
+      lastSeenGlobalPosition: "1",
+      deferredEventCount: 0,
+      state: "blocked",
+    });
+    let now = 1_000;
+    const originalNow = Date.now;
+    Date.now = () => now;
+    const runner = createSubscriptionRunner("discovery", targetPool as never, sourcePool as never, {
+      subscriptionName: "discovery.catalog-detail-projection",
+      sourceContextName: "catalog",
+      projectionName: "discovery-item-detail-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          now = 61_000;
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      projectionTransactionTimeoutMs: 120_000,
+      projectionStatementTimeoutMs: 120_000,
+    });
+
+    try {
+      await expect(runner.retryBlockedStream(streamId, { statementTimeoutMs: 30_000 })).resolves.toMatchObject({
+        state: "resolved",
+        inspectedEvents: 1,
+        appliedEvents: 1,
+      });
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(targetQuery).toHaveBeenCalledWith("SELECT set_config('statement_timeout', $1, true)", ["120000ms"]);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("applied");
+    expect(getBlockedStreamStore(targetPool).get(`${projectionKey}:${streamId}`)?.state).toBe("resolved");
+  });
+
   it("refreshes source lag without scanning applicable event lag", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

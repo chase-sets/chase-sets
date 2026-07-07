@@ -463,6 +463,59 @@ describe("product content runtime", () => {
     });
   });
 
+  it("repairs product contents through an already connected pg client without reconnecting it", async () => {
+    const { db, resolved } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+      {
+        catalog_item_id: "cat_card",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+    ]);
+    const connect = vi.fn(async () => {
+      throw new Error("Client has already been connected. You cannot reuse a client.");
+    });
+    const connectedClientDb = {
+      query: db.query,
+      connect,
+    } as unknown as PgQueryable;
+    const { eventStore } = createEventStore();
+    const services = createProductContentRuntime({
+      db: connectedClientDb,
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+
+    await services.upsertContentType({
+      contentTypeId: "pct_included_item",
+      key: "included-item",
+      displayName: localizedTextMapFromEnglish("Included item"),
+    });
+    await expect(
+      services.replaceProductContents(
+        {
+          containerCatalogItemId: "cat_box" as never,
+          lines: [{ containedCatalogItemId: "cat_card" as never, quantity: 1, contentTypeId: "pct_included_item" }],
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      containerCatalogItemId: "cat_box",
+      lines: [expect.objectContaining({ containedCatalogItemId: "cat_card" })],
+    });
+
+    expect(connect).not.toHaveBeenCalled();
+    expect(resolved.size).toBe(1);
+  });
+
   it("rejects duplicate, self-referential, and cyclic resolved lines", async () => {
     const { db, resolved } = createContentDb([
       {

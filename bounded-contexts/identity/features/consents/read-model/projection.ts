@@ -1,6 +1,12 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
+// Pre-policy-key consent facts were recorded before consent policies were
+// named. Keep them auditable under an explicit legacy bucket instead of
+// dropping the fact or poisoning replay.
+const LEGACY_CONSENT_POLICY_KEY = "legacy-consent";
+const LEGACY_CONSENT_POLICY_VERSION = "legacy";
+
 export function buildConsentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.consent.recorded": async (event) => {
@@ -17,11 +23,9 @@ export function buildConsentProjectionHandlers(db: PgQueryable): ProjectorHandle
       const userId = normalizeConsentProjectionOptionalString(data.userId);
       const accountId = normalizeConsentProjectionOptionalString(data.accountId);
       const subjectType = normalizeConsentSubjectType(data.subjectType, { userId, accountId });
-      const policyKey = requireConsentProjectionString(data.policyKey, "Consent projection requires a policy key.");
-      const policyVersion = requireConsentProjectionString(
-        data.policyVersion,
-        "Consent projection requires a policy version.",
-      );
+      const policyKey = normalizeConsentProjectionOptionalString(data.policyKey) ?? LEGACY_CONSENT_POLICY_KEY;
+      const policyVersion =
+        normalizeConsentProjectionOptionalString(data.policyVersion) ?? LEGACY_CONSENT_POLICY_VERSION;
       const recordedAt = normalizeConsentProjectionOptionalString(data.recordedAt) ?? event.timing.recordedAt;
 
       await db.query(

@@ -25,6 +25,9 @@ export const module = defineBoundedContextModule<DiscoveryServices, PgTransactio
   buildSubscriptions: (services) => {
     const marketProjectionHandlers = buildDiscoveryMarketProjectionHandlers(services.db);
 
+    // Search/detail rebuild large buyer-facing documents from Catalog facts.
+    // Their manifest declarations intentionally use a larger projection budget
+    // than the global default so deterministic bulk replays do not park poison.
     return buildEventSubscriptionsFromManifest({
       contextName: "discovery",
       manifest: contextManifest,

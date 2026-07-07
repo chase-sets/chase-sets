@@ -501,7 +501,12 @@ async function replaceResolvedProductContents(
 }
 
 function isPgTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
-  return typeof (db as { connect?: unknown }).connect === "function";
+  const candidate = db as { connect?: unknown; idleCount?: unknown; release?: unknown; totalCount?: unknown };
+  return (
+    typeof candidate.connect === "function" &&
+    typeof candidate.release !== "function" &&
+    (typeof candidate.totalCount === "number" || typeof candidate.idleCount === "number")
+  );
 }
 
 async function replaceResolvedProductContentsRows(db: PgQueryable, fact: ProductContentsResolvedFact): Promise<void> {

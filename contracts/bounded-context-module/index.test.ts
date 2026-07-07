@@ -35,6 +35,8 @@ const manifest: BcContextManifest = {
       projectionHandlerSetNames: ["inventory-catalog-item-projection"],
       eventTypes: ["catalog.catalog-item.published"],
       streamPrefixes: ["catalog.item-"],
+      projectionTransactionTimeoutMs: 120_000,
+      projectionStatementTimeoutMs: 120_000,
       order: 10,
     },
   ],
@@ -88,6 +90,8 @@ describe("buildEventSubscriptionsFromManifest", () => {
         eventTypes: ["catalog.catalog-item.published"],
         streamPrefixes: ["catalog.item-"],
         errorPolicy: undefined,
+        projectionTransactionTimeoutMs: 120_000,
+        projectionStatementTimeoutMs: 120_000,
         order: 10,
       },
     ]);
