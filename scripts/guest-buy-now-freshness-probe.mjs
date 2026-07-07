@@ -65,6 +65,9 @@ const CHECKOUT_START_RECOVERY_PATTERN =
 const CHECKOUT_REVIEW_PATTERN = /Continue to payment|Checkout Summary|Payable total/i;
 const BUY_READINESS_URL_PATTERN = /\/checkout\/buy\/readiness(?:[/?#]|$)/;
 const BUY_SESSION_URL_PATTERN = /\/checkout\/buy\/session\/chk_[^/?#]+(?:[/?#]|$)/;
+const CHASE_SETS_COMMIT_RECEIPT_HEADER = "chase-sets-commit-receipt";
+const SYNTHETIC_INVITATION_PROJECTION_TIMEOUT_MS = 90_000;
+const SYNTHETIC_INVITATION_PROJECTION_POLL_MS = 1_000;
 
 export function isBuyReadinessUrl(value) {
   return BUY_READINESS_URL_PATTERN.test(String(value ?? ""));
@@ -124,8 +127,14 @@ export function parseGuestBuyNowProbeArgs(argv, env = process.env) {
       readOption(argv, "--account-password") ??
       readEnv("GUEST_BUY_NOW_PROBE_ACCOUNT_PASSWORD", env) ??
       readEnv("MARKETPLACE_E2E_PASSWORD", env),
-    adminEmail: readEnv("GUEST_BUY_NOW_PROBE_ADMIN_EMAIL", env) ?? readEnv("PLATFORM_ADMIN_EMAIL", env),
-    adminPassword: readEnv("GUEST_BUY_NOW_PROBE_ADMIN_PASSWORD", env) ?? readEnv("PLATFORM_ADMIN_PASSWORD", env),
+    adminEmail:
+      readEnv("GUEST_BUY_NOW_PROBE_ADMIN_EMAIL", env) ??
+      readEnv("PLATFORM_ADMIN_EMAIL", env) ??
+      readEnv("TF_VAR_platform_admin_email", env),
+    adminPassword:
+      readEnv("GUEST_BUY_NOW_PROBE_ADMIN_PASSWORD", env) ??
+      readEnv("PLATFORM_ADMIN_PASSWORD", env) ??
+      readEnv("TF_VAR_platform_admin_password", env),
     environment: readOption(argv, "--environment") ?? readEnv("GUEST_BUY_NOW_PROBE_ENVIRONMENT", env) ?? "staging",
     productionProofReference:
       readOption(argv, "--production-proof-reference") ??
@@ -1026,7 +1035,7 @@ function probeRuntimeError(stage, error) {
   return runtimeError;
 }
 
-async function startAccountSession(page, context, options, baseUrl) {
+export async function startAccountSession(page, context, options, baseUrl) {
   const accountEmail = normalizeString(options.accountEmail);
   const accountPassword = normalizeString(options.accountPassword);
   let sessionToken;
@@ -1040,26 +1049,176 @@ async function startAccountSession(page, context, options, baseUrl) {
     sessionToken = (await response.json())?.sessionToken;
   } else {
     const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const response = await page.request.post(`${baseUrl}/api/auth/register`, {
-      data: {
-        displayName: `Buy Now Probe Account ${nonce}`,
-        email: `buy-now-probe+account-${nonce}@chasesets.test`,
-        password: `buy-now-probe-${nonce}`,
-      },
+    sessionToken = await registerSyntheticAccountSession(page, options, baseUrl, {
+      displayName: `Buy Now Probe Account ${nonce}`,
+      email: `buy-now-probe+account-${nonce}@chasesets.test`,
+      password: `buy-now-probe-${nonce}`,
     });
-    if (response.status() !== 201) {
-      throw probeHttpError(
-        `Buy Now probe synthetic account registration failed with HTTP ${response.status()}.`,
-        response.status(),
-      );
-    }
-    sessionToken = (await response.json())?.sessionToken;
   }
 
   if (!sessionToken) {
     throw new Error("Buy Now probe account session did not return a session token.");
   }
 
+  await addAccountSessionCookie(context, baseUrl, sessionToken);
+}
+
+async function registerSyntheticAccountSession(page, options, baseUrl, account) {
+  await provisionSyntheticAccountInvitation(page, options, baseUrl, account.email);
+  const response = await page.request.post(`${baseUrl}/api/auth/register`, {
+    data: account,
+  });
+  if (response.status() !== 201) {
+    throw probeHttpError(
+      `Buy Now probe synthetic account registration failed with HTTP ${response.status()}.`,
+      response.status(),
+    );
+  }
+  return (await response.json())?.sessionToken;
+}
+
+async function provisionSyntheticAccountInvitation(page, options, baseUrl, email) {
+  const adminEmail = normalizeString(options.adminEmail);
+  const adminPassword = normalizeString(options.adminPassword);
+  if (!adminEmail || !adminPassword) {
+    return;
+  }
+
+  const adminSession = await startPasswordSession(page, baseUrl, {
+    email: adminEmail,
+    password: adminPassword,
+    label: "platform-admin password sign-in",
+  });
+  const adminCookie = `chase_sets_session=${adminSession}`;
+  const actorResponse = await page.request.get(`${baseUrl}/api/identity/current-actor-display`, {
+    headers: { Cookie: adminCookie },
+  });
+  if (actorResponse.status() !== 200) {
+    throw probeHttpError(
+      `Buy Now probe platform admin actor lookup failed with HTTP ${actorResponse.status()}.`,
+      actorResponse.status(),
+    );
+  }
+
+  const actor = await actorResponse.json();
+  const accountId = normalizeString(actor?.account?.account_id);
+  if (!accountId) {
+    throw new Error("Buy Now probe platform admin actor lookup did not return an account id.");
+  }
+
+  const invitationResponse = await page.request.post(`${baseUrl}/api/identity/invitations`, {
+    headers: { Cookie: adminCookie },
+    data: {
+      invitationId: createSyntheticInvitationId(),
+      accountId,
+      email,
+      roleKey: "viewer",
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+  });
+  if (invitationResponse.status() !== 201) {
+    throw probeHttpError(
+      `Buy Now probe synthetic account invitation failed with HTTP ${invitationResponse.status()}.`,
+      invitationResponse.status(),
+    );
+  }
+
+  await waitForAuthInvitationProjection(page, baseUrl, adminCookie, invitationResponse);
+}
+
+async function startPasswordSession(page, baseUrl, input) {
+  const response = await page.request.post(`${baseUrl}/api/auth/password-sign-in`, {
+    data: { email: input.email, password: input.password },
+  });
+  if (response.status() !== 200) {
+    throw probeHttpError(`Buy Now probe ${input.label} failed with HTTP ${response.status()}.`, response.status());
+  }
+  const sessionToken = (await response.json())?.sessionToken;
+  if (!sessionToken) {
+    throw new Error(`Buy Now probe ${input.label} did not return a session token.`);
+  }
+  return sessionToken;
+}
+
+async function waitForAuthInvitationProjection(page, baseUrl, adminCookie, response) {
+  const identityCommit = decodeCommitReceipt(response.headers()[CHASE_SETS_COMMIT_RECEIPT_HEADER])?.find(
+    (source) => source.sourceContextName === "identity",
+  );
+  if (!identityCommit) {
+    return;
+  }
+
+  const deadline = Date.now() + SYNTHETIC_INVITATION_PROJECTION_TIMEOUT_MS;
+  let lastObservedPosition = "0";
+  while (Date.now() < deadline) {
+    const refreshResponse = await page.request.post(`${baseUrl}/api/platform/projections/refresh`, {
+      headers: { Cookie: adminCookie },
+    });
+    if (refreshResponse.status() !== 200) {
+      throw probeHttpError(
+        `Buy Now probe auth invitation projection refresh failed with HTTP ${refreshResponse.status()}.`,
+        refreshResponse.status(),
+      );
+    }
+
+    const body = await refreshResponse.json();
+    const authInvitationProjection = body?.projectionGroups?.find(
+      (group) => group?.targetContextName === "auth" && group?.projectionName === "auth-identity-invitation-projection",
+    );
+    lastObservedPosition = maxObservedPosition(authInvitationProjection, "identity") ?? lastObservedPosition;
+    if (BigInt(lastObservedPosition) >= BigInt(identityCommit.maxGlobalPosition)) {
+      return;
+    }
+
+    await page.waitForTimeout(SYNTHETIC_INVITATION_PROJECTION_POLL_MS);
+  }
+
+  throw new Error(
+    `Buy Now probe auth invitation projection did not reach identity position ${identityCommit.maxGlobalPosition}; last observed ${lastObservedPosition}.`,
+  );
+}
+
+function maxObservedPosition(group, sourceContextName) {
+  const positions =
+    group?.subscriptions
+      ?.filter((subscription) => subscription?.sourceContextName === sourceContextName)
+      .map((subscription) => subscription?.lastGlobalPosition)
+      .filter((position) => typeof position === "string" && /^(0|[1-9]\d*)$/.test(position)) ?? [];
+
+  return positions.reduce((max, position) => (BigInt(position) > BigInt(max) ? position : max), "0");
+}
+
+function decodeCommitReceipt(value) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value));
+    return Array.isArray(parsed) ? parsed.filter(isSourceCommitPosition) : [];
+  } catch {
+    return [];
+  }
+}
+
+function isSourceCommitPosition(value) {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof value.sourceContextName === "string" &&
+    value.sourceContextName.length > 0 &&
+    typeof value.maxGlobalPosition === "string" &&
+    /^(0|[1-9]\d*)$/.test(value.maxGlobalPosition) &&
+    Array.isArray(value.eventIds) &&
+    value.eventIds.every((eventId) => typeof eventId === "string" && eventId.length > 0)
+  );
+}
+
+function createSyntheticInvitationId() {
+  return `ivt_buy_now_probe_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function addAccountSessionCookie(context, baseUrl, sessionToken) {
   await context.addCookies([
     {
       name: "chase_sets_session",
