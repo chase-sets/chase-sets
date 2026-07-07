@@ -147,7 +147,7 @@ async function buildCheckoutLine(
   );
   const snapshot = result.rows[0];
   if (!snapshot) {
-    throw new Error(`No active ordering supply found for ${line.itemTitle}.`);
+    return null;
   }
 
   return {
@@ -166,6 +166,12 @@ async function buildCheckoutLine(
     productSummary: snapshot.product_summary ?? line.productSummary,
     quantity: line.quantity,
   };
+}
+
+function logMissingCheckoutSupply(line: (typeof checkoutCartLines)[number] | (typeof cancelledCartLines)[number]) {
+  console.log(
+    `Ordering seed is waiting for active Marketplace supply for ${line.itemTitle}. Skipping the dependent checkout order for this pass.`,
+  );
 }
 
 async function getAcceptedOfferInput(services: ReturnType<typeof createOrderingServices>, offerId: string) {
@@ -249,42 +255,52 @@ export async function seedOrderingDatabase(
   }
 
   if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
-    const checkoutResult = await ordering.orders.createOrdersFromCheckout(
-      {
-        buyerAccountId,
-        checkoutSessionId: "chk_seed_checkout_pending",
-        sourceType: "cart-checkout",
-        shippingOption: "standard",
-        shippingAddress: seedShippingAddress,
-        lines: [await buildCheckoutLine(ordering, checkoutCartLines[0]!)],
-        orderIdsOverride: [orderingReservedSeedIds.orders.checkoutPending],
-      },
-      buyerContext,
-    );
-    console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
+    const checkoutLine = await buildCheckoutLine(ordering, checkoutCartLines[0]!);
+    if (checkoutLine) {
+      const checkoutResult = await ordering.orders.createOrdersFromCheckout(
+        {
+          buyerAccountId,
+          checkoutSessionId: "chk_seed_checkout_pending",
+          sourceType: "cart-checkout",
+          shippingOption: "standard",
+          shippingAddress: seedShippingAddress,
+          lines: [checkoutLine],
+          orderIdsOverride: [orderingReservedSeedIds.orders.checkoutPending],
+        },
+        buyerContext,
+      );
+      console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
+    } else {
+      logMissingCheckoutSupply(checkoutCartLines[0]!);
+    }
   }
 
   const cancelledOrderStatus = await getOrderPageStatus(ordering.db, orderingReservedSeedIds.orders.cancelled);
   if (!cancelledOrderStatus) {
-    const cancelledOrderResult = await ordering.orders.createOrdersFromCheckout(
-      {
-        buyerAccountId,
-        checkoutSessionId: "chk_seed_cancelled",
-        sourceType: "cart-checkout",
-        shippingOption: "expedited",
-        shippingAddress: seedShippingAddress,
-        lines: [await buildCheckoutLine(ordering, cancelledCartLines[0]!)],
-        orderIdsOverride: [orderingReservedSeedIds.orders.cancelled],
-      },
-      buyerContext,
-    );
+    const cancelledLine = await buildCheckoutLine(ordering, cancelledCartLines[0]!);
+    if (cancelledLine) {
+      const cancelledOrderResult = await ordering.orders.createOrdersFromCheckout(
+        {
+          buyerAccountId,
+          checkoutSessionId: "chk_seed_cancelled",
+          sourceType: "cart-checkout",
+          shippingOption: "expedited",
+          shippingAddress: seedShippingAddress,
+          lines: [cancelledLine],
+          orderIdsOverride: [orderingReservedSeedIds.orders.cancelled],
+        },
+        buyerContext,
+      );
 
-    const cancelledOrderId = cancelledOrderResult.orderIds[0];
-    if (!cancelledOrderId) {
-      throw new Error("Ordering demo seed could not create the cancellable order.");
+      const cancelledOrderId = cancelledOrderResult.orderIds[0];
+      if (!cancelledOrderId) {
+        throw new Error("Ordering demo seed could not create the cancellable order.");
+      }
+
+      console.log(`  Cancellable order seeded (${cancelledOrderId})`);
+    } else {
+      logMissingCheckoutSupply(cancelledCartLines[0]!);
     }
-
-    console.log(`  Cancellable order seeded (${cancelledOrderId})`);
   } else if (cancelledOrderStatus !== "cancelled") {
     await ordering.orders.cancelPurchase(
       {
