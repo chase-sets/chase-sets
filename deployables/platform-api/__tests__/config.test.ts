@@ -191,6 +191,13 @@ function resetConfigEnv() {
   delete process.env.UCP_BUSINESS_SIGNING_ALG;
   delete process.env.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS;
   delete process.env.UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS;
+  delete process.env.CHASE_SETS_RATE_LIMITS_DISABLED;
+  delete process.env.CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX;
+  delete process.env.CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_WINDOW_MS;
+  delete process.env.CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_DISABLED;
+  delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_MAX;
+  delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_WINDOW_MS;
+  delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_DISABLED;
 }
 
 beforeEach(resetConfigEnv);
@@ -229,6 +236,15 @@ describe("platform api config", () => {
       readinessNotificationsEnabled: false,
     });
     expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS);
+  });
+
+  it("loads bootstrap config when rate-limit env overrides are absent", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+
+    const config = loadBootstrapConfig();
+
+    expect(config.sharedDatabaseUrl).toBe("postgresql://localhost/chase_sets");
+    expect(config.runtimeProfile).toBe("public");
   });
 
   it("loads per-context database urls without a shared fallback", () => {

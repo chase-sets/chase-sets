@@ -55,4 +55,16 @@ describe("fresh payments schemas", () => {
     expect(migrationSql).toContain("payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payouts");
     expect(migrationSql).toContain("payments_payment_pages ADD COLUMN IF NOT EXISTS disputed_at");
   });
+
+  it("keeps indexes for migration-added payment instrument columns out of boot-time schema SQL", () => {
+    const providerFingerprintIndex = "payments_saved_checkout_instruments_provider_fingerprint_idx";
+    const paymentMigrationSql = paymentsPaymentSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
+
+    expect(paymentsPaymentSchemaSql).toContain("provider_fingerprint text NULL");
+    expect(paymentsPaymentSchemaSql).not.toContain(providerFingerprintIndex);
+    expect(paymentMigrationSql).toContain(
+      "payments_saved_checkout_instruments ADD COLUMN IF NOT EXISTS provider_fingerprint",
+    );
+    expect(paymentMigrationSql).toContain(providerFingerprintIndex);
+  });
 });
