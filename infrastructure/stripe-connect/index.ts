@@ -38,6 +38,20 @@ type StripeAccountResponse = Readonly<{
   dashboard?: string | null;
   email?: string | null;
   payouts_enabled?: boolean | null;
+  external_accounts?: Readonly<{
+    data?:
+      | readonly Readonly<{
+          id?: string | null;
+          object?: string | null;
+          bank_name?: string | null;
+          last4?: string | null;
+          currency?: string | null;
+          country?: string | null;
+          default_for_currency?: boolean | null;
+          status?: string | null;
+        }>[]
+      | null;
+  }> | null;
   capabilities?: Readonly<{
     payouts?: string | null;
     transfers?: string | null;
@@ -422,10 +436,12 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
 
   return {
     providerReference,
+    contactEmail: normalizeContactEmail(account.email),
     onboardingStatus: missingRequirements.length === 0 ? "complete" : "pending",
     transferCapabilityStatus,
     payoutCapabilityStatus,
     payoutDestinationStatus,
+    payoutDestinationFingerprint: payoutDestinationFingerprint(account),
     payoutAccountDashboard: dashboardToPayoutAccountDashboard(
       account.dashboard ?? account.controller?.stripe_dashboard?.type,
     ),
@@ -440,6 +456,30 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
     ),
     missingRequirements,
   };
+}
+
+function payoutDestinationFingerprint(account: StripeAccountResponse) {
+  const destinations = [...(account.external_accounts?.data ?? [])]
+    .filter((destination) => destination.object === "bank_account" || destination.object === "card")
+    .sort((left, right) => {
+      const leftDefault = left.default_for_currency === true ? 0 : 1;
+      const rightDefault = right.default_for_currency === true ? 0 : 1;
+      return leftDefault - rightDefault || String(left.id ?? "").localeCompare(String(right.id ?? ""));
+    });
+  const destination = destinations[0];
+  const id = destination?.id?.trim();
+  if (!id) {
+    return null;
+  }
+
+  return [
+    id,
+    destination.object ?? "unknown",
+    destination.country ?? "unknown",
+    destination.currency ?? "unknown",
+    destination.last4 ?? "unknown",
+    destination.status ?? "unknown",
+  ].join(":");
 }
 
 function occurredAtFromEvent(event: StripeEventEnvelope) {

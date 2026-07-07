@@ -1,21 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { settlementPayoutReadinessSchemaSql } from "./schema";
+import { settlementPayoutReadinessSchemaMigrations, settlementPayoutReadinessSchemaSql } from "./schema";
 
 describe("settlement payout readiness schema", () => {
-  it("adds provider posture columns before creating the provider posture index", () => {
-    const addDashboardColumnIndex = settlementPayoutReadinessSchemaSql.indexOf(
-      "ADD COLUMN IF NOT EXISTS payout_account_dashboard",
-    );
-    const addRequirementsCollectorColumnIndex = settlementPayoutReadinessSchemaSql.indexOf(
-      "ADD COLUMN IF NOT EXISTS requirements_collector",
-    );
-    const providerPostureIndexIndex = settlementPayoutReadinessSchemaSql.indexOf(
-      "settlement_payout_readiness_pages_provider_posture_idx",
-    );
+  it("keeps provider posture index with the migration-added posture columns", () => {
+    const migrationSql = settlementPayoutReadinessSchemaMigrations
+      .flatMap((migration) => migration.statements)
+      .join("\n");
 
-    expect(addDashboardColumnIndex).toBeGreaterThanOrEqual(0);
-    expect(addRequirementsCollectorColumnIndex).toBeGreaterThanOrEqual(0);
-    expect(providerPostureIndexIndex).toBeGreaterThan(addDashboardColumnIndex);
-    expect(providerPostureIndexIndex).toBeGreaterThan(addRequirementsCollectorColumnIndex);
+    expect(settlementPayoutReadinessSchemaSql).toContain("ADD COLUMN IF NOT EXISTS payout_account_dashboard");
+    expect(settlementPayoutReadinessSchemaSql).toContain("ADD COLUMN IF NOT EXISTS requirements_collector");
+    expect(settlementPayoutReadinessSchemaSql).not.toContain("settlement_payout_readiness_pages_provider_posture_idx");
+    expect(migrationSql).toContain("settlement_payout_readiness_pages_provider_posture_idx");
   });
 });

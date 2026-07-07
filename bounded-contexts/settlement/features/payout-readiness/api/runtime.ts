@@ -21,6 +21,12 @@ import {
 } from "../../../support/runtime-support/operations";
 import type { MoneyMovementGateway, ProviderPayoutReadiness } from "@chase-sets/money-movement";
 import {
+  createNoopNotificationOutbox,
+  type EmailNotificationChannel,
+  type NotificationChannel,
+  type NotificationOutbox,
+} from "@chase-sets/outbound-messaging";
+import {
   decidePayoutReadiness,
   evolvePayoutReadiness,
   initialPayoutReadinessState,
@@ -35,6 +41,7 @@ import {
   type SettlementPayoutReadinessRow,
 } from "../read-model/queries";
 import { buildPayoutSetupProgress, type PayoutSetupProgress } from "../domain/setup-progress";
+import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../payouts/api/runtime";
 
 type PayoutReadinessRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -42,6 +49,9 @@ type PayoutReadinessRuntimeDeps = Readonly<{
   db: PgQueryable;
   moneyMovementGateway: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
+  notificationOutbox?: NotificationOutbox;
+  payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
+  sensitiveActionVerifier?: SensitiveActionVerifier;
 }>;
 
 export type PayoutReadinessServices = Readonly<{
@@ -64,6 +74,8 @@ export type PayoutReadinessServices = Readonly<{
   createPayoutAccountManagementSession: (
     params: Readonly<{
       accountId: AccountId;
+      actorUserId?: string | null;
+      sensitiveActionToken?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{
@@ -90,10 +102,13 @@ export type PayoutReadinessServices = Readonly<{
       status: PayoutReadinessStatus | string;
       missingRequirements?: readonly string[];
       providerReference?: string | null;
+      contactEmail?: string | null;
       onboardingStatus?: string;
       transferCapabilityStatus?: string;
       payoutCapabilityStatus?: string;
       payoutDestinationStatus?: string;
+      payoutDestinationFingerprint?: string | null;
+      payoutDestinationChangedAt?: string | null;
       payoutAccountDashboard?: string;
       lossesCollector?: string;
       feesCollector?: string;
@@ -164,16 +179,20 @@ function payoutReadinessRowFromProviderReadiness(
   accountId: AccountId,
   readiness: ProviderPayoutReadiness,
   updatedAt: string,
+  payoutDestinationChangedAt: string | null = null,
 ): SettlementPayoutReadinessRow {
   return {
     account_id: accountId,
     status: readinessStatus(readiness),
     missing_requirements: readiness.missingRequirements,
     provider_reference: readiness.providerReference,
+    contact_email: readiness.contactEmail ?? null,
     onboarding_status: readiness.onboardingStatus,
     transfer_capability_status: readiness.transferCapabilityStatus,
     payout_capability_status: readiness.payoutCapabilityStatus,
     payout_destination_status: readiness.payoutDestinationStatus,
+    payout_destination_fingerprint: readiness.payoutDestinationFingerprint ?? null,
+    payout_destination_changed_at: payoutDestinationChangedAt,
     payout_account_dashboard: readiness.payoutAccountDashboard,
     losses_collector: readiness.lossesCollector,
     fees_collector: readiness.feesCollector,
@@ -184,6 +203,14 @@ function payoutReadinessRowFromProviderReadiness(
 
 export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): PayoutReadinessServices {
   const operationsRecorder = deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
+  const frictionPolicy = {
+    enabled: true,
+    coolingPeriodMs: 24 * 60 * 60 * 1000,
+    requireStepUpForAccountManagement: true,
+    ...deps.payoutDestinationFrictionPolicy,
+  };
+  const sensitiveActionVerifier = deps.sensitiveActionVerifier ?? (async () => false);
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<PayoutReadinessEvent>(),
@@ -216,16 +243,118 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
     };
   }
 
+  async function verifySensitiveAction(
+    params: Readonly<{ accountId: AccountId; userId?: string | null; token?: string | null }>,
+  ) {
+    const token = params.token?.trim();
+    if (!token) {
+      return false;
+    }
+    return sensitiveActionVerifier({
+      accountId: params.accountId,
+      userId: params.userId ?? null,
+      token,
+      purpose: "payout-account-management",
+    });
+  }
+
+  function payoutDestinationChange(
+    existing: SettlementPayoutReadinessRow,
+    readiness: ProviderPayoutReadiness,
+    recordedAt: string,
+  ) {
+    const previous = normalizeOptionalText(existing.payout_destination_fingerprint);
+    const next = normalizeOptionalText(readiness.payoutDestinationFingerprint);
+    const changed = Boolean(previous && next && previous !== next);
+    return {
+      changed,
+      fingerprint: next ?? previous,
+      changedAt: changed ? recordedAt : existing.payout_destination_changed_at,
+    };
+  }
+
+  async function notifyPayoutDestinationChanged(
+    params: Readonly<{
+      accountId: AccountId;
+      contactEmail?: string | null;
+      changedAt: string;
+      providerReference?: string | null;
+    }>,
+  ) {
+    if (!frictionPolicy.enabled) {
+      return;
+    }
+    const title = "Payout destination changed";
+    const body =
+      "The payout destination for your Chase Sets account changed. If this was not you, contact support before requesting a payout.";
+    const emailChannel: EmailNotificationChannel | null = params.contactEmail
+      ? {
+          channel: "email",
+          to: [{ email: params.contactEmail }],
+          subject: title,
+          templateId: "settlement_payout_destination_changed",
+          templateVersion: 1,
+          templateData: { changedAt: params.changedAt },
+        }
+      : null;
+    const channels: readonly NotificationChannel[] = [
+      ...(emailChannel ? [emailChannel] : []),
+      {
+        channel: "web",
+        recipient: { accountId: params.accountId },
+        title,
+        body,
+        actionHref: "/account/payouts/setup",
+      },
+    ];
+    const [firstChannel, ...otherChannels] = channels;
+    if (!firstChannel) {
+      return;
+    }
+    await notificationOutbox.enqueueNotification({
+      message: {
+        messageType: "settlement.payout-destination-changed",
+        criticality: "security",
+        title,
+        body,
+        actionHref: "/account/payouts/setup",
+        templateId: "settlement_payout_destination_changed",
+        templateVersion: 1,
+        locale: "en",
+        templateData: { changedAt: params.changedAt },
+        channels: [firstChannel, ...otherChannels],
+        idempotencyKey: `settlement:payout-destination-changed:${params.accountId}:${params.changedAt}`,
+        correlationId: `settlement:payout-destination:${params.accountId}`,
+        actor: { userId: null, accountId: params.accountId },
+      },
+      source: {
+        sourceEventId: `settlement:payout-destination-changed:${params.accountId}:${params.changedAt}`,
+        sourceGlobalPosition: "0",
+        projectionName: "settlement-payout-destination-friction",
+        occurredAt: params.changedAt,
+      },
+    });
+    await recordOperation({
+      kind: "payout-destination-changed",
+      accountId: params.accountId,
+      providerReference: params.providerReference ?? null,
+      occurredAt: params.changedAt,
+    });
+  }
+
   async function recordProviderReadiness(
     params: Readonly<{
       accountId: AccountId;
       status: PayoutReadinessStatus | string;
       missingRequirements?: readonly string[];
       providerReference?: string | null;
+      contactEmail?: string | null;
       onboardingStatus?: string;
       transferCapabilityStatus?: string;
       payoutCapabilityStatus?: string;
       payoutDestinationStatus?: string;
+      payoutDestinationFingerprint?: string | null;
+      payoutDestinationChangedAt?: string | null;
       payoutAccountDashboard?: string;
       lossesCollector?: string;
       feesCollector?: string;
@@ -245,10 +374,13 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         status: normalizePayoutReadinessStatus(params.status),
         missingRequirements: params.missingRequirements ?? [],
         providerReference: params.providerReference ?? null,
+        contactEmail: params.contactEmail ?? null,
         onboardingStatus: params.onboardingStatus ?? "not-started",
         transferCapabilityStatus: params.transferCapabilityStatus ?? "inactive",
         payoutCapabilityStatus: params.payoutCapabilityStatus ?? "inactive",
         payoutDestinationStatus: params.payoutDestinationStatus ?? "missing",
+        payoutDestinationFingerprint: params.payoutDestinationFingerprint ?? null,
+        payoutDestinationChangedAt: params.payoutDestinationChangedAt ?? null,
         payoutAccountDashboard: params.payoutAccountDashboard ?? "unknown",
         lossesCollector: params.lossesCollector ?? "unknown",
         feesCollector: params.feesCollector ?? "unknown",
@@ -286,20 +418,26 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
               idempotencyKey: `settlement:payout-account:${params.accountId}`,
             });
 
+        const ensuredRecordedAt = new Date().toISOString();
+        const ensuredDestination = payoutDestinationChange(existing, ensured, ensuredRecordedAt);
         await recordProviderReadiness(
           {
             accountId: params.accountId,
             status: readinessStatus(ensured),
             missingRequirements: ensured.missingRequirements,
             providerReference: ensured.providerReference,
+            contactEmail: ensured.contactEmail ?? params.contactEmail ?? existing.contact_email,
             onboardingStatus: ensured.onboardingStatus,
             transferCapabilityStatus: ensured.transferCapabilityStatus,
             payoutCapabilityStatus: ensured.payoutCapabilityStatus,
             payoutDestinationStatus: ensured.payoutDestinationStatus,
+            payoutDestinationFingerprint: ensuredDestination.fingerprint,
+            payoutDestinationChangedAt: ensuredDestination.changedAt,
             payoutAccountDashboard: ensured.payoutAccountDashboard,
             lossesCollector: ensured.lossesCollector,
             feesCollector: ensured.feesCollector,
             requirementsCollector: ensured.requirementsCollector,
+            recordedAt: ensuredRecordedAt,
           },
           context,
         );
@@ -312,16 +450,20 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         });
 
         const sessionReadinessRecordedAt = new Date().toISOString();
+        const sessionDestination = payoutDestinationChange(existing, session.readiness, sessionReadinessRecordedAt);
         await recordProviderReadiness(
           {
             accountId: params.accountId,
             status: readinessStatus(session.readiness),
             missingRequirements: session.readiness.missingRequirements,
             providerReference: session.providerReference,
+            contactEmail: session.readiness.contactEmail ?? params.contactEmail ?? existing.contact_email,
             onboardingStatus: session.readiness.onboardingStatus,
             transferCapabilityStatus: session.readiness.transferCapabilityStatus,
             payoutCapabilityStatus: session.readiness.payoutCapabilityStatus,
             payoutDestinationStatus: session.readiness.payoutDestinationStatus,
+            payoutDestinationFingerprint: sessionDestination.fingerprint,
+            payoutDestinationChangedAt: sessionDestination.changedAt,
             payoutAccountDashboard: session.readiness.payoutAccountDashboard,
             lossesCollector: session.readiness.lossesCollector,
             feesCollector: session.readiness.feesCollector,
@@ -347,6 +489,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
             params.accountId,
             session.readiness,
             sessionReadinessRecordedAt,
+            sessionDestination.changedAt,
           ),
         };
       } catch (error) {
@@ -361,6 +504,22 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
     },
     async createPayoutAccountManagementSession(params, _context) {
       try {
+        if (frictionPolicy.enabled && frictionPolicy.requireStepUpForAccountManagement) {
+          const verified = await verifySensitiveAction({
+            accountId: params.accountId,
+            userId: params.actorUserId ?? null,
+            token: params.sensitiveActionToken ?? null,
+          });
+          if (!verified) {
+            await recordOperation({
+              kind: "payout-account-management-session-failed",
+              accountId: params.accountId,
+              setupSurface: "embedded-account-management",
+              safeCategory: "step_up_required",
+            });
+            throw new SettlementDomainError("Confirm it is you before managing payout account details.");
+          }
+        }
         const existing = await getPayoutReadiness(deps.db, params.accountId);
         if (!existing.provider_reference) {
           await recordOperation({
@@ -433,6 +592,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         const providerReference = canonicalProviderReference(readiness, expectedProviderReference);
         const recordedAt = new Date().toISOString();
         const canonicalReadiness = readinessWithProviderReference(readiness, providerReference);
+        const destination = payoutDestinationChange(existing, canonicalReadiness, recordedAt);
 
         await recordProviderReadiness(
           {
@@ -440,10 +600,13 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
             status: readinessStatus(canonicalReadiness),
             missingRequirements: canonicalReadiness.missingRequirements,
             providerReference: canonicalReadiness.providerReference,
+            contactEmail: canonicalReadiness.contactEmail ?? params.contactEmail ?? existing.contact_email,
             onboardingStatus: canonicalReadiness.onboardingStatus,
             transferCapabilityStatus: canonicalReadiness.transferCapabilityStatus,
             payoutCapabilityStatus: canonicalReadiness.payoutCapabilityStatus,
             payoutDestinationStatus: canonicalReadiness.payoutDestinationStatus,
+            payoutDestinationFingerprint: destination.fingerprint,
+            payoutDestinationChangedAt: destination.changedAt,
             payoutAccountDashboard: canonicalReadiness.payoutAccountDashboard,
             lossesCollector: canonicalReadiness.lossesCollector,
             feesCollector: canonicalReadiness.feesCollector,
@@ -459,7 +622,12 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           ...readinessOperationFields(canonicalReadiness),
         });
 
-        return payoutReadinessRowFromProviderReadiness(params.accountId, canonicalReadiness, recordedAt);
+        return payoutReadinessRowFromProviderReadiness(
+          params.accountId,
+          canonicalReadiness,
+          recordedAt,
+          destination.changedAt,
+        );
       } catch (error) {
         await recordOperation({
           kind: "payout-readiness-refresh-failed",
@@ -481,24 +649,38 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         return null;
       }
 
+      const recordedAt = params.recordedAt ?? new Date().toISOString();
+      const destination = payoutDestinationChange(existing, params.readiness, recordedAt);
       const result = await recordProviderReadiness(
         {
           accountId: existing.account_id as AccountId,
           status: readinessStatus(params.readiness),
           missingRequirements: params.readiness.missingRequirements,
           providerReference: params.readiness.providerReference,
+          contactEmail: params.readiness.contactEmail ?? existing.contact_email,
           onboardingStatus: params.readiness.onboardingStatus,
           transferCapabilityStatus: params.readiness.transferCapabilityStatus,
           payoutCapabilityStatus: params.readiness.payoutCapabilityStatus,
           payoutDestinationStatus: params.readiness.payoutDestinationStatus,
+          payoutDestinationFingerprint: destination.fingerprint,
+          payoutDestinationChangedAt: destination.changedAt,
           payoutAccountDashboard: params.readiness.payoutAccountDashboard,
           lossesCollector: params.readiness.lossesCollector,
           feesCollector: params.readiness.feesCollector,
           requirementsCollector: params.readiness.requirementsCollector,
-          recordedAt: params.recordedAt,
+          recordedAt,
         },
         context,
       );
+
+      if (destination.changed && destination.changedAt) {
+        await notifyPayoutDestinationChanged({
+          accountId: existing.account_id as AccountId,
+          contactEmail: params.readiness.contactEmail ?? existing.contact_email,
+          changedAt: destination.changedAt,
+          providerReference: params.providerReference,
+        });
+      }
 
       await recordOperation({
         kind: "payout-readiness-webhook-recorded",

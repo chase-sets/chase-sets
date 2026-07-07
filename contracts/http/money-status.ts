@@ -4,6 +4,8 @@ export const moneyStatusLabels = {
   "order-not-ready": "One or more orders are not ready for payment.",
   "payout-setup-incomplete": "Finish payout setup in Chase Sets before requesting funds.",
   "payout-setup-refresh-required": "Refresh payout setup status in Chase Sets before requesting funds.",
+  "payout-destination-cooling-period":
+    "Confirm it is you before requesting a payout, or wait until the payout destination cooling period ends.",
   "provider-requirements-open": "Complete the requested payout setup details before requesting funds.",
   "no-available-wallet-balance": "Available balance is zero.",
   "negative-balance-active": "Recover the negative wallet balance before requesting a payout.",

@@ -22,10 +22,13 @@ export type PayoutReadinessState = Readonly<{
   status: PayoutReadinessStatus;
   missingRequirements: readonly string[];
   providerReference: string | null;
+  contactEmail: string | null;
   onboardingStatus: ProviderSetupStatus;
   transferCapabilityStatus: ProviderCapabilityStatus;
   payoutCapabilityStatus: ProviderCapabilityStatus;
   payoutDestinationStatus: ProviderPayoutDestinationStatus;
+  payoutDestinationFingerprint: string | null;
+  payoutDestinationChangedAt: string | null;
   payoutAccountDashboard: ProviderPayoutAccountDashboard;
   lossesCollector: ProviderPayoutAccountResponsibility;
   feesCollector: ProviderPayoutAccountResponsibility;
@@ -38,10 +41,13 @@ export const initialPayoutReadinessState: PayoutReadinessState = {
   status: "not-started",
   missingRequirements: [],
   providerReference: null,
+  contactEmail: null,
   onboardingStatus: "not-started",
   transferCapabilityStatus: "inactive",
   payoutCapabilityStatus: "inactive",
   payoutDestinationStatus: "missing",
+  payoutDestinationFingerprint: null,
+  payoutDestinationChangedAt: null,
   payoutAccountDashboard: "unknown",
   lossesCollector: "unknown",
   feesCollector: "unknown",
@@ -55,10 +61,13 @@ export type RecordPayoutReadinessCommand = Readonly<{
   status: PayoutReadinessStatus;
   missingRequirements?: readonly string[];
   providerReference?: string | null;
+  contactEmail?: string | null;
   onboardingStatus?: ProviderSetupStatus | string;
   transferCapabilityStatus?: ProviderCapabilityStatus | string;
   payoutCapabilityStatus?: ProviderCapabilityStatus | string;
   payoutDestinationStatus?: ProviderPayoutDestinationStatus | string;
+  payoutDestinationFingerprint?: string | null;
+  payoutDestinationChangedAt?: string | null;
   payoutAccountDashboard?: ProviderPayoutAccountDashboard | string;
   lossesCollector?: ProviderPayoutAccountResponsibility | string;
   feesCollector?: ProviderPayoutAccountResponsibility | string;
@@ -75,10 +84,13 @@ export type PayoutReadinessRecordedEvent = DomainEvent<
     status: PayoutReadinessStatus;
     missingRequirements: string[];
     providerReference: string | null;
+    contactEmail: string | null;
     onboardingStatus: ProviderSetupStatus;
     transferCapabilityStatus: ProviderCapabilityStatus;
     payoutCapabilityStatus: ProviderCapabilityStatus;
     payoutDestinationStatus: ProviderPayoutDestinationStatus;
+    payoutDestinationFingerprint: string | null;
+    payoutDestinationChangedAt: string | null;
     payoutAccountDashboard: ProviderPayoutAccountDashboard;
     lossesCollector: ProviderPayoutAccountResponsibility;
     feesCollector: ProviderPayoutAccountResponsibility;
@@ -110,12 +122,20 @@ export const decidePayoutReadiness: AggregateDecider<
             status: normalizePayoutReadinessStatus(command.status),
             missingRequirements: normalizeRequirements(command.missingRequirements),
             providerReference: normalizeOptionalText(command.providerReference),
+            contactEmail: normalizeOptionalText(command.contactEmail),
             onboardingStatus: normalizeProviderSetupStatus(command.onboardingStatus ?? "not-started"),
             transferCapabilityStatus: normalizeProviderCapabilityStatus(command.transferCapabilityStatus ?? "inactive"),
             payoutCapabilityStatus: normalizeProviderCapabilityStatus(command.payoutCapabilityStatus ?? "inactive"),
             payoutDestinationStatus: normalizeProviderPayoutDestinationStatus(
               command.payoutDestinationStatus ?? "missing",
             ),
+            payoutDestinationFingerprint: normalizeOptionalText(command.payoutDestinationFingerprint),
+            payoutDestinationChangedAt: command.payoutDestinationChangedAt
+              ? ensureIsoTimestamp(
+                  command.payoutDestinationChangedAt,
+                  "Payout destination change recording must include a timestamp.",
+                )
+              : null,
             payoutAccountDashboard: normalizeProviderPayoutAccountDashboard(
               command.payoutAccountDashboard ?? "unknown",
             ),
@@ -139,10 +159,13 @@ export const evolvePayoutReadiness: AggregateEvolver<PayoutReadinessState, Payou
         status: event.data.status,
         missingRequirements: event.data.missingRequirements,
         providerReference: event.data.providerReference,
+        contactEmail: event.data.contactEmail,
         onboardingStatus: event.data.onboardingStatus,
         transferCapabilityStatus: event.data.transferCapabilityStatus,
         payoutCapabilityStatus: event.data.payoutCapabilityStatus,
         payoutDestinationStatus: event.data.payoutDestinationStatus,
+        payoutDestinationFingerprint: event.data.payoutDestinationFingerprint,
+        payoutDestinationChangedAt: event.data.payoutDestinationChangedAt,
         payoutAccountDashboard: event.data.payoutAccountDashboard,
         lossesCollector: event.data.lossesCollector,
         feesCollector: event.data.feesCollector,

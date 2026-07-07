@@ -5,6 +5,8 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.api.route.authentication.required": "Authentication required.",
   "settlement.features.payoutReadiness.api.route.forbidden": "Forbidden.",
   "settlement.features.payoutReadiness.api.route.request.failed": "Request failed.",
+  "settlement.features.payoutReadiness.api.route.step.up.required":
+    "Confirm it is you before managing payout account details.",
   "settlement.features.payoutReadiness.domain.setupProgress.a.payout.destination.is.ready":
     "A payout destination is ready.",
   "settlement.features.payoutReadiness.domain.setupProgress.add.or.confirm.the.payout.destination":
@@ -175,6 +177,8 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.api.route.job.not.found": "Payout reconciliation job not found.",
   "settlement.features.payouts.api.route.payout.not.found": "Payout not found.",
   "settlement.features.payouts.api.route.request.failed": "Request failed.",
+  "settlement.features.payouts.api.route.step.up.required":
+    "Confirm it is you before requesting a payout, or wait until the payout destination cooling period ends.",
   "settlement.features.payouts.api.runtime.payout.completed": "Payout completed",
   "settlement.features.payouts.api.runtime.payout.failed": "Payout failed",
   "settlement.features.payouts.api.runtime.payout.requested": "Payout requested",

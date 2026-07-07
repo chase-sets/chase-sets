@@ -299,17 +299,24 @@ describe("payout readiness runtime", () => {
           operationEvents.push(event);
         },
       },
+      sensitiveActionVerifier: vi.fn(async (input) => input.token === "fresh-step-up"),
     });
 
     await expect(
-      services.createPayoutAccountManagementSession({ accountId: "acc_seller" as never }, context),
+      services.createPayoutAccountManagementSession(
+        { accountId: "acc_seller" as never, actorUserId: "usr_seller", sensitiveActionToken: "fresh-step-up" },
+        context,
+      ),
     ).resolves.toMatchObject({
       providerReference: "acct_existing",
       clientSecret: "provider_management_secret_1",
       components: ["payout-account-management"],
     });
     await expect(
-      services.createPayoutAccountManagementSession({ accountId: "acc_seller" as never }, context),
+      services.createPayoutAccountManagementSession(
+        { accountId: "acc_seller" as never, actorUserId: "usr_seller", sensitiveActionToken: "fresh-step-up" },
+        context,
+      ),
     ).resolves.toMatchObject({
       providerReference: "acct_existing",
       clientSecret: "provider_management_secret_2",
@@ -335,6 +342,52 @@ describe("payout readiness runtime", () => {
       }),
     ]);
     expect(JSON.stringify(operationEvents)).not.toContain("provider_management_secret");
+  });
+
+  it("requires step-up before creating embedded account management sessions", async () => {
+    const operationEvents: Record<string, unknown>[] = [];
+    const moneyMovementGateway = {
+      providerName: "stripe",
+      ensurePayoutAccount: vi.fn(),
+      refreshPayoutReadiness: vi.fn(),
+      createPayoutSetupSession: vi.fn(),
+      createPayoutAccountManagementSession: vi.fn(),
+      retrievePlatformBalance: vi.fn(),
+      transferPlatformBalanceToConnectedAccount: vi.fn(),
+      createConnectedAccountPayout: vi.fn(),
+      retrieveConnectedAccountPayout: vi.fn(),
+      parseMoneyMovementWebhook: vi.fn(),
+    };
+    const services = createPayoutReadinessRuntime({
+      eventStore: createEventStore() as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: {
+        query: vi.fn(async () => ({ rows: [] })),
+      } as never,
+      moneyMovementGateway: moneyMovementGateway as never,
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    await expect(
+      services.createPayoutAccountManagementSession({ accountId: "acc_seller" as never }, context),
+    ).rejects.toThrow("Confirm it is you before managing payout account details.");
+
+    expect(moneyMovementGateway.createPayoutAccountManagementSession).not.toHaveBeenCalled();
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-account-management-session-failed",
+        accountId: "acc_seller",
+        setupSurface: "embedded-account-management",
+        safeCategory: "step_up_required",
+      }),
+    );
   });
 
   it("records setup session failures by safe category without leaking provider messages", async () => {
@@ -591,6 +644,101 @@ describe("payout readiness runtime", () => {
         payoutAccountDashboard: "express",
       }),
     );
+  });
+
+  it("emits email and web notifications when a webhook changes the payout destination fingerprint", async () => {
+    const notifications: Record<string, unknown>[] = [];
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            account_id: "acc_seller",
+            status: "ready",
+            missing_requirements: [],
+            provider_reference: "acct_v1",
+            contact_email: "seller@example.test",
+            onboarding_status: "complete",
+            transfer_capability_status: "active",
+            payout_capability_status: "active",
+            payout_destination_status: "ready",
+            payout_destination_fingerprint: "ba_old:bank_account:US:usd:4242:verified",
+            payout_destination_changed_at: null,
+            payout_account_dashboard: "none",
+            losses_collector: "application",
+            fees_collector: "application",
+            requirements_collector: "application",
+            updated_at: "2026-06-01T16:00:00.000Z",
+          },
+        ],
+      })),
+    };
+    const eventStore = createEventStore();
+    const services = createPayoutReadinessRuntime({
+      eventStore: eventStore as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: {
+        providerName: "stripe",
+        ensurePayoutAccount: vi.fn(),
+        refreshPayoutReadiness: vi.fn(),
+        createPayoutSetupSession: vi.fn(),
+        createPayoutAccountManagementSession: vi.fn(),
+        retrievePlatformBalance: vi.fn(),
+        transferPlatformBalanceToConnectedAccount: vi.fn(),
+        createConnectedAccountPayout: vi.fn(),
+        retrieveConnectedAccountPayout: vi.fn(),
+        parseMoneyMovementWebhook: vi.fn(),
+      } as never,
+      notificationOutbox: {
+        enqueueNotification: vi.fn(async (input) => {
+          notifications.push(input as never);
+        }),
+      },
+    });
+
+    await services.recordProviderReadinessFromWebhook(
+      {
+        providerReference: "acct_v1",
+        readiness: {
+          providerReference: "acct_v1",
+          contactEmail: "seller@example.test",
+          onboardingStatus: "complete",
+          transferCapabilityStatus: "active",
+          payoutCapabilityStatus: "active",
+          payoutDestinationStatus: "ready",
+          payoutDestinationFingerprint: "ba_new:bank_account:US:usd:6789:verified",
+          payoutAccountDashboard: "none",
+          lossesCollector: "application",
+          feesCollector: "application",
+          requirementsCollector: "application",
+          missingRequirements: [],
+        },
+        recordedAt: "2026-06-01T18:00:00.000Z",
+      },
+      context,
+    );
+
+    const recordedPayload = eventStore.appendToStream.mock.calls[0]?.[0].events[0]?.payload as {
+      data?: Record<string, unknown>;
+    } & Record<string, unknown>;
+    expect(recordedPayload.data ?? recordedPayload).toMatchObject({
+      payoutDestinationFingerprint: "ba_new:bank_account:US:usd:6789:verified",
+      payoutDestinationChangedAt: "2026-06-01T18:00:00.000Z",
+    });
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      message: {
+        messageType: "settlement.payout-destination-changed",
+        criticality: "security",
+        channels: [
+          { channel: "email", to: [{ email: "seller@example.test" }] },
+          { channel: "web", recipient: { accountId: "acc_seller" } },
+        ],
+      },
+    });
   });
 
   it("ignores Accounts v1 account webhook readiness for unknown provider accounts", async () => {

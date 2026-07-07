@@ -11,10 +11,12 @@ export type ProviderPayoutAccountSessionComponent = "payout-setup" | "payout-acc
 
 export type ProviderPayoutReadiness = Readonly<{
   providerReference: string;
+  contactEmail?: string | null;
   onboardingStatus: ProviderSetupStatus;
   transferCapabilityStatus: ProviderCapabilityStatus;
   payoutCapabilityStatus: ProviderCapabilityStatus;
   payoutDestinationStatus: ProviderPayoutDestinationStatus;
+  payoutDestinationFingerprint?: string | null;
   payoutAccountDashboard: ProviderPayoutAccountDashboard;
   lossesCollector: ProviderPayoutAccountResponsibility;
   feesCollector: ProviderPayoutAccountResponsibility;

@@ -55,6 +55,18 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("settlement.features.payoutReadiness.api.route.request.failed");
 }
 
+function validationErrorCode(error: unknown) {
+  return errorMessage(error).includes("Confirm it is you before managing payout account details")
+    ? "step_up_required"
+    : "validation_failed";
+}
+
+function validationErrorMessage(error: unknown) {
+  return validationErrorCode(error) === "step_up_required"
+    ? t("settlement.features.payoutReadiness.api.route.step.up.required")
+    : errorMessage(error);
+}
+
 async function resolveActorContactEmail(request: Request) {
   return resolveCurrentActorPrimaryEmail(request);
 }
@@ -144,17 +156,24 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
       );
     }
 
+    const body = await c.req.json().catch(() => ({}));
+
     try {
       const result = await services.createPayoutAccountManagementSession(
         {
           accountId: access.actor.accountId as AccountId,
+          actorUserId: access.actor.userId,
+          sensitiveActionToken:
+            typeof (body as { sensitiveActionToken?: unknown }).sensitiveActionToken === "string"
+              ? (body as { sensitiveActionToken: string }).sensitiveActionToken
+              : null,
         },
         context,
       );
 
       return c.json(result, 201);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: validationErrorCode(error), message: validationErrorMessage(error) } }, 400);
     }
   });
 

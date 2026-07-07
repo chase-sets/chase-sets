@@ -5,10 +5,13 @@ export type SettlementPayoutReadinessRow = Readonly<{
   status: "not-started" | "pending" | "ready" | "restricted";
   missing_requirements: readonly string[];
   provider_reference: string | null;
+  contact_email: string | null;
   onboarding_status: "not-started" | "pending" | "complete";
   transfer_capability_status: "inactive" | "pending" | "active";
   payout_capability_status: "inactive" | "pending" | "active";
   payout_destination_status: "missing" | "pending" | "ready";
+  payout_destination_fingerprint: string | null;
+  payout_destination_changed_at: string | null;
   payout_account_dashboard: "none" | "express" | "full" | "unknown";
   losses_collector: "application" | "stripe" | "unknown";
   fees_collector: "application" | "stripe" | "unknown";
@@ -116,10 +119,13 @@ export function createEmptyPayoutReadiness(accountId: string): SettlementPayoutR
     status: "not-started",
     missing_requirements: ["provider-onboarding", "seller-agreement"],
     provider_reference: null,
+    contact_email: null,
     onboarding_status: "not-started",
     transfer_capability_status: "inactive",
     payout_capability_status: "inactive",
     payout_destination_status: "missing",
+    payout_destination_fingerprint: null,
+    payout_destination_changed_at: null,
     payout_account_dashboard: "unknown",
     losses_collector: "unknown",
     fees_collector: "unknown",
@@ -135,10 +141,13 @@ export async function getPayoutReadiness(db: PgQueryable, accountId: string): Pr
        status,
        missing_requirements,
        provider_reference,
+       contact_email,
        onboarding_status,
        transfer_capability_status,
        payout_capability_status,
        payout_destination_status,
+       payout_destination_fingerprint,
+       payout_destination_changed_at,
        payout_account_dashboard,
        losses_collector,
        fees_collector,
@@ -163,10 +172,13 @@ export async function getPayoutReadinessByProviderReference(
        status,
        missing_requirements,
        provider_reference,
+       contact_email,
        onboarding_status,
        transfer_capability_status,
        payout_capability_status,
        payout_destination_status,
+       payout_destination_fingerprint,
+       payout_destination_changed_at,
        payout_account_dashboard,
        losses_collector,
        fees_collector,
