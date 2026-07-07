@@ -8,6 +8,9 @@ export const chartValuesRelativePath = "infrastructure/helm/platform/values.yaml
 const platformMainRelativePath = "infrastructure/digitalocean/platform/main.tf";
 const platformLocalsRelativePath = "infrastructure/digitalocean/platform/locals.tf";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
+const bootstrapQuiesceTimeoutSeconds = 45;
+const bootstrapCommandTimeoutSeconds = 780;
+const bootstrapHookActiveDeadlineSeconds = 890;
 
 const componentOrder = [
   "public-web",
@@ -219,14 +222,22 @@ export function buildPlatformHelmValues(options = {}) {
 }
 
 export function renderPlatformHelmValues(options = {}) {
-  return `${renderYaml(buildPlatformHelmValues(options))}\n`.replace(
-    "        commandTimeoutSeconds: 780\n",
-    [
-      "        # Keep bootstrap command timeout below the 15m Helm rollout timeout, which stays below the 30m app schema-lock retry budget.",
-      "        # 780s leaves 120s of Helm headroom for quiesce/restore wrapper overhead.",
-      "        commandTimeoutSeconds: 780",
-    ].join("\n") + "\n",
-  );
+  return `${renderYaml(buildPlatformHelmValues(options))}\n`
+    .replace(
+      `      activeDeadlineSeconds: ${bootstrapHookActiveDeadlineSeconds}\n`,
+      [
+        "      # Fail the hook inside Helm's 15m rollout timeout so atomic rollback sees a Kubernetes Job failure instead of a generic Helm condition timeout.",
+        `      activeDeadlineSeconds: ${bootstrapHookActiveDeadlineSeconds}`,
+      ].join("\n") + "\n",
+    )
+    .replace(
+      `        timeoutSeconds: ${bootstrapQuiesceTimeoutSeconds}\n        commandTimeoutSeconds: ${bootstrapCommandTimeoutSeconds}\n`,
+      [
+        "        # Keep 45s drain + 780s bootstrap command + 5s kill grace + 45s restore below the hook deadline.",
+        `        timeoutSeconds: ${bootstrapQuiesceTimeoutSeconds}`,
+        `        commandTimeoutSeconds: ${bootstrapCommandTimeoutSeconds}`,
+      ].join("\n") + "\n",
+    );
 }
 
 export function syncPlatformHelmValues(options = {}) {
@@ -294,6 +305,7 @@ function toHelmComponent(component) {
     result.job = {
       suspend: false,
       backoffLimit: 0,
+      activeDeadlineSeconds: bootstrapHookActiveDeadlineSeconds,
       ttlSecondsAfterFinished: 600,
       hook: {
         enabled: true,
@@ -304,8 +316,8 @@ function toHelmComponent(component) {
       quiesce: {
         enabled: true,
         targetComponents: ["platform-worker"],
-        timeoutSeconds: 300,
-        commandTimeoutSeconds: 780,
+        timeoutSeconds: bootstrapQuiesceTimeoutSeconds,
+        commandTimeoutSeconds: bootstrapCommandTimeoutSeconds,
         pollIntervalMs: 2000,
         restoreOnFailure: true,
         ignoreMissingDeployments: true,

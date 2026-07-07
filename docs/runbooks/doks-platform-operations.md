@@ -23,7 +23,7 @@ The chart renders these runtime Deployments when their component is enabled:
 - `platform-api`
 - `platform-worker`
 
-`platform-bootstrap` is a Helm pre-install/pre-upgrade Job. It quiesces worker Deployments before bootstrap and restores them when bootstrap fails. Keep the release-time timeout budget ordered as: bootstrap quiesce command timeout `780s` < Helm rollout timeout `15m` < app schema-lock retry budget `30m`. The `780s` command budget gives heavy bootstrap work more room than the old 600-second fuse while leaving 120 seconds inside Helm's 900-second rollout window for quiesce and restore wrapper overhead.
+`platform-bootstrap` is a Helm pre-install/pre-upgrade Job. It quiesces worker Deployments before bootstrap and restores them when bootstrap fails. Keep the release-time timeout budget ordered as: bootstrap command timeout `780s` < hook active deadline `890s` < Helm rollout timeout `15m` < app schema-lock retry budget `30m`. The worker drain/restore wait is capped at `45s` so a timed-out bootstrap command can still restore replicas and fail the Job before Helm's 900-second rollout window expires.
 
 ## Operator Shell Setup
 

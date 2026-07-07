@@ -156,6 +156,7 @@ describe("render platform Helm values", () => {
     expect(chartText).not.toContain("SecretProviderClass");
     expect(rolloutStates).toEqual([false, false]);
     expect(chartText).toContain("helm.sh/hook");
+    expect(chartText).toContain("activeDeadlineSeconds");
     expect(chartText).toContain("bootstrap-quiesce.mjs");
     expect(chartText).toContain("deployments/scale");
     expect(chartText).toContain("global.imagePullSecrets");
@@ -191,6 +192,7 @@ describe("render platform Helm values", () => {
     expect(bootstrap.job).toMatchObject({
       suspend: false,
       backoffLimit: 0,
+      activeDeadlineSeconds: 890,
       hook: {
         enabled: true,
         events: ["pre-install", "pre-upgrade"],
@@ -200,7 +202,7 @@ describe("render platform Helm values", () => {
       quiesce: {
         enabled: true,
         targetComponents: ["platform-worker"],
-        timeoutSeconds: 300,
+        timeoutSeconds: 45,
         commandTimeoutSeconds: 780,
         pollIntervalMs: 2000,
         restoreOnFailure: true,
