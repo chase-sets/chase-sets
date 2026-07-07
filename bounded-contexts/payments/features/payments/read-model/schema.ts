@@ -152,10 +152,6 @@ CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_account_idx
 CREATE UNIQUE INDEX IF NOT EXISTS payments_saved_checkout_instruments_provider_ref_idx
   ON payments_saved_checkout_instruments (provider, provider_reference);
 
-CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_provider_fingerprint_idx
-  ON payments_saved_checkout_instruments (provider, provider_fingerprint)
-  WHERE provider_fingerprint IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS payments_saved_checkout_instrument_audit (
   audit_id text PRIMARY KEY,
   instrument_id text NOT NULL,
