@@ -4,6 +4,7 @@ import {
   buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
   defineBoundedContextModule,
+  type BcContextManifest,
 } from "@chase-sets/bounded-context-module";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -12,6 +13,7 @@ import type { PaymentsServices, PaymentsServiceOptions } from "./support/runtime
 import { buildPaymentsApi } from "./api";
 import { buildPaymentsOrderInputProjectionHandlers } from "./features/payments/integrations/order-input/order-input-projection";
 import { buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers } from "./features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection";
+import type { PaymentDisputedEvent } from "./features/payments/domain/domain";
 import {
   buildPaymentsIdentityAccountRiskSourceProjectionHandlers,
   buildPaymentsPaymentsAccountRiskSourceProjectionHandlers,
@@ -23,11 +25,18 @@ import { createPaymentsServices } from "./support/runtime-support/services";
 import { paymentsSchemaMigrations, paymentsSchemaSql } from "./support/runtime-support/schema";
 import { seedPaymentsDatabase } from "./support/runtime-support/seed";
 
+const paymentsContextManifest = contextManifest as BcContextManifest;
+
 type SubscriptionContextEvent = Readonly<{
   tenantId: EventStoreContext["tenantId"];
   audit: EventStoreContext["audit"];
   trace: EventStoreContext["trace"];
 }>;
+
+type PaymentDisputedReactionEvent = SubscriptionContextEvent &
+  Readonly<{
+    data: PaymentDisputedEvent["data"];
+  }>;
 
 function subscriptionEventContext(event: SubscriptionContextEvent): EventStoreContext {
   return {
@@ -38,7 +47,7 @@ function subscriptionEventContext(event: SubscriptionContextEvent): EventStoreCo
 }
 
 export const module = defineBoundedContextModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>({
-  manifest: contextManifest,
+  manifest: paymentsContextManifest,
   schemaSql: paymentsSchemaSql,
   schemaMigrations: paymentsSchemaMigrations,
   createServices: (pool, options) => createPaymentsServices(pool, options),
@@ -47,7 +56,7 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
   buildSubscriptions: (services) => [
     ...buildEventSubscriptionsFromManifest({
       contextName: "payments",
-      manifest: contextManifest,
+      manifest: paymentsContextManifest,
       handlers: {
         "ordering.payments-order-input-projection": () => buildPaymentsOrderInputProjectionHandlers(services.db),
         "fulfillment.payments-fulfillment-dispute-evidence-source-projection": () =>
@@ -71,11 +80,11 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
     }),
     ...buildEventReactionsFromManifest({
       contextName: "payments",
-      manifest: contextManifest,
+      manifest: paymentsContextManifest,
       handlers: {
         "payments.payments-dispute-evidence-submission": () => ({
-          "payments.payment-disputed": async (event) => {
-            const data = event.data as Parameters<PaymentsServices["payments"]["submitDisputeEvidence"]>[0];
+          "payments.payment-disputed": async (event: PaymentDisputedReactionEvent) => {
+            const data = event.data;
             if (data.disputeLifecycleState !== "created" && data.disputeLifecycleState !== "updated") {
               return;
             }

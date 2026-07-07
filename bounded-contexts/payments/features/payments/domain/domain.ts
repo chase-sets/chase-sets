@@ -656,23 +656,21 @@ function normalizeSellerPayoutComponents(components: readonly SellerPayoutCompon
   }));
 }
 
-function normalizePaymentDisputeEvidenceSummary(
-  summary: PaymentDisputeEvidenceSummary,
-): PaymentDisputeEvidenceSummary {
+function normalizePaymentDisputeEvidenceSummary(summary: PaymentDisputeEvidenceSummary): PaymentDisputeEvidenceSummary {
   const orderIds = normalizeOrderIds(summary.orderIds);
   return {
     trackingNumbers: [
       ...new Set(
-        summary.trackingNumbers.map((value) => normalizeOptionalText(value)).filter((value): value is string =>
-          Boolean(value),
-        ),
+        summary.trackingNumbers
+          .map((value) => normalizeOptionalText(value))
+          .filter((value): value is string => Boolean(value)),
       ),
     ],
     carriers: [
       ...new Set(
-        summary.carriers.map((value) => normalizeOptionalText(value)).filter((value): value is string =>
-          Boolean(value),
-        ),
+        summary.carriers
+          .map((value) => normalizeOptionalText(value))
+          .filter((value): value is string => Boolean(value)),
       ),
     ],
     deliveredAt: summary.deliveredAt

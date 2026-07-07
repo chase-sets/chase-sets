@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PaymentProcessorGateway } from "@chase-sets/payment-processing";
-import type { PaymentDisputedEvent } from "../../domain/domain";
 import {
-  assembleProcessorDisputeEvidence,
-  submitPaymentDisputeEvidence,
-} from "./dispute-evidence-submission";
+  initialPaymentState,
+  type PaymentCommand,
+  type PaymentDisputedEvent,
+  type PaymentEvent,
+  type PaymentState,
+} from "../../domain/domain";
+import { assembleProcessorDisputeEvidence, submitPaymentDisputeEvidence } from "./dispute-evidence-submission";
 import type { PaymentsFulfillmentDisputeEvidenceSourceRow } from "./dispute-evidence-queries";
 
 const context = {
@@ -109,17 +113,19 @@ function shipment(overrides: Partial<PaymentsFulfillmentDisputeEvidenceSourceRow
   } satisfies PaymentsFulfillmentDisputeEvidenceSourceRow;
 }
 
-function fakeDb(params: Readonly<{
-  shipments: readonly PaymentsFulfillmentDisputeEvidenceSourceRow[];
-  idempotencyExists?: boolean;
-}>): PgQueryable {
+function fakeDb(
+  params: Readonly<{
+    shipments: readonly PaymentsFulfillmentDisputeEvidenceSourceRow[];
+    idempotencyExists?: boolean;
+  }>,
+): PgQueryable {
   return {
     query: vi.fn(async (sql: string) => {
       if (sql.includes("FROM payments_order_inputs")) {
         return { rows: [orderRow()], rowCount: 1 };
       }
       if (sql.includes("FROM payments_fulfillment_dispute_evidence_sources")) {
-        return { rows: params.shipments, rowCount: params.shipments.length };
+        return { rows: [...params.shipments], rowCount: params.shipments.length };
       }
       if (sql.includes("FROM payments_provider_idempotency_keys")) {
         return {
@@ -145,14 +151,21 @@ function fakeDb(params: Readonly<{
 }
 
 function gateway(): PaymentProcessorGateway {
-  return {
-    getPublicConfiguration: vi.fn(() => ({
-      processorName: "stripe",
-      publishableKey: "pk_test",
-      confirmationExperience: "processor-managed-form",
-      dynamicPaymentMethods: true,
-      sensitivePaymentDetailsHandledByProcessor: true,
-    })),
+  const getPublicConfiguration: PaymentProcessorGateway["getPublicConfiguration"] = () => ({
+    processorName: "stripe",
+    publishableKey: "pk_test",
+    confirmationExperience: "processor-managed-form",
+    dynamicPaymentMethods: true,
+    sensitivePaymentDetailsHandledByProcessor: true,
+  });
+  const submitDisputeEvidence: NonNullable<PaymentProcessorGateway["submitDisputeEvidence"]> = async () => ({
+    processorName: "stripe",
+    providerDisputeId: "dp_1",
+    processorStatus: "under_review",
+    submittedAt: "2026-07-06T12:01:00.000Z",
+  });
+  const processorGateway = {
+    getPublicConfiguration: vi.fn(getPublicConfiguration),
     createCustomer: vi.fn(),
     createSetupSession: vi.fn(),
     retrieveSetupSessionResult: vi.fn(),
@@ -162,13 +175,21 @@ function gateway(): PaymentProcessorGateway {
     retrievePaymentResult: vi.fn(),
     createRefund: vi.fn(),
     parseWebhook: vi.fn(),
-    submitDisputeEvidence: vi.fn(async () => ({
-      processorName: "stripe",
-      providerDisputeId: "dp_1",
-      processorStatus: "under_review",
-      submittedAt: "2026-07-06T12:01:00.000Z",
-    })),
-  } as unknown as PaymentProcessorGateway;
+    submitDisputeEvidence: vi.fn(submitDisputeEvidence),
+  } satisfies PaymentProcessorGateway;
+
+  return processorGateway;
+}
+
+function paymentCommandHandler(): CommandHandler<PaymentCommand, PaymentState, PaymentEvent> {
+  const handler: CommandHandler<PaymentCommand, PaymentState, PaymentEvent> = async () => ({
+    state: initialPaymentState,
+    version: 1,
+    newEvents: [],
+    storedEvents: [],
+  });
+
+  return vi.fn(handler);
 }
 
 describe("payment dispute evidence submission", () => {
@@ -210,7 +231,7 @@ describe("payment dispute evidence submission", () => {
 
   it("records no tracking available without submitting to Stripe", async () => {
     const processorGateway = gateway();
-    const commandHandler = vi.fn(async () => ({ newEvents: [] }));
+    const commandHandler = paymentCommandHandler();
 
     const result = await submitPaymentDisputeEvidence(
       {
@@ -233,7 +254,7 @@ describe("payment dispute evidence submission", () => {
 
   it("does not submit again when the provider idempotency ledger already recorded the dispute evidence", async () => {
     const processorGateway = gateway();
-    const commandHandler = vi.fn(async () => ({ newEvents: [] }));
+    const commandHandler = paymentCommandHandler();
 
     const result = await submitPaymentDisputeEvidence(
       {

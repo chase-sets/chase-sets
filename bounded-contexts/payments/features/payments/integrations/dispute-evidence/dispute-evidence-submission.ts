@@ -160,19 +160,16 @@ export async function submitPaymentDisputeEvidence(
   };
 }
 
-export function assembleProcessorDisputeEvidence(input: Readonly<{
-  dispute: Pick<
-    PaymentDisputedEvent["data"],
-    | "paymentId"
-    | "orderIds"
-    | "providerDisputeId"
-    | "disputeReason"
-    | "disputeEvidenceDueAt"
-    | "sellerPayouts"
-  >;
-  orders: readonly PaymentOrderInputRow[];
-  fulfillmentSources: readonly PaymentsFulfillmentDisputeEvidenceSourceRow[];
-}>): Readonly<{ evidence: ProcessorDisputeEvidence; evidenceSummary: PaymentDisputeEvidenceSummary }> | null {
+export function assembleProcessorDisputeEvidence(
+  input: Readonly<{
+    dispute: Pick<
+      PaymentDisputedEvent["data"],
+      "paymentId" | "orderIds" | "providerDisputeId" | "disputeReason" | "disputeEvidenceDueAt" | "sellerPayouts"
+    >;
+    orders: readonly PaymentOrderInputRow[];
+    fulfillmentSources: readonly PaymentsFulfillmentDisputeEvidenceSourceRow[];
+  }>,
+): Readonly<{ evidence: ProcessorDisputeEvidence; evidenceSummary: PaymentDisputeEvidenceSummary }> | null {
   const trackedShipments = input.fulfillmentSources.filter((shipment) => shipment.tracking_identifier?.trim());
   if (trackedShipments.length === 0) {
     return null;
@@ -196,7 +193,10 @@ export function assembleProcessorDisputeEvidence(input: Readonly<{
 
   return {
     evidence: {
-      customerEmailAddress: firstPresent(input.orders.map((order) => order.buyer_email), address?.email ?? null),
+      customerEmailAddress: firstPresent(
+        input.orders.map((order) => order.buyer_email),
+        address?.email ?? null,
+      ),
       customerName: address?.name ?? null,
       productDescription: productDescription(trackedShipments),
       shippingAddress: address ? formatAddress(address) : null,
@@ -217,7 +217,7 @@ function unavailable(
   dispute: Pick<PaymentDisputedEvent["data"], "providerDisputeId" | "orderIds">,
   fulfillmentSources: readonly PaymentsFulfillmentDisputeEvidenceSourceRow[],
   reason: "tracking-unavailable",
-): PaymentDisputeEvidenceSubmissionResult {
+): Extract<PaymentDisputeEvidenceSubmissionResult, { status: "unavailable" }> {
   return {
     status: "unavailable",
     providerDisputeId: dispute.providerDisputeId,
@@ -262,14 +262,16 @@ function productDescription(shipments: readonly PaymentsFulfillmentDisputeEviden
   return [...new Set(descriptions.filter(Boolean))].join("\n").slice(0, 4000) || null;
 }
 
-function disputeNarrative(input: Readonly<{
-  dispute: Pick<
-    PaymentDisputedEvent["data"],
-    "paymentId" | "orderIds" | "providerDisputeId" | "disputeReason" | "disputeEvidenceDueAt"
-  >;
-  shipments: readonly PaymentsFulfillmentDisputeEvidenceSourceRow[];
-  sellerPayouts: readonly SellerPayoutComponent[];
-}>) {
+function disputeNarrative(
+  input: Readonly<{
+    dispute: Pick<
+      PaymentDisputedEvent["data"],
+      "paymentId" | "orderIds" | "providerDisputeId" | "disputeReason" | "disputeEvidenceDueAt"
+    >;
+    shipments: readonly PaymentsFulfillmentDisputeEvidenceSourceRow[];
+    sellerPayouts: readonly SellerPayoutComponent[];
+  }>,
+) {
   const deliveryLines = input.shipments.map((shipment) => {
     const delivered = shipment.delivered_at ? ` Delivery confirmed at ${shipment.delivered_at}.` : "";
     const dispatched = shipment.dispatched_at ? ` Dispatched at ${shipment.dispatched_at}.` : "";
