@@ -577,10 +577,11 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
     expectTerraformAssignment(platformLocals, "api_database_pool_max", '"6"');
-    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_staging ? 12 : 7");
+    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_staging ? 14 : 8");
     expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
     expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
     expectTerraformAssignment(platformLocals, "worker_projection_concurrency", 'local.is_staging ? "2" : "1"');
+    expectTerraformAssignment(platformLocals, "worker_operations_concurrency", 'local.is_staging ? "2" : "1"');
     expectTerraformAssignment(platformLocals, "worker_wake_concurrency", 'local.is_staging ? "3" : "2"');
     expectTerraformAssignment(platformLocals, "worker_wake_hot_lane_runners", '"1"');
     expectTerraformAssignment(platformLocals, "worker_wake_standard_lane_runners", 'local.is_staging ? "2" : "1"');
@@ -736,11 +737,61 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"')).toBe(3);
     expect(occurrenceCount(platformMain, 'key   = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"')).toBe(3);
     expect(platformMain).toContain('check "worker_runner_capacity"');
+    expect(platformMain).toContain("tonumber(local.worker_projection_concurrency)");
+    expect(platformMain).toContain("tonumber(local.worker_operations_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_inventory_import_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_OPERATION_RUNNER_COUNT"')).toBe(1);
     expect(platformMain).toContain('worker {\n      name               = "platform-worker"');
     expect(platformMain).not.toMatch(/name\s+= "platform-worker"[\s\S]*?http_port\s+= 8080/);
+  });
+
+  it("fits every worker runner group (including the operations executor) inside the worker pool budget", () => {
+    // Regression guard for #4620: #4599 added the projection-operations runner
+    // group (default 2) without counting it against worker_database_pool_max,
+    // so total runner concurrency (9) exceeded the pool (7) and the runtime
+    // capacity guard crash-looped the staging worker. Compute the same sum the
+    // runtime asserts, per environment, so this class fails the plan/CI instead
+    // of the pod.
+    const readConcurrencyLocal = (localName) => {
+      const match = platformLocals.match(new RegExp(`${localName}\\s+=\\s+(.+)`));
+      if (!match) {
+        throw new Error(`local.${localName} is missing from platform locals.`);
+      }
+      const expression = match[1];
+      const staging = expression.match(/local\.is_staging \? "?(\d+)"?/);
+      const otherwise = expression.match(/: "?(\d+)"?/);
+      const literal = expression.match(/^"?(\d+)"?/);
+      return {
+        staging: Number(staging?.[1] ?? literal?.[1]),
+        production: Number(otherwise?.[1] ?? literal?.[1]),
+      };
+    };
+
+    const groups = [
+      "worker_projection_concurrency",
+      "worker_operations_concurrency",
+      "worker_job_concurrency",
+      "worker_inventory_import_concurrency",
+      "worker_dispatch_concurrency",
+      "worker_scheduled_concurrency",
+      "worker_wake_concurrency",
+    ].map(readConcurrencyLocal);
+
+    // worker_job_concurrency wraps its is_staging default in a var override;
+    // read the default (worker_default_job_concurrency) for the budget sum.
+    const jobDefault = readConcurrencyLocal("worker_default_job_concurrency");
+    groups[2] = jobDefault;
+
+    const poolMax = readConcurrencyLocal("worker_default_database_pool_max");
+    const stagingTotal = groups.reduce((total, group) => total + group.staging, 0);
+    const productionTotal = groups.reduce((total, group) => total + group.production, 0);
+
+    expect(stagingTotal).toBe(14);
+    expect(productionTotal).toBe(8);
+    expect(stagingTotal).toBeLessThanOrEqual(poolMax.staging);
+    expect(productionTotal).toBeLessThanOrEqual(poolMax.production);
   });
 
   it("models the push-wake connection budget and listener topology parity as plan-time checks", () => {

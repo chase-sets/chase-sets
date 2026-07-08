@@ -62,7 +62,12 @@ describe("render platform Helm values", () => {
     for (const terraformComponent of terraformComponents) {
       const helmComponent = values.components[terraformComponent.name];
       expect(helmComponent.command).toBe(terraformComponent.command);
-      expect(helmComponent.port ?? null).toBe(terraformComponent.port ?? null);
+      // The worker declares no App Platform http_port but gets a DOKS-only
+      // health port injected for its liveness/readiness probes (#4620), so it
+      // is exempt from the App-Platform port-parity check.
+      if (terraformComponent.name !== "platform-worker") {
+        expect(helmComponent.port ?? null).toBe(terraformComponent.port ?? null);
+      }
       expect(helmComponent.source.instanceCountExpression).toBe(terraformComponent.instanceCountExpression);
     }
 
@@ -74,6 +79,54 @@ describe("render platform Helm values", () => {
     expect(values.components["platform-bootstrap"].command).toBe(
       "pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
     );
+  });
+
+  it("gives the worker a health probe port and fits every runner group in its pool budget", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const worker = values.components["platform-worker"];
+
+    // #4620: the worker serves /health/live + /health/ready from an in-process
+    // server that only binds after full boot, so probing it makes a
+    // boot-crashing worker fail the rollout. Readiness gates the rollout; the
+    // startup probe holds liveness off until boot completes.
+    expect(worker.port).toBe(8080);
+    expect(worker.healthPath).toBe("/health/ready");
+    expect(worker.startupPath).toBe("/health/live");
+    // No in-cluster consumer, so no ClusterIP Service is minted for the worker.
+    expect(worker.service).toBeUndefined();
+
+    const envValue = (name) => worker.env.find((entry) => entry.name === name)?.value;
+    // Every runner group summed by the runtime capacity guard, mapped to its
+    // rendered env knob. Operations defaults to the same code default the
+    // runtime uses when the env is absent.
+    const runnerGroupEnvNames = [
+      "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS",
+      "WORKER_PROJECTION_OPERATION_RUNNER_COUNT",
+      "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
+      "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS",
+      "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS",
+      "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS",
+      "WORKER_WAKE_MAX_CONCURRENT_RUNNERS",
+    ];
+    const totalRunnerConcurrency = runnerGroupEnvNames.reduce((total, name) => {
+      const value = envValue(name);
+      expect(value, `${name} must be rendered explicitly for the worker`).toBeDefined();
+      return total + Number(value);
+    }, 0);
+    const poolMax = Number(envValue("DATABASE_POOL_MAX"));
+
+    expect(totalRunnerConcurrency).toBe(8);
+    expect(totalRunnerConcurrency).toBeLessThanOrEqual(poolMax);
+  });
+
+  it("wires the worker startup/liveness/readiness probes in the deployment template", () => {
+    const [helperTemplate] = readChartFiles(["templates/_helpers.tpl"]);
+
+    expect(helperTemplate).toContain("readinessProbe:");
+    expect(helperTemplate).toContain("startupProbe:");
+    expect(helperTemplate).toContain("livenessProbe:");
+    expect(helperTemplate).toContain("if $component.startupPath");
+    expect(helperTemplate).toContain("failureThreshold: 30");
   });
 
   it("scaffolds Rollouts only for public buyer web components and keeps them disabled by default", () => {
@@ -117,7 +170,7 @@ describe("render platform Helm values", () => {
       marketplace: 13,
       "platform-api": 82,
       "platform-bootstrap": 51,
-      "platform-worker": 110,
+      "platform-worker": 112,
       "public-web": 12,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
