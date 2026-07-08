@@ -1,0 +1,7 @@
+generatedBy: "node ./scripts/render-platform-helm-values.mjs"
+components:
+  platform-worker:
+    envOverrides:
+      DATABASE_POOL_MAX: "9"
+      WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3"
+      WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2"

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CI-safe push-wake capacity evidence for #1363/#1364.
+// CI-safe push-wake capacity evidence for #1363/#1364/#4633.
 //
 // Reads checked-in Terraform and registry sources only. It does not contact
 // DigitalOcean, databases, staging, production, or secret-backed services.
@@ -9,6 +9,7 @@ import process from "node:process";
 import { resolve } from "node:path";
 import { readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { doksStagingWorkerEnvOverrides } from "./render-platform-helm-values.mjs";
 
 export const PUSH_WAKE_CAPACITY_EVIDENCE_VERSION = "push-wake-capacity-evidence/v1";
 
@@ -66,6 +67,11 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
       stagingWorkerDatabasePoolMax: extractTernaryNumbers(localsSource, "worker_default_database_pool_max").trueValue,
       productionWorkerDatabasePoolMax: extractTernaryNumbers(localsSource, "worker_default_database_pool_max")
         .falseValue,
+      doksStagingWorkerDatabasePoolMax: Number(doksStagingWorkerEnvOverrides.DATABASE_POOL_MAX),
+      doksStagingWakeMaxConcurrentRunners: Number(doksStagingWorkerEnvOverrides.WORKER_WAKE_MAX_CONCURRENT_RUNNERS),
+      doksStagingWakeStandardLaneRunnerCount: Number(
+        doksStagingWorkerEnvOverrides.WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT,
+      ),
       stagingWorkerInstances: extractTernaryNumbers(localsSource, "default_worker_instances").trueValue,
       productionWorkerInstances: extractTernaryNumbers(localsSource, "default_worker_instances").falseValue,
       stagingApiInstances: extractTernaryNumbers(localsSource, "api_instances").falseValue,
@@ -126,6 +132,41 @@ export function buildPushWakeCapacityEvidence(input) {
     directAppBackendDemand: productionApiPoolDemand + productionWorkerPoolDemand,
     productionLikeDirectBindings: true,
   });
+  const doksStagingDirectAppBackendDemand =
+    input.defaults.apiDatabasePoolMax * input.defaults.apiComponentCount * input.defaults.stagingApiInstances +
+    input.defaults.doksStagingWorkerDatabasePoolMax * input.defaults.workerComponentCount;
+  const doksStaging = {
+    ...buildEnvironmentBudget({
+      environment: "staging-doks",
+      databaseSize: input.defaults.stagingDatabaseSize,
+      clusterConnectionLimits: input.clusterConnectionLimits,
+      upgradeTriggerPercent: input.defaults.connectionBudgetUpgradeTriggerPercent,
+      pgbouncerServerBackendAllocation: 0,
+      directListenerCount: input.directListenerContexts.length,
+      apiWaiterListenerDemand:
+        input.apiWaiterContexts.length * input.defaults.apiComponentCount * input.defaults.stagingApiInstances,
+      bootstrapDemand: input.defaults.bootstrapDatabasePoolMax,
+      directAppBackendDemand: doksStagingDirectAppBackendDemand,
+      productionLikeDirectBindings: true,
+    }),
+    queryConnectionMode: "direct",
+    queryConnectionSource:
+      "platform-production.yml exports DOKS staging DATABASE_URL_* and PLATFORM_* URLs from digitalocean_database_user.contexts plus digitalocean_database_cluster.postgres host/port, not digitalocean_database_connection_pool.contexts.",
+    apiPoolDemand:
+      input.defaults.apiDatabasePoolMax * input.defaults.apiComponentCount * input.defaults.stagingApiInstances,
+    workerPoolDemand: input.defaults.doksStagingWorkerDatabasePoolMax * input.defaults.workerComponentCount,
+    workerCapacity: {
+      databasePoolMax: input.defaults.doksStagingWorkerDatabasePoolMax,
+      previousDatabasePoolMax: input.defaults.productionWorkerDatabasePoolMax,
+      configuredRunnerConcurrency: 1 + 1 + 1 + 1 + 1 + 1 + input.defaults.doksStagingWakeMaxConcurrentRunners,
+      wakeMaxConcurrentRunners: input.defaults.doksStagingWakeMaxConcurrentRunners,
+      wakeStandardLaneRunnerCount: input.defaults.doksStagingWakeStandardLaneRunnerCount,
+      steadyStatePoolDelta:
+        input.defaults.doksStagingWorkerDatabasePoolMax - input.defaults.productionWorkerDatabasePoolMax,
+      deployOverlapPoolDelta:
+        2 * (input.defaults.doksStagingWorkerDatabasePoolMax - input.defaults.productionWorkerDatabasePoolMax),
+    },
+  };
 
   const activeDirectListenerExpansion = evaluateExpansion({
     currentOverlapDemand: production.deployOverlap.total,
@@ -154,7 +195,7 @@ export function buildPushWakeCapacityEvidence(input) {
   return {
     schemaVersion: PUSH_WAKE_CAPACITY_EVIDENCE_VERSION,
     checkedAt: input.checkedAt,
-    issueNumbers: [1363, 1364],
+    issueNumbers: [1363, 1364, 4633],
     sourcePaths: input.sourcePaths,
     terraformDefaults: {
       platformContextCount: input.platformContextNames.length,
@@ -165,6 +206,7 @@ export function buildPushWakeCapacityEvidence(input) {
       apiDatabasePoolMax: input.defaults.apiDatabasePoolMax,
       apiComponentCount: input.defaults.apiComponentCount,
       productionWorkerDatabasePoolMax: input.defaults.productionWorkerDatabasePoolMax,
+      doksStagingWorkerDatabasePoolMax: input.defaults.doksStagingWorkerDatabasePoolMax,
       workerComponentCount: input.defaults.workerComponentCount,
       bootstrapDatabasePoolMax: input.defaults.bootstrapDatabasePoolMax,
       clusterConnectionLimits: input.clusterConnectionLimits,
@@ -172,6 +214,7 @@ export function buildPushWakeCapacityEvidence(input) {
     },
     environments: {
       staging,
+      doksStaging,
       production: {
         ...production,
         apiPoolDemand: productionApiPoolDemand,
@@ -213,6 +256,7 @@ export function buildPushWakeCapacityEvidence(input) {
 
 export function renderPushWakeCapacityMarkdown(evidence) {
   const production = evidence.environments.production;
+  const doksStaging = evidence.environments.doksStaging;
   const wave2 = evidence.expansionDecision.wave2DirectListenerExpansion;
   const active = evidence.expansionDecision.activeRegistryDirectListenerExpansion;
   return [
@@ -230,6 +274,13 @@ export function renderPushWakeCapacityMarkdown(evidence) {
     `- Tier-upgrade trigger: ${production.upgradeTrigger}/${production.limit} (${production.upgradeTriggerPercent}%)`,
     `- Additional direct listener contexts that fit current tier during overlap: ${production.deployOverlap.additionalDirectListenerContextsAtCurrentTier}`,
     `- Additional direct listener contexts before upgrade trigger: ${production.deployOverlap.additionalDirectListenerContextsBeforeUpgradeTrigger}`,
+    "",
+    "## DOKS Staging Connection Budget",
+    "",
+    `- Query connection mode: \`${doksStaging.queryConnectionMode}\``,
+    `- Worker pool: ${doksStaging.workerCapacity.previousDatabasePoolMax} -> ${doksStaging.workerCapacity.databasePoolMax}; wake max ${doksStaging.workerCapacity.wakeMaxConcurrentRunners}; standard lane ${doksStaging.workerCapacity.wakeStandardLaneRunnerCount}`,
+    `- Steady state: ${doksStaging.steadyState.total}/${doksStaging.limit} (headroom ${doksStaging.steadyState.headroom})`,
+    `- Rolling-deploy overlap: ${doksStaging.deployOverlap.total}/${doksStaging.limit} (headroom ${doksStaging.deployOverlap.headroom})`,
     "",
     "## Listener Expansion Decision",
     "",

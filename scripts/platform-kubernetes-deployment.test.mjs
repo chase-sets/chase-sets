@@ -10,6 +10,7 @@ import {
   deployPlatformToKubernetes,
   helmReleaseExists,
   parsePlatformImageRef,
+  platformValuesPathForEnvironment,
   platformKubernetesWorkloads,
   rollbackPlatformOnKubernetes,
 } from "./platform-kubernetes-deployment.mjs";
@@ -139,6 +140,33 @@ describe("platform Kubernetes deployment", () => {
         "global.envOverrides.CATALOG_ASSET_S3_BUCKET=chase-sets-production-catalog-assets",
       ]),
     );
+  });
+
+  it("loads the staging Helm overlay only for staging deployments", () => {
+    expect(platformValuesPathForEnvironment("staging")).toBe("infrastructure/helm/platform/values.staging.yaml");
+    expect(platformValuesPathForEnvironment("production")).toBeNull();
+    expect(
+      buildHelmUpgradeArgs({
+        release: "staging-platform",
+        namespace: "staging",
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          DEPLOYMENT_ENVIRONMENT: "staging",
+        },
+      }),
+    ).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.staging.yaml"]));
+    expect(
+      buildHelmUpgradeArgs({
+        release: "production-platform",
+        namespace: "production",
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          DEPLOYMENT_ENVIRONMENT: "production",
+        },
+      }),
+    ).not.toContain("--values");
   });
 
   it("escapes comma-separated runtime environment override values for Helm", () => {
