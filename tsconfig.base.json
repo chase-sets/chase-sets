@@ -544,6 +544,9 @@
       "@chase-sets/platform-runtime": [
         "./infrastructure/platform-runtime/index.ts"
       ],
+      "@chase-sets/platform-runtime/agent-guardrails": [
+        "./infrastructure/platform-runtime/agent-guardrails.ts"
+      ],
       "@chase-sets/platform-runtime/api": [
         "./infrastructure/platform-runtime/api.ts"
       ],
