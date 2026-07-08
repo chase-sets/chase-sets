@@ -95,13 +95,33 @@ export const e2eSuites = Object.freeze([
     grep: "@admin-access",
     estimatedDurationSeconds: 300,
   },
+  {
+    id: "platform_mcp_sdk",
+    label: "Platform MCP SDK",
+    deployable: "platform-api",
+    journeys: ["SDK client discovery", "agent commerce journey", "agent grant guardrails"],
+    grep: "@mcp-sdk-journey",
+    command: [
+      "--filter",
+      "@chase-sets/app-platform-api",
+      "exec",
+      "vitest",
+      "run",
+      "--config",
+      "./vitest.config.ts",
+      "__tests__/mcp-sdk-agent-journey.e2e.test.ts",
+    ],
+    estimatedDurationSeconds: 90,
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
 const suitesById = new Map(e2eSuites.map((suite) => [suite.id, suite]));
 const allMarketplaceSuiteIds = e2eSuites.filter((suite) => suite.deployable === "marketplace").map((suite) => suite.id);
 const allAdminWebSuiteIds = e2eSuites.filter((suite) => suite.deployable === "admin-web").map((suite) => suite.id);
-const allBrowserSuiteIds = e2eSuites.map((suite) => suite.id);
+const allBrowserSuiteIds = e2eSuites
+  .filter((suite) => suite.deployable === "marketplace" || suite.deployable === "admin-web")
+  .map((suite) => suite.id);
 const defaultSuiteBatchSize = 2;
 const fallbackEstimatedSuiteDurationSeconds = 300;
 
