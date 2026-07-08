@@ -27,7 +27,16 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
   schemaMigrations: checkoutSchemaMigrations,
   createServices: (pool, options) => createCheckoutServices(pool, options),
   buildApis: (services) => [buildCheckoutApi(services)],
-  buildMcpHandlers: (services) => createCheckoutCartMcpHandlers(services.cart),
+  buildMcpHandlers: (services) => {
+    const missingCheckoutMcpService = () => {
+      throw new Error("Checkout MCP service dependency is not available.");
+    };
+    return createCheckoutCartMcpHandlers({
+      cart: services.cart,
+      sessions: services.sessions ?? { setShippingAddress: missingCheckoutMcpService },
+      listSavedShippingAddresses: services.sellList?.listShipFromAddresses ?? missingCheckoutMcpService,
+    });
+  },
   projectionHandlerSets: (services) => services.projectors,
   seed: seedCheckoutDatabase,
   buildSubscriptions: (services) =>

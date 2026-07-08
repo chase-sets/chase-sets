@@ -143,7 +143,11 @@ describe("MCP service catalog", () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual([
+      "checkout.add-cart-line",
       "checkout.get-cart",
+      "checkout.remove-cart-line",
+      "checkout.select-saved-address",
+      "checkout.update-cart-line",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
       "fulfillment.void-label",
@@ -265,6 +269,37 @@ describe("MCP service catalog", () => {
           },
         ],
         total: 1,
+      }),
+    ).toEqual([]);
+    for (const toolName of ["checkout.add-cart-line", "checkout.update-cart-line", "checkout.remove-cart-line"]) {
+      expect(
+        validateOutputSchema(findMcpTool(toolName)?.outputSchema, {
+          accountId: "acct_1",
+          id: "cli_1",
+          cartLineId: "cli_1",
+          version: 2,
+          status: toolName === "checkout.remove-cart-line" ? "removed" : "updated",
+          resourceUri: "chase-sets://checkout/acct_1/cart",
+        }),
+      ).toEqual([]);
+    }
+    expect(
+      validateOutputSchema(findMcpTool("checkout.select-saved-address")?.outputSchema, {
+        accountId: "acct_1",
+        id: "chk_1",
+        sessionId: "chk_1",
+        shippingAddressId: "adr_home",
+        status: "shipping-address-selected",
+        resourceUri: "chase-sets://checkout/acct_1/sessions/chk_1",
+        commitPosition: "42",
+        commitEventIds: ["evt_shipping_address"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_shipping_address"],
+          },
+        ],
       }),
     ).toEqual([]);
     for (const toolName of [

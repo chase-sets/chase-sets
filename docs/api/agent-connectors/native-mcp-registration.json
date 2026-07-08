@@ -2553,6 +2553,598 @@
       ]
     },
     {
+      "name": "checkout.add-cart-line",
+      "title": "Add Cart Line",
+      "description": "Add a product or locked listing snapshot to the cart.",
+      "service_id": "checkout",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "catalogItemId",
+          "productId",
+          "itemTitle",
+          "quantity",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog item identifier from marketplace discovery."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Resolved product identifier for the selected options."
+          },
+          "itemTitle": {
+            "type": "string",
+            "description": "Buyer-visible item title snapshot."
+          },
+          "itemSubtitle": {
+            "type": "string",
+            "description": "Optional buyer-visible item subtitle snapshot."
+          },
+          "itemImageUrl": {
+            "type": "string",
+            "description": "Optional buyer-visible item image URL snapshot."
+          },
+          "selectedOptions": {
+            "type": "array",
+            "description": "Selected catalog options.",
+            "items": {
+              "type": "object",
+              "description": "Selected catalog option.",
+              "additionalProperties": false,
+              "required": [
+                "dimensionId",
+                "optionId"
+              ],
+              "properties": {
+                "dimensionId": {
+                  "type": "string",
+                  "description": "Catalog dimension identifier."
+                },
+                "optionId": {
+                  "type": "string",
+                  "description": "Catalog option identifier."
+                }
+              }
+            }
+          },
+          "productSummary": {
+            "type": "string",
+            "description": "Optional buyer-visible product summary."
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Requested quantity."
+          },
+          "fulfillmentMode": {
+            "type": "string",
+            "description": "Cart fulfillment mode.",
+            "enum": [
+              "optimize",
+              "locked-listing"
+            ]
+          },
+          "lockedListingId": {
+            "type": "string",
+            "description": "Marketplace listing identifier when locking the line to a seller."
+          },
+          "sellerPreferenceId": {
+            "type": "string",
+            "description": "Optional preferred seller account identifier."
+          },
+          "selectedListingSnapshot": {
+            "type": "object",
+            "description": "Optional selected listing snapshot for locked-listing lines.",
+            "additionalProperties": false,
+            "properties": {
+              "listingId": {
+                "type": "string",
+                "description": "Marketplace listing identifier."
+              },
+              "sellerAccountId": {
+                "type": "string",
+                "description": "Seller account identifier."
+              },
+              "sellerDisplayName": {
+                "type": "string",
+                "description": "Seller display name."
+              },
+              "sellerSlug": {
+                "type": "string",
+                "description": "Seller slug."
+              },
+              "priceAmount": {
+                "type": "string",
+                "description": "Listing price amount."
+              },
+              "source": {
+                "type": "string",
+                "description": "Snapshot source."
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without changing cart state."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "cartLineId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Checkout cart line identifier."
+          },
+          "cartLineId": {
+            "type": "string",
+            "description": "Checkout cart line identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Cart stream version after the write."
+          },
+          "status": {
+            "type": "string",
+            "description": "Cart line write status.",
+            "enum": [
+              "added",
+              "merged",
+              "updated",
+              "removed"
+            ]
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the updated cart."
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Updated quantity when quantity was part of the request."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after confirming buyer intent and current product or listing state."
+      ]
+    },
+    {
+      "name": "checkout.update-cart-line",
+      "title": "Update Cart Line",
+      "description": "Update a cart line quantity or seller fulfillment selection.",
+      "service_id": "checkout",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "cartLineId",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "cartLineId": {
+            "type": "string",
+            "description": "Checkout cart line identifier returned by checkout.get-cart."
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Requested quantity."
+          },
+          "fulfillmentMode": {
+            "type": "string",
+            "description": "Cart fulfillment mode.",
+            "enum": [
+              "optimize",
+              "locked-listing"
+            ]
+          },
+          "lockedListingId": {
+            "type": "string",
+            "description": "Marketplace listing identifier when locking the line to a seller."
+          },
+          "sellerPreferenceId": {
+            "type": "string",
+            "description": "Optional preferred seller account identifier."
+          },
+          "availabilityState": {
+            "type": "string",
+            "description": "Line availability state.",
+            "enum": [
+              "available",
+              "unavailable",
+              "changed",
+              "waiting-for-supply"
+            ]
+          },
+          "selectedListingSnapshot": {
+            "type": "object",
+            "description": "Optional selected listing snapshot for locked-listing lines.",
+            "additionalProperties": false,
+            "properties": {
+              "listingId": {
+                "type": "string",
+                "description": "Marketplace listing identifier."
+              },
+              "sellerAccountId": {
+                "type": "string",
+                "description": "Seller account identifier."
+              },
+              "sellerDisplayName": {
+                "type": "string",
+                "description": "Seller display name."
+              },
+              "sellerSlug": {
+                "type": "string",
+                "description": "Seller slug."
+              },
+              "priceAmount": {
+                "type": "string",
+                "description": "Listing price amount."
+              },
+              "source": {
+                "type": "string",
+                "description": "Snapshot source."
+              }
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without changing cart state."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "cartLineId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Checkout cart line identifier."
+          },
+          "cartLineId": {
+            "type": "string",
+            "description": "Checkout cart line identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Cart stream version after the write."
+          },
+          "status": {
+            "type": "string",
+            "description": "Cart line write status.",
+            "enum": [
+              "added",
+              "merged",
+              "updated",
+              "removed"
+            ]
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the updated cart."
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Updated quantity when quantity was part of the request."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after reading the current cart line and confirming the buyer-requested change."
+      ]
+    },
+    {
+      "name": "checkout.remove-cart-line",
+      "title": "Remove Cart Line",
+      "description": "Remove a line from the buyer cart.",
+      "service_id": "checkout",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "cartLineId",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "cartLineId": {
+            "type": "string",
+            "description": "Checkout cart line identifier returned by checkout.get-cart."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for removing the line."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without changing cart state."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "cartLineId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Checkout cart line identifier."
+          },
+          "cartLineId": {
+            "type": "string",
+            "description": "Checkout cart line identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Cart stream version after the write."
+          },
+          "status": {
+            "type": "string",
+            "description": "Cart line write status.",
+            "enum": [
+              "added",
+              "merged",
+              "updated",
+              "removed"
+            ]
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the updated cart."
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Updated quantity when quantity was part of the request."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after confirming the buyer wants the line removed from the cart."
+      ]
+    },
+    {
+      "name": "checkout.select-saved-address",
+      "title": "Select Saved Address",
+      "description": "Select a saved shipping address for an active checkout session.",
+      "service_id": "checkout",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "sessionId",
+          "shippingAddressId",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Checkout session identifier."
+          },
+          "shippingAddressId": {
+            "type": "string",
+            "description": "Saved shipping address identifier visible to the actor."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without changing checkout state."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "sessionId",
+          "shippingAddressId",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Checkout session identifier."
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Checkout session identifier."
+          },
+          "shippingAddressId": {
+            "type": "string",
+            "description": "Selected saved shipping address identifier."
+          },
+          "status": {
+            "type": "string",
+            "description": "Shipping-address selection status.",
+            "enum": [
+              "shipping-address-selected"
+            ]
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the updated checkout session."
+          },
+          "commitPosition": {
+            "type": "string",
+            "description": "Highest Checkout event-store commit position for the write."
+          },
+          "commitEventIds": {
+            "type": "array",
+            "description": "Checkout event ids written by the command.",
+            "items": {
+              "type": "string",
+              "description": "Event id."
+            }
+          },
+          "commitPositions": {
+            "type": "array",
+            "description": "Source commit positions written by the command.",
+            "items": {
+              "type": "object",
+              "description": "Fresh-write source commit position.",
+              "additionalProperties": false,
+              "required": [
+                "sourceContextName",
+                "maxGlobalPosition",
+                "eventIds"
+              ],
+              "properties": {
+                "sourceContextName": {
+                  "type": "string",
+                  "description": "Source context name."
+                },
+                "maxGlobalPosition": {
+                  "type": "string",
+                  "description": "Highest source global position."
+                },
+                "eventIds": {
+                  "type": "array",
+                  "description": "Event ids included in this source position.",
+                  "items": {
+                    "type": "string",
+                    "description": "Event id."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after checkout session creation when the buyer chooses a saved delivery address."
+      ]
+    },
+    {
       "name": "fulfillment.list-shipments",
       "title": "List Shipments",
       "description": "List shipments for purchases or sales.",

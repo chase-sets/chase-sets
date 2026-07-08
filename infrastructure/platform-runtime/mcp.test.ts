@@ -208,7 +208,11 @@ describe("MCP runtime routes", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { tools: Array<{ name: string; annotations: { availability: string } }> };
     expect(body.tools.map((tool) => tool.name).sort()).toEqual([
+      "checkout.add-cart-line",
       "checkout.get-cart",
+      "checkout.remove-cart-line",
+      "checkout.select-saved-address",
+      "checkout.update-cart-line",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
       "fulfillment.void-label",
