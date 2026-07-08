@@ -213,8 +213,13 @@ describe("MCP runtime routes", () => {
       "inventory.create-import-batch",
       "inventory.get-import-batch",
       "inventory.list-import-sources",
+      "marketplace.accept-offer",
+      "marketplace.counter-offer",
       "marketplace.create-listing",
+      "marketplace.decline-offer",
+      "marketplace.list-offers",
       "marketplace.publish-listing",
+      "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
     ]);
@@ -271,6 +276,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["listings.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://marketplace/{accountId}/offers/{offerId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["offers.view"],
           }),
         }),
         expect.objectContaining({
