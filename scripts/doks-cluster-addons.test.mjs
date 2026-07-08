@@ -1,5 +1,12 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadBalancerName, pinned, planClusterAddons } from "./doks-cluster-addons.mjs";
+
+const ingressNginxValues = readFileSync(
+  resolve("infrastructure", "helm", "doks-ingress", "ingress-nginx-values.yaml"),
+  "utf8",
+);
 
 describe("doks cluster addons planner", () => {
   it("plans repos, controller, cert-manager, and issuers in order", () => {
@@ -41,6 +48,16 @@ describe("doks cluster addons planner", () => {
     const production = planClusterAddons({ environment: "production" });
     const productionController = production.find((step) => step.name.startsWith("install ingress-nginx"));
     expect(productionController.command.join(" ")).toContain("=chase-sets-production-doks-ingress");
+  });
+
+  it("uses the default DigitalOcean load balancer type so forwarding rules stay reconciled to NodePorts", () => {
+    expect(ingressNginxValues).not.toContain("service.beta.kubernetes.io/do-loadbalancer-type");
+    expect(ingressNginxValues).not.toContain("REGIONAL_NETWORK");
+  });
+
+  it("keeps load balancer and ingress-nginx PROXY protocol settings paired", () => {
+    expect(ingressNginxValues).toContain('service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"');
+    expect(ingressNginxValues).toContain('use-proxy-protocol: "true"');
   });
 
   it("installs every helm release atomically so a failed release rolls back", () => {
