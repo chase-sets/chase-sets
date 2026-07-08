@@ -25,6 +25,15 @@ function componentEnvKeys(component) {
   return component.env.map((entry) => entry.name).sort();
 }
 
+function expectedHelmEnvKeys(terraformComponent) {
+  const keys = componentEnvKeys(terraformComponent);
+  if (terraformComponent.name === "platform-bootstrap") {
+    return keys.filter((key) => key !== "PLATFORM_BOOTSTRAP_OWNER");
+  }
+
+  return keys;
+}
+
 function readChartFiles(relativePaths) {
   return relativePaths.map((relativePath) =>
     readFileSync(path.join(repoRoot, "infrastructure", "helm", "platform", relativePath), "utf8"),
@@ -63,7 +72,11 @@ describe("render platform Helm values", () => {
 
     for (const terraformComponent of terraformComponents) {
       const helmComponent = values.components[terraformComponent.name];
-      expect(helmComponent.command).toBe(terraformComponent.command);
+      if (terraformComponent.name === "platform-bootstrap") {
+        expect(helmComponent.command).toBe("pnpm --filter @chase-sets/app-platform-api run bootstrap:production");
+      } else {
+        expect(helmComponent.command).toBe(terraformComponent.command);
+      }
       // The worker declares no App Platform http_port but gets a DOKS-only
       // health port injected for its liveness/readiness probes (#4620), so it
       // is exempt from the App-Platform port-parity check.
@@ -191,7 +204,7 @@ describe("render platform Helm values", () => {
 
     for (const terraformComponent of terraformComponents) {
       expect(componentEnvKeys(values.components[terraformComponent.name])).toEqual(
-        componentEnvKeys(terraformComponent),
+        expectedHelmEnvKeys(terraformComponent),
       );
     }
 
