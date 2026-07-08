@@ -21,6 +21,7 @@ import {
   buildPlatformOperationsRiskAlertProjectionHandlers,
 } from "./features/risk-alerts/read-model/projection";
 import { buildSupportApi } from "./features/support-requests/api/http";
+import { createSupportRequestMcpHandlers } from "./features/support-requests/api/mcp";
 import {
   buildSupportOrderSourceProjectionHandlers,
   buildSupportShipmentSourceProjectionHandlers,
@@ -48,7 +49,21 @@ export const module = defineBoundedContextModule<
     buildExperienceApi(services.platformFeedback, services.reportedContent, services.riskAlerts),
     buildSupportApi(services.supportRequests),
   ],
-  buildMcpHandlers: (services) => createInsightsDashboardMcpHandlers(services.insightsDashboards),
+  buildMcpHandlers: (services) => {
+    const insightsHandlers = createInsightsDashboardMcpHandlers(services.insightsDashboards);
+    const supportHandlers = createSupportRequestMcpHandlers(services.supportRequests);
+
+    return {
+      toolHandlers: {
+        ...insightsHandlers.toolHandlers,
+        ...supportHandlers.toolHandlers,
+      },
+      resourceHandlers: {
+        ...insightsHandlers.resourceHandlers,
+        ...supportHandlers.resourceHandlers,
+      },
+    };
+  },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

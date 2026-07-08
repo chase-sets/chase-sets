@@ -265,4 +265,23 @@ describe("fulfillment shipment MCP handlers", () => {
     });
     expect(fakeServices.getBuyerShipment).toHaveBeenCalledWith("shp_1", "acc_buyer");
   });
+
+  it("reads shipment tracking status for buyer post-purchase questions", async () => {
+    const fakeServices = services();
+    const handlers = createFulfillmentShipmentMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["fulfillment.get-tracking"]?.(
+      mcpRequest({ accountId: "acc_buyer", shipmentId: "shp_1" }, buyerActor),
+    );
+
+    expect(result).toMatchObject({
+      accountId: "acc_buyer",
+      shipmentId: "shp_1",
+      status: "label-attached",
+      trackingIdentifier: "940000000000000000",
+      providerEvents: [expect.objectContaining({ provider_event_id: "evt_1", status: "in_transit" })],
+      resourceUri: "chase-sets://fulfillment/acc_buyer/shipments/shp_1",
+    });
+    expect(fakeServices.getBuyerShipment).toHaveBeenCalledWith("shp_1", "acc_buyer");
+  });
 });

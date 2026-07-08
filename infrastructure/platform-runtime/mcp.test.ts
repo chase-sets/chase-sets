@@ -306,6 +306,7 @@ describe("MCP runtime routes", () => {
       "discovery.get-chatgpt-product-feed",
       "discovery.get-item-detail",
       "discovery.search-market",
+      "fulfillment.get-tracking",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
       "fulfillment.void-label",
@@ -329,7 +330,13 @@ describe("MCP runtime routes", () => {
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
+      "ordering.get-order",
+      "ordering.list-orders",
+      "payments.get-payment",
+      "payments.get-refund-status",
       "platform-operations.get-seller-insight-summary",
+      "platform-operations.get-support-request",
+      "platform-operations.list-support-requests",
       "pricing.explain-signals",
       "pricing.recommend-price",
       "settlement.create-payout-onboarding-link",
@@ -551,6 +558,20 @@ describe("MCP runtime routes", () => {
           }),
         }),
         expect.objectContaining({
+          uriTemplate: "chase-sets://ordering/{accountId}/orders/{orderId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["orders.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://payments/{accountId}/payments/{paymentId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["orders.view"],
+          }),
+        }),
+        expect.objectContaining({
           uriTemplate: "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
           annotations: expect.objectContaining({
             availability: "available",
@@ -576,6 +597,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["accounts.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["support.view"],
           }),
         }),
       ],

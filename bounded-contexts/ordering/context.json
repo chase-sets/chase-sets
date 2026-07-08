@@ -343,6 +343,13 @@
       ]
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "ordering.list-orders", "ownerSlice": "orders" },
+      { "name": "ordering.get-order", "ownerSlice": "orders" }
+    ],
+    "resources": [{ "uriTemplate": "chase-sets://ordering/{accountId}/orders/{orderId}", "ownerSlice": "orders" }]
+  },
   "readAfterWriteRouteInventory": [
     {
       "id": "ordering.accepted-offer-to-sales-list",

@@ -107,6 +107,7 @@
   "mcpCapabilities": {
     "tools": [
       { "name": "fulfillment.list-shipments", "ownerSlice": "shipments" },
+      { "name": "fulfillment.get-tracking", "ownerSlice": "shipments" },
       { "name": "fulfillment.purchase-label", "ownerSlice": "shipments" },
       { "name": "fulfillment.void-label", "ownerSlice": "shipments" }
     ],

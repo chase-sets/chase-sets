@@ -11,6 +11,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { PaymentsServices, PaymentsServiceOptions } from "./support/runtime-support/services";
 import { buildPaymentsApi } from "./api";
+import { createPaymentMcpHandlers } from "./features/payments/api/mcp";
 import { buildPaymentsOrderInputProjectionHandlers } from "./features/payments/integrations/order-input/order-input-projection";
 import { buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers } from "./features/payments/integrations/dispute-evidence/fulfillment-dispute-evidence-projection";
 import type { PaymentDisputedEvent } from "./features/payments/domain/domain";
@@ -52,6 +53,7 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
   schemaMigrations: paymentsSchemaMigrations,
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [buildPaymentsApi(services), createPaymentProcessorWebhookRoutes(services.payments)],
+  buildMcpHandlers: (services) => createPaymentMcpHandlers(services.payments),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => [
     ...buildEventSubscriptionsFromManifest({

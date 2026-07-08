@@ -14,6 +14,7 @@ import contextManifest from "./context.json";
 import type { OrderingServiceOptions, OrderingServices } from "./support/runtime-support/services";
 import { buildOrderingAccountProjectionHandlers } from "./support/account-support/projection";
 import { buildOrderingApi } from "./api";
+import { createOrderingOrderMcpHandlers } from "./features/orders/api/mcp";
 import { hasOrderForSource } from "./features/orders/read-model/queries";
 import {
   buildOrderingInventorySupplyProjectionHandlers,
@@ -82,6 +83,7 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
   schemaMigrations: orderingSchemaMigrations,
   createServices: (pool, options) => createOrderingServices(pool, options),
   buildApis: (services) => [buildOrderingApi(services)],
+  buildMcpHandlers: (services) => createOrderingOrderMcpHandlers(services.orders),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const marketplaceSupplyHandlers = buildOrderingMarketplaceSupplyProjectionHandlers(services.db);

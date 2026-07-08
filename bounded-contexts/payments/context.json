@@ -205,6 +205,13 @@
       "requiresAuth": false
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "payments.get-payment", "ownerSlice": "payments" },
+      { "name": "payments.get-refund-status", "ownerSlice": "refunds" }
+    ],
+    "resources": [{ "uriTemplate": "chase-sets://payments/{accountId}/payments/{paymentId}", "ownerSlice": "payments" }]
+  },
   "readAfterWriteRouteInventory": [
     {
       "id": "payments.create-to-detail",

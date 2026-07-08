@@ -72,7 +72,12 @@
     "checkout.remove-cart-line",
     "checkout.select-saved-address",
     "checkout.cancel-session",
+    "ordering.list-orders",
+    "ordering.get-order",
+    "payments.get-payment",
+    "payments.get-refund-status",
     "fulfillment.list-shipments",
+    "fulfillment.get-tracking",
     "fulfillment.purchase-label",
     "fulfillment.void-label",
     "settlement.get-wallet",
@@ -82,7 +87,9 @@
     "settlement.request-payout",
     "settlement.refresh-readiness",
     "settlement.create-payout-onboarding-link",
-    "platform-operations.get-seller-insight-summary"
+    "platform-operations.get-seller-insight-summary",
+    "platform-operations.list-support-requests",
+    "platform-operations.get-support-request"
   ],
   "resource_uri_templates": [
     "chase-sets://identity/{accountId}/account",
@@ -95,10 +102,13 @@
     "chase-sets://marketplace/{accountId}/reviews/{reviewId}",
     "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
     "chase-sets://checkout/{accountId}/cart",
+    "chase-sets://ordering/{accountId}/orders/{orderId}",
+    "chase-sets://payments/{accountId}/payments/{paymentId}",
     "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
     "chase-sets://settlement/{accountId}/wallet",
     "chase-sets://settlement/{accountId}/payouts/{payoutId}",
-    "chase-sets://platform-operations/{accountId}/insights/summary"
+    "chase-sets://platform-operations/{accountId}/insights/summary",
+    "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}"
   ],
   "platform_notes": [
     "Submit this metadata to the Claude connector directory as a remote MCP server entry.",

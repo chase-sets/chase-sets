@@ -746,6 +746,155 @@ const discoveryChatGptFeedOutputSchema: McpJsonSchema = {
     nextCursor: stringProperty("Cursor for the next page when available."),
   },
 };
+const accountScopedListOutputSchema = (itemDescription: string): McpJsonSchema =>
+  objectSchema(
+    {
+      accountId: stringProperty("Authenticated account scope."),
+      side: stringProperty("Account relationship for the returned records."),
+      items: arrayProperty(itemDescription, {
+        type: "object",
+        description: itemDescription,
+        additionalProperties: true,
+        properties: {},
+      }),
+      total: integerProperty("Total matching record count."),
+      count: integerProperty("Returned record count."),
+    },
+    ["accountId", "side", "items", "total", "count"],
+  );
+
+const accountScopedDetailOutputSchema = (key: string, description: string): McpJsonSchema =>
+  objectSchema(
+    {
+      accountId: stringProperty("Authenticated account scope."),
+      [key]: {
+        type: "object",
+        description,
+        additionalProperties: true,
+        properties: {},
+      },
+    },
+    ["accountId", key],
+  );
+
+const orderingOrderDetailOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    side: stringProperty("Order side.", ["purchase", "sale"]),
+    order: {
+      type: "object",
+      description: "Ordering order detail row.",
+      additionalProperties: true,
+      required: ["order_id", "status", "buyer_account_id", "seller_account_id"],
+      properties: {
+        order_id: stringProperty("Order identifier."),
+        status: stringProperty("Current order status."),
+        buyer_account_id: stringProperty("Buyer account identifier."),
+        seller_account_id: stringProperty("Seller account identifier."),
+      },
+    },
+  },
+  ["accountId", "side", "order"],
+);
+
+const paymentsPaymentStatusOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    payment: {
+      type: "object",
+      description: "Payments payment detail row.",
+      additionalProperties: true,
+      required: ["payment_id", "buyer_account_id", "status", "processor_status", "refunded_amount"],
+      properties: {
+        payment_id: stringProperty("Payment identifier."),
+        buyer_account_id: stringProperty("Buyer account identifier."),
+        status: stringProperty("Current payment status."),
+        processor_status: stringProperty("Processor status mirrored into Payments."),
+        refunded_amount: stringProperty("Total refunded amount."),
+      },
+    },
+    moneyTimeline: {
+      type: "object",
+      description: "Payment money-movement timeline.",
+      additionalProperties: true,
+      properties: {},
+    },
+    status: {
+      type: "object",
+      description: "Compact payment, refund, and dispute status.",
+      additionalProperties: true,
+      required: ["paymentStatus", "processorStatus", "refundedAmount"],
+      properties: {
+        paymentStatus: stringProperty("Current payment status."),
+        processorStatus: stringProperty("Current processor status."),
+        refundedAmount: stringProperty("Total refunded amount."),
+        refundedAt: stringProperty("Refund timestamp when present."),
+        disputedAt: stringProperty("Dispute timestamp when present."),
+        failureCode: stringProperty("Failure code when present."),
+        failureMessage: stringProperty("Failure message when present."),
+      },
+    },
+  },
+  ["accountId", "payment", "moneyTimeline", "status"],
+);
+
+const paymentsRefundStatusOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    paymentId: stringProperty("Payment identifier."),
+    orderIds: arrayProperty("Order identifiers paid by the payment.", stringProperty("Order identifier.")),
+    status: {
+      type: "object",
+      description: "Compact payment, refund, and dispute status.",
+      additionalProperties: true,
+      properties: {},
+    },
+    orderRefundCaps: arrayProperty("Per-order refund caps.", {
+      type: "object",
+      description: "Order refund cap.",
+      additionalProperties: true,
+      properties: {},
+    }),
+    orderRefundedAmounts: arrayProperty("Per-order refunded amounts.", {
+      type: "object",
+      description: "Order refunded amount.",
+      additionalProperties: true,
+      properties: {},
+    }),
+    moneyTimeline: {
+      type: "object",
+      description: "Payment money-movement timeline.",
+      additionalProperties: true,
+      properties: {},
+    },
+  },
+  ["accountId", "paymentId", "orderIds", "status", "orderRefundCaps", "orderRefundedAmounts", "moneyTimeline"],
+);
+
+const fulfillmentTrackingOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    shipmentId: stringProperty("Shipment identifier."),
+    status: stringProperty("Current shipment status."),
+    carrierName: stringProperty("Carrier name when present."),
+    trackingIdentifier: stringProperty("Tracking identifier when present."),
+    labelStatus: stringProperty("Label status when present."),
+    dispatchedAt: stringProperty("Dispatch timestamp when present."),
+    deliveredAt: stringProperty("Delivery timestamp when present."),
+    returnedAt: stringProperty("Return timestamp when present."),
+    exceptionRaisedAt: stringProperty("Exception timestamp when present."),
+    currentExceptionType: stringProperty("Current exception type when present."),
+    currentExceptionNotes: stringProperty("Current exception notes when present."),
+    providerEvents: arrayProperty("Provider tracking events.", {
+      type: "object",
+      description: "Postage provider event.",
+      additionalProperties: true,
+      properties: {},
+    }),
+    resourceUri: stringProperty("MCP resource URI for the shipment."),
+  },
+  ["accountId", "shipmentId", "status", "providerEvents", "resourceUri"],
+);
 
 const settlementWalletOutputSchema = objectSchema(
   {
@@ -1349,6 +1498,7 @@ export const mcpServiceCatalog = [
           ["Use before creating or updating listings, pricing recommendations, or stock holds."],
         ),
         availability: "available",
+        outputSchema: accountScopedListOutputSchema("Inventory item rows visible to the actor."),
       },
       {
         ...readTool(
@@ -2247,22 +2397,48 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
-      readTool(
-        "ordering",
-        "list-orders",
-        "List Orders",
-        "List purchases and sales visible to the actor.",
-        "orders.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            side: stringProperty("Order side.", ["purchase", "sale"]),
-          },
-          ["accountId"],
+      {
+        ...readTool(
+          "ordering",
+          "list-orders",
+          "List Orders",
+          "List purchases and sales visible to the actor.",
+          "orders.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              side: stringProperty("Order side.", ["purchase", "sale"]),
+              limit: integerProperty("Maximum records to return."),
+              offset: integerProperty("Zero-based record offset."),
+            },
+            ["accountId"],
+          ),
+          "order",
+          ["Use before fulfillment, payment, reputation, or support actions."],
         ),
-        "order",
-        ["Use before fulfillment, payment, reputation, or support actions."],
-      ),
+        availability: "available",
+        outputSchema: accountScopedListOutputSchema("Ordering order rows visible to the actor."),
+      },
+      {
+        ...readTool(
+          "ordering",
+          "get-order",
+          "Get Order",
+          "Read one purchase or sale order visible to the actor.",
+          "orders.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              orderId: stringProperty("Order identifier."),
+            },
+            ["accountId", "orderId"],
+          ),
+          "order",
+          ["Use to inspect order detail, payment deadlines, cancellation state, and line items."],
+        ),
+        availability: "available",
+        outputSchema: orderingOrderDetailOutputSchema,
+      },
       writeTool(
         "ordering",
         "cancel-order",
@@ -2276,14 +2452,17 @@ export const mcpServiceCatalog = [
       ),
     ],
     resources: [
-      resource(
-        "ordering",
-        "chase-sets://ordering/{accountId}/orders/{orderId}",
-        "Order",
-        "Order state, lines, participant-safe totals, and workflow status.",
-        "orders.view",
-        ["Use as the source of truth for purchase and sale workflows."],
-      ),
+      {
+        ...resource(
+          "ordering",
+          "chase-sets://ordering/{accountId}/orders/{orderId}",
+          "Order",
+          "Order state, lines, participant-safe totals, and workflow status.",
+          "orders.view",
+          ["Use as the source of truth for purchase and sale workflows."],
+        ),
+        availability: "available",
+      },
     ],
   },
   {
@@ -2299,22 +2478,46 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
-      readTool(
-        "payments",
-        "get-payment",
-        "Get Payment",
-        "Read payment and refund state for an order payment.",
-        "orders.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            paymentId: stringProperty("Payment identifier."),
-          },
-          ["accountId", "paymentId"],
+      {
+        ...readTool(
+          "payments",
+          "get-payment",
+          "Get Payment",
+          "Read payment and refund state for an order payment.",
+          "orders.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              paymentId: stringProperty("Payment identifier."),
+            },
+            ["accountId", "paymentId"],
+          ),
+          "payment",
+          ["Use before refund, support, or order readiness actions."],
         ),
-        "payment",
-        ["Use before refund, support, or order readiness actions."],
-      ),
+        availability: "available",
+        outputSchema: paymentsPaymentStatusOutputSchema,
+      },
+      {
+        ...readTool(
+          "payments",
+          "get-refund-status",
+          "Get Refund Status",
+          "Read refund and dispute status for an account payment.",
+          "orders.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              paymentId: stringProperty("Payment identifier."),
+            },
+            ["accountId", "paymentId"],
+          ),
+          "refund",
+          ["Use before explaining refund outcomes, dispute status, or support resolution state."],
+        ),
+        availability: "available",
+        outputSchema: paymentsRefundStatusOutputSchema,
+      },
       writeTool(
         "payments",
         "request-refund",
@@ -2339,14 +2542,17 @@ export const mcpServiceCatalog = [
       ),
     ],
     resources: [
-      resource(
-        "payments",
-        "chase-sets://payments/{accountId}/payments/{paymentId}",
-        "Payment",
-        "Payment processor status projected into Chase Sets.",
-        "orders.view",
-        ["Use for payment support and order readiness checks."],
-      ),
+      {
+        ...resource(
+          "payments",
+          "chase-sets://payments/{accountId}/payments/{paymentId}",
+          "Payment",
+          "Payment processor status projected into Chase Sets.",
+          "orders.view",
+          ["Use for payment support and order readiness checks."],
+        ),
+        availability: "available",
+      },
     ],
   },
   {
@@ -2380,6 +2586,27 @@ export const mcpServiceCatalog = [
           ["Use before label, tracking, or delivery support actions."],
         ),
         availability: "available",
+        outputSchema: accountScopedListOutputSchema("Fulfillment shipment rows visible to the actor."),
+      },
+      {
+        ...readTool(
+          "fulfillment",
+          "get-tracking",
+          "Get Tracking",
+          "Read tracking and delivery status for a purchase or sale shipment.",
+          "fulfillment.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              shipmentId: stringProperty("Shipment identifier."),
+            },
+            ["accountId", "shipmentId"],
+          ),
+          "shipment-tracking",
+          ["Use to answer buyer post-purchase tracking and delivery questions."],
+        ),
+        availability: "available",
+        outputSchema: fulfillmentTrackingOutputSchema,
       },
       {
         ...writeTool(
@@ -2744,6 +2971,48 @@ export const mcpServiceCatalog = [
         ),
         availability: "available",
       },
+      {
+        ...readTool(
+          "platform-operations",
+          "list-support-requests",
+          "List Support Requests",
+          "List buyer or seller support requests visible to the actor.",
+          "support.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              side: stringProperty("Support request side.", ["buyer", "seller"]),
+              limit: integerProperty("Maximum records to return."),
+              offset: integerProperty("Zero-based record offset."),
+            },
+            ["accountId"],
+          ),
+          "support-request",
+          ["Use to find refund, dispute, return, or delivery support status for an account."],
+        ),
+        availability: "available",
+        outputSchema: accountScopedListOutputSchema("Support request rows visible to the actor."),
+      },
+      {
+        ...readTool(
+          "platform-operations",
+          "get-support-request",
+          "Get Support Request",
+          "Read support request status, pending offers, resolution, and evidence visible to the actor.",
+          "support.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              supportRequestId: stringProperty("Support request identifier."),
+            },
+            ["accountId", "supportRequestId"],
+          ),
+          "support-request",
+          ["Use to answer refund, dispute, return, or delivery support status questions."],
+        ),
+        availability: "available",
+        outputSchema: accountScopedDetailOutputSchema("supportRequest", "Support request detail and status."),
+      },
     ],
     resources: [
       {
@@ -2754,6 +3023,17 @@ export const mcpServiceCatalog = [
           "Sales performance, fulfillment latency, and conversion KPI summary.",
           "accounts.view",
           ["Use for seller dashboard analysis."],
+        ),
+        availability: "available",
+      },
+      {
+        ...resource(
+          "platform-operations",
+          "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}",
+          "Support Request",
+          "Support request detail, resolution, pending offers, and refund-support status.",
+          "support.view",
+          ["Use for post-purchase support status and refund/dispute explanations."],
         ),
         availability: "available",
       },
