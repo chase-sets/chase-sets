@@ -222,6 +222,13 @@ export type CheckoutSessionServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  cancelSession: (
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<CheckoutSessionMutationResult>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
   listSavedPaymentInstruments: (accountId: AccountId) => Promise<CheckoutSavedPaymentInstrumentRow[]>;
@@ -269,6 +276,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     checkout_reservations: [...state.checkoutReservations],
     payment_id: state.paymentId,
     submitted_offer_id: state.submittedOfferId,
+    cancelled_at: state.cancelledAt,
     created_at: state.createdAt,
     updated_at: state.updatedAt,
   };
@@ -276,6 +284,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
 
 function hasCommittedSessionSideEffects(session: CheckoutSessionRow) {
   return Boolean(
+    session.cancelled_at ||
     session.payment_id ||
     session.submitted_offer_id ||
     (Array.isArray(session.order_ids) && session.order_ids.length > 0),
@@ -288,6 +297,10 @@ function sessionPageIsBehindCommittedAggregate(
 ) {
   if (!aggregateSession || !hasCommittedSessionSideEffects(aggregateSession)) {
     return false;
+  }
+
+  if (aggregateSession.cancelled_at && aggregateSession.cancelled_at !== session.cancelled_at) {
+    return true;
   }
 
   if (aggregateSession.payment_id && aggregateSession.payment_id !== session.payment_id) {
@@ -371,12 +384,19 @@ function assertOrderableSessionFulfillmentAssigned(
   assertCheckoutLinesHaveAssignedFulfillment(state.lines);
 }
 
+function assertSessionNotCancelled(state: Pick<CheckoutSessionState, "cancelledAt">) {
+  if (state.cancelledAt) {
+    throw new CheckoutDomainError("Cancelled checkout sessions cannot create orders.", "checkout_cancelled");
+  }
+}
+
 async function assertCurrentCartReadinessForUncommittedSession(
   state: Readonly<{
     sourceType: "cart" | "buy-now" | "offer-intent" | null;
     orderIds: readonly string[];
     paymentId: string | null;
     submittedOfferId: string | null;
+    cancelledAt?: string | null;
     cartReadinessSnapshot: CartReadinessSnapshot | null | undefined;
     splitGroupHandoff: CheckoutSplitGroupHandoff | null | undefined;
   }>,
@@ -388,6 +408,9 @@ async function assertCurrentCartReadinessForUncommittedSession(
   }
 
   if (state.paymentId || state.orderIds.length > 0 || state.submittedOfferId) {
+    return;
+  }
+  if (state.cancelledAt) {
     return;
   }
 
@@ -879,6 +902,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       verifyCheckoutShippingAddress(deps.addressVerificationProvider, address, decision ?? null),
     assertReadyForOrderCreation: async (params) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      assertSessionNotCancelled(state);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
       assertOrderableSessionFulfillmentAssigned(state);
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
@@ -886,6 +910,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     },
     recordOrdersCreated: async (params, context) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      assertSessionNotCancelled(state);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
       assertOrderableSessionFulfillmentAssigned(state);
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
@@ -971,6 +996,19 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
             type: "RecordOfferSubmitted",
             offerId: params.offerId,
             recordedAt: new Date().toISOString(),
+          },
+        },
+        context,
+      );
+    },
+    cancelSession: async (params, context) => {
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "CancelCheckoutSession",
+            cancelledAt: new Date().toISOString(),
           },
         },
         context,

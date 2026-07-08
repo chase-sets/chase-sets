@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   checkout_reservations jsonb NOT NULL DEFAULT '[]'::jsonb,
   payment_id text NULL,
   submitted_offer_id text NULL,
+  cancelled_at timestamptz NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
@@ -54,6 +55,14 @@ export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
     statements: [
       `ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS checkout_reservations jsonb NOT NULL DEFAULT '[]'::jsonb;`,
+    ],
+  },
+  {
+    migrationId: "20260708_checkout_session_cancellation",
+    description: "Add checkout session cancellation timestamp for terminal session state.",
+    statements: [
+      `ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL;`,
     ],
   },
 ];

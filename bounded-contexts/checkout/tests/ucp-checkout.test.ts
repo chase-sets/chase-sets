@@ -58,6 +58,7 @@ function session(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRo
     order_write_commit_positions: [],
     payment_id: null,
     submitted_offer_id: null,
+    cancelled_at: null,
     created_at: "2026-05-16T00:00:00.000Z",
     updated_at: "2026-05-16T00:00:00.000Z",
     ...overrides,
@@ -82,6 +83,15 @@ function createSessions(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    cancelSession: vi.fn(async ({ sessionId }) => ({
+      sessionId,
+      session: session({ session_id: sessionId, cancelled_at: "2026-07-08T00:00:00.000Z" }),
+      commitPosition: "44",
+      commitEventIds: ["evt_checkout_cancelled"],
+      commitPositions: [
+        { sourceContextName: "checkout", maxGlobalPosition: "44", eventIds: ["evt_checkout_cancelled"] },
+      ],
+    })),
     getSession: vi.fn(async () => session()),
     getPaymentSummary: vi.fn(async () => null),
     listSavedPaymentInstruments: vi.fn(async () => []),
@@ -229,6 +239,24 @@ describe("checkout UCP handlers", () => {
 
     expect(response.ucp.status).toBe("requires_action");
     expect(response.messages).toEqual([expect.objectContaining({ code: "trusted_ui_required" })]);
+  });
+
+  it("cancels checkout sessions without trusted UI handoff", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers({ sessions });
+
+    const response = await handlers.restHandlers.cancel_checkout(input({}, { id: "chk_1" }));
+
+    expect(response.ucp.status).toBe("ok");
+    expect(response.checkout).toEqual(expect.objectContaining({ id: "chk_1", status: "cancelled" }));
+    expect(response).toEqual(
+      expect.objectContaining({
+        released_reservation_ids: [],
+        commit_position: "44",
+        commit_event_ids: ["evt_checkout_cancelled"],
+      }),
+    );
+    expect(sessions.cancelSession).toHaveBeenCalledWith({ sessionId: "chk_1", accountId: "acc_buyer" }, context);
   });
 
   it("does not complete headless checkout when delivery address serviceability fails", async () => {

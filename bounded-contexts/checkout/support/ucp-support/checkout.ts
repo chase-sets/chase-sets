@@ -5,6 +5,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
+  releaseCheckoutInventoryReservations,
 } from "../request-support/checkout-confirmation";
 import type { CheckoutServices } from "../runtime-support/services";
 import { CheckoutDomainError } from "../runtime-support/common";
@@ -249,6 +250,9 @@ export function createCheckoutUcpHandlers(
           if (!refreshedSession) {
             return checkoutNotFound();
           }
+          if (refreshedSession.cancelled_at) {
+            return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(refreshedSession, options) });
+          }
           if (refreshedSession.source_type === "offer-intent") {
             return createUcpEnvelope(
               "requires_action",
@@ -360,6 +364,9 @@ export function createCheckoutUcpHandlers(
       if (session.payment_id || session.submitted_offer_id) {
         return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) });
       }
+      if (session.cancelled_at) {
+        return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) });
+      }
 
       return createUcpEnvelope(
         "requires_action",
@@ -381,25 +388,38 @@ export function createCheckoutUcpHandlers(
         ],
       );
     },
-    cancel_checkout: async () =>
-      createUcpEnvelope(
-        "requires_action",
-        {
-          action: {
-            type: "trusted_checkout_handoff",
-            reason:
-              "Checkout does not own a cancel command yet; buyers can abandon or revise the session in trusted UI.",
-          },
-        },
-        [
+    cancel_checkout: async (input: UcpOperationHandlerInput) => {
+      const access = requireCheckoutAccess(input, "orders.manage");
+      if (access.error) {
+        return access.error;
+      }
+
+      const sessionId = readCheckoutSessionId(input);
+      const session = sessionId ? await checkout.sessions.getSession(sessionId, access.actor.accountId) : null;
+      if (!session) {
+        return checkoutNotFound();
+      }
+
+      try {
+        const releasedReservations = await releaseCheckoutInventoryReservations(input.request, session);
+        const result = await checkout.sessions.cancelSession(
           {
-            severity: "warning",
-            code: "cancel_not_owned",
-            message:
-              "Cancel checkout is not wired because the Checkout Session aggregate does not model cancellation yet.",
+            sessionId,
+            accountId: access.actor.accountId as AccountId,
           },
-        ],
-      ),
+          access.context,
+        );
+        return createUcpEnvelope("ok", {
+          checkout: sessionToUcpCheckout(result.session, options),
+          released_reservation_ids: releasedReservations.map((reservation) => reservation.holdId),
+          ...(result.commitPosition ? { commit_position: result.commitPosition } : {}),
+          ...(result.commitEventIds ? { commit_event_ids: result.commitEventIds } : {}),
+          ...(result.commitPositions ? { commit_positions: result.commitPositions } : {}),
+        });
+      } catch (error) {
+        return validationError(error);
+      }
+    },
   } satisfies Readonly<Record<string, UcpHandler>>;
 
   return {
@@ -546,11 +566,13 @@ function sessionToUcpCheckout(
 ) {
   const checkout = {
     id: session.session_id,
-    status: session.payment_id
-      ? "payment_started"
-      : session.submitted_offer_id
-        ? "purchase_intent_submitted"
-        : "started",
+    status: session.cancelled_at
+      ? "cancelled"
+      : session.payment_id
+        ? "payment_started"
+        : session.submitted_offer_id
+          ? "purchase_intent_submitted"
+          : "started",
     source_type: session.source_type,
     shipping_option: session.shipping_option,
     optimization_goal: session.optimization_goal,
@@ -570,6 +592,7 @@ function sessionToUcpCheckout(
     order_ids: session.order_ids,
     payment_id: session.payment_id,
     offer_id: session.submitted_offer_id,
+    cancelled_at: session.cancelled_at,
     ...(options.paymentHandoff ? { payment: options.paymentHandoff.payment } : {}),
     created_at: session.created_at,
     updated_at: session.updated_at,

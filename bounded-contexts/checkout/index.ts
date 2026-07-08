@@ -33,7 +33,11 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
     };
     return createCheckoutCartMcpHandlers({
       cart: services.cart,
-      sessions: services.sessions ?? { setShippingAddress: missingCheckoutMcpService },
+      sessions: services.sessions ?? {
+        cancelSession: missingCheckoutMcpService,
+        getSession: missingCheckoutMcpService,
+        setShippingAddress: missingCheckoutMcpService,
+      },
       listSavedShippingAddresses: services.sellList?.listShipFromAddresses ?? missingCheckoutMcpService,
     });
   },

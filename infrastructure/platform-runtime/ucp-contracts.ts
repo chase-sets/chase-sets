@@ -367,9 +367,9 @@ export const UCP_MCP_TOOLS = [
     title: "Cancel Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this only when the user asks to cancel or abandon checkout. Checkout cancellation currently returns a trusted UI handoff because Checkout does not own a cancel command yet.",
+      "Use this only when the user asks to cancel or abandon checkout. Cancelling releases active checkout reservations before order or payment commitment.",
     idempotencyKeyRequired: true,
-    resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+    resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -381,9 +381,8 @@ export const UCP_MCP_TOOLS = [
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_WRITE_SECURITY,
     annotations: writeAnnotations({ destructive: true, idempotent: true }),
-    invoking: "Preparing checkout cancellation handoff",
-    invoked: "Checkout cancellation handoff ready",
-    trustedHandoffOnUnsignedMcp: true,
+    invoking: "Cancelling checkout session",
+    invoked: "Checkout session cancelled",
   },
   {
     name: "get_order",

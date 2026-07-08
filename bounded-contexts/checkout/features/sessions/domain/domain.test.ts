@@ -130,6 +130,91 @@ describe("checkout session domain", () => {
     ).toEqual([]);
   });
 
+  it("cancels active sessions, releases active reservations, and rejects cancellation after payment starts", () => {
+    const started = decideCheckoutSession(initialCheckoutSessionState, {
+      type: "StartCheckoutSession",
+      sessionId: "chk_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sourceType: "cart",
+      shippingOption: "standard",
+      cartReadinessSnapshot,
+      lines: [line],
+      createdAt: "2026-04-29T00:00:00.000Z",
+    });
+    const startedState = started.reduce(evolveCheckoutSession, initialCheckoutSessionState);
+    const reserved = decideCheckoutSession(startedState, {
+      type: "RecordCheckoutReservations",
+      reservations: [
+        {
+          holdId: "hld_1",
+          lineKey: "cli_1",
+          sellerAccountId: "acc_seller",
+          inventoryItemId: "inv_1",
+          quantity: 1,
+          expiresAt: "2026-04-29T00:30:00.000Z",
+          extensionCount: 0,
+          status: "active",
+        },
+      ],
+      recordedAt: "2026-04-29T00:01:00.000Z",
+    });
+    const reservedState = reserved.reduce(evolveCheckoutSession, startedState);
+
+    const cancelled = decideCheckoutSession(reservedState, {
+      type: "CancelCheckoutSession",
+      cancelledAt: "2026-04-29T00:02:00.000Z",
+    });
+    expect(cancelled).toEqual([
+      {
+        type: "checkout.session.cancelled",
+        data: {
+          sessionId: "chk_1",
+          cancelledAt: "2026-04-29T00:02:00.000Z",
+          releasedReservationIds: ["hld_1"],
+        },
+      },
+    ]);
+    const cancelledState = cancelled.reduce(evolveCheckoutSession, reservedState);
+    expect(cancelledState.cancelledAt).toBe("2026-04-29T00:02:00.000Z");
+    expect(cancelledState.checkoutReservations).toEqual([
+      expect.objectContaining({
+        holdId: "hld_1",
+        status: "released",
+      }),
+    ]);
+    expect(
+      decideCheckoutSession(cancelledState, {
+        type: "CancelCheckoutSession",
+        cancelledAt: "2026-04-29T00:03:00.000Z",
+      }),
+    ).toEqual([]);
+
+    const addressed = decideCheckoutSession(startedState, {
+      type: "SetShippingAddress",
+      shippingAddress,
+      selectedAt: "2026-04-29T00:00:30.000Z",
+    });
+    const addressedState = addressed.reduce(evolveCheckoutSession, startedState);
+    const orders = decideCheckoutSession(addressedState, {
+      type: "RecordOrdersCreated",
+      orderIds: ["ord_1" as never],
+      recordedAt: "2026-04-29T00:01:00.000Z",
+    });
+    const orderedState = orders.reduce(evolveCheckoutSession, addressedState);
+    const payment = decideCheckoutSession(orderedState, {
+      type: "RecordPaymentStarted",
+      paymentId: "pay_1" as never,
+      recordedAt: "2026-04-29T00:01:30.000Z",
+    });
+    const paidState = payment.reduce(evolveCheckoutSession, orderedState);
+    expect(() =>
+      decideCheckoutSession(paidState, {
+        type: "CancelCheckoutSession",
+        cancelledAt: "2026-04-29T00:02:00.000Z",
+      }),
+    ).toThrow("Checkout sessions cannot be cancelled after payment starts.");
+  });
+
   it("rejects cart sessions without a resolved readiness snapshot", () => {
     expect(() =>
       decideCheckoutSession(initialCheckoutSessionState, {

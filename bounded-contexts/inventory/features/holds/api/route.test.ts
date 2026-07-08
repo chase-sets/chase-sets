@@ -149,4 +149,81 @@ describe("inventory hold routes", () => {
       status: "active",
     });
   });
+
+  it("releases checkout reservations with the checkout-cancelled disposition", async () => {
+    const activeHold = {
+      hold_id: "hld_checkout_1",
+      account_id: "acc_seller",
+      item_id: "inv_1",
+      quantity: 1,
+      reason: "Checkout reservation",
+      notes: null,
+      purpose: "checkout",
+      source_ref: {
+        checkoutSessionId: "chk_1",
+        lineKey: "line_1",
+      },
+      expires_at: "2026-07-08T00:15:00.000Z",
+      status: "active",
+      created_at: "2026-07-08T00:00:00.000Z",
+      updated_at: "2026-07-08T00:00:00.000Z",
+      released_at: null,
+      release_reason: null,
+      consumed_at: null,
+      expired_at: null,
+      extension_count: 0,
+    } as const;
+    const releasedHold = {
+      ...activeHold,
+      status: "released",
+      released_at: "2026-07-08T00:01:00.000Z",
+      release_reason: "checkout-cancelled",
+    } as const;
+    const getHold = vi.fn(async () => (getHold.mock.calls.length === 1 ? activeHold : releasedHold));
+    const releaseHold = vi.fn(async () => ({ holdId: "hld_checkout_1", version: 2 }));
+    const app = buildApp({
+      getHold,
+      releaseHold,
+      commandHandler: async () => {
+        throw new Error("command handler not expected");
+      },
+      planCreateHold: async () => {
+        throw new Error("plan create hold not expected");
+      },
+      createHold: async () => {
+        throw new Error("create hold not expected");
+      },
+      expireDueCheckoutHolds: async () => [],
+      projectors: [],
+    } as unknown as InventoryHoldServices);
+
+    const response = await app.fetch(
+      new Request("http://inventory.test/checkout-reservations/hld_checkout_1/release", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerAccountId: "acc_seller",
+          lineKey: "line_1",
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(releaseHold).toHaveBeenCalledWith(
+      {
+        accountId: "acc_seller",
+        holdId: "hld_checkout_1",
+        releaseReason: "checkout-cancelled",
+      },
+      expect.objectContaining({ tenantId: "tnt_test" }),
+    );
+    expect(body).toMatchObject({
+      holdId: "hld_checkout_1",
+      sellerAccountId: "acc_seller",
+      inventoryItemId: "inv_1",
+      lineKey: "line_1",
+      status: "released",
+    });
+  });
 });

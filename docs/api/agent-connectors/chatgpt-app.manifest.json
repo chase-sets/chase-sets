@@ -68,6 +68,7 @@
     "checkout.update-cart-line",
     "checkout.remove-cart-line",
     "checkout.select-saved-address",
+    "checkout.cancel-session",
     "fulfillment.list-shipments",
     "fulfillment.purchase-label",
     "fulfillment.void-label",

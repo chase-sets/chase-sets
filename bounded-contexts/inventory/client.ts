@@ -300,6 +300,15 @@ export function createInventoryApiClient({
         }),
       );
     },
+    async releaseCheckoutReservation(id: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client["checkout-reservations"][":id"].release.$post({
+          param: { id },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async recordRestockDecision(id: string, body: Record<string, unknown>) {
       return parseJsonResponse(
         await client["restock-decisions"][":id"].decision.$post({

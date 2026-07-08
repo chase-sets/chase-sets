@@ -581,6 +581,35 @@ const checkoutSavedAddressReceiptOutputSchema = objectSchema(
   ["accountId", "id", "sessionId", "shippingAddressId", "status", "resourceUri"],
 );
 
+const checkoutSessionCancellationReceiptOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    id: stringProperty("Checkout session identifier."),
+    sessionId: stringProperty("Checkout session identifier."),
+    status: stringProperty("Checkout session cancellation status.", ["cancelled", "already-cancelled"]),
+    cancelledAt: stringProperty("Cancellation timestamp."),
+    releasedReservationIds: arrayProperty(
+      "Checkout reservation hold ids released during cancellation.",
+      stringProperty("Hold id."),
+    ),
+    resourceUri: stringProperty("MCP resource URI for the cancelled checkout session."),
+    commitPosition: stringProperty("Highest Checkout event-store commit position for the write."),
+    commitEventIds: arrayProperty("Checkout event ids written by the command.", stringProperty("Event id.")),
+    commitPositions: arrayProperty("Source commit positions written by the command.", {
+      type: "object",
+      description: "Fresh-write source commit position.",
+      additionalProperties: false,
+      required: ["sourceContextName", "maxGlobalPosition", "eventIds"],
+      properties: {
+        sourceContextName: stringProperty("Source context name."),
+        maxGlobalPosition: stringProperty("Highest source global position."),
+        eventIds: arrayProperty("Event ids included in this source position.", stringProperty("Event id.")),
+      },
+    }),
+  },
+  ["accountId", "id", "sessionId", "status", "resourceUri", "releasedReservationIds"],
+);
+
 const settlementWalletOutputSchema = objectSchema(
   {
     accountId: stringProperty("Authenticated account scope."),
@@ -1956,6 +1985,31 @@ export const mcpServiceCatalog = [
         ),
         availability: "available",
         outputSchema: checkoutSavedAddressReceiptOutputSchema,
+      },
+      {
+        ...writeTool(
+          "checkout",
+          "cancel-session",
+          "Cancel Checkout Session",
+          "Cancel an active checkout session and release active checkout reservations before order or payment commitment.",
+          "orders.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              sessionId: stringProperty("Checkout session identifier."),
+              reason: stringProperty("Business reason for cancelling checkout."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate without changing checkout state."),
+            },
+            ["accountId", "sessionId", "idempotencyKey", "confirmationText"],
+          ),
+          "checkout-session",
+          ["Use only when the buyer explicitly asks to cancel or abandon an active checkout session."],
+          "destructive",
+        ),
+        availability: "available",
+        outputSchema: checkoutSessionCancellationReceiptOutputSchema,
       },
       writeTool(
         "checkout",
