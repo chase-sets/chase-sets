@@ -8,7 +8,12 @@ import {
   UCP_MCP_TOOLS,
   UCP_VERSION,
 } from "./ucp";
-import { MCP_LEGACY_PROTOCOL_VERSIONS, MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_2025_11_25 } from "./mcp-protocol";
+import {
+  MCP_LEGACY_PROTOCOL_VERSIONS,
+  MCP_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_2025_11_25,
+  MCP_PROTOCOL_VERSION_HEADER,
+} from "./mcp-protocol";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "./auth";
 import {
@@ -821,6 +826,86 @@ describe("UCP MCP routes", () => {
         protocolVersion: MCP_PROTOCOL_VERSION_2025_11_25,
       },
     });
+  });
+
+  it("honors supported MCP protocol headers and rejects unsupported revisions", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+
+    const supportedHeaderResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [MCP_PROTOCOL_VERSION_HEADER]: MCP_PROTOCOL_VERSION_2025_11_25,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+    });
+    const unsupportedHeaderResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [MCP_PROTOCOL_VERSION_HEADER]: "2026-07-28",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+    });
+
+    expect(supportedHeaderResponse.status).toBe(200);
+    await expect(supportedHeaderResponse.json()).resolves.toMatchObject({
+      result: {
+        tools: expect.arrayContaining([expect.objectContaining({ name: "search_catalog" })]),
+      },
+    });
+    expect(unsupportedHeaderResponse.status).toBe(400);
+    await expect(unsupportedHeaderResponse.json()).resolves.toMatchObject({
+      error: {
+        code: -32004,
+        data: {
+          requestedVersion: "2026-07-28",
+          supportedVersions: [MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_2025_11_25],
+        },
+      },
+    });
+  });
+
+  it("rejects hostile browser origins and emits CORS headers for allowed UCP MCP origins", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+
+    const hostileResponse = await app.request("https://marketplace.chasesets.test/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://evil.example",
+      },
+    });
+    const preflightResponse = await app.request("https://marketplace.chasesets.test/ucp/mcp", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://marketplace.chasesets.test",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": `Content-Type, ${MCP_PROTOCOL_VERSION_HEADER}`,
+      },
+    });
+    const allowedResponse = await app.request("https://marketplace.chasesets.test/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://marketplace.chasesets.test",
+      },
+    });
+
+    expect(hostileResponse.status).toBe(403);
+    await expect(hostileResponse.json()).resolves.toMatchObject({
+      error: {
+        code: -32003,
+        message: "Invalid Origin header for MCP endpoint.",
+      },
+    });
+    expect(preflightResponse.status).toBe(204);
+    expect(preflightResponse.headers.get("Access-Control-Allow-Origin")).toBe("https://marketplace.chasesets.test");
+    expect(preflightResponse.headers.get("Access-Control-Allow-Headers")).toContain(MCP_PROTOCOL_VERSION_HEADER);
+    expect(allowedResponse.status).toBe(200);
+    expect(allowedResponse.headers.get("Access-Control-Allow-Origin")).toBe("https://marketplace.chasesets.test");
   });
 
   it("lists UCP tool names instead of Chase Sets-native MCP descriptors", async () => {

@@ -92,6 +92,10 @@ $tools = Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentTy
 $tools.result.tools | Select-Object name,securitySchemes,annotations
 ```
 
+MCP `2025-11-25` browser transport requirements are enforced on both MCP facades. Browser calls with a hostile `Origin` return HTTP 403; no-`Origin` server-to-server calls remain valid. Allowed Chase Sets browser origins receive explicit CORS headers for JSON-RPC, authorization, idempotency, signature, and MCP protocol/routing headers. Clients that send `MCP-Protocol-Version` after initialization must use a supported revision; native `/mcp` accepts `2025-06-18`, `2025-11-25`, and stateless `2026-07-28`, while UCP `/ucp/mcp` accepts the legacy initialize revisions only.
+
+Native and UCP tool listings include MCP standard annotations. Read-only tools set `readOnlyHint`; destructive tools set `destructiveHint`; write tools protected by platform idempotency set `idempotentHint`. The richer Chase Sets guardrail metadata remains in `annotations` for operator review and packaging.
+
 Verify a public catalog call returns `structuredContent`:
 
 ```powershell

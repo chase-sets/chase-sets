@@ -25,7 +25,7 @@ import {
   SUPPORTED_MCP_PROTOCOL_VERSIONS,
 } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
-import type { McpServiceDescriptor } from "./mcp-contracts";
+import { flattenAvailableMcpTools, type McpServiceDescriptor } from "./mcp-contracts";
 
 const actor: ResolvedActor = {
   sessionId: "sess_1",
@@ -283,6 +283,90 @@ describe("MCP runtime routes", () => {
         }),
       ]),
     );
+  });
+
+  it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
+    const app = createActorApp(actor);
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+      headers: {
+        "Content-Type": "application/json",
+        [MCP_PROTOCOL_VERSION_HEADER]: MCP_PROTOCOL_VERSION_2025_11_25,
+      },
+    });
+    const body = (await response.json()) as {
+      result: {
+        tools: Array<{
+          name: string;
+          annotations: {
+            readOnlyHint?: boolean;
+            destructiveHint?: boolean;
+            idempotentHint?: boolean;
+          };
+        }>;
+      };
+    };
+    const descriptorsByName = new Map(flattenAvailableMcpTools().map((tool) => [tool.name, tool]));
+
+    expect(response.status).toBe(200);
+    expect(body.result.tools).toHaveLength(descriptorsByName.size);
+    for (const tool of body.result.tools) {
+      const descriptor = descriptorsByName.get(tool.name);
+      if (!descriptor) {
+        throw new Error(`Unexpected MCP tool '${tool.name}'.`);
+      }
+
+      expect(tool.annotations).toMatchObject({
+        readOnlyHint: descriptor.risk === "read",
+        destructiveHint: descriptor.risk === "destructive",
+      });
+      if (descriptor.risk !== "read" && descriptor.guardrails.idempotencyKey === "required") {
+        expect(tool.annotations.idempotentHint).toBe(true);
+      }
+    }
+  });
+
+  it("rejects hostile browser origins and emits CORS headers for allowed MCP origins", async () => {
+    const app = createActorApp(actor);
+
+    const hostileResponse = await app.request("https://marketplace.chasesets.test/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://evil.example",
+      },
+    });
+    const preflightResponse = await app.request("https://marketplace.chasesets.test/", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://marketplace.chasesets.test",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": `Content-Type, Authorization, ${MCP_PROTOCOL_VERSION_HEADER}`,
+      },
+    });
+    const allowedResponse = await app.request("https://marketplace.chasesets.test/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://marketplace.chasesets.test",
+      },
+    });
+
+    expect(hostileResponse.status).toBe(403);
+    await expect(hostileResponse.json()).resolves.toMatchObject({
+      error: {
+        code: -32003,
+        message: "Invalid Origin header for MCP endpoint.",
+      },
+    });
+    expect(preflightResponse.status).toBe(204);
+    expect(preflightResponse.headers.get("Access-Control-Allow-Origin")).toBe("https://marketplace.chasesets.test");
+    expect(preflightResponse.headers.get("Access-Control-Allow-Headers")).toContain(MCP_PROTOCOL_VERSION_HEADER);
+    expect(allowedResponse.status).toBe(200);
+    expect(allowedResponse.headers.get("Access-Control-Allow-Origin")).toBe("https://marketplace.chasesets.test");
   });
 
   it("lists only available descriptor-backed resources", async () => {
