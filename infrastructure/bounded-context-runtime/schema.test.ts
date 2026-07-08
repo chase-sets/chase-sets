@@ -10,6 +10,7 @@ import {
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRIES,
   SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
   SCHEMA_MIGRATIONS_TABLE,
+  SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE,
 } from "./index";
 
 describe("bounded context runtime schema", () => {
@@ -218,7 +219,9 @@ describe("bounded context runtime schema", () => {
 
       const bootstrap = bootstrapContextDatabase(module, pool);
       const bootstrapRejected = expect(bootstrap).rejects.toThrow(
-        /Schema bootstrap lock was not acquired within 600000ms after \d+ attempts \(elapsed 600000ms, advisory lock 739134880509551001\)\. Another deploy may still be applying schema changes/,
+        new RegExp(
+          `Schema bootstrap lock was not acquired within 600000ms after \\d+ attempts \\(elapsed 600000ms, advisory lock ${SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE}:current_database\\(\\)\\)\\. Another deploy may still be applying schema changes`,
+        ),
       );
       await vi.advanceTimersByTimeAsync(SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS + 1);
 
@@ -259,7 +262,9 @@ describe("bounded context runtime schema", () => {
         lockAcquisitionTimeoutMs: 1_800_000,
       });
       const bootstrapRejected = expect(bootstrap).rejects.toThrow(
-        /Schema bootstrap lock was not acquired within 1800000ms after \d+ attempts \(elapsed 1800000ms, advisory lock 739134880509551001\)/,
+        new RegExp(
+          `Schema bootstrap lock was not acquired within 1800000ms after \\d+ attempts \\(elapsed 1800000ms, advisory lock ${SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE}:current_database\\(\\)\\)`,
+        ),
       );
       await vi.advanceTimersByTimeAsync(1_800_001);
 

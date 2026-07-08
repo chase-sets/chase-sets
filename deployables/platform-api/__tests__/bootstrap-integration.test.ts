@@ -7,6 +7,7 @@ import {
 import {
   bootstrapContextDatabase,
   refreshProjectionReplaySummary,
+  SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE,
   SCHEMA_MIGRATIONS_TABLE,
 } from "@chase-sets/bounded-context-runtime";
 import {
@@ -95,11 +96,52 @@ async function holdSchemaMigrationsTableLock(pool: PlatformApiTestPools["catalog
   };
 }
 
+async function holdSchemaBootstrapAdvisoryLock(
+  pool: PlatformApiTestPools[PlatformApiContextName],
+): Promise<() => Promise<void>> {
+  const client = await pool.connect();
+  let released = false;
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtextextended(($1::text || ':' || current_database()), 0))", [
+      SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE,
+    ]);
+  } catch (error) {
+    client.release(error);
+    throw error;
+  }
+
+  return async () => {
+    if (released) {
+      return;
+    }
+
+    released = true;
+    try {
+      await client.query("SELECT pg_advisory_unlock_all()");
+    } finally {
+      client.release();
+    }
+  };
+}
+
+async function hasSettledWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  return Promise.race([
+    promise.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+}
+
 describe("platform api bootstrap", () => {
   let pools: PlatformApiTestPools;
+  let databaseUrls: Readonly<Record<PlatformApiContextName, string>>;
 
   beforeAll(async () => {
-    const databaseUrls = createMultiContextTestDatabaseUrls(
+    databaseUrls = createMultiContextTestDatabaseUrls(
       requireDatabaseBaseUrl(),
       platformApiContextNames,
       "platform_api_bootstrap",
@@ -119,7 +161,9 @@ describe("platform api bootstrap", () => {
   }, 30_000);
 
   afterAll(async () => {
-    await closePlatformApiPools(pools);
+    if (pools) {
+      await closePlatformApiPools(pools);
+    }
   });
 
   it("boots with context-owned pools and replays cross-context projections", async () => {
@@ -234,6 +278,68 @@ describe("platform api bootstrap", () => {
 
     expect(migrationsAfterThirdBoot.rows.map((row) => row.migration_id)).toEqual(migrationIds);
   }, 120_000);
+
+  it("serializes two concurrent API host bootstraps with a database advisory lock", async () => {
+    const secondPools = createPlatformApiPools({
+      runtimeProfile: "public",
+      sharedDatabaseUrl: null,
+      contextDatabaseUrls: databaseUrls,
+      port: 6183,
+    });
+    const firstRuntime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const secondRuntime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools: secondPools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    const unlockBootstrap = await holdSchemaBootstrapAdvisoryLock(firstRuntime.mountedContexts[0]!.pool as never);
+    const schemaBootstrap = {
+      lockAcquisitionTimeoutMs: 120_000,
+      lockTimeoutMs: 50,
+      lockTimeoutRetryBudgetMs: 1_000,
+      lockTimeoutRetryBaseDelayMs: 25,
+      lockTimeoutRetryMaxDelayMs: 50,
+      lockTimeoutRetryJitterMs: 0,
+    } as const;
+    const firstBootstrap = seedApiHostIfEmpty(apiContextRegistry, "platform-api", firstRuntime, {
+      enabledDataProfiles: productionLikeDataProfiles,
+      environmentName: "staging",
+      runtimeProfile: "public",
+      schemaBootstrap,
+    });
+    const secondBootstrap = seedApiHostIfEmpty(apiContextRegistry, "platform-api", secondRuntime, {
+      enabledDataProfiles: productionLikeDataProfiles,
+      environmentName: "staging",
+      runtimeProfile: "public",
+      schemaBootstrap,
+    });
+
+    try {
+      await expect(hasSettledWithin(Promise.allSettled([firstBootstrap, secondBootstrap]), 100)).resolves.toBe(false);
+      await unlockBootstrap();
+
+      await expect(Promise.all([firstBootstrap, secondBootstrap])).resolves.toEqual([undefined, undefined]);
+    } finally {
+      await unlockBootstrap();
+      await Promise.allSettled([firstBootstrap, secondBootstrap]);
+      await closePlatformApiPools(secondPools);
+    }
+
+    const migrations = await pools.catalog.query<Readonly<{ migration_count: string }>>(
+      `SELECT COUNT(*) AS migration_count FROM ${SCHEMA_MIGRATIONS_TABLE}`,
+    );
+    expect(Number(migrations.rows[0]?.migration_count ?? 0)).toBeGreaterThan(0);
+  }, 240_000);
 
   it("recovers when bootstrap-touched table locks release within the retry budget", async () => {
     const catalogContext = requireCatalogContext();
