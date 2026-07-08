@@ -6,6 +6,20 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AuthServices } from "../runtime-support/services";
 
 export const authUcpOAuthSchemaSql = `
+CREATE TABLE IF NOT EXISTS identity_ucp_oauth_clients (
+  client_id text PRIMARY KEY,
+  client_name text NULL,
+  client_uri text NULL,
+  platform_profile_url text NOT NULL,
+  redirect_uris jsonb NOT NULL DEFAULT '[]'::jsonb,
+  scopes jsonb NOT NULL DEFAULT '[]'::jsonb,
+  grant_types jsonb NOT NULL DEFAULT '["authorization_code","refresh_token"]'::jsonb,
+  response_types jsonb NOT NULL DEFAULT '["code"]'::jsonb,
+  token_endpoint_auth_method text NOT NULL DEFAULT 'none',
+  client_id_issued_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS identity_ucp_oauth_authorization_codes (
   code_id text PRIMARY KEY,
   code_hash text NOT NULL UNIQUE,
@@ -106,11 +120,15 @@ export type UcpOAuthRoutesOptions = Readonly<{
     >;
   }>;
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
+  fetchClientIdMetadata?: (url: string) => Promise<unknown>;
 }>;
 
 const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
+const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
+const MAX_CLIENT_NAME_LENGTH = 120;
+const MAX_REDIRECT_URIS = 10;
 
 export const UCP_OAUTH_SUPPORTED_SCOPES = ["catalog:read", "checkout:read", "checkout:write", "order:read"] as const;
 
@@ -126,6 +144,30 @@ type AuthorizationCodeRow = Readonly<{
   code_challenge: string;
   code_challenge_method: string;
   expires_at: string;
+}>;
+
+type OAuthClientMetadata = Readonly<{
+  clientId: string;
+  clientName?: string | null;
+  clientUri?: string | null;
+  platformProfileUrl: string;
+  redirectUris: readonly string[];
+  scopes: readonly string[];
+  grantTypes: readonly string[];
+  responseTypes: readonly string[];
+  tokenEndpointAuthMethod: "none";
+}>;
+
+type OAuthClientRow = Readonly<{
+  client_id: string;
+  client_name: string | null;
+  client_uri: string | null;
+  platform_profile_url: string;
+  redirect_uris: readonly string[];
+  scopes: readonly string[];
+  grant_types: readonly string[];
+  response_types: readonly string[];
+  token_endpoint_auth_method: string;
 }>;
 
 export function resolveUcpScopedPermissions(
@@ -158,6 +200,7 @@ export function createUcpOAuthMetadataRoutes() {
       token_endpoint: `${origin}/ucp/oauth/token`,
       introspection_endpoint: `${origin}/ucp/oauth/introspect`,
       revocation_endpoint: `${origin}/ucp/oauth/revoke`,
+      registration_endpoint: `${origin}/ucp/oauth/register`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       scopes_supported: UCP_OAUTH_SUPPORTED_SCOPES,
@@ -172,32 +215,128 @@ export function createUcpOAuthMetadataRoutes() {
 export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   const app = new Hono();
 
+  app.post("/register", async (c) => {
+    const contentType = c.req.raw.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return c.json(
+        {
+          error: "invalid_request",
+          error_description: "OAuth client registration requires application/json metadata.",
+        },
+        400,
+      );
+    }
+
+    const body = readObject(await c.req.json().catch(() => null));
+    if (!body) {
+      return c.json({ error: "invalid_client_metadata", error_description: "Client metadata is required." }, 400);
+    }
+
+    const metadataResult = parseClientRegistrationMetadata(body);
+    if (!metadataResult.ok) {
+      return c.json({ error: "invalid_client_metadata", error_description: metadataResult.error }, 400);
+    }
+
+    const clientId = createId("ocl");
+    const issuedAt = new Date();
+    const metadata = { ...metadataResult.metadata, clientId };
+    await options.auth.db.query(
+      `INSERT INTO identity_ucp_oauth_clients (
+         client_id,
+         client_name,
+         client_uri,
+         platform_profile_url,
+         redirect_uris,
+         scopes,
+         grant_types,
+         response_types,
+         token_endpoint_auth_method,
+         client_id_issued_at
+       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::timestamptz)`,
+      [
+        clientId,
+        metadata.clientName ?? null,
+        metadata.clientUri ?? null,
+        metadata.platformProfileUrl,
+        JSON.stringify(metadata.redirectUris),
+        JSON.stringify(metadata.scopes),
+        JSON.stringify(metadata.grantTypes),
+        JSON.stringify(metadata.responseTypes),
+        metadata.tokenEndpointAuthMethod,
+        issuedAt.toISOString(),
+      ],
+    );
+
+    return c.json(
+      {
+        client_id: clientId,
+        client_id_issued_at: Math.floor(issuedAt.getTime() / 1000),
+        client_name: metadata.clientName ?? undefined,
+        client_uri: metadata.clientUri ?? undefined,
+        platform_profile_url: metadata.platformProfileUrl,
+        redirect_uris: metadata.redirectUris,
+        scope: metadata.scopes.join(" "),
+        grant_types: metadata.grantTypes,
+        response_types: metadata.responseTypes,
+        token_endpoint_auth_method: "none",
+      },
+      201,
+    );
+  });
+
   app.get("/authorize", async (c) => {
     const url = new URL(c.req.url);
     const redirectUri = url.searchParams.get("redirect_uri")?.trim() ?? "";
     const clientId = url.searchParams.get("client_id")?.trim() ?? "";
     const responseType = url.searchParams.get("response_type")?.trim() ?? "";
     const state = url.searchParams.get("state")?.trim() ?? null;
-    const scopes = normalizeScopes(url.searchParams.get("scope"));
+    const scopes = normalizeRequestedScopes(url.searchParams.get("scope"));
     const codeChallenge = url.searchParams.get("code_challenge")?.trim() ?? "";
     const codeChallengeMethod = url.searchParams.get("code_challenge_method")?.trim() ?? "";
-    const platformProfileUrl =
-      url.searchParams.get("platform_profile_url")?.trim() ?? (isTrustedHttpUrl(clientId) ? clientId : "");
+
+    if (!scopes) {
+      return c.json({ error: "invalid_scope", error_description: "Requested scopes are not supported." }, 400);
+    }
 
     if (
       responseType !== "code" ||
       !clientId ||
       !isTrustedHttpUrl(redirectUri) ||
-      !isTrustedHttpUrl(platformProfileUrl) ||
       codeChallengeMethod !== "S256" ||
       !isPkceChallenge(codeChallenge)
     ) {
       return c.json(
         {
           error: "invalid_request",
-          error_description:
-            "response_type=code, client_id, trusted redirect_uri, trusted platform_profile_url, and PKCE S256 are required.",
+          error_description: "response_type=code, client_id, trusted redirect_uri, and PKCE S256 are required.",
         },
+        400,
+      );
+    }
+
+    const client = await resolveOAuthClientMetadata(options, clientId);
+    if (!client) {
+      return c.json(
+        {
+          error: "invalid_client",
+          error_description:
+            "client_id must identify a registered public OAuth client or a trusted Client ID Metadata Document.",
+        },
+        400,
+      );
+    }
+    if (!client.responseTypes.includes("code") || !client.grantTypes.includes("authorization_code")) {
+      return c.json({ error: "unauthorized_client" }, 400);
+    }
+    if (!client.redirectUris.includes(redirectUri)) {
+      return c.json(
+        { error: "invalid_request", error_description: "redirect_uri is not registered for this client." },
+        400,
+      );
+    }
+    if (!isScopeSubset(scopes, client.scopes)) {
+      return c.json(
+        { error: "invalid_scope", error_description: "Requested scopes exceed the registered client metadata." },
         400,
       );
     }
@@ -234,7 +373,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
         createId("cmd"),
         options.auth.auth.hashSecret(code),
         clientId,
-        platformProfileUrl,
+        client.platformProfileUrl,
         redirectUri,
         actor.userId,
         actor.accountId,
@@ -486,6 +625,176 @@ function normalizeScopes(value: unknown): readonly string[] {
     .map((entry) => entry.trim())
     .filter((entry) => supported.has(entry));
   return scopes.length > 0 ? [...new Set(scopes)].sort() : ["catalog:read", "checkout:read", "order:read"];
+}
+
+function parseClientRegistrationMetadata(
+  body: Readonly<Record<string, unknown>>,
+): { ok: true; metadata: Omit<OAuthClientMetadata, "clientId"> } | { ok: false; error: string } {
+  if (readString(body.client_secret) || readString(body.jwks_uri) || readObject(body.jwks)) {
+    return { ok: false, error: "Confidential client credentials are not supported for agent-platform clients." };
+  }
+
+  const tokenEndpointAuthMethod = readString(body.token_endpoint_auth_method) ?? "none";
+  if (tokenEndpointAuthMethod !== "none") {
+    return { ok: false, error: "Only public clients using token_endpoint_auth_method=none are supported." };
+  }
+
+  const grantTypes = normalizeStringArray(body.grant_types, ["authorization_code", "refresh_token"]);
+  if (!grantTypes.every((grantType) => grantType === "authorization_code" || grantType === "refresh_token")) {
+    return { ok: false, error: "Only authorization_code and refresh_token grants are supported." };
+  }
+  if (!grantTypes.includes("authorization_code")) {
+    return { ok: false, error: "authorization_code is required." };
+  }
+
+  const responseTypes = normalizeStringArray(body.response_types, ["code"]);
+  if (responseTypes.length !== 1 || responseTypes[0] !== "code") {
+    return { ok: false, error: "Only response_type code is supported." };
+  }
+
+  const redirectUris = normalizeStringArray(body.redirect_uris);
+  if (redirectUris.length === 0) {
+    return { ok: false, error: "At least one redirect_uri is required." };
+  }
+  if (redirectUris.length > MAX_REDIRECT_URIS) {
+    return { ok: false, error: `No more than ${MAX_REDIRECT_URIS} redirect_uris are supported.` };
+  }
+  if (redirectUris.some((redirectUri) => redirectUri.length > MAX_CLIENT_METADATA_URL_LENGTH)) {
+    return { ok: false, error: "redirect_uris are too long." };
+  }
+  if (!redirectUris.every(isTrustedHttpUrl)) {
+    return { ok: false, error: "redirect_uris must be HTTPS URLs or localhost HTTP URLs." };
+  }
+  if (redirectUris.some((redirectUri) => new URL(redirectUri).hash)) {
+    return { ok: false, error: "redirect_uris must not include fragments." };
+  }
+
+  const scopes = normalizeRequestedScopes(body.scope);
+  if (!scopes) {
+    return { ok: false, error: "scope contains unsupported OAuth scopes." };
+  }
+
+  const clientUri = readString(body.client_uri);
+  const platformProfileUrl = readString(body.platform_profile_url) ?? clientUri;
+  const clientName = readString(body.client_name);
+  if (clientName && clientName.length > MAX_CLIENT_NAME_LENGTH) {
+    return { ok: false, error: "client_name is too long." };
+  }
+  if (!platformProfileUrl || !isTrustedHttpUrl(platformProfileUrl)) {
+    return { ok: false, error: "A trusted platform_profile_url or client_uri is required." };
+  }
+  if (
+    platformProfileUrl.length > MAX_CLIENT_METADATA_URL_LENGTH ||
+    (clientUri?.length ?? 0) > MAX_CLIENT_METADATA_URL_LENGTH
+  ) {
+    return { ok: false, error: "Client metadata URLs are too long." };
+  }
+  if (clientUri && !isTrustedHttpUrl(clientUri)) {
+    return { ok: false, error: "client_uri must be an HTTPS URL or localhost HTTP URL." };
+  }
+
+  return {
+    ok: true,
+    metadata: {
+      clientName: clientName ?? null,
+      clientUri: clientUri ?? null,
+      platformProfileUrl,
+      redirectUris,
+      scopes,
+      grantTypes,
+      responseTypes,
+      tokenEndpointAuthMethod: "none",
+    },
+  };
+}
+
+async function resolveOAuthClientMetadata(options: UcpOAuthRoutesOptions, clientId: string) {
+  const registered = await readRegisteredOAuthClient(options.auth, clientId);
+  if (registered) {
+    return registered;
+  }
+  if (!isTrustedHttpUrl(clientId)) {
+    return null;
+  }
+  return readClientIdMetadataDocument(options, clientId);
+}
+
+async function readRegisteredOAuthClient(auth: AuthServices, clientId: string): Promise<OAuthClientMetadata | null> {
+  const result = await auth.db.query<OAuthClientRow>(
+    `SELECT client_id, client_name, client_uri, platform_profile_url, redirect_uris, scopes,
+            grant_types, response_types, token_endpoint_auth_method
+     FROM identity_ucp_oauth_clients
+     WHERE client_id = $1
+     LIMIT 1`,
+    [clientId],
+  );
+  const row = result.rows[0];
+  if (!row || row.token_endpoint_auth_method !== "none") {
+    return null;
+  }
+  return {
+    clientId: row.client_id,
+    clientName: row.client_name,
+    clientUri: row.client_uri,
+    platformProfileUrl: row.platform_profile_url,
+    redirectUris: normalizeStringArray(row.redirect_uris),
+    scopes: normalizeStringArray(row.scopes),
+    grantTypes: normalizeStringArray(row.grant_types),
+    responseTypes: normalizeStringArray(row.response_types),
+    tokenEndpointAuthMethod: "none",
+  };
+}
+
+async function readClientIdMetadataDocument(
+  options: UcpOAuthRoutesOptions,
+  clientId: string,
+): Promise<OAuthClientMetadata | null> {
+  const fetchMetadata =
+    options.fetchClientIdMetadata ??
+    (async (url: string) => {
+      const response = await fetch(url, { headers: { Accept: "application/json" }, redirect: "error" });
+      if (!response.ok) {
+        return null;
+      }
+      return response.json();
+    });
+  const body = readObject(await fetchMetadata(clientId).catch(() => null));
+  if (!body) {
+    return null;
+  }
+  const parsed = parseClientRegistrationMetadata(body);
+  if (!parsed.ok) {
+    return null;
+  }
+  const documentClientId = readString(body.client_id);
+  if (documentClientId && documentClientId !== clientId) {
+    return null;
+  }
+  return { ...parsed.metadata, clientId };
+}
+
+function normalizeRequestedScopes(value: unknown): readonly string[] | null {
+  const raw = typeof value === "string" && value.trim().length > 0 ? value.split(/\s+/) : [];
+  if (raw.length === 0) {
+    return ["catalog:read", "checkout:read", "order:read"];
+  }
+  const supported = new Set<string>(UCP_OAUTH_SUPPORTED_SCOPES);
+  const scopes = [...new Set(raw.map((entry) => entry.trim()).filter(Boolean))].sort();
+  return scopes.every((entry) => supported.has(entry)) ? scopes : null;
+}
+
+function normalizeStringArray(value: unknown, fallback: readonly string[] = []): readonly string[] {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+  return [...new Set(value.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()))]
+    .filter(Boolean)
+    .sort();
+}
+
+function isScopeSubset(requested: readonly string[], allowed: readonly string[]) {
+  const allowedSet = new Set(allowed);
+  return requested.every((scope) => allowedSet.has(scope));
 }
 
 function readObject(value: unknown): Readonly<Record<string, unknown>> | null {

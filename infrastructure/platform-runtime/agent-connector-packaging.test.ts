@@ -55,11 +55,14 @@ describe("agent connector packaging", () => {
       token_endpoint: "https://marketplace.example/ucp/oauth/token",
       token_endpoint_auth_method: "none",
       dynamic_client_registration: {
-        status: "not-exposed",
+        status: "exposed",
+        registration_endpoint: "https://marketplace.example/ucp/oauth/register",
+        client_metadata_document_support: true,
         confidential_credential_policy: "not-used",
       },
     });
     expect(collectCredentialFindings(packaging)).toEqual([]);
-    expect(JSON.stringify(packaging)).not.toContain("/ucp/oauth/register");
+    expect(JSON.stringify(packaging)).toContain("/ucp/oauth/register");
+    expect(JSON.stringify(packaging)).not.toContain('"client_secret":');
   });
 });

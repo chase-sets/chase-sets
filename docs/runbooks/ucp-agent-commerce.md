@@ -164,6 +164,7 @@ Invoke-RestMethod http://localhost:7712/.well-known/oauth-authorization-server
 OAuth identity linking requires Authorization Code with PKCE S256. Token refresh rotates the refresh token on every successful refresh. Token support endpoints:
 
 - `/ucp/oauth/token`: `authorization_code` and `refresh_token`
+- `/ucp/oauth/register`: RFC 7591 public-client registration for agent platforms
 - `/ucp/oauth/introspect`: active token, account, scope, and client/profile diagnostics
 - `/ucp/oauth/revoke`: access-token or refresh-token revocation
 - `/ucp/oauth/authorizations`: signed-in account list and consent revocation

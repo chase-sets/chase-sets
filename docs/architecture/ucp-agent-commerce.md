@@ -9,7 +9,7 @@ UCP is a standards-facing protocol facade. It translates between external agent/
 - `/ucp/v1`: UCP REST transport.
 - `/ucp/mcp`: UCP MCP transport using UCP tool names.
 - `/.well-known/oauth-authorization-server`: OAuth metadata for UCP identity linking.
-- `/ucp/oauth/authorize`, `/ucp/oauth/token`, `/ucp/oauth/introspect`, `/ucp/oauth/revoke`: Auth-owned OAuth authorization-code-with-PKCE runtime backed by Identity-owned Linked Platform Authorization records.
+- `/ucp/oauth/authorize`, `/ucp/oauth/token`, `/ucp/oauth/register`, `/ucp/oauth/introspect`, `/ucp/oauth/revoke`: Auth-owned OAuth authorization-code-with-PKCE runtime, RFC 7591 public-client registration, and Client ID Metadata Document support backed by Identity-owned Linked Platform Authorization records.
 - `/ucp/oauth/authorizations`: account consent-management surface for listing and revoking Linked Platform Authorizations.
 
 Deployables mount these surfaces only. Native MCP contracts and runtime guardrails live in the flat `infrastructure/platform-runtime/mcp*.ts` modules; UCP protocol constants, envelopes, tool metadata, profile construction, and transport guardrails live in `infrastructure/platform-runtime/ucp*.ts`. Domain handlers stay in owning bounded contexts.

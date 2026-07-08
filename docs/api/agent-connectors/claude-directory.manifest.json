@@ -25,9 +25,17 @@
       },
       "token_endpoint_auth_method": "none",
       "dynamic_client_registration": {
-        "status": "not-exposed",
-        "reason": "The current platform exposes OAuth authorization-code-with-PKCE for pre-registered public clients. No dynamic client registration endpoint is mounted.",
-        "client_id_source": "Connector platform registration record or platform profile URL.",
+        "status": "exposed",
+        "registration_endpoint": "https://<marketplace-host>/ucp/oauth/register",
+        "client_id_source": "dynamic-registration-response or Client ID Metadata Document URL",
+        "client_metadata_document_support": true,
+        "constraints": [
+          "Public OAuth clients only; token_endpoint_auth_method must be none.",
+          "No client_secret, jwks, or jwks_uri is accepted, stored, or returned.",
+          "redirect_uris and platform_profile_url/client_uri must be HTTPS URLs or localhost HTTP URLs.",
+          "Registered scopes are limited to the advertised UCP OAuth scopes; authorization requests cannot exceed registered scopes.",
+          "Authorization Code with PKCE S256 is required."
+        ],
         "confidential_credential_policy": "not-used"
       }
     }

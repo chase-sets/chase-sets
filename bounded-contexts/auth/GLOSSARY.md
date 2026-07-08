@@ -100,3 +100,20 @@ Notes:
 
 - Auth owns authorization, account selection, token-facing actor resolution, and safe return paths.
 - Identity owns the durable Linked Platform Authorization consent and revocation facts.
+
+## Dynamic Client Registration
+
+**Dynamic Client Registration** is the Auth-owned OAuth endpoint that lets an agent platform register a public PKCE client for UCP access.
+
+Notes:
+
+- Auth accepts only public clients and does not issue, store, or echo client secrets.
+- Registered redirect URLs, client/profile URLs, and scopes bound what the later OAuth Authorization request may use.
+
+## Client ID Metadata Document
+
+A **Client ID Metadata Document** is a trusted URL used as an OAuth `client_id` whose JSON metadata describes the public client.
+
+Notes:
+
+- Auth resolves the document during OAuth Authorization and applies the same public-client, redirect URL, and scope constraints used for Dynamic Client Registration.

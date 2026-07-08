@@ -273,6 +273,22 @@ describe("platform api app wiring", () => {
     });
   });
 
+  it("serves OAuth authorization-server metadata with dynamic client registration", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime());
+
+    const response = await app.request("https://marketplace.chasesets.test/.well-known/oauth-authorization-server");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      issuer: "https://marketplace.chasesets.test",
+      authorization_endpoint: "https://marketplace.chasesets.test/ucp/oauth/authorize",
+      token_endpoint: "https://marketplace.chasesets.test/ucp/oauth/token",
+      registration_endpoint: "https://marketplace.chasesets.test/ucp/oauth/register",
+      token_endpoint_auth_methods_supported: ["none"],
+      code_challenge_methods_supported: ["S256"],
+    });
+  });
+
   it("mounts projection operations under the same-origin API prefix", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime(), {
       resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
