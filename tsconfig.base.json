@@ -583,6 +583,9 @@
       "@chase-sets/platform-runtime/mcp": [
         "./infrastructure/platform-runtime/mcp.ts"
       ],
+      "@chase-sets/platform-runtime/mcp-protocol": [
+        "./infrastructure/platform-runtime/mcp-protocol.ts"
+      ],
       "@chase-sets/platform-runtime/mcp-tool-call-limiter": [
         "./infrastructure/platform-runtime/mcp-tool-call-limiter.ts"
       ],

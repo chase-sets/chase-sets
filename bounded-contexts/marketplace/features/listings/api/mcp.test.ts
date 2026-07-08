@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createMarketplaceListingMcpHandlers } from "./mcp";
 import type { MarketplaceListingServices } from "./runtime";
 
@@ -13,6 +14,13 @@ const actor = {
   roleKey: "manager",
   permissions: ["listings.view", "listings.manage"],
 } satisfies ResolvedActor;
+
+const legacyMcpProtocol = {
+  protocolVersion: "2025-06-18",
+  stateless: false,
+  clientInfo: null,
+  clientCapabilities: null,
+} satisfies McpRequestProtocolContext;
 
 function services(): MarketplaceListingServices {
   return {
@@ -57,6 +65,7 @@ describe("marketplace listing MCP handlers", () => {
         purchaseLimits: { maxUnitsPerOrder: 1 },
       },
       request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
     });
 
     expect(result).toMatchObject({
@@ -104,6 +113,7 @@ describe("marketplace listing MCP handlers", () => {
         feeQuoteFingerprint: "24.00|1.20|22.80|cts_default|",
       },
       request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
     });
 
     expect(result).toMatchObject({ listingId: "lst_1", version: 2, status: "price-updated" });
@@ -130,6 +140,7 @@ describe("marketplace listing MCP handlers", () => {
         tool: null as never,
         arguments: { accountId: "acc_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
         request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
       }),
     ).resolves.toMatchObject({ listingId: "lst_1", version: 3, status: "published" });
     await expect(
@@ -138,6 +149,7 @@ describe("marketplace listing MCP handlers", () => {
         tool: null as never,
         arguments: { accountId: "acc_1", listingId: "lst_1" },
         request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
       }),
     ).resolves.toMatchObject({ listingId: "lst_1", version: 4, status: "unpublished" });
 
@@ -161,6 +173,7 @@ describe("marketplace listing MCP handlers", () => {
         tool: null as never,
         arguments: { accountId: "acc_other", listingId: "lst_1" },
         request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
       }),
     ).rejects.toThrow("accountId must match the authenticated actor account.");
     await expect(
@@ -169,6 +182,7 @@ describe("marketplace listing MCP handlers", () => {
         tool: null as never,
         arguments: { accountId: "acc_1", inventoryItemId: "inv_1", priceAmount: "20.00", quantityCap: 1, dryRun: true },
         request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
       }),
     ).rejects.toThrow("dryRun is not supported for marketplace listing MCP writes yet.");
     expect(fakeServices.publishListing).not.toHaveBeenCalled();
@@ -183,6 +197,7 @@ describe("marketplace listing MCP handlers", () => {
       resource: null as never,
       uri: "chase-sets://marketplace/acc_1/listings/lst_1",
       request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
     });
 
     expect(result).toMatchObject({

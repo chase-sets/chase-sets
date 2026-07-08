@@ -21,7 +21,23 @@ import {
 } from "./mcp-contracts";
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
-import { negotiateMcpProtocolVersion } from "./mcp-protocol";
+import {
+  MCP_CLIENT_CAPABILITIES_HEADER,
+  MCP_CLIENT_NAME_HEADER,
+  MCP_CLIENT_VERSION_HEADER,
+  MCP_META_CLIENT_CAPABILITIES_KEY,
+  MCP_META_CLIENT_INFO_KEY,
+  MCP_META_PROTOCOL_VERSION_KEY,
+  MCP_METHOD_HEADER,
+  MCP_NAME_HEADER,
+  MCP_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_STATELESS_PROTOCOL_VERSION,
+  SUPPORTED_MCP_PROTOCOL_VERSIONS,
+  isStatelessMcpProtocolVersion,
+  isSupportedMcpProtocolVersion,
+  negotiateMcpProtocolVersion,
+} from "./mcp-protocol";
 import {
   createMemoryPlatformIdempotencyStore,
   type PlatformIdempotencyRecord,
@@ -35,11 +51,27 @@ export type McpRuntimeEnv = {
   };
 };
 
+export type McpClientInfo = Readonly<{
+  name: string;
+  version: string;
+  [key: string]: unknown;
+}>;
+
+export type McpClientCapabilities = Readonly<Record<string, unknown>>;
+
+export type McpRequestProtocolContext = Readonly<{
+  protocolVersion: string;
+  stateless: boolean;
+  clientInfo: McpClientInfo | null;
+  clientCapabilities: McpClientCapabilities | null;
+}>;
+
 export type McpToolHandlerInput = Readonly<{
   actor: ResolvedActor | null;
   tool: McpToolDescriptor;
   arguments: Readonly<Record<string, unknown>>;
   request: Request;
+  protocol: McpRequestProtocolContext;
 }>;
 
 export type McpResourceHandlerInput = Readonly<{
@@ -47,6 +79,7 @@ export type McpResourceHandlerInput = Readonly<{
   resource: McpResourceDescriptor;
   uri: string;
   request: Request;
+  protocol: McpRequestProtocolContext;
 }>;
 
 export type McpToolHandler = (input: McpToolHandlerInput) => Promise<unknown> | unknown;
@@ -73,10 +106,13 @@ export type McpIdempotencyRecord = PlatformIdempotencyRecord<unknown>;
 
 export type McpIdempotencyStore = PlatformIdempotencyStore<unknown>;
 
+export type McpExtensionCapabilities = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
 export type CreateMcpRoutesOptions = Readonly<{
   services?: readonly McpServiceDescriptor[];
   toolHandlers?: Readonly<Record<string, McpToolHandler>>;
   resourceHandlers?: Readonly<Record<string, McpResourceHandler>>;
+  extensionCapabilities?: McpExtensionCapabilities;
   audit?: McpAuditSink;
   idempotencyStore?: McpIdempotencyStore;
   toolCallLimiter?: McpToolCallLimiter;
@@ -230,6 +266,253 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   }
 
   return true;
+}
+
+type McpRequestProtocolError = Readonly<{
+  ok: false;
+  status: 400;
+  body: ReturnType<typeof jsonRpcError>;
+}>;
+
+type McpRequestProtocolResolution =
+  | Readonly<{
+      ok: true;
+      protocol: McpRequestProtocolContext;
+    }>
+  | McpRequestProtocolError;
+
+function mcpHeaderValue(request: Request, name: string) {
+  const value = request.headers.get(name);
+  return value === null || value.trim().length === 0 ? null : value.trim();
+}
+
+function isValidMcpHeaderValue(value: string) {
+  return !/[\0\r\n]/.test(value);
+}
+
+function paramsRecord(params: unknown): Readonly<Record<string, unknown>> {
+  return isRecord(params) ? params : {};
+}
+
+function mcpMetaFromParams(params: unknown) {
+  const paramsObject = paramsRecord(params);
+  return isRecord(paramsObject._meta) ? paramsObject._meta : {};
+}
+
+function mcpMetaProtocolVersion(meta: Readonly<Record<string, unknown>>) {
+  const protocolVersion = meta[MCP_META_PROTOCOL_VERSION_KEY];
+  return typeof protocolVersion === "string" && protocolVersion.trim().length > 0 ? protocolVersion.trim() : null;
+}
+
+function mcpRequestProtocolError(
+  id: JsonRpcRequest["id"],
+  status: 400,
+  code: number,
+  message: string,
+  data?: unknown,
+): McpRequestProtocolError {
+  return {
+    ok: false,
+    status,
+    body: jsonRpcError(id, code, message, data),
+  };
+}
+
+function unsupportedMcpProtocolResponse(id: JsonRpcRequest["id"], requestedVersion: string) {
+  return mcpRequestProtocolError(id, 400, -32004, `Unsupported MCP protocol version '${requestedVersion}'.`, {
+    requestedVersion,
+    supportedVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
+  });
+}
+
+function mcpHeaderMismatchResponse(id: JsonRpcRequest["id"], message: string) {
+  return mcpRequestProtocolError(id, 400, -32001, message);
+}
+
+function invalidMcpParamsResponse(id: JsonRpcRequest["id"], message: string) {
+  return mcpRequestProtocolError(id, 400, -32602, message);
+}
+
+function readMcpClientInfoFromMeta(meta: Readonly<Record<string, unknown>>): McpClientInfo | null {
+  const clientInfo = meta[MCP_META_CLIENT_INFO_KEY];
+  if (!isRecord(clientInfo)) {
+    return null;
+  }
+
+  const name = clientInfo.name;
+  const version = clientInfo.version;
+  return typeof name === "string" && name.trim().length > 0 && typeof version === "string" && version.trim().length > 0
+    ? {
+        ...clientInfo,
+        name: name.trim(),
+        version: version.trim(),
+      }
+    : null;
+}
+
+function readMcpClientInfoFromHeaders(request: Request): McpClientInfo | null {
+  const name = mcpHeaderValue(request, MCP_CLIENT_NAME_HEADER);
+  const version = mcpHeaderValue(request, MCP_CLIENT_VERSION_HEADER);
+  return name && version ? { name, version } : null;
+}
+
+function readMcpClientCapabilitiesFromHeaders(request: Request): McpClientCapabilities | null {
+  const value = mcpHeaderValue(request, MCP_CLIENT_CAPABILITIES_HEADER);
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function readMcpClientCapabilities(
+  request: Request,
+  meta: Readonly<Record<string, unknown>>,
+): McpClientCapabilities | null {
+  const capabilities = meta[MCP_META_CLIENT_CAPABILITIES_KEY];
+  if (isRecord(capabilities)) {
+    return capabilities;
+  }
+
+  return readMcpClientCapabilitiesFromHeaders(request);
+}
+
+function resolveMcpRequestProtocol(request: Request, rpcRequest: JsonRpcRequest): McpRequestProtocolResolution {
+  const protocolHeader = mcpHeaderValue(request, MCP_PROTOCOL_VERSION_HEADER);
+  const meta = mcpMetaFromParams(rpcRequest.params);
+  const metaProtocolVersion = mcpMetaProtocolVersion(meta);
+  let protocolVersion = MCP_PROTOCOL_VERSION;
+
+  if (protocolHeader) {
+    if (!isValidMcpHeaderValue(protocolHeader)) {
+      return mcpHeaderMismatchResponse(rpcRequest.id, `${MCP_PROTOCOL_VERSION_HEADER} contains an invalid value.`);
+    }
+    if (!isSupportedMcpProtocolVersion(protocolHeader)) {
+      return unsupportedMcpProtocolResponse(rpcRequest.id, protocolHeader);
+    }
+    protocolVersion = protocolHeader;
+    if (metaProtocolVersion && metaProtocolVersion !== protocolHeader) {
+      return mcpHeaderMismatchResponse(
+        rpcRequest.id,
+        `${MCP_PROTOCOL_VERSION_HEADER} must match params._meta.${MCP_META_PROTOCOL_VERSION_KEY}.`,
+      );
+    }
+  } else if (metaProtocolVersion) {
+    if (!isSupportedMcpProtocolVersion(metaProtocolVersion)) {
+      return unsupportedMcpProtocolResponse(rpcRequest.id, metaProtocolVersion);
+    }
+    if (isStatelessMcpProtocolVersion(metaProtocolVersion)) {
+      return mcpHeaderMismatchResponse(
+        rpcRequest.id,
+        `${MCP_PROTOCOL_VERSION_HEADER} is required for MCP protocol version ${MCP_STATELESS_PROTOCOL_VERSION}.`,
+      );
+    }
+    protocolVersion = metaProtocolVersion;
+  }
+
+  const stateless = isStatelessMcpProtocolVersion(protocolVersion);
+  if (!stateless) {
+    return {
+      ok: true,
+      protocol: {
+        protocolVersion,
+        stateless: false,
+        clientInfo: readMcpClientInfoFromMeta(meta) ?? readMcpClientInfoFromHeaders(request),
+        clientCapabilities: readMcpClientCapabilities(request, meta),
+      },
+    };
+  }
+
+  if (metaProtocolVersion !== MCP_STATELESS_PROTOCOL_VERSION) {
+    return invalidMcpParamsResponse(
+      rpcRequest.id,
+      `MCP protocol version ${MCP_STATELESS_PROTOCOL_VERSION} requires params._meta.${MCP_META_PROTOCOL_VERSION_KEY}.`,
+    );
+  }
+
+  const clientInfo = readMcpClientInfoFromMeta(meta) ?? readMcpClientInfoFromHeaders(request);
+  if (!clientInfo) {
+    return invalidMcpParamsResponse(
+      rpcRequest.id,
+      `MCP protocol version ${MCP_STATELESS_PROTOCOL_VERSION} requires client info in params._meta.${MCP_META_CLIENT_INFO_KEY} or ${MCP_CLIENT_NAME_HEADER}/${MCP_CLIENT_VERSION_HEADER}.`,
+    );
+  }
+
+  const clientCapabilities = readMcpClientCapabilities(request, meta);
+  if (!clientCapabilities) {
+    return invalidMcpParamsResponse(
+      rpcRequest.id,
+      `MCP protocol version ${MCP_STATELESS_PROTOCOL_VERSION} requires client capabilities in params._meta.${MCP_META_CLIENT_CAPABILITIES_KEY} or ${MCP_CLIENT_CAPABILITIES_HEADER}.`,
+    );
+  }
+
+  return {
+    ok: true,
+    protocol: {
+      protocolVersion,
+      stateless,
+      clientInfo,
+      clientCapabilities,
+    },
+  };
+}
+
+function expectedMcpNameHeaderValue(request: JsonRpcRequest) {
+  const params = paramsRecord(request.params);
+  switch (request.method) {
+    case "tools/call":
+    case "prompts/get":
+      return typeof params.name === "string" ? params.name : null;
+    case "resources/read":
+      return typeof params.uri === "string" ? params.uri : null;
+    default:
+      return null;
+  }
+}
+
+function validateMcpRoutingHeaders(
+  request: Request,
+  rpcRequest: JsonRpcRequest,
+  protocol: McpRequestProtocolContext,
+): McpRequestProtocolError | null {
+  const methodHeader = mcpHeaderValue(request, MCP_METHOD_HEADER);
+  const nameHeader = mcpHeaderValue(request, MCP_NAME_HEADER);
+  const shouldValidate = protocol.stateless || methodHeader !== null || nameHeader !== null;
+  if (!shouldValidate) {
+    return null;
+  }
+
+  if (!methodHeader) {
+    return mcpHeaderMismatchResponse(rpcRequest.id, `${MCP_METHOD_HEADER} is required for this MCP request.`);
+  }
+  if (!isValidMcpHeaderValue(methodHeader)) {
+    return mcpHeaderMismatchResponse(rpcRequest.id, `${MCP_METHOD_HEADER} contains an invalid value.`);
+  }
+  if (methodHeader !== rpcRequest.method) {
+    return mcpHeaderMismatchResponse(rpcRequest.id, `${MCP_METHOD_HEADER} must match the JSON-RPC method.`);
+  }
+
+  const expectedName = expectedMcpNameHeaderValue(rpcRequest);
+  if (!expectedName) {
+    return null;
+  }
+
+  if (!nameHeader) {
+    return mcpHeaderMismatchResponse(rpcRequest.id, `${MCP_NAME_HEADER} is required for ${rpcRequest.method}.`);
+  }
+  if (!isValidMcpHeaderValue(nameHeader)) {
+    return mcpHeaderMismatchResponse(rpcRequest.id, `${MCP_NAME_HEADER} contains an invalid value.`);
+  }
+  if (nameHeader !== expectedName) {
+    return mcpHeaderMismatchResponse(rpcRequest.id, `${MCP_NAME_HEADER} must match the MCP request target.`);
+  }
+
+  return null;
 }
 
 function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
@@ -529,6 +812,29 @@ function toResourceListItem(resource: McpResourceDescriptor) {
       accountScoped: resource.permissionBoundary.accountScoped,
       expectedUsage: resource.expectedUsage,
     },
+  };
+}
+
+function mcpServerInfo() {
+  return {
+    name: "chase-sets-platform",
+    version: "0.1.0",
+  };
+}
+
+function mcpServerCapabilities(extensionCapabilities: McpExtensionCapabilities) {
+  return {
+    tools: {},
+    resources: {},
+    extensions: extensionCapabilities,
+  };
+}
+
+function mcpServerDiscovery(extensionCapabilities: McpExtensionCapabilities) {
+  return {
+    protocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
+    serverInfo: mcpServerInfo(),
+    capabilities: mcpServerCapabilities(extensionCapabilities),
   };
 }
 
@@ -848,6 +1154,7 @@ export function buildMcpHandlersFromModules(
 async function callTool(
   request: Request,
   actor: ResolvedActor | null,
+  protocol: McpRequestProtocolContext,
   params: McpToolCallParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers" | "idempotencyStore">> &
     Pick<CreateMcpRoutesOptions, "audit" | "toolCallLimiter">,
@@ -1046,6 +1353,7 @@ async function callTool(
       tool,
       arguments: args,
       request,
+      protocol,
     });
     const response = mcpToolSuccessResult(result);
     if (reservedIdempotency) {
@@ -1099,6 +1407,7 @@ async function callTool(
 async function readResource(
   request: Request,
   actor: ResolvedActor | null,
+  protocol: McpRequestProtocolContext,
   params: McpResourceReadParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "resourceHandlers">> &
     Pick<CreateMcpRoutesOptions, "audit">,
@@ -1208,6 +1517,7 @@ async function readResource(
       resource,
       uri: params.uri,
       request,
+      protocol,
     });
     await audit(options.audit, {
       outcome: "allowed",
@@ -1250,6 +1560,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   const services = options.services ?? mcpServiceCatalog;
   const toolHandlers = options.toolHandlers ?? {};
   const resourceHandlers = options.resourceHandlers ?? {};
+  const extensionCapabilities = options.extensionCapabilities ?? {};
   const idempotencyStore = resolveMcpIdempotencyStore(options);
 
   app.get("/services", (c) => {
@@ -1296,25 +1607,54 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
 
     const request = body as JsonRpcRequest;
     const actor = c.get("actor") ?? null;
+    const protocolResolution = resolveMcpRequestProtocol(c.req.raw, request);
+    if (!protocolResolution.ok) {
+      return c.json(protocolResolution.body, protocolResolution.status);
+    }
+
+    const routingHeaderError = validateMcpRoutingHeaders(c.req.raw, request, protocolResolution.protocol);
+    if (routingHeaderError) {
+      return c.json(routingHeaderError.body, routingHeaderError.status);
+    }
+
+    const protocol = protocolResolution.protocol;
 
     switch (request.method) {
+      case "server/discover": {
+        const actorError = requireMcpDiscoveryActor(actor);
+        if (actorError) {
+          return c.json({ ...actorError, id: request.id ?? null }, 401);
+        }
+
+        return c.json(jsonRpcResult(request.id, mcpServerDiscovery(extensionCapabilities)));
+      }
       case "initialize": {
         const actorError = requireMcpDiscoveryActor(actor);
         if (actorError) {
           return c.json({ ...actorError, id: request.id ?? null }, 401);
         }
 
+        if (protocol.stateless || paramsRecord(request.params).protocolVersion === MCP_STATELESS_PROTOCOL_VERSION) {
+          return c.json(
+            jsonRpcError(
+              request.id,
+              -32601,
+              `initialize is not supported for MCP protocol version ${MCP_STATELESS_PROTOCOL_VERSION}. Use server/discover and per-request metadata.`,
+            ),
+          );
+        }
+
+        const negotiatedProtocolVersion =
+          mcpHeaderValue(c.req.raw, MCP_PROTOCOL_VERSION_HEADER) &&
+          protocol.protocolVersion !== MCP_STATELESS_PROTOCOL_VERSION
+            ? protocol.protocolVersion
+            : negotiateMcpProtocolVersion(request.params);
+
         return c.json(
           jsonRpcResult(request.id, {
-            protocolVersion: negotiateMcpProtocolVersion(request.params),
-            serverInfo: {
-              name: "chase-sets-platform",
-              version: "0.1.0",
-            },
-            capabilities: {
-              tools: {},
-              resources: {},
-            },
+            protocolVersion: negotiatedProtocolVersion,
+            serverInfo: mcpServerInfo(),
+            capabilities: mcpServerCapabilities(extensionCapabilities),
           }),
         );
       }
@@ -1343,7 +1683,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         );
       }
       case "tools/call": {
-        const result = await callTool(c.req.raw, actor, (request.params ?? {}) as McpToolCallParams, {
+        const result = await callTool(c.req.raw, actor, protocol, (request.params ?? {}) as McpToolCallParams, {
           services,
           toolHandlers,
           audit: options.audit,
@@ -1353,7 +1693,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         return c.json({ ...result, id: request.id ?? null });
       }
       case "resources/read": {
-        const result = await readResource(c.req.raw, actor, (request.params ?? {}) as McpResourceReadParams, {
+        const result = await readResource(c.req.raw, actor, protocol, (request.params ?? {}) as McpResourceReadParams, {
           services,
           resourceHandlers,
           audit: options.audit,

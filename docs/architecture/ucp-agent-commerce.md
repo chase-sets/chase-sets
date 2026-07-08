@@ -16,7 +16,7 @@ Deployables mount these surfaces only. Native MCP contracts and runtime guardrai
 
 ## Native MCP Bridge
 
-The native `/mcp` bridge is an authenticated internal surface. It uses Chase Sets-owned tool names and resource URIs, currently limited to Inventory import-batch operations that have runtime handlers. Discovery requires an authenticated actor, and tool calls enforce permission, account ownership, input schema, confirmation text, durable idempotency for writes, and audit records before and after handler execution.
+The native `/mcp` bridge is an authenticated internal surface. It uses Chase Sets-owned tool names and resource URIs composed from mounted bounded-context module contracts. Discovery requires an authenticated actor, and tool calls enforce permission, account ownership, input schema, confirmation text, durable idempotency for writes, and audit records before and after handler execution.
 
 The native bridge is not a third-party commerce profile. External agent commerce should use `/.well-known/ucp` and `/ucp/mcp`; native `/mcp` exists for first-party automation where Chase Sets controls the agent host and can bind the request to a platform session or operator principal.
 
@@ -47,15 +47,16 @@ ChatGPT OAuth does not replace UCP request signatures. If ChatGPT calls signed c
 
 ## Transport Contract
 
-REST and MCP must remain behavior-equivalent:
+UCP REST and UCP MCP must remain behavior-equivalent:
 
 - Same UCP version and capability declarations.
-- Native `/mcp` and UCP `/ucp/mcp` negotiate the same MCP protocol baseline, currently `2025-06-18`; unsupported client proposals fall back to that baseline instead of fragmenting the surfaces.
 - Same validation and UCP envelope/message shape.
 - Same actor/scope checks for OAuth-linked bearer tokens.
 - Same signed-request and `Content-Digest` checks for checkout writes.
 - Same idempotency policy for completion and cancellation.
 - Same handler path into the owning bounded context.
+
+Native `/mcp` is a separate Chase Sets operator/first-party bridge. It supports MCP `2025-06-18` and `2025-11-25` through legacy `initialize`, and `2026-07-28` through stateless per-request protocol metadata and `Mcp-Method`/`Mcp-Name` routing headers. The native bridge must not depend on `Mcp-Session-Id` or load-balancer affinity.
 
 The runtime exposes guardrails and handler seams. Concrete Discovery, Checkout, Ordering, Payments, Auth, and Identity adapters must own commercial behavior before a capability is treated as commercially ready.
 

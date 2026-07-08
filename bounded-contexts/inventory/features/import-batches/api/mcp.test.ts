@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createInventoryImportBatchMcpHandlers } from "./mcp";
 import type { InventoryImportBatchServices } from "./runtime";
 
@@ -13,6 +14,13 @@ const actor = {
   roleKey: "manager",
   permissions: ["inventory.view", "inventory.manage"],
 } satisfies ResolvedActor;
+
+const legacyMcpProtocol = {
+  protocolVersion: "2025-06-18",
+  stateless: false,
+  clientInfo: null,
+  clientCapabilities: null,
+} satisfies McpRequestProtocolContext;
 
 function services(): InventoryImportBatchServices {
   return {
@@ -79,6 +87,7 @@ describe("inventory import batch MCP handlers", () => {
       tool: null as never,
       arguments: { accountId: "acc_1" },
       request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
     });
 
     expect(result).toMatchObject({
@@ -103,6 +112,7 @@ describe("inventory import batch MCP handlers", () => {
         parsedRows: [{ rowNumber: 1, values: { "Variant ID": "987", "Variant Inventory Qty": 2 } }],
       },
       request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
     });
 
     expect(result).toMatchObject({ batch_id: "imb_1", total_count: 1 });
@@ -130,6 +140,7 @@ describe("inventory import batch MCP handlers", () => {
         tool: null as never,
         arguments: { accountId: "acc_other", batchId: "imb_1" },
         request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
       }),
     ).rejects.toThrow("accountId must match the authenticated actor account.");
     expect(fakeServices.commitBatch).not.toHaveBeenCalled();
@@ -150,6 +161,7 @@ describe("inventory import batch MCP handlers", () => {
           dryRun: true,
         },
         request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
       }),
     ).rejects.toThrow("dryRun is not supported for inventory import batch MCP writes yet.");
     expect(fakeServices.createBatch).not.toHaveBeenCalled();
@@ -162,6 +174,7 @@ describe("inventory import batch MCP handlers", () => {
       resource: null as never,
       uri: "chase-sets://inventory/acc_1/import-batches/imb_1",
       request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
     });
 
     expect(result).toMatchObject({

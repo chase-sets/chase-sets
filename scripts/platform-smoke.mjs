@@ -13,6 +13,10 @@ import {
   isNativeMcpAnonymousDiscoveryRejected,
   isNativeMcpPermissionBoundaryError,
   isNativeMcpPermissionBoundaryResult,
+  nativeMcpHeadersForRevision,
+  nativeMcpJsonRpcRequestForRevision,
+  nativeMcpProtocolMatrix,
+  shouldInitializeNativeMcpRevision,
   summarizeNativeMcpImportSourceKeys,
 } from "./platform-smoke-native-mcp.mjs";
 import { createReadAfterWriteReceiptFromCommitReceipt } from "./platform-smoke-freshness.mjs";
@@ -398,53 +402,68 @@ async function expectNativeMcpInventoryRead({ origin, sessionToken, accountId })
     Authorization: `Bearer ${sessionToken}`,
     "Content-Type": "application/json",
   };
-  const toolsResponse = await expectOk("native MCP authenticated tools", `${origin}/mcp`, {
-    method: "POST",
-    headers: commonHeaders,
-    body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
-  });
-  const toolsBody = await toolsResponse.json();
-  const toolNames = new Set(
-    Array.isArray(toolsBody.result?.tools) ? toolsBody.result.tools.map((tool) => tool?.name) : [],
-  );
-  if (!toolNames.has("inventory.list-import-sources")) {
-    throw new Error("Native MCP tools did not include inventory.list-import-sources.");
-  }
 
-  const listSourcesResponse = await expectOk("native MCP inventory source read", `${origin}/mcp`, {
-    method: "POST",
-    headers: commonHeaders,
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "list-import-sources",
-      method: "tools/call",
-      params: {
-        name: "inventory.list-import-sources",
-        arguments: { accountId },
-      },
-    }),
-  });
-  const listSourcesBody = await listSourcesResponse.json();
-  if (listSourcesBody.error) {
-    if (isNativeMcpPermissionBoundaryError(listSourcesBody.error, "inventory.view")) {
+  for (const revision of nativeMcpProtocolMatrix) {
+    if (shouldInitializeNativeMcpRevision(revision)) {
+      await expectOk(`native MCP ${revision} initialize`, `${origin}/mcp`, {
+        method: "POST",
+        headers: nativeMcpHeadersForRevision(revision, "initialize", undefined, commonHeaders),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: `initialize-${revision}`,
+          method: "initialize",
+          params: { protocolVersion: revision },
+        }),
+      });
+    }
+
+    const toolsResponse = await expectOk(`native MCP ${revision} authenticated tools`, `${origin}/mcp`, {
+      method: "POST",
+      headers: nativeMcpHeadersForRevision(revision, "tools/list", undefined, commonHeaders),
+      body: JSON.stringify(nativeMcpJsonRpcRequestForRevision(revision, `tools-${revision}`, "tools/list")),
+    });
+    const toolsBody = await toolsResponse.json();
+    const toolNames = new Set(
+      Array.isArray(toolsBody.result?.tools) ? toolsBody.result.tools.map((tool) => tool?.name) : [],
+    );
+    if (!toolNames.has("inventory.list-import-sources")) {
+      throw new Error(`Native MCP ${revision} tools did not include inventory.list-import-sources.`);
+    }
+
+    const listSourcesResponse = await expectOk(`native MCP ${revision} inventory source read`, `${origin}/mcp`, {
+      method: "POST",
+      headers: nativeMcpHeadersForRevision(revision, "tools/call", "inventory.list-import-sources", commonHeaders),
+      body: JSON.stringify(
+        nativeMcpJsonRpcRequestForRevision(revision, `list-import-sources-${revision}`, "tools/call", {
+          name: "inventory.list-import-sources",
+          arguments: { accountId },
+        }),
+      ),
+    });
+    const listSourcesBody = await listSourcesResponse.json();
+    if (listSourcesBody.error) {
+      if (isNativeMcpPermissionBoundaryError(listSourcesBody.error, "inventory.view")) {
+        console.warn(
+          `Native MCP ${revision} inventory source read reached the authenticated permission boundary; skipping inventory-specific read proof.`,
+        );
+        return;
+      }
+      throw new Error(
+        `Native MCP ${revision} inventory source read returned JSON-RPC error: ${listSourcesBody.error.message}.`,
+      );
+    }
+    if (isNativeMcpPermissionBoundaryResult(listSourcesBody.result, "inventory.view")) {
       console.warn(
-        "Native MCP inventory source read reached the authenticated permission boundary; skipping inventory-specific read proof.",
+        `Native MCP ${revision} inventory source read reached the authenticated permission boundary; skipping inventory-specific read proof.`,
       );
       return;
     }
-    throw new Error(`Native MCP inventory source read returned JSON-RPC error: ${listSourcesBody.error.message}.`);
-  }
-  if (isNativeMcpPermissionBoundaryResult(listSourcesBody.result, "inventory.view")) {
-    console.warn(
-      "Native MCP inventory source read reached the authenticated permission boundary; skipping inventory-specific read proof.",
-    );
-    return;
-  }
-  const sourceSummary = summarizeNativeMcpImportSourceKeys(listSourcesBody.result);
-  if (!sourceSummary.hasExpectedSource) {
-    throw new Error(
-      `Native MCP inventory source read did not include the TCGplayer CSV source. ${sourceSummary.diagnostic}`,
-    );
+    const sourceSummary = summarizeNativeMcpImportSourceKeys(listSourcesBody.result);
+    if (!sourceSummary.hasExpectedSource) {
+      throw new Error(
+        `Native MCP ${revision} inventory source read did not include the TCGplayer CSV source. ${sourceSummary.diagnostic}`,
+      );
+    }
   }
 }
 
