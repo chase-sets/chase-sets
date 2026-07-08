@@ -50,9 +50,14 @@ describe("doks cluster addons planner", () => {
     expect(productionController.command.join(" ")).toContain("=chase-sets-production-doks-ingress");
   });
 
-  it("uses the default DigitalOcean load balancer type so forwarding rules stay reconciled to NodePorts", () => {
-    expect(ingressNginxValues).not.toContain("service.beta.kubernetes.io/do-loadbalancer-type");
-    expect(ingressNginxValues).not.toContain("REGIONAL_NETWORK");
+  it("pins the DigitalOcean load balancer type to REGIONAL so forwarding rules target the NodePorts and PROXY protocol is supported", () => {
+    // On DOKS 1.33.1-do.0+ the CCM default is REGIONAL_NETWORK (a same-port
+    // passthrough network LB that forwards :80/:443 to host :80/:443, where a
+    // NodePort controller has nothing listening, and that cannot do PROXY
+    // protocol). Pin REGIONAL explicitly -- an absent annotation resolves to the
+    // wrong default on the 1.36 cluster. See ingress-nginx-values.yaml header.
+    expect(ingressNginxValues).toContain('service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL"');
+    expect(ingressNginxValues).not.toContain('service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL_NETWORK"');
   });
 
   it("keeps load balancer and ingress-nginx PROXY protocol settings paired", () => {
