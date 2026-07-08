@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminWebHydrated, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  expectAdminWebHydrated,
+  expectPageOk,
+  skipDeployedAdminE2e,
+  waitForProjectionPositionFromUrl,
+} from "./support/admin-e2e";
 
 test.describe("support admin platform feedback", () => {
   test("operator reviews platform feedback @admin-support", async ({ page }) => {
@@ -27,7 +33,13 @@ test.describe("support admin platform feedback", () => {
     await expect(page.getByText("New").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Mark reviewed" }).click();
-    await expect(page).toHaveURL((url) => url.pathname === `/support/platform-feedback/${feedbackId}`);
+    await page.waitForURL(
+      (url) => url.pathname === `/support/platform-feedback/${feedbackId}` && url.search.includes("afterWrite"),
+      { timeout: 30_000 },
+    );
+    const reviewedUrl = new URL(page.url());
+    await waitForPlatformFeedbackProjection(page, reviewedUrl, `mark platform feedback ${feedbackId} reviewed`);
+    await page.goto(reviewedUrl.pathname, { waitUntil: "domcontentloaded" });
     await expectReviewedFeedback(page, feedbackId);
   });
 });
@@ -82,6 +94,16 @@ async function waitForFeedbackStatus(page: Page, feedbackId: string, status: "re
     .toBe(status);
 
   await page.reload({ waitUntil: "domcontentloaded" });
+}
+
+async function waitForPlatformFeedbackProjection(page: Page, url: URL, label: string) {
+  await waitForProjectionPositionFromUrl(page, url, {
+    sourceContextName: "platform-operations",
+    targetContextName: "platform-operations",
+    projectionName: "experience-platform-feedback-projection",
+    label,
+    allowLegacyCommitPositionFallback: true,
+  });
 }
 
 async function expectReviewedFeedback(page: Page, feedbackId: string) {

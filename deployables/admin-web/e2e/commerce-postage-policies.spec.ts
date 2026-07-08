@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+  waitForProjectionPositionFromUrl,
+} from "./support/admin-e2e";
 
 test.describe("commerce admin postage policies", () => {
   test("operator creates, previews, and activates a postage policy @admin-commerce", async ({ page }) => {
@@ -30,6 +36,11 @@ test.describe("commerce admin postage policies", () => {
         timeout: 30_000,
       },
     );
+    const createUrl = new URL(page.url());
+    const policyId = createUrl.pathname.split("/").filter(Boolean).at(-1);
+    expect(policyId, "create redirect should include the postage policy id").toMatch(/^opp_/);
+    await waitForOrderingPostagePolicyProjection(page, createUrl, `create postage policy ${policyId}`);
+    await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: label });
     await expect(page.getByRole("textbox", { name: "Policy version" }).first()).toHaveValue(policyVersion);
 
@@ -50,10 +61,24 @@ test.describe("commerce admin postage policies", () => {
         timeout: 30_000,
       },
     );
+    const activationUrl = new URL(page.url());
+    const activatedPolicyId = activationUrl.pathname.split("/").filter(Boolean).at(-1);
+    expect(activatedPolicyId, "activation redirect should include the postage policy id").toBe(policyId);
+    await waitForOrderingPostagePolicyProjection(page, activationUrl, `activate postage policy ${activatedPolicyId}`);
+    await page.goto(activationUrl.pathname, { waitUntil: "domcontentloaded" });
     await expectActivatedPolicy(page, label, activationReason);
     await expect(page.getByRole("row").filter({ hasText: "activated" })).toBeVisible();
   });
 });
+
+async function waitForOrderingPostagePolicyProjection(page: Page, url: URL, label: string) {
+  await waitForProjectionPositionFromUrl(page, url, {
+    sourceContextName: "ordering",
+    targetContextName: "ordering",
+    projectionName: "ordering-postage-policy-projection",
+    label,
+  });
+}
 
 async function expectActivatedPolicy(page: Page, label: string, activationReason: string) {
   await expect(async () => {
