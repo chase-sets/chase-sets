@@ -37,6 +37,15 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_operations");
     expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");
+
+    // Bootstrap must also reap stale in-flight operations (running or
+    // cancel_requested with an expired or cleared claim) so #4496-style ghost
+    // rows converge on the next deploy without manual SQL.
+    const reapStatement = statements.find((statement) => statement.includes("stale_claim_reaped"));
+    expect(reapStatement).toBeDefined();
+    expect(reapStatement).toContain("state IN ('running', 'cancel_requested')");
+    expect(reapStatement).toContain("claimed_until IS NULL");
+    expect(reapStatement).toContain("FOR UPDATE SKIP LOCKED");
   });
 
   it("adds projection-operation compatibility columns before any index that references them", () => {
