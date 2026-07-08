@@ -687,6 +687,86 @@ describe("bounded context subscription runner", () => {
     });
   });
 
+  it("resumes an aborted blocked-stream retry from per-event progress instead of re-applying", async () => {
+    // #4611 AC2: a long blocked-stream retry commits each event in its own
+    // transaction and records it in the application ledger, so an operation
+    // aborted mid-stream (e.g. by the execution deadline) resumes from the last
+    // applied event on the next attempt rather than re-applying from scratch.
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const streamId = "catalog.item-cat_bad";
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_bad" }, streamId),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_bad" }, streamId),
+    ]);
+    getBlockedStreamStore(targetPool).set(`${projectionKey}:${streamId}`, {
+      projectionKey,
+      streamId,
+      firstBlockedGlobalPosition: "1",
+      firstBlockedStreamVersion: 1,
+      lastSeenGlobalPosition: "2",
+      deferredEventCount: 0,
+      state: "blocked",
+    });
+
+    const seen: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      // One event per batch so the retry loop reaches a between-events lease
+      // checkpoint after the first event commits.
+      batchSize: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          seen.push(`${event.streamId}:${event.globalPosition}`);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    const appliedCount = () =>
+      [...getApplicationStatusStore(targetPool)].filter(
+        ([key, status]) => key.startsWith(`${projectionKey}:`) && status === "applied",
+      ).length;
+    // Abort once the first event has committed as applied — the next
+    // top-of-batch lease check trips, leaving the second event untouched.
+    const abortingContext = {
+      throwIfLeaseLost: () => {
+        if (appliedCount() >= 1) {
+          throw new Error("Lost lease during blocked-stream retry.");
+        }
+      },
+    };
+
+    await expect(
+      retryProjectionBlockedStream({ subscriptionRunners: [runner] }, projectionKey, streamId, abortingContext),
+    ).rejects.toThrow(/Lost lease during blocked-stream retry/);
+
+    // Exactly the first event was applied and durably recorded before the abort.
+    expect(seen).toEqual(["catalog.item-cat_bad:1"]);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("applied");
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_2`)).not.toBe("applied");
+
+    // Resume: the already-applied first event is skipped (its handler is not
+    // re-invoked), only the second event is applied, and the stream resolves.
+    await expect(
+      retryProjectionBlockedStream({ subscriptionRunners: [runner] }, projectionKey, streamId),
+    ).resolves.toMatchObject({
+      state: "resolved",
+      appliedEvents: 2,
+    });
+
+    expect(seen).toEqual(["catalog.item-cat_bad:1", "catalog.item-cat_bad:2"]);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_2`)).toBe("applied");
+    expect(getBlockedStreamStore(targetPool).get(`${projectionKey}:${streamId}`)).toMatchObject({
+      state: "resolved",
+    });
+  });
+
   it("retries blocked streams with the currently supplied handler code", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
