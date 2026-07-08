@@ -680,6 +680,45 @@
           }
         }
       },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "side",
+          "items",
+          "total",
+          "count"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Account relationship for the returned records."
+          },
+          "items": {
+            "type": "array",
+            "description": "Inventory item rows visible to the actor.",
+            "items": {
+              "type": "object",
+              "description": "Inventory item rows visible to the actor.",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total matching record count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned record count."
+          }
+        }
+      },
       "confirmation_required": false,
       "idempotency_key": "not-applicable",
       "dry_run_supported": false,
@@ -3921,6 +3960,423 @@
       ]
     },
     {
+      "name": "ordering.list-orders",
+      "title": "List Orders",
+      "description": "List purchases and sales visible to the actor.",
+      "service_id": "ordering",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.view"
+      ],
+      "required_scopes": [
+        "checkout:read",
+        "order:read"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Order side.",
+            "enum": [
+              "purchase",
+              "sale"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum records to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Zero-based record offset."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "side",
+          "items",
+          "total",
+          "count"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Account relationship for the returned records."
+          },
+          "items": {
+            "type": "array",
+            "description": "Ordering order rows visible to the actor.",
+            "items": {
+              "type": "object",
+              "description": "Ordering order rows visible to the actor.",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total matching record count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned record count."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before fulfillment, payment, reputation, or support actions."
+      ]
+    },
+    {
+      "name": "ordering.get-order",
+      "title": "Get Order",
+      "description": "Read one purchase or sale order visible to the actor.",
+      "service_id": "ordering",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.view"
+      ],
+      "required_scopes": [
+        "checkout:read",
+        "order:read"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "orderId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "orderId": {
+            "type": "string",
+            "description": "Order identifier."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "side",
+          "order"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Order side.",
+            "enum": [
+              "purchase",
+              "sale"
+            ]
+          },
+          "order": {
+            "type": "object",
+            "description": "Ordering order detail row.",
+            "additionalProperties": true,
+            "required": [
+              "order_id",
+              "status",
+              "buyer_account_id",
+              "seller_account_id"
+            ],
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "description": "Order identifier."
+              },
+              "status": {
+                "type": "string",
+                "description": "Current order status."
+              },
+              "buyer_account_id": {
+                "type": "string",
+                "description": "Buyer account identifier."
+              },
+              "seller_account_id": {
+                "type": "string",
+                "description": "Seller account identifier."
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to inspect order detail, payment deadlines, cancellation state, and line items."
+      ]
+    },
+    {
+      "name": "payments.get-payment",
+      "title": "Get Payment",
+      "description": "Read payment and refund state for an order payment.",
+      "service_id": "payments",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.view"
+      ],
+      "required_scopes": [
+        "checkout:read",
+        "order:read"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "paymentId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "paymentId": {
+            "type": "string",
+            "description": "Payment identifier."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "payment",
+          "moneyTimeline",
+          "status"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "payment": {
+            "type": "object",
+            "description": "Payments payment detail row.",
+            "additionalProperties": true,
+            "required": [
+              "payment_id",
+              "buyer_account_id",
+              "status",
+              "processor_status",
+              "refunded_amount"
+            ],
+            "properties": {
+              "payment_id": {
+                "type": "string",
+                "description": "Payment identifier."
+              },
+              "buyer_account_id": {
+                "type": "string",
+                "description": "Buyer account identifier."
+              },
+              "status": {
+                "type": "string",
+                "description": "Current payment status."
+              },
+              "processor_status": {
+                "type": "string",
+                "description": "Processor status mirrored into Payments."
+              },
+              "refunded_amount": {
+                "type": "string",
+                "description": "Total refunded amount."
+              }
+            }
+          },
+          "moneyTimeline": {
+            "type": "object",
+            "description": "Payment money-movement timeline.",
+            "additionalProperties": true,
+            "properties": {}
+          },
+          "status": {
+            "type": "object",
+            "description": "Compact payment, refund, and dispute status.",
+            "additionalProperties": true,
+            "required": [
+              "paymentStatus",
+              "processorStatus",
+              "refundedAmount"
+            ],
+            "properties": {
+              "paymentStatus": {
+                "type": "string",
+                "description": "Current payment status."
+              },
+              "processorStatus": {
+                "type": "string",
+                "description": "Current processor status."
+              },
+              "refundedAmount": {
+                "type": "string",
+                "description": "Total refunded amount."
+              },
+              "refundedAt": {
+                "type": "string",
+                "description": "Refund timestamp when present."
+              },
+              "disputedAt": {
+                "type": "string",
+                "description": "Dispute timestamp when present."
+              },
+              "failureCode": {
+                "type": "string",
+                "description": "Failure code when present."
+              },
+              "failureMessage": {
+                "type": "string",
+                "description": "Failure message when present."
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before refund, support, or order readiness actions."
+      ]
+    },
+    {
+      "name": "payments.get-refund-status",
+      "title": "Get Refund Status",
+      "description": "Read refund and dispute status for an account payment.",
+      "service_id": "payments",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.view"
+      ],
+      "required_scopes": [
+        "checkout:read",
+        "order:read"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "paymentId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "paymentId": {
+            "type": "string",
+            "description": "Payment identifier."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "paymentId",
+          "orderIds",
+          "status",
+          "orderRefundCaps",
+          "orderRefundedAmounts",
+          "moneyTimeline"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "paymentId": {
+            "type": "string",
+            "description": "Payment identifier."
+          },
+          "orderIds": {
+            "type": "array",
+            "description": "Order identifiers paid by the payment.",
+            "items": {
+              "type": "string",
+              "description": "Order identifier."
+            }
+          },
+          "status": {
+            "type": "object",
+            "description": "Compact payment, refund, and dispute status.",
+            "additionalProperties": true,
+            "properties": {}
+          },
+          "orderRefundCaps": {
+            "type": "array",
+            "description": "Per-order refund caps.",
+            "items": {
+              "type": "object",
+              "description": "Order refund cap.",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "orderRefundedAmounts": {
+            "type": "array",
+            "description": "Per-order refunded amounts.",
+            "items": {
+              "type": "object",
+              "description": "Order refunded amount.",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "moneyTimeline": {
+            "type": "object",
+            "description": "Payment money-movement timeline.",
+            "additionalProperties": true,
+            "properties": {}
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before explaining refund outcomes, dispute status, or support resolution state."
+      ]
+    },
+    {
       "name": "fulfillment.list-shipments",
       "title": "List Shipments",
       "description": "List shipments for purchases or sales.",
@@ -3954,11 +4410,163 @@
           }
         }
       },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "side",
+          "items",
+          "total",
+          "count"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Account relationship for the returned records."
+          },
+          "items": {
+            "type": "array",
+            "description": "Fulfillment shipment rows visible to the actor.",
+            "items": {
+              "type": "object",
+              "description": "Fulfillment shipment rows visible to the actor.",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total matching record count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned record count."
+          }
+        }
+      },
       "confirmation_required": false,
       "idempotency_key": "not-applicable",
       "dry_run_supported": false,
       "expected_usage": [
         "Use before label, tracking, or delivery support actions."
+      ]
+    },
+    {
+      "name": "fulfillment.get-tracking",
+      "title": "Get Tracking",
+      "description": "Read tracking and delivery status for a purchase or sale shipment.",
+      "service_id": "fulfillment",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "fulfillment.view"
+      ],
+      "required_scopes": [
+        "fulfillment:read"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "shipmentId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "shipmentId": {
+            "type": "string",
+            "description": "Shipment identifier."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "shipmentId",
+          "status",
+          "providerEvents",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "shipmentId": {
+            "type": "string",
+            "description": "Shipment identifier."
+          },
+          "status": {
+            "type": "string",
+            "description": "Current shipment status."
+          },
+          "carrierName": {
+            "type": "string",
+            "description": "Carrier name when present."
+          },
+          "trackingIdentifier": {
+            "type": "string",
+            "description": "Tracking identifier when present."
+          },
+          "labelStatus": {
+            "type": "string",
+            "description": "Label status when present."
+          },
+          "dispatchedAt": {
+            "type": "string",
+            "description": "Dispatch timestamp when present."
+          },
+          "deliveredAt": {
+            "type": "string",
+            "description": "Delivery timestamp when present."
+          },
+          "returnedAt": {
+            "type": "string",
+            "description": "Return timestamp when present."
+          },
+          "exceptionRaisedAt": {
+            "type": "string",
+            "description": "Exception timestamp when present."
+          },
+          "currentExceptionType": {
+            "type": "string",
+            "description": "Current exception type when present."
+          },
+          "currentExceptionNotes": {
+            "type": "string",
+            "description": "Current exception notes when present."
+          },
+          "providerEvents": {
+            "type": "array",
+            "description": "Provider tracking events.",
+            "items": {
+              "type": "object",
+              "description": "Postage provider event.",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the shipment."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to answer buyer post-purchase tracking and delivery questions."
       ]
     },
     {
@@ -5087,6 +5695,152 @@
       "expected_usage": [
         "Use for non-mutating seller performance analysis."
       ]
+    },
+    {
+      "name": "platform-operations.list-support-requests",
+      "title": "List Support Requests",
+      "description": "List buyer or seller support requests visible to the actor.",
+      "service_id": "platform-operations",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "support.view"
+      ],
+      "required_scopes": [
+        "support:read"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Support request side.",
+            "enum": [
+              "buyer",
+              "seller"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum records to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Zero-based record offset."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "side",
+          "items",
+          "total",
+          "count"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Account relationship for the returned records."
+          },
+          "items": {
+            "type": "array",
+            "description": "Support request rows visible to the actor.",
+            "items": {
+              "type": "object",
+              "description": "Support request rows visible to the actor.",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total matching record count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned record count."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to find refund, dispute, return, or delivery support status for an account."
+      ]
+    },
+    {
+      "name": "platform-operations.get-support-request",
+      "title": "Get Support Request",
+      "description": "Read support request status, pending offers, resolution, and evidence visible to the actor.",
+      "service_id": "platform-operations",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "support.view"
+      ],
+      "required_scopes": [
+        "support:read"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "supportRequestId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "supportRequestId": {
+            "type": "string",
+            "description": "Support request identifier."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "supportRequest"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "supportRequest": {
+            "type": "object",
+            "description": "Support request detail and status.",
+            "additionalProperties": true,
+            "properties": {}
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to answer refund, dispute, return, or delivery support status questions."
+      ]
     }
   ],
   "resources": [
@@ -5246,6 +6000,40 @@
       ]
     },
     {
+      "uri_template": "chase-sets://ordering/{accountId}/orders/{orderId}",
+      "title": "Order",
+      "description": "Order state, lines, participant-safe totals, and workflow status.",
+      "service_id": "ordering",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.view"
+      ],
+      "required_scopes": [
+        "checkout:read",
+        "order:read"
+      ],
+      "expected_usage": [
+        "Use as the source of truth for purchase and sale workflows."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://payments/{accountId}/payments/{paymentId}",
+      "title": "Payment",
+      "description": "Payment processor status projected into Chase Sets.",
+      "service_id": "payments",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.view"
+      ],
+      "required_scopes": [
+        "checkout:read",
+        "order:read"
+      ],
+      "expected_usage": [
+        "Use for payment support and order readiness checks."
+      ]
+    },
+    {
       "uri_template": "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
       "title": "Shipment",
       "description": "Shipment state, package, label, and tracking read model.",
@@ -5307,6 +6095,22 @@
       ],
       "expected_usage": [
         "Use for seller dashboard analysis."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}",
+      "title": "Support Request",
+      "description": "Support request detail, resolution, pending offers, and refund-support status.",
+      "service_id": "platform-operations",
+      "access_scope": "account",
+      "required_permissions": [
+        "support.view"
+      ],
+      "required_scopes": [
+        "support:read"
+      ],
+      "expected_usage": [
+        "Use for post-purchase support status and refund/dispute explanations."
       ]
     }
   ]

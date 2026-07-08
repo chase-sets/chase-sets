@@ -256,11 +256,19 @@
     }
   ],
   "mcpCapabilities": {
-    "tools": [{ "name": "platform-operations.get-seller-insight-summary", "ownerSlice": "insights-dashboards" }],
+    "tools": [
+      { "name": "platform-operations.get-seller-insight-summary", "ownerSlice": "insights-dashboards" },
+      { "name": "platform-operations.list-support-requests", "ownerSlice": "support-requests" },
+      { "name": "platform-operations.get-support-request", "ownerSlice": "support-requests" }
+    ],
     "resources": [
       {
         "uriTemplate": "chase-sets://platform-operations/{accountId}/insights/summary",
         "ownerSlice": "insights-dashboards"
+      },
+      {
+        "uriTemplate": "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}",
+        "ownerSlice": "support-requests"
       }
     ]
   },

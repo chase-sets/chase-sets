@@ -222,6 +222,35 @@ export function createFulfillmentShipmentMcpHandlers(
     return shipmentReceipt(scopedActor.accountId, result, "label-voided");
   };
 
+  const getTracking: McpToolHandler = async ({ actor, arguments: args }) => {
+    const accountId = readRequiredString(args, "accountId");
+    const scopedActor = ensureMcpActorAccount(actor, accountId);
+    requirePermission(scopedActor, "fulfillment.view");
+    const shipmentId = readRequiredString(args, "shipmentId");
+    const buyerShipment = await services.getBuyerShipment(shipmentId, scopedActor.accountId);
+    const shipment = buyerShipment ?? (await services.getSellerShipment(shipmentId, scopedActor.accountId));
+    if (!shipment) {
+      throw new Error("Shipment not found.");
+    }
+
+    return {
+      accountId: scopedActor.accountId,
+      shipmentId,
+      status: shipment.status,
+      carrierName: shipment.carrier_name,
+      trackingIdentifier: shipment.tracking_identifier,
+      labelStatus: shipment.label_status,
+      dispatchedAt: shipment.dispatched_at,
+      deliveredAt: shipment.delivered_at,
+      returnedAt: shipment.returned_at,
+      exceptionRaisedAt: shipment.exception_raised_at,
+      currentExceptionType: shipment.current_exception_type,
+      currentExceptionNotes: shipment.current_exception_notes,
+      providerEvents: shipment.postage_provider_events,
+      resourceUri: shipmentResourceUri(scopedActor.accountId, shipmentId),
+    };
+  };
+
   const readShipmentResource: McpResourceHandler = async ({ actor, uri }) => {
     const parts = shipmentUriParts(uri);
     if (!parts) {
@@ -246,6 +275,7 @@ export function createFulfillmentShipmentMcpHandlers(
   return {
     toolHandlers: {
       "fulfillment.list-shipments": listShipments,
+      "fulfillment.get-tracking": getTracking,
       "fulfillment.purchase-label": purchaseLabel,
       "fulfillment.void-label": voidLabel,
     },
