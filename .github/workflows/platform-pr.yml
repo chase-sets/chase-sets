@@ -383,7 +383,18 @@ jobs:
         run: |
           rendered="${RUNNER_TEMP}/platform-helm-rendered.yaml"
           docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-sets-platform infrastructure/helm/platform > "$rendered"
-          docker run --rm -v "${RUNNER_TEMP}:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary "$(basename "$rendered")"
+          docker run --rm \
+            -v "${PWD}/.github/kubeconform-schemas:/schemas:ro" \
+            -v "${RUNNER_TEMP}:/work" \
+            -w /work \
+            ghcr.io/yannh/kubeconform:v0.6.7 \
+            -schema-location "/schemas/{{.ResourceKind}}{{.KindSuffix}}.json" \
+            -schema-location "/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            -schema-location "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json" \
+            -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            -strict \
+            -summary \
+            "$(basename "$rendered")"
 
       - name: Lint DOKS ingress add-ons Helm chart
         run: docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 lint infrastructure/helm/doks-ingress
@@ -394,7 +405,18 @@ jobs:
           docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-sets-doks-ingress infrastructure/helm/doks-ingress > "$rendered"
           # ClusterIssuer is a cert-manager CRD installed with cert-manager, so
           # ignore missing schemas rather than strict-failing on the CRD kind.
-          docker run --rm -v "${RUNNER_TEMP}:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -ignore-missing-schemas -summary "$(basename "$rendered")"
+          docker run --rm \
+            -v "${PWD}/.github/kubeconform-schemas:/schemas:ro" \
+            -v "${RUNNER_TEMP}:/work" \
+            -w /work \
+            ghcr.io/yannh/kubeconform:v0.6.7 \
+            -schema-location "/schemas/{{.ResourceKind}}{{.KindSuffix}}.json" \
+            -schema-location "/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            -schema-location "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json" \
+            -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            -ignore-missing-schemas \
+            -summary \
+            "$(basename "$rendered")"
 
       - name: Validate DOKS cluster add-ons install contract
         run: |
