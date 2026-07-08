@@ -222,7 +222,9 @@ export type ProcessorWebhookEventKind =
   | "payment-fraud-review-closed"
   | "saved-payment-setup-succeeded"
   | "saved-payment-setup-failed"
-  | "saved-payment-method-detached";
+  | "saved-payment-method-detached"
+  | "shared-payment-token-used"
+  | "shared-payment-token-deactivated";
 
 export type PaymentProcessorWebhookEvent = Readonly<{
   eventId: string;

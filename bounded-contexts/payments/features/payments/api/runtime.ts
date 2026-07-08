@@ -2085,15 +2085,27 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         providerName: webhookEvent.processorName,
         eventKind: webhookEvent.kind,
         providerObjectReference:
-          webhookEvent.internalPaymentId ??
-          webhookEvent.providerObjectReference ??
-          webhookEvent.processorPaymentReference,
+          webhookEvent.kind === "shared-payment-token-used" || webhookEvent.kind === "shared-payment-token-deactivated"
+            ? (webhookEvent.providerObjectReference ??
+              webhookEvent.internalPaymentId ??
+              webhookEvent.processorPaymentReference)
+            : (webhookEvent.internalPaymentId ??
+              webhookEvent.providerObjectReference ??
+              webhookEvent.processorPaymentReference),
       };
       const alreadyProcessed = await hasProcessedProviderWebhookEvent(deps.db, inboxEntry);
       if (alreadyProcessed) {
         return { received: true, ignored: true };
       }
       const recordProcessed = () => recordProviderWebhookEvent(deps.db, inboxEntry);
+
+      if (
+        webhookEvent.kind === "shared-payment-token-used" ||
+        webhookEvent.kind === "shared-payment-token-deactivated"
+      ) {
+        await recordProcessed();
+        return { received: true, ignored: true };
+      }
 
       if (webhookEvent.kind === "saved-payment-setup-succeeded") {
         const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
