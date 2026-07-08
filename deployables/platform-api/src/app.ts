@@ -1,6 +1,10 @@
 import { Hono, type Context, type Next } from "hono";
 import { module as authModule } from "@chase-sets/auth";
-import { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes } from "@chase-sets/auth/server";
+import {
+  createUcpOAuthMetadataRoutes,
+  createUcpOAuthRoutes,
+  UCP_OAUTH_SUPPORTED_SCOPES,
+} from "@chase-sets/auth/server";
 import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createCommercialTermsResolver, type CommercialTermsAccountSource } from "@chase-sets/commercial-terms/server";
 import {
@@ -34,6 +38,7 @@ import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import {
   buildMcpHandlersFromModules,
+  createMcpOAuthProtectedResourceMetadataRoutes,
   createMcpRoutes,
   type CreateMcpRoutesOptions,
 } from "@chase-sets/platform-runtime/mcp";
@@ -313,6 +318,10 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     app.route("/mcp", createMcpRoutes(mcpOptions));
     app.route("/.well-known", createUcpProfileRoutes(options.ucp));
     app.route("/.well-known", createUcpOAuthMetadataRoutes());
+    app.route(
+      "/.well-known",
+      createMcpOAuthProtectedResourceMetadataRoutes({ scopesSupported: UCP_OAUTH_SUPPORTED_SCOPES }),
+    );
     app.use("/ucp/oauth/*", platformActorMiddleware);
     app.route(
       "/ucp/oauth",

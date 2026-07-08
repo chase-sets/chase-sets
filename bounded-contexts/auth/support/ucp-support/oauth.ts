@@ -112,7 +112,7 @@ const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
 
-const SUPPORTED_SCOPES = ["catalog:read", "checkout:read", "checkout:write", "order:read"] as const;
+export const UCP_OAUTH_SUPPORTED_SCOPES = ["catalog:read", "checkout:read", "checkout:write", "order:read"] as const;
 
 type AuthorizationCodeRow = Readonly<{
   code_id: string;
@@ -160,7 +160,7 @@ export function createUcpOAuthMetadataRoutes() {
       revocation_endpoint: `${origin}/ucp/oauth/revoke`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
-      scopes_supported: SUPPORTED_SCOPES,
+      scopes_supported: UCP_OAUTH_SUPPORTED_SCOPES,
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
     });
@@ -480,7 +480,7 @@ async function readFormOrJson(request: Request) {
 
 function normalizeScopes(value: unknown): readonly string[] {
   const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\s+/) : [];
-  const supported = new Set<string>(SUPPORTED_SCOPES);
+  const supported = new Set<string>(UCP_OAUTH_SUPPORTED_SCOPES);
   const scopes = raw
     .filter((entry): entry is string => typeof entry === "string")
     .map((entry) => entry.trim())

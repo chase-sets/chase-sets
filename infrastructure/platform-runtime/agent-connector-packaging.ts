@@ -4,6 +4,7 @@ import {
   type McpResourceDescriptor,
   type McpToolDescriptor,
 } from "./mcp-contracts";
+import { MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH } from "./mcp";
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from "./mcp-protocol";
 
 export const AGENT_CONNECTOR_PACKAGE_VERSION = "2026-07-08";
@@ -13,6 +14,7 @@ export const NATIVE_MCP_ENDPOINT_PATH = "/mcp";
 export type AgentConnectorPlatform = "claude-directory" | "chatgpt-app" | "gemini";
 
 export type AgentConnectorOAuthConfiguration = Readonly<{
+  protected_resource_metadata_url: string;
   issuer_metadata_url: string;
   authorization_endpoint: string;
   token_endpoint: string;
@@ -95,6 +97,7 @@ function normalizeOrigin(origin: string) {
 function oauthConfiguration(origin: string): AgentConnectorOAuthConfiguration {
   const baseUrl = normalizeOrigin(origin);
   return {
+    protected_resource_metadata_url: `${baseUrl}${MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH}`,
     issuer_metadata_url: `${baseUrl}/.well-known/oauth-authorization-server`,
     authorization_endpoint: `${baseUrl}/ucp/oauth/authorize`,
     token_endpoint: `${baseUrl}/ucp/oauth/token`,

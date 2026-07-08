@@ -259,6 +259,20 @@ describe("platform api app wiring", () => {
     });
   });
 
+  it("serves OAuth protected-resource metadata for native MCP connector bootstrap", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime());
+
+    const response = await app.request("https://marketplace.chasesets.test/.well-known/oauth-protected-resource");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      resource: "https://marketplace.chasesets.test/mcp",
+      authorization_servers: ["https://marketplace.chasesets.test/.well-known/oauth-authorization-server"],
+      scopes_supported: ["catalog:read", "checkout:read", "checkout:write", "order:read"],
+      bearer_methods_supported: ["header"],
+    });
+  });
+
   it("mounts projection operations under the same-origin API prefix", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime(), {
       resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
