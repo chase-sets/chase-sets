@@ -16,6 +16,9 @@ import {
   buildSettlementPaymentsAccountRiskSourceProjectionHandlers,
   buildSettlementReputationAccountRiskSourceProjectionHandlers,
 } from "./features/wallets/integrations/account-risk-source/account-risk-source-projection";
+import { createSettlementPayoutReadinessMcpHandlers } from "./features/payout-readiness/api/mcp";
+import { createSettlementPayoutMcpHandlers } from "./features/payouts/api/mcp";
+import { createSettlementWalletMcpHandlers } from "./features/wallets/api/mcp";
 
 export const module = defineBoundedContextModule<SettlementServices, PgTransactionalPool, SettlementHostPorts>({
   manifest: contextManifest,
@@ -23,6 +26,23 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
   schemaMigrations: settlementSchemaMigrations,
   createServices: (pool, ports) => createSettlementServices(pool, ports),
   buildApis: (services) => [buildSettlementApi(services), buildSettlementMoneyMovementWebhookApi(services)],
+  buildMcpHandlers: (services) => {
+    const wallets = createSettlementWalletMcpHandlers(services.wallets);
+    const payouts = createSettlementPayoutMcpHandlers(services.payouts);
+    const payoutReadiness = createSettlementPayoutReadinessMcpHandlers(services.payoutReadiness);
+
+    return {
+      toolHandlers: {
+        ...wallets.toolHandlers,
+        ...payouts.toolHandlers,
+        ...payoutReadiness.toolHandlers,
+      },
+      resourceHandlers: {
+        ...wallets.resourceHandlers,
+        ...payouts.resourceHandlers,
+      },
+    };
+  },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

@@ -170,6 +170,13 @@ describe("MCP service catalog", () => {
       "platform-operations.get-seller-insight-summary",
       "pricing.explain-signals",
       "pricing.recommend-price",
+      "settlement.create-payout-onboarding-link",
+      "settlement.get-payout",
+      "settlement.get-wallet",
+      "settlement.list-ledger-entries",
+      "settlement.list-payouts",
+      "settlement.refresh-readiness",
+      "settlement.request-payout",
     ]);
     expect(
       flattenAvailableMcpResources()
@@ -187,6 +194,8 @@ describe("MCP service catalog", () => {
       "chase-sets://marketplace/{accountId}/reviews/{reviewId}",
       "chase-sets://platform-operations/{accountId}/insights/summary",
       "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
+      "chase-sets://settlement/{accountId}/payouts/{payoutId}",
+      "chase-sets://settlement/{accountId}/wallet",
     ]);
     expect(flattenMcpTools().find((tool) => tool.name === "inventory.archive-location")?.availability).toBe("planned");
   });
@@ -308,6 +317,95 @@ describe("MCP service catalog", () => {
         ],
         total: 1,
         count: 1,
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("settlement.get-wallet")?.outputSchema, {
+        accountId: "acct_1",
+        wallet: {
+          account_id: "acct_1",
+          currency_code: "usd",
+          pending_balance_amount: "10.00",
+          available_balance_amount: "25.00",
+        },
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("settlement.list-ledger-entries")?.outputSchema, {
+        accountId: "acct_1",
+        items: [
+          {
+            ledger_entry_id: "led_1",
+            account_id: "acct_1",
+            kind: "sale-proceeds",
+            direction: "credit",
+            amount: "25.00",
+            currency_code: "usd",
+            funds_status: "available",
+          },
+        ],
+        total: 1,
+        count: 1,
+      }),
+    ).toEqual([]);
+    const settlementPayout = {
+      payout_id: "pyo_1",
+      account_id: "acct_1",
+      amount: "25.00",
+      currency_code: "usd",
+      status: "in-transit",
+      requested_at: "2026-07-08T00:00:00.000Z",
+      updated_at: "2026-07-08T00:00:00.000Z",
+    };
+    expect(
+      validateOutputSchema(findMcpTool("settlement.list-payouts")?.outputSchema, {
+        accountId: "acct_1",
+        items: [settlementPayout],
+        total: 1,
+        count: 1,
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("settlement.get-payout")?.outputSchema, {
+        accountId: "acct_1",
+        payout: settlementPayout,
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("settlement.request-payout")?.outputSchema, {
+        accountId: "acct_1",
+        id: "pyo_1",
+        payoutId: "pyo_1",
+        version: 2,
+        status: "in-transit",
+        resourceUri: "chase-sets://settlement/acct_1/payouts/pyo_1",
+        payout: settlementPayout,
+      }),
+    ).toEqual([]);
+    const settlementReadiness = {
+      account_id: "acct_1",
+      status: "pending",
+      missing_requirements: ["provider-onboarding"],
+      onboarding_status: "pending",
+      updated_at: "2026-07-08T00:00:00.000Z",
+    };
+    expect(
+      validateOutputSchema(findMcpTool("settlement.refresh-readiness")?.outputSchema, {
+        accountId: "acct_1",
+        id: "acct_1",
+        status: "pending",
+        readiness: settlementReadiness,
+        resourceUri: "chase-sets://settlement/acct_1/wallet",
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("settlement.create-payout-onboarding-link")?.outputSchema, {
+        accountId: "acct_1",
+        id: "acct_provider_1",
+        providerReference: "acct_provider_1",
+        status: "pending",
+        url: "https://connect.stripe.test/setup/acct_provider_1",
+        readiness: settlementReadiness,
       }),
     ).toEqual([]);
   });

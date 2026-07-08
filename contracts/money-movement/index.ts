@@ -44,6 +44,13 @@ export type CreatedPayoutAccountManagementSession = Readonly<{
   components: readonly ["payout-account-management"];
 }>;
 
+export type CreatedPayoutSetupLink = Readonly<{
+  providerReference: string;
+  url: string;
+  expiresAt: string | null;
+  readiness: ProviderPayoutReadiness;
+}>;
+
 export type CreatedProviderTransfer = Readonly<{
   providerTransferReference: string;
   providerStatus: string;
@@ -112,6 +119,16 @@ export type MoneyMovementGateway = Readonly<{
       idempotencyKey: string;
     }>,
   ) => Promise<CreatedPayoutAccountManagementSession>;
+  createPayoutSetupLink: (
+    input: Readonly<{
+      accountId: AccountId;
+      providerReference: string;
+      contactEmail?: string | null;
+      returnUrl: string;
+      refreshUrl: string;
+      idempotencyKey: string;
+    }>,
+  ) => Promise<CreatedPayoutSetupLink>;
   refreshPayoutReadiness: (
     input: Readonly<{
       accountId: AccountId;

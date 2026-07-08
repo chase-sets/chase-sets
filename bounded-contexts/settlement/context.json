@@ -209,6 +209,27 @@
       "requiresAuth": false
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "settlement.get-wallet", "ownerSlice": "wallets" },
+      { "name": "settlement.list-ledger-entries", "ownerSlice": "wallets" },
+      { "name": "settlement.list-payouts", "ownerSlice": "payouts" },
+      { "name": "settlement.get-payout", "ownerSlice": "payouts" },
+      { "name": "settlement.request-payout", "ownerSlice": "payouts" },
+      { "name": "settlement.refresh-readiness", "ownerSlice": "payout-readiness" },
+      { "name": "settlement.create-payout-onboarding-link", "ownerSlice": "payout-readiness" }
+    ],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://settlement/{accountId}/wallet",
+        "ownerSlice": "wallets"
+      },
+      {
+        "uriTemplate": "chase-sets://settlement/{accountId}/payouts/{payoutId}",
+        "ownerSlice": "payouts"
+      }
+    ]
+  },
   "readAfterWriteRouteInventory": [
     {
       "id": "settlement.payout-request-to-detail",

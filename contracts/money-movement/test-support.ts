@@ -1,6 +1,7 @@
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type {
   CreatedPayoutAccountManagementSession,
+  CreatedPayoutSetupLink,
   CreatedPayoutSetupSession,
   CreatedProviderPayout,
   CreatedProviderTransfer,
@@ -122,6 +123,17 @@ export function createFakeMoneyMovementGateway(
         clientSecret: `fake_payout_account_management_secret_${input.providerReference}`,
         expiresAt: null,
         components: ["payout-account-management"],
+      };
+    },
+    async createPayoutSetupLink(input): Promise<CreatedPayoutSetupLink> {
+      usedIdempotencyKeys.push(input.idempotencyKey);
+      const readiness = pendingReadiness(input.providerReference);
+      accounts.set(input.accountId, readiness);
+      return {
+        providerReference: input.providerReference,
+        url: `https://connect.stripe.test/setup/${encodeURIComponent(input.providerReference)}`,
+        expiresAt: null,
+        readiness,
       };
     },
     async refreshPayoutReadiness(input) {

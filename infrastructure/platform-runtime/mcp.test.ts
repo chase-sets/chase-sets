@@ -235,6 +235,13 @@ describe("MCP runtime routes", () => {
       "platform-operations.get-seller-insight-summary",
       "pricing.explain-signals",
       "pricing.recommend-price",
+      "settlement.create-payout-onboarding-link",
+      "settlement.get-payout",
+      "settlement.get-wallet",
+      "settlement.list-ledger-entries",
+      "settlement.list-payouts",
+      "settlement.refresh-readiness",
+      "settlement.request-payout",
     ]);
     expect(body.tools).toEqual(
       expect.arrayContaining([
@@ -353,6 +360,20 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["fulfillment.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://settlement/{accountId}/wallet",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["payouts.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://settlement/{accountId}/payouts/{payoutId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["payouts.view"],
           }),
         }),
         expect.objectContaining({
