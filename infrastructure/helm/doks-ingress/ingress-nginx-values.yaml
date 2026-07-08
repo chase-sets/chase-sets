@@ -34,7 +34,9 @@ controller:
   ingressClass: nginx
   hostPort:
     enabled: true
-  replicaCount: 2
+  # Staging DOKS is single-node: hostPort binding permits one controller
+  # replica per node, so more than one replica can never schedule there.
+  replicaCount: 1
   service:
     type: LoadBalancer
     externalTrafficPolicy: Local
