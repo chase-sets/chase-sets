@@ -1249,8 +1249,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(portForwardStep).toContain("app.kubernetes.io/instance=chase-sets-platform");
     expect(portForwardStep).toContain("kubectl port-forward");
     expect(portForwardStep).toContain('"deployment/${worker_deployment}"');
-    expect(portForwardStep).toContain("worker_target_port=6183");
+    expect(portForwardStep).toContain(
+      '--output jsonpath=\'{.spec.template.spec.containers[?(@.name=="platform-worker")].ports[?(@.name=="http")].containerPort}\'',
+    );
+    expect(portForwardStep).toContain(
+      "Could not resolve staging platform-worker http container port from deployment/${worker_deployment}.",
+    );
     expect(portForwardStep).toContain('"${worker_status_port}:${worker_target_port}"');
+    expect(portForwardStep).not.toContain("worker_target_port=6183");
     expect(portForwardStep).toContain(
       "WAKE_DRILL_WORKER_STATUS_URL=http://127.0.0.1:${worker_status_port}/internal/workers/status",
     );

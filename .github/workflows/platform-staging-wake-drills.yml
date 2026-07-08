@@ -281,7 +281,21 @@ jobs:
           fi
 
           worker_status_port=18080
-          worker_target_port=6183
+          worker_target_port="$(
+            kubectl get deployment \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              "$worker_deployment" \
+              --output jsonpath='{.spec.template.spec.containers[?(@.name=="platform-worker")].ports[?(@.name=="http")].containerPort}'
+          )"
+          if ! [[ "$worker_target_port" =~ ^[0-9]+$ ]]; then
+            echo "Could not resolve staging platform-worker http container port from deployment/${worker_deployment}." >&2
+            kubectl get deployment \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              "$worker_deployment" \
+              --output json >&2 || true
+            exit 1
+          fi
+
           port_forward_log="${RUNNER_TEMP}/staging-worker-status-port-forward.log"
           kubectl port-forward \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
