@@ -49,6 +49,7 @@ describe("agent connector packaging", () => {
     const oauth = packaging.registration.authentication.oauth;
 
     expect(oauth).toMatchObject({
+      protected_resource_metadata_url: "https://marketplace.example/.well-known/oauth-protected-resource",
       issuer_metadata_url: "https://marketplace.example/.well-known/oauth-authorization-server",
       authorization_endpoint: "https://marketplace.example/ucp/oauth/authorize",
       token_endpoint: "https://marketplace.example/ucp/oauth/token",

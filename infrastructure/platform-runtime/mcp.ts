@@ -44,7 +44,7 @@ import {
   type PlatformIdempotencyStore,
 } from "./idempotency";
 import { agentGrantIdFromActor, type AgentGrantRateLimiter } from "./agent-guardrails";
-import { resolveClientAddress } from "./http";
+import { resolveClientAddress, resolvePublicRequestOrigin } from "./http";
 import { createMcpHttpOriginPolicyMiddleware, type McpHttpOriginPolicyOptions } from "./mcp-http";
 
 export type McpRuntimeEnv = {
@@ -159,6 +159,18 @@ type McpResourceReadParams = Readonly<{
 
 const JSON_RPC_VERSION = "2.0";
 const IDEMPOTENCY_PENDING_TTL_MS = 2 * 60 * 1000;
+export const MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
+export const MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED = [
+  "catalog:read",
+  "checkout:read",
+  "checkout:write",
+  "order:read",
+] as const;
+export const MCP_OAUTH_BEARER_METHODS_SUPPORTED = ["header"] as const;
+
+export type McpOAuthProtectedResourceMetadataRoutesOptions = Readonly<{
+  scopesSupported?: readonly string[];
+}>;
 
 type McpInputValidationIssue = Readonly<{
   path: string;
@@ -231,6 +243,38 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, d
   };
 }
 
+function normalizeMcpOrigin(request: Request) {
+  return resolvePublicRequestOrigin(request).replace(/\/+$/, "");
+}
+
+function mcpProtectedResourceMetadata(request: Request, options: McpOAuthProtectedResourceMetadataRoutesOptions = {}) {
+  const origin = normalizeMcpOrigin(request);
+  return {
+    resource: `${origin}/mcp`,
+    authorization_servers: [`${origin}/.well-known/oauth-authorization-server`],
+    scopes_supported: options.scopesSupported ?? MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED,
+    bearer_methods_supported: MCP_OAUTH_BEARER_METHODS_SUPPORTED,
+  };
+}
+
+function mcpProtectedResourceMetadataUrl(request: Request) {
+  return `${normalizeMcpOrigin(request)}${MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH}`;
+}
+
+function mcpProtectedResourceChallenge(request: Request) {
+  return `Bearer resource_metadata="${mcpProtectedResourceMetadataUrl(request)}"`;
+}
+
+export function createMcpOAuthProtectedResourceMetadataRoutes(
+  options: McpOAuthProtectedResourceMetadataRoutesOptions = {},
+) {
+  const app = new Hono();
+
+  app.get("/oauth-protected-resource", (c) => c.json(mcpProtectedResourceMetadata(c.req.raw, options)));
+
+  return app;
+}
+
 function mcpToolSuccessResult(result: unknown) {
   const structuredContent = result === undefined ? null : result;
   return jsonRpcResult(null, {
@@ -258,6 +302,10 @@ function mcpToolErrorResult(text: string) {
 
 function mcpAuthenticationRequiredResponse(id: JsonRpcRequest["id"] = null) {
   return jsonRpcError(id, -32001, "An authenticated actor is required for native MCP discovery.");
+}
+
+function mcpProtectedInvocationAuthenticationRequiredResponse(id: JsonRpcRequest["id"] = null) {
+  return jsonRpcError(id, -32001, "An authenticated actor is required.");
 }
 
 function requireMcpDiscoveryActor(actor: ResolvedActor | null | undefined) {
@@ -521,6 +569,35 @@ function validateMcpRoutingHeaders(
 
 function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
   return isRecord(value) ? value : {};
+}
+
+function protectedToolRequiresAuthentication(
+  actor: ResolvedActor | null,
+  params: McpToolCallParams,
+  services: readonly McpServiceDescriptor[],
+) {
+  if (actor || typeof params.name !== "string") {
+    return false;
+  }
+
+  const tool = findMcpTool(params.name, services);
+  return Boolean(tool && tool.permissionBoundary.scope !== "public");
+}
+
+function protectedResourceRequiresAuthentication(
+  actor: ResolvedActor | null,
+  params: McpResourceReadParams,
+  services: readonly McpServiceDescriptor[],
+) {
+  if (actor || typeof params.uri !== "string") {
+    return false;
+  }
+
+  const resourceMatch =
+    flattenMcpResources(services)
+      .map((candidate) => matchResourceUri(candidate, params.uri as string))
+      .find((candidate) => candidate !== null) ?? null;
+  return Boolean(resourceMatch && resourceMatch.resource.permissionBoundary.scope !== "public");
 }
 
 function typeName(value: unknown) {
@@ -1734,7 +1811,13 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         );
       }
       case "tools/call": {
-        const result = await callTool(c.req.raw, actor, protocol, (request.params ?? {}) as McpToolCallParams, {
+        const params = (request.params ?? {}) as McpToolCallParams;
+        if (protectedToolRequiresAuthentication(actor, params, services)) {
+          c.header("WWW-Authenticate", mcpProtectedResourceChallenge(c.req.raw));
+          return c.json(mcpProtectedInvocationAuthenticationRequiredResponse(request.id), 401);
+        }
+
+        const result = await callTool(c.req.raw, actor, protocol, params, {
           services,
           toolHandlers,
           audit: options.audit,
@@ -1745,7 +1828,13 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         return c.json({ ...result, id: request.id ?? null });
       }
       case "resources/read": {
-        const result = await readResource(c.req.raw, actor, protocol, (request.params ?? {}) as McpResourceReadParams, {
+        const params = (request.params ?? {}) as McpResourceReadParams;
+        if (protectedResourceRequiresAuthentication(actor, params, services)) {
+          c.header("WWW-Authenticate", mcpProtectedResourceChallenge(c.req.raw));
+          return c.json(mcpProtectedInvocationAuthenticationRequiredResponse(request.id), 401);
+        }
+
+        const result = await readResource(c.req.raw, actor, protocol, params, {
           services,
           resourceHandlers,
           audit: options.audit,

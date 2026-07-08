@@ -33,4 +33,5 @@ export {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
   resolveUcpScopedPermissions,
+  UCP_OAUTH_SUPPORTED_SCOPES,
 } from "./support/ucp-support/oauth";

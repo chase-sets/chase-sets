@@ -4,7 +4,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   buildMcpHandlersFromModules,
+  createMcpOAuthProtectedResourceMetadataRoutes,
   createMcpRoutes,
+  MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH,
   validateMcpModuleRegistrations,
   type McpAuditRecord,
   type McpToolHandlerInput,
@@ -199,6 +201,85 @@ describe("MCP runtime routes", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("serves RFC 9728 protected-resource metadata without credentials", async () => {
+    const app = createMcpOAuthProtectedResourceMetadataRoutes();
+
+    const response = await app.request("https://marketplace.example/oauth-protected-resource");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      resource: "https://marketplace.example/mcp",
+      authorization_servers: ["https://marketplace.example/.well-known/oauth-authorization-server"],
+      scopes_supported: ["catalog:read", "checkout:read", "checkout:write", "order:read"],
+      bearer_methods_supported: ["header"],
+    });
+  });
+
+  it("challenges anonymous protected tool calls with protected-resource metadata", async () => {
+    const handler = vi.fn();
+    const app = createMcpRoutes({
+      toolHandlers: {
+        "inventory.list-import-sources": handler,
+      },
+    });
+
+    const response = await app.request("https://marketplace.example/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.list-import-sources",
+          arguments: { accountId: "account_1" },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe(
+      `Bearer resource_metadata="https://marketplace.example${MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH}"`,
+    );
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32001,
+        message: "An authenticated actor is required.",
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("challenges anonymous protected resource reads with protected-resource metadata", async () => {
+    const handler = vi.fn();
+    const app = createMcpRoutes({
+      resourceHandlers: {
+        "chase-sets://inventory/{accountId}/import-batches/{batchId}": handler,
+      },
+    });
+
+    const response = await app.request("https://marketplace.example/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("resources/read", {
+          uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe(
+      `Bearer resource_metadata="https://marketplace.example${MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH}"`,
+    );
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32001,
+        message: "An authenticated actor is required.",
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("lists only available descriptor-backed tools", async () => {
