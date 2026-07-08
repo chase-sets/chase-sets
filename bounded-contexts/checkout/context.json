@@ -379,6 +379,9 @@
     "tools": [
       { "name": "checkout.get-cart", "ownerSlice": "cart" },
       { "name": "checkout.add-cart-line", "ownerSlice": "cart" },
+      { "name": "checkout.update-cart-line", "ownerSlice": "cart" },
+      { "name": "checkout.remove-cart-line", "ownerSlice": "cart" },
+      { "name": "checkout.select-saved-address", "ownerSlice": "sessions" },
       { "name": "checkout.start-session", "ownerSlice": "sessions" }
     ],
     "resources": [
