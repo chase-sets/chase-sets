@@ -1,5 +1,6 @@
 import {
   bootstrapContextDatabase,
+  countEventsWithPrefix,
   createProjectionAwarePool,
   drainContextRuntime,
   resolveModuleApiMounts,
@@ -8,6 +9,7 @@ import {
   seedApiModuleIfEmpty,
   seedProfilesOverlap,
   syncContextProjectionGroups,
+  withSchemaBootstrapLock,
   type MountedContextRuntimeEntry,
   type SchemaBootstrapOptions,
 } from "../bounded-context-runtime/index";
@@ -374,13 +376,36 @@ export async function seedApiHostIfEmpty(
     environmentName: null,
   },
 ): Promise<void> {
+  const bootstrapLockContext = runtime.mountedContexts[0];
+  if (!bootstrapLockContext) {
+    return;
+  }
+
+  await withSchemaBootstrapLock(bootstrapLockContext.pool, options.schemaBootstrap, (lockAcquisition) =>
+    seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, {
+      skipExistingSeedReconciliation: lockAcquisition.waited,
+    }),
+  );
+}
+
+async function seedApiHostIfEmptyWithHeldBootstrapLock(
+  registry: ApiContextRegistry,
+  hostName: ApiHostName,
+  runtime: ApiHostRuntime,
+  options: ApiHostSeedOptions,
+  bootstrapLock: Readonly<{ skipExistingSeedReconciliation: boolean }>,
+): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
   const runFullDrain = shouldRunFullBootstrapDrain(options);
   const substepTimeoutMs = options.substepTimeoutMs;
+  const schemaBootstrap: SchemaBootstrapOptions = {
+    ...options.schemaBootstrap,
+    advisoryLockMode: "held-by-caller",
+  };
 
   for (const context of runtime.mountedContexts) {
     await runSeedSubstep(`schema-bootstrap:${context.contextName}`, substepTimeoutMs, () =>
-      bootstrapContextDatabase(context.module, context.pool, options.schemaBootstrap),
+      bootstrapContextDatabase(context.module, context.pool, schemaBootstrap),
     );
   }
 
@@ -393,7 +418,7 @@ export async function seedApiHostIfEmpty(
     const runContextSeed = shouldRunContextSeed(context, options);
     if (!runContextSeed) {
       await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-        seedApiModuleIfEmpty(context.module, context.pool, context.services, options),
+        seedApiModuleForHostBootstrap(context, options, bootstrapLock),
       );
       continue;
     }
@@ -406,13 +431,13 @@ export async function seedApiHostIfEmpty(
       );
     }
     await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-      seedApiModuleIfEmpty(context.module, context.pool, context.services, options),
+      seedApiModuleForHostBootstrap(context, options, bootstrapLock),
     );
     if (runFullDrain) {
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
-        await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+        await seedApiModuleForHostBootstrap(context, options, bootstrapLock);
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
       });
@@ -431,10 +456,28 @@ export async function seedApiHostIfEmpty(
         continue;
       }
       await runSeedSubstep(`seed-reconcile:${contextName}`, substepTimeoutMs, async () => {
-        await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+        await seedApiModuleForHostBootstrap(context, options, bootstrapLock);
         await syncContextProjectionGroups(runtime, contextName);
         await drainContextRuntime(runtime);
       });
     }
   }
+}
+
+async function seedApiModuleForHostBootstrap(
+  context: MountedContextRuntimeEntry,
+  options: BcSeedOptions,
+  bootstrapLock: Readonly<{ skipExistingSeedReconciliation: boolean }>,
+): Promise<void> {
+  // A queued twin deploy should not reconcile seeds against projections the predecessor has not drained yet.
+  if (
+    bootstrapLock.skipExistingSeedReconciliation &&
+    shouldRunContextSeed(context, options) &&
+    (await countEventsWithPrefix(context.pool, context.module.streamPrefix)) > 0
+  ) {
+    console.log(`${context.contextName} events already exist after queued bootstrap. Skipping seed reconciliation.`);
+    return;
+  }
+
+  await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
 }

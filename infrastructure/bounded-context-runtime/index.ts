@@ -5,6 +5,7 @@ export {
   composeModuleSchemaSql,
   composeSchemaSql,
   eventSubscriptionSchemaSql,
+  SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE,
   SCHEMA_BOOTSTRAP_LOCK_QUERY_TIMEOUT_MS,
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS,
   SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_SETTING,
@@ -12,8 +13,9 @@ export {
   SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
   SCHEMA_MIGRATIONS_TABLE,
   waitForDatabase,
+  withSchemaBootstrapLock,
 } from "./schema";
-export type { SchemaBootstrapOptions } from "./schema";
+export type { SchemaBootstrapLockAcquisition, SchemaBootstrapOptions } from "./schema";
 export {
   allEnvironmentDataProfiles,
   countEventsWithPrefix,
