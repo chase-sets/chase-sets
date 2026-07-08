@@ -91,6 +91,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
 - [Marketplace OpenAPI](./api/marketplace.openapi.json): machine-readable API contract.
 - [UCP OpenAPI](./api/ucp.openapi.json): UCP REST transport contract.
+- [Agent Connector Packaging](./api/agent-connectors.md): generated Claude directory, ChatGPT app, and Gemini metadata for the native MCP endpoint.
 
 ## Runbooks
 
