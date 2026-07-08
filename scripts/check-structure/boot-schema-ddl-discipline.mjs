@@ -31,18 +31,6 @@ const migrationAccessExclusivePatterns = [
       "schema migration statement adds a validated constraint without SET LOCAL lock_timeout; add NOT VALID plus a separate validation step, or set an explicit lock_timeout.",
   },
   {
-    label: "SET NOT NULL",
-    pattern: /\bALTER\s+COLUMN\s+[A-Za-z_][A-Za-z0-9_]*\s+SET\s+NOT\s+NULL\b/i,
-    message:
-      "schema migration statement sets NOT NULL without SET LOCAL lock_timeout; validate existing rows first and guard the DDL with a short lock_timeout.",
-  },
-  {
-    label: "NOT NULL DEFAULT",
-    pattern: /\bALTER\s+TABLE\b[\s\S]*?\bADD\s+COLUMN\b[\s\S]*?\bNOT\s+NULL\b[\s\S]*?\bDEFAULT\b/i,
-    message:
-      "schema migration statement adds a NOT NULL DEFAULT column, which can rewrite hot tables; split the nullable add, backfill, validation, and constraint tightening behind an explicit lock_timeout.",
-  },
-  {
     label: "ALTER COLUMN TYPE",
     pattern: /\bALTER\s+COLUMN\s+[A-Za-z_][A-Za-z0-9_]*\s+TYPE\b/i,
     message:
@@ -61,6 +49,66 @@ const migrationAccessExclusivePatterns = [
       "schema migration statement renames schema objects without SET LOCAL lock_timeout; prefer expand/contract compatibility or guard the DDL with a short lock_timeout.",
   },
 ];
+
+// ALTER COLUMN ... SET NOT NULL on an existing column holds ACCESS EXCLUSIVE across a
+// full-table validation scan. Under rolling-deploy reads it repeatedly hits lock_timeout and
+// the bootstrap retry loop livelocks silently (#4638), so lock_timeout alone is NOT a defense.
+// The only allowed pattern is the scan-free one: add CHECK (col IS NOT NULL) NOT VALID, then
+// VALIDATE CONSTRAINT (SHARE UPDATE EXCLUSIVE only), then SET NOT NULL guarded by lock_timeout
+// in the same migration so PostgreSQL 12+ proves NOT NULL from the validated constraint.
+const setNotNullPattern = /\bALTER\s+COLUMN\s+[A-Za-z_][A-Za-z0-9_]*\s+SET\s+NOT\s+NULL\b/i;
+const validateConstraintPattern = /\bVALIDATE\s+CONSTRAINT\b/i;
+const setNotNullMessage =
+  "schema migration statement tightens an existing column with SET NOT NULL, which holds ACCESS EXCLUSIVE across a full-table validation scan and livelocks against rolling-deploy reads even behind lock_timeout (#4638); for new columns use ADD COLUMN ... NOT NULL DEFAULT <constant> (metadata-only fast default on PostgreSQL 11+), for existing columns add CHECK (column IS NOT NULL) NOT VALID, VALIDATE CONSTRAINT, and only then SET NOT NULL behind lock_timeout in the same migration.";
+
+// ADD COLUMN ... NOT NULL DEFAULT <non-volatile expression> is metadata-only on PostgreSQL 11+
+// (fast default: no rewrite, no validation scan, only a brief ACCESS EXCLUSIVE). Volatile
+// defaults (gen_random_uuid(), random(), clock_timestamp(), unknown functions) still force a
+// full table rewrite, so those stay flagged regardless of lock_timeout.
+const addColumnNotNullDefaultPattern =
+  /\bALTER\s+TABLE\b[\s\S]*?\bADD\s+COLUMN\b[\s\S]*?\bNOT\s+NULL\b[\s\S]*?\bDEFAULT\b|\bALTER\s+TABLE\b[\s\S]*?\bADD\s+COLUMN\b[\s\S]*?\bDEFAULT\b[\s\S]*?\bNOT\s+NULL\b/i;
+const volatileNotNullDefaultMessage =
+  "schema migration statement adds a NOT NULL column with a volatile or non-constant DEFAULT, which rewrites hot tables under ACCESS EXCLUSIVE; use a constant (or stable, e.g. now()) default so PostgreSQL 11+ applies it as a metadata-only fast default, or add the column nullable, backfill in batches, and tighten via CHECK ... NOT VALID plus VALIDATE CONSTRAINT.";
+
+const sqlCastSuffixPattern =
+  "(?:\\s*::\\s*[A-Za-z_][A-Za-z0-9_ ]*(?:\\(\\s*\\d+(?:\\s*,\\s*\\d+)?\\s*\\))?(?:\\[\\])?)?";
+const constantDefaultPattern = new RegExp(
+  `^(?:'(?:[^']|'')*'|-?\\d+(?:\\.\\d+)?|TRUE|FALSE|NULL)${sqlCastSuffixPattern}$`,
+  "i",
+);
+const stableDefaultPattern = new RegExp(
+  `^(?:now\\(\\)|statement_timestamp\\(\\)|transaction_timestamp\\(\\)|CURRENT_TIMESTAMP|CURRENT_DATE|CURRENT_TIME|LOCALTIMESTAMP|LOCALTIME)${sqlCastSuffixPattern}$`,
+  "i",
+);
+
+export function isFastDefaultSafeExpression(defaultExpression) {
+  const expression = defaultExpression.trim().replace(/;$/, "").trim();
+  return constantDefaultPattern.test(expression) || stableDefaultPattern.test(expression);
+}
+
+export function findVolatileNotNullDefaultClauses(sql) {
+  if (!addColumnNotNullDefaultPattern.test(sql)) {
+    return [];
+  }
+
+  // Split multi-add ALTER TABLE statements on commas that introduce the next ADD COLUMN so
+  // per-clause DEFAULT expressions can be inspected (commas inside numeric(12, 2) or quoted
+  // defaults stay within their clause).
+  return sql
+    .split(/,(?=\s*ADD\s+COLUMN\b)/i)
+    .filter(
+      (clause) => /\bADD\s+COLUMN\b/i.test(clause) && /\bNOT\s+NULL\b/i.test(clause) && /\bDEFAULT\b/i.test(clause),
+    )
+    .flatMap((clause) => {
+      const defaultMatch = /\bDEFAULT\s+([\s\S]+)$/i.exec(clause);
+      if (!defaultMatch) {
+        return [];
+      }
+
+      const defaultExpression = defaultMatch[1].replace(/\s+NOT\s+NULL\b[\s\S]*$/i, "").trim();
+      return isFastDefaultSafeExpression(defaultExpression) ? [] : [defaultExpression];
+    });
+}
 
 const migrationCreateIndexPattern = /\bCREATE\s+(?:UNIQUE\s+)?INDEX\b(?!\s+CONCURRENTLY\b)/i;
 const lockTimeoutPattern = /\bSET\s+(?:LOCAL\s+)?lock_timeout\s*=/i;
@@ -137,6 +185,9 @@ export function extractSchemaMigrationStatements(source) {
 export function findSchemaMigrationDdlSafetyViolationsInSource(source) {
   return extractSchemaMigrationStatements(source).flatMap((migration) => {
     const migrationHasLockTimeout = migration.statements.some((statement) => lockTimeoutPattern.test(statement.sql));
+    const migrationHasValidatedConstraint = migration.statements.some((statement) =>
+      validateConstraintPattern.test(statement.sql),
+    );
     const violations = [];
 
     for (const statement of migration.statements) {
@@ -145,6 +196,26 @@ export function findSchemaMigrationDdlSafetyViolationsInSource(source) {
           line: statement.startLine,
           message:
             "schema migration statement contains CREATE INDEX without CONCURRENTLY; use CREATE INDEX CONCURRENTLY for non-empty tables or document an empty-table exception outside the migration ledger.",
+        });
+      }
+
+      // SET NOT NULL is flagged even when the migration sets lock_timeout: the retry loop
+      // around lock_timeout is exactly what turned the #4638 scan into a silent livelock.
+      // Only the validated-constraint pattern (NOT VALID CHECK + VALIDATE CONSTRAINT +
+      // lock_timeout) proves NOT NULL without the full-table scan.
+      if (setNotNullPattern.test(statement.sql) && !(migrationHasLockTimeout && migrationHasValidatedConstraint)) {
+        violations.push({
+          line: statement.startLine,
+          message: setNotNullMessage,
+        });
+      }
+
+      // Volatile NOT NULL DEFAULT columns rewrite the table regardless of lock_timeout;
+      // constant/stable defaults are metadata-only fast defaults on PostgreSQL 11+ and pass.
+      if (findVolatileNotNullDefaultClauses(statement.sql).length > 0) {
+        violations.push({
+          line: statement.startLine,
+          message: volatileNotNullDefaultMessage,
         });
       }
 

@@ -8,6 +8,7 @@ import {
   findBootSchemaMigrationAddedIndexViolationsInSource,
   findBootSchemaDdlDisciplineViolations,
   findSchemaMigrationDdlSafetyViolationsInSource,
+  isFastDefaultSafeExpression,
 } from "./boot-schema-ddl-discipline.mjs";
 
 function findInlineViolations(source) {
@@ -96,7 +97,7 @@ export const exampleSchemaMigrations = [
     migrationId: "m1",
     description: "unsafe",
     statements: [
-      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS risk text NOT NULL DEFAULT ''\`,
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS risk_token text NOT NULL DEFAULT gen_random_uuid()\`,
       \`CREATE INDEX IF NOT EXISTS example_pages_risk_idx ON example_pages (risk)\`,
       \`ALTER TABLE example_pages ALTER COLUMN risk SET NOT NULL\`,
       \`DROP INDEX IF EXISTS example_pages_old_idx\`,
@@ -107,13 +108,13 @@ export const exampleSchemaMigrations = [
 
     expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([
       expect.objectContaining({
-        message: expect.stringContaining("NOT NULL DEFAULT"),
+        message: expect.stringContaining("volatile or non-constant DEFAULT"),
       }),
       expect.objectContaining({
         message: expect.stringContaining("CREATE INDEX without CONCURRENTLY"),
       }),
       expect.objectContaining({
-        message: expect.stringContaining("sets NOT NULL without SET LOCAL lock_timeout"),
+        message: expect.stringContaining("tightens an existing column with SET NOT NULL"),
       }),
       expect.objectContaining({
         message: expect.stringContaining("lock-hazardous DROP DDL without SET LOCAL lock_timeout"),
@@ -129,6 +130,8 @@ export const exampleSchemaMigrations = [
     description: "guarded",
     statements: [
       \`SET LOCAL lock_timeout = '2s'\`,
+      \`ALTER TABLE example_pages ADD CONSTRAINT example_pages_risk_not_null CHECK (risk IS NOT NULL) NOT VALID\`,
+      \`ALTER TABLE example_pages VALIDATE CONSTRAINT example_pages_risk_not_null\`,
       \`ALTER TABLE example_pages ALTER COLUMN risk SET NOT NULL\`,
       \`CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_risk_idx ON example_pages (risk)\`,
     ],
@@ -137,6 +140,90 @@ export const exampleSchemaMigrations = [
 `;
 
     expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
+  });
+
+  it("allows metadata-only ADD COLUMN NOT NULL with constant or stable defaults (PG 11+ fast default)", () => {
+    const source = `
+export const exampleSchemaMigrations = [
+  {
+    migrationId: "m1",
+    description: "fast defaults",
+    statements: [
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS reservations jsonb NOT NULL DEFAULT '[]'::jsonb\`,
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS extension_count integer NOT NULL DEFAULT 0\`,
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT FALSE\`,
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS amount numeric(12, 2) NOT NULL DEFAULT 0\`,
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS labels text[] NOT NULL DEFAULT '{}'::text[]\`,
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS recorded_at timestamptz NOT NULL DEFAULT now()\`,
+      \`ALTER TABLE example_pages
+  ADD COLUMN IF NOT EXISTS first_flag boolean NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS second_kind text NOT NULL DEFAULT 'manual'\`,
+    ],
+  },
+];
+`;
+
+    expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
+  });
+
+  it("flags volatile NOT NULL defaults even when the migration sets lock_timeout", () => {
+    const source = `
+export const exampleSchemaMigrations = [
+  {
+    migrationId: "m1",
+    description: "volatile default",
+    statements: [
+      \`SET LOCAL lock_timeout = '2s'\`,
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS token uuid NOT NULL DEFAULT gen_random_uuid()\`,
+    ],
+  },
+];
+`;
+
+    expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("volatile or non-constant DEFAULT"),
+      }),
+    ]);
+  });
+
+  it("flags SET NOT NULL behind lock_timeout without a validated constraint (#4638 livelock)", () => {
+    const source = `
+export const exampleSchemaMigrations = [
+  {
+    migrationId: "m1",
+    description: "outage pattern",
+    statements: [
+      \`ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS reservations jsonb NULL\`,
+      \`UPDATE example_pages SET reservations = '[]'::jsonb WHERE reservations IS NULL\`,
+      \`ALTER TABLE example_pages ALTER COLUMN reservations SET DEFAULT '[]'::jsonb\`,
+      \`SET lock_timeout = '5s'\`,
+      \`ALTER TABLE example_pages ALTER COLUMN reservations SET NOT NULL\`,
+    ],
+  },
+];
+`;
+
+    expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("tightens an existing column with SET NOT NULL"),
+      }),
+    ]);
+  });
+
+  it("classifies fast-default-safe expressions", () => {
+    expect(isFastDefaultSafeExpression(`'[]'::jsonb`)).toBe(true);
+    expect(isFastDefaultSafeExpression(`0`)).toBe(true);
+    expect(isFastDefaultSafeExpression(`-1.5`)).toBe(true);
+    expect(isFastDefaultSafeExpression(`TRUE`)).toBe(true);
+    expect(isFastDefaultSafeExpression(`'manual'`)).toBe(true);
+    expect(isFastDefaultSafeExpression(`'{}'::text[]`)).toBe(true);
+    expect(isFastDefaultSafeExpression(`now()`)).toBe(true);
+    expect(isFastDefaultSafeExpression(`CURRENT_TIMESTAMP`)).toBe(true);
+    expect(isFastDefaultSafeExpression(`gen_random_uuid()`)).toBe(false);
+    expect(isFastDefaultSafeExpression(`random()`)).toBe(false);
+    expect(isFastDefaultSafeExpression(`clock_timestamp()`)).toBe(false);
+    expect(isFastDefaultSafeExpression(`lower('X')`)).toBe(false);
   });
 
   it("flags boot-time indexes over columns added to existing tables in boot SQL", () => {
