@@ -319,7 +319,7 @@ function mcpProtectedInvocationAuthenticationRequiredResponse(id: JsonRpcRequest
 }
 
 function requireMcpDiscoveryActor(actor: ResolvedActor | null | undefined) {
-  return actor ? null : mcpAuthenticationRequiredResponse();
+  return actor ? null : mcpProtectedInvocationAuthenticationRequiredResponse();
 }
 
 function mcpServicesVisibleToActor(
