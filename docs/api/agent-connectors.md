@@ -15,4 +15,4 @@ Regenerate with:
 pnpm run generate:agent-connector-packaging
 ```
 
-The manifests use `https://<marketplace-host>` as a deployment placeholder and include no secrets. OAuth metadata is intentionally truthful to the current runtime: Chase Sets exposes RFC 9728 protected-resource metadata at `/.well-known/oauth-protected-resource` and Authorization Code with PKCE for public clients through `/.well-known/oauth-authorization-server`, `/ucp/oauth/authorize`, and `/ucp/oauth/token`; it does not currently mount a dynamic client registration endpoint.
+The manifests use `https://<marketplace-host>` as a deployment placeholder and include no secrets. OAuth metadata is intentionally truthful to the current runtime: Chase Sets exposes RFC 9728 protected-resource metadata at `/.well-known/oauth-protected-resource`, Authorization Code with PKCE for public clients through `/.well-known/oauth-authorization-server`, `/ucp/oauth/authorize`, and `/ucp/oauth/token`, and RFC 7591 dynamic public-client registration at `/ucp/oauth/register`. Agent platforms may also use a trusted Client ID Metadata Document URL as `client_id`.

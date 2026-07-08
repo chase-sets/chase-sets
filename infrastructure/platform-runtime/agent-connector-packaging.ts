@@ -24,9 +24,11 @@ export type AgentConnectorOAuthConfiguration = Readonly<{
   pkce: Readonly<{ required: true; methods: readonly ["S256"] }>;
   token_endpoint_auth_method: "none";
   dynamic_client_registration: Readonly<{
-    status: "not-exposed";
-    reason: string;
-    client_id_source: string;
+    status: "exposed";
+    registration_endpoint: string;
+    client_id_source: "dynamic-registration-response or Client ID Metadata Document URL";
+    client_metadata_document_support: true;
+    constraints: readonly string[];
     confidential_credential_policy: "not-used";
   }>;
 }>;
@@ -107,10 +109,17 @@ function oauthConfiguration(origin: string): AgentConnectorOAuthConfiguration {
     pkce: { required: true, methods: ["S256"] },
     token_endpoint_auth_method: "none",
     dynamic_client_registration: {
-      status: "not-exposed",
-      reason:
-        "The current platform exposes OAuth authorization-code-with-PKCE for pre-registered public clients. No dynamic client registration endpoint is mounted.",
-      client_id_source: "Connector platform registration record or platform profile URL.",
+      status: "exposed",
+      registration_endpoint: `${baseUrl}/ucp/oauth/register`,
+      client_id_source: "dynamic-registration-response or Client ID Metadata Document URL",
+      client_metadata_document_support: true,
+      constraints: [
+        "Public OAuth clients only; token_endpoint_auth_method must be none.",
+        "No client_secret, jwks, or jwks_uri is accepted, stored, or returned.",
+        "redirect_uris and platform_profile_url/client_uri must be HTTPS URLs or localhost HTTP URLs.",
+        "Registered scopes are limited to the advertised UCP OAuth scopes; authorization requests cannot exceed registered scopes.",
+        "Authorization Code with PKCE S256 is required.",
+      ],
       confidential_credential_policy: "not-used",
     },
   };
@@ -198,11 +207,11 @@ export function buildAgentConnectorPackaging(
       ]),
       "chatgpt-app": platformManifest("chatgpt-app", registration, [
         "Register as a ChatGPT app backed by the native remote MCP endpoint.",
-        "Use OAuth Authorization Code with PKCE and the pre-registered public-client client_id.",
+        "Use OAuth Authorization Code with PKCE and either dynamic client registration or a Client ID Metadata Document URL as client_id.",
       ]),
       gemini: platformManifest("gemini", registration, [
         "Register as a Gemini extension backed by the native remote MCP endpoint.",
-        "Use the OAuth issuer metadata URL and connector-platform client registration record.",
+        "Use the OAuth issuer metadata URL and dynamic public-client registration.",
       ]),
     },
   };
