@@ -381,7 +381,11 @@
       { "name": "checkout.add-cart-line", "ownerSlice": "cart" },
       { "name": "checkout.start-session", "ownerSlice": "sessions" }
     ],
-    "resources": [{ "uriTemplate": "chase-sets://checkout/{accountId}/cart", "ownerSlice": "cart" }]
+    "resources": [
+      { "uriTemplate": "chase-sets://checkout/{accountId}/cart", "ownerSlice": "cart" },
+      { "uriTemplate": "ui://chase-sets/cart-review/v1.html", "ownerSlice": "cart" },
+      { "uriTemplate": "ui://chase-sets/checkout-handoff/v1.html", "ownerSlice": "sessions" }
+    ]
   },
   "readAfterWriteRouteInventory": [
     {

@@ -1,7 +1,13 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI, UCP_MCP_TOOLS, UCP_VERSION } from "./ucp";
+import {
+  UCP_MCP_CART_REVIEW_RESOURCE_URI,
+  UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+  UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+  UCP_MCP_TOOLS,
+  UCP_VERSION,
+} from "./ucp";
 import { MCP_LEGACY_PROTOCOL_VERSIONS, MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_2025_11_25 } from "./mcp-protocol";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "./auth";
@@ -840,14 +846,14 @@ describe("UCP MCP routes", () => {
       _meta: {
         securitySchemes: [{ type: "noauth" }],
         ui: {
-          resourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+          resourceUri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
         },
-        "openai/outputTemplate": UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+        "openai/outputTemplate": UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
       },
     });
   });
 
-  it("lists and reads the marketplace result component resource", async () => {
+  it("lists and reads the MCP Apps widget resources", async () => {
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
 
     const listResponse = await app.request("/ucp/mcp", {
@@ -861,30 +867,93 @@ describe("UCP MCP routes", () => {
         id: "2",
         method: "resources/read",
         params: {
-          uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+          uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+        },
+      }),
+    });
+    const cartReadResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "3",
+        method: "resources/read",
+        params: {
+          uri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+        },
+      }),
+    });
+    const handoffReadResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "4",
+        method: "resources/read",
+        params: {
+          uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
         },
       }),
     });
 
     expect(listResponse.status).toBe(200);
-    await expect(listResponse.json()).resolves.toMatchObject({
-      result: {
-        resources: [
-          {
-            uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
-            mimeType: "text/html;profile=mcp-app",
-          },
-        ],
-      },
-    });
+    const listBody = await listResponse.json();
+    expect(listBody.result.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI, mimeType: "text/html;profile=mcp-app" }),
+        expect.objectContaining({ uri: UCP_MCP_CART_REVIEW_RESOURCE_URI, mimeType: "text/html;profile=mcp-app" }),
+        expect.objectContaining({ uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI, mimeType: "text/html;profile=mcp-app" }),
+      ]),
+    );
     expect(readResponse.status).toBe(200);
     await expect(readResponse.json()).resolves.toMatchObject({
       result: {
         contents: [
           {
-            uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+            uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
             mimeType: "text/html;profile=mcp-app",
-            text: expect.stringContaining("Chase Sets Marketplace Results"),
+            text: expect.stringContaining("Chase Sets Product Cards"),
+            _meta: {
+              "openai/widgetCSP": {
+                connect_domains: [],
+                resource_domains: [],
+              },
+              "openai/widgetDescription": "Interactive Chase Sets product cards from marketplace listing search.",
+              "openai/widgetPrefersBorder": true,
+            },
+          },
+        ],
+      },
+    });
+    const productCardsBody = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "5",
+        method: "resources/read",
+        params: {
+          uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+        },
+      }),
+    });
+    const productCardsJson = await productCardsBody.json();
+    expect(productCardsJson.result.contents[0].text).not.toContain("<img");
+    expect(cartReadResponse.status).toBe(200);
+    await expect(cartReadResponse.json()).resolves.toMatchObject({
+      result: {
+        contents: [
+          {
+            uri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+            text: expect.stringContaining("Chase Sets Cart Review"),
+          },
+        ],
+      },
+    });
+    expect(handoffReadResponse.status).toBe(200);
+    await expect(handoffReadResponse.json()).resolves.toMatchObject({
+      result: {
+        contents: [
+          {
+            uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+            text: expect.stringContaining("Chase Sets Checkout Handoff"),
           },
         ],
       },
@@ -1103,7 +1172,7 @@ describe("UCP MCP routes", () => {
         ],
         _meta: {
           ui: {
-            resourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+            resourceUri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
           },
         },
       },
@@ -1265,6 +1334,12 @@ describe("UCP MCP routes", () => {
             url: "/checkout/chk_1",
           },
           messages: [{ code: "trusted_ui_required" }],
+        },
+        _meta: {
+          ui: {
+            resourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+          },
+          "openai/outputTemplate": UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
         },
       },
     });
