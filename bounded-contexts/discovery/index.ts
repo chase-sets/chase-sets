@@ -14,6 +14,7 @@ import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support
 import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
 import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";
 import { discoverySchemaMigrations, discoverySchemaSql } from "./support/runtime-support/schema";
+import { createDiscoveryItemMcpHandlers } from "./support/item-support/mcp";
 
 export const module = defineBoundedContextModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts>({
   manifest: contextManifest,
@@ -21,6 +22,7 @@ export const module = defineBoundedContextModule<DiscoveryServices, PgTransactio
   schemaMigrations: discoverySchemaMigrations,
   createServices: (pool, ports) => createDiscoveryServices(pool, ports),
   buildApis: (services) => [buildDiscoveryApi(services)],
+  buildMcpHandlers: (services) => createDiscoveryItemMcpHandlers(services.items),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const marketProjectionHandlers = buildDiscoveryMarketProjectionHandlers(services.db);

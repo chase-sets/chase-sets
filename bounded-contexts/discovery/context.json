@@ -451,6 +451,19 @@
       ]
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "discovery.search-market", "ownerSlice": "search" },
+      { "name": "discovery.get-item-detail", "ownerSlice": "item-detail" },
+      { "name": "discovery.get-chatgpt-product-feed", "ownerSlice": "item-detail" }
+    ],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://discovery/items/{itemSlug}",
+        "ownerSlice": "item-detail"
+      }
+    ]
+  },
   "readAfterWriteRouteInventory": [
     {
       "id": "discovery.item-detail-listing-publication-self-refresh",

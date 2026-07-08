@@ -1103,7 +1103,7 @@ describe("platform api app wiring", () => {
     expect(checkoutServices.cart.listCartLines).toHaveBeenCalledWith("account_1");
   });
 
-  it("rejects anonymous native MCP discovery through the composed platform API", async () => {
+  it("lists only public Discovery capabilities for anonymous native MCP discovery through the composed platform API", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime());
 
     const response = await app.request("/mcp", {
@@ -1115,15 +1115,32 @@ describe("platform api app wiring", () => {
       }),
     });
 
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "tools_1",
-      error: {
-        code: -32001,
-        message: "An authenticated actor is required for native MCP discovery.",
-      },
-    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      result: {
+        tools: Array<{ name: string; annotations: { requiredPermissions: string[]; availability: string } }>;
+      };
+    };
+    const toolNames = body.result.tools.map((tool) => tool.name).sort();
+
+    expect(toolNames).toEqual([
+      "discovery.get-chatgpt-product-feed",
+      "discovery.get-item-detail",
+      "discovery.search-market",
+    ]);
+    expect(body.result.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "discovery.search-market",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: [],
+          }),
+        }),
+      ]),
+    );
+    expect(toolNames).not.toContain("inventory.list-import-sources");
+    expect(toolNames).not.toContain("checkout.get-cart");
   });
 
   it("wires Discovery-owned UCP catalog search handlers from runtime services", async () => {

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  isNativeMcpAnonymousDiscoveryRejected,
   isNativeMcpPermissionBoundaryError,
   isNativeMcpPermissionBoundaryResult,
   nativeMcpHeadersForRevision,
@@ -9,24 +8,50 @@ import {
   readNativeMcpToolTextMessages,
   readNativeMcpToolStructuredContent,
   shouldInitializeNativeMcpRevision,
+  summarizeNativeMcpAnonymousDiscoveryTools,
   summarizeNativeMcpImportSourceKeys,
 } from "./platform-smoke-native-mcp.mjs";
 
-function responseWithStatus(status) {
-  return { status };
-}
-
 describe("native MCP platform smoke", () => {
-  it("accepts safe anonymous discovery rejection statuses", () => {
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(401))).toBe(true);
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(403))).toBe(true);
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(405))).toBe(true);
+  it("accepts anonymous discovery with only public discovery tools", () => {
+    expect(
+      summarizeNativeMcpAnonymousDiscoveryTools({
+        result: {
+          tools: [
+            { name: "discovery.search-market" },
+            { name: "discovery.get-item-detail" },
+            { name: "discovery.get-chatgpt-product-feed" },
+          ],
+        },
+      }),
+    ).toEqual({
+      isValid: true,
+      toolNames: ["discovery.get-chatgpt-product-feed", "discovery.get-item-detail", "discovery.search-market"],
+      diagnostic:
+        "Native MCP anonymous discovery tools: discovery.get-chatgpt-product-feed, discovery.get-item-detail, discovery.search-market.",
+    });
   });
 
-  it("rejects success and missing-route responses", () => {
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(200))).toBe(false);
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(204))).toBe(false);
-    expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(404))).toBe(false);
+  it("rejects anonymous discovery without a public discovery tool", () => {
+    expect(summarizeNativeMcpAnonymousDiscoveryTools({ result: { tools: [] } })).toEqual({
+      isValid: false,
+      toolNames: [],
+      diagnostic: "Native MCP anonymous discovery did not expose any public discovery tools. Tool names: (none).",
+    });
+  });
+
+  it("rejects anonymous discovery that leaks account-scoped tools", () => {
+    expect(
+      summarizeNativeMcpAnonymousDiscoveryTools({
+        result: {
+          tools: [{ name: "discovery.search-market" }, { name: "marketplace.submit-offer" }],
+        },
+      }),
+    ).toEqual({
+      isValid: false,
+      toolNames: ["discovery.search-market", "marketplace.submit-offer"],
+      diagnostic: "Native MCP anonymous discovery exposed account-scoped tools: marketplace.submit-offer.",
+    });
   });
 
   it("recognizes the authenticated inventory permission boundary", () => {

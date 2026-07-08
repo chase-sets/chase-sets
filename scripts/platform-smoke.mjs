@@ -10,13 +10,13 @@ import {
   selectAdminDeployedPageSmokeRows,
 } from "./admin-shell-smoke-matrix.mjs";
 import {
-  isNativeMcpAnonymousDiscoveryRejected,
   isNativeMcpPermissionBoundaryError,
   isNativeMcpPermissionBoundaryResult,
   nativeMcpHeadersForRevision,
   nativeMcpJsonRpcRequestForRevision,
   nativeMcpProtocolMatrix,
   shouldInitializeNativeMcpRevision,
+  summarizeNativeMcpAnonymousDiscoveryTools,
   summarizeNativeMcpImportSourceKeys,
 } from "./platform-smoke-native-mcp.mjs";
 import { createReadAfterWriteReceiptFromCommitReceipt } from "./platform-smoke-freshness.mjs";
@@ -385,16 +385,15 @@ async function expectUcpEndpoints(origin) {
 }
 
 async function expectNativeMcpAuthenticationBoundary(origin) {
-  await fetchWithRetry(
-    "native MCP anonymous discovery rejection",
-    `${origin}/mcp`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
-    },
-    isNativeMcpAnonymousDiscoveryRejected,
-  );
+  const response = await expectOk("native MCP anonymous discovery", `${origin}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+  });
+  const summary = summarizeNativeMcpAnonymousDiscoveryTools(await response.json());
+  if (!summary.isValid) {
+    throw new Error(summary.diagnostic);
+  }
 }
 
 async function expectNativeMcpInventoryRead({ origin, sessionToken, accountId }) {

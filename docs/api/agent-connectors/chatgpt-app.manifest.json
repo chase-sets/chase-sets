@@ -42,6 +42,9 @@
   },
   "tool_names": [
     "identity.get-account",
+    "discovery.search-market",
+    "discovery.get-item-detail",
+    "discovery.get-chatgpt-product-feed",
     "inventory.list-items",
     "inventory.list-import-sources",
     "inventory.create-import-batch",
@@ -83,6 +86,7 @@
   ],
   "resource_uri_templates": [
     "chase-sets://identity/{accountId}/account",
+    "chase-sets://discovery/items/{itemSlug}",
     "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
     "chase-sets://inventory/{accountId}/import-batches/{batchId}",
     "chase-sets://marketplace/{accountId}/listings/{listingId}",
