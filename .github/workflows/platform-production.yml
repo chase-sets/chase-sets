@@ -337,6 +337,10 @@ jobs:
       TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
       TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
       TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
+      # DOKS owns schema bootstrap once its estate is active. App Platform
+      # stays deployed for alias/DNS compatibility, but its pre-deploy
+      # bootstrap becomes a logged no-op while DOKS ingress exists.
+      TF_VAR_platform_bootstrap_owner: ${{ vars.DOKS_INGRESS_TARGET != '' && 'doks' || 'app-platform' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       CHASE_SETS_HELM_RELEASE: chase-sets-platform

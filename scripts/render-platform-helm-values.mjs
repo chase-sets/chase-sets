@@ -9,6 +9,7 @@ export const chartStagingValuesRelativePath = "infrastructure/helm/platform/valu
 const platformMainRelativePath = "infrastructure/digitalocean/platform/main.tf";
 const platformLocalsRelativePath = "infrastructure/digitalocean/platform/locals.tf";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
+const platformBootstrapCommand = "pnpm --filter @chase-sets/app-platform-api run bootstrap:production";
 const bootstrapQuiesceTimeoutSeconds = 45;
 const bootstrapCommandTimeoutSeconds = 780;
 const bootstrapHookActiveDeadlineSeconds = 890;
@@ -327,8 +328,8 @@ function toHelmComponent(component) {
       digitalOceanKind: component.terraformKind,
       instanceCountExpression: component.instanceCountExpression,
     },
-    command: component.command,
-    env: component.env,
+    command: helmCommand(component),
+    env: helmEnv(component),
     resources: {},
     podAnnotations: {},
     podLabels: {},
@@ -395,6 +396,22 @@ function toHelmComponent(component) {
   }
 
   return result;
+}
+
+function helmCommand(component) {
+  if (component.name === "platform-bootstrap") {
+    return platformBootstrapCommand;
+  }
+
+  return component.command;
+}
+
+function helmEnv(component) {
+  if (component.name === "platform-bootstrap") {
+    return component.env.filter((entry) => entry.name !== "PLATFORM_BOOTSTRAP_OWNER");
+  }
+
+  return component.env;
 }
 
 function normalizeTerraformComponent(component, locals) {

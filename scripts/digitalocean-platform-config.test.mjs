@@ -416,6 +416,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).not.toContain('variable "catalog_asset_public_base_url"');
 
     const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
+    expect(platformVariables).toContain('variable "platform_bootstrap_owner"');
+    expect(platformVariables).toContain('contains(["app-platform", "doks"], var.platform_bootstrap_owner)');
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_platform_bootstrap_owner: ${{ vars.DOKS_INGRESS_TARGET != '' && 'doks' || 'app-platform' }}",
+    );
+    expect(platformBootstrapJob).toContain('key   = "PLATFORM_BOOTSTRAP_OWNER"');
+    expect(platformBootstrapJob).toContain("value = var.platform_bootstrap_owner");
+    expect(platformBootstrapJob).toContain("PLATFORM_BOOTSTRAP_OWNER:-app-platform");
+    expect(platformBootstrapJob).toContain(
+      "Skipping App Platform platform-bootstrap because PLATFORM_BOOTSTRAP_OWNER=doks; DOKS is the schema-bootstrap owner.",
+    );
     expect(platformBootstrapJob).toContain('key   = "DEPLOYMENT_ENVIRONMENT"');
     expect(platformBootstrapJob).toContain("value = var.environment");
   });

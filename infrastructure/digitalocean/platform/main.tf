@@ -1552,7 +1552,7 @@ resource "digitalocean_app" "platform" {
     job {
       name               = "platform-bootstrap"
       kind               = "PRE_DEPLOY"
-      run_command        = "pnpm --filter @chase-sets/app-platform-api run bootstrap:production"
+      run_command        = "sh -c 'if [ \"$${PLATFORM_BOOTSTRAP_OWNER:-app-platform}\" = \"doks\" ]; then echo \"Skipping App Platform platform-bootstrap because PLATFORM_BOOTSTRAP_OWNER=doks; DOKS is the schema-bootstrap owner.\"; exit 0; fi; pnpm --filter @chase-sets/app-platform-api run bootstrap:production'"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = 1
 
@@ -1580,6 +1580,11 @@ resource "digitalocean_app" "platform" {
       env {
         key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
         value = local.event_store_wake_notifications_enabled
+        scope = "RUN_TIME"
+      }
+      env {
+        key   = "PLATFORM_BOOTSTRAP_OWNER"
+        value = var.platform_bootstrap_owner
         scope = "RUN_TIME"
       }
       env {
