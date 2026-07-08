@@ -71,6 +71,22 @@ export type PayoutReadinessServices = Readonly<{
     components: readonly ["payout-setup"];
     readiness: SettlementPayoutReadinessRow;
   }>;
+  createHostedPayoutSetupLink: (
+    params: Readonly<{
+      accountId: AccountId;
+      contactEmail?: string | null;
+      returnUrl: string;
+      refreshUrl: string;
+      idempotencyKey: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{
+    accountId: string;
+    providerReference: string;
+    url: string;
+    expiresAt: string | null;
+    readiness: SettlementPayoutReadinessRow;
+  }>;
   createPayoutAccountManagementSession: (
     params: Readonly<{
       accountId: AccountId;
@@ -497,6 +513,108 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           kind: "payout-setup-session-failed",
           accountId: params.accountId,
           setupSurface: "embedded-payout-setup",
+          safeCategory: classifySettlementProviderError(error),
+        });
+        throw error;
+      }
+    },
+    async createHostedPayoutSetupLink(params, context) {
+      try {
+        const existing = await getPayoutReadiness(deps.db, params.accountId);
+        const ensured = existing.provider_reference
+          ? await deps.moneyMovementGateway.refreshPayoutReadiness({
+              accountId: params.accountId,
+              providerReference: existing.provider_reference,
+            })
+          : await deps.moneyMovementGateway.ensurePayoutAccount({
+              accountId: params.accountId,
+              currencyCode: normalizeCurrencyCode("usd"),
+              contactEmail: params.contactEmail,
+              countryCode: "US",
+              idempotencyKey: `settlement:payout-account:${params.accountId}`,
+            });
+
+        const ensuredRecordedAt = new Date().toISOString();
+        const ensuredDestination = payoutDestinationChange(existing, ensured, ensuredRecordedAt);
+        await recordProviderReadiness(
+          {
+            accountId: params.accountId,
+            status: readinessStatus(ensured),
+            missingRequirements: ensured.missingRequirements,
+            providerReference: ensured.providerReference,
+            contactEmail: ensured.contactEmail ?? params.contactEmail ?? existing.contact_email,
+            onboardingStatus: ensured.onboardingStatus,
+            transferCapabilityStatus: ensured.transferCapabilityStatus,
+            payoutCapabilityStatus: ensured.payoutCapabilityStatus,
+            payoutDestinationStatus: ensured.payoutDestinationStatus,
+            payoutDestinationFingerprint: ensuredDestination.fingerprint,
+            payoutDestinationChangedAt: ensuredDestination.changedAt,
+            payoutAccountDashboard: ensured.payoutAccountDashboard,
+            lossesCollector: ensured.lossesCollector,
+            feesCollector: ensured.feesCollector,
+            requirementsCollector: ensured.requirementsCollector,
+            recordedAt: ensuredRecordedAt,
+          },
+          context,
+        );
+
+        const link = await deps.moneyMovementGateway.createPayoutSetupLink({
+          accountId: params.accountId,
+          providerReference: ensured.providerReference,
+          contactEmail: params.contactEmail,
+          returnUrl: params.returnUrl,
+          refreshUrl: params.refreshUrl,
+          idempotencyKey: params.idempotencyKey,
+        });
+
+        const linkReadinessRecordedAt = new Date().toISOString();
+        const linkDestination = payoutDestinationChange(existing, link.readiness, linkReadinessRecordedAt);
+        await recordProviderReadiness(
+          {
+            accountId: params.accountId,
+            status: readinessStatus(link.readiness),
+            missingRequirements: link.readiness.missingRequirements,
+            providerReference: link.providerReference,
+            contactEmail: link.readiness.contactEmail ?? params.contactEmail ?? existing.contact_email,
+            onboardingStatus: link.readiness.onboardingStatus,
+            transferCapabilityStatus: link.readiness.transferCapabilityStatus,
+            payoutCapabilityStatus: link.readiness.payoutCapabilityStatus,
+            payoutDestinationStatus: link.readiness.payoutDestinationStatus,
+            payoutDestinationFingerprint: linkDestination.fingerprint,
+            payoutDestinationChangedAt: linkDestination.changedAt,
+            payoutAccountDashboard: link.readiness.payoutAccountDashboard,
+            lossesCollector: link.readiness.lossesCollector,
+            feesCollector: link.readiness.feesCollector,
+            requirementsCollector: link.readiness.requirementsCollector,
+            recordedAt: linkReadinessRecordedAt,
+          },
+          context,
+        );
+
+        await recordOperation({
+          kind: "payout-setup-session-created",
+          accountId: params.accountId,
+          setupSurface: "hosted-onboarding",
+          ...readinessOperationFields(link.readiness),
+        });
+
+        return {
+          accountId: params.accountId,
+          providerReference: link.providerReference,
+          url: link.url,
+          expiresAt: link.expiresAt,
+          readiness: payoutReadinessRowFromProviderReadiness(
+            params.accountId,
+            link.readiness,
+            linkReadinessRecordedAt,
+            linkDestination.changedAt,
+          ),
+        };
+      } catch (error) {
+        await recordOperation({
+          kind: "payout-setup-session-failed",
+          accountId: params.accountId,
+          setupSurface: "hosted-onboarding",
           safeCategory: classifySettlementProviderError(error),
         });
         throw error;

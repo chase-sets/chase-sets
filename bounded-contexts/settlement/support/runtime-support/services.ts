@@ -46,6 +46,7 @@ function createMissingMoneyMovementGateway(): MoneyMovementGateway {
     ensurePayoutAccount: async () => fail(),
     createPayoutSetupSession: async () => fail(),
     createPayoutAccountManagementSession: async () => fail(),
+    createPayoutSetupLink: async () => fail(),
     refreshPayoutReadiness: async () => fail(),
     retrievePlatformBalance: async () => fail(),
     transferPlatformBalanceToConnectedAccount: async () => fail(),

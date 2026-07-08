@@ -133,6 +133,11 @@ type StripeAccountSessionResponse = Readonly<{
   expires_at?: number | string | null;
 }>;
 
+type StripeAccountLinkResponse = Readonly<{
+  url?: string | null;
+  expires_at?: number | string | null;
+}>;
+
 type StripeErrorResponse = Readonly<{
   error?: Readonly<{
     code?: string | null;
@@ -855,6 +860,38 @@ export function createStripeConnectMoneyMovementGateway(
         clientSecret: session.clientSecret,
         expiresAt: session.expiresAt,
         components: ["payout-account-management"],
+      };
+    },
+    async createPayoutSetupLink(input) {
+      await accountStrategy.updateAccountContactEmail(
+        input.providerReference,
+        input.contactEmail,
+        `${input.idempotencyKey}:contact-email`,
+      );
+      const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(input.providerReference));
+      const accountLink = await stripeRequest<StripeAccountLinkResponse>("/v1/account_links", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: toFormBody({
+          account: input.providerReference,
+          type: "account_onboarding",
+          return_url: input.returnUrl,
+          refresh_url: input.refreshUrl,
+        }),
+        idempotencyKey: input.idempotencyKey,
+      });
+      const url = accountLink.url?.trim();
+      if (!url) {
+        throw new Error("Stripe did not return an account link URL.");
+      }
+
+      return {
+        providerReference: input.providerReference,
+        url,
+        expiresAt: expiresAtFromStripeTimestamp(accountLink.expires_at),
+        readiness,
       };
     },
     async refreshPayoutReadiness(input) {

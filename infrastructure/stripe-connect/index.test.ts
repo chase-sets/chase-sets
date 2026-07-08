@@ -428,6 +428,110 @@ describe("money movement adapters", () => {
     ]);
   });
 
+  it("Stripe adapter creates hosted payout setup account links", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+
+      if (String(input) === "https://stripe.test/v2/core/accounts/acct_123") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Idempotency-Key")).toBe("hosted-setup-key:contact-email");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          contact_email: "seller@example.test",
+        });
+
+        return new Response(JSON.stringify({ id: "acct_123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (String(input) === "https://stripe.test/v1/account_links") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+        expect(headers.get("Idempotency-Key")).toBe("hosted-setup-key");
+        const body = new URLSearchParams(String(init?.body));
+        expect(body.get("account")).toBe("acct_123");
+        expect(body.get("type")).toBe("account_onboarding");
+        expect(body.get("return_url")).toBe("https://app.test/account/payouts/setup/return");
+        expect(body.get("refresh_url")).toBe("https://app.test/account/payouts/setup/refresh");
+
+        return new Response(
+          JSON.stringify({
+            url: "https://connect.stripe.com/setup/c/acct_123/link_test",
+            expires_at: 1_777_000_000,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      expect(String(input)).toBe(
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      );
+      return new Response(
+        JSON.stringify({
+          id: "acct_123",
+          dashboard: "none",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+              requirements_collector: "application",
+            },
+          },
+          requirements: { currently_due: ["external_account"] },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: { status: "active" },
+                  payouts: { status: "pending" },
+                },
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.createPayoutSetupLink({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_123",
+        contactEmail: " seller@example.test ",
+        returnUrl: "https://app.test/account/payouts/setup/return",
+        refreshUrl: "https://app.test/account/payouts/setup/refresh",
+        idempotencyKey: "hosted-setup-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_123",
+      url: "https://connect.stripe.com/setup/c/acct_123/link_test",
+      expiresAt: "2026-04-24T03:06:40.000Z",
+      readiness: {
+        providerReference: "acct_123",
+        onboardingStatus: "pending",
+        missingRequirements: ["external_account"],
+      },
+    });
+    expect(calls.map((call) => call.input)).toEqual([
+      "https://stripe.test/v2/core/accounts/acct_123",
+      "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      "https://stripe.test/v1/account_links",
+    ]);
+  });
+
   it("Stripe adapter creates Accounts v1 embedded payout setup account sessions", async () => {
     const calls: Array<{ input: string; method: string | undefined }> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

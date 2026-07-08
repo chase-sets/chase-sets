@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   CreatedPayoutAccountManagementSession,
+  CreatedPayoutSetupLink,
   CreatedPayoutSetupSession,
   ProviderPayoutReadiness,
 } from "./index";
@@ -57,5 +58,30 @@ describe("money movement contract", () => {
     expect(setupSession.readiness.missingRequirements).toEqual(["external_account"]);
     expect(setupSession.readiness.payoutAccountDashboard).toBe("express");
     expect(managementSession.components).toEqual(["payout-account-management"]);
+  });
+
+  it("represents hosted payout setup links without exposing provider secrets", () => {
+    const readiness = {
+      providerReference: "acct_test",
+      onboardingStatus: "pending",
+      transferCapabilityStatus: "pending",
+      payoutCapabilityStatus: "pending",
+      payoutDestinationStatus: "missing",
+      payoutAccountDashboard: "none",
+      lossesCollector: "application",
+      feesCollector: "application",
+      requirementsCollector: "application",
+      missingRequirements: ["provider-onboarding"],
+    } satisfies ProviderPayoutReadiness;
+    const setupLink = {
+      providerReference: "acct_test",
+      url: "https://connect.stripe.com/setup/c/acct_test/link_test",
+      expiresAt: "2026-06-01T15:00:00.000Z",
+      readiness,
+    } satisfies CreatedPayoutSetupLink;
+
+    expect(setupLink.url).toMatch(/^https:\/\//);
+    expect("clientSecret" in setupLink).toBe(false);
+    expect(setupLink.readiness.onboardingStatus).toBe("pending");
   });
 });
