@@ -85,6 +85,7 @@
       "risk": "read",
       "access_scope": "public",
       "required_permissions": [],
+      "required_scopes": [],
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -236,6 +237,7 @@
       "risk": "read",
       "access_scope": "public",
       "required_permissions": [],
+      "required_scopes": [],
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -345,6 +347,7 @@
       "risk": "read",
       "access_scope": "public",
       "required_permissions": [],
+      "required_scopes": [],
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -5110,6 +5113,7 @@
       "service_id": "discovery",
       "access_scope": "public",
       "required_permissions": [],
+      "required_scopes": [],
       "expected_usage": [
         "Use for public product discovery and marketplace comparison."
       ]
