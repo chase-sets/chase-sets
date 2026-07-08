@@ -40,13 +40,24 @@ export function buildSuiteGrep(suites) {
 
 async function main() {
   const suites = parseSuiteArgs(process.argv.slice(2));
-  const grep = buildSuiteGrep(suites);
   console.log(`Running E2E suites: ${suites.map((suite) => suite.id).join(", ")}`);
-  const invocation = buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", grep]);
-  await runCommand(invocation.command, invocation.args, {
-    cwd: rootDir,
-    stdio: "inherit",
-  });
+  const playwrightSuites = suites.filter((suite) => !Array.isArray(suite.command));
+  if (playwrightSuites.length > 0) {
+    const grep = buildSuiteGrep(playwrightSuites);
+    const invocation = buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", grep]);
+    await runCommand(invocation.command, invocation.args, {
+      cwd: rootDir,
+      stdio: "inherit",
+    });
+  }
+
+  for (const suite of suites.filter((candidate) => Array.isArray(candidate.command))) {
+    const invocation = buildPackageManagerInvocation(suite.command);
+    await runCommand(invocation.command, invocation.args, {
+      cwd: rootDir,
+      stdio: "inherit",
+    });
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
