@@ -99,6 +99,7 @@ const envValueDefaults = {
   CHASE_SETS_INTERNAL_API_ORIGIN: "http://platform-api:8080",
   WORKER_MAX_CONCURRENT_RUNNERS: "5",
   WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "1",
+  WORKER_PROJECTION_OPERATION_RUNNER_COUNT: "1",
   WORKER_JOB_MAX_CONCURRENT_RUNNERS: "1",
   WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "2",
   WORKER_WAKE_HOT_LANE_RUNNER_COUNT: "1",
@@ -142,11 +143,29 @@ const envValueDefaults = {
 
 const databasePoolMaxByComponent = {
   "platform-api": "6",
-  "platform-worker": "7",
+  // Must cover every worker runner group summed by the runtime capacity guard
+  // and the Terraform worker_runner_capacity check: 1 projection + 1 operations
+  // + 1 job + 1 inventory-import + 1 dispatch + 1 scheduled + 2 wake = 8.
+  "platform-worker": "8",
   "platform-bootstrap": "4",
 };
 
 const rolloutEligibleComponents = new Set(["public-web", "marketplace"]);
+
+// DOKS-only health wiring. App Platform workers expose no HTTP port, but the
+// worker runs an in-process health server (/health/live + /health/ready) that
+// only binds after full boot (heartbeat + runner loops), so probing it makes a
+// boot-crashing worker fail the Helm rollout instead of silently passing.
+// Readiness gates the rollout on /health/ready; the startup probe holds
+// liveness off /health/live for up to 5 minutes of boot before liveness takes
+// over, so a slow (but healthy) boot is never killed mid-start.
+const doksHealthProbeByComponent = {
+  "platform-worker": {
+    port: 8080,
+    readinessPath: "/health/ready",
+    startupPath: "/health/live",
+  },
+};
 
 export function readPlatformSources(rootDir = repoRoot) {
   return {
@@ -283,6 +302,17 @@ function toHelmComponent(component) {
 
   if (component.healthPath) {
     result.healthPath = component.healthPath;
+  }
+
+  // Attach the DOKS-only health probe port and paths for components (workers)
+  // that serve health over HTTP but declare no App Platform http_port. No
+  // ClusterIP Service is created: the probes target the pod's container port
+  // directly, and nothing in-cluster consumes the worker.
+  const healthProbe = doksHealthProbeByComponent[component.name];
+  if (healthProbe) {
+    result.port = healthProbe.port;
+    result.healthPath = healthProbe.readinessPath;
+    result.startupPath = healthProbe.startupPath;
   }
 
   if (rolloutEligibleComponents.has(component.name)) {

@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+  waitForProjectionPositionFromUrl,
+} from "./support/admin-e2e";
 
 type CurrentActorDisplay = Readonly<{
   account: Readonly<{ account_id: string }>;
@@ -23,16 +29,28 @@ test.describe("access admin invitations", () => {
     await page.getByRole("textbox", { name: "Email" }).fill(invitationEmail);
     await page.getByLabel("Role").selectOption("viewer");
     await page.getByRole("button", { name: "Create" }).click();
-    await expect(page).toHaveURL(/\/access\/invitations\/ivt_[^/?]+(?:\?|$)/);
-    const invitationId = new URL(page.url()).pathname.split("/").pop();
+    await page.waitForURL(
+      (url) => /^\/access\/invitations\/ivt_[^/?]+$/.test(url.pathname) && url.search.includes("afterWrite"),
+      { timeout: 30_000 },
+    );
+    const createUrl = new URL(page.url());
+    const invitationId = createUrl.pathname.split("/").pop();
     if (!invitationId) {
       throw new Error("Created invitation route should include the new invitation id.");
     }
+    await waitForIdentityInvitationProjection(page, createUrl, `create invitation ${invitationId}`);
+    await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(new RegExp(`/access/invitations/${invitationId}(?:\\?|$)`));
     await expectAdminPageReady(page, { heading: invitationEmail });
     await expect(page.getByText("pending").first()).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page).toHaveURL(new RegExp(`/access/invitations/${invitationId}(?:\\?|$)`));
+    await page.waitForURL(
+      (url) => url.pathname === `/access/invitations/${invitationId}` && url.search.includes("afterWrite"),
+      { timeout: 30_000 },
+    );
+    const cancelUrl = new URL(page.url());
+    await waitForIdentityInvitationProjection(page, cancelUrl, `cancel invitation ${invitationId}`);
+    await page.goto(cancelUrl.pathname, { waitUntil: "domcontentloaded" });
     await expectCancelledInvitation(page, invitationId, invitationEmail);
   });
 });
@@ -62,6 +80,15 @@ async function waitForInvitationStatus(page: Page, invitationId: string, status:
     .toBe(status);
 
   await page.reload({ waitUntil: "domcontentloaded" });
+}
+
+async function waitForIdentityInvitationProjection(page: Page, url: URL, label: string) {
+  await waitForProjectionPositionFromUrl(page, url, {
+    sourceContextName: "identity",
+    targetContextName: "identity",
+    projectionName: "identity-invitation-projection",
+    label,
+  });
 }
 
 async function expectCancelledInvitation(page: Page, invitationId: string, invitationEmail: string) {

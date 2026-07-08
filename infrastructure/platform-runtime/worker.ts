@@ -1391,12 +1391,21 @@ function createProjectionOperationWorkerRunner(
           throw error;
         }
 
-        // Lease contention is transient: the group runner yields its lease
-        // between idle passes, so requeue with backoff instead of
-        // dead-lettering. Every other failure (including a timed-out
-        // operation) is terminal.
+        // Lease contention is transient (the group runner yields its lease
+        // between idle passes) and an execution-deadline timeout is a symptom
+        // of a slow-but-progressing pass (a large blocked stream, momentary DB
+        // slowness), not a poison payload: both requeue with backoff so the
+        // charged attempt budget bounds them and the dead-letter sweep
+        // quarantines a persistently-hung operation once its attempts are
+        // exhausted. Making a timeout retryable is what actually unpins the
+        // executor in flight — a hung operation aborts at its deadline, frees
+        // its claim + the shared projection-group lease, and lets younger
+        // operations and the scheduled group runner proceed while it backs off
+        // (issue #4611). Every other failure is terminal.
         const retryable =
-          error instanceof ProjectionRunnerLeaseUnavailableError && operation.attemptCount < options.maxAttempts;
+          (error instanceof ProjectionRunnerLeaseUnavailableError ||
+            error instanceof ProjectionOperationTimedOutError) &&
+          operation.attemptCount < options.maxAttempts;
         // The failure write is best-effort: if the claim was already lost
         // (expired TTL, fencing race, worker restart) the write returns false
         // and the operation stays reclaimable — its attempt was charged at
@@ -1562,6 +1571,7 @@ async function runProjectionOperation(
         acquireRetryIntervalMs: options.leaseAcquireRetryIntervalMs,
         idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
         statementTimeoutMs: options.statementTimeoutMs,
+        signal: runnerContext?.signal,
         shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
         abortPollIntervalMs: options.cancelPollIntervalMs,
         metadata: {
@@ -1596,6 +1606,7 @@ async function runProjectionOperation(
           acquireRetryIntervalMs: options.leaseAcquireRetryIntervalMs,
           idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
           statementTimeoutMs: options.statementTimeoutMs,
+          signal: runnerContext?.signal,
           shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
           abortPollIntervalMs: options.cancelPollIntervalMs,
           metadata: {
@@ -1634,6 +1645,7 @@ async function runProjectionOperation(
         acquireRetryIntervalMs: options.leaseAcquireRetryIntervalMs,
         idleInTransactionSessionTimeoutMs: options.idleInTransactionSessionTimeoutMs,
         statementTimeoutMs: options.statementTimeoutMs,
+        signal: runnerContext?.signal,
         shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
         abortPollIntervalMs: options.cancelPollIntervalMs,
         metadata: {
@@ -1725,6 +1737,13 @@ export type RunWithRenewedLeaseInput = Readonly<{
   acquireRetryIntervalMs?: number;
   idleInTransactionSessionTimeoutMs?: number;
   statementTimeoutMs?: number;
+  /**
+   * Upstream abort signal (e.g. the operation execution deadline). When it
+   * fires the held lease stops renewing immediately instead of waiting for the
+   * next `shouldAbort` poll, so a timed-out operation cannot keep the shared
+   * projection-group lease alive against the scheduled runner (issue #4611).
+   */
+  signal?: AbortSignal;
   shouldAbort?: () => Promise<boolean>;
   abortPollIntervalMs?: number;
   metadata?: Record<string, unknown>;
@@ -1755,6 +1774,20 @@ export async function tryRunWithRenewedLease<T>(
 
   let leaseActive = true;
   const abortController = new AbortController();
+  // Chain the held lease off any upstream signal (the operation execution
+  // deadline) so an in-flight abort stops lease renewal at once rather than up
+  // to one `shouldAbort` poll interval later. Without this a timed-out
+  // operation keeps renewing the shared `projection-group:<name>` lease while
+  // its leaked work settles, starving the scheduled group runner (issue #4611).
+  const abortFromUpstreamSignal = () => {
+    leaseActive = false;
+    abortController.abort();
+  };
+  if (input.signal?.aborted) {
+    abortFromUpstreamSignal();
+  } else {
+    input.signal?.addEventListener("abort", abortFromUpstreamSignal, { once: true });
+  }
   const throwIfLeaseLost = () => {
     if (!leaseActive || abortController.signal.aborted) {
       throw new Error(`Lost lease '${lease.leaseName}'.`);
@@ -1826,6 +1859,7 @@ export async function tryRunWithRenewedLease<T>(
     if (abortPollTimer) {
       clearInterval(abortPollTimer);
     }
+    input.signal?.removeEventListener("abort", abortFromUpstreamSignal);
     await controlPlane.releaseLease(lease);
   }
 }

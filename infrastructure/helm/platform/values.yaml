@@ -446,7 +446,7 @@ components:
       - name: "DATABASE_POOL_IDLE_TIMEOUT_MS"
         value: "5000"
       - name: "DATABASE_POOL_MAX"
-        value: "7"
+        value: "8"
       - name: "DATABASE_URL_AUTH"
         secret: true
         secretKey: "DATABASE_URL_AUTH"
@@ -547,6 +547,8 @@ components:
       - name: "PLATFORM_WORK_SIGNAL_DATABASE_URL"
         secret: true
         secretKey: "PLATFORM_WORK_SIGNAL_DATABASE_URL"
+      - name: "PORT"
+        value: "8080"
       - name: "PRICING_RECOMMENDATION_JOB_LANE_COUNT"
         value: "1"
       - name: "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
@@ -648,6 +650,8 @@ components:
         value: "5"
       - name: "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"
         value: "1"
+      - name: "WORKER_PROJECTION_OPERATION_RUNNER_COUNT"
+        value: "1"
       - name: "WORKER_PROJECTION_WAKE_RELAY_ENABLED"
         value: "false"
       - name: "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS"
@@ -665,6 +669,9 @@ components:
     resources: {}
     podAnnotations: {}
     podLabels: {}
+    port: 8080
+    healthPath: "/health/ready"
+    startupPath: "/health/live"
   platform-bootstrap:
     enabled: true
     kind: "job"

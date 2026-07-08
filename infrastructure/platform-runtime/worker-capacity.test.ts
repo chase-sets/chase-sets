@@ -52,6 +52,40 @@ describe("worker capacity", () => {
     ).not.toThrow();
   });
 
+  it("counts the projection-operations group against the pool budget (#4620 regression)", () => {
+    // The full platform-worker runner-group set. #4599 added the `operations`
+    // group without raising the pool budget, so total concurrency (9) exceeded
+    // DATABASE_POOL_MAX (7) and the guard crash-looped boot. The fix raises the
+    // pool to cover every group.
+    const groups = [
+      { name: "projections", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "operations", runnerCount: 2, maxConcurrentRunners: 2 },
+      { name: "jobs", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "inventory-jobs", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "dispatch", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "scheduled", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "wakes", runnerCount: 3, maxConcurrentRunners: 2 },
+    ];
+
+    // The pre-fix pool (7) is over capacity once operations is counted.
+    const overCapacity = summarizeRunnerCapacity(7, groups);
+    expect(overCapacity.configuredRunnerConcurrency).toBe(9);
+    expect(overCapacity.overPoolCapacity).toBe(true);
+    expect(() => assertRunnerCapacity(overCapacity, { workerName: "Platform worker" })).toThrow(
+      "Platform worker runner concurrency (9) exceeds DATABASE_POOL_MAX (7)",
+    );
+
+    // Dropping operations to 1 and raising the pool to 8 fits exactly.
+    const fitted = summarizeRunnerCapacity(8, [
+      ...groups.slice(0, 1),
+      { name: "operations", runnerCount: 1, maxConcurrentRunners: 1 },
+      ...groups.slice(2),
+    ]);
+    expect(fitted.configuredRunnerConcurrency).toBe(8);
+    expect(fitted.overPoolCapacity).toBe(false);
+    expect(() => assertRunnerCapacity(fitted, { workerName: "Platform worker" })).not.toThrow();
+  });
+
   it("summarizes reserved hot wake capacity separately from shared runner capacity", () => {
     expect(
       summarizeRunnerCapacity(6, [

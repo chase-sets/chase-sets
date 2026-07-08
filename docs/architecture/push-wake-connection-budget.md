@@ -48,11 +48,13 @@ Direct cluster backends (what the check asserts, from `push-wake-capacity-eviden
 | Demand | Math | Backends |
 | --- | --- | --- |
 | PgBouncer server-side allocation | 17 platform contexts with overrides: auth 3 + catalog 6 + control 4 + discovery 3 + identity 3 + marketplace 3 + notifications 2 + public-presence 3; all other contexts 1 | 36 |
-| Relay listeners (active relay only) | 6 direct-listened source contexts × 1 | 6 |
+| Relay listeners (active relay only) | 7 direct-listened source contexts × 1 | 7 |
 | API waiter listeners | 4 waiter contexts × 1 API component × 1 instance | 4 |
 | Bootstrap/maintenance reservation | one bootstrap pool (the staging bootstrap job itself rides PgBouncer; this covers the direct Terraform grant connection and ad hoc maintenance) | 4 |
-| **Steady-state total** | 36 + 6 + 4 + 4 | **50 ≤ 94** (headroom 44) |
-| **Deploy overlap** | 36 + 2 × 6 + 2 × 4 + 4 (old and new relay/API generations may briefly both hold listeners; PgBouncer backends do not grow with client count) | **60 ≤ 94** (headroom 34) |
+| **Steady-state total** | 36 + 7 + 4 + 4 | **51 ≤ 94** (headroom 43) |
+| **Deploy overlap** | 36 + 2 × 7 + 2 × 4 + 4 (old and new relay/API generations may briefly both hold listeners; PgBouncer backends do not grow with client count) | **62 ≤ 94** (headroom 32) |
+
+Staging worker `DATABASE_POOL_MAX` is `14` (2 projection + 2 operations + 4 job + 1 inventory-import + 1 dispatch + 1 scheduled + 3 wake = 14 runner slots; see `check "worker_runner_capacity"`). Staging query traffic is PgBouncer-pooled, so the worker's client-side pool max does **not** add cluster backends — the server-side allocation above is the whole footprint — which is why staging can carry two operations executors for recovery drills without any budget movement.
 
 Client-side PgBouncer connections (not cluster backends, listed for completeness): platform-api 6 × 1 component × 1 instance = 6; platform-worker 11 × 1 component × 2 instances = 22.
 
@@ -63,14 +65,16 @@ Everything is direct. The budget assumes the consolidated topology that now runs
 | Demand | Math | Backends |
 | --- | --- | --- |
 | API pools | 6 pool max × 1 component × 2 instances | 12 |
-| Worker pools | 7 pool max × 1 component × 1 instance | 7 |
-| Relay listeners (budgeted worst case, relay currently killed) | 6 direct-listened source contexts × 1 | 6 |
+| Worker pools | 8 pool max × 1 component × 1 instance | 8 |
+| Relay listeners (budgeted worst case, relay currently killed) | 7 direct-listened source contexts × 1 | 7 |
 | API waiter listeners | 4 waiter contexts × 1 API component × 2 instances | 8 |
 | Bootstrap (transient PRE_DEPLOY) | one bootstrap pool | 4 |
-| **Steady-state total** | 12 + 7 + 6 + 8 + 4 | **37 ≤ 94** (headroom 57) |
-| **Deploy overlap** | 2 × (12 + 7) + 2 × 6 + 2 × 8 + 4 (App Platform starts replacement containers before stopping old ones) | **70 ≤ 94** (headroom 24) |
+| **Steady-state total** | 12 + 8 + 7 + 8 + 4 | **39 ≤ 94** (headroom 55) |
+| **Deploy overlap** | 2 × (12 + 8) + 2 × 7 + 2 × 8 + 4 (App Platform starts replacement containers before stopping old ones) | **74 ≤ 94** (headroom 20) |
 
-The rolling-deploy overlap envelope is the binding production constraint. It is deliberately pessimistic (every process pinned at pool max while both deployment generations run), but it is the number scale decisions must respect. The tier-upgrade trigger is 80% of the reserved tier budget: on the current `db-s-2vcpu-4gb` production tier, the trigger is `75` backends (`floor(94 × 0.80)`). Current production overlap demand is `70`, so **before adding a 3rd `platform-api` instance or a 2nd `platform-worker` instance in production, either upgrade to `db-s-4vcpu-8gb` or land production transaction pools for query-safe traffic**. A third API instance would raise overlap demand by 12 backends (`82/94`), and a second worker would raise it by 14 backends (`84/94`), crossing the trigger while still below the absolute limit.
+Production worker `DATABASE_POOL_MAX` is `8` (1 projection + 1 operations + 1 job + 1 inventory-import + 1 dispatch + 1 scheduled + 2 wake = 8 runner slots). The dedicated projection-operation executor group (#4599) runs 1 executor in production — not the staging default of 2 — precisely so the direct worker pool stays at 8 and the rolling-deploy overlap stays under the tier-upgrade trigger; a second production executor (pool 9) would push overlap to `76`, over the `75` trigger.
+
+The rolling-deploy overlap envelope is the binding production constraint. It is deliberately pessimistic (every process pinned at pool max while both deployment generations run), but it is the number scale decisions must respect. The tier-upgrade trigger is 80% of the reserved tier budget: on the current `db-s-2vcpu-4gb` production tier, the trigger is `75` backends (`floor(94 × 0.80)`). Current production overlap demand is `74`, so **before adding a 3rd `platform-api` instance, a 2nd `platform-worker` instance, or a 2nd production projection-operation executor, either upgrade to `db-s-4vcpu-8gb` or land production transaction pools for query-safe traffic**. A third API instance would raise overlap demand by 12 backends (`86/94`), and a second worker would raise it by 16 backends (`90/94`), crossing the trigger while still below the absolute limit.
 
 ### Profile Summary Output
 
