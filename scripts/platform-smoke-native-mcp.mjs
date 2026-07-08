@@ -1,4 +1,24 @@
 export const nativeMcpProtocolMatrix = Object.freeze(["2025-06-18", "2025-11-25", "2026-07-28"]);
+export const nativeMcpAnonymousDiscoveryToolNames = Object.freeze([
+  "discovery.get-chatgpt-product-feed",
+  "discovery.get-item-detail",
+  "discovery.search-market",
+]);
+export const nativeMcpAccountScopedToolNames = Object.freeze([
+  "marketplace.accept-offer",
+  "marketplace.counter-offer",
+  "marketplace.create-listing",
+  "marketplace.decline-offer",
+  "marketplace.get-reputation-summary",
+  "marketplace.get-seller-insights",
+  "marketplace.list-listings",
+  "marketplace.list-offers",
+  "marketplace.list-reviews",
+  "marketplace.publish-listing",
+  "marketplace.submit-offer",
+  "marketplace.unpublish-listing",
+  "marketplace.update-listing-price",
+]);
 
 const statelessProtocolVersion = "2026-07-28";
 const protocolVersionHeader = "MCP-Protocol-Version";
@@ -8,8 +28,56 @@ const metaProtocolVersionKey = "io.modelcontextprotocol/protocolVersion";
 const metaClientInfoKey = "io.modelcontextprotocol/clientInfo";
 const metaClientCapabilitiesKey = "io.modelcontextprotocol/clientCapabilities";
 
-export function isNativeMcpAnonymousDiscoveryRejected(response) {
-  return [401, 403, 405].includes(response.status);
+export function summarizeNativeMcpAnonymousDiscoveryTools(body) {
+  const tools = body?.result?.tools;
+  if (!Array.isArray(tools)) {
+    return {
+      isValid: false,
+      toolNames: [],
+      diagnostic: "Native MCP anonymous discovery did not expose result.tools as an array.",
+    };
+  }
+
+  const toolNames = tools
+    .map((tool) => (typeof tool?.name === "string" ? tool.name : null))
+    .filter((toolName) => toolName !== null)
+    .sort();
+  const allowedToolNames = new Set(nativeMcpAnonymousDiscoveryToolNames);
+  const unexpectedToolNames = toolNames.filter((toolName) => !allowedToolNames.has(toolName));
+  const leakedAccountScopedToolNames = toolNames.filter((toolName) =>
+    nativeMcpAccountScopedToolNames.includes(toolName),
+  );
+  const hasDiscoveryTool = toolNames.some((toolName) => toolName.startsWith("discovery."));
+
+  if (!hasDiscoveryTool) {
+    return {
+      isValid: false,
+      toolNames,
+      diagnostic: `Native MCP anonymous discovery did not expose any public discovery tools. Tool names: ${toolNames.join(", ") || "(none)"}.`,
+    };
+  }
+
+  if (leakedAccountScopedToolNames.length > 0) {
+    return {
+      isValid: false,
+      toolNames,
+      diagnostic: `Native MCP anonymous discovery exposed account-scoped tools: ${leakedAccountScopedToolNames.join(", ")}.`,
+    };
+  }
+
+  if (unexpectedToolNames.length > 0) {
+    return {
+      isValid: false,
+      toolNames,
+      diagnostic: `Native MCP anonymous discovery exposed non-public tools: ${unexpectedToolNames.join(", ")}.`,
+    };
+  }
+
+  return {
+    isValid: true,
+    toolNames,
+    diagnostic: `Native MCP anonymous discovery tools: ${toolNames.join(", ")}.`,
+  };
 }
 
 export function isNativeMcpPermissionBoundaryError(error, expectedPermission) {
