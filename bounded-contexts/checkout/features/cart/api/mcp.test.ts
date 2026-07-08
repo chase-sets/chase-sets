@@ -41,6 +41,47 @@ function services(): CheckoutCartMcpServices {
       removeLine: vi.fn(async ({ lineId }) => ({ lineId, version: 5 })),
     } as unknown as CheckoutCartMcpServices["cart"],
     sessions: {
+      cancelSession: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: {
+          session_id: sessionId,
+          cancelled_at: "2026-07-08T00:00:00.000Z",
+        },
+        commitPosition: "43",
+        commitEventIds: ["evt_cancelled"],
+        commitPositions: [{ sourceContextName: "checkout", maxGlobalPosition: "43", eventIds: ["evt_cancelled"] }],
+      })),
+      getSession: vi.fn(async (sessionId) => ({
+        session_id: sessionId,
+        buyer_account_id: "acc_1",
+        source_type: "buy-now",
+        optimization_goal: "lowest-total",
+        fulfillment_preview_revision: null,
+        fulfillment_preview_snapshot: null,
+        shipping_option: "standard",
+        shipping_address_id: null,
+        shipping_address: null,
+        lines: [],
+        checkout_reservations: [
+          {
+            holdId: "hld_1",
+            lineKey: "line_1",
+            sellerAccountId: "acc_seller",
+            inventoryItemId: "inv_1",
+            quantity: 1,
+            expiresAt: "2026-07-08T00:15:00.000Z",
+            extensionCount: 0,
+            status: "active",
+          },
+        ],
+        order_ids: [],
+        order_write_commit_positions: [],
+        payment_id: null,
+        submitted_offer_id: null,
+        cancelled_at: null,
+        created_at: "2026-07-08T00:00:00.000Z",
+        updated_at: "2026-07-08T00:00:00.000Z",
+      })),
       setShippingAddress: vi.fn(async ({ sessionId }) => ({
         sessionId,
         session: null,
@@ -249,6 +290,64 @@ describe("checkout cart MCP handlers", () => {
       }),
       expect.objectContaining({ audit: expect.objectContaining({ forAccountId: "acc_1" }) }),
     );
+  });
+
+  it("cancels checkout sessions and releases active checkout reservations", async () => {
+    const fakeServices = services();
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            holdId: "hld_1",
+            sellerAccountId: "acc_seller",
+            inventoryItemId: "inv_1",
+            lineKey: "line_1",
+            quantity: 1,
+            expiresAt: "2026-07-08T00:15:00.000Z",
+            extensionCount: 0,
+            status: "released",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const handlers = createCheckoutCartMcpHandlers(fakeServices);
+    try {
+      const result = await handlers.toolHandlers["checkout.cancel-session"]?.({
+        actor,
+        tool: null as never,
+        arguments: {
+          accountId: "acc_1",
+          sessionId: "chk_1",
+          idempotencyKey: "idem_cancel",
+          confirmationText: "Cancel Checkout Session.",
+        },
+        request: new Request("https://api.test/mcp", {
+          headers: { cookie: "session=1" },
+        }),
+        protocol: legacyMcpProtocol,
+      });
+
+      expect(result).toMatchObject({
+        accountId: "acc_1",
+        id: "chk_1",
+        sessionId: "chk_1",
+        status: "cancelled",
+        cancelledAt: "2026-07-08T00:00:00.000Z",
+        releasedReservationIds: ["hld_1"],
+        commitPosition: "43",
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/inventory/checkout-reservations/hld_1/release"),
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(fakeServices.sessions.cancelSession).toHaveBeenCalledWith(
+        { sessionId: "chk_1", accountId: "acc_1" },
+        expect.objectContaining({ audit: expect.objectContaining({ forAccountId: "acc_1" }) }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("reads cart resources by URI", async () => {

@@ -116,7 +116,7 @@ describe("UCP MCP tools", () => {
       ["get_checkout", UCP_MCP_CART_REVIEW_RESOURCE_URI],
       ["update_checkout", UCP_MCP_CART_REVIEW_RESOURCE_URI],
       ["complete_checkout", UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI],
-      ["cancel_checkout", UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI],
+      ["cancel_checkout", UCP_MCP_CART_REVIEW_RESOURCE_URI],
     ]);
     expect(UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI).toBe(UCP_MCP_PRODUCT_CARDS_RESOURCE_URI);
   });

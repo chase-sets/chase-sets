@@ -3232,6 +3232,156 @@
       ]
     },
     {
+      "name": "checkout.cancel-session",
+      "title": "Cancel Checkout Session",
+      "description": "Cancel an active checkout session and release active checkout reservations before order or payment commitment.",
+      "service_id": "checkout",
+      "risk": "destructive",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.manage"
+      ],
+      "required_scopes": [
+        "checkout:write"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "sessionId",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Checkout session identifier."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for cancelling checkout."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without changing checkout state."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "sessionId",
+          "status",
+          "resourceUri",
+          "releasedReservationIds"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Checkout session identifier."
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Checkout session identifier."
+          },
+          "status": {
+            "type": "string",
+            "description": "Checkout session cancellation status.",
+            "enum": [
+              "cancelled",
+              "already-cancelled"
+            ]
+          },
+          "cancelledAt": {
+            "type": "string",
+            "description": "Cancellation timestamp."
+          },
+          "releasedReservationIds": {
+            "type": "array",
+            "description": "Checkout reservation hold ids released during cancellation.",
+            "items": {
+              "type": "string",
+              "description": "Hold id."
+            }
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the cancelled checkout session."
+          },
+          "commitPosition": {
+            "type": "string",
+            "description": "Highest Checkout event-store commit position for the write."
+          },
+          "commitEventIds": {
+            "type": "array",
+            "description": "Checkout event ids written by the command.",
+            "items": {
+              "type": "string",
+              "description": "Event id."
+            }
+          },
+          "commitPositions": {
+            "type": "array",
+            "description": "Source commit positions written by the command.",
+            "items": {
+              "type": "object",
+              "description": "Fresh-write source commit position.",
+              "additionalProperties": false,
+              "required": [
+                "sourceContextName",
+                "maxGlobalPosition",
+                "eventIds"
+              ],
+              "properties": {
+                "sourceContextName": {
+                  "type": "string",
+                  "description": "Source context name."
+                },
+                "maxGlobalPosition": {
+                  "type": "string",
+                  "description": "Highest source global position."
+                },
+                "eventIds": {
+                  "type": "array",
+                  "description": "Event ids included in this source position.",
+                  "items": {
+                    "type": "string",
+                    "description": "Event id."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use only when the buyer explicitly asks to cancel or abandon an active checkout session."
+      ]
+    },
+    {
       "name": "fulfillment.list-shipments",
       "title": "List Shipments",
       "description": "List shipments for purchases or sales.",

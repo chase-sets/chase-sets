@@ -250,6 +250,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    cancelSession: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     getSession: vi.fn(async () => createSession()),
     getPaymentSummary: vi.fn(async () => null),
     listSavedPaymentInstruments: vi.fn(async () => []),

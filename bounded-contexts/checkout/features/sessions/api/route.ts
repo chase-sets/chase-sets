@@ -405,6 +405,7 @@ function normalizePreviewShippingOption(value: unknown, fallback: CheckoutSessio
 
 function sessionHasCommittedCheckoutSideEffects(session: CheckoutSessionRow) {
   return Boolean(
+    session.cancelled_at ||
     session.payment_id ||
     session.submitted_offer_id ||
     (Array.isArray(session.order_ids) && session.order_ids.length > 0),
@@ -1177,6 +1178,13 @@ export function createAccountCheckoutSessionRoutes(
           payment_id: session.payment_id,
           order_ids: session.order_ids,
           status: "confirmed",
+        });
+      }
+
+      if (session.cancelled_at) {
+        return c.json({
+          status: "cancelled",
+          session,
         });
       }
 

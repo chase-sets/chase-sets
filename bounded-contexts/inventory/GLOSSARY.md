@@ -75,6 +75,7 @@ A **Hold Release Reason** is the structured reason an active Inventory Hold left
 Values:
 
 - `order-cancelled`: an Ordering-owned order cancellation released the hold.
+- `checkout-cancelled`: a Checkout-owned session cancellation released the checkout hold before order commitment.
 - `checkout-expired`: a planned checkout hold expired before order commitment.
 - `payment-deadline`: a planned payment-deadline cancellation released the hold.
 - `manual`: an account-initiated Inventory action released the hold.

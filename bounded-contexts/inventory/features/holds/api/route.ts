@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import type { InventoryApiEnv } from "../../../api";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
-import type { InventoryHoldServices } from "./runtime";
+import { withInventorySystemHoldReleaseAuthority, type InventoryHoldServices } from "./runtime";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryHoldId } from "../../../support/runtime-support/common";
 
@@ -258,6 +258,90 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
           error: {
             code: "checkout_reservation_extension_unavailable",
             message: error instanceof Error ? error.message : "Checkout reservation extension failed.",
+          },
+        },
+        409,
+      );
+    }
+  });
+
+  app.post("/:id/release", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const sellerAccountId = String(body.sellerAccountId ?? "").trim();
+    const holdId = c.req.param("id");
+
+    try {
+      const existing = await services.getHold(holdId, sellerAccountId);
+      if (!existing) {
+        throw new InventoryDomainError("Inventory hold not found.");
+      }
+      if (existing.purpose !== "checkout") {
+        throw new InventoryDomainError(
+          "Only checkout inventory holds can be released through checkout reservation routes.",
+        );
+      }
+      if (existing.status === "released" && existing.release_reason === "checkout-cancelled") {
+        return c.json({
+          holdId,
+          sellerAccountId,
+          inventoryItemId: existing.item_id,
+          lineKey:
+            existing.source_ref && "lineKey" in existing.source_ref
+              ? existing.source_ref.lineKey
+              : String(body.lineKey ?? ""),
+          quantity: existing.quantity,
+          expiresAt: existing.expires_at,
+          extensionCount: existing.extension_count,
+          status: "released",
+        });
+      }
+      if (existing.status !== "active") {
+        return c.json({
+          holdId,
+          sellerAccountId,
+          inventoryItemId: existing.item_id,
+          lineKey:
+            existing.source_ref && "lineKey" in existing.source_ref
+              ? existing.source_ref.lineKey
+              : String(body.lineKey ?? ""),
+          quantity: existing.quantity,
+          expiresAt: existing.expires_at,
+          extensionCount: existing.extension_count,
+          status: existing.status,
+        });
+      }
+
+      const result = await services.releaseHold(
+        {
+          accountId: sellerAccountId,
+          holdId,
+          releaseReason: "checkout-cancelled",
+        },
+        withInventorySystemHoldReleaseAuthority(c.get("context")),
+      );
+      const released = await services.getHold(result.holdId, sellerAccountId);
+
+      return c.json({
+        holdId: result.holdId,
+        sellerAccountId,
+        inventoryItemId: released?.item_id ?? existing.item_id,
+        lineKey:
+          released?.source_ref && "lineKey" in released.source_ref
+            ? released.source_ref.lineKey
+            : existing.source_ref && "lineKey" in existing.source_ref
+              ? existing.source_ref.lineKey
+              : String(body.lineKey ?? ""),
+        quantity: released?.quantity ?? existing.quantity,
+        expiresAt: released?.expires_at ?? existing.expires_at,
+        extensionCount: released?.extension_count ?? existing.extension_count,
+        status: "released",
+      });
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "checkout_reservation_release_unavailable",
+            message: error instanceof Error ? error.message : "Checkout reservation release failed.",
           },
         },
         409,

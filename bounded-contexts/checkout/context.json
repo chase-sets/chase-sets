@@ -110,7 +110,8 @@
         "checkout.session.reservations-recorded",
         "checkout.session.orders-created",
         "checkout.session.payment-started",
-        "checkout.session.offer-submitted"
+        "checkout.session.offer-submitted",
+        "checkout.session.cancelled"
       ],
       "order": 2,
       "projectionHandlerSetNames": ["checkout.session-projection"]
@@ -382,6 +383,7 @@
       { "name": "checkout.update-cart-line", "ownerSlice": "cart" },
       { "name": "checkout.remove-cart-line", "ownerSlice": "cart" },
       { "name": "checkout.select-saved-address", "ownerSlice": "sessions" },
+      { "name": "checkout.cancel-session", "ownerSlice": "sessions" },
       { "name": "checkout.start-session", "ownerSlice": "sessions" }
     ],
     "resources": [

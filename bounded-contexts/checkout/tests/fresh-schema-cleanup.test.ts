@@ -105,6 +105,10 @@ describe("fresh checkout read-model schemas", () => {
           expect.stringContaining("ADD COLUMN IF NOT EXISTS checkout_reservations jsonb NOT NULL DEFAULT '[]'::jsonb"),
         ],
       }),
+      expect.objectContaining({
+        migrationId: "20260708_checkout_session_cancellation",
+        statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL")],
+      }),
     ]);
     expect(checkoutSessionSchemaMigrations[0]?.statements).toHaveLength(1);
     expect(checkoutSessionSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
@@ -243,6 +247,7 @@ describe("fresh checkout read-model schemas", () => {
             "checkout.session.orders-created",
             "checkout.session.payment-started",
             "checkout.session.offer-submitted",
+            "checkout.session.cancelled",
           ],
           projectionHandlerSetNames: ["checkout.session-projection"],
         }),

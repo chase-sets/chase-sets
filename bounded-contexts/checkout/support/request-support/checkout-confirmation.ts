@@ -25,7 +25,7 @@ export type CheckoutInventoryReservation = Readonly<{
   quantity: number;
   expiresAt: string;
   extensionCount: number;
-  status: "active" | "expired" | "converted";
+  status: "active" | "expired" | "converted" | "released";
 }>;
 
 export type CheckoutInventoryReservationUnavailableLine = Readonly<{
@@ -235,6 +235,38 @@ export async function createCheckoutInventoryReservations(
   }
 
   return { reservations, unavailableLines };
+}
+
+export async function releaseCheckoutInventoryReservations(
+  request: Request,
+  session: CheckoutSessionRow,
+): Promise<CheckoutInventoryReservation[]> {
+  const inventoryApi = createInventoryRequestApiClient(request);
+  const released: CheckoutInventoryReservation[] = [];
+
+  for (const reservation of session.checkout_reservations) {
+    if (reservation.status !== "active") {
+      continue;
+    }
+
+    const release = (await inventoryApi.releaseCheckoutReservation(reservation.holdId, {
+      sellerAccountId: reservation.sellerAccountId,
+      lineKey: reservation.lineKey,
+    })) as Partial<CheckoutInventoryReservation>;
+
+    released.push({
+      holdId: String(release.holdId ?? reservation.holdId),
+      sellerAccountId: String(release.sellerAccountId ?? reservation.sellerAccountId),
+      inventoryItemId: String(release.inventoryItemId ?? reservation.inventoryItemId),
+      lineKey: String(release.lineKey ?? reservation.lineKey),
+      quantity: Number(release.quantity ?? reservation.quantity),
+      expiresAt: String(release.expiresAt ?? reservation.expiresAt),
+      extensionCount: Number(release.extensionCount ?? reservation.extensionCount),
+      status: "released",
+    });
+  }
+
+  return released;
 }
 
 export async function previewBuyNowCheckoutSupplyThroughOrdering(

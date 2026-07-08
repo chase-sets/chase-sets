@@ -144,6 +144,7 @@ describe("MCP service catalog", () => {
         .sort(),
     ).toEqual([
       "checkout.add-cart-line",
+      "checkout.cancel-session",
       "checkout.get-cart",
       "checkout.remove-cart-line",
       "checkout.select-saved-address",
@@ -298,6 +299,26 @@ describe("MCP service catalog", () => {
             sourceContextName: "checkout",
             maxGlobalPosition: "42",
             eventIds: ["evt_shipping_address"],
+          },
+        ],
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("checkout.cancel-session")?.outputSchema, {
+        accountId: "acct_1",
+        id: "chk_1",
+        sessionId: "chk_1",
+        status: "cancelled",
+        cancelledAt: "2026-07-08T00:00:00.000Z",
+        releasedReservationIds: ["hld_1"],
+        resourceUri: "chase-sets://checkout/acct_1/sessions/chk_1",
+        commitPosition: "43",
+        commitEventIds: ["evt_cancelled"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "43",
+            eventIds: ["evt_cancelled"],
           },
         ],
       }),

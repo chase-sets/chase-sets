@@ -1916,7 +1916,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       if (tool.idempotencyKeyRequired) {
         const signedFailure = await signedWriteFailure(c.req.raw);
         if (signedFailure) {
-          if (tool.trustedHandoffOnUnsignedMcp && c.get("actor")) {
+          if ("trustedHandoffOnUnsignedMcp" in tool && tool.trustedHandoffOnUnsignedMcp && c.get("actor")) {
             return c.json(jsonRpcResult(request.id, toolResult(tool, unsignedMcpTrustedHandoff(tool, args))));
           }
           emitObserver(options.observer?.signedWriteRejected, {

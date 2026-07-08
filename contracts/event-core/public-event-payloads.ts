@@ -49,6 +49,7 @@ export type InventoryHoldPurpose = (typeof inventoryHoldPurposes)[number];
 
 export const inventoryHoldReleaseReasons = [
   "order-cancelled",
+  "checkout-cancelled",
   "checkout-expired",
   "payment-deadline",
   "manual",
@@ -339,8 +340,15 @@ export type CheckoutSessionPaymentStartedPayload = Readonly<{
   recordedAt: string;
 }>;
 
+export type CheckoutSessionCancelledPayload = Readonly<{
+  sessionId: CheckoutSessionId;
+  cancelledAt: string;
+  releasedReservationIds: readonly string[];
+}>;
+
 export type CheckoutEventPayloads = Readonly<{
   "checkout.session.payment-started": CheckoutSessionPaymentStartedPayload;
+  "checkout.session.cancelled": CheckoutSessionCancelledPayload;
 }>;
 
 export type PaymentCapturedPayload = Readonly<{

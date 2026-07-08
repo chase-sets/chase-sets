@@ -56,7 +56,7 @@ export type CheckoutSessionReservation = Readonly<{
   quantity: number;
   expiresAt: string;
   extensionCount: number;
-  status: "active" | "expired" | "converted";
+  status: "active" | "expired" | "converted" | "released";
 }>;
 
 export type CheckoutSplitGroupHandoff = Readonly<{
@@ -97,6 +97,7 @@ export type CheckoutSessionState = Readonly<{
   checkoutReservations: readonly CheckoutSessionReservation[];
   paymentId: PaymentId | null;
   submittedOfferId: string | null;
+  cancelledAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }>;
@@ -118,6 +119,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   checkoutReservations: [],
   paymentId: null,
   submittedOfferId: null,
+  cancelledAt: null,
   createdAt: null,
   updatedAt: null,
 };
@@ -186,6 +188,11 @@ export type RecordOfferSubmittedCommand = Readonly<{
   recordedAt: string;
 }>;
 
+export type CancelCheckoutSessionCommand = Readonly<{
+  type: "CancelCheckoutSession";
+  cancelledAt: string;
+}>;
+
 export type CheckoutSessionCommand =
   | StartCheckoutSessionCommand
   | SelectShippingOptionCommand
@@ -195,7 +202,8 @@ export type CheckoutSessionCommand =
   | RecordCheckoutReservationsCommand
   | RecordOrdersCreatedCommand
   | RecordPaymentStartedCommand
-  | RecordOfferSubmittedCommand;
+  | RecordOfferSubmittedCommand
+  | CancelCheckoutSessionCommand;
 
 export type CheckoutSessionStartedEvent = DomainEvent<
   "checkout.session.started",
@@ -288,6 +296,15 @@ export type CheckoutOfferSubmittedEvent = DomainEvent<
   }>
 >;
 
+export type CheckoutSessionCancelledEvent = DomainEvent<
+  "checkout.session.cancelled",
+  Readonly<{
+    sessionId: CheckoutSessionId;
+    cancelledAt: string;
+    releasedReservationIds: string[];
+  }>
+>;
+
 export type CheckoutSessionEvent =
   | CheckoutSessionStartedEvent
   | CheckoutShippingOptionSelectedEvent
@@ -297,7 +314,8 @@ export type CheckoutSessionEvent =
   | CheckoutReservationsRecordedEvent
   | CheckoutOrdersCreatedEvent
   | CheckoutPaymentStartedEvent
-  | CheckoutOfferSubmittedEvent;
+  | CheckoutOfferSubmittedEvent
+  | CheckoutSessionCancelledEvent;
 
 function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
   const lockedListingId = normalizeOptionalText(line.lockedListingId ?? line.listingId);
@@ -509,7 +527,9 @@ function normalizeCheckoutReservations(reservations: readonly CheckoutSessionRes
     expiresAt: normalizeRequiredText(reservation.expiresAt, "Checkout reservations must include an expiry."),
     extensionCount: Math.max(0, Math.trunc(Number(reservation.extensionCount))),
     status:
-      reservation.status === "expired" || reservation.status === "converted" ? reservation.status : ("active" as const),
+      reservation.status === "expired" || reservation.status === "converted" || reservation.status === "released"
+        ? reservation.status
+        : ("active" as const),
   }));
 }
 
@@ -522,6 +542,10 @@ function normalizeCommitPositions(positions: readonly CheckoutSourceCommitPositi
       ? [{ sourceContextName, maxGlobalPosition, eventIds }]
       : [];
   });
+}
+
+function assertSessionActive(state: CheckoutSessionState, message = "Checkout session has been cancelled.") {
+  assert(state.cancelledAt === null, message);
 }
 
 export const decideCheckoutSession: AggregateDecider<
@@ -561,6 +585,7 @@ export const decideCheckoutSession: AggregateDecider<
     }
     case "SelectOptimizationGoal":
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state);
       assert(state.orderIds.length === 0, "Optimization cannot change after orders are created.");
       return [
         {
@@ -574,6 +599,7 @@ export const decideCheckoutSession: AggregateDecider<
       ];
     case "RecordFulfillmentPreview": {
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state);
       assert(state.orderIds.length === 0, "Fulfillment preview cannot change after orders are created.");
       assert(!state.submittedOfferId, "Fulfillment preview cannot change after purchase intent is placed.");
       const fulfillmentPreviewRevision = normalizeRequiredText(
@@ -600,6 +626,7 @@ export const decideCheckoutSession: AggregateDecider<
     }
     case "SelectShippingOption":
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state);
       assert(state.orderIds.length === 0, "Shipping cannot change after orders are created.");
       assert(!state.submittedOfferId, "Shipping cannot change after purchase intent is placed.");
       return [
@@ -614,6 +641,7 @@ export const decideCheckoutSession: AggregateDecider<
       ];
     case "SetShippingAddress":
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state);
       assert(state.orderIds.length === 0, "Shipping address cannot change after orders are created.");
       assert(!state.submittedOfferId, "Shipping address cannot change after purchase intent is placed.");
       return [
@@ -631,6 +659,7 @@ export const decideCheckoutSession: AggregateDecider<
       ];
     case "RecordOrdersCreated":
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state, "Cancelled checkout sessions cannot create orders.");
       assert(state.shippingAddress !== null, "Checkout requires a shipping address before orders are created.");
       assert(state.sourceType !== "offer-intent", "Purchase intent does not create orders during checkout.");
       if (state.orderIds.length > 0) {
@@ -649,6 +678,7 @@ export const decideCheckoutSession: AggregateDecider<
       ];
     case "RecordCheckoutReservations":
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state, "Cancelled checkout sessions cannot reserve inventory.");
       assert(state.orderIds.length === 0, "Checkout reservations cannot change after orders are created.");
       assert(state.sourceType !== "offer-intent", "Purchase intent does not reserve checkout inventory.");
       return [
@@ -666,6 +696,7 @@ export const decideCheckoutSession: AggregateDecider<
       ];
     case "RecordPaymentStarted":
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state, "Cancelled checkout sessions cannot start payment.");
       assert(state.orderIds.length > 0, "Orders must be created before payment starts.");
       assert(state.sourceType !== "offer-intent", "Purchase intent does not start payment during checkout.");
       if (state.paymentId) {
@@ -683,6 +714,7 @@ export const decideCheckoutSession: AggregateDecider<
       ];
     case "RecordOfferSubmitted":
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state, "Cancelled checkout sessions cannot place purchase intent.");
       assert(state.shippingAddress !== null, "Checkout requires a shipping address before purchase intent is placed.");
       assert(state.sourceType === "offer-intent", "Only offer-intent checkout can record a submitted offer.");
       assert(state.orderIds.length === 0, "Purchase intent cannot be placed after orders are created.");
@@ -700,6 +732,26 @@ export const decideCheckoutSession: AggregateDecider<
               command.recordedAt,
               "Offer submission recording must include a timestamp.",
             ),
+          },
+        },
+      ];
+    case "CancelCheckoutSession":
+      assert(state.sessionId !== null, "Checkout session must be started first.");
+      if (state.cancelledAt) {
+        return [];
+      }
+      assert(!state.paymentId, "Checkout sessions cannot be cancelled after payment starts.");
+      assert(state.orderIds.length === 0, "Checkout sessions cannot be cancelled after orders are created.");
+      assert(!state.submittedOfferId, "Checkout sessions cannot be cancelled after purchase intent is placed.");
+      return [
+        {
+          type: "checkout.session.cancelled",
+          data: {
+            sessionId: state.sessionId,
+            cancelledAt: normalizeRequiredText(command.cancelledAt, "Checkout cancellation must record a timestamp."),
+            releasedReservationIds: state.checkoutReservations
+              .filter((reservation) => reservation.status === "active")
+              .map((reservation) => reservation.holdId),
           },
         },
       ];
@@ -728,6 +780,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         checkoutReservations: [],
         paymentId: null,
         submittedOfferId: null,
+        cancelledAt: null,
         createdAt: event.data.createdAt,
         updatedAt: event.data.createdAt,
       };
@@ -790,6 +843,20 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         ...state,
         submittedOfferId: event.data.offerId,
         updatedAt: event.data.recordedAt,
+      };
+    case "checkout.session.cancelled":
+      return {
+        ...state,
+        cancelledAt: event.data.cancelledAt,
+        checkoutReservations: state.checkoutReservations.map((reservation) =>
+          event.data.releasedReservationIds.includes(reservation.holdId)
+            ? {
+                ...reservation,
+                status: "released" as const,
+              }
+            : reservation,
+        ),
+        updatedAt: event.data.cancelledAt,
       };
     default:
       return assertNever(event);

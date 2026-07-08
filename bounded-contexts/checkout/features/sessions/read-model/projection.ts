@@ -38,9 +38,10 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
            checkout_reservations,
            payment_id,
            submitted_offer_id,
+           cancelled_at,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, $11, $11)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, $11, $11)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
@@ -229,6 +230,38 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
              updated_at = $3
          WHERE session_id = $1`,
         [data.sessionId, data.offerId, data.recordedAt],
+      );
+    },
+    "checkout.session.cancelled": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data as {
+        sessionId: string;
+        cancelledAt: string;
+        releasedReservationIds?: unknown;
+      };
+      const releasedReservationIds = Array.isArray(data.releasedReservationIds)
+        ? data.releasedReservationIds.filter((holdId): holdId is string => typeof holdId === "string")
+        : [];
+
+      await projectionDb.query(
+        `UPDATE checkout_session_pages
+         SET cancelled_at = $2,
+             checkout_reservations = (
+               SELECT COALESCE(
+                 jsonb_agg(
+                   CASE
+                     WHEN reservation ->> 'holdId' = ANY($3::text[])
+                       THEN reservation || jsonb_build_object('status', 'released')
+                     ELSE reservation
+                   END
+                 ),
+                 '[]'::jsonb
+               )
+               FROM jsonb_array_elements(checkout_reservations) AS reservation
+             ),
+             updated_at = $2
+         WHERE session_id = $1`,
+        [data.sessionId, data.cancelledAt, releasedReservationIds],
       );
     },
   };
