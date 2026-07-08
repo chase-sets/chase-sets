@@ -895,6 +895,87 @@ describe("projection wake scheduler", () => {
 
     expect(runners).toHaveLength(0);
   });
+
+  it("scopes each lane lease to the worker's hosted-context cohort so heterogeneous fleets do not collide", () => {
+    const checkout = projectionGroupFor({ targetContextName: "checkout", position: 0n, headPosition: 0n });
+    const ordering = projectionGroupFor({ targetContextName: "ordering", position: 0n, headPosition: 0n });
+    const build = (groups: readonly ContextProjectionGroup[]) =>
+      createProjectionWakeSchedulerRunners({
+        workerId: "worker",
+        controlPlane: recordingControlPlane().controlPlane,
+        workSignalStore: recordingSchedulerStore([]).store,
+        projectionGroups: groups,
+        lanes: [{ lane: "hot", runnerCount: 1 }],
+      })[0];
+
+    const checkoutHostRunner = build([checkout.group]);
+    const orderingHostRunner = build([ordering.group]);
+    const checkoutHostReplica = build([checkout.group]);
+
+    // Stable observability names never change; only the single-flight lease
+    // identity carries the cohort so it never starves a context it cannot claim.
+    expect(checkoutHostRunner.name).toBe("projection-wake-scheduler.hot.lane-1");
+    expect(orderingHostRunner.name).toBe("projection-wake-scheduler.hot.lane-1");
+    expect(checkoutHostRunner.leaseName).toContain("projection-wake-scheduler.hot.lane-1@ctx-");
+    // Different hosted-context sets => different lease => independent lane.
+    expect(checkoutHostRunner.leaseName).not.toBe(orderingHostRunner.leaseName);
+    // Identical hosted-context sets => same lease => shared single-flight budget.
+    expect(checkoutHostReplica.leaseName).toBe(checkoutHostRunner.leaseName);
+  });
+
+  it("does not starve a checkout hot intent when the hot lane is held by a worker that does not host checkout", async () => {
+    // Regression for #4643: two workers share one wake store + control plane
+    // (an App Platform + DOKS estate cutover on one control DB). Worker A hosts
+    // ONLY ordering and grabs the hot lane first; worker B hosts checkout. The
+    // single queued checkout hot intent must still be claimed and completed by
+    // worker B even while worker A owns a hot-lane lease. Before the cohort-
+    // scoped lease fix, A's platform-wide `hot.lane-1` lease locked B out and
+    // the checkout intent starved at attempt 0 forever.
+    const fleetControlPlane = sharedFleetControlPlane();
+    const store = sharedFleetWakeStore([
+      queuedIntent({
+        wakeIntentId: "wake-checkout-hot",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-pages",
+        checkpointKey: "checkout-session-pages:checkout:v1",
+        priorityLane: "hot",
+        requiredPosition: 12n,
+      }),
+    ]);
+
+    // Worker A hosts ONLY ordering (its claim filter can never match checkout).
+    const orderingHost = projectionGroupFor({ targetContextName: "ordering", position: 50n, headPosition: 50n });
+    // Worker B hosts checkout, already past the required position (ready).
+    const checkoutHost = projectionGroupFor({ targetContextName: "checkout", position: 50n, headPosition: 50n });
+
+    const loopA = wakeLoopFor("worker-a", fleetControlPlane, store, [orderingHost.group]);
+    const loopB = wakeLoopFor("worker-b", fleetControlPlane, store, [checkoutHost.group]);
+
+    loopA.start();
+    try {
+      // Let worker A win a hot-lane lease first, exactly as it would in prod.
+      await vi.waitFor(() => {
+        expect(fleetControlPlane.heldLeaseNames().some((name) => name.includes("hot.lane-1"))).toBe(true);
+      });
+
+      loopB.start();
+      await vi.waitFor(
+        () => {
+          expect(store.stateOf("wake-checkout-hot")).toBe("completed");
+        },
+        { timeout: 2_000 },
+      );
+    } finally {
+      await loopA.stop();
+      await loopB.stop();
+    }
+
+    // Two distinct hot-lane leases were granted — one per hosted-context cohort.
+    const hotLeases = new Set(fleetControlPlane.grantedLeaseNames().filter((name) => name.includes("hot.lane-1")));
+    expect(hotLeases.size).toBe(2);
+    // Worker B (the checkout host) is the one that claimed and completed it.
+    expect(store.claimOwnerHistory("wake-checkout-hot").some((owner) => owner.startsWith("worker-b:"))).toBe(true);
+  });
 });
 
 describe("work signal cleanup runner", () => {
@@ -1335,4 +1416,320 @@ function groupStatus(position: bigint, blockedStreamCount: number, revisionStale
     updatedAt: NOW.toISOString(),
     subscriptions: [subscriptionStatus(position, blockedStreamCount)],
   };
+}
+
+// --- Heterogeneous-fleet starvation regression helpers (issue #4643) ---
+
+function projectionGroupFor(
+  input: Readonly<{
+    targetContextName: string;
+    projectionName?: string;
+    checkpointKey?: string;
+    position: bigint;
+    headPosition: bigint;
+  }>,
+) {
+  const projectionName = input.projectionName ?? `${input.targetContextName}-session-pages`;
+  const checkpointKey = input.checkpointKey ?? `${projectionName}:${input.targetContextName}:v1`;
+  const subscriptionName = `${input.targetContextName}.${projectionName}.${input.targetContextName}`;
+  let position = input.position;
+
+  const status = () => ({
+    checkpointKey,
+    subscriptionName,
+    projectionName,
+    sourceContextName: input.targetContextName,
+    targetContextName: input.targetContextName,
+    subscriptionVersion: 1,
+    initialized: true,
+    lastGlobalPosition: position.toString() as never,
+    sourceHeadGlobalPosition: input.headPosition.toString() as never,
+    outstandingEventCount: "0",
+    processedEvents: 0,
+    state: "caught-up" as const,
+    lastError: null,
+    blockedStreamCount: 0,
+    poisonEventCount: 0,
+    updatedAt: NOW.toISOString(),
+  });
+
+  const subscriptionRunner: ContextSubscriptionRunner = {
+    subscriptionName,
+    projectionName,
+    sourceContextName: input.targetContextName,
+    targetContextName: input.targetContextName,
+    subscriptionVersion: 1,
+    checkpointKey,
+    order: 0,
+    runOnce: async () => {
+      position = input.headPosition;
+      return {
+        processed: 0,
+        lastGlobalPosition: position.toString() as never,
+        state: "caught-up",
+        blockedStreams: 0,
+        poisonEvents: 0,
+      };
+    },
+    getStatus: status,
+    refreshStatus: async () => status(),
+    reset: async () => {},
+    retryBlockedStream: async () => ({}) as never,
+  };
+
+  const group: ContextProjectionGroup = {
+    projectionName,
+    projectionRevision: 1,
+    targetContextName: input.targetContextName,
+    sourceContextNames: [input.targetContextName],
+    optionalSourceContextNames: [],
+    ownedTables: [`${input.targetContextName}_session_pages`],
+    requiredDuringBootstrap: false,
+    subscriptionRunners: [subscriptionRunner],
+    reset: async () => {},
+    getStatus: () => ({
+      projectionName,
+      projectionRevision: 1,
+      storedProjectionRevision: 1,
+      revisionStale: false,
+      targetContextName: input.targetContextName,
+      sourceContextNames: [input.targetContextName],
+      ownedTables: [`${input.targetContextName}_session_pages`],
+      requiredDuringBootstrap: false,
+      initialized: true,
+      caughtUp: true,
+      state: "caught-up" as const,
+      lastError: null,
+      outstandingEventCount: "0",
+      blockedStreamCount: 0,
+      poisonEventCount: 0,
+      updatedAt: NOW.toISOString(),
+      subscriptions: [status()],
+    }),
+    refreshStatus: async () => group.getStatus(),
+    markRevisionSynced: async () => {},
+  };
+
+  return { group };
+}
+
+function queuedIntent(
+  overrides: Partial<{
+    wakeIntentId: string;
+    targetContextName: string;
+    projectionName: string;
+    checkpointKey: string;
+    requiredPosition: bigint;
+    priorityLane: ProjectionWakeIntentRecord["priorityLane"];
+  }> = {},
+): ProjectionWakeIntentRecord {
+  const targetContextName = overrides.targetContextName ?? "checkout";
+  const projectionName = overrides.projectionName ?? `${targetContextName}-session-pages`;
+  const requiredPosition = overrides.requiredPosition ?? 12n;
+  return {
+    wakeIntentId: overrides.wakeIntentId ?? "projection-wake-1",
+    coalescingKey: `projection-wake:${targetContextName}:${targetContextName}:${projectionName}`,
+    sourceContextName: targetContextName,
+    targetContextName,
+    projectionName,
+    checkpointKey: overrides.checkpointKey ?? `${projectionName}:${targetContextName}:v1`,
+    requiredPosition,
+    requiredCursor: `${targetContextName}:${requiredPosition}`,
+    priorityLane: overrides.priorityLane ?? "hot",
+    origin: "relay",
+    schemaVersion: 1,
+    payloadVersion: 1,
+    correlationId: "corr_1",
+    metadata: {},
+    state: "queued",
+    claimOwnerId: null,
+    claimFencingToken: null,
+    claimedRequiredPosition: null,
+    claimedRequiredCursor: null,
+    claimedUntil: null,
+    nextEligibleAt: CREATED_AT,
+    attemptCount: 0,
+    lastError: null,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    expiresAt: new Date(NOW.getTime() + 300_000),
+    completedAt: null,
+  };
+}
+
+function sharedFleetControlPlane() {
+  const held = new Map<string, string>();
+  const granted: string[] = [];
+
+  const controlPlane = {
+    acquireLease: async (input: { leaseName: string; ownerId: string; ttlMs: number }) => {
+      const owner = held.get(input.leaseName);
+      if (owner && owner !== input.ownerId) {
+        return null;
+      }
+      held.set(input.leaseName, input.ownerId);
+      granted.push(input.leaseName);
+      return {
+        leaseName: input.leaseName,
+        ownerId: input.ownerId,
+        fencingToken: "1",
+        expiresAt: new Date(NOW.getTime() + input.ttlMs).toISOString(),
+      };
+    },
+    renewLease: async (lease: { leaseName: string; ownerId: string }) => held.get(lease.leaseName) === lease.ownerId,
+    releaseLease: async (lease: { leaseName: string; ownerId: string }) => {
+      if (held.get(lease.leaseName) === lease.ownerId) {
+        held.delete(lease.leaseName);
+      }
+    },
+    recordRunnerStatus: async () => {},
+    recordProjectionStatusSnapshot: async () => {},
+  } as unknown as PlatformControlPlane;
+
+  return {
+    controlPlane,
+    heldLeaseNames: () => [...held.keys()],
+    grantedLeaseNames: () => [...granted],
+  };
+}
+
+function sharedFleetWakeStore(intents: readonly ProjectionWakeIntentRecord[]) {
+  const records = intents.map((intent) => ({ ...intent }));
+  const byId = new Map(records.map((record) => [record.wakeIntentId, record]));
+  const ownerHistory = new Map<string, string[]>();
+  const laneRank = (lane: ProjectionWakeIntentRecord["priorityLane"]) =>
+    lane === "hot" ? 0 : lane === "standard" ? 1 : 2;
+  const nowMs = NOW.getTime();
+
+  const store = {
+    claimNextProjectionWakeIntent: async (input: ClaimProjectionWakeIntentInput) => {
+      if (input.targetContextNames && input.targetContextNames.length === 0) {
+        return null;
+      }
+      const lanes: readonly string[] = input.priorityLanes?.length ? input.priorityLanes : ["hot", "standard", "bulk"];
+      const contexts = input.targetContextNames?.length ? new Set(input.targetContextNames) : null;
+      const maxAttempts = input.maxAttempts ?? Number.MAX_SAFE_INTEGER;
+      const eligible = records
+        .filter((record) => {
+          const claimable =
+            (record.state === "queued" && record.nextEligibleAt.getTime() <= nowMs) ||
+            (record.state === "failed" &&
+              record.attemptCount < maxAttempts &&
+              record.nextEligibleAt.getTime() <= nowMs) ||
+            (record.state === "claimed" &&
+              record.attemptCount < maxAttempts &&
+              (record.claimedUntil?.getTime() ?? 0) <= nowMs);
+          return (
+            claimable &&
+            record.expiresAt.getTime() > nowMs &&
+            lanes.includes(record.priorityLane) &&
+            (!contexts || contexts.has(record.targetContextName))
+          );
+        })
+        .sort(
+          (left, right) =>
+            laneRank(left.priorityLane) - laneRank(right.priorityLane) ||
+            left.createdAt.getTime() - right.createdAt.getTime(),
+        );
+
+      const record = eligible[0];
+      if (!record) {
+        return null;
+      }
+      record.state = "claimed";
+      record.attemptCount += 1;
+      record.claimFencingToken = (record.claimFencingToken ?? 0n) + 1n;
+      record.claimOwnerId = input.claimOwnerId;
+      record.claimedRequiredPosition = record.requiredPosition;
+      record.claimedRequiredCursor = record.requiredCursor;
+      record.claimedUntil = new Date(nowMs + Math.max(1, input.claimTtlMs));
+      const history = ownerHistory.get(record.wakeIntentId) ?? [];
+      history.push(input.claimOwnerId);
+      ownerHistory.set(record.wakeIntentId, history);
+      return { ...record };
+    },
+    renewProjectionWakeIntent: async (input: RenewProjectionWakeIntentInput) => {
+      const record = byId.get(input.wakeIntentId);
+      return Boolean(
+        record &&
+        record.state === "claimed" &&
+        record.claimOwnerId === input.claimOwnerId &&
+        record.claimFencingToken === input.claimFencingToken,
+      );
+    },
+    completeProjectionWakeIntent: async (
+      input: CompleteProjectionWakeIntentInput,
+    ): Promise<ProjectionWakeIntentCompletionResult> => {
+      const record = byId.get(input.wakeIntentId);
+      if (
+        !record ||
+        record.state !== "claimed" ||
+        record.claimOwnerId !== input.claimOwnerId ||
+        record.claimFencingToken !== input.claimFencingToken ||
+        (record.claimedUntil?.getTime() ?? 0) <= nowMs
+      ) {
+        return "lost";
+      }
+      record.state = "completed";
+      record.claimOwnerId = null;
+      record.claimedUntil = null;
+      record.completedAt = NOW;
+      return "completed";
+    },
+    deferProjectionWakeIntent: async (input: DeferProjectionWakeIntentInput) => {
+      const record = byId.get(input.wakeIntentId);
+      if (!record) {
+        return false;
+      }
+      record.state = "failed";
+      record.claimOwnerId = null;
+      record.claimedUntil = null;
+      record.nextEligibleAt = new Date(nowMs + Math.max(0, input.retryAfterMs));
+      return true;
+    },
+    failProjectionWakeIntent: async (input: FailProjectionWakeIntentInput) => {
+      const record = byId.get(input.wakeIntentId);
+      if (!record) {
+        return false;
+      }
+      record.state = "failed";
+      record.claimOwnerId = null;
+      record.claimedUntil = null;
+      record.nextEligibleAt = new Date(nowMs + Math.max(0, input.retryAfterMs));
+      return true;
+    },
+    recordCheckpointReady: async (_input: RecordCheckpointReadyInput) => ({}) as never,
+  };
+
+  return {
+    store,
+    stateOf: (wakeIntentId: string) => byId.get(wakeIntentId)?.state ?? null,
+    claimOwnerHistory: (wakeIntentId: string) => ownerHistory.get(wakeIntentId) ?? [],
+  };
+}
+
+function wakeLoopFor(
+  workerId: string,
+  fleetControlPlane: ReturnType<typeof sharedFleetControlPlane>,
+  store: ReturnType<typeof sharedFleetWakeStore>,
+  groups: readonly ContextProjectionGroup[],
+) {
+  const runners = createProjectionWakeSchedulerRunners({
+    workerId,
+    controlPlane: fleetControlPlane.controlPlane,
+    workSignalStore: store.store,
+    projectionGroups: groups,
+    lanes: [{ lane: "hot", runnerCount: 1 }],
+    now: () => NOW,
+  });
+
+  return createWorkerRunnerLoop({
+    workerId,
+    controlPlane: fleetControlPlane.controlPlane,
+    runners,
+    maxConcurrentRunners: 1,
+    leaseTtlMs: 1_000,
+    leaseRenewIntervalMs: 100,
+    pollIntervalMs: 5,
+  });
 }

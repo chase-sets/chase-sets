@@ -63,6 +63,16 @@ export type WorkerHostRuntime = Readonly<{
 export type WorkerRunner = Readonly<{
   name: string;
   kind: "projector" | "projection-group" | "subscription" | "job";
+  /**
+   * Overrides the single-flight lease identity for this runner. Defaults to
+   * `${kind}:${name}`. Use this when two runners that share a `name` (for
+   * stable observability/metrics) must NOT share one platform-wide lease
+   * because they cover different work scopes. The projection wake lane runners
+   * set this to their hosted-context cohort so a lane held by a worker that
+   * does not host a given target context can never starve that context's
+   * intents platform-wide (see `createProjectionWakeSchedulerRunners`).
+   */
+  leaseName?: string;
   runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   priority?: () => bigint | number;
   rescheduleOnCompletion?: (result: ProjectorRunResult) => boolean;
@@ -1127,8 +1137,8 @@ async function runLeasedRunner(
   return { leaseAcquired: true };
 }
 
-export function createWorkerRunnerLeaseName(runner: Pick<WorkerRunner, "kind" | "name">): string {
-  return `${runner.kind}:${runner.name}`;
+export function createWorkerRunnerLeaseName(runner: Pick<WorkerRunner, "kind" | "name" | "leaseName">): string {
+  return runner.leaseName ?? `${runner.kind}:${runner.name}`;
 }
 
 export function createProjectionGroupRunnerName(
