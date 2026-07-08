@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ContextProjectionGroup, ContextSubscriptionRunner } from "@chase-sets/bounded-context-runtime";
 import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
@@ -217,6 +218,19 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
   if (groupIndex.size === 0 || hostedTargetContextNames.length === 0) {
     return [];
   }
+
+  // Lane runner leases are single-flight platform-wide, but claims are scoped to
+  // THIS worker's hosted target contexts. When the fleet sharing the wake store
+  // is heterogeneous in hosted contexts — rolling deploys, an estate cutover
+  // (App Platform + DOKS on one control DB), a `WORKER_WAKE_DISABLED_PROJECTIONS`
+  // divergence, or a runtime-profile split — a lane lease won by a worker that
+  // does not host a given target context would starve that context's intents at
+  // ANY capacity: the holder's claim filter never matches them and no other
+  // worker may run the lane. Binding the lease identity to the hosted-context
+  // cohort keeps single-flight within a homogeneous cohort (unchanged connection
+  // budget) while guaranteeing every hosted context always has a lane runner
+  // that can claim it. See issue #4643 / #4633.
+  const hostedContextCohortToken = createHostedContextCohortToken(hostedTargetContextNames);
 
   const computeRetryBackoffMs = (attemptCount: number): number => {
     if (retryBackoffBaseMs <= 0) {
@@ -526,6 +540,11 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
       return {
         name: laneRunnerName,
         kind: "job",
+        // Keep `name` stable for status/metrics continuity, but scope the
+        // single-flight lease to this worker's hosted-context cohort so a lane
+        // held by a worker that cannot claim a given target context never
+        // starves that context's intents platform-wide (issue #4643).
+        leaseName: `job:${laneRunnerName}@${hostedContextCohortToken}`,
         // Hot-lane runners are the runner loop's reserved-capacity class so
         // critical read-after-write wakes (checkout, payment-start, proof)
         // always find reserved wake-loop capacity even while standard/bulk
@@ -695,6 +714,21 @@ class ProjectionWakeIntentClaimLostError extends Error {
 
 function createProjectionGroupKey(targetContextName: string, projectionName: string): string {
   return `${targetContextName}.${projectionName}`;
+}
+
+/**
+ * A stable, length-bounded token identifying a worker's hosted-context claim
+ * scope. Workers with an identical (sorted, deduped) hosted-target-context set
+ * produce the same token and therefore share one single-flight lane lease
+ * (preserving the platform-wide wake connection budget within the cohort);
+ * workers with a different set produce a different token and get their own
+ * lease, so no hosted context can be starved by a lane lease held by a worker
+ * that does not host it. Exported for the starvation regression test.
+ */
+export function createHostedContextCohortToken(hostedTargetContextNames: readonly string[]): string {
+  const normalized = [...new Set(hostedTargetContextNames)].sort();
+  const digest = createHash("sha256").update(normalized.join("\n")).digest("hex").slice(0, 16);
+  return `ctx-${digest}`;
 }
 
 function notificationMatchesProjectionWakeIntent(
