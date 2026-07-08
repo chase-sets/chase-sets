@@ -1610,10 +1610,15 @@ describe("worker runner loop", () => {
     );
   });
 
-  it("times out a hung projection operation, records the timeout as its failure, and frees the runner", async () => {
-    // Regression for #4496 recovery 7: a hung operation renewed its claim
-    // forever, pinned the single operation executor, and the queue backed up
-    // behind it (operationSummary running:1 since 19:05Z, queued 33 -> 84).
+  it("aborts a hung in-flight operation at its deadline and requeues it with backoff", async () => {
+    // Regression for #4496 recovery 7 + #4611: a hung operation renewed its
+    // claim forever, pinned the single operation executor, and the queue
+    // backed up behind it (operationSummary running:1 since 19:05Z, queued
+    // 33 -> 84; then two retry ops running 50+ min at attemptCount 0). The
+    // execution deadline must abort the operation even while its claim renews,
+    // and — because a timeout is a slow-but-progressing symptom, not poison —
+    // requeue it with backoff so its charged attempt budget bounds it rather
+    // than dead-lettering a transiently slow pass.
     const failures: Array<Record<string, unknown>> = [];
     const subscriptionRunner = {
       targetContextName: "inventory",
@@ -1627,6 +1632,7 @@ describe("worker runner loop", () => {
       refreshStatus: async () => ({ revisionStale: false }),
     });
     const controlPlane = createAlwaysLeasedControlPlane({
+      // attemptCount 1 of a default budget of 5: still retryable.
       claimProjectionOperation: async () => createClaimedOperationRecord(),
       recordProjectionOperationProgress: async () => true,
       getProjectionOperation: async () => createClaimedOperationRecord(),
@@ -1653,11 +1659,186 @@ describe("worker runner loop", () => {
     expect(failures).toHaveLength(1);
     expect(failures[0]).toMatchObject({
       operationId: "projection-operation-1",
-      retryable: false,
+      retryable: true,
       error: expect.objectContaining({
         message: expect.stringContaining("timed out after 25ms"),
       }),
     });
+  });
+
+  it("dead-letters a hung operation once its retry attempts are exhausted", async () => {
+    // The requeue path is attempt-bounded: a persistently hung operation that
+    // has burned its budget times out terminally instead of retrying forever
+    // (issue #4611).
+    const failures: Array<Record<string, unknown>> = [];
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      reset: async () => undefined,
+      runOnce: () => new Promise<never>(() => {}),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({ revisionStale: false }),
+    });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      // Final attempt: attemptCount === maxAttempts, so no requeue.
+      claimProjectionOperation: async () => createClaimedOperationRecord({ attemptCount: 3 }),
+      recordProjectionOperationProgress: async () => true,
+      getProjectionOperation: async () => createClaimedOperationRecord({ attemptCount: 3 }),
+      failProjectionOperation: async (input) => {
+        failures.push(input as unknown as Record<string, unknown>);
+        return true;
+      },
+    });
+    const [operationRunner] = collectProjectionOperationRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [group],
+        subscriptionRunners: [subscriptionRunner],
+      } as never,
+      {
+        controlPlane,
+        rebuildOperationTimeoutMs: 25,
+        maxAttempts: 3,
+      },
+    );
+
+    await expect(operationRunner.runOnce({ ownerId: "worker-a" })).rejects.toThrow(/timed out after 25ms/);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ retryable: false });
+  });
+
+  it("stops renewing the shared projection-group lease the instant an operation is aborted", async () => {
+    // #4611 slot/lease isolation: a timed-out (or cancelled) operation must not
+    // keep the `projection-group:<name>` lease alive while its leaked work
+    // settles — otherwise the scheduled group runner is starved and staging
+    // catch-up backs up. The upstream operation signal is chained into the held
+    // lease so renewal ceases immediately rather than one poll interval later.
+    let renewCount = 0;
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      reset: async () => undefined,
+      // Hangs forever ignoring abort, standing in for a leaked in-flight apply.
+      runOnce: () => new Promise<never>(() => {}),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({ revisionStale: false }),
+    });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      renewLease: async () => {
+        renewCount += 1;
+        return true;
+      },
+      claimProjectionOperation: async () => createClaimedOperationRecord(),
+      recordProjectionOperationProgress: async () => true,
+      getProjectionOperation: async () => createClaimedOperationRecord(),
+      failProjectionOperation: async () => true,
+    });
+    const [operationRunner] = collectProjectionOperationRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [group],
+        subscriptionRunners: [subscriptionRunner],
+      } as never,
+      {
+        controlPlane,
+        rebuildOperationTimeoutMs: 25,
+        leaseRenewIntervalMs: 5,
+        // A long cancel poll proves the lease stops renewing via the chained
+        // signal, not the `shouldAbort` poll.
+        cancelPollIntervalMs: 60_000,
+      },
+    );
+
+    await expect(operationRunner.runOnce({ ownerId: "worker-a" })).rejects.toThrow(/timed out after 25ms/);
+    const renewsAtAbort = renewCount;
+    // Well past several renew intervals: the chained abort has frozen renewal,
+    // so the lease now lapses by TTL and the scheduled group runner reacquires.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(renewCount).toBe(renewsAtAbort);
+  });
+
+  it("isolates operations-loop slots from the projections loop so a stuck operation cannot starve catch-up", async () => {
+    // #4611 AC3: the operations executor runs in its own runner group/loop with
+    // independent slot accounting. A fully saturated operations loop (a hung
+    // executor pinning its only slot) must not consume any of the projections
+    // loop's concurrency — the two loops share a control plane but never a slot
+    // budget, so projection-group catch-up keeps its full parallelism.
+    const controlPlane = createAlwaysLeasedControlPlane();
+
+    let releaseHungOperation: (() => void) | null = null;
+    const hungOperationRunner: WorkerRunner = {
+      name: "projection-operations",
+      kind: "job",
+      runOnce: async () =>
+        new Promise<never>((_, reject) => {
+          releaseHungOperation = () => reject(new Error("released"));
+        }),
+    };
+    const operationsLoop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [hungOperationRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    let concurrentProjectionRuns = 0;
+    let maxConcurrentProjectionRuns = 0;
+    const releaseProjectionGates: Array<() => void> = [];
+    let projectionGatesOpen = false;
+    const projectionRunner = (name: string): WorkerRunner => ({
+      name,
+      kind: "projection-group",
+      runOnce: async () => {
+        concurrentProjectionRuns += 1;
+        maxConcurrentProjectionRuns = Math.max(maxConcurrentProjectionRuns, concurrentProjectionRuns);
+        if (!projectionGatesOpen) {
+          await new Promise<void>((resolve) => {
+            releaseProjectionGates.push(resolve);
+          });
+        }
+        concurrentProjectionRuns -= 1;
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    });
+    const projectionsLoop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [projectionRunner("inventory.a"), projectionRunner("inventory.b")],
+      maxConcurrentRunners: 2,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    operationsLoop.start();
+    projectionsLoop.start();
+    try {
+      await vi.waitFor(() => {
+        // Both projection runners are in-flight at once even though the
+        // operations loop's only slot is pinned by the hung executor.
+        expect(maxConcurrentProjectionRuns).toBe(2);
+      });
+    } finally {
+      projectionGatesOpen = true;
+      for (const release of releaseProjectionGates) {
+        release();
+      }
+      (releaseHungOperation as (() => void) | null)?.();
+      await Promise.all([operationsLoop.stop(), projectionsLoop.stop()]);
+    }
+
+    expect(maxConcurrentProjectionRuns).toBe(2);
   });
 
   it("requeues an operation as retryable when the projection-group lease stays unavailable", async () => {
