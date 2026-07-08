@@ -2,33 +2,27 @@
 # scripts/doks-cluster-addons.mjs. The controller Service of type LoadBalancer
 # is what provisions the DigitalOcean Load Balancer that fronts DOKS ingress.
 #
-# The DO Load Balancer terminates the connection at L4 and NGINX (not the LB)
+# The DO REGIONAL_NETWORK Load Balancer is L4 same-port passthrough: it forwards
+# LB :80/:443 directly to droplet host :80/:443, and NGINX (not the LB)
 # terminates TLS with cert-manager-issued certificates. Port 80 stays open and is
 # not force-redirected at the LB so cert-manager HTTP-01 challenges can reach the
-# controller. PROXY protocol is enabled on both the LB and the controller so real
-# client IPs survive for rate limiting and trust-forwarded-headers handling.
+# controller. The controller pods must bind host ports 80/443 because those are
+# the LB targets.
 #
-# Load balancer type MUST be pinned to REGIONAL. On DOKS 1.33.1-do.0 and later the
-# CCM default flipped to REGIONAL_NETWORK (a network/pass-through load balancer),
-# and this staging/production cluster runs 1.36.0-do.2, so an ABSENT annotation
-# resolves to REGIONAL_NETWORK. REGIONAL_NETWORK is wrong for this controller for
-# two reasons documented by DigitalOcean:
-#   1. Same-port passthrough. A network LB requires "the port and targetPort must
-#      match", so it forwards LB :80/:443 to node :80/:443. This controller is a
-#      NodePort Service (allocateLoadBalancerNodePorts) whose nodes listen on the
-#      allocated NodePorts (e.g. 31380/30835), NOT on host :80/:443 -- so every
-#      connection to the LB IP is refused. A REGIONAL (connection-terminating) LB
-#      instead rewrites its forwarding rules to those NodePorts, which the nodes
-#      actually serve.
-#   2. No PROXY protocol. "Network load balancers (REGIONAL_NETWORK) do not support
-#      it because they preserve the client source IP address natively without
-#      performing SNAT." We rely on PROXY protocol (below), so REGIONAL is required:
-#      "If you need PROXY protocol, you must explicitly set the load balancer type
-#      to REGIONAL."
+# Live #4680 evidence on the DOKS 1.36.0-do.2 cluster showed the CCM
+# unconditionally coerces this Service to REGIONAL_NETWORK, re-stamping the
+# annotation within seconds even when no LB exists. REGIONAL is not grantable on
+# this cluster, so these values intentionally pair with REGIONAL_NETWORK instead
+# of fighting reconciliation.
+#
+# REGIONAL_NETWORK preserves client source IP natively and does not support PROXY
+# protocol. Do not enable either the DO proxy-protocol annotation or
+# controller.config.use-proxy-protocol: ingress-nginx readiness fails when it
+# expects PROXY headers that the network LB never sends.
+#
 # The annotation must live here (not applied by hand) because the CCM/helm
 # reconcile the Service back to these values: "any setting done outside DOKS is
-# automatically overridden by DOKS reconciliation." A manual `kubectl annotate`
-# does not survive a helm upgrade, which is why prior REGIONAL attempts reverted.
+# automatically overridden by DOKS reconciliation."
 # Refs:
 #   https://docs.digitalocean.com/products/kubernetes/how-to/configure-load-balancers/
 #   https://github.com/digitalocean/digitalocean-cloud-controller-manager/blob/master/docs/controllers/services/annotations.md
@@ -38,6 +32,8 @@ controller:
     enabled: true
     default: true
   ingressClass: nginx
+  hostPort:
+    enabled: true
   replicaCount: 2
   service:
     type: LoadBalancer
@@ -46,17 +42,14 @@ controller:
       # Per-environment Load Balancer name. Staging is the first cutover target;
       # production uses chase-sets-production-doks-ingress at its cutover.
       service.beta.kubernetes.io/do-loadbalancer-name: "chase-sets-staging-doks-ingress"
-      # Pin to the connection-terminating (HTTP) load balancer -- see the header
-      # comment. Required so forwarding rules target the NodePorts and so PROXY
-      # protocol below is supported.
-      service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL"
-      service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"
+      # DOKS 1.36 CCM coerces this Service to REGIONAL_NETWORK; document that
+      # final state here and pair it with hostPort 80/443 above.
+      service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL_NETWORK"
       service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
   config:
-    # Keep this paired with do-loadbalancer-enable-proxy-protocol above: the DO
-    # load balancer sends PROXY headers, and ingress-nginx must consume them
-    # before HTTP parsing while preserving real client IPs.
-    use-proxy-protocol: "true"
+    # REGIONAL_NETWORK preserves source IP natively and never sends PROXY
+    # headers, so ingress-nginx must parse ordinary HTTP/TLS streams.
+    use-proxy-protocol: "false"
     use-forwarded-headers: "true"
     # cert-manager annotates its own solver Ingress to bypass ssl-redirect, so a
     # global default of true is safe and keeps app traffic on HTTPS.
