@@ -1,0 +1,3862 @@
+{
+  "package_version": "2026-07-08",
+  "generated_from": "infrastructure/platform-runtime/mcp-contracts.ts",
+  "endpoint": "https://<marketplace-host>/mcp",
+  "protocol_versions": [
+    "2025-06-18",
+    "2025-11-25",
+    "2026-07-28"
+  ],
+  "authentication": {
+    "type": "oauth2-pkce",
+    "oauth": {
+      "issuer_metadata_url": "https://<marketplace-host>/.well-known/oauth-authorization-server",
+      "authorization_endpoint": "https://<marketplace-host>/ucp/oauth/authorize",
+      "token_endpoint": "https://<marketplace-host>/ucp/oauth/token",
+      "introspection_endpoint": "https://<marketplace-host>/ucp/oauth/introspect",
+      "revocation_endpoint": "https://<marketplace-host>/ucp/oauth/revoke",
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "pkce": {
+        "required": true,
+        "methods": [
+          "S256"
+        ]
+      },
+      "token_endpoint_auth_method": "none",
+      "dynamic_client_registration": {
+        "status": "not-exposed",
+        "reason": "The current platform exposes OAuth authorization-code-with-PKCE for pre-registered public clients. No dynamic client registration endpoint is mounted.",
+        "client_id_source": "Connector platform registration record or platform profile URL.",
+        "confidential_credential_policy": "not-used"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "identity.get-account",
+      "title": "Get Account",
+      "description": "Read account profile, status, and membership summary.",
+      "service_id": "identity",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "accounts.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use when an agent needs account profile facts or status."
+      ]
+    },
+    {
+      "name": "inventory.list-items",
+      "title": "List Inventory Items",
+      "description": "List inventory items, hold-derived availability, and sale readiness for an account.",
+      "service_id": "inventory",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Optional Catalog Item natural key filter."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Optional resolved Product natural key filter."
+          },
+          "storageLocationId": {
+            "type": "string",
+            "description": "Optional storage location filter."
+          },
+          "status": {
+            "type": "string",
+            "description": "Deprecated alias for availability.",
+            "enum": [
+              "available",
+              "held",
+              "out-of-stock"
+            ]
+          },
+          "availability": {
+            "type": "string",
+            "description": "Optional hold-derived availability filter.",
+            "enum": [
+              "available",
+              "held",
+              "out-of-stock"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum items to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Result offset."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before creating or updating listings, pricing recommendations, or stock holds."
+      ]
+    },
+    {
+      "name": "inventory.list-import-sources",
+      "title": "List Inventory Import Sources",
+      "description": "List supported inventory import source profiles, field mappings, external reference candidates, and option inference rules.",
+      "service_id": "inventory",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "Supported inventory import source profiles.",
+            "items": {
+              "type": "object",
+              "description": "Inventory import source profile.",
+              "additionalProperties": true,
+              "required": [
+                "sourceKey",
+                "label",
+                "kind",
+                "adapterVersion",
+                "displayNameValueKeys",
+                "values",
+                "externalReferenceCandidates",
+                "selectedOptionInference"
+              ],
+              "properties": {
+                "sourceKey": {
+                  "type": "string",
+                  "description": "Configured import source key."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Human-readable import source label."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "Import source transport kind.",
+                  "enum": [
+                    "csv",
+                    "api"
+                  ]
+                },
+                "adapterVersion": {
+                  "type": "integer",
+                  "description": "Version of the import adapter contract."
+                },
+                "nativePassthrough": {
+                  "type": "boolean",
+                  "description": "Whether rows pass through native Chase Sets CSV fields."
+                },
+                "displayNameValueKeys": {
+                  "type": "array",
+                  "description": "Value keys that make a row display name.",
+                  "items": {
+                    "type": "string",
+                    "description": "Value key."
+                  }
+                },
+                "rowNoteValueKeys": {
+                  "type": "array",
+                  "description": "Value keys used to build review notes.",
+                  "items": {
+                    "type": "string",
+                    "description": "Value key."
+                  }
+                },
+                "values": {
+                  "type": "array",
+                  "description": "Value mappings accepted by this source.",
+                  "items": {
+                    "type": "object",
+                    "description": "Import value mapping.",
+                    "additionalProperties": true,
+                    "required": [
+                      "targetKey"
+                    ],
+                    "properties": {
+                      "targetKey": {
+                        "type": "string",
+                        "description": "Normalized target value key."
+                      }
+                    }
+                  }
+                },
+                "externalReferenceCandidates": {
+                  "type": "array",
+                  "description": "External reference candidates inferred from source rows.",
+                  "items": {
+                    "type": "object",
+                    "description": "External reference candidate rule.",
+                    "additionalProperties": true,
+                    "required": [
+                      "providerKey",
+                      "externalKeyPrefix",
+                      "targetIntent"
+                    ],
+                    "properties": {
+                      "providerKey": {
+                        "type": "string",
+                        "description": "External provider key."
+                      },
+                      "externalKeyPrefix": {
+                        "type": "string",
+                        "description": "Prefix used for external reference keys."
+                      },
+                      "targetIntent": {
+                        "type": "string",
+                        "description": "How this external reference should be resolved."
+                      }
+                    }
+                  }
+                },
+                "selectedOptionInference": {
+                  "type": "array",
+                  "description": "Catalog option inference rules for source rows.",
+                  "items": {
+                    "type": "object",
+                    "description": "Selected option inference rule.",
+                    "additionalProperties": true,
+                    "required": [
+                      "dimensionKey",
+                      "headers"
+                    ],
+                    "properties": {
+                      "dimensionKey": {
+                        "type": "string",
+                        "description": "Catalog dimension key."
+                      },
+                      "headers": {
+                        "type": "array",
+                        "description": "Source headers used for the dimension.",
+                        "items": {
+                          "type": "string",
+                          "description": "Source header."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total supported source profile count."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before creating an import batch so agents can choose the right sourceKey and row shape."
+      ]
+    },
+    {
+      "name": "inventory.create-import-batch",
+      "title": "Create Inventory Import Batch",
+      "description": "Create a review-first import batch from CSV text or pre-parsed provider rows.",
+      "service_id": "inventory",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "sourceKey",
+          "quantityMode",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "sourceKey": {
+            "type": "string",
+            "description": "Configured import source key."
+          },
+          "quantityMode": {
+            "type": "string",
+            "description": "How row quantities should affect stock.",
+            "enum": [
+              "add",
+              "replace"
+            ]
+          },
+          "csvText": {
+            "type": "string",
+            "description": "CSV text to parse through the configured source profile."
+          },
+          "parsedRows": {
+            "type": "array",
+            "description": "Pre-parsed rows to normalize through the configured source profile.",
+            "items": {
+              "type": "object",
+              "description": "Parsed row with rowNumber and string values.",
+              "additionalProperties": true
+            }
+          },
+          "defaultStorageLocationId": {
+            "type": "string",
+            "description": "Default Inventory Storage Location for rows that omit one."
+          },
+          "sourceFilename": {
+            "type": "string",
+            "description": "Original file or connector source name."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "description": "Import batch identifier."
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Account that owns the import batch."
+          },
+          "status": {
+            "type": "string",
+            "description": "Import batch status.",
+            "enum": [
+              "uploaded",
+              "committed"
+            ]
+          },
+          "source_key": {
+            "type": "string",
+            "description": "Configured import source key."
+          },
+          "adapter_version": {
+            "type": "integer",
+            "description": "Version of the import adapter contract."
+          },
+          "quantity_mode": {
+            "type": "string",
+            "description": "How row quantities affect stock.",
+            "enum": [
+              "add",
+              "replace"
+            ]
+          },
+          "total_count": {
+            "type": "integer",
+            "description": "Total row count."
+          },
+          "accepted_count": {
+            "type": "integer",
+            "description": "Accepted row count."
+          },
+          "rejected_count": {
+            "type": "integer",
+            "description": "Rejected row count."
+          },
+          "committed_count": {
+            "type": "integer",
+            "description": "Committed row count."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Creation timestamp."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Last update timestamp."
+          },
+          "rows": {
+            "type": "array",
+            "description": "Import batch rows.",
+            "items": {
+              "type": "object",
+              "description": "Inventory import batch row.",
+              "additionalProperties": true,
+              "required": [
+                "row_id",
+                "batch_id",
+                "row_number",
+                "status",
+                "quantity_mode",
+                "resolution_status",
+                "validation_errors",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "row_id": {
+                  "type": "string",
+                  "description": "Import batch row identifier."
+                },
+                "batch_id": {
+                  "type": "string",
+                  "description": "Import batch identifier."
+                },
+                "row_number": {
+                  "type": "integer",
+                  "description": "Source row number."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Import row status.",
+                  "enum": [
+                    "accepted",
+                    "rejected",
+                    "committed"
+                  ]
+                },
+                "quantity_mode": {
+                  "type": "string",
+                  "description": "How row quantities affect stock.",
+                  "enum": [
+                    "add",
+                    "replace"
+                  ]
+                },
+                "resolution_status": {
+                  "type": "string",
+                  "description": "Catalog resolution status.",
+                  "enum": [
+                    "native",
+                    "resolved",
+                    "unresolved"
+                  ]
+                },
+                "validation_errors": {
+                  "type": "array",
+                  "description": "Validation errors for the row.",
+                  "items": {
+                    "type": "string",
+                    "description": "Validation error."
+                  }
+                },
+                "created_at": {
+                  "type": "string",
+                  "description": "Creation timestamp."
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "Last update timestamp."
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "batch_id",
+          "account_id",
+          "status",
+          "source_key",
+          "adapter_version",
+          "quantity_mode",
+          "total_count",
+          "accepted_count",
+          "rejected_count",
+          "committed_count",
+          "created_at",
+          "updated_at",
+          "rows"
+        ]
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after source rows are fetched and before committing stock or draft listings."
+      ]
+    },
+    {
+      "name": "inventory.get-import-batch",
+      "title": "Get Inventory Import Batch",
+      "description": "Read import batch match results, validation errors, and committed inventory/listing ids.",
+      "service_id": "inventory",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "batchId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "batchId": {
+            "type": "string",
+            "description": "Import batch identifier."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "description": "Import batch identifier."
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Account that owns the import batch."
+          },
+          "status": {
+            "type": "string",
+            "description": "Import batch status.",
+            "enum": [
+              "uploaded",
+              "committed"
+            ]
+          },
+          "source_key": {
+            "type": "string",
+            "description": "Configured import source key."
+          },
+          "adapter_version": {
+            "type": "integer",
+            "description": "Version of the import adapter contract."
+          },
+          "quantity_mode": {
+            "type": "string",
+            "description": "How row quantities affect stock.",
+            "enum": [
+              "add",
+              "replace"
+            ]
+          },
+          "total_count": {
+            "type": "integer",
+            "description": "Total row count."
+          },
+          "accepted_count": {
+            "type": "integer",
+            "description": "Accepted row count."
+          },
+          "rejected_count": {
+            "type": "integer",
+            "description": "Rejected row count."
+          },
+          "committed_count": {
+            "type": "integer",
+            "description": "Committed row count."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Creation timestamp."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Last update timestamp."
+          },
+          "rows": {
+            "type": "array",
+            "description": "Import batch rows.",
+            "items": {
+              "type": "object",
+              "description": "Inventory import batch row.",
+              "additionalProperties": true,
+              "required": [
+                "row_id",
+                "batch_id",
+                "row_number",
+                "status",
+                "quantity_mode",
+                "resolution_status",
+                "validation_errors",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "row_id": {
+                  "type": "string",
+                  "description": "Import batch row identifier."
+                },
+                "batch_id": {
+                  "type": "string",
+                  "description": "Import batch identifier."
+                },
+                "row_number": {
+                  "type": "integer",
+                  "description": "Source row number."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Import row status.",
+                  "enum": [
+                    "accepted",
+                    "rejected",
+                    "committed"
+                  ]
+                },
+                "quantity_mode": {
+                  "type": "string",
+                  "description": "How row quantities affect stock.",
+                  "enum": [
+                    "add",
+                    "replace"
+                  ]
+                },
+                "resolution_status": {
+                  "type": "string",
+                  "description": "Catalog resolution status.",
+                  "enum": [
+                    "native",
+                    "resolved",
+                    "unresolved"
+                  ]
+                },
+                "validation_errors": {
+                  "type": "array",
+                  "description": "Validation errors for the row.",
+                  "items": {
+                    "type": "string",
+                    "description": "Validation error."
+                  }
+                },
+                "created_at": {
+                  "type": "string",
+                  "description": "Creation timestamp."
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "Last update timestamp."
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "batch_id",
+          "account_id",
+          "status",
+          "source_key",
+          "adapter_version",
+          "quantity_mode",
+          "total_count",
+          "accepted_count",
+          "rejected_count",
+          "committed_count",
+          "created_at",
+          "updated_at",
+          "rows"
+        ]
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use after creating a batch to inspect accepted, rejected, unresolved, and committed rows."
+      ]
+    },
+    {
+      "name": "inventory.commit-import-batch",
+      "title": "Commit Inventory Import Batch",
+      "description": "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
+      "service_id": "inventory",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "batchId",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "batchId": {
+            "type": "string",
+            "description": "Import batch identifier."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for the action."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "description": "Import batch identifier."
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Account that owns the import batch."
+          },
+          "status": {
+            "type": "string",
+            "description": "Import batch status.",
+            "enum": [
+              "uploaded",
+              "committed"
+            ]
+          },
+          "source_key": {
+            "type": "string",
+            "description": "Configured import source key."
+          },
+          "adapter_version": {
+            "type": "integer",
+            "description": "Version of the import adapter contract."
+          },
+          "quantity_mode": {
+            "type": "string",
+            "description": "How row quantities affect stock.",
+            "enum": [
+              "add",
+              "replace"
+            ]
+          },
+          "total_count": {
+            "type": "integer",
+            "description": "Total row count."
+          },
+          "accepted_count": {
+            "type": "integer",
+            "description": "Accepted row count."
+          },
+          "rejected_count": {
+            "type": "integer",
+            "description": "Rejected row count."
+          },
+          "committed_count": {
+            "type": "integer",
+            "description": "Committed row count."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Creation timestamp."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Last update timestamp."
+          },
+          "rows": {
+            "type": "array",
+            "description": "Import batch rows.",
+            "items": {
+              "type": "object",
+              "description": "Inventory import batch row.",
+              "additionalProperties": true,
+              "required": [
+                "row_id",
+                "batch_id",
+                "row_number",
+                "status",
+                "quantity_mode",
+                "resolution_status",
+                "validation_errors",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "row_id": {
+                  "type": "string",
+                  "description": "Import batch row identifier."
+                },
+                "batch_id": {
+                  "type": "string",
+                  "description": "Import batch identifier."
+                },
+                "row_number": {
+                  "type": "integer",
+                  "description": "Source row number."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Import row status.",
+                  "enum": [
+                    "accepted",
+                    "rejected",
+                    "committed"
+                  ]
+                },
+                "quantity_mode": {
+                  "type": "string",
+                  "description": "How row quantities affect stock.",
+                  "enum": [
+                    "add",
+                    "replace"
+                  ]
+                },
+                "resolution_status": {
+                  "type": "string",
+                  "description": "Catalog resolution status.",
+                  "enum": [
+                    "native",
+                    "resolved",
+                    "unresolved"
+                  ]
+                },
+                "validation_errors": {
+                  "type": "array",
+                  "description": "Validation errors for the row.",
+                  "items": {
+                    "type": "string",
+                    "description": "Validation error."
+                  }
+                },
+                "created_at": {
+                  "type": "string",
+                  "description": "Creation timestamp."
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "Last update timestamp."
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "batch_id",
+          "account_id",
+          "status",
+          "source_key",
+          "adapter_version",
+          "quantity_mode",
+          "total_count",
+          "accepted_count",
+          "rejected_count",
+          "committed_count",
+          "created_at",
+          "updated_at",
+          "rows"
+        ]
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use only after reviewing match outcomes and confirming rejected rows should remain in review."
+      ]
+    },
+    {
+      "name": "inventory.adjust-item",
+      "title": "Adjust Inventory Item",
+      "description": "Adjust inventory item quantity through the stock ledger while preserving active hold constraints.",
+      "service_id": "inventory",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "inventoryItemId",
+          "quantityDelta",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "inventoryItemId": {
+            "type": "string",
+            "description": "Inventory item to adjust."
+          },
+          "quantityDelta": {
+            "type": "integer",
+            "description": "Signed quantity adjustment. Positive adds stock; negative removes stock."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for the stock adjustment."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use for explicit stock corrections after checking active holds and ledger history."
+      ]
+    },
+    {
+      "name": "marketplace.list-listings",
+      "title": "List Listings",
+      "description": "List account listings and publication state.",
+      "service_id": "marketplace",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "listings.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "status": {
+            "type": "string",
+            "description": "Optional listing status."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum listings to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Result offset."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before listing price or publication changes."
+      ]
+    },
+    {
+      "name": "marketplace.get-seller-insights",
+      "title": "Get Seller Insights",
+      "description": "Read seller availability, listings, fee-lock rows, and sellable supply from current Marketplace read models.",
+      "service_id": "marketplace",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "listings.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Optional Catalog Item filter for supply."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum rows to return per section."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Result offset."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before repricing, listing maintenance, or seller workflow recommendations."
+      ]
+    },
+    {
+      "name": "marketplace.list-offers",
+      "title": "List Offers",
+      "description": "List submitted offers and offer matches visible to the actor.",
+      "service_id": "marketplace",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "offers.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Offer side.",
+            "enum": [
+              "submitted",
+              "matched"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum offers to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Result offset."
+          },
+          "productIds": {
+            "type": "string",
+            "description": "Optional comma-separated product ids for seller matches."
+          },
+          "status": {
+            "type": "string",
+            "description": "Optional offer status filter.",
+            "enum": [
+              "submitted"
+            ]
+          },
+          "canFulfill": {
+            "type": "boolean",
+            "description": "When true, return only seller matches with enough active supply."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "accountId",
+          "side",
+          "items",
+          "total",
+          "count"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Offer side.",
+            "enum": [
+              "submitted",
+              "matched"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "description": "Offer rows visible to the actor.",
+            "items": {
+              "type": "object",
+              "description": "Participant-safe offer row.",
+              "additionalProperties": true,
+              "required": [
+                "offer_id",
+                "buyer_account_id",
+                "product_id",
+                "price_amount",
+                "quantity_requested",
+                "status"
+              ],
+              "properties": {
+                "offer_id": {
+                  "type": "string",
+                  "description": "Offer identifier."
+                },
+                "buyer_account_id": {
+                  "type": "string",
+                  "description": "Buyer account identifier."
+                },
+                "product_id": {
+                  "type": "string",
+                  "description": "Product identifier."
+                },
+                "price_amount": {
+                  "type": "string",
+                  "description": "Offer unit price."
+                },
+                "quantity_requested": {
+                  "type": "integer",
+                  "description": "Requested quantity."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Offer status."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total visible offer count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned offer count."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before accepting, declining, or revising offers."
+      ]
+    },
+    {
+      "name": "marketplace.get-reputation-summary",
+      "title": "Get Reputation Summary",
+      "description": "Read the public review summary currently available for an account.",
+      "service_id": "marketplace",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "reputation.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "subjectAccountId": {
+            "type": "string",
+            "description": "Account whose reputation summary should be read."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before explaining seller or buyer review history."
+      ]
+    },
+    {
+      "name": "marketplace.list-reviews",
+      "title": "List Reviews",
+      "description": "List written, received, or public account reviews from Marketplace review read models.",
+      "service_id": "marketplace",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "reputation.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Review side.",
+            "enum": [
+              "written",
+              "received",
+              "public"
+            ]
+          },
+          "subjectAccountId": {
+            "type": "string",
+            "description": "Reviewed account for public review reads."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum reviews to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Result offset."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before review support, reputation explanations, or review-detail reads."
+      ]
+    },
+    {
+      "name": "marketplace.submit-offer",
+      "title": "Submit Offer",
+      "description": "Submit a buyer offer for a specific product, price, quantity, and shipping destination.",
+      "service_id": "marketplace",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "offers.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "catalogItemId",
+          "productId",
+          "itemTitle",
+          "shippingDestinationSnapshot",
+          "priceAmount",
+          "quantityRequested",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated buyer account scope."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog item identifier."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product identifier derived from selected options."
+          },
+          "itemTitle": {
+            "type": "string",
+            "description": "Item title snapshot."
+          },
+          "itemSubtitle": {
+            "type": "string",
+            "description": "Optional item subtitle snapshot."
+          },
+          "selectedOptions": {
+            "type": "array",
+            "description": "Selected product options.",
+            "items": {
+              "type": "object",
+              "description": "Selected product option.",
+              "additionalProperties": false,
+              "required": [
+                "dimensionId",
+                "optionId"
+              ],
+              "properties": {
+                "dimensionId": {
+                  "type": "string",
+                  "description": "Product option dimension identifier."
+                },
+                "optionId": {
+                  "type": "string",
+                  "description": "Selected option identifier."
+                }
+              }
+            }
+          },
+          "productSummary": {
+            "type": "string",
+            "description": "Optional product summary snapshot."
+          },
+          "shippingDestinationSnapshot": {
+            "type": "object",
+            "description": "Buyer shipping destination snapshot required to submit an offer.",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "line1",
+              "city",
+              "state",
+              "postalCode",
+              "country"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Recipient name."
+              },
+              "company": {
+                "type": "string",
+                "description": "Optional company."
+              },
+              "line1": {
+                "type": "string",
+                "description": "Street address line 1."
+              },
+              "line2": {
+                "type": "string",
+                "description": "Optional street address line 2."
+              },
+              "city": {
+                "type": "string",
+                "description": "City."
+              },
+              "state": {
+                "type": "string",
+                "description": "State or region."
+              },
+              "postalCode": {
+                "type": "string",
+                "description": "Postal code."
+              },
+              "country": {
+                "type": "string",
+                "description": "Country code."
+              },
+              "phone": {
+                "type": "string",
+                "description": "Optional recipient phone."
+              },
+              "email": {
+                "type": "string",
+                "description": "Optional recipient email."
+              }
+            }
+          },
+          "priceAmount": {
+            "type": "string",
+            "description": "Offer unit price in decimal currency format."
+          },
+          "quantityRequested": {
+            "type": "integer",
+            "description": "Quantity requested by the buyer."
+          },
+          "offerIdOverride": {
+            "type": "string",
+            "description": "Optional deterministic offer id for idempotent handoffs."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "offerId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Offer identifier."
+          },
+          "offerId": {
+            "type": "string",
+            "description": "Offer identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed offer stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle write result."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the offer."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog item used to submit the offer."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product targeted by the offer."
+          },
+          "counteredOfferId": {
+            "type": "string",
+            "description": "Offer being countered when this receipt came from a counter-offer."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after resolving the product, selected options, price, quantity, and shipping destination."
+      ]
+    },
+    {
+      "name": "marketplace.counter-offer",
+      "title": "Counter Offer",
+      "description": "Submit a replacement buyer offer that records the offer being countered in the MCP receipt.",
+      "service_id": "marketplace",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "offers.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "catalogItemId",
+          "productId",
+          "itemTitle",
+          "shippingDestinationSnapshot",
+          "priceAmount",
+          "quantityRequested",
+          "idempotencyKey",
+          "confirmationText",
+          "counteredOfferId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated buyer account scope."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog item identifier."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product identifier derived from selected options."
+          },
+          "itemTitle": {
+            "type": "string",
+            "description": "Item title snapshot."
+          },
+          "itemSubtitle": {
+            "type": "string",
+            "description": "Optional item subtitle snapshot."
+          },
+          "selectedOptions": {
+            "type": "array",
+            "description": "Selected product options.",
+            "items": {
+              "type": "object",
+              "description": "Selected product option.",
+              "additionalProperties": false,
+              "required": [
+                "dimensionId",
+                "optionId"
+              ],
+              "properties": {
+                "dimensionId": {
+                  "type": "string",
+                  "description": "Product option dimension identifier."
+                },
+                "optionId": {
+                  "type": "string",
+                  "description": "Selected option identifier."
+                }
+              }
+            }
+          },
+          "productSummary": {
+            "type": "string",
+            "description": "Optional product summary snapshot."
+          },
+          "shippingDestinationSnapshot": {
+            "type": "object",
+            "description": "Buyer shipping destination snapshot required to submit an offer.",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "line1",
+              "city",
+              "state",
+              "postalCode",
+              "country"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Recipient name."
+              },
+              "company": {
+                "type": "string",
+                "description": "Optional company."
+              },
+              "line1": {
+                "type": "string",
+                "description": "Street address line 1."
+              },
+              "line2": {
+                "type": "string",
+                "description": "Optional street address line 2."
+              },
+              "city": {
+                "type": "string",
+                "description": "City."
+              },
+              "state": {
+                "type": "string",
+                "description": "State or region."
+              },
+              "postalCode": {
+                "type": "string",
+                "description": "Postal code."
+              },
+              "country": {
+                "type": "string",
+                "description": "Country code."
+              },
+              "phone": {
+                "type": "string",
+                "description": "Optional recipient phone."
+              },
+              "email": {
+                "type": "string",
+                "description": "Optional recipient email."
+              }
+            }
+          },
+          "priceAmount": {
+            "type": "string",
+            "description": "Offer unit price in decimal currency format."
+          },
+          "quantityRequested": {
+            "type": "integer",
+            "description": "Quantity requested by the buyer."
+          },
+          "offerIdOverride": {
+            "type": "string",
+            "description": "Optional deterministic offer id for idempotent handoffs."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          },
+          "counteredOfferId": {
+            "type": "string",
+            "description": "Offer being countered."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "offerId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Offer identifier."
+          },
+          "offerId": {
+            "type": "string",
+            "description": "Offer identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed offer stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle write result."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the offer."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog item used to submit the offer."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product targeted by the offer."
+          },
+          "counteredOfferId": {
+            "type": "string",
+            "description": "Offer being countered when this receipt came from a counter-offer."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use when the buyer wants to answer a prior offer position with a new submitted offer."
+      ]
+    },
+    {
+      "name": "marketplace.create-listing",
+      "title": "Create Listing",
+      "description": "Create a draft listing from account-owned inventory.",
+      "service_id": "marketplace",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "listings.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "inventoryItemId",
+          "priceAmount",
+          "quantityCap",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "inventoryItemId": {
+            "type": "string",
+            "description": "Account-owned inventory item identifier resolved from Catalog or Inventory natural keys."
+          },
+          "priceAmount": {
+            "type": "string",
+            "description": "Listing unit price in decimal currency format."
+          },
+          "quantityCap": {
+            "type": "integer",
+            "description": "Maximum listed quantity."
+          },
+          "purchaseLimits": {
+            "type": "object",
+            "description": "Optional per-listing purchase limits.",
+            "additionalProperties": false,
+            "properties": {
+              "maxUnitsPerOrder": {
+                "type": "integer",
+                "description": "Maximum units per order."
+              },
+              "maxUnitsPerDay": {
+                "type": "integer",
+                "description": "Maximum units per day."
+              },
+              "maxUnitsPerCustomerAccount": {
+                "type": "integer",
+                "description": "Maximum units per customer account."
+              }
+            }
+          },
+          "listingIdOverride": {
+            "type": "string",
+            "description": "Optional deterministic listing id for idempotent handoffs."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "listingId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Listing identifier."
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Listing identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed listing stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle write result."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the listing."
+          },
+          "inventoryItemId": {
+            "type": "string",
+            "description": "Inventory item used to create the listing."
+          },
+          "feeQuoteFingerprint": {
+            "type": "string",
+            "description": "Marketplace sales-fee quote fingerprint."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after resolving the seller inventory item and confirming listing price, quantity, and terms."
+      ]
+    },
+    {
+      "name": "marketplace.update-listing-price",
+      "title": "Update Listing Price",
+      "description": "Update the seller asking price for an account-owned listing.",
+      "service_id": "marketplace",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "listings.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "listingId",
+          "priceAmount",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Listing to update."
+          },
+          "priceAmount": {
+            "type": "string",
+            "description": "New listing unit price in decimal currency format."
+          },
+          "feeQuoteFingerprint": {
+            "type": "string",
+            "description": "Current marketplace sales-fee quote fingerprint."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "listingId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Listing identifier."
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Listing identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed listing stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle write result."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the listing."
+          },
+          "inventoryItemId": {
+            "type": "string",
+            "description": "Inventory item used to create the listing."
+          },
+          "feeQuoteFingerprint": {
+            "type": "string",
+            "description": "Marketplace sales-fee quote fingerprint."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after reading the listing and confirming the current marketplace terms preview."
+      ]
+    },
+    {
+      "name": "marketplace.publish-listing",
+      "title": "Publish Listing",
+      "description": "Publish a listing to buyer discovery.",
+      "service_id": "marketplace",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "listings.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "listingId",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Listing to publish."
+          },
+          "feeQuoteFingerprint": {
+            "type": "string",
+            "description": "Current marketplace sales-fee quote fingerprint."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "listingId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Listing identifier."
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Listing identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed listing stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle write result."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the listing."
+          },
+          "inventoryItemId": {
+            "type": "string",
+            "description": "Inventory item used to create the listing."
+          },
+          "feeQuoteFingerprint": {
+            "type": "string",
+            "description": "Marketplace sales-fee quote fingerprint."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after confirming inventory, pricing, photos when required, and commercial terms."
+      ]
+    },
+    {
+      "name": "marketplace.unpublish-listing",
+      "title": "Unpublish Listing",
+      "description": "Remove a listing from buyer discovery while keeping it seller-manageable.",
+      "service_id": "marketplace",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "listings.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "listingId",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Listing to unpublish."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for the action."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "listingId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Listing identifier."
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Listing identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed listing stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle write result."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the listing."
+          },
+          "inventoryItemId": {
+            "type": "string",
+            "description": "Inventory item used to create the listing."
+          },
+          "feeQuoteFingerprint": {
+            "type": "string",
+            "description": "Marketplace sales-fee quote fingerprint."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use when the seller wants to stop buyer discovery without withdrawing the listing permanently."
+      ]
+    },
+    {
+      "name": "marketplace.accept-offer",
+      "title": "Accept Offer",
+      "description": "Accept a buyer offer and begin order creation.",
+      "service_id": "marketplace",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "offers.manage",
+        "listings.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "offerId",
+          "feeQuoteFingerprint",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated seller account scope."
+          },
+          "offerId": {
+            "type": "string",
+            "description": "Offer to accept."
+          },
+          "feeQuoteFingerprint": {
+            "type": "string",
+            "description": "Current marketplace sales-fee quote fingerprint."
+          },
+          "sourceActionKey": {
+            "type": "string",
+            "description": "Optional source action key for semantic handoffs."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for the action."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "offerId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Offer identifier."
+          },
+          "offerId": {
+            "type": "string",
+            "description": "Offer identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed offer stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle write result."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the offer."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog item used to submit the offer."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product targeted by the offer."
+          },
+          "counteredOfferId": {
+            "type": "string",
+            "description": "Offer being countered when this receipt came from a counter-offer."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use only after confirming price, quantity, seller supply, and commercial terms."
+      ]
+    },
+    {
+      "name": "marketplace.decline-offer",
+      "title": "Decline Offer",
+      "description": "Hide a seller offer match without ending marketplace-wide buyer demand.",
+      "service_id": "marketplace",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "offers.manage",
+        "listings.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "offerId",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "offerId": {
+            "type": "string",
+            "description": "Offer match to decline."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for the action."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "offerId",
+          "version",
+          "status",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Offer identifier."
+          },
+          "offerId": {
+            "type": "string",
+            "description": "Offer identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed offer stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Lifecycle write result."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the offer."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog item used to submit the offer."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product targeted by the offer."
+          },
+          "counteredOfferId": {
+            "type": "string",
+            "description": "Offer being countered when this receipt came from a counter-offer."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use when the seller does not want this matched offer for their active listing."
+      ]
+    },
+    {
+      "name": "pricing.recommend-price",
+      "title": "Recommend Price",
+      "description": "Get existing seller price recommendations for a Catalog Item natural key.",
+      "service_id": "pricing",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "pricing.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "catalogItemId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog Item natural key."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum recommendations to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Result offset."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to support seller pricing decisions, not to mutate listings directly."
+      ]
+    },
+    {
+      "name": "pricing.explain-signals",
+      "title": "Explain Pricing Signals",
+      "description": "Explain recent market, inventory, order, and fulfillment signals used by pricing.",
+      "service_id": "pricing",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "pricing.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "catalogItemId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "catalogItemId": {
+            "type": "string",
+            "description": "Catalog Item natural key."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Optional resolved Product natural key."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use when an agent needs to justify a recommendation."
+      ]
+    },
+    {
+      "name": "checkout.get-cart",
+      "title": "Get Cart",
+      "description": "Read the actor account cart.",
+      "service_id": "checkout",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "items": {
+            "type": "array",
+            "description": "Checkout cart lines visible to the actor.",
+            "items": {
+              "type": "object",
+              "description": "Checkout cart line.",
+              "additionalProperties": true,
+              "required": [
+                "line_id",
+                "buyer_account_id",
+                "quantity"
+              ],
+              "properties": {
+                "line_id": {
+                  "type": "string",
+                  "description": "Checkout cart line identifier."
+                },
+                "buyer_account_id": {
+                  "type": "string",
+                  "description": "Account that owns the cart line."
+                },
+                "catalog_item_id": {
+                  "type": "string",
+                  "description": "Catalog item identifier."
+                },
+                "product_id": {
+                  "type": "string",
+                  "description": "Resolved product identifier."
+                },
+                "item_title": {
+                  "type": "string",
+                  "description": "Line item title."
+                },
+                "quantity": {
+                  "type": "integer",
+                  "description": "Requested quantity."
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "Last update timestamp."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total cart line count."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before adding items or starting checkout."
+      ]
+    },
+    {
+      "name": "fulfillment.list-shipments",
+      "title": "List Shipments",
+      "description": "List shipments for purchases or sales.",
+      "service_id": "fulfillment",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "fulfillment.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "side": {
+            "type": "string",
+            "description": "Shipment side.",
+            "enum": [
+              "purchase",
+              "sale"
+            ]
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before label, tracking, or delivery support actions."
+      ]
+    },
+    {
+      "name": "fulfillment.purchase-label",
+      "title": "Purchase Label",
+      "description": "Purchase a postage label through the fulfillment workflow.",
+      "service_id": "fulfillment",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "fulfillment.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "shipmentId",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "shipmentId": {
+            "type": "string",
+            "description": "Shipment needing a label."
+          },
+          "serviceLevel": {
+            "type": "string",
+            "description": "USPS service level."
+          },
+          "sender": {
+            "type": "object",
+            "description": "Optional sender address override.",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Recipient or sender name."
+              },
+              "company": {
+                "type": "string",
+                "description": "Optional company name."
+              },
+              "street1": {
+                "type": "string",
+                "description": "Street line 1."
+              },
+              "street2": {
+                "type": "string",
+                "description": "Optional street line 2."
+              },
+              "line1": {
+                "type": "string",
+                "description": "Deprecated alias for street1."
+              },
+              "line2": {
+                "type": "string",
+                "description": "Deprecated alias for street2."
+              },
+              "city": {
+                "type": "string",
+                "description": "City."
+              },
+              "state": {
+                "type": "string",
+                "description": "State or province."
+              },
+              "postalCode": {
+                "type": "string",
+                "description": "Postal code."
+              },
+              "country": {
+                "type": "string",
+                "description": "Country code."
+              },
+              "phone": {
+                "type": "string",
+                "description": "Optional phone number."
+              },
+              "email": {
+                "type": "string",
+                "description": "Optional email address."
+              }
+            },
+            "required": [
+              "name",
+              "city",
+              "state",
+              "postalCode",
+              "country"
+            ]
+          },
+          "recipient": {
+            "type": "object",
+            "description": "Optional recipient address override.",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Recipient or sender name."
+              },
+              "company": {
+                "type": "string",
+                "description": "Optional company name."
+              },
+              "street1": {
+                "type": "string",
+                "description": "Street line 1."
+              },
+              "street2": {
+                "type": "string",
+                "description": "Optional street line 2."
+              },
+              "line1": {
+                "type": "string",
+                "description": "Deprecated alias for street1."
+              },
+              "line2": {
+                "type": "string",
+                "description": "Deprecated alias for street2."
+              },
+              "city": {
+                "type": "string",
+                "description": "City."
+              },
+              "state": {
+                "type": "string",
+                "description": "State or province."
+              },
+              "postalCode": {
+                "type": "string",
+                "description": "Postal code."
+              },
+              "country": {
+                "type": "string",
+                "description": "Country code."
+              },
+              "phone": {
+                "type": "string",
+                "description": "Optional phone number."
+              },
+              "email": {
+                "type": "string",
+                "description": "Optional email address."
+              }
+            },
+            "required": [
+              "name",
+              "city",
+              "state",
+              "postalCode",
+              "country"
+            ]
+          },
+          "overrideReason": {
+            "type": "string",
+            "description": "Reason for changing sender or recipient address snapshots."
+          },
+          "package": {
+            "type": "object",
+            "description": "Optional package override for postage purchase.",
+            "additionalProperties": false,
+            "properties": {
+              "lengthInches": {
+                "type": "number",
+                "description": "Package length in inches."
+              },
+              "widthInches": {
+                "type": "number",
+                "description": "Package width in inches."
+              },
+              "heightInches": {
+                "type": "number",
+                "description": "Package height in inches."
+              },
+              "weightOunces": {
+                "type": "number",
+                "description": "Package weight in ounces."
+              }
+            },
+            "required": [
+              "lengthInches",
+              "widthInches",
+              "heightInches",
+              "weightOunces"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for the action."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use after confirming package, sender, recipient, and service level."
+      ]
+    },
+    {
+      "name": "fulfillment.void-label",
+      "title": "Void Label",
+      "description": "Void an unused postage label.",
+      "service_id": "fulfillment",
+      "risk": "destructive",
+      "access_scope": "account",
+      "required_permissions": [
+        "fulfillment.manage"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "shipmentId",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "shipmentId": {
+            "type": "string",
+            "description": "Shipment with label to void."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for the action."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use only after confirming the label is unused and eligible to void."
+      ]
+    },
+    {
+      "name": "settlement.get-wallet",
+      "title": "Get Wallet",
+      "description": "Read account wallet balance, pending funds, and payout readiness.",
+      "service_id": "settlement",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "wallet"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "wallet": {
+            "type": "object",
+            "description": "Settlement wallet balance row.",
+            "additionalProperties": true,
+            "required": [
+              "account_id",
+              "currency_code",
+              "pending_balance_amount",
+              "available_balance_amount"
+            ],
+            "properties": {
+              "account_id": {
+                "type": "string",
+                "description": "Account that owns the wallet."
+              },
+              "currency_code": {
+                "type": "string",
+                "description": "Wallet currency code."
+              },
+              "pending_balance_amount": {
+                "type": "string",
+                "description": "Pending balance amount."
+              },
+              "available_balance_amount": {
+                "type": "string",
+                "description": "Available balance amount."
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use before payout setup, payout request, or reconciliation actions."
+      ]
+    },
+    {
+      "name": "settlement.list-ledger-entries",
+      "title": "List Ledger Entries",
+      "description": "Read account ledger entries that explain wallet balance changes.",
+      "service_id": "settlement",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of ledger entries to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of ledger entries to skip."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "items",
+          "total",
+          "count"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "items": {
+            "type": "array",
+            "description": "Ledger entries visible to the actor.",
+            "items": {
+              "type": "object",
+              "description": "Settlement ledger entry row.",
+              "additionalProperties": true,
+              "required": [
+                "ledger_entry_id",
+                "account_id",
+                "kind",
+                "direction",
+                "amount",
+                "currency_code",
+                "funds_status"
+              ],
+              "properties": {
+                "ledger_entry_id": {
+                  "type": "string",
+                  "description": "Ledger entry identifier."
+                },
+                "account_id": {
+                  "type": "string",
+                  "description": "Account that owns the ledger entry."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "Ledger entry kind."
+                },
+                "direction": {
+                  "type": "string",
+                  "description": "Debit or credit direction."
+                },
+                "amount": {
+                  "type": "string",
+                  "description": "Ledger entry amount."
+                },
+                "currency_code": {
+                  "type": "string",
+                  "description": "Ledger entry currency code."
+                },
+                "funds_status": {
+                  "type": "string",
+                  "description": "Funds status."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total ledger entry count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned ledger entry count."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use when explaining balance changes or payout availability."
+      ]
+    },
+    {
+      "name": "settlement.list-payouts",
+      "title": "List Payouts",
+      "description": "Read account payout request history.",
+      "service_id": "settlement",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of payouts to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of payouts to skip."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "items",
+          "total",
+          "count"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "items": {
+            "type": "array",
+            "description": "Payouts visible to the actor.",
+            "items": {
+              "type": "object",
+              "description": "Settlement payout row.",
+              "additionalProperties": true,
+              "required": [
+                "payout_id",
+                "account_id",
+                "amount",
+                "currency_code",
+                "status",
+                "requested_at",
+                "updated_at"
+              ],
+              "properties": {
+                "payout_id": {
+                  "type": "string",
+                  "description": "Payout identifier."
+                },
+                "account_id": {
+                  "type": "string",
+                  "description": "Account that owns the payout."
+                },
+                "amount": {
+                  "type": "string",
+                  "description": "Payout amount."
+                },
+                "currency_code": {
+                  "type": "string",
+                  "description": "Payout currency code."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Payout lifecycle status."
+                },
+                "requested_at": {
+                  "type": "string",
+                  "description": "Payout request timestamp."
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "Payout update timestamp."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total payout count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned payout count."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to inspect payout history before requesting or reconciling payouts."
+      ]
+    },
+    {
+      "name": "settlement.get-payout",
+      "title": "Get Payout",
+      "description": "Read one payout by identifier.",
+      "service_id": "settlement",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "payoutId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "payoutId": {
+            "type": "string",
+            "description": "Payout identifier."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "payout"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "payout": {
+            "type": "object",
+            "description": "Settlement payout row.",
+            "additionalProperties": true,
+            "required": [
+              "payout_id",
+              "account_id",
+              "amount",
+              "currency_code",
+              "status",
+              "requested_at",
+              "updated_at"
+            ],
+            "properties": {
+              "payout_id": {
+                "type": "string",
+                "description": "Payout identifier."
+              },
+              "account_id": {
+                "type": "string",
+                "description": "Account that owns the payout."
+              },
+              "amount": {
+                "type": "string",
+                "description": "Payout amount."
+              },
+              "currency_code": {
+                "type": "string",
+                "description": "Payout currency code."
+              },
+              "status": {
+                "type": "string",
+                "description": "Payout lifecycle status."
+              },
+              "requested_at": {
+                "type": "string",
+                "description": "Payout request timestamp."
+              },
+              "updated_at": {
+                "type": "string",
+                "description": "Payout update timestamp."
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to inspect payout status, provider references, or failure details."
+      ]
+    },
+    {
+      "name": "settlement.request-payout",
+      "title": "Request Payout",
+      "description": "Request an account payout from available balance.",
+      "service_id": "settlement",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.request"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "amount",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "amount": {
+            "type": "string",
+            "description": "Payout amount in decimal currency format."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for payout request."
+          },
+          "sensitiveActionToken": {
+            "type": "string",
+            "description": "Step-up verification token when required by payout policy."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without requesting payout."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "payoutId",
+          "version",
+          "status",
+          "resourceUri",
+          "payout"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Payout identifier."
+          },
+          "payoutId": {
+            "type": "string",
+            "description": "Payout identifier."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Committed payout stream version."
+          },
+          "status": {
+            "type": "string",
+            "description": "Payout lifecycle status."
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the payout."
+          },
+          "payout": {
+            "type": "object",
+            "description": "Settlement payout row.",
+            "additionalProperties": true,
+            "required": [
+              "payout_id",
+              "account_id",
+              "amount",
+              "currency_code",
+              "status",
+              "requested_at",
+              "updated_at"
+            ],
+            "properties": {
+              "payout_id": {
+                "type": "string",
+                "description": "Payout identifier."
+              },
+              "account_id": {
+                "type": "string",
+                "description": "Account that owns the payout."
+              },
+              "amount": {
+                "type": "string",
+                "description": "Payout amount."
+              },
+              "currency_code": {
+                "type": "string",
+                "description": "Payout currency code."
+              },
+              "status": {
+                "type": "string",
+                "description": "Payout lifecycle status."
+              },
+              "requested_at": {
+                "type": "string",
+                "description": "Payout request timestamp."
+              },
+              "updated_at": {
+                "type": "string",
+                "description": "Payout update timestamp."
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use only after confirming available balance and payout readiness."
+      ]
+    },
+    {
+      "name": "settlement.refresh-readiness",
+      "title": "Refresh Payout Readiness",
+      "description": "Refresh payout readiness from the money movement provider.",
+      "service_id": "settlement",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.setup"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "providerReference": {
+            "type": "string",
+            "description": "Optional expected connected payout account reference."
+          },
+          "contactEmail": {
+            "type": "string",
+            "description": "Optional account contact email for provider setup."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for refreshing payout readiness."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without refreshing readiness."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "status",
+          "readiness",
+          "resourceUri"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Account identifier."
+          },
+          "status": {
+            "type": "string",
+            "description": "Provider-neutral payout readiness status."
+          },
+          "readiness": {
+            "type": "object",
+            "description": "Settlement payout readiness row.",
+            "additionalProperties": true,
+            "required": [
+              "account_id",
+              "status",
+              "missing_requirements",
+              "onboarding_status",
+              "updated_at"
+            ],
+            "properties": {
+              "account_id": {
+                "type": "string",
+                "description": "Account that owns the readiness row."
+              },
+              "status": {
+                "type": "string",
+                "description": "Provider-neutral payout readiness status."
+              },
+              "missing_requirements": {
+                "type": "array",
+                "description": "Provider-neutral missing requirement keys.",
+                "items": {
+                  "type": "string",
+                  "description": "Requirement."
+                }
+              },
+              "provider_reference": {
+                "type": "string",
+                "description": "Provider connected account reference."
+              },
+              "onboarding_status": {
+                "type": "string",
+                "description": "Provider-neutral onboarding status."
+              },
+              "updated_at": {
+                "type": "string",
+                "description": "Last readiness update timestamp."
+              }
+            }
+          },
+          "resourceUri": {
+            "type": "string",
+            "description": "MCP resource URI for the settlement wallet."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use when setup status appears stale or after provider onboarding."
+      ]
+    },
+    {
+      "name": "settlement.create-payout-onboarding-link",
+      "title": "Create Payout Onboarding Link",
+      "description": "Create a hosted provider onboarding link for account payout setup.",
+      "service_id": "settlement",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.setup"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "returnUrl",
+          "refreshUrl",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "returnUrl": {
+            "type": "string",
+            "description": "HTTPS URL where the provider returns after onboarding."
+          },
+          "refreshUrl": {
+            "type": "string",
+            "description": "HTTPS URL where the provider sends expired-link recovery."
+          },
+          "contactEmail": {
+            "type": "string",
+            "description": "Optional account contact email for provider setup."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for creating a hosted onboarding link."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without creating a hosted link."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "providerReference",
+          "status",
+          "url",
+          "readiness"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Provider connected account reference."
+          },
+          "providerReference": {
+            "type": "string",
+            "description": "Provider connected account reference."
+          },
+          "status": {
+            "type": "string",
+            "description": "Provider-neutral payout readiness status."
+          },
+          "url": {
+            "type": "string",
+            "description": "Hosted provider onboarding URL."
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "Hosted onboarding link expiration timestamp."
+          },
+          "readiness": {
+            "type": "object",
+            "description": "Settlement payout readiness row.",
+            "additionalProperties": true,
+            "required": [
+              "account_id",
+              "status",
+              "missing_requirements",
+              "onboarding_status",
+              "updated_at"
+            ],
+            "properties": {
+              "account_id": {
+                "type": "string",
+                "description": "Account that owns the readiness row."
+              },
+              "status": {
+                "type": "string",
+                "description": "Provider-neutral payout readiness status."
+              },
+              "missing_requirements": {
+                "type": "array",
+                "description": "Provider-neutral missing requirement keys.",
+                "items": {
+                  "type": "string",
+                  "description": "Requirement."
+                }
+              },
+              "provider_reference": {
+                "type": "string",
+                "description": "Provider connected account reference."
+              },
+              "onboarding_status": {
+                "type": "string",
+                "description": "Provider-neutral onboarding status."
+              },
+              "updated_at": {
+                "type": "string",
+                "description": "Last readiness update timestamp."
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use when an agent-driven account needs a hosted Stripe Connect onboarding handoff."
+      ]
+    },
+    {
+      "name": "platform-operations.get-seller-insight-summary",
+      "title": "Get Seller Insight Summary",
+      "description": "Read seller dashboard KPIs currently exposed by Platform Operations insights dashboards.",
+      "service_id": "platform-operations",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "accounts.view"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use for non-mutating seller performance analysis."
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "uri_template": "chase-sets://identity/{accountId}/account",
+      "title": "Account",
+      "description": "Account profile, badge, and lifecycle read model.",
+      "service_id": "identity",
+      "access_scope": "account",
+      "required_permissions": [
+        "accounts.view"
+      ],
+      "expected_usage": [
+        "Use when an agent needs account profile facts or status."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
+      "title": "Inventory Item",
+      "description": "Seller-owned inventory item state, hold-derived availability, and stock ledger.",
+      "service_id": "inventory",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.view"
+      ],
+      "expected_usage": [
+        "Use before pricing, listing, stock holds, or adjustment actions."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+      "title": "Inventory Import Batch",
+      "description": "Review-first inventory import batch with product match and draft listing outcomes.",
+      "service_id": "inventory",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.view"
+      ],
+      "expected_usage": [
+        "Use after an agent creates or commits an import batch."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://marketplace/{accountId}/listings/{listingId}",
+      "title": "Listing",
+      "description": "Listing publication and market-facing price state.",
+      "service_id": "marketplace",
+      "access_scope": "account",
+      "required_permissions": [
+        "listings.view"
+      ],
+      "expected_usage": [
+        "Use to inspect active marketplace supply."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://marketplace/{accountId}/offers/{offerId}",
+      "title": "Offer",
+      "description": "Offer state and participant-safe details.",
+      "service_id": "marketplace",
+      "access_scope": "account",
+      "required_permissions": [
+        "offers.view"
+      ],
+      "expected_usage": [
+        "Use before offer negotiation or acceptance."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://marketplace/{accountId}/reputation/summaries/{subjectAccountId}",
+      "title": "Reputation Summary",
+      "description": "Public review rollup currently available for an account.",
+      "service_id": "marketplace",
+      "access_scope": "account",
+      "required_permissions": [
+        "reputation.view"
+      ],
+      "expected_usage": [
+        "Use for account trust and review workflows."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://marketplace/{accountId}/reviews/{reviewId}",
+      "title": "Review",
+      "description": "Review detail visible to the actor as author or subject.",
+      "service_id": "marketplace",
+      "access_scope": "account",
+      "required_permissions": [
+        "reputation.view"
+      ],
+      "expected_usage": [
+        "Use for review support and reputation explanations."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
+      "title": "Price Recommendation",
+      "description": "Pricing recommendation read model for the actor account and Catalog Item natural key.",
+      "service_id": "pricing",
+      "access_scope": "account",
+      "required_permissions": [
+        "pricing.view"
+      ],
+      "expected_usage": [
+        "Use before listing price updates."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://checkout/{accountId}/cart",
+      "title": "Cart",
+      "description": "Current account cart and checkout readiness.",
+      "service_id": "checkout",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.view"
+      ],
+      "expected_usage": [
+        "Use before checkout mutations."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
+      "title": "Shipment",
+      "description": "Shipment state, package, label, and tracking read model.",
+      "service_id": "fulfillment",
+      "access_scope": "account",
+      "required_permissions": [
+        "fulfillment.view"
+      ],
+      "expected_usage": [
+        "Use before fulfillment mutations."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://settlement/{accountId}/wallet",
+      "title": "Wallet",
+      "description": "Wallet, ledger summary, and payout state.",
+      "service_id": "settlement",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.view"
+      ],
+      "expected_usage": [
+        "Use for payout and reconciliation decisions."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://settlement/{accountId}/payouts/{payoutId}",
+      "title": "Payout",
+      "description": "Payout status, provider references, and failure details.",
+      "service_id": "settlement",
+      "access_scope": "account",
+      "required_permissions": [
+        "payouts.view"
+      ],
+      "expected_usage": [
+        "Use for payout status and reconciliation decisions."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://platform-operations/{accountId}/insights/summary",
+      "title": "Seller Insight Summary",
+      "description": "Sales performance, fulfillment latency, and conversion KPI summary.",
+      "service_id": "platform-operations",
+      "access_scope": "account",
+      "required_permissions": [
+        "accounts.view"
+      ],
+      "expected_usage": [
+        "Use for seller dashboard analysis."
+      ]
+    }
+  ]
+}

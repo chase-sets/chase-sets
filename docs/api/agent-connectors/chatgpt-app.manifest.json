@@ -1,0 +1,89 @@
+{
+  "platform": "chatgpt-app",
+  "name": "Chase Sets",
+  "description": "Authenticated Chase Sets marketplace MCP connector for inventory, listings, offers, fulfillment, settlement, pricing, reputation, and account workflows.",
+  "endpoint": "https://<marketplace-host>/mcp",
+  "registration_artifact": "native-mcp-registration.json",
+  "authentication": {
+    "type": "oauth2-pkce",
+    "oauth": {
+      "issuer_metadata_url": "https://<marketplace-host>/.well-known/oauth-authorization-server",
+      "authorization_endpoint": "https://<marketplace-host>/ucp/oauth/authorize",
+      "token_endpoint": "https://<marketplace-host>/ucp/oauth/token",
+      "introspection_endpoint": "https://<marketplace-host>/ucp/oauth/introspect",
+      "revocation_endpoint": "https://<marketplace-host>/ucp/oauth/revoke",
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "pkce": {
+        "required": true,
+        "methods": [
+          "S256"
+        ]
+      },
+      "token_endpoint_auth_method": "none",
+      "dynamic_client_registration": {
+        "status": "not-exposed",
+        "reason": "The current platform exposes OAuth authorization-code-with-PKCE for pre-registered public clients. No dynamic client registration endpoint is mounted.",
+        "client_id_source": "Connector platform registration record or platform profile URL.",
+        "confidential_credential_policy": "not-used"
+      }
+    }
+  },
+  "tool_names": [
+    "identity.get-account",
+    "inventory.list-items",
+    "inventory.list-import-sources",
+    "inventory.create-import-batch",
+    "inventory.get-import-batch",
+    "inventory.commit-import-batch",
+    "inventory.adjust-item",
+    "marketplace.list-listings",
+    "marketplace.get-seller-insights",
+    "marketplace.list-offers",
+    "marketplace.get-reputation-summary",
+    "marketplace.list-reviews",
+    "marketplace.submit-offer",
+    "marketplace.counter-offer",
+    "marketplace.create-listing",
+    "marketplace.update-listing-price",
+    "marketplace.publish-listing",
+    "marketplace.unpublish-listing",
+    "marketplace.accept-offer",
+    "marketplace.decline-offer",
+    "pricing.recommend-price",
+    "pricing.explain-signals",
+    "checkout.get-cart",
+    "fulfillment.list-shipments",
+    "fulfillment.purchase-label",
+    "fulfillment.void-label",
+    "settlement.get-wallet",
+    "settlement.list-ledger-entries",
+    "settlement.list-payouts",
+    "settlement.get-payout",
+    "settlement.request-payout",
+    "settlement.refresh-readiness",
+    "settlement.create-payout-onboarding-link",
+    "platform-operations.get-seller-insight-summary"
+  ],
+  "resource_uri_templates": [
+    "chase-sets://identity/{accountId}/account",
+    "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
+    "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+    "chase-sets://marketplace/{accountId}/listings/{listingId}",
+    "chase-sets://marketplace/{accountId}/offers/{offerId}",
+    "chase-sets://marketplace/{accountId}/reputation/summaries/{subjectAccountId}",
+    "chase-sets://marketplace/{accountId}/reviews/{reviewId}",
+    "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
+    "chase-sets://checkout/{accountId}/cart",
+    "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
+    "chase-sets://settlement/{accountId}/wallet",
+    "chase-sets://settlement/{accountId}/payouts/{payoutId}",
+    "chase-sets://platform-operations/{accountId}/insights/summary"
+  ],
+  "platform_notes": [
+    "Register as a ChatGPT app backed by the native remote MCP endpoint.",
+    "Use OAuth Authorization Code with PKCE and the pre-registered public-client client_id."
+  ]
+}
