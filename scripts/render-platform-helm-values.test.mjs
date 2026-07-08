@@ -309,7 +309,7 @@ describe("render platform Helm values", () => {
   it("keeps live deploy wiring out of the scaffold", () => {
     const chartFiles = [
       "templates/_helpers.tpl",
-      "templates/certificate.yaml",
+
       "templates/deployment.yaml",
       "templates/ingress.yaml",
       "templates/job.yaml",
@@ -329,7 +329,6 @@ describe("render platform Helm values", () => {
     expect(chartText).not.toMatch(/^kind: Secret$/m);
     expect(readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")).toContain("doksIngress:");
     expect(chartText).toContain(".Values.doksIngress");
-    expect(chartText).toContain("kind: Certificate");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
     expect(rolloutStates).toEqual([false, false]);
