@@ -99,15 +99,15 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSessionSchemaMigrations).toEqual([
       expect.objectContaining({
         migrationId: "20260707_checkout_session_reservations",
+        // A single metadata-only ADD COLUMN ... NOT NULL DEFAULT avoids the ACCESS EXCLUSIVE
+        // full-table scan that hung bootstrap under live traffic (#4638).
         statements: [
-          expect.stringContaining("ADD COLUMN IF NOT EXISTS checkout_reservations jsonb NULL"),
-          expect.stringContaining("SET checkout_reservations = '[]'::jsonb"),
-          expect.stringContaining("ALTER COLUMN checkout_reservations SET DEFAULT '[]'::jsonb"),
-          expect.stringContaining("SET lock_timeout = '5s'"),
-          expect.stringContaining("ALTER COLUMN checkout_reservations SET NOT NULL"),
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS checkout_reservations jsonb NOT NULL DEFAULT '[]'::jsonb"),
         ],
       }),
     ]);
+    expect(checkoutSessionSchemaMigrations[0]?.statements).toHaveLength(1);
+    expect(checkoutSessionSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
   });
 
   it("keeps checkout inventory schema evolution before indexes that use evolved columns", () => {

@@ -40,19 +40,15 @@ export const inventoryHoldSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260707_inventory_hold_checkout_lifecycle",
     description: "Add checkout hold expiry and extension read-model columns.",
+    // Metadata-only ADD COLUMN changes (PostgreSQL 11+) that hold ACCESS EXCLUSIVE only for
+    // an instant. The earlier ADD (nullable) -> UPDATE -> SET DEFAULT -> SET NOT NULL sequence
+    // held ACCESS EXCLUSIVE across a full-table validation scan and hung the bootstrap under
+    // live read traffic. See #4638.
     statements: [
       `ALTER TABLE inventory_holds
   ADD COLUMN IF NOT EXISTS expired_at timestamptz NULL;`,
       `ALTER TABLE inventory_holds
-  ADD COLUMN IF NOT EXISTS extension_count integer NULL;`,
-      `UPDATE inventory_holds
-  SET extension_count = 0
-  WHERE extension_count IS NULL;`,
-      `ALTER TABLE inventory_holds
-  ALTER COLUMN extension_count SET DEFAULT 0;`,
-      `SET lock_timeout = '5s';`,
-      `ALTER TABLE inventory_holds
-  ALTER COLUMN extension_count SET NOT NULL;`,
+  ADD COLUMN IF NOT EXISTS extension_count integer NOT NULL DEFAULT 0;`,
     ],
   },
 ];

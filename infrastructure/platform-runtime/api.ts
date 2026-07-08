@@ -311,7 +311,59 @@ export type ApiHostSeedOptions = BcSeedOptions &
   Readonly<{
     runtimeProfile?: ApiHostRuntimeProfile;
     schemaBootstrap?: SchemaBootstrapOptions;
+    /**
+     * Upper bound for any single seed substep (schema bootstrap or module seed for one
+     * context). When a substep exceeds it, seeding fails with a descriptive error instead of
+     * hanging silently until the deploy quiesce kills the bootstrap job. See #4638.
+     */
+    substepTimeoutMs?: number;
   }>;
+
+async function runSeedSubstep<T>(label: string, timeoutMs: number | undefined, action: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  console.log(`[seed-api-host] ${label} started.`);
+  try {
+    const result = await withSeedSubstepTimeout(label, timeoutMs, action);
+    console.log(`[seed-api-host] ${label} completed in ${Date.now() - startedAt}ms.`);
+    return result;
+  } catch (error) {
+    console.error(`[seed-api-host] ${label} failed after ${Date.now() - startedAt}ms.`, error);
+    throw error;
+  }
+}
+
+async function withSeedSubstepTimeout<T>(
+  label: string,
+  timeoutMs: number | undefined,
+  action: () => Promise<T>,
+): Promise<T> {
+  if (timeoutMs === undefined) {
+    return action();
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      action(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              `[seed-api-host] substep '${label}' exceeded ${timeoutMs}ms without completing. ` +
+                "This usually means a schema migration or seed is blocked on a database lock " +
+                "(for example ACCESS EXCLUSIVE contention from live read traffic during a rolling deploy) " +
+                "or is awaiting a projection no running worker can apply. Inspect active database sessions.",
+            ),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
 
 export async function seedApiHostIfEmpty(
   registry: ApiContextRegistry,
@@ -324,9 +376,12 @@ export async function seedApiHostIfEmpty(
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
   const runFullDrain = shouldRunFullBootstrapDrain(options);
+  const substepTimeoutMs = options.substepTimeoutMs;
 
   for (const context of runtime.mountedContexts) {
-    await bootstrapContextDatabase(context.module, context.pool, options.schemaBootstrap);
+    await runSeedSubstep(`schema-bootstrap:${context.contextName}`, substepTimeoutMs, () =>
+      bootstrapContextDatabase(context.module, context.pool, options.schemaBootstrap),
+    );
   }
 
   for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile)) {
@@ -337,27 +392,35 @@ export async function seedApiHostIfEmpty(
 
     const runContextSeed = shouldRunContextSeed(context, options);
     if (!runContextSeed) {
-      await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
+        seedApiModuleIfEmpty(context.module, context.pool, context.services, options),
+      );
       continue;
     }
 
     if (runFullDrain) {
-      await syncContextProjectionGroups(runtime, contextName, {
-        requiredOnly: true,
-      });
+      await runSeedSubstep(`projection-sync:${contextName}`, substepTimeoutMs, () =>
+        syncContextProjectionGroups(runtime, contextName, {
+          requiredOnly: true,
+        }),
+      );
     }
-    await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+    await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
+      seedApiModuleIfEmpty(context.module, context.pool, context.services, options),
+    );
     if (runFullDrain) {
-      await syncContextProjectionGroups(runtime, contextName);
-      await drainContextRuntime(runtime);
-      await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
-      await syncContextProjectionGroups(runtime, contextName);
-      await drainContextRuntime(runtime);
+      await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
+        await syncContextProjectionGroups(runtime, contextName);
+        await drainContextRuntime(runtime);
+        await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+        await syncContextProjectionGroups(runtime, contextName);
+        await drainContextRuntime(runtime);
+      });
     }
   }
 
   if (runFullDrain) {
-    await drainContextRuntime(runtime);
+    await runSeedSubstep("projection-drain:all", substepTimeoutMs, () => drainContextRuntime(runtime));
 
     // A final reconciliation pass lets seeds that depend on downstream facts
     // (for example marketplace review seeds that need delivered fulfillment
@@ -367,9 +430,11 @@ export async function seedApiHostIfEmpty(
       if (!context || !shouldRunContextSeed(context, options)) {
         continue;
       }
-      await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
-      await syncContextProjectionGroups(runtime, contextName);
-      await drainContextRuntime(runtime);
+      await runSeedSubstep(`seed-reconcile:${contextName}`, substepTimeoutMs, async () => {
+        await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+        await syncContextProjectionGroups(runtime, contextName);
+        await drainContextRuntime(runtime);
+      });
     }
   }
 }
