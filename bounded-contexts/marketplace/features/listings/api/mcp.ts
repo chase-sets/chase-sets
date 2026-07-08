@@ -29,6 +29,34 @@ function readRequiredString(args: Readonly<Record<string, unknown>>, key: string
   return value;
 }
 
+function readOptionalPositiveIntegerArgument(args: Readonly<Record<string, unknown>>, key: string, fallback: number) {
+  const raw = args[key];
+  if (raw === null || raw === undefined || raw === "") {
+    return fallback;
+  }
+
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${key} must be a positive integer.`);
+  }
+
+  return value;
+}
+
+function readOptionalNonNegativeInteger(args: Readonly<Record<string, unknown>>, key: string, fallback: number) {
+  const raw = args[key];
+  if (raw === null || raw === undefined || raw === "") {
+    return fallback;
+  }
+
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${key} must be a non-negative integer.`);
+  }
+
+  return value;
+}
+
 function readPositiveInteger(args: Readonly<Record<string, unknown>>, key: string) {
   const value = Number(args[key]);
   if (!Number.isInteger(value) || value <= 0) {
@@ -105,6 +133,61 @@ function listingReceipt(
 export function createMarketplaceListingMcpHandlers(
   services: MarketplaceListingServices,
 ): MarketplaceListingMcpHandlers {
+  const listListings: McpToolHandler = async ({ actor, arguments: args }) => {
+    const accountId = readRequiredString(args, "accountId");
+    const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const response = await services.listSellerListings({
+      accountId: scopedActor.accountId,
+      limit: readOptionalPositiveIntegerArgument(args, "limit", 50),
+      offset: readOptionalNonNegativeInteger(args, "offset", 0),
+    });
+
+    return {
+      accountId: scopedActor.accountId,
+      items: response.items,
+      total: response.total,
+      count: response.items.length,
+    };
+  };
+
+  const getSellerInsights: McpToolHandler = async ({ actor, arguments: args }) => {
+    const accountId = readRequiredString(args, "accountId");
+    const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const limit = readOptionalPositiveIntegerArgument(args, "limit", 25);
+    const offset = readOptionalNonNegativeInteger(args, "offset", 0);
+    const [availability, listings, feeLockReport, supply] = await Promise.all([
+      services.getSellerListingAvailability(scopedActor.accountId),
+      services.listSellerListings({ accountId: scopedActor.accountId, limit, offset }),
+      services.listSellerListingFeeLockReport({ accountId: scopedActor.accountId, limit, offset }),
+      services.listSellerInventoryItemSupply({
+        accountId: scopedActor.accountId,
+        catalogItemId: readMcpStringArgument(args, "catalogItemId") ?? undefined,
+        limit,
+        offset,
+      }),
+    ]);
+
+    return {
+      accountId: scopedActor.accountId,
+      availability,
+      listings: {
+        items: listings.items,
+        total: listings.total,
+        count: listings.items.length,
+      },
+      feeLockReport: {
+        items: feeLockReport.items,
+        total: feeLockReport.total,
+        count: feeLockReport.items.length,
+      },
+      supply: {
+        items: supply.items,
+        total: supply.total,
+        count: supply.items.length,
+      },
+    };
+  };
+
   const createListing: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
@@ -192,6 +275,8 @@ export function createMarketplaceListingMcpHandlers(
 
   return {
     toolHandlers: {
+      "marketplace.list-listings": listListings,
+      "marketplace.get-seller-insights": getSellerInsights,
       "marketplace.create-listing": createListing,
       "marketplace.update-listing-price": updateListingPrice,
       "marketplace.publish-listing": publishListing,

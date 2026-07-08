@@ -410,6 +410,8 @@
   "mcpCapabilities": {
     "tools": [
       { "name": "marketplace.create-listing", "ownerSlice": "listings" },
+      { "name": "marketplace.list-listings", "ownerSlice": "listings" },
+      { "name": "marketplace.get-seller-insights", "ownerSlice": "listings" },
       { "name": "marketplace.update-listing-price", "ownerSlice": "listings" },
       { "name": "marketplace.publish-listing", "ownerSlice": "listings" },
       { "name": "marketplace.unpublish-listing", "ownerSlice": "listings" },
@@ -417,7 +419,9 @@
       { "name": "marketplace.counter-offer", "ownerSlice": "offers" },
       { "name": "marketplace.accept-offer", "ownerSlice": "offers" },
       { "name": "marketplace.decline-offer", "ownerSlice": "offers" },
-      { "name": "marketplace.list-offers", "ownerSlice": "offers" }
+      { "name": "marketplace.list-offers", "ownerSlice": "offers" },
+      { "name": "marketplace.get-reputation-summary", "ownerSlice": "reviews" },
+      { "name": "marketplace.list-reviews", "ownerSlice": "reviews" }
     ],
     "resources": [
       {
@@ -427,6 +431,14 @@
       {
         "uriTemplate": "chase-sets://marketplace/{accountId}/offers/{offerId}",
         "ownerSlice": "offers"
+      },
+      {
+        "uriTemplate": "chase-sets://marketplace/{accountId}/reputation/summaries/{subjectAccountId}",
+        "ownerSlice": "reviews"
+      },
+      {
+        "uriTemplate": "chase-sets://marketplace/{accountId}/reviews/{reviewId}",
+        "ownerSlice": "reviews"
       }
     ]
   },

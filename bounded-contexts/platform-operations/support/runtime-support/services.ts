@@ -9,6 +9,7 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
+import { createDashboardQueryService } from "../../features/insights-dashboards/read-model/queries";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
@@ -19,6 +20,7 @@ export type PlatformOperationsHostPorts = Readonly<{
 
 export type PlatformOperationsServices = Readonly<{
   db: PgTransactionalPool;
+  insightsDashboards: ReturnType<typeof createDashboardQueryService>;
   platformFeedback: ReturnType<typeof createPlatformFeedbackRuntime>;
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
@@ -55,6 +57,7 @@ export function createPlatformOperationsServices(
 
   return {
     db: pool,
+    insightsDashboards: createDashboardQueryService(new Map()),
     platformFeedback,
     reportedContent,
     riskAlerts,

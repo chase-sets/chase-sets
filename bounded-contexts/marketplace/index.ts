@@ -12,6 +12,7 @@ import { buildMarketplaceSettlementNegativeBalanceProjectionHandlers } from "./f
 import { buildMarketplaceListingProjectionHandlers } from "./features/listings/read-model/projection";
 import { createMarketplaceListingMcpHandlers } from "./features/listings/api/mcp";
 import { createMarketplaceOfferMcpHandlers } from "./features/offers/api/mcp";
+import { createMarketplaceReviewMcpHandlers } from "./features/reviews/api/mcp";
 import {
   buildReviewAccountProjectionHandlers,
   buildReviewOrderSourceProjectionHandlers,
@@ -33,15 +34,18 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
   buildMcpHandlers: (services) => {
     const listings = createMarketplaceListingMcpHandlers(services.listings);
     const offers = createMarketplaceOfferMcpHandlers(services.offers);
+    const reviews = createMarketplaceReviewMcpHandlers(services.reviews);
 
     return {
       toolHandlers: {
         ...listings.toolHandlers,
         ...offers.toolHandlers,
+        ...reviews.toolHandlers,
       },
       resourceHandlers: {
         ...listings.resourceHandlers,
         ...offers.resourceHandlers,
+        ...reviews.resourceHandlers,
       },
     };
   },

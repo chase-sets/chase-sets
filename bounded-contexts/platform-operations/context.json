@@ -255,6 +255,15 @@
       "requiresAuth": true
     }
   ],
+  "mcpCapabilities": {
+    "tools": [{ "name": "platform-operations.get-seller-insight-summary", "ownerSlice": "insights-dashboards" }],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://platform-operations/{accountId}/insights/summary",
+        "ownerSlice": "insights-dashboards"
+      }
+    ]
+  },
   "mutationConsistencyInventory": [
     {
       "id": "platform-operations.projection-operation-command-snapshots",
