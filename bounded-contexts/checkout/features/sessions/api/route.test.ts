@@ -1198,7 +1198,7 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "account_registration_required",
-        message: "Register or sign in before placing purchase intent.",
+        message: "Register or sign in before submitting an offer.",
       },
     });
     expect(services.createOfferIntent).not.toHaveBeenCalled();

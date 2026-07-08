@@ -340,7 +340,7 @@ describe("marketplace listing routes", () => {
     expect(response.headers.get("Retry-After")).toBeTruthy();
     await expect(response.json()).resolves.toMatchObject({
       error: {
-        code: "anonymous_rail_rate_limited",
+        code: "anonymous_request_rate_limited",
       },
     });
     expect(services.previewPublicStandardListingTerms).toHaveBeenCalledTimes(120);
@@ -431,7 +431,7 @@ describe("marketplace listing routes", () => {
     expect(response.headers.get("Retry-After")).toBeTruthy();
     await expect(response.json()).resolves.toMatchObject({
       error: {
-        code: "anonymous_rail_rate_limited",
+        code: "anonymous_request_rate_limited",
       },
     });
     expect(services.createAnonymousListingDraftIntent).toHaveBeenCalledTimes(30);

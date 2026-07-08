@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
 import {
-  anonymousRailRateLimitedResponse,
+  anonymousRequestRateLimitedResponse,
   createAnonymousRailCaptureRateLimiter,
   createCheckoutAccessGuard,
   createGuestCheckoutContext,
@@ -658,8 +658,8 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
 
     const rateLimit = anonymousSellListCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
-      const response = anonymousRailRateLimitedResponse(
-        t("checkout.features.sellList.api.route.anonymous.rail.rate.limited"),
+      const response = anonymousRequestRateLimitedResponse(
+        t("checkout.features.sellList.api.route.anonymous.request.rate.limited"),
         rateLimit.retryAfterSeconds,
       );
       return c.json(response.body, 429, response.headers);

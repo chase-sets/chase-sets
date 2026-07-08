@@ -5,7 +5,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.api.route.authentication.required": "Authentication required.",
   "checkout.features.cart.api.route.anonymous.cart.limit.exceeded":
     "This device has {limit} Buy Cart lines saved. Remove an item before adding another.",
-  "checkout.features.cart.api.route.anonymous.rail.rate.limited":
+  "checkout.features.cart.api.route.anonymous.request.rate.limited":
     "Too many anonymous Buy Cart requests. Wait a few minutes and try again.",
   "checkout.features.cart.api.route.forbidden": "Forbidden.",
   "checkout.features.cart.api.route.request.failed": "Request failed.",
@@ -100,7 +100,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.payment.start.pending":
     "Payment setup is still catching up. Review checkout again before payment starts.",
   "checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent":
-    "Register or sign in before placing purchase intent.",
+    "Register or sign in before submitting an offer.",
   "checkout.features.sessions.api.route.request.failed": "Request failed.",
   "checkout.features.sessions.readModel.schema.create.table.if.not.exists.checkout":
     "\nCREATE TABLE IF NOT EXISTS checkout_session_pages (\n  session_id text PRIMARY KEY,\n  buyer_account_id text NOT NULL,\n  source_type text NOT NULL,\n  shipping_option text NOT NULL,\n  lines jsonb NOT NULL DEFAULT '[]'::jsonb,\n  order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,\n  payment_id text NULL,\n  created_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS checkout_session_pages_buyer_idx\n  ON checkout_session_pages (buyer_account_id, updated_at DESC, session_id DESC);\n",
@@ -124,7 +124,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.checkout.status": "Checkout status",
   "checkout.features.sessions.ui.checkoutPage.checkout.summary": "Checkout Summary",
   "checkout.features.sessions.ui.checkoutPage.confirm.shipping.place.purchase.intent":
-    "Confirm shipping details and place purchase intent for a future seller match.",
+    "Confirm shipping details and submit an offer for sellers to review.",
   "checkout.features.sessions.ui.checkoutPage.continue.to.payment": "Continue to payment",
   "checkout.features.sessions.ui.checkoutPage.continue.to.payment.2": "Continue to payment",
   "checkout.features.sessions.ui.checkoutPage.contact": "Contact",
@@ -148,7 +148,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.city": "City",
   "checkout.features.sessions.ui.checkoutPage.country": "Country",
   "checkout.features.sessions.ui.checkoutPage.destination.required.for.purchase.intent":
-    "Destination is required so a seller knows where the purchase intent would ship if accepted.",
+    "Delivery address is required so sellers know where the offer would ship if accepted.",
   "checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax":
     "Delivery address is required before shipping, tax, and final totals can be confirmed.",
   "checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment":
@@ -226,19 +226,19 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.pricing": "Pricing",
   "checkout.features.sessions.ui.checkoutPage.priority": "Priority",
   "checkout.features.sessions.ui.checkoutPage.product": "Product",
-  "checkout.features.sessions.ui.checkoutPage.purchase.intent": "Purchase intent",
-  "checkout.features.sessions.ui.checkoutPage.purchase.intent.review": "Purchase intent review",
+  "checkout.features.sessions.ui.checkoutPage.purchase.intent": "Offer",
+  "checkout.features.sessions.ui.checkoutPage.purchase.intent.review": "Offer review",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent.review.description":
     "Your offer becomes marketplace-wide demand after you confirm shipping. No order or payment is created today.",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent.review.items.description":
     "Review the product and quantity that will become marketplace-wide demand after shipping is confirmed.",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent.shipping.notice.description":
-    "Shipping is saved with the intent so sellers can evaluate fulfillment before accepting. No order, tax quote, or payment is created today.",
-  "checkout.features.sessions.ui.checkoutPage.purchase.intent.saved": "Purchase intent saved",
+    "Shipping is saved with the offer so sellers can evaluate fulfillment before accepting. No order, tax quote, or payment is created today.",
+  "checkout.features.sessions.ui.checkoutPage.purchase.intent.saved": "Offer saved",
   "checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment":
     "Your order is ready for payment. Delivery and receipt updates appear after payment is complete.",
   "checkout.features.sessions.ui.checkoutPage.quantity": "Quantity",
-  "checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent": "Ready to place purchase intent",
+  "checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent": "Ready to submit offer",
   "checkout.features.sessions.ui.checkoutPage.ready.to.review.payment": "Ready to review payment",
   "checkout.features.sessions.ui.checkoutPage.recipient.name": "Recipient name",
   "checkout.features.sessions.ui.checkoutPage.recipient.placeholder": "Jane Smith",
@@ -270,7 +270,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.support.reference.ready.description":
     "Share the support reference if payment or order details need help.",
   "checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order":
-    "Sellers can accept your purchase intent before an order and payment are created.",
+    "Sellers can accept your offer before an order and payment are created.",
   "checkout.features.sessions.ui.checkoutPage.shipping": "Shipping",
   "checkout.features.sessions.ui.checkoutPage.shipping.after.address": "Shipping updates after address",
   "checkout.features.sessions.ui.checkoutPage.shipping.after.address.description":
@@ -300,11 +300,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.total": "Total",
   "checkout.features.sessions.ui.checkoutPage.no.payment.today": "No payment today",
   "checkout.features.sessions.ui.checkoutPage.no.available.supply": "No available supply",
-  "checkout.features.sessions.ui.checkoutPage.place.purchase.intent": "Place purchase intent",
+  "checkout.features.sessions.ui.checkoutPage.place.purchase.intent": "Submit offer",
   "checkout.features.sessions.ui.checkoutPage.pay.now": "Pay now",
   "checkout.features.sessions.ui.checkoutPage.pay.now.with.saved.payment": "Pay now with {paymentMethodCategory}",
   "checkout.features.sessions.ui.checkoutPage.pending": "Pending",
-  "checkout.features.sessions.ui.checkoutPage.placing.purchase.intent": "Placing purchase intent",
+  "checkout.features.sessions.ui.checkoutPage.placing.purchase.intent": "Submitting offer",
   "checkout.features.sessions.ui.checkoutPage.order.summary": "Order summary",
   "checkout.features.sessions.ui.checkoutPage.item.count": "{count} items",
   "checkout.features.sessions.ui.checkoutPage.quantity.summary": "Qty {quantity}",
@@ -351,7 +351,7 @@ export const checkoutEnglishTranslations = {
     "Sell List review requires a seller account.",
   "checkout.features.sellList.api.route.anonymous.sell.list.limit.exceeded":
     "This device has {limit} Sell List lines saved. Remove an item before adding another.",
-  "checkout.features.sellList.api.route.anonymous.rail.rate.limited":
+  "checkout.features.sellList.api.route.anonymous.request.rate.limited":
     "Too many anonymous Sell List requests. Wait a few minutes and try again.",
   "checkout.features.sellList.ui.sellListPage.add.selected.offers.or.products":
     "Add selected offers or products from item pages before reviewing seller checkout.",
@@ -830,7 +830,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.sellCheckoutSession.validation.payout.changed":
     "The payout estimate changed. Return to the Sell List and refresh the review.",
   "checkout.routes.sellCheckoutSession.validation.risk.hold":
-    "This sale review is on hold. Return to the Sell List for next steps.",
+    "This sale review needs support review. Return to the Sell List for next steps.",
   "checkout.routes.sellCheckoutSession.validation.risk.block":
     "This sale review cannot continue. Return to the Sell List for support-safe recovery.",
   "checkout.routes.sellCheckoutSession.validation.label.failed":
@@ -899,7 +899,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.account.checkout": "Account checkout",
   "checkout.routes.checkoutStart.account.choice": "Account choice",
   "checkout.routes.checkoutStart.account.keeps.purchase.intent.traceable":
-    "Your account keeps the purchase intent and seller response traceable.",
+    "Your account keeps the offer and seller response traceable.",
   "checkout.routes.checkoutStart.buy.now": "Buy Now",
   "checkout.routes.checkoutStart.cart": "Buy cart",
   "checkout.routes.checkoutStart.cart.needs.review": "Buy Cart needs review",
@@ -907,7 +907,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.checkout.status": "Checkout status",
   "checkout.routes.checkoutStart.checkout.summary": "Checkout summary",
   "checkout.routes.checkoutStart.confirm.shipping.so.the.seller.can.review":
-    "Confirm shipping so the seller can review your purchase intent. No payment today.",
+    "Confirm shipping so sellers can review your offer. No payment today.",
   "checkout.routes.checkoutStart.contact.name": "Contact name",
   "checkout.routes.checkoutStart.continue.as.guest": "Continue as guest",
   "checkout.routes.checkoutStart.continue.as.guest.only.if.you.do":
@@ -942,7 +942,7 @@ export const checkoutEnglishTranslations = {
     "Payment begins only after the checkout session is created.",
   "checkout.routes.checkoutStart.payment.collected.only.after.seller.accepts":
     "Payment is collected only if a seller accepts and you complete checkout.",
-  "checkout.routes.checkoutStart.place.purchase.intent": "Place purchase intent",
+  "checkout.routes.checkoutStart.place.purchase.intent": "Submit offer",
   "checkout.routes.checkoutStart.protected.payment": "Protected payment",
   "checkout.routes.checkoutStart.price": "Price",
   "checkout.routes.checkoutStart.price.confirmed.before.payment": "Price confirmed before payment",
@@ -951,10 +951,10 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.ready": "Ready",
   "checkout.routes.checkoutStart.register.or.sign.in": "Register or sign in",
   "checkout.routes.checkoutStart.register.or.sign.in.purchase.intent.copy":
-    "Register or sign in to place your purchase intent. Sellers review the offer before any payment is collected.",
+    "Register or sign in to submit your offer. Sellers review it before any payment is collected.",
   "checkout.routes.checkoutStart.register.or.sign.in.to.place.purchase.intent":
-    "Register or sign in to place purchase intent.",
-  "checkout.routes.checkoutStart.register.to.place.purchase.intent": "Register to place purchase intent",
+    "Register or sign in to submit an offer.",
+  "checkout.routes.checkoutStart.register.to.place.purchase.intent": "Register to submit an offer",
   "checkout.routes.checkoutStart.register.with.passkey": "Register with passkey",
   "checkout.routes.checkoutStart.registration.purchase.intent.copy":
     "Create an account with a passkey, or switch to magic link, so sellers can trust the offer and your reputation can follow the purchase.",
@@ -963,7 +963,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.secure.checkout": "Secure checkout",
   "checkout.routes.checkoutStart.secure.payment": "Secure payment",
   "checkout.routes.checkoutStart.sellers.review.purchase.intent.before.payment":
-    "Sellers review the purchase intent before payment or shipment starts.",
+    "Sellers review the offer before payment or shipment starts.",
   "checkout.routes.checkoutStart.shipping.fees.and.final.totals.are.shown":
     "Shipping, fees, and final totals are shown before payment.",
   "checkout.routes.checkoutStart.sign.in": "Sign in",

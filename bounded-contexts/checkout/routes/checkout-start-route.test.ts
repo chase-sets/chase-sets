@@ -1164,7 +1164,7 @@ describe("checkout web routes: checkout start", () => {
     } as never);
 
     expect(result).toEqual({
-      error: "Register or sign in to place purchase intent.",
+      error: "Register or sign in to submit an offer.",
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness%3Fsource%3Doffer-intent",
     });
     expect(mockStartGuestCheckout).not.toHaveBeenCalled();
@@ -1173,13 +1173,12 @@ describe("checkout web routes: checkout start", () => {
 
   it("uses purchase-intent account copy instead of guest checkout copy", () => {
     expect(checkoutStartHeaderCopy({ isSignedIn: false, isOfferIntent: true })).toEqual({
-      title: "Register to place purchase intent",
-      description:
-        "Register or sign in to place your purchase intent. Sellers review the offer before any payment is collected.",
+      title: "Register to submit an offer",
+      description: "Register or sign in to submit your offer. Sellers review it before any payment is collected.",
     });
     expect(checkoutStartHeaderCopy({ isSignedIn: true, isOfferIntent: true })).toEqual({
-      title: "Place purchase intent",
-      description: "Confirm shipping so the seller can review your purchase intent. No payment today.",
+      title: "Submit offer",
+      description: "Confirm shipping so sellers can review your offer. No payment today.",
     });
     expect(
       checkoutStartBuyerProtectionItems(true)
