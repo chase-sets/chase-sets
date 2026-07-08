@@ -736,6 +736,17 @@ variable "uptime_checks_enabled" {
   description = "Create DigitalOcean uptime checks for public platform endpoints."
 }
 
+variable "staging_app_serving" {
+  type        = string
+  default     = "app-platform"
+  description = "Which platform serves the live staging marketplace/admin/www hosts. \"app-platform\" (default) keeps the App Platform staging_app_alias CNAME records and is the rollback state. \"doks\" releases those CNAMEs so the environment-dns DOKS A records can serve staging during the cutover. Coordinate this switch with staging_app_serving in infrastructure/digitalocean/environment-dns."
+
+  validation {
+    condition     = contains(["app-platform", "doks"], var.staging_app_serving)
+    error_message = "staging_app_serving must be either \"app-platform\" or \"doks\"."
+  }
+}
+
 variable "uptime_check_regions" {
   type        = list(string)
   default     = ["us_east", "us_west", "eu_west"]

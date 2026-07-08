@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (94)
+## Projection Groups (97)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -42,6 +42,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `auth:auth-identity-membership-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-user-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-session-projection` | Auth | auth | push-eligible | 0/1 |
+| `catalog:catalog-admin-catalog-item-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-product-contents-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-scope-registry-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
@@ -134,7 +135,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 79 `push-enabled`, 13 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 83 `push-enabled`, 14 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (70)
 

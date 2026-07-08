@@ -1,0 +1,39 @@
+# Values for the upstream ingress-nginx chart, installed by
+# scripts/doks-cluster-addons.mjs. The controller Service of type LoadBalancer
+# is what provisions the DigitalOcean Load Balancer that fronts DOKS ingress.
+#
+# The DO Load Balancer runs in L4 pass-through for ports 80/443 so NGINX (not the
+# LB) terminates TLS with cert-manager-issued certificates. Port 80 stays open and
+# is not force-redirected at the LB so cert-manager HTTP-01 challenges can reach
+# the controller. PROXY protocol is enabled on both the LB and the controller so
+# real client IPs survive for rate limiting and trust-forwarded-headers handling.
+controller:
+  ingressClassResource:
+    name: nginx
+    enabled: true
+    default: true
+  ingressClass: nginx
+  replicaCount: 2
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      # Per-environment Load Balancer name. Staging is the first cutover target;
+      # production uses chase-sets-production-doks-ingress at its cutover.
+      service.beta.kubernetes.io/do-loadbalancer-name: "chase-sets-staging-doks-ingress"
+      service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"
+      service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
+  config:
+    use-proxy-protocol: "true"
+    use-forwarded-headers: "true"
+    # cert-manager annotates its own solver Ingress to bypass ssl-redirect, so a
+    # global default of true is safe and keeps app traffic on HTTPS.
+    ssl-redirect: "true"
+  metrics:
+    enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  admissionWebhooks:
+    enabled: true

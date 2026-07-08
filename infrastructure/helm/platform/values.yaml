@@ -446,7 +446,7 @@ components:
       - name: "DATABASE_POOL_IDLE_TIMEOUT_MS"
         value: "5000"
       - name: "DATABASE_POOL_MAX"
-        value: "7"
+        value: "8"
       - name: "DATABASE_URL_AUTH"
         secret: true
         secretKey: "DATABASE_URL_AUTH"
@@ -547,6 +547,8 @@ components:
       - name: "PLATFORM_WORK_SIGNAL_DATABASE_URL"
         secret: true
         secretKey: "PLATFORM_WORK_SIGNAL_DATABASE_URL"
+      - name: "PORT"
+        value: "8080"
       - name: "PRICING_RECOMMENDATION_JOB_LANE_COUNT"
         value: "1"
       - name: "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
@@ -648,6 +650,8 @@ components:
         value: "5"
       - name: "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"
         value: "1"
+      - name: "WORKER_PROJECTION_OPERATION_RUNNER_COUNT"
+        value: "1"
       - name: "WORKER_PROJECTION_WAKE_RELAY_ENABLED"
         value: "false"
       - name: "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS"
@@ -665,6 +669,9 @@ components:
     resources: {}
     podAnnotations: {}
     podLabels: {}
+    port: 8080
+    healthPath: "/health/ready"
+    startupPath: "/health/live"
   platform-bootstrap:
     enabled: true
     kind: "job"
@@ -807,6 +814,8 @@ components:
     job:
       suspend: false
       backoffLimit: 0
+      # Fail the hook inside Helm's 15m rollout timeout so atomic rollback sees a Kubernetes Job failure instead of a generic Helm condition timeout.
+      activeDeadlineSeconds: 890
       ttlSecondsAfterFinished: 600
       hook:
         enabled: true
@@ -821,9 +830,8 @@ components:
         enabled: true
         targetComponents:
           - "platform-worker"
-        timeoutSeconds: 300
-        # Keep bootstrap command timeout below the 15m Helm rollout timeout, which stays below the 30m app schema-lock retry budget.
-        # 780s leaves 120s of Helm headroom for quiesce/restore wrapper overhead.
+        # Keep 45s drain + 780s bootstrap command + 5s kill grace + 45s restore below the hook deadline.
+        timeoutSeconds: 45
         commandTimeoutSeconds: 780
         pollIntervalMs: 2000
         restoreOnFailure: true

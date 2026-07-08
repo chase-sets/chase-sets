@@ -187,6 +187,20 @@
       ]
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "inventory.list-import-sources", "ownerSlice": "import-batches" },
+      { "name": "inventory.create-import-batch", "ownerSlice": "import-batches" },
+      { "name": "inventory.get-import-batch", "ownerSlice": "import-batches" },
+      { "name": "inventory.commit-import-batch", "ownerSlice": "import-batches" }
+    ],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+        "ownerSlice": "import-batches"
+      }
+    ]
+  },
   "readAfterWriteRouteInventory": [
     {
       "id": "inventory.item-create-to-detail",

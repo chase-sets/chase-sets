@@ -6,10 +6,10 @@ resource "digitalocean_domain" "environment" {
   }
 }
 
-check "doks_ingress_dns_target" {
+check "doks_ingress_serving_target" {
   assert {
-    condition     = !var.doks_ingress_dns_enabled || can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", trimspace(var.doks_ingress_target)))
-    error_message = "doks_ingress_target must be the DOKS ingress load balancer IPv4 address when doks_ingress_dns_enabled is true."
+    condition     = var.staging_app_serving != "doks" || local.doks_ingress_target_configured
+    error_message = "doks_ingress_target must be set to the DOKS ingress load balancer IPv4 address before staging_app_serving flips to \"doks\"."
   }
 }
 
@@ -95,8 +95,24 @@ resource "digitalocean_record" "catalog_assets" {
   ttl    = 3600
 }
 
-resource "digitalocean_record" "doks_ingress" {
-  for_each = local.doks_ingress_records
+# Shadow validation hosts: always present once the DOKS load balancer target is
+# known so the ingress + cert-manager pipeline can be proven while App Platform
+# still serves the live hosts.
+resource "digitalocean_record" "doks_ingress_shadow" {
+  for_each = local.doks_shadow_records
+
+  domain = digitalocean_domain.environment.name
+  type   = "A"
+  name   = each.value.name
+  value  = var.doks_ingress_target
+  ttl    = var.doks_ingress_ttl
+}
+
+# Live-host cutover records: present only while staging_app_serving is "doks".
+# Point the released App Platform host names at the DOKS load balancer for the
+# instant flip; removing them (serving back to "app-platform") is the rollback.
+resource "digitalocean_record" "doks_ingress_serving" {
+  for_each = local.doks_serving_records
 
   domain = digitalocean_domain.environment.name
   type   = "A"

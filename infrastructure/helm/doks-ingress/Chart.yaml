@@ -1,0 +1,6 @@
+apiVersion: v2
+name: chase-sets-doks-ingress
+description: Cluster ingress add-ons for the Chase Sets DOKS runtime. Renders the cert-manager ACME ClusterIssuers that pair with the pinned ingress-nginx and cert-manager releases installed by scripts/doks-cluster-addons.mjs.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

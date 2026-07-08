@@ -1,5 +1,10 @@
-import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import type { McpResourceHandler, McpToolHandler } from "@chase-sets/platform-runtime/mcp";
+import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
+import {
+  ensureMcpActorAccount,
+  readMcpStringArgument,
+  type McpResourceHandler,
+  type McpToolHandler,
+} from "@chase-sets/platform-runtime/mcp";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { listInventoryImportSourceProfiles } from "../domain/import-source-profiles";
 import type { InventoryImportSourceKey } from "../domain/import-source-profiles";
@@ -16,27 +21,6 @@ type ParsedImportRowInput = Readonly<{
   rowNumber?: unknown;
   values?: unknown;
 }>;
-
-function stringArgument(args: Readonly<Record<string, unknown>>, key: string): string | null {
-  const value = args[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
-function ensureActorAccount(actor: ResolvedActor | null, accountId: string | null): ResolvedActor {
-  if (!actor?.accountId) {
-    throw new Error("An account-scoped actor is required.");
-  }
-
-  if (!accountId) {
-    throw new Error("accountId is required.");
-  }
-
-  if (actor.accountId !== accountId) {
-    throw new Error("accountId must match the authenticated actor account.");
-  }
-
-  return actor;
-}
 
 function parseQuantityMode(value: string | null): InventoryImportQuantityMode | undefined {
   if (!value) {
@@ -98,7 +82,7 @@ export function createInventoryImportBatchMcpHandlers(
   services: InventoryImportBatchServices,
 ): InventoryImportBatchMcpHandlers {
   const listImportSources: McpToolHandler = ({ actor, arguments: args }) => {
-    ensureActorAccount(actor, stringArgument(args, "accountId"));
+    ensureMcpActorAccount(actor, readMcpStringArgument(args, "accountId"));
 
     return {
       items: listInventoryImportSourceProfiles(),
@@ -108,17 +92,17 @@ export function createInventoryImportBatchMcpHandlers(
 
   const createImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
-    const accountId = stringArgument(args, "accountId");
-    const scopedActor = ensureActorAccount(actor, accountId);
+    const accountId = readMcpStringArgument(args, "accountId");
+    const scopedActor = ensureMcpActorAccount(actor, accountId);
     const detail = await services.createBatch(
       {
         accountId: scopedActor.accountId as AccountId,
-        csvText: stringArgument(args, "csvText") ?? undefined,
+        csvText: readMcpStringArgument(args, "csvText") ?? undefined,
         parsedRows: parseParsedRows(args.parsedRows),
-        sourceKey: stringArgument(args, "sourceKey") as InventoryImportSourceKey | undefined,
-        quantityMode: parseQuantityMode(stringArgument(args, "quantityMode")),
-        defaultStorageLocationId: stringArgument(args, "defaultStorageLocationId"),
-        sourceFilename: stringArgument(args, "sourceFilename"),
+        sourceKey: readMcpStringArgument(args, "sourceKey") as InventoryImportSourceKey | undefined,
+        quantityMode: parseQuantityMode(readMcpStringArgument(args, "quantityMode")),
+        defaultStorageLocationId: readMcpStringArgument(args, "defaultStorageLocationId"),
+        sourceFilename: readMcpStringArgument(args, "sourceFilename"),
       },
       createActorEventStoreContext(scopedActor),
     );
@@ -127,9 +111,9 @@ export function createInventoryImportBatchMcpHandlers(
   };
 
   const getImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
-    const accountId = stringArgument(args, "accountId");
-    const scopedActor = ensureActorAccount(actor, accountId);
-    const batchId = stringArgument(args, "batchId");
+    const accountId = readMcpStringArgument(args, "accountId");
+    const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const batchId = readMcpStringArgument(args, "batchId");
     if (!batchId) {
       throw new Error("batchId is required.");
     }
@@ -144,9 +128,9 @@ export function createInventoryImportBatchMcpHandlers(
 
   const commitImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
-    const accountId = stringArgument(args, "accountId");
-    const scopedActor = ensureActorAccount(actor, accountId);
-    const batchId = stringArgument(args, "batchId");
+    const accountId = readMcpStringArgument(args, "accountId");
+    const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const batchId = readMcpStringArgument(args, "batchId");
     if (!batchId) {
       throw new Error("batchId is required.");
     }
@@ -166,7 +150,7 @@ export function createInventoryImportBatchMcpHandlers(
       throw new Error("Unsupported inventory import batch resource URI.");
     }
 
-    const scopedActor = ensureActorAccount(actor, parts.accountId);
+    const scopedActor = ensureMcpActorAccount(actor, parts.accountId);
     const detail = await services.getBatch(parts.batchId, scopedActor.accountId);
     if (!detail) {
       throw new Error("Import batch not found.");

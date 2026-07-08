@@ -7,7 +7,12 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresPlatformControlPlane, platformControlPlaneSchemaSql } from "./control-plane";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+  platformControlPlaneSchemaSql,
+  reapStaleProjectionOperations,
+} from "./control-plane";
 import { createPostgresDurableJobStore, durableJobSchemaSql } from "./durable-job-store";
 import { createPostgresDurableJobWorkUnitStore, durableJobWorkUnitSchemaSql } from "./durable-job-work-units";
 import { createPostgresUcpIdempotencyStore } from "./ucp";
@@ -362,6 +367,199 @@ describe("platform runtime Postgres concurrency guards", () => {
     expect(next?.operationId).toBe(younger.operationId);
   });
 
+  it("reclaims a ghost running operation whose claim expiry was cleared", async () => {
+    // Issue #4496 ghost shape observed on staging: state='running',
+    // attempt_count=0, an old started_at, and no claim expiry. Both the
+    // reclaim and dead-letter sweeps compare `claimed_until <= now()`, which
+    // is NULL for this row, so without the explicit NULL arm the ghost is
+    // invisible forever while every younger operation queues behind it.
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const ghost = await controlPlane.enqueueProjectionOperation({
+      operationKind: "retry-blocked-stream",
+      contextName: "discovery",
+      projectionKey: "discovery-item-detail-projection:catalog:v2",
+      streamId: "stream_ghost",
+    });
+    await pools.platform.query(
+      `UPDATE platform_projection_operations
+       SET state = 'running',
+           claim_owner_id = 'pod_dead',
+           claim_fencing_token = 1,
+           claimed_until = NULL,
+           attempt_count = 0,
+           next_eligible_at = now() - interval '1 hour',
+           requested_at = now() - interval '5 hours',
+           started_at = now() - interval '4 hours',
+           updated_at = now() - interval '4 hours'
+       WHERE operation_id = $1`,
+      [ghost.operationId],
+    );
+    const younger = await controlPlane.enqueueProjectionOperation({
+      operationKind: "retry-blocked-stream",
+      contextName: "discovery",
+      projectionKey: "discovery-search-item-projection:catalog:v5",
+      streamId: "stream_younger",
+    });
+
+    const reclaimed = await controlPlane.claimProjectionOperation({ ownerId: "worker_b", claimTtlMs: 30_000 });
+    expect(reclaimed?.operationId).toBe(ghost.operationId);
+    expect(reclaimed?.state).toBe("running");
+    expect(reclaimed?.attemptCount).toBe(1);
+    expect(reclaimed?.claimOwnerId).toBe("worker_b");
+    expect(reclaimed?.claimedUntil).not.toBeNull();
+
+    const next = await controlPlane.claimProjectionOperation({ ownerId: "worker_b", claimTtlMs: 30_000 });
+    expect(next?.operationId).toBe(younger.operationId);
+  });
+
+  it("dead-letters a ghost running operation that already exhausted its attempts", async () => {
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const ghost = await controlPlane.enqueueProjectionOperation({
+      operationKind: "retry-blocked-stream",
+      contextName: "discovery",
+      projectionKey: "discovery-item-detail-projection:catalog:v2",
+      streamId: "stream_ghost_exhausted",
+    });
+    await pools.platform.query(
+      `UPDATE platform_projection_operations
+       SET state = 'running',
+           claim_owner_id = 'pod_dead',
+           claim_fencing_token = 5,
+           claimed_until = NULL,
+           attempt_count = 5,
+           next_eligible_at = now() - interval '1 hour',
+           started_at = now() - interval '4 hours',
+           updated_at = now() - interval '4 hours'
+       WHERE operation_id = $1`,
+      [ghost.operationId],
+    );
+
+    await expect(
+      controlPlane.claimProjectionOperation({ ownerId: "worker_b", claimTtlMs: 30_000, maxAttempts: 5 }),
+    ).resolves.toBeNull();
+
+    const quarantined = await controlPlane.getProjectionOperation(ghost.operationId);
+    expect(quarantined?.state).toBe("failed");
+    expect(quarantined?.error).toMatchObject({ code: "attempts_exhausted" });
+    expect(quarantined?.claimOwnerId).toBeNull();
+    expect(quarantined?.completedAt).not.toBeNull();
+  });
+
+  it("never reaps or reclaims an actively claimed running operation", async () => {
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const enqueued = await controlPlane.enqueueProjectionOperation({
+      operationKind: "retry-blocked-stream",
+      contextName: "discovery",
+      projectionKey: "discovery-item-detail-projection:catalog:v2",
+      streamId: "stream_live",
+    });
+    const claimed = await controlPlane.claimProjectionOperation({ ownerId: "worker_a", claimTtlMs: 60_000 });
+    expect(claimed?.operationId).toBe(enqueued.operationId);
+
+    await expect(reapStaleProjectionOperations(pools.platform)).resolves.toBe(0);
+    await expect(
+      controlPlane.claimProjectionOperation({ ownerId: "worker_b", claimTtlMs: 60_000 }),
+    ).resolves.toBeNull();
+
+    const untouched = await controlPlane.getProjectionOperation(enqueued.operationId);
+    expect(untouched?.state).toBe("running");
+    expect(untouched?.claimOwnerId).toBe("worker_a");
+    expect(untouched?.attemptCount).toBe(1);
+  });
+
+  it("converges existing ghost operations at control-plane bootstrap without manual SQL", async () => {
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const seedOperation = async (streamId: string) =>
+      controlPlane.enqueueProjectionOperation({
+        operationKind: "retry-blocked-stream",
+        contextName: "discovery",
+        projectionKey: "discovery-item-detail-projection:catalog:v2",
+        streamId,
+      });
+
+    // A genuinely live claim must survive bootstrap untouched. Claim it
+    // before seeding the ghost shapes so the claim deterministically picks it.
+    const live = await seedOperation("stream_live_bootstrap");
+    const liveClaim = await controlPlane.claimProjectionOperation({
+      ownerId: "worker_live",
+      claimTtlMs: 120_000,
+      operationKinds: ["retry-blocked-stream"],
+    });
+    expect(liveClaim?.operationId).toBe(live.operationId);
+
+    // The staging #4496 ghost: running, cleared claim expiry, zero attempts.
+    const ghost = await seedOperation("stream_ghost_bootstrap");
+    await pools.platform.query(
+      `UPDATE platform_projection_operations
+       SET state = 'running',
+           claim_owner_id = 'pod_dead',
+           claim_fencing_token = 1,
+           claimed_until = NULL,
+           attempt_count = 0,
+           started_at = now() - interval '4 hours',
+           updated_at = now() - interval '4 hours'
+       WHERE operation_id = $1`,
+      [ghost.operationId],
+    );
+    // A worker died after claiming: the claim expiry lapsed hours ago.
+    const expired = await seedOperation("stream_expired_bootstrap");
+    await pools.platform.query(
+      `UPDATE platform_projection_operations
+       SET state = 'running',
+           claim_owner_id = 'pod_dead',
+           claim_fencing_token = 1,
+           claimed_until = now() - interval '3 hours',
+           attempt_count = 1,
+           started_at = now() - interval '3 hours',
+           updated_at = now() - interval '3 hours'
+       WHERE operation_id = $1`,
+      [expired.operationId],
+    );
+    // A cancel request that lost its executor must terminate, not requeue.
+    const cancelRequested = await seedOperation("stream_cancel_bootstrap");
+    await pools.platform.query(
+      `UPDATE platform_projection_operations
+       SET state = 'cancel_requested',
+           claim_owner_id = 'pod_dead',
+           claim_fencing_token = 1,
+           claimed_until = NULL,
+           attempt_count = 1,
+           started_at = now() - interval '2 hours',
+           updated_at = now() - interval '2 hours'
+       WHERE operation_id = $1`,
+      [cancelRequested.operationId],
+    );
+    await bootstrapPlatformControlPlane(pools.platform);
+
+    const reapedGhost = await controlPlane.getProjectionOperation(ghost.operationId);
+    expect(reapedGhost?.state).toBe("queued");
+    expect(reapedGhost?.attemptCount).toBe(1);
+    expect(reapedGhost?.claimOwnerId).toBeNull();
+    expect(reapedGhost?.claimedUntil).toBeNull();
+    expect(reapedGhost?.error).toMatchObject({ code: "stale_claim_reaped" });
+    expect(new Date(reapedGhost?.nextEligibleAt ?? 0).getTime()).toBeGreaterThan(Date.now());
+
+    const reapedExpired = await controlPlane.getProjectionOperation(expired.operationId);
+    expect(reapedExpired?.state).toBe("queued");
+    expect(reapedExpired?.attemptCount).toBe(2);
+    expect(reapedExpired?.claimOwnerId).toBeNull();
+
+    const terminatedCancel = await controlPlane.getProjectionOperation(cancelRequested.operationId);
+    expect(terminatedCancel?.state).toBe("cancelled");
+    expect(terminatedCancel?.completedAt).not.toBeNull();
+
+    const untouchedLive = await controlPlane.getProjectionOperation(live.operationId);
+    expect(untouchedLive?.state).toBe("running");
+    expect(untouchedLive?.claimOwnerId).toBe("worker_live");
+    expect(untouchedLive?.attemptCount).toBe(1);
+
+    // The reap publishes status events so operators watching the operation
+    // observe the transition instead of a silent state jump.
+    const ghostEvents = await controlPlane.listProjectionOperationEvents(ghost.operationId);
+    expect(ghostEvents.length).toBeGreaterThanOrEqual(2);
+    expect(ghostEvents.at(-1)?.operation.state).toBe("queued");
+  });
+
   it("lets only one scheduled runner claimant advance the cadence row", async () => {
     const controlPlane = createPostgresPlatformControlPlane(pools.platform);
 
@@ -411,5 +609,80 @@ describe("platform runtime Postgres concurrency guards", () => {
         createdAt: new Date().toISOString(),
       }),
     ).resolves.toMatchObject({ outcome: "conflict" });
+  });
+
+  it("upgrades a pre-existing operations table missing the retry columns without failing bootstrap", async () => {
+    // Reproduces issue #4599's staging bootstrap failure: the table already exists
+    // from a prior deploy (so CREATE TABLE IF NOT EXISTS is a no-op) and is missing
+    // attempt_count / next_eligible_at, yet holds terminal, queued, and ghost-running
+    // rows. Re-applying the schema SQL must add the columns and build the claimable
+    // index instead of raising 42703 ("column next_eligible_at does not exist").
+    await pools.platform.query(`
+      DROP TABLE IF EXISTS platform_projection_operation_events CASCADE;
+      DROP TABLE IF EXISTS platform_projection_operations CASCADE;
+      CREATE TABLE platform_projection_operations (
+        operation_id text PRIMARY KEY,
+        operation_kind text NOT NULL,
+        state text NOT NULL,
+        context_name text NOT NULL,
+        projection_name text NULL,
+        projection_key text NULL,
+        stream_id text NULL,
+        requested_by_user_id text NULL,
+        requested_by_account_id text NULL,
+        claim_owner_id text NULL,
+        claim_fencing_token bigint NULL,
+        claimed_until timestamptz NULL,
+        event_sequence integer NOT NULL DEFAULT 0,
+        progress jsonb NOT NULL DEFAULT '{}'::jsonb,
+        result jsonb NULL,
+        error jsonb NULL,
+        requested_at timestamptz NOT NULL,
+        started_at timestamptz NULL,
+        updated_at timestamptz NOT NULL,
+        completed_at timestamptz NULL
+      );
+      INSERT INTO platform_projection_operations
+        (operation_id, operation_kind, state, context_name, requested_at, updated_at, started_at)
+      VALUES
+        ('op_failed', 'rebuild-context', 'failed', 'catalog', now() - interval '2 hours', now(), NULL),
+        ('op_queued', 'rebuild-context', 'queued', 'catalog', now() - interval '1 hour', now(), NULL),
+        ('op_ghost', 'rebuild-projection-group', 'running', 'catalog', now() - interval '3 hours', now(), now() - interval '3 hours');
+    `);
+
+    const upgradedAtOrAfter = new Date();
+    await expect(pools.platform.query(platformControlPlaneSchemaSql)).resolves.toBeDefined();
+
+    const rows = await pools.platform.query(
+      `SELECT operation_id, attempt_count, next_eligible_at
+       FROM platform_projection_operations
+       ORDER BY operation_id`,
+    );
+    expect(rows.rows).toHaveLength(3);
+    for (const row of rows.rows as unknown as ReadonlyArray<{
+      attempt_count: number;
+      next_eligible_at: Date;
+    }>) {
+      // Existing rows converge on a full attempt budget (0) and an immediate horizon
+      // so queued/ghost operations become claimable right away.
+      expect(Number(row.attempt_count)).toBe(0);
+      expect(new Date(row.next_eligible_at).getTime()).toBeLessThanOrEqual(upgradedAtOrAfter.getTime() + 1_000);
+    }
+
+    const claimableIndex = await pools.platform.query(
+      `SELECT 1 FROM pg_indexes WHERE indexname = 'platform_projection_operations_claimable_idx'`,
+    );
+    expect(claimableIndex.rowCount).toBe(1);
+
+    // The upgraded ghost row (running, no claim expiry) must actually be
+    // claimable on the executor's first pass — before the NULL-claim arm it
+    // matched neither the reclaim nor the dead-letter sweep and sat `running`
+    // forever (issue #4496 ghost operations).
+    const controlPlane = createPostgresPlatformControlPlane(pools.platform);
+    const reclaimedGhost = await controlPlane.claimProjectionOperation({ ownerId: "worker_a", claimTtlMs: 30_000 });
+    expect(reclaimedGhost?.operationId).toBe("op_ghost");
+    expect(reclaimedGhost?.state).toBe("running");
+    expect(reclaimedGhost?.attemptCount).toBe(1);
+    expect(reclaimedGhost?.claimedUntil).not.toBeNull();
   });
 });

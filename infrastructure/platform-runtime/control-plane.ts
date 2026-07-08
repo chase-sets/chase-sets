@@ -15,6 +15,14 @@ const PROJECTION_OPERATION_WORK_SIGNAL_KIND = "projection-operation.event";
 export const DEFAULT_PROJECTION_OPERATION_MAX_ATTEMPTS = 5;
 export const DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS = 30_000;
 export const DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS = 600_000;
+/**
+ * How old a `running` operation without any claim expiry must be before the
+ * bootstrap reaper requeues it. Every live claim carries a `claimed_until`
+ * horizon (claim and progress writes always set it), so a running row with a
+ * NULL claim expiry is an invariant-broken ghost — but the deadline stays far
+ * above any claim TTL so a mid-rolling-deploy writer can never be raced.
+ */
+export const DEFAULT_PROJECTION_OPERATION_STALE_CLAIM_DEADLINE_MS = 600_000;
 
 function normalizeProjectionOperationMaxAttempts(value: number | undefined): number {
   return Number.isFinite(value) && (value as number) >= 1
@@ -151,6 +159,23 @@ CREATE TABLE IF NOT EXISTS platform_projection_operations (
   completed_at timestamptz NULL
 );
 
+-- Backfill compatibility columns onto pre-existing operations tables BEFORE any
+-- index that references them. On a fresh database the columns already exist from
+-- the CREATE TABLE above and these ALTERs are no-ops; on an upgraded database the
+-- CREATE TABLE is a no-op and these ALTERs add the columns (charging every
+-- existing row a zero attempt budget and an immediate next_eligible_at horizon)
+-- so the claimable index below can be built. Reordering these after the index
+-- creation regresses to issue #4599's staging bootstrap failure ("column
+-- next_eligible_at does not exist"). Keep ADD COLUMN before CREATE INDEX.
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS event_sequence integer NOT NULL DEFAULT 0;
+
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS platform_projection_operations_state_requested_idx
   ON platform_projection_operations (state, requested_at ASC);
 
@@ -162,15 +187,6 @@ CREATE INDEX IF NOT EXISTS platform_projection_operations_target_idx
 
 CREATE INDEX IF NOT EXISTS platform_projection_operations_actor_requested_idx
   ON platform_projection_operations (requested_by_user_id, requested_at DESC);
-
-ALTER TABLE platform_projection_operations
-  ADD COLUMN IF NOT EXISTS event_sequence integer NOT NULL DEFAULT 0;
-
-ALTER TABLE platform_projection_operations
-  ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;
-
-ALTER TABLE platform_projection_operations
-  ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NOT NULL DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS platform_projection_operation_events (
   operation_id text NOT NULL REFERENCES platform_projection_operations(operation_id) ON DELETE CASCADE,
@@ -496,6 +512,108 @@ type ProjectionWakeRelayCursorRow = Readonly<{
 
 export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<void> {
   await db.query(platformControlPlaneSchemaSql);
+  await reapStaleProjectionOperations(db);
+}
+
+const STALE_PROJECTION_OPERATION_REAP_BATCH_LIMIT = 100;
+
+/**
+ * Requeues (or, for `cancel_requested`, cancels) every projection operation
+ * that is marked in-flight but whose claim is dead: the claim expiry has
+ * lapsed, or the claim expiry is NULL while the operation has been "running"
+ * far longer than any claim TTL. The second shape is invariant-broken (claim
+ * and progress writes always set `claimed_until`), yet legacy rows carrying it
+ * are invisible to the executor's reclaim and dead-letter sweeps — both
+ * compare `claimed_until <= now()`, which is NULL for them — so they sit
+ * `running` forever while the queue behind them ages (issue #4496 ghost
+ * operations).
+ *
+ * Runs on every control-plane bootstrap (platform-api and platform-worker
+ * boot), so existing ghost rows converge on the next deploy without manual
+ * SQL even when no worker is alive to claim them. Each reap charges an
+ * attempt (a claim was consumed by the lost writer) and parks the operation
+ * behind the standard exponential backoff; the executor's dead-letter sweep
+ * then quarantines any reaped operation that has exhausted its budget.
+ * Actively claimed operations (`claimed_until > now()`) are never touched,
+ * and locked rows are skipped, so a live executor is never raced.
+ */
+export async function reapStaleProjectionOperations(
+  db: PgQueryable,
+  options: Readonly<{
+    staleClaimDeadlineMs?: number;
+    retryBackoffBaseMs?: number;
+    retryBackoffMaxMs?: number;
+  }> = {},
+): Promise<number> {
+  const staleClaimDeadlineMs = normalizeProjectionOperationBackoffMs(
+    options.staleClaimDeadlineMs,
+    DEFAULT_PROJECTION_OPERATION_STALE_CLAIM_DEADLINE_MS,
+  );
+  const retryBackoffBaseMs = normalizeProjectionOperationBackoffMs(
+    options.retryBackoffBaseMs,
+    DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_BASE_MS,
+  );
+  const retryBackoffMaxMs = Math.max(
+    retryBackoffBaseMs,
+    normalizeProjectionOperationBackoffMs(options.retryBackoffMaxMs, DEFAULT_PROJECTION_OPERATION_RETRY_BACKOFF_MAX_MS),
+  );
+
+  let reapedCount = 0;
+  for (;;) {
+    const result = await db.query<ProjectionOperationRow>(
+      `WITH stale AS (
+         SELECT operation_id
+         FROM platform_projection_operations
+         WHERE state IN ('running', 'cancel_requested')
+           AND (
+             claimed_until <= now()
+             OR (
+               claimed_until IS NULL
+               AND COALESCE(started_at, updated_at) <= now() - ($1::text || ' milliseconds')::interval
+             )
+           )
+         ORDER BY requested_at ASC
+         LIMIT ${STALE_PROJECTION_OPERATION_REAP_BATCH_LIMIT}
+         FOR UPDATE SKIP LOCKED
+       )
+       UPDATE platform_projection_operations AS operation
+       SET state = CASE WHEN operation.state = 'cancel_requested' THEN 'cancelled' ELSE 'queued' END,
+           claim_owner_id = NULL,
+           claimed_until = NULL,
+           attempt_count = operation.attempt_count + 1,
+           next_eligible_at =
+             now()
+             + (
+               LEAST(
+                 $3::numeric,
+                 $2::numeric * power(2::numeric, LEAST(GREATEST(operation.attempt_count, 0), 10))
+               )::integer::text || ' milliseconds'
+             )::interval,
+           error = COALESCE(
+               operation.error,
+               jsonb_build_object('message', 'Projection operation claim was lost without a terminal write.')
+             ) || jsonb_build_object('code', 'stale_claim_reaped'),
+           completed_at = CASE
+             WHEN operation.state = 'cancel_requested' THEN COALESCE(operation.completed_at, now())
+             ELSE operation.completed_at
+           END,
+           updated_at = now()
+       FROM stale
+       WHERE operation.operation_id = stale.operation_id
+       RETURNING ${projectionOperationColumns("operation")}`,
+      [staleClaimDeadlineMs, retryBackoffBaseMs, retryBackoffMaxMs],
+    );
+
+    const reapedRows = result.rows ?? [];
+    for (const row of reapedRows) {
+      await appendProjectionOperationEvent(db, mapProjectionOperationRow(row));
+    }
+    reapedCount += reapedRows.length;
+
+    if (reapedRows.length < STALE_PROJECTION_OPERATION_REAP_BATCH_LIMIT) {
+      return reapedCount;
+    }
+  }
 }
 
 export function createPostgresPlatformControlPlane(
@@ -792,7 +910,13 @@ export function createPostgresPlatformControlPlane(
                state = 'queued'
                OR (
                  state = 'running'
-                 AND claimed_until <= now()
+                 AND (
+                   claimed_until <= now()
+                   OR (
+                     claimed_until IS NULL
+                     AND COALESCE(started_at, updated_at) <= now() - ($3::text || ' milliseconds')::interval
+                   )
+                 )
                )
              )
              AND attempt_count >= $2::integer
@@ -814,7 +938,7 @@ export function createPostgresPlatformControlPlane(
          FROM exhausted
          WHERE operation.operation_id = exhausted.operation_id
           RETURNING ${projectionOperationColumns("operation")}`,
-          [operationKinds, maxAttempts],
+          [operationKinds, maxAttempts, input.claimTtlMs],
         );
         for (const row of exhausted.rows) {
           await appendProjectionOperationEvent(queryable, mapProjectionOperationRow(row));
@@ -825,6 +949,13 @@ export function createPostgresPlatformControlPlane(
         // eligibility horizon set here (claim TTL + exponential backoff) keeps
         // an operation that dies without a terminal write from hot-looping at
         // the head of the queue while younger operations proceed past it.
+        // A running row whose claim expiry is NULL is an invariant-broken
+        // ghost (claim and progress writes always set claimed_until): a
+        // `claimed_until <= now()` comparison is NULL for it, so without the
+        // explicit NULL arm the row is invisible to both this reclaim and the
+        // dead-letter sweep forever (issue #4496 ghost operations). Once the
+        // row is older than one claim TTL it is reclaimable like any other
+        // expired claim.
         const result = await queryable.query<ProjectionOperationRow>(
           `WITH claimable AS (
            SELECT operation_id
@@ -833,7 +964,13 @@ export function createPostgresPlatformControlPlane(
                state = 'queued'
                OR (
                  state = 'running'
-                 AND claimed_until <= now()
+                 AND (
+                   claimed_until <= now()
+                   OR (
+                     claimed_until IS NULL
+                     AND COALESCE(started_at, updated_at) <= now() - ($2::text || ' milliseconds')::interval
+                   )
+                 )
                )
              )
              AND attempt_count < $4::integer

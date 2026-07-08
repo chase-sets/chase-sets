@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createMcpRoutes, type McpAuditRecord } from "./mcp";
+import {
+  buildMcpHandlersFromModules,
+  createMcpRoutes,
+  validateMcpModuleRegistrations,
+  type McpAuditRecord,
+} from "./mcp";
 import { MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import type { McpServiceDescriptor } from "./mcp-contracts";
@@ -14,7 +19,7 @@ const actor: ResolvedActor = {
   accountId: "account_1",
   membershipId: "member_1",
   roleKey: "manager",
-  permissions: ["inventory.view", "payouts.request", "payouts.view"],
+  permissions: ["inventory.view", "orders.view", "payouts.request", "payouts.view"],
 };
 
 function createRequest(method: string, params?: unknown) {
@@ -128,6 +133,18 @@ const accountDefaultedToolServices: readonly McpServiceDescriptor[] = [
   },
 ];
 
+const availableModuleGuardServices: readonly McpServiceDescriptor[] = [
+  {
+    ...accountDefaultedToolServices[0]!,
+    tools: [
+      {
+        ...accountDefaultedToolServices[0]!.tools[0]!,
+        availability: "available",
+      },
+    ],
+  },
+];
+
 describe("MCP runtime routes", () => {
   it("requires a durable idempotency store outside the test runtime", () => {
     vi.stubEnv("NODE_ENV", "production");
@@ -149,10 +166,15 @@ describe("MCP runtime routes", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { tools: Array<{ name: string; annotations: { availability: string } }> };
     expect(body.tools.map((tool) => tool.name).sort()).toEqual([
+      "checkout.get-cart",
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
       "inventory.get-import-batch",
       "inventory.list-import-sources",
+      "marketplace.create-listing",
+      "marketplace.publish-listing",
+      "marketplace.unpublish-listing",
+      "marketplace.update-listing-price",
     ]);
     expect(body.tools).toEqual(
       expect.arrayContaining([
@@ -176,6 +198,14 @@ describe("MCP runtime routes", () => {
             confirmationExpectedValue: "Create Inventory Import Batch.",
           }),
         }),
+        expect.objectContaining({
+          name: "marketplace.create-listing",
+          annotations: expect.objectContaining({
+            confirmationRequired: true,
+            confirmationMatchInputField: "confirmationText",
+            confirmationExpectedValue: "Create Listing.",
+          }),
+        }),
       ]),
     );
   });
@@ -194,8 +224,139 @@ describe("MCP runtime routes", () => {
             requiredPermissions: ["inventory.view"],
           }),
         }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://marketplace/{accountId}/listings/{listingId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["listings.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://checkout/{accountId}/cart",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["orders.view"],
+          }),
+        }),
       ],
     });
+  });
+
+  it("composes MCP handlers from mounted module declarations", () => {
+    const handler = vi.fn(async () => ({ ok: true }));
+    const composition = buildMcpHandlersFromModules(
+      [
+        {
+          module: {
+            contextName: "inventory",
+            mcpCapabilities: {
+              tools: [{ name: "inventory.account-defaulted-summary", ownerSlice: "inventory-items" }],
+            },
+            buildMcpHandlers: () => ({
+              toolHandlers: {
+                "inventory.account-defaulted-summary": handler,
+              },
+            }),
+          },
+          services: {},
+        },
+      ],
+      availableModuleGuardServices,
+    );
+
+    expect(composition.toolHandlers["inventory.account-defaulted-summary"]).toBe(handler);
+    expect(composition.registrations).toEqual([
+      expect.objectContaining({
+        contextName: "inventory",
+        capabilities: {
+          tools: [{ name: "inventory.account-defaulted-summary", ownerSlice: "inventory-items" }],
+        },
+      }),
+    ]);
+  });
+
+  it("validates available MCP capabilities from module declarations", () => {
+    expect(
+      validateMcpModuleRegistrations(
+        [
+          {
+            contextName: "inventory",
+            capabilities: {},
+            handlers: {},
+          },
+        ],
+        availableModuleGuardServices,
+      ),
+    ).toEqual([
+      "Available MCP tool 'inventory.account-defaulted-summary' is owned by mounted context 'inventory' but no module declares it.",
+    ]);
+
+    expect(
+      validateMcpModuleRegistrations(
+        [
+          {
+            contextName: "inventory",
+            capabilities: {
+              tools: [{ name: "inventory.account-defaulted-summary" }],
+            },
+            handlers: {},
+          },
+        ],
+        availableModuleGuardServices,
+      ),
+    ).toEqual(["Available MCP tool 'inventory.account-defaulted-summary' is declared but no handler is registered."]);
+
+    expect(
+      validateMcpModuleRegistrations(
+        [
+          {
+            contextName: "inventory",
+            capabilities: {
+              tools: [{ name: "inventory.account-defaulted-summary" }],
+            },
+            handlers: {},
+          },
+        ],
+        accountDefaultedToolServices,
+      ),
+    ).toEqual([]);
+
+    expect(
+      validateMcpModuleRegistrations(
+        [
+          {
+            contextName: "checkout",
+            capabilities: {
+              tools: [{ name: "inventory.account-defaulted-summary" }],
+            },
+            handlers: {},
+          },
+        ],
+        availableModuleGuardServices,
+      ),
+    ).toEqual([
+      "Context 'checkout' declares MCP tool 'inventory.account-defaulted-summary' owned by context 'inventory'.",
+    ]);
+
+    expect(
+      validateMcpModuleRegistrations(
+        [
+          {
+            contextName: "inventory",
+            capabilities: {},
+            handlers: {
+              toolHandlers: {
+                "inventory.account-defaulted-summary": vi.fn(),
+              },
+            },
+          },
+        ],
+        availableModuleGuardServices,
+      ),
+    ).toEqual([
+      "Context 'inventory' registers MCP tool handler 'inventory.account-defaulted-summary' without declaring it in mcpCapabilities.tools.",
+      "Available MCP tool 'inventory.account-defaulted-summary' is owned by mounted context 'inventory' but no module declares it.",
+    ]);
   });
 
   it("requires an authenticated actor for native discovery endpoints", async () => {
@@ -231,22 +392,33 @@ describe("MCP runtime routes", () => {
     expect(toolsResponse.status).toBe(200);
     await expect(toolsResponse.json()).resolves.toMatchObject({
       result: {
-        tools: [
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: "checkout.get-cart" }),
           expect.objectContaining({ name: "inventory.list-import-sources" }),
           expect.objectContaining({ name: "inventory.create-import-batch" }),
           expect.objectContaining({ name: "inventory.get-import-batch" }),
           expect.objectContaining({ name: "inventory.commit-import-batch" }),
-        ],
+          expect.objectContaining({ name: "marketplace.create-listing" }),
+          expect.objectContaining({ name: "marketplace.update-listing-price" }),
+          expect.objectContaining({ name: "marketplace.publish-listing" }),
+          expect.objectContaining({ name: "marketplace.unpublish-listing" }),
+        ]),
       },
     });
     expect(resourcesResponse.status).toBe(200);
     await expect(resourcesResponse.json()).resolves.toMatchObject({
       result: {
-        resources: [
+        resources: expect.arrayContaining([
           expect.objectContaining({
             uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
           }),
-        ],
+          expect.objectContaining({
+            uriTemplate: "chase-sets://checkout/{accountId}/cart",
+          }),
+          expect.objectContaining({
+            uriTemplate: "chase-sets://marketplace/{accountId}/listings/{listingId}",
+          }),
+        ]),
       },
     });
   });

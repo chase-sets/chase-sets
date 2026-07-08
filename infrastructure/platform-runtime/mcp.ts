@@ -1,13 +1,16 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
+import type { BcApiModule, BcMcpCapabilities, BcMcpHandlers } from "@chase-sets/bounded-context-module";
 import {
   authorizeMcpToolInvocation,
   flattenAvailableMcpResources,
   flattenAvailableMcpTools,
   findMcpTool,
   flattenMcpResources,
+  flattenMcpTools,
   getMcpCapabilityAvailability,
   getMcpToolConfirmationExpectedValue,
+  isAvailableMcpCapability,
   mcpServiceCatalog,
   type McpJsonSchema,
   type McpJsonSchemaProperty,
@@ -80,6 +83,23 @@ export type CreateMcpRoutesOptions = Readonly<{
   allowInMemoryIdempotencyStoreForTests?: boolean;
 }>;
 
+export type McpModuleRuntimeEntry = Readonly<{
+  module: Pick<BcApiModule, "contextName" | "mcpCapabilities" | "buildMcpHandlers">;
+  services: unknown;
+}>;
+
+export type McpModuleRegistration = Readonly<{
+  contextName: string;
+  capabilities: BcMcpCapabilities;
+  handlers: BcMcpHandlers<McpToolHandler, McpResourceHandler>;
+}>;
+
+export type McpModuleHandlerComposition = Readonly<{
+  toolHandlers: Readonly<Record<string, McpToolHandler>>;
+  resourceHandlers: Readonly<Record<string, McpResourceHandler>>;
+  registrations: readonly McpModuleRegistration[];
+}>;
+
 type JsonRpcRequest = Readonly<{
   jsonrpc?: "2.0";
   id?: string | number | null;
@@ -111,6 +131,33 @@ type ResourceUriMatch = Readonly<{
   resource: McpResourceDescriptor;
   variables: Readonly<Record<string, string>>;
 }>;
+
+export function readMcpStringArgument(args: Readonly<Record<string, unknown>>, key: string): string | null {
+  const value = args[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+export function ensureMcpActorAccount(
+  actor: ResolvedActor | null,
+  accountId: string | null,
+  options: Readonly<{ accountIdArgumentName?: string }> = {},
+): ResolvedActor {
+  const accountIdArgumentName = options.accountIdArgumentName ?? "accountId";
+
+  if (!actor?.accountId) {
+    throw new Error("An account-scoped actor is required.");
+  }
+
+  if (!accountId) {
+    throw new Error(`${accountIdArgumentName} is required.`);
+  }
+
+  if (actor.accountId !== accountId) {
+    throw new Error(`${accountIdArgumentName} must match the authenticated actor account.`);
+  }
+
+  return actor;
+}
 
 function toMcpActor(actor: ResolvedActor | null): McpActor | null {
   if (!actor) {
@@ -604,6 +651,198 @@ async function acquireMcpToolCallLease(
   } catch {
     return { allowed: false, reason: "MCP tool call limiter is unavailable.", limitKind };
   }
+}
+
+function normalizeMcpCapabilities(capabilities: BcMcpCapabilities | undefined): Required<BcMcpCapabilities> {
+  return {
+    tools: capabilities?.tools ?? [],
+    resources: capabilities?.resources ?? [],
+  };
+}
+
+function duplicateMessage(kind: "tool" | "resource" | "tool handler" | "resource handler", key: string) {
+  return `Duplicate MCP ${kind} '${key}'.`;
+}
+
+export function validateMcpModuleRegistrations(
+  registrations: readonly McpModuleRegistration[],
+  services: readonly McpServiceDescriptor[] = mcpServiceCatalog,
+): readonly string[] {
+  const errors: string[] = [];
+  const toolDescriptors = new Map(flattenMcpTools(services).map((tool) => [tool.name, tool]));
+  const resourceDescriptors = new Map(
+    flattenMcpResources(services).map((resource) => [resource.uriTemplate, resource]),
+  );
+  const contextNames = new Set(registrations.map((registration) => registration.contextName));
+  const declaredTools = new Map<string, string>();
+  const declaredResources = new Map<string, string>();
+  const toolHandlers = new Map<string, string>();
+  const resourceHandlers = new Map<string, string>();
+
+  for (const registration of registrations) {
+    const capabilities = normalizeMcpCapabilities(registration.capabilities);
+    const moduleToolNames = new Set(capabilities.tools.map((tool) => tool.name));
+    const moduleResourceTemplates = new Set(capabilities.resources.map((resource) => resource.uriTemplate));
+
+    for (const tool of capabilities.tools) {
+      if (declaredTools.has(tool.name)) {
+        errors.push(duplicateMessage("tool", tool.name));
+      }
+      declaredTools.set(tool.name, registration.contextName);
+
+      const descriptor = toolDescriptors.get(tool.name);
+      if (!descriptor) {
+        errors.push(`Context '${registration.contextName}' declares unknown MCP tool '${tool.name}'.`);
+      } else if (descriptor.serviceId !== registration.contextName) {
+        errors.push(
+          `Context '${registration.contextName}' declares MCP tool '${tool.name}' owned by context '${descriptor.serviceId}'.`,
+        );
+      }
+    }
+
+    for (const resource of capabilities.resources) {
+      if (declaredResources.has(resource.uriTemplate)) {
+        errors.push(duplicateMessage("resource", resource.uriTemplate));
+      }
+      declaredResources.set(resource.uriTemplate, registration.contextName);
+
+      const descriptor = resourceDescriptors.get(resource.uriTemplate);
+      if (!descriptor) {
+        errors.push(`Context '${registration.contextName}' declares unknown MCP resource '${resource.uriTemplate}'.`);
+      } else if (descriptor.serviceId !== registration.contextName) {
+        errors.push(
+          `Context '${registration.contextName}' declares MCP resource '${resource.uriTemplate}' owned by context '${descriptor.serviceId}'.`,
+        );
+      }
+    }
+
+    for (const handlerName of Object.keys(registration.handlers.toolHandlers ?? {})) {
+      if (toolHandlers.has(handlerName)) {
+        errors.push(duplicateMessage("tool handler", handlerName));
+      }
+      toolHandlers.set(handlerName, registration.contextName);
+
+      if (!moduleToolNames.has(handlerName)) {
+        errors.push(
+          `Context '${registration.contextName}' registers MCP tool handler '${handlerName}' without declaring it in mcpCapabilities.tools.`,
+        );
+      }
+    }
+
+    for (const handlerName of Object.keys(registration.handlers.resourceHandlers ?? {})) {
+      if (resourceHandlers.has(handlerName)) {
+        errors.push(duplicateMessage("resource handler", handlerName));
+      }
+      resourceHandlers.set(handlerName, registration.contextName);
+
+      if (!moduleResourceTemplates.has(handlerName)) {
+        errors.push(
+          `Context '${registration.contextName}' registers MCP resource handler '${handlerName}' without declaring it in mcpCapabilities.resources.`,
+        );
+      }
+    }
+  }
+
+  for (const tool of flattenAvailableMcpTools(services).filter((candidate) => contextNames.has(candidate.serviceId))) {
+    if (!declaredTools.has(tool.name)) {
+      errors.push(
+        `Available MCP tool '${tool.name}' is owned by mounted context '${tool.serviceId}' but no module declares it.`,
+      );
+      continue;
+    }
+
+    if (declaredTools.get(tool.name) !== tool.serviceId) {
+      errors.push(
+        `Available MCP tool '${tool.name}' is owned by mounted context '${tool.serviceId}' but declared by context '${declaredTools.get(
+          tool.name,
+        )}'.`,
+      );
+      continue;
+    }
+
+    if (!toolHandlers.has(tool.name)) {
+      errors.push(`Available MCP tool '${tool.name}' is declared but no handler is registered.`);
+    }
+  }
+
+  for (const resource of flattenAvailableMcpResources(services).filter((candidate) =>
+    contextNames.has(candidate.serviceId),
+  )) {
+    if (!declaredResources.has(resource.uriTemplate)) {
+      errors.push(
+        `Available MCP resource '${resource.uriTemplate}' is owned by mounted context '${resource.serviceId}' but no module declares it.`,
+      );
+      continue;
+    }
+
+    if (declaredResources.get(resource.uriTemplate) !== resource.serviceId) {
+      errors.push(
+        `Available MCP resource '${resource.uriTemplate}' is owned by mounted context '${resource.serviceId}' but declared by context '${declaredResources.get(
+          resource.uriTemplate,
+        )}'.`,
+      );
+      continue;
+    }
+
+    if (!resourceHandlers.has(resource.uriTemplate)) {
+      errors.push(`Available MCP resource '${resource.uriTemplate}' is declared but no handler is registered.`);
+    }
+  }
+
+  for (const [handlerName, contextName] of toolHandlers) {
+    const descriptor = toolDescriptors.get(handlerName);
+    if (descriptor && !isAvailableMcpCapability(descriptor)) {
+      errors.push(`Context '${contextName}' registers handler '${handlerName}' for a planned MCP tool.`);
+    }
+  }
+
+  for (const [handlerName, contextName] of resourceHandlers) {
+    const descriptor = resourceDescriptors.get(handlerName);
+    if (descriptor && !isAvailableMcpCapability(descriptor)) {
+      errors.push(`Context '${contextName}' registers handler '${handlerName}' for a planned MCP resource.`);
+    }
+  }
+
+  return errors;
+}
+
+export function buildMcpHandlersFromModules(
+  modules: readonly McpModuleRuntimeEntry[],
+  services: readonly McpServiceDescriptor[] = mcpServiceCatalog,
+): McpModuleHandlerComposition {
+  const registrations = modules.flatMap((entry): readonly McpModuleRegistration[] => {
+    if (!entry.module.mcpCapabilities && !entry.module.buildMcpHandlers) {
+      return [];
+    }
+
+    return [
+      {
+        contextName: entry.module.contextName,
+        capabilities: entry.module.mcpCapabilities ?? {},
+        handlers: (entry.module.buildMcpHandlers?.(entry.services as never) ?? {}) as BcMcpHandlers<
+          McpToolHandler,
+          McpResourceHandler
+        >,
+      },
+    ];
+  });
+  const errors = validateMcpModuleRegistrations(registrations, services);
+  if (errors.length > 0) {
+    throw new Error(`Invalid MCP module registration:\n- ${errors.join("\n- ")}`);
+  }
+
+  const toolHandlers = Object.fromEntries(
+    registrations.flatMap((registration) => Object.entries(registration.handlers.toolHandlers ?? {})),
+  );
+  const resourceHandlers = Object.fromEntries(
+    registrations.flatMap((registration) => Object.entries(registration.handlers.resourceHandlers ?? {})),
+  );
+
+  return {
+    toolHandlers,
+    resourceHandlers,
+    registrations,
+  };
 }
 
 async function callTool(

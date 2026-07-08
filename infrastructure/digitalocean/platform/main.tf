@@ -313,13 +313,14 @@ check "worker_runner_capacity" {
   assert {
     condition = (
       tonumber(local.worker_projection_concurrency) +
+      tonumber(local.worker_operations_concurrency) +
       tonumber(local.worker_job_concurrency) +
       tonumber(local.worker_inventory_import_concurrency) +
       tonumber(local.worker_dispatch_concurrency) +
       tonumber(local.worker_scheduled_concurrency) +
       tonumber(local.worker_wake_concurrency)
     ) <= tonumber(local.worker_database_pool_max)
-    error_message = "Worker runner concurrency must not exceed worker_database_pool_max. Increase worker_database_pool_max or reduce WORKER_*_MAX_CONCURRENT_RUNNERS."
+    error_message = "Worker runner concurrency (all runner groups, including the projection-operations executor group) must not exceed worker_database_pool_max. Increase worker_database_pool_max or reduce WORKER_*_MAX_CONCURRENT_RUNNERS / WORKER_PROJECTION_OPERATION_RUNNER_COUNT."
   }
 }
 
@@ -1121,6 +1122,22 @@ resource "digitalocean_app" "platform" {
       env {
         key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"
         value = local.worker_projection_concurrency
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "WORKER_PROJECTION_OPERATION_RUNNER_COUNT"
+        value = local.worker_operations_concurrency
+        scope = "RUN_TIME"
+      }
+
+      # The worker runs an in-process HTTP health server (/health/live +
+      # /health/ready) used by the DOKS liveness/readiness probes so a
+      # boot-crashing worker fails the rollout. App Platform workers ignore the
+      # port; keeping it explicit keeps the Helm health wiring self-describing.
+      env {
+        key   = "PORT"
+        value = "8080"
         scope = "RUN_TIME"
       }
 

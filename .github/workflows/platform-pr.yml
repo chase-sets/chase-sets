@@ -385,6 +385,22 @@ jobs:
           docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-sets-platform infrastructure/helm/platform > "$rendered"
           docker run --rm -v "${RUNNER_TEMP}:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary "$(basename "$rendered")"
 
+      - name: Lint DOKS ingress add-ons Helm chart
+        run: docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 lint infrastructure/helm/doks-ingress
+
+      - name: Validate rendered DOKS ingress add-ons manifests
+        run: |
+          rendered="${RUNNER_TEMP}/doks-ingress-rendered.yaml"
+          docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-sets-doks-ingress infrastructure/helm/doks-ingress > "$rendered"
+          # ClusterIssuer is a cert-manager CRD installed with cert-manager, so
+          # ignore missing schemas rather than strict-failing on the CRD kind.
+          docker run --rm -v "${RUNNER_TEMP}:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -ignore-missing-schemas -summary "$(basename "$rendered")"
+
+      - name: Validate DOKS cluster add-ons install contract
+        run: |
+          node ./scripts/doks-cluster-addons.mjs --dry-run --environment staging
+          node ./scripts/doks-cluster-addons.mjs --dry-run --environment production
+
       - name: Validate platform runtime Secret contract
         run: node ./scripts/platform-kubernetes-secret.mjs --dry-run --namespace validation
 
@@ -655,6 +671,17 @@ jobs:
           sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
+      - name: Terraform plan staging environment DNS DOKS cutover
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/environment-dns/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false \
+            -var=doks_ingress_target=203.0.113.10 \
+            -var=staging_app_serving=doks \
+            -out=tfplan
 
       - name: Terraform init platform without remote backend
         working-directory: infrastructure/digitalocean/platform

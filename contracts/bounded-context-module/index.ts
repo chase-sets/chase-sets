@@ -131,6 +131,26 @@ export type BcApiMount = Readonly<{
   readonly readFreshnessRoutes?: readonly BcReadFreshnessRoute[];
 }>;
 
+export type BcMcpToolDeclaration = Readonly<{
+  readonly name: string;
+  readonly ownerSlice?: string;
+}>;
+
+export type BcMcpResourceDeclaration = Readonly<{
+  readonly uriTemplate: string;
+  readonly ownerSlice?: string;
+}>;
+
+export type BcMcpCapabilities = Readonly<{
+  readonly tools?: readonly BcMcpToolDeclaration[];
+  readonly resources?: readonly BcMcpResourceDeclaration[];
+}>;
+
+export type BcMcpHandlers<TToolHandler = unknown, TResourceHandler = unknown> = Readonly<{
+  readonly toolHandlers?: Readonly<Record<string, TToolHandler>>;
+  readonly resourceHandlers?: Readonly<Record<string, TResourceHandler>>;
+}>;
+
 export type BcAnonymousRoute = Readonly<{
   readonly routePath: string;
   readonly methods: readonly string[];
@@ -220,6 +240,7 @@ export type BcContextManifest = Readonly<{
   readonly streamPrefix: string;
   readonly apiMounts?: readonly unknown[];
   readonly anonymousRoutes?: readonly unknown[];
+  readonly mcpCapabilities?: BcMcpCapabilities;
   readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
   readonly eventReactions?: readonly BcEventReactionDeclaration[];
   readonly projectionGroups?: readonly unknown[];
@@ -416,9 +437,11 @@ export interface BcApiModule<
   readonly schemaMigrations?: readonly BcSchemaMigration[];
   readonly apiMounts: readonly BcApiMount[];
   readonly anonymousRoutes?: readonly BcAnonymousRoute[];
+  readonly mcpCapabilities?: BcMcpCapabilities;
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
   createServices(pool: TPool, ports: THostPorts, options?: BcCreateServicesOptions<TPool>): TServices;
   buildApis(services: TServices): readonly TRouter[];
+  buildMcpHandlers?(services: TServices): BcMcpHandlers;
   projectionHandlerSets?(services: TServices): readonly TProjectionHandlerSet[];
   buildSubscriptions?(services: TServices): readonly BcEventSubscription[];
   buildProjectionGroups?(services: TServices): readonly BcProjectionGroup[];
@@ -438,6 +461,7 @@ export type DefineBoundedContextModuleInput<
   schemaMigrations?: readonly BcSchemaMigration[];
   createServices: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["createServices"];
   buildApis: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["buildApis"];
+  buildMcpHandlers?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["buildMcpHandlers"];
   projectionHandlerSets?: BcApiModule<
     TServices,
     TPool,
@@ -474,11 +498,13 @@ export function defineBoundedContextModule<
     ...(input.schemaMigrations ? { schemaMigrations: input.schemaMigrations } : {}),
     apiMounts: (input.manifest.apiMounts ?? []) as readonly BcApiMount[],
     anonymousRoutes: (input.manifest.anonymousRoutes ?? []) as readonly BcAnonymousRoute[],
+    ...(input.manifest.mcpCapabilities ? { mcpCapabilities: input.manifest.mcpCapabilities } : {}),
     ...(input.manifest.projectionGroups
       ? { projectionGroups: input.manifest.projectionGroups as readonly BcProjectionGroupDeclaration[] }
       : {}),
     createServices: input.createServices,
     buildApis: input.buildApis,
+    ...(input.buildMcpHandlers ? { buildMcpHandlers: input.buildMcpHandlers } : {}),
     ...(input.projectionHandlerSets ? { projectionHandlerSets: input.projectionHandlerSets } : {}),
     ...(input.buildSubscriptions ? { buildSubscriptions: input.buildSubscriptions } : {}),
     ...(input.buildProjectionGroups ? { buildProjectionGroups: input.buildProjectionGroups } : {}),

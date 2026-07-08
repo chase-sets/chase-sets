@@ -1,7 +1,11 @@
 import { EventEmitter } from "node:events";
 
 import { describe, expect, it, vi } from "vitest";
-import { bootstrapPlatformControlPlane, createPostgresPlatformControlPlane } from "./control-plane";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+  platformControlPlaneSchemaSql,
+} from "./control-plane";
 import { createRuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 describe("platform control plane", () => {
@@ -33,6 +37,36 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_operations");
     expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");
+
+    // Bootstrap must also reap stale in-flight operations (running or
+    // cancel_requested with an expired or cleared claim) so #4496-style ghost
+    // rows converge on the next deploy without manual SQL.
+    const reapStatement = statements.find((statement) => statement.includes("stale_claim_reaped"));
+    expect(reapStatement).toBeDefined();
+    expect(reapStatement).toContain("state IN ('running', 'cancel_requested')");
+    expect(reapStatement).toContain("claimed_until IS NULL");
+    expect(reapStatement).toContain("FOR UPDATE SKIP LOCKED");
+  });
+
+  it("adds projection-operation compatibility columns before any index that references them", () => {
+    // Regression guard for issue #4599's staging bootstrap failure: on an upgraded
+    // database `CREATE TABLE IF NOT EXISTS platform_projection_operations` is a
+    // no-op, so the claimable index over next_eligible_at can only build after the
+    // ADD COLUMN backfills that column onto the pre-existing table. Postgres raised
+    // 42703 ("column next_eligible_at does not exist") when the index preceded the
+    // ALTER. The bootstrap SQL runs as one implicit transaction, so these must stay
+    // plain (non-CONCURRENT) index builds ordered after the compatibility ALTERs.
+    const sql = platformControlPlaneSchemaSql;
+    const addAttemptCount = sql.indexOf("ADD COLUMN IF NOT EXISTS attempt_count");
+    const addNextEligibleAt = sql.indexOf("ADD COLUMN IF NOT EXISTS next_eligible_at");
+    const claimableIndex = sql.indexOf("platform_projection_operations_claimable_idx");
+
+    expect(addAttemptCount).toBeGreaterThan(-1);
+    expect(addNextEligibleAt).toBeGreaterThan(-1);
+    expect(claimableIndex).toBeGreaterThan(-1);
+    expect(addAttemptCount).toBeLessThan(claimableIndex);
+    expect(addNextEligibleAt).toBeLessThan(claimableIndex);
+    expect(sql).not.toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS platform_projection_operations_claimable_idx");
   });
 
   it("uses fenced lease ownership for acquire, renew, and release", async () => {

@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+  waitForProjectionPositionFromUrl,
+} from "./support/admin-e2e";
 
 test.describe("access admin api keys", () => {
   test("operator creates, rotates, and revokes an API key @admin-access", async ({ page }) => {
@@ -50,10 +56,12 @@ test.describe("access admin api keys", () => {
     await expect(page.getByText("active").first()).toBeVisible();
     await expect(page.getByText(rotatedSecret, { exact: true })).toHaveCount(0);
 
-    await clickApiKeyRedirectAction(page, apiKeyId, "Revoke");
-    await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
-    await page.goto(`/access/api-keys/${apiKeyId}`, { waitUntil: "domcontentloaded" });
+    const revokeUrl = await clickApiKeyRedirectAction(page, apiKeyId, "Revoke");
+    await waitForIdentityApiKeyProjection(page, revokeUrl, `revoke API key ${apiKeyId}`);
+    await page.goto(revokeUrl.pathname, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: apiKeyName });
+    await expect(page.getByText("revoked").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
   });
 });
 
@@ -103,5 +111,18 @@ async function clickApiKeyRedirectAction(page: Page, apiKeyId: string, name: "Re
     page.getByRole("button", { name }).click(),
   ]);
   expect(response.status(), `${name} form post should redirect successfully`).toBeLessThan(400);
+  await page.waitForURL((url) => url.pathname === `/access/api-keys/${apiKeyId}` && url.search.includes("afterWrite"), {
+    timeout: 30_000,
+  });
   await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+  return new URL(page.url());
+}
+
+async function waitForIdentityApiKeyProjection(page: Page, url: URL, label: string) {
+  await waitForProjectionPositionFromUrl(page, url, {
+    sourceContextName: "identity",
+    targetContextName: "identity",
+    projectionName: "identity-api-key-projection",
+    label,
+  });
 }

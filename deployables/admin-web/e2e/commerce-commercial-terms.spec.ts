@@ -1,11 +1,17 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+  waitForProjectionPositionFromUrl,
+} from "./support/admin-e2e";
 
 const demoAccountId = "acc_seed_demo_account";
 
 test.describe("commerce admin commercial terms", () => {
   test("operator manages fee schedules and commercial agreements @admin-commerce", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(240_000);
     test.skip(
       skipDeployedAdminE2e,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
@@ -53,6 +59,12 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
   await page.waitForURL((url) => url.pathname === "/commerce/terms/schedules" && url.search.includes("afterWrite"), {
     timeout: 30_000,
   });
+  const createUrl = new URL(page.url());
+  await waitForCommercialTermsProjection(page, createUrl, {
+    projectionName: "commercial-terms-schedule-projection",
+    label: `create commercial terms schedule ${label}`,
+  });
+  await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
   await expectAdminPageReady(page, { heading: "Fee Schedules" });
   const openedLabel = await openListRowDetail(page, label, "E2E inactive schedule");
   await expectAdminPageReady(page, { heading: openedLabel });
@@ -93,6 +105,12 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
   await page.waitForURL((url) => url.pathname === "/commerce/terms/agreements" && url.search.includes("afterWrite"), {
     timeout: 30_000,
   });
+  const createUrl = new URL(page.url());
+  await waitForCommercialTermsProjection(page, createUrl, {
+    projectionName: "commercial-terms-agreement-projection",
+    label: `create commercial agreement ${label}`,
+  });
+  await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
   await expectAdminPageReady(page, { heading: "Commercial Agreements" });
   const openedLabel = await openListRowDetail(page, label, "E2E inactive agreement");
   await expectAdminPageReady(page, { heading: openedLabel });
@@ -160,6 +178,19 @@ async function openListRowDetail(page: Page, label: string, fallbackPrefix: stri
     .waitForURL((url) => url.pathname === destination.pathname, { timeout: 5_000 })
     .catch(async () => expectPageOk(page, href!));
   return openedLabel;
+}
+
+async function waitForCommercialTermsProjection(
+  page: Page,
+  url: URL,
+  options: Readonly<{ projectionName: string; label: string }>,
+) {
+  await waitForProjectionPositionFromUrl(page, url, {
+    sourceContextName: "commercial-terms",
+    targetContextName: "commercial-terms",
+    projectionName: options.projectionName,
+    label: options.label,
+  });
 }
 
 async function fillCommercialTermsFeeFields(

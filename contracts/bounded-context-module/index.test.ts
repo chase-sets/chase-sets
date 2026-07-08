@@ -27,6 +27,15 @@ const manifest: BcContextManifest = {
       methods: ["GET"],
     },
   ],
+  mcpCapabilities: {
+    tools: [{ name: "inventory.list-import-sources", ownerSlice: "import-batches" }],
+    resources: [
+      {
+        uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+        ownerSlice: "import-batches",
+      },
+    ],
+  },
   eventSubscriptions: [
     {
       sourceContextName: "catalog",
@@ -251,6 +260,11 @@ describe("defineBoundedContextModule", () => {
       ],
       createServices: () => services,
       buildApis: (createdServices) => [`api:${createdServices.db}`],
+      buildMcpHandlers: () => ({
+        toolHandlers: {
+          "inventory.list-import-sources": () => ({ items: [], total: 0 }),
+        },
+      }),
       projectionHandlerSets: () => [],
       seedProfiles: ["scenario-seed"],
       seed: async () => undefined,
@@ -269,11 +283,15 @@ describe("defineBoundedContextModule", () => {
       ],
       apiMounts: manifest.apiMounts,
       anonymousRoutes: manifest.anonymousRoutes,
+      mcpCapabilities: manifest.mcpCapabilities,
       projectionGroups: manifest.projectionGroups,
       seedProfiles: ["scenario-seed"],
     });
     expect(module.createServices({}, undefined)).toBe(services);
     expect(module.buildApis(services)).toEqual(["api:db"]);
+    expect(module.buildMcpHandlers?.(services).toolHandlers?.["inventory.list-import-sources"]).toEqual(
+      expect.any(Function),
+    );
     await expect(module.seed?.({}, services, { enabledDataProfiles: ["scenario-seed"] })).resolves.toBeUndefined();
   });
 });

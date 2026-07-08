@@ -4,6 +4,7 @@ import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from 
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildCheckoutApi } from "./api";
+import { createCheckoutCartMcpHandlers } from "./features/cart/api/mcp";
 import { buildCheckoutCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
 import { buildCheckoutIdentitySellerAccountsProjectionHandlers } from "./features/cart/integrations/identity/identity-projection";
 import { buildCheckoutInventorySupplyProjectionHandlers } from "./features/cart/integrations/inventory/inventory-projection";
@@ -26,6 +27,7 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
   schemaMigrations: checkoutSchemaMigrations,
   createServices: (pool, options) => createCheckoutServices(pool, options),
   buildApis: (services) => [buildCheckoutApi(services)],
+  buildMcpHandlers: (services) => createCheckoutCartMcpHandlers(services.cart),
   projectionHandlerSets: (services) => services.projectors,
   seed: seedCheckoutDatabase,
   buildSubscriptions: (services) =>

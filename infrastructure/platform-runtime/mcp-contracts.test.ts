@@ -143,20 +143,29 @@ describe("MCP service catalog", () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual([
+      "checkout.get-cart",
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
       "inventory.get-import-batch",
       "inventory.list-import-sources",
+      "marketplace.create-listing",
+      "marketplace.publish-listing",
+      "marketplace.unpublish-listing",
+      "marketplace.update-listing-price",
     ]);
     expect(
       flattenAvailableMcpResources()
         .map((resource) => resource.uriTemplate)
         .sort(),
-    ).toEqual(["chase-sets://inventory/{accountId}/import-batches/{batchId}"]);
+    ).toEqual([
+      "chase-sets://checkout/{accountId}/cart",
+      "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+      "chase-sets://marketplace/{accountId}/listings/{listingId}",
+    ]);
     expect(flattenMcpTools().find((tool) => tool.name === "inventory.list-items")?.availability).toBe("planned");
   });
 
-  it("publishes output schemas for available inventory MCP handler outputs", () => {
+  it("publishes output schemas for available MCP handler outputs", () => {
     const listSourcesOutput = {
       items: [
         {
@@ -205,6 +214,40 @@ describe("MCP service catalog", () => {
       "inventory.commit-import-batch",
     ]) {
       expect(validateOutputSchema(findMcpTool(toolName)?.outputSchema, importBatchOutput)).toEqual([]);
+    }
+    expect(
+      validateOutputSchema(findMcpTool("checkout.get-cart")?.outputSchema, {
+        accountId: "acct_1",
+        items: [
+          {
+            line_id: "cli_1",
+            buyer_account_id: "acct_1",
+            catalog_item_id: "cat_1",
+            quantity: 1,
+            product_id: "cat_1::condition:near-mint",
+            item_title: "Charizard",
+            updated_at: "2026-07-07T00:00:00.000Z",
+          },
+        ],
+        total: 1,
+      }),
+    ).toEqual([]);
+    for (const toolName of [
+      "marketplace.create-listing",
+      "marketplace.update-listing-price",
+      "marketplace.publish-listing",
+      "marketplace.unpublish-listing",
+    ]) {
+      expect(
+        validateOutputSchema(findMcpTool(toolName)?.outputSchema, {
+          accountId: "acct_1",
+          id: "lst_1",
+          listingId: "lst_1",
+          version: 2,
+          status: "published",
+          resourceUri: "chase-sets://marketplace/acct_1/listings/lst_1",
+        }),
+      ).toEqual([]);
     }
   });
 

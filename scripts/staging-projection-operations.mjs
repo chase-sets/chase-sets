@@ -702,6 +702,11 @@ function sanitizeOperation(operation) {
     streamIdFingerprint: value.streamId == null ? null : fingerprint(value.streamId),
     requestedByUserIdFingerprint: value.requestedByUserId == null ? null : fingerprint(value.requestedByUserId),
     claimOwnerIdFingerprint: value.claimOwnerId == null ? null : fingerprint(value.claimOwnerId),
+    // Claim expiry is the single field that separates a reclaimable expired
+    // claim from an unreapable NULL-claim ghost (issue #4496); keep it in the
+    // support-safe snapshot so stuck `running` rows are diagnosable from
+    // artifacts alone.
+    claimedUntil: value.claimedUntil == null ? null : readSafeTimestamp(value.claimedUntil),
     attemptCount: value.attemptCount == null ? null : readNumber(value.attemptCount),
     nextEligibleAt: value.nextEligibleAt == null ? null : readSafeTimestamp(value.nextEligibleAt),
     requestedAt: readSafeTimestamp(value.requestedAt),

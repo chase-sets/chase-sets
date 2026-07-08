@@ -144,14 +144,29 @@ locals {
     }
   } : {}
 
-  api_database_pool_max               = "6"
-  worker_default_database_pool_max    = local.is_staging ? 12 : 7
+  api_database_pool_max = "6"
+  # Worker pool max must cover the sum of every runner-group concurrency
+  # (see check "worker_runner_capacity"): production 8 = 1 projection + 1
+  # operations + 1 job + 1 inventory-import + 1 dispatch + 1 scheduled + 2 wake;
+  # staging 14 = 2 + 2 + 4 + 1 + 1 + 1 + 3. The dedicated projection-operation
+  # executor group (#4599) is counted here so recovery executors are never
+  # starved by the projection backlog and never oversubscribe the pool. Staging
+  # runs pooled through PgBouncer, so its client-side pool max does not add
+  # cluster backends; production runs direct, so its pool max counts one-for-one
+  # against the connection budget (worker overlap 74 <= the 75 tier trigger).
+  worker_default_database_pool_max    = local.is_staging ? 14 : 8
   worker_database_pool_max            = tostring(var.worker_database_pool_max > 0 ? var.worker_database_pool_max : local.worker_default_database_pool_max)
   bootstrap_database_pool_max         = "4"
   database_pool_idle_timeout_ms       = "5000"
   database_pool_connection_timeout_ms = "10000"
   worker_max_concurrent_runners       = local.is_staging ? "8" : "5"
   worker_projection_concurrency       = local.is_staging ? "2" : "1"
+  # Dedicated projection-operation executor group (#4599/#4496): isolated from
+  # the projection backlog so recovery operations (rebuilds, retries) always
+  # get a slot. Staging runs 2 for parallel recovery drills; production runs 1
+  # to keep worker pool max at 8 and the rolling-deploy overlap under the tier
+  # upgrade trigger.
+  worker_operations_concurrency       = local.is_staging ? "2" : "1"
   worker_default_job_concurrency      = local.is_staging ? 4 : 1
   worker_job_concurrency              = tostring(var.worker_job_concurrency > 0 ? var.worker_job_concurrency : local.worker_default_job_concurrency)
   worker_inventory_import_concurrency = "1"
@@ -162,9 +177,10 @@ locals {
   # runners, so wake concurrency must be at least hot lanes + 1 for the
   # reservation to be real while standard/bulk keep a slot. Production runs 2
   # like staging so the reservation is provisioned before production relay
-  # enablement; the worker_runner_capacity check sums
-  # production runner concurrency to 7 = worker_database_pool_max and staging
-  # to 12 = worker_database_pool_max. Staging runs an extra shared wake slot
+  # enablement; the worker_runner_capacity check sums every runner group
+  # (including the operations executor group) to production 8 =
+  # worker_database_pool_max and staging 14 = worker_database_pool_max. Staging
+  # runs an extra shared wake slot
   # and standard-lane runner so representative load drills do not leave
   # standard relay intents aging behind bulk work while the hot reservation is
   # active. Production keeps one projection runner by default so the current
@@ -687,7 +703,10 @@ locals {
       (local.admin_domain) = local.is_staging ? local.environment_zone : var.root_domain
     },
   )
-  staging_app_alias_record_names = local.is_staging ? toset([
+  # Released when staging_app_serving flips to "doks" so the environment-dns
+  # DOKS A records own these host names during cutover with no CNAME/A collision.
+  # Flipping back to "app-platform" restores the App Platform CNAMEs (rollback).
+  staging_app_alias_record_names = local.is_staging && var.staging_app_serving == "app-platform" ? toset([
     "admin",
     "marketplace",
     "www",

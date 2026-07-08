@@ -1,0 +1,27 @@
+# Cluster-scoped resources Chase Sets owns for DOKS ingress + TLS. The upstream
+# ingress-nginx and cert-manager charts are installed separately with the pinned
+# values files in this directory (ingress-nginx-values.yaml, cert-manager-values.yaml)
+# by scripts/doks-cluster-addons.mjs. This chart renders only the ACME
+# ClusterIssuers so certificate issuance stays source-owned and reviewable.
+clusterIssuers:
+  enabled: true
+  # ACME account email used for Let's Encrypt registration and expiry notices.
+  email: "ops@chasesets.com"
+  # Ingress class the HTTP-01 solver publishes challenge routes through. Must
+  # match controller.ingressClassResource.name in ingress-nginx-values.yaml.
+  ingressClassName: "nginx"
+  # Let's Encrypt staging issuer: high rate limits, untrusted chain. Use it to
+  # rehearse issuance against the shadow validation hosts without burning the
+  # production ACME quota.
+  staging:
+    enabled: true
+    name: "letsencrypt-staging"
+    server: "https://acme-staging-v02.api.letsencrypt.org/directory"
+    privateKeySecretName: "letsencrypt-staging-account-key"
+  # Let's Encrypt production issuer: trusted chain, tight rate limits. Point live
+  # Ingress objects at this issuer only after staging issuance is proven.
+  production:
+    enabled: true
+    name: "letsencrypt-production"
+    server: "https://acme-v02.api.letsencrypt.org/directory"
+    privateKeySecretName: "letsencrypt-production-account-key"
