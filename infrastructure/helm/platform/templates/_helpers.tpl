@@ -150,10 +150,23 @@ containers:
       httpGet:
         path: {{ $component.healthPath | quote }}
         port: http
+    {{- if $component.startupPath }}
+    startupProbe:
+      httpGet:
+        path: {{ $component.startupPath | quote }}
+        port: http
+      periodSeconds: 10
+      failureThreshold: 30
+    livenessProbe:
+      httpGet:
+        path: {{ $component.startupPath | quote }}
+        port: http
+    {{- else }}
     livenessProbe:
       httpGet:
         path: {{ $component.healthPath | quote }}
         port: http
+    {{- end }}
     {{- end }}
     {{- with $component.resources }}
     resources:
