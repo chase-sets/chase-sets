@@ -456,6 +456,17 @@ variable "platform_image_digest" {
   }
 }
 
+variable "platform_bootstrap_owner" {
+  type        = string
+  default     = "app-platform"
+  description = "Schema-bootstrap owner for the App Platform platform-bootstrap job. Set to \"doks\" when the DOKS estate owns bootstrap and App Platform must skip its pre-deploy bootstrap."
+
+  validation {
+    condition     = contains(["app-platform", "doks"], var.platform_bootstrap_owner)
+    error_message = "platform_bootstrap_owner must be either \"app-platform\" or \"doks\"."
+  }
+}
+
 variable "platform_internal_auth_secret" {
   type      = string
   sensitive = true
