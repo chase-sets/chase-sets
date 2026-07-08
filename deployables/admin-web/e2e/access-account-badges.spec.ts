@@ -1,5 +1,12 @@
-import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import {
+  authenticateAdmin,
+  expectAdminPageReady,
+  expectPageOk,
+  skipDeployedAdminE2e,
+  waitForProjectionPositionFromResponse,
+  waitForProjectionPositionFromUrl,
+} from "./support/admin-e2e";
 
 const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
 type AccountBadgeKey = (typeof accountBadgeKeys)[number];
@@ -57,7 +64,7 @@ test.describe("access admin account badges", () => {
   });
 
   test("operator assigns and removes every supported account badge @admin-access", async ({ page }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(300_000);
     test.skip(
       skipDeployedAdminE2e,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
@@ -164,9 +171,11 @@ async function exerciseBadgeToggle(
   const initiallyAssigned = await readBadgeAssignment(page, label);
   const action = `${initiallyAssigned ? "Remove" : "Assign"} ${label} badge`;
 
-  await clickBadgeAction(page, action);
-  await page.goto(`/access/accounts/${accountId}`, { waitUntil: "domcontentloaded" });
+  const actionUrl = await clickBadgeAction(page, action);
+  await waitForIdentityAccountProjection(page, actionUrl, `${action} for account ${accountId}`);
+  await page.goto(actionUrl.pathname, { waitUntil: "domcontentloaded" });
   await expectAdminPageReady(page, { heading: accountDisplayName });
+  await expectBadgeAssignment(page, label, !initiallyAssigned);
 }
 
 async function clickBadgeAction(page: Page, name: string) {
@@ -177,7 +186,11 @@ async function clickBadgeAction(page: Page, name: string) {
     page.getByRole("button", { name }).click(),
   ]);
   expect(response.status(), `${name} form post should redirect successfully`).toBeLessThan(400);
+  await page.waitForURL((url) => url.pathname.startsWith("/access/accounts/") && url.search.includes("afterWrite"), {
+    timeout: 30_000,
+  });
   await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+  return new URL(page.url());
 }
 
 async function expectBadgeAction(page: Page, name: string) {
@@ -204,9 +217,10 @@ async function readBadgeAssignment(page: Page, label: string) {
 }
 
 async function restoreAccountBadges(page: Page, accountId: string, initialBadges: ReadonlySet<string>) {
+  const current = await waitForAccountSnapshot(page, accountId, () => true);
+  let lastResponse: APIResponse | null = null;
   for (const badgeKey of accountBadgeKeys) {
     const shouldBeAssigned = initialBadges.has(badgeKey);
-    const current = await waitForAccountSnapshot(page, accountId, () => true);
     if (shouldBeAssigned === current.badges.includes(badgeKey)) {
       continue;
     }
@@ -216,5 +230,28 @@ async function restoreAccountBadges(page: Page, accountId: string, initialBadges
       ? await page.request.post(`${origin}/api/identity/accounts/${accountId}/badges`, { data: { badgeKey } })
       : await page.request.delete(`${origin}/api/identity/accounts/${accountId}/badges/${badgeKey}`);
     expect(response.ok(), `restore ${badgeKey} response should be successful`).toBe(true);
+    lastResponse = response;
   }
+
+  if (lastResponse) {
+    await waitForIdentityAccountProjectionFromResponse(page, lastResponse, `restore account badges for ${accountId}`);
+  }
+}
+
+async function waitForIdentityAccountProjection(page: Page, url: URL, label: string) {
+  await waitForProjectionPositionFromUrl(page, url, {
+    sourceContextName: "identity",
+    targetContextName: "identity",
+    projectionName: "identity-account-projection",
+    label,
+  });
+}
+
+async function waitForIdentityAccountProjectionFromResponse(page: Page, response: APIResponse, label: string) {
+  await waitForProjectionPositionFromResponse(page, response, {
+    sourceContextName: "identity",
+    targetContextName: "identity",
+    projectionName: "identity-account-projection",
+    label,
+  });
 }

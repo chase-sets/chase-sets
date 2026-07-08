@@ -1,10 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIResponse, type Page, type Response as PlaywrightResponse } from "@playwright/test";
 import {
   authenticateAdmin,
   expectAdminPageReady,
   expectAdminWebHydrated,
   expectPageOk,
   skipDeployedAdminE2e,
+  waitForProjectionPositionFromResponse,
 } from "./support/admin-e2e";
 
 type CatalogAuthoringStreamProbeResult = Readonly<{
@@ -265,6 +266,8 @@ test.describe("catalog admin modeling", () => {
       expect(createBody.status).toBe("draft");
       await expect(page.getByRole("heading", { name: "Create Catalog Item" })).toHaveCount(0);
 
+      await waitForCatalogItemAdminProjection(page, createResponse, `create draft catalog item ${catalogItemId}`);
+
       const row = await waitForCatalogItemRow(page, catalogItemId);
       await expect(row.getByRole("link", { name: "View" })).toBeVisible();
 
@@ -321,7 +324,7 @@ test.describe("catalog admin modeling", () => {
   test("signed-in catalog operator creates and activates a draft dimension @catalog-admin-modeling", async ({
     page,
   }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(240_000);
     test.skip(
       skipDeployedAdminE2e,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
@@ -340,9 +343,21 @@ test.describe("catalog admin modeling", () => {
     await page.getByRole("textbox", { name: "Key" }).fill(dimensionKey);
     await page.getByRole("textbox", { name: "Name" }).fill(dimensionName);
     await page.getByRole("textbox", { name: "Description" }).fill("Created by admin catalog modeling E2E.");
-    await page.getByRole("button", { name: "Create" }).click();
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (candidate) =>
+          candidate.request().method() === "POST" &&
+          candidate.url().includes("/api/catalog/dimensions") &&
+          candidate.status() === 201,
+      ),
+      page.getByRole("button", { name: "Create" }).click(),
+    ]);
+    const createBody = (await createResponse.json()) as CatalogCommandResponse;
+    expect(createBody.id).toMatch(/^dim_/);
+    expect(createBody.status).toBe("draft");
     await expect(page.getByRole("heading", { name: "Create Dimension" })).toHaveCount(0);
 
+    await waitForDimensionAdminProjection(page, createResponse, `create draft dimension ${createBody.id}`);
     const row = await waitForDimensionRow(page, dimensionKey);
     await row.getByRole("link", { name: "View" }).click();
     await expect(page).toHaveURL(/\/catalog\/dimensions\/dim_[^/?]+(?:\?|$)/);
@@ -350,7 +365,19 @@ test.describe("catalog admin modeling", () => {
     await expect(page.getByRole("heading", { name: dimensionName })).toBeVisible();
     await expectDimensionStatus(page, "draft");
 
-    await page.getByRole("button", { name: "Activate" }).click();
+    const [activateResponse] = await Promise.all([
+      page.waitForResponse(
+        (candidate) =>
+          candidate.request().method() === "POST" &&
+          candidate.url().includes(`/api/catalog/dimensions/${createBody.id}/activate`) &&
+          candidate.status() === 200,
+      ),
+      page.getByRole("button", { name: "Activate" }).click(),
+    ]);
+    const activateBody = (await activateResponse.json()) as CatalogCommandResponse;
+    expect(activateBody.id).toBe(createBody.id);
+    expect(activateBody.status).toBe("active");
+    await waitForDimensionAdminProjection(page, activateResponse, `activate dimension ${createBody.id}`);
     await expectDimensionStatus(page, "active");
   });
 
@@ -526,7 +553,8 @@ async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: stri
     waitUntil: "domcontentloaded",
   });
   await waitForCatalogItemRow(page, catalogItemId);
-  await removeDraftCatalogItemByApi(page, catalogItemId);
+  const removeResponse = await removeDraftCatalogItemByApi(page, catalogItemId);
+  await waitForCatalogItemAdminProjection(page, removeResponse, `remove draft catalog item ${catalogItemId}`);
   await waitForDraftCatalogItemReadModelRemoval(page, catalogItemId);
 
   await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
@@ -540,6 +568,11 @@ async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: stri
 async function removeDraftCatalogItemFallback(page: Page, catalogItemId: string) {
   const response = await page.request.delete(`${apiOrigin(page)}/api/catalog/items/${catalogItemId}`).catch(() => null);
   if (response?.status() === 200) {
+    await waitForCatalogItemAdminProjection(
+      page,
+      response,
+      `fallback remove draft catalog item ${catalogItemId}`,
+    ).catch(() => undefined);
     await waitForDraftCatalogItemReadModelRemoval(page, catalogItemId).catch(() => undefined);
   }
 }
@@ -658,6 +691,7 @@ async function removeDraftCatalogItemByApi(page: Page, catalogItemId: string) {
   const body = (await response.json()) as CatalogCommandResponse;
   expect(body.id).toBe(catalogItemId);
   expect(body.status).toBe("removed");
+  return response;
 }
 
 async function waitForDraftCatalogItemReadModel(page: Page, catalogItemId: string) {
@@ -667,7 +701,7 @@ async function waitForDraftCatalogItemReadModel(page: Page, catalogItemId: strin
         const item = await getDraftCatalogItemListEntry(page, catalogItemId);
         return item ? `${item.catalog_item_id}:${item.status}` : "missing";
       },
-      { intervals: [1_000, 2_000, 5_000], timeout: 60_000 },
+      { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
     )
     .toBe(`${catalogItemId}:draft`);
 }
@@ -680,7 +714,7 @@ async function waitForDraftCatalogItemReadModelRemoval(page: Page, catalogItemId
         const detailStatus = await getCatalogItemDetailStatus(page, catalogItemId);
         return listItem === null && detailStatus === 404 ? "removed" : "present";
       },
-      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
+      { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
     )
     .toBe("removed");
 }
@@ -703,6 +737,28 @@ async function getCatalogItemDetailStatus(page: Page, catalogItemId: string) {
   const response = await page.request.get(`${apiOrigin(page)}/api/catalog/items/${catalogItemId}`);
   expect([200, 404], `catalog item detail read model query should return 200 or 404`).toContain(response.status());
   return response.status();
+}
+
+async function waitForCatalogItemAdminProjection(
+  page: Page,
+  response: APIResponse | PlaywrightResponse,
+  label: string,
+) {
+  await waitForProjectionPositionFromResponse(page, response, {
+    sourceContextName: "catalog",
+    targetContextName: "catalog",
+    projectionName: "catalog-admin-catalog-item-projection",
+    label,
+  });
+}
+
+async function waitForDimensionAdminProjection(page: Page, response: APIResponse | PlaywrightResponse, label: string) {
+  await waitForProjectionPositionFromResponse(page, response, {
+    sourceContextName: "catalog",
+    targetContextName: "catalog",
+    projectionName: "catalog-dimension-projection",
+    label,
+  });
 }
 
 function apiOrigin(page: Page) {
