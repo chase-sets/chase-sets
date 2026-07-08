@@ -715,6 +715,52 @@ describe("stripe money smoke test", () => {
     expect(accountStatusCall.init.headers.get("Authorization")).toBe("Bearer session_seller");
   });
 
+  it("waits for throwaway seller invitation projection catch-up before registration", async () => {
+    const calls = [];
+    let refreshCount = 0;
+    const fetchImpl = async (url, init = {}) => {
+      const path = new URL(String(url)).pathname;
+      if (path === "/api/platform/projections/refresh") {
+        refreshCount += 1;
+        calls.push({ url: String(url), init });
+        return jsonResponse({
+          projectionGroups: [
+            {
+              targetContextName: "auth",
+              projectionName: "auth-identity-invitation-projection",
+              subscriptions: [{ sourceContextName: "identity", lastGlobalPosition: refreshCount === 1 ? "41" : "42" }],
+            },
+          ],
+        });
+      }
+      return createSmokeFetch(calls)(url, init);
+    };
+
+    const result = await runSellerFlow("https://marketplace.preview.test", {
+      fetchImpl,
+      env: {
+        PLATFORM_AUTH_BASE_URL: "https://marketplace.preview.test",
+        PLATFORM_ADMIN_EMAIL: "admin@example.test",
+        PLATFORM_ADMIN_PASSWORD: "correct horse battery staple",
+        SMOKE_REGISTER_SELLER: "true",
+        SMOKE_SELLER_EMAIL: "stripe-smoke@example.test",
+        SMOKE_SELLER_PASSWORD: "preview smoke password",
+        SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: "1000",
+        SMOKE_INVITATION_PROJECTION_POLL_MS: "1",
+      },
+    });
+
+    expect(result.accountStatus).toBe("ok");
+    expect(calls.slice(0, 6).map((call) => new URL(call.url).pathname)).toEqual([
+      "/api/auth/password-sign-in",
+      "/api/identity/current-actor-display",
+      "/api/identity/invitations",
+      "/api/platform/projections/refresh",
+      "/api/platform/projections/refresh",
+      "/api/auth/register",
+    ]);
+  });
+
   it("uses Terraform admin credential fallbacks when registering a throwaway seller", async () => {
     const calls = [];
     const result = await runSellerFlow("https://marketplace.preview.test", {

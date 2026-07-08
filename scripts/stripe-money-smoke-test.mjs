@@ -67,6 +67,8 @@ async function resolveAuthHeaders(env = process.env, fetchImpl = fetch) {
           displayName: readEnv("SMOKE_SELLER_DISPLAY_NAME", env) ?? defaultSmokeSellerDisplayName(sellerEmail),
           adminEmail: readEnv("PLATFORM_ADMIN_EMAIL", env) ?? readEnv("TF_VAR_platform_admin_email", env),
           adminPassword: readEnv("PLATFORM_ADMIN_PASSWORD", env) ?? readEnv("TF_VAR_platform_admin_password", env),
+          projectionTimeoutMs: positiveIntegerEnv("SMOKE_INVITATION_PROJECTION_TIMEOUT_MS", undefined, env),
+          projectionPollMs: positiveIntegerEnv("SMOKE_INVITATION_PROJECTION_POLL_MS", undefined, env),
         },
         fetchImpl,
       );
@@ -138,6 +140,8 @@ async function registerSellerAccount(params, fetchImpl) {
     fetchImpl,
     label: "Stripe money smoke",
     invitationIdPrefix: "ivt_stripe_money_smoke",
+    projectionTimeoutMs: params.projectionTimeoutMs,
+    projectionPollMs: params.projectionPollMs,
   });
 
   const registration = await requestJson(
@@ -276,6 +280,8 @@ export function envReport(env = process.env) {
     "SMOKE_PAYOUT_AMOUNT",
     "SMOKE_PAYOUT_READINESS_ATTEMPTS",
     "SMOKE_PAYOUT_READINESS_RETRY_DELAY_MS",
+    "SMOKE_INVITATION_PROJECTION_TIMEOUT_MS",
+    "SMOKE_INVITATION_PROJECTION_POLL_MS",
     "SMOKE_PAYMENT_METHOD_CATEGORY",
     "SMOKE_REQUEST_PAYOUT",
     "STRIPE_MONEY_SMOKE_ENVIRONMENT",
