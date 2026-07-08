@@ -13,6 +13,21 @@ const platformBootstrapCommand = "pnpm --filter @chase-sets/app-platform-api run
 const bootstrapQuiesceTimeoutSeconds = 45;
 const bootstrapCommandTimeoutSeconds = 780;
 const bootstrapHookActiveDeadlineSeconds = 890;
+const stagingEnvironmentZone = "staging.chasesets.com";
+const doksIngressClassName = "nginx";
+const doksIngressClusterIssuer = "letsencrypt-production";
+const doksIngressTlsSecretName = "chase-sets-platform-doks-tls";
+
+const platformApiIngressPrefixes = [
+  "/.well-known",
+  "/ucp",
+  "/mcp",
+  "/api/payments/provider/webhooks",
+  "/api/settlement/provider/money-movement/webhooks",
+  "/api/notifications/provider/email/webhooks",
+  "/api/fulfillment/provider/postage/webhooks",
+  "/api",
+];
 
 const componentOrder = [
   "public-web",
@@ -237,7 +252,7 @@ export function buildPlatformHelmValues(options = {}) {
       tolerations: [],
       affinity: {},
     },
-    ingress: {
+    doksIngress: {
       enabled: false,
       className: "nginx",
       clusterIssuer: "",
@@ -271,9 +286,10 @@ export function renderPlatformHelmValues(options = {}) {
     );
 }
 
-export function buildPlatformHelmStagingValues() {
+export function buildPlatformHelmStagingValues(options = {}) {
   return {
     generatedBy,
+    doksIngress: buildDoksIngressValues({ env: options.env }),
     components: {
       "platform-worker": {
         envOverrides: doksStagingWorkerEnvOverrides,
@@ -284,6 +300,74 @@ export function buildPlatformHelmStagingValues() {
 
 export function renderPlatformHelmStagingValues() {
   return `${renderYaml(buildPlatformHelmStagingValues())}\n`;
+}
+
+export function buildDoksIngressValues(options = {}) {
+  const env = options.env ?? {};
+  const target = String(env.DOKS_INGRESS_TARGET ?? "").trim();
+  const serving = String(env.STAGING_APP_SERVING ?? "app-platform").trim() || "app-platform";
+
+  if (!["app-platform", "doks"].includes(serving)) {
+    throw new Error('STAGING_APP_SERVING must be either "app-platform" or "doks".');
+  }
+
+  const enabled = target !== "";
+  const hostMode = serving === "doks" ? "live" : "shadow";
+
+  return {
+    enabled,
+    className: doksIngressClassName,
+    clusterIssuer: doksIngressClusterIssuer,
+    annotations: {},
+    tls: {
+      enabled: true,
+      secretName: doksIngressTlsSecretName,
+    },
+    hosts: enabled ? buildDoksIngressHosts(hostMode) : [],
+  };
+}
+
+function buildDoksIngressHosts(hostMode) {
+  const hosts =
+    hostMode === "live"
+      ? {
+          apex: stagingEnvironmentZone,
+          www: `www.${stagingEnvironmentZone}`,
+          marketplace: `marketplace.${stagingEnvironmentZone}`,
+          admin: `admin.${stagingEnvironmentZone}`,
+        }
+      : {
+          apex: `doks.${stagingEnvironmentZone}`,
+          www: `www.doks.${stagingEnvironmentZone}`,
+          marketplace: `marketplace.doks.${stagingEnvironmentZone}`,
+          admin: `admin.doks.${stagingEnvironmentZone}`,
+        };
+
+  return [
+    {
+      host: hosts.apex,
+      paths: doksIngressPaths("marketplace"),
+    },
+    {
+      host: hosts.www,
+      paths: doksIngressPaths("public-web"),
+    },
+    {
+      host: hosts.marketplace,
+      paths: doksIngressPaths("marketplace"),
+    },
+    {
+      host: hosts.admin,
+      paths: doksIngressPaths("admin-web"),
+    },
+  ];
+}
+
+function doksIngressPaths(rootService) {
+  return [
+    ...platformApiIngressPrefixes.map((pathPrefix) => ({ path: pathPrefix, service: "platform-api" })),
+    { path: "/", service: rootService },
+  ];
 }
 
 export function syncPlatformHelmValues(options = {}) {

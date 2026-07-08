@@ -169,6 +169,54 @@ describe("platform Kubernetes deployment", () => {
     ).not.toContain("--values");
   });
 
+  it("threads DOKS ingress Helm values only for staging when an ingress target is configured", () => {
+    const stagingArgs = buildHelmUpgradeArgs({
+      release: "staging-platform",
+      namespace: "staging",
+      timeout: "12m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "staging",
+      },
+      env: {
+        DOKS_INGRESS_TARGET: "203.0.113.10",
+        STAGING_APP_SERVING: "app-platform",
+      },
+    });
+
+    expect(stagingArgs).toEqual(expect.arrayContaining(["--set", "doksIngress.enabled=true"]));
+    expect(stagingArgs).toEqual(
+      expect.arrayContaining([
+        "--set-string",
+        "doksIngress.clusterIssuer=letsencrypt-production",
+        "--set-string",
+        "doksIngress.hosts[0].host=doks.staging.chasesets.com",
+        "--set-string",
+        "doksIngress.hosts[1].host=www.doks.staging.chasesets.com",
+        "--set-string",
+        "doksIngress.hosts[2].host=marketplace.doks.staging.chasesets.com",
+        "--set-string",
+        "doksIngress.hosts[3].host=admin.doks.staging.chasesets.com",
+      ]),
+    );
+
+    const productionArgs = buildHelmUpgradeArgs({
+      release: "production-platform",
+      namespace: "production",
+      timeout: "12m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "production",
+      },
+      env: {
+        DOKS_INGRESS_TARGET: "203.0.113.10",
+        STAGING_APP_SERVING: "doks",
+      },
+    });
+
+    expect(productionArgs).not.toContain("doksIngress.enabled=true");
+  });
+
   it("escapes comma-separated runtime environment override values for Helm", () => {
     expect(
       buildHelmUpgradeArgs({
