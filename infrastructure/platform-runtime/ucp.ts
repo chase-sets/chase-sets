@@ -14,7 +14,14 @@ import {
   type PlatformIdempotencyRecord,
   type PlatformIdempotencyStore,
 } from "./idempotency";
-import { MCP_LEGACY_PROTOCOL_VERSIONS, negotiateMcpProtocolVersion } from "./mcp-protocol";
+import {
+  MCP_LEGACY_PROTOCOL_VERSIONS,
+  MCP_PROTOCOL_VERSION_HEADER,
+  isValidMcpHeaderValue,
+  negotiateMcpProtocolVersion,
+  readMcpHeaderValue,
+} from "./mcp-protocol";
+import { createMcpHttpOriginPolicyMiddleware, type McpHttpOriginPolicyOptions } from "./mcp-http";
 import {
   buildUcpBusinessProfile,
   createUcpEnvelope,
@@ -188,6 +195,7 @@ export type CreateUcpRoutesOptions = Readonly<{
   restHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   idempotencyStore?: UcpIdempotencyStore;
+  mcpOriginPolicy?: McpHttpOriginPolicyOptions;
   mcpToolCallLimiter?: McpToolCallLimiter;
   agentGrantRateLimiter?: AgentGrantRateLimiter;
   allowInMemoryIdempotencyStoreForTests?: boolean;
@@ -535,15 +543,36 @@ function jsonRpcResult(id: JsonRpcRequest["id"], result: unknown) {
   };
 }
 
-function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string) {
+function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, data?: unknown) {
   return {
     jsonrpc: JSON_RPC_VERSION,
     id: id ?? null,
     error: {
       code,
       message,
+      ...(data === undefined ? {} : { data }),
     },
   };
+}
+
+function validateUcpMcpProtocolHeader(request: Request, id: JsonRpcRequest["id"]) {
+  const protocolHeader = readMcpHeaderValue(request, MCP_PROTOCOL_VERSION_HEADER);
+  if (!protocolHeader) {
+    return null;
+  }
+
+  if (!isValidMcpHeaderValue(protocolHeader)) {
+    return jsonRpcError(id, -32001, `${MCP_PROTOCOL_VERSION_HEADER} contains an invalid value.`);
+  }
+
+  if (!MCP_LEGACY_PROTOCOL_VERSIONS.includes(protocolHeader as (typeof MCP_LEGACY_PROTOCOL_VERSIONS)[number])) {
+    return jsonRpcError(id, -32004, `Unsupported MCP protocol version '${protocolHeader}'.`, {
+      requestedVersion: protocolHeader,
+      supportedVersions: MCP_LEGACY_PROTOCOL_VERSIONS,
+    });
+  }
+
+  return null;
 }
 
 function toolResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) {
@@ -1818,6 +1847,8 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
   const app = new Hono<UcpRuntimeEnv>();
   const idempotencyStore = resolveUcpIdempotencyStore(options, "MCP");
 
+  app.use("*", createMcpHttpOriginPolicyMiddleware(options.mcpOriginPolicy));
+
   app.post("/", async (c) => {
     const body = (await c.req.raw
       .clone()
@@ -1833,6 +1864,11 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
     const request = body as JsonRpcRequest;
     if (request.jsonrpc !== JSON_RPC_VERSION) {
       return c.json(jsonRpcError(null, -32600, "Invalid JSON-RPC request."), 400);
+    }
+
+    const protocolHeaderError = validateUcpMcpProtocolHeader(c.req.raw, request.id);
+    if (protocolHeaderError) {
+      return c.json(protocolHeaderError, 400);
     }
 
     if (request.method === "initialize") {

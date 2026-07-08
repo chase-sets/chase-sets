@@ -352,6 +352,32 @@ describe("platform api app wiring", () => {
     expect(realtimeStatusResponse.status).toBe(404);
   });
 
+  it("rejects hostile Origin headers on composed MCP endpoints", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime(), {
+      resolveActor: vi.fn(async () => platformActor(["inventory.view"])),
+    });
+    const body = JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" });
+
+    for (const endpoint of ["/mcp", "/ucp/mcp"]) {
+      const response = await app.request(`https://marketplace.chasesets.test${endpoint}`, {
+        method: "POST",
+        body,
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://evil.example",
+        },
+      });
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: -32003,
+          message: "Invalid Origin header for MCP endpoint.",
+        },
+      });
+    }
+  });
+
   it("requires catalog manage permission for direct Catalog API mutations", async () => {
     const app = buildPlatformApiApp(createCatalogRuntime(), {
       resolveActor: vi.fn(async () => platformActor(["catalog.view"])),

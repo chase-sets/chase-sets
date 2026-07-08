@@ -51,3 +51,12 @@ export function negotiateMcpProtocolVersion(
 
   return supportedVersions.includes(requestedVersion) ? requestedVersion : MCP_PROTOCOL_VERSION;
 }
+
+export function readMcpHeaderValue(request: Request, name: string) {
+  const value = request.headers.get(name);
+  return value === null || value.trim().length === 0 ? null : value.trim();
+}
+
+export function isValidMcpHeaderValue(value: string) {
+  return !/[\0\r\n]/.test(value);
+}

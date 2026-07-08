@@ -45,6 +45,7 @@ import {
 } from "./idempotency";
 import { agentGrantIdFromActor, type AgentGrantRateLimiter } from "./agent-guardrails";
 import { resolveClientAddress } from "./http";
+import { createMcpHttpOriginPolicyMiddleware, type McpHttpOriginPolicyOptions } from "./mcp-http";
 
 export type McpRuntimeEnv = {
   Variables: {
@@ -114,6 +115,7 @@ export type CreateMcpRoutesOptions = Readonly<{
   toolHandlers?: Readonly<Record<string, McpToolHandler>>;
   resourceHandlers?: Readonly<Record<string, McpResourceHandler>>;
   extensionCapabilities?: McpExtensionCapabilities;
+  originPolicy?: McpHttpOriginPolicyOptions;
   audit?: McpAuditSink;
   idempotencyStore?: McpIdempotencyStore;
   toolCallLimiter?: McpToolCallLimiter;
@@ -777,6 +779,7 @@ function redactArguments(args: Readonly<Record<string, unknown>>, sensitiveInput
 
 function toToolListItem(tool: McpToolDescriptor) {
   const confirmationExpectedValue = getMcpToolConfirmationExpectedValue(tool);
+  const readOnlyHint = tool.risk === "read";
 
   return {
     name: tool.name,
@@ -785,6 +788,9 @@ function toToolListItem(tool: McpToolDescriptor) {
     inputSchema: tool.inputSchema,
     ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
     annotations: {
+      readOnlyHint,
+      destructiveHint: tool.risk === "destructive",
+      ...(!readOnlyHint && tool.guardrails.idempotencyKey === "required" ? { idempotentHint: true } : {}),
       serviceId: tool.serviceId,
       availability: getMcpCapabilityAvailability(tool),
       risk: tool.risk,
@@ -1605,6 +1611,8 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   const resourceHandlers = options.resourceHandlers ?? {};
   const extensionCapabilities = options.extensionCapabilities ?? {};
   const idempotencyStore = resolveMcpIdempotencyStore(options);
+
+  app.use("*", createMcpHttpOriginPolicyMiddleware(options.originPolicy));
 
   app.get("/services", (c) => {
     const actorError = requireMcpDiscoveryActor(c.get("actor"));
