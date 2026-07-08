@@ -1,4 +1,13 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type APIResponse, type Page, type Response as PlaywrightResponse } from "@playwright/test";
+import {
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  decodeCommitReceipt,
+  encodeFreshWriteReceipt,
+  readFreshWriteToken,
+  type SourceCommitPosition,
+} from "@chase-sets/http/responses";
 
 const configuredAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() ?? "";
 const configuredAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "";
@@ -12,6 +21,198 @@ const pageReadyTimeoutMs = 90_000;
 export const skipDeployedAdminE2e =
   process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true" &&
   (configuredAdminEmail.length === 0 || configuredAdminPassword.length === 0);
+
+type ProjectionPositionOptions = Readonly<{
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  label: string;
+  timeoutMs?: number;
+  allowLegacyCommitPositionFallback?: boolean;
+}>;
+
+export type ReadAfterWriteHeaderFactory = () => Record<string, string>;
+
+export function createReadAfterWriteHeaderFactoryFromResponse(
+  response: APIResponse | PlaywrightResponse,
+  options: Readonly<{ targetContextName: string; label: string }>,
+): ReadAfterWriteHeaderFactory {
+  const sources = decodeCommitReceipt(responseHeader(response, CHASE_SETS_COMMIT_RECEIPT_HEADER));
+  expect(sources.length, `${options.label} should include a commit receipt`).toBeGreaterThan(0);
+  return createReadAfterWriteHeaderFactory(sources, options.targetContextName);
+}
+
+export function createReadAfterWriteHeaderFactoryFromUrl(
+  url: string | URL,
+  options: Readonly<{ targetContextName: string; label: string }>,
+): ReadAfterWriteHeaderFactory {
+  const receipt = readFreshWriteToken(url);
+  expect(receipt, `${options.label} should include a fresh write token`).toBeTruthy();
+  return createReadAfterWriteHeaderFactory(receipt!.sources, options.targetContextName);
+}
+
+export async function isProjectionFreshnessTimeoutResponse(response: APIResponse): Promise<boolean> {
+  if (response.status() !== 503) {
+    return false;
+  }
+
+  const body = (await response.json().catch(() => null)) as { error?: { code?: unknown } } | null;
+  return body?.error?.code === "projection_freshness_timeout";
+}
+
+export async function waitForProjectionPositionFromResponse(
+  page: Page,
+  response: APIResponse | PlaywrightResponse,
+  options: ProjectionPositionOptions,
+) {
+  await waitForProjectionPositionFromSources(
+    page,
+    decodeCommitReceipt(responseHeader(response, CHASE_SETS_COMMIT_RECEIPT_HEADER)),
+    options,
+  );
+}
+
+export async function waitForProjectionPositionFromUrl(
+  page: Page,
+  url: string | URL,
+  options: ProjectionPositionOptions,
+) {
+  const receipt = readFreshWriteToken(url);
+  expect(receipt, `${options.label} should include a fresh write token`).toBeTruthy();
+  const hasExpectedSource = receipt!.sources.some((source) => source.sourceContextName === options.sourceContextName);
+  const sources =
+    hasExpectedSource || !options.allowLegacyCommitPositionFallback || !receipt!.commitPosition
+      ? receipt!.sources
+      : [
+          ...receipt!.sources,
+          {
+            sourceContextName: options.sourceContextName,
+            maxGlobalPosition: receipt!.commitPosition,
+            eventIds: [],
+          },
+        ];
+  await waitForProjectionPositionFromSources(page, sources, options);
+}
+
+function createReadAfterWriteHeaderFactory(
+  sources: readonly SourceCommitPosition[],
+  targetContextName: string,
+): ReadAfterWriteHeaderFactory {
+  const stableSources = sources.map((source) => ({
+    sourceContextName: source.sourceContextName,
+    maxGlobalPosition: source.maxGlobalPosition,
+    eventIds: [...source.eventIds],
+  }));
+
+  return () => ({
+    [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: stableSources,
+    }),
+    [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: targetContextName,
+  });
+}
+
+async function waitForProjectionPositionFromSources(
+  page: Page,
+  sources: readonly SourceCommitPosition[],
+  options: ProjectionPositionOptions,
+) {
+  const source = sources.find((candidate) => candidate.sourceContextName === options.sourceContextName);
+  expect(source, `${options.label} should include a ${options.sourceContextName} commit receipt`).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const observation = await refreshProjectionPosition(page, options);
+        if (!observation.ok) {
+          return observation.state;
+        }
+
+        return BigInt(observation.position) >= BigInt(source!.maxGlobalPosition)
+          ? "caught-up"
+          : `behind:${observation.position}/${source!.maxGlobalPosition}`;
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: options.timeoutMs ?? 90_000 },
+    )
+    .toBe("caught-up");
+}
+
+function responseHeader(response: APIResponse | PlaywrightResponse, headerName: string): string | null {
+  const target = headerName.toLowerCase();
+  for (const [name, value] of Object.entries(response.headers())) {
+    if (name.toLowerCase() === target) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+type ProjectionStatusResponse = Readonly<{
+  projectionGroups?: readonly ProjectionGroupStatus[];
+}>;
+
+type ProjectionGroupStatus = Readonly<{
+  targetContextName?: string;
+  projectionName?: string;
+  subscriptions?: readonly ProjectionSubscriptionStatus[];
+}>;
+
+type ProjectionSubscriptionStatus = Readonly<{
+  sourceContextName?: string;
+  lastGlobalPosition?: string;
+}>;
+
+type ProjectionPositionObservation = Readonly<{ ok: true; position: string }> | Readonly<{ ok: false; state: string }>;
+
+async function refreshProjectionPosition(page: Page, options: ProjectionPositionOptions) {
+  const origin = requestOrigin(page);
+  const refreshResponse = await page.request.post(`${origin}/api/platform/projections/refresh`);
+  if (refreshResponse.status() === 200) {
+    return projectionPositionFromResponse(refreshResponse, options);
+  }
+
+  const statusResponse = await page.request.get(`${origin}/api/platform/projections`);
+  if (statusResponse.status() === 200) {
+    return projectionPositionFromResponse(statusResponse, options);
+  }
+
+  return {
+    ok: false,
+    state: `refresh-failed:${refreshResponse.status()};status-failed:${statusResponse.status()}`,
+  } satisfies ProjectionPositionObservation;
+}
+
+async function projectionPositionFromResponse(
+  response: APIResponse,
+  options: ProjectionPositionOptions,
+): Promise<ProjectionPositionObservation> {
+  const body = (await response.json()) as ProjectionStatusResponse;
+  const group = body.projectionGroups?.find(
+    (candidate) =>
+      candidate.targetContextName === options.targetContextName && candidate.projectionName === options.projectionName,
+  );
+
+  return {
+    ok: true,
+    position: maxObservedProjectionPosition(group, options.sourceContextName),
+  };
+}
+
+function maxObservedProjectionPosition(group: ProjectionGroupStatus | undefined, sourceContextName: string) {
+  const positions =
+    group?.subscriptions
+      ?.filter((subscription) => subscription.sourceContextName === sourceContextName)
+      .map((subscription) => subscription.lastGlobalPosition)
+      .filter((position): position is string => typeof position === "string" && /^(0|[1-9]\d*)$/.test(position)) ?? [];
+
+  return positions.reduce((max, position) => (BigInt(position) > BigInt(max) ? position : max), "0");
+}
+
+function requestOrigin(page: Page) {
+  return new URL(page.url()).origin;
+}
 
 export async function expectPageOk(page: Page, path: string) {
   const deadline = Date.now() + pageReadyTimeoutMs;

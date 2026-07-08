@@ -74,6 +74,13 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "catalog-admin-catalog-item-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_admin_catalog_item_list_pages", "catalog_admin_catalog_item_detail_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "catalog-source-observation-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": [

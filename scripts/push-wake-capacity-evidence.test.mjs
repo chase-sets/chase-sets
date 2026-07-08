@@ -51,17 +51,17 @@ describe("push wake capacity evidence", () => {
     });
     expect(evidence.environments.production).toMatchObject({
       apiPoolDemand: 12,
-      workerPoolDemand: 7,
+      workerPoolDemand: 8,
       upgradeTriggerPercent: 80,
       upgradeTrigger: 75,
       apiWaiterListenerDemand: 8,
-      steadyState: { total: 38, limit: 94, headroom: 56 },
+      steadyState: { total: 39, limit: 94, headroom: 55 },
       deployOverlap: {
-        total: 72,
+        total: 74,
         limit: 94,
-        headroom: 22,
-        additionalDirectListenerContextsAtCurrentTier: 11,
-        additionalDirectListenerContextsBeforeUpgradeTrigger: 1,
+        headroom: 20,
+        additionalDirectListenerContextsAtCurrentTier: 10,
+        additionalDirectListenerContextsBeforeUpgradeTrigger: 0,
       },
     });
   });
@@ -83,14 +83,14 @@ describe("push wake capacity evidence", () => {
     expect(evidence.expansionDecision.wave2DirectListenerExpansion).toMatchObject({
       additionalListenerContextCount: 2,
       additionalOverlapDemand: 4,
-      expandedOverlapDemand: 76,
+      expandedOverlapDemand: 78,
       fitsCurrentTier: true,
       requiredDatabaseSize: null,
     });
     expect(evidence.volumeLoadProofPosture.posture).toBe("not-proven-by-this-ci-evidence");
 
     const markdown = renderPushWakeCapacityMarkdown(evidence);
-    expect(markdown).toContain("Rolling-deploy overlap: 72/94");
+    expect(markdown).toContain("Rolling-deploy overlap: 74/94");
     expect(markdown).toContain("Tier-upgrade trigger: 75/94 (80%)");
     expect(markdown).toContain("Posture: **wave-2-direct-listeners-fit-current-tier**");
     expect(markdown).toContain("Production-like volume load proof for #1363 still requires live load evidence");

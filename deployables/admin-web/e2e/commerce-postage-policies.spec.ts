@@ -1,9 +1,29 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  createReadAfterWriteHeaderFactoryFromUrl,
+  expectAdminPageReady,
+  expectPageOk,
+  isProjectionFreshnessTimeoutResponse,
+  skipDeployedAdminE2e,
+  waitForProjectionPositionFromUrl,
+  type ReadAfterWriteHeaderFactory,
+} from "./support/admin-e2e";
+
+type PostagePolicyDetailApiResponse = Readonly<{
+  policy_id: string;
+  status: string;
+  activation_reason: string | null;
+  history: readonly Readonly<{
+    event_type: string;
+    reason: string | null;
+    status: string;
+  }>[];
+}>;
 
 test.describe("commerce admin postage policies", () => {
   test("operator creates, previews, and activates a postage policy @admin-commerce", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(240_000);
     test.skip(
       skipDeployedAdminE2e,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
@@ -30,6 +50,11 @@ test.describe("commerce admin postage policies", () => {
         timeout: 30_000,
       },
     );
+    const createUrl = new URL(page.url());
+    const policyId = createUrl.pathname.split("/").filter(Boolean).at(-1);
+    expect(policyId, "create redirect should include the postage policy id").toMatch(/^opp_/);
+    await waitForOrderingPostagePolicyProjection(page, createUrl, `create postage policy ${policyId}`);
+    await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: label });
     await expect(page.getByRole("textbox", { name: "Policy version" }).first()).toHaveValue(policyVersion);
 
@@ -50,10 +75,67 @@ test.describe("commerce admin postage policies", () => {
         timeout: 30_000,
       },
     );
+    const activationUrl = new URL(page.url());
+    const activatedPolicyId = activationUrl.pathname.split("/").filter(Boolean).at(-1);
+    expect(activatedPolicyId, "activation redirect should include the postage policy id").toBe(policyId);
+    const activationReadAfterWriteHeaders = createReadAfterWriteHeaderFactoryFromUrl(activationUrl, {
+      targetContextName: "ordering",
+      label: `activate postage policy ${activatedPolicyId}`,
+    });
+    await waitForOrderingPostagePolicyProjection(page, activationUrl, `activate postage policy ${activatedPolicyId}`);
+    await waitForPostagePolicyActivationReadModel(
+      page,
+      activatedPolicyId!,
+      activationReason,
+      activationReadAfterWriteHeaders,
+    );
+    await page.goto(activationUrl.pathname, { waitUntil: "domcontentloaded" });
     await expectActivatedPolicy(page, label, activationReason);
     await expect(page.getByRole("row").filter({ hasText: "activated" })).toBeVisible();
   });
 });
+
+async function waitForOrderingPostagePolicyProjection(page: Page, url: URL, label: string) {
+  await waitForProjectionPositionFromUrl(page, url, {
+    sourceContextName: "ordering",
+    targetContextName: "ordering",
+    projectionName: "ordering-postage-policy-projection",
+    label,
+  });
+}
+
+async function waitForPostagePolicyActivationReadModel(
+  page: Page,
+  policyId: string,
+  activationReason: string,
+  readAfterWriteHeaders: ReadAfterWriteHeaderFactory,
+) {
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          `${apiOrigin(page)}/api/marketplace/admin/postage-policies/${policyId}`,
+          { headers: readAfterWriteHeaders() },
+        );
+        if (await isProjectionFreshnessTimeoutResponse(response)) {
+          return "projection-pending";
+        }
+        expect(response.status(), `postage policy detail read model query should return 200`).toBe(200);
+
+        const body = (await response.json()) as PostagePolicyDetailApiResponse;
+        const activationHistoryPresent = body.history.some(
+          (entry) => entry.event_type === "activated" && entry.status === "active" && entry.reason === activationReason,
+        );
+        return body.status === "active" && body.activation_reason === activationReason && activationHistoryPresent
+          ? "active"
+          : `${body.status}:${body.activation_reason ?? "missing-reason"}:${
+              activationHistoryPresent ? "history-present" : "history-missing"
+            }`;
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
+    )
+    .toBe("active");
+}
 
 async function expectActivatedPolicy(page: Page, label: string, activationReason: string) {
   await expect(async () => {
@@ -72,4 +154,8 @@ async function expectActivatedPolicy(page: Page, label: string, activationReason
     }
     expect(activeVisible && reasonVisible).toBe(true);
   }).toPass({ intervals: [1_000, 2_000, 5_000], timeout: 90_000 });
+}
+
+function apiOrigin(page: Page) {
+  return new URL(page.url()).origin;
 }
