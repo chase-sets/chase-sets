@@ -51,6 +51,8 @@ kubectl config current-context
 
 Use the GitHub Actions workflows for normal deploys and evidence. Use `Platform Staging Helm Recovery` (`.github/workflows/platform-staging-helm-recovery.yml`) for owner-approved staging Helm rollback recovery when a DOKS release is stuck or a staging deploy cannot progress. Use a local operator shell only for incident investigation, cutover rehearsal, or an owner-approved emergency recovery that cannot be completed through a workflow.
 
+Use `Platform Staging DOKS Cutover Evidence` (`.github/workflows/platform-staging-doks-cutover-evidence.yml`) to rehearse and prove the cutover without moving live traffic. Dispatch requires the exact confirmation phrase `run staging doks cutover evidence`, a `phase` (`rehearse` targets the `doks.<zone>` shadow hosts, `flip-soak` targets the live hosts after the flip), the DOKS ingress load balancer IPv4 as `ingress_target`, and optionally a `load_balancer_id`. It captures support-safe cutover evidence with `pnpm run cutover:doks-evidence` (which platform served each host, the served TLS certificate chain, and — when a load balancer id is given — load balancer health) and reruns the staging UAT battery (smoke, marketplace critical flows, Buy Now freshness probes, Stripe money smoke) against the phase's DOKS hosts. It uploads `staging-doks-cutover-evidence-<run>-<attempt>` and fails when any host is served by the wrong platform, fails TLS, or is unreachable.
+
 Use `Platform Staging Bootstrap Hook Drill` (`.github/workflows/platform-staging-bootstrap-hook-drill.yml`) for the staging-only bootstrap hook acceptance drill. Dispatch requires the exact confirmation phrase `run staging bootstrap hook drill`. The workflow uses the current staging DOKS release `chase-sets-platform` and namespace `chase-sets-platform`, captures redacted Helm/Kubernetes/smoke artifacts, injects a live held lock on the Catalog `bounded_context_schema_migrations` relation through an existing ready `platform-worker` pod, runs a successful Helm upgrade that must quiesce the worker and release the lock before bootstrap proceeds, then runs a controlled failed-bootstrap upgrade with non-secret values and verifies Helm atomic rollback plus smoke. `held-lock-evidence.json` proves #4048/#4463/#4464 only when `result` is `released`, `lockRelease.status` is `observed`, `lockRelease.releasedDuring` is `successful-bootstrap-upgrade`, and the drill record is `success`. If held-lock setup fails, the workflow stops before Helm upgrade and reports a support-safe `setup-failed` blocker without database URLs, credentials, raw pod names, customer data, or provider data.
 
 ## Deploy And Rollout Status
@@ -219,6 +221,7 @@ The cutover keeps **both platforms serving** and makes the flip an instant, reve
    ```
 
 4. Confirm `Certificate` resources are `Ready` and cert-manager `Order`/`Challenge` completed.
+5. Prove the DOKS pipeline end-to-end and capture support-safe cutover evidence by dispatching `Platform Staging DOKS Cutover Evidence` with `phase=rehearse`, `ingress_target=<lb-ip>`, and the confirmation phrase. It reruns the full staging UAT battery against the `doks.<zone>` shadow hosts and records, per host, which platform served it (resolved address vs the load balancer target), the served TLS certificate chain, and load balancer health. Sign the parity checklist off in #4050 from the uploaded `staging-doks-cutover-evidence-<run>-<attempt>` artifact.
 
 ### 2. Flip (instant cutover)
 
@@ -235,7 +238,7 @@ The cutover keeps **both platforms serving** and makes the flip an instant, reve
      --url https://marketplace.staging.chasesets.com/health/ready
    ```
 
-4. Run the staging UAT battery. Keep TTL low (`doks_ingress_ttl`, 300s default) until confidence is recorded.
+4. Run the staging UAT battery. Re-prove the cut-over surface by dispatching `Platform Staging DOKS Cutover Evidence` with `phase=flip-soak` and the same `ingress_target`; it runs the battery and captures cutover evidence against the live hosts now served by DOKS. Keep TTL low (`doks_ingress_ttl`, 300s default) until confidence is recorded.
 
 ### 3. Rollback (rehearsed)
 

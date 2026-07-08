@@ -33,6 +33,7 @@
     "remote-dev": "node ./scripts/remote-dev.mjs",
     "smoke:platform": "node ./scripts/platform-smoke.mjs",
     "platform:kubernetes-deployment": "node ./scripts/platform-kubernetes-deployment.mjs",
+    "cutover:doks-evidence": "node ./scripts/staging-doks-cutover-evidence.mjs",
     "platform:helm-local-boot": "node ./scripts/platform-helm-local-boot.mjs",
     "ops": "node ./scripts/ops.mjs",
     "catalog:real-provider-proof": "node --experimental-strip-types ./scripts/run-catalog-real-provider-proof.mjs",
