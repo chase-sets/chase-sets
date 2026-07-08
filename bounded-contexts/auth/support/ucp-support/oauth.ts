@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
 import { Hono, type Context } from "hono";
+import {
+  AGENT_OAUTH_SCOPE_FAMILIES,
+  AGENT_OAUTH_SUPPORTED_SCOPES,
+  isAgentOAuthScope,
+  normalizeAgentOAuthScopes,
+  resolveAgentOAuthScopedPermissions,
+  type AgentOAuthScope,
+} from "@chase-sets/auth-context";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -129,8 +137,14 @@ const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
 const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
 const MAX_CLIENT_NAME_LENGTH = 120;
 const MAX_REDIRECT_URIS = 10;
+const UCP_OAUTH_DEFAULT_SCOPES = [
+  "catalog:read",
+  "checkout:read",
+  "order:read",
+] as const satisfies readonly AgentOAuthScope[];
 
-export const UCP_OAUTH_SUPPORTED_SCOPES = ["catalog:read", "checkout:read", "checkout:write", "order:read"] as const;
+export const UCP_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_SUPPORTED_SCOPES;
+export const UCP_OAUTH_SCOPE_FAMILIES = AGENT_OAUTH_SCOPE_FAMILIES;
 
 type AuthorizationCodeRow = Readonly<{
   code_id: string;
@@ -174,19 +188,7 @@ export function resolveUcpScopedPermissions(
   scopes: readonly string[],
   membershipPermissions: readonly string[],
 ): readonly string[] {
-  const allowed = new Set<string>();
-  if (scopes.includes("catalog:read")) {
-    allowed.add("catalog.view");
-    allowed.add("listings.view");
-  }
-  if (scopes.includes("checkout:read") || scopes.includes("order:read")) {
-    allowed.add("orders.view");
-  }
-  if (scopes.includes("checkout:write")) {
-    allowed.add("orders.manage");
-  }
-
-  return membershipPermissions.filter((permission) => allowed.has(permission));
+  return resolveAgentOAuthScopedPermissions(scopes, membershipPermissions);
 }
 
 export function createUcpOAuthMetadataRoutes() {
@@ -204,6 +206,7 @@ export function createUcpOAuthMetadataRoutes() {
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       scopes_supported: UCP_OAUTH_SUPPORTED_SCOPES,
+      scope_families_supported: UCP_OAUTH_SCOPE_FAMILIES,
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
     });
@@ -618,13 +621,7 @@ async function readFormOrJson(request: Request) {
 }
 
 function normalizeScopes(value: unknown): readonly string[] {
-  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\s+/) : [];
-  const supported = new Set<string>(UCP_OAUTH_SUPPORTED_SCOPES);
-  const scopes = raw
-    .filter((entry): entry is string => typeof entry === "string")
-    .map((entry) => entry.trim())
-    .filter((entry) => supported.has(entry));
-  return scopes.length > 0 ? [...new Set(scopes)].sort() : ["catalog:read", "checkout:read", "order:read"];
+  return normalizeAgentOAuthScopes(value, UCP_OAUTH_DEFAULT_SCOPES);
 }
 
 function parseClientRegistrationMetadata(
@@ -776,11 +773,10 @@ async function readClientIdMetadataDocument(
 function normalizeRequestedScopes(value: unknown): readonly string[] | null {
   const raw = typeof value === "string" && value.trim().length > 0 ? value.split(/\s+/) : [];
   if (raw.length === 0) {
-    return ["catalog:read", "checkout:read", "order:read"];
+    return UCP_OAUTH_DEFAULT_SCOPES;
   }
-  const supported = new Set<string>(UCP_OAUTH_SUPPORTED_SCOPES);
-  const scopes = [...new Set(raw.map((entry) => entry.trim()).filter(Boolean))].sort();
-  return scopes.every((entry) => supported.has(entry)) ? scopes : null;
+  const requested = raw.map((entry) => entry.trim()).filter(Boolean);
+  return requested.every(isAgentOAuthScope) ? normalizeAgentOAuthScopes(requested) : null;
 }
 
 function normalizeStringArray(value: unknown, fallback: readonly string[] = []): readonly string[] {

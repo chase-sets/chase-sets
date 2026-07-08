@@ -41,6 +41,7 @@ export type AgentConnectorToolRegistration = Readonly<{
   risk: McpToolDescriptor["risk"];
   access_scope: McpToolDescriptor["permissionBoundary"]["scope"];
   required_permissions: readonly string[];
+  required_scopes: readonly string[];
   input_schema: McpToolDescriptor["inputSchema"];
   output_schema?: McpToolDescriptor["outputSchema"];
   confirmation_required: boolean;
@@ -56,6 +57,7 @@ export type AgentConnectorResourceRegistration = Readonly<{
   service_id: string;
   access_scope: McpResourceDescriptor["permissionBoundary"]["scope"];
   required_permissions: readonly string[];
+  required_scopes: readonly string[];
   expected_usage: readonly string[];
 }>;
 
@@ -134,6 +136,7 @@ function toolRegistration(tool: McpToolDescriptor): AgentConnectorToolRegistrati
     risk: tool.risk,
     access_scope: tool.permissionBoundary.scope,
     required_permissions: tool.permissionBoundary.requiredPermissions,
+    required_scopes: tool.permissionBoundary.requiredScopes ?? [],
     input_schema: tool.inputSchema,
     ...(tool.outputSchema ? { output_schema: tool.outputSchema } : {}),
     confirmation_required: tool.guardrails.confirmation.required,
@@ -151,6 +154,7 @@ function resourceRegistration(resource: McpResourceDescriptor): AgentConnectorRe
     service_id: resource.serviceId,
     access_scope: resource.permissionBoundary.scope,
     required_permissions: resource.permissionBoundary.requiredPermissions,
+    required_scopes: resource.permissionBoundary.requiredScopes ?? [],
     expected_usage: resource.expectedUsage,
   };
 }

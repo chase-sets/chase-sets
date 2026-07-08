@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
+import { AGENT_OAUTH_SUPPORTED_SCOPES, type AgentOAuthScope } from "@chase-sets/auth-context";
 import type { BcApiModule, BcMcpCapabilities, BcMcpHandlers } from "@chase-sets/bounded-context-module";
 import {
   authorizeMcpToolInvocation,
@@ -100,6 +101,8 @@ export type McpAuditRecord = Readonly<{
   reason?: string;
   sensitiveInputFields?: readonly string[];
   limitKind?: McpToolCallLimitKind;
+  agentGrantId?: string | null;
+  agentGrantScopes?: readonly string[];
 }>;
 
 export type McpAuditSink = (record: McpAuditRecord) => Promise<void> | void;
@@ -160,12 +163,7 @@ type McpResourceReadParams = Readonly<{
 const JSON_RPC_VERSION = "2.0";
 const IDEMPOTENCY_PENDING_TTL_MS = 2 * 60 * 1000;
 export const MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
-export const MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED = [
-  "catalog:read",
-  "checkout:read",
-  "checkout:write",
-  "order:read",
-] as const;
+export const MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED = AGENT_OAUTH_SUPPORTED_SCOPES;
 export const MCP_OAUTH_BEARER_METHODS_SUPPORTED = ["header"] as const;
 
 export type McpOAuthProtectedResourceMetadataRoutesOptions = Readonly<{
@@ -220,6 +218,7 @@ function toMcpActor(actor: ResolvedActor | null): McpActor | null {
     actorId: actor.userId,
     accountId: actor.accountId,
     permissions: actor.permissions,
+    agentGrant: actor.agentGrant,
   };
 }
 
@@ -261,8 +260,9 @@ function mcpProtectedResourceMetadataUrl(request: Request) {
   return `${normalizeMcpOrigin(request)}${MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH}`;
 }
 
-function mcpProtectedResourceChallenge(request: Request) {
-  return `Bearer resource_metadata="${mcpProtectedResourceMetadataUrl(request)}"`;
+function mcpProtectedResourceChallenge(request: Request, scopes: readonly string[] = []) {
+  const scope = scopes.length > 0 ? `, scope="${scopes.join(" ")}"` : "";
+  return `Bearer resource_metadata="${mcpProtectedResourceMetadataUrl(request)}"${scope}`;
 }
 
 export function createMcpOAuthProtectedResourceMetadataRoutes(
@@ -872,6 +872,7 @@ function toToolListItem(tool: McpToolDescriptor) {
       availability: getMcpCapabilityAvailability(tool),
       risk: tool.risk,
       requiredPermissions: tool.permissionBoundary.requiredPermissions,
+      requiredScopes: tool.permissionBoundary.requiredScopes ?? [],
       accountScoped: tool.permissionBoundary.accountScoped,
       confirmationRequired: tool.guardrails.confirmation.required,
       confirmationMatchInputField: tool.guardrails.confirmation.matchInputField ?? null,
@@ -894,6 +895,7 @@ function toResourceListItem(resource: McpResourceDescriptor) {
       serviceId: resource.serviceId,
       availability: getMcpCapabilityAvailability(resource),
       requiredPermissions: resource.permissionBoundary.requiredPermissions,
+      requiredScopes: resource.permissionBoundary.requiredScopes ?? [],
       accountScoped: resource.permissionBoundary.accountScoped,
       expectedUsage: resource.expectedUsage,
     },
@@ -984,6 +986,15 @@ function validateResourceAccountOwnership(
   }
 
   return "MCP resource accountId must match the authenticated actor account.";
+}
+
+function mcpAuditActor(actor: ResolvedActor | null) {
+  return {
+    actorId: actor?.userId ?? null,
+    accountId: actor?.accountId ?? null,
+    agentGrantId: actor?.agentGrant?.grantId ?? agentGrantIdFromActor(actor),
+    agentGrantScopes: actor?.agentGrant?.scopes,
+  };
 }
 
 async function audit(sink: McpAuditSink | undefined, record: McpAuditRecord) {
@@ -1243,7 +1254,8 @@ async function callTool(
   protocol: McpRequestProtocolContext,
   params: McpToolCallParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers" | "idempotencyStore">> &
-    Pick<CreateMcpRoutesOptions, "audit" | "toolCallLimiter" | "agentGrantRateLimiter">,
+    Pick<CreateMcpRoutesOptions, "audit" | "toolCallLimiter" | "agentGrantRateLimiter"> &
+    Readonly<{ onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void }>,
 ) {
   if (typeof params.name !== "string") {
     return jsonRpcError(null, -32602, "Tool name is required.");
@@ -1261,8 +1273,7 @@ async function callTool(
       outcome: "denied",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       reason,
@@ -1286,13 +1297,16 @@ async function callTool(
       outcome: "denied",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       reason: authorization.reason,
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
+    if (authorization.missingScopes && authorization.missingScopes.length > 0) {
+      options.onScopeChallenge?.(authorization.missingScopes);
+      return jsonRpcError(null, -32001, authorization.reason, { missingScopes: authorization.missingScopes });
+    }
 
     return mcpToolErrorResult(authorization.reason);
   }
@@ -1303,8 +1317,7 @@ async function callTool(
       outcome: "denied",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       reason: accountOwnershipReason,
@@ -1320,8 +1333,7 @@ async function callTool(
       outcome: "denied",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       reason,
@@ -1340,8 +1352,7 @@ async function callTool(
       outcome: "denied",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       reason: agentGrantRateLimit,
@@ -1374,8 +1385,7 @@ async function callTool(
           outcome: "allowed",
           method: "tools/call",
           toolName: tool.name,
-          actorId: actor?.userId ?? null,
-          accountId: actor?.accountId ?? null,
+          ...mcpAuditActor(actor),
           auditEventName: tool.audit.eventName,
           targetType: tool.audit.targetType,
           reason: "idempotency-replay",
@@ -1396,8 +1406,7 @@ async function callTool(
         outcome: "denied",
         method: "tools/call",
         toolName: tool.name,
-        actorId: actor?.userId ?? null,
-        accountId: actor?.accountId ?? null,
+        ...mcpAuditActor(actor),
         auditEventName: tool.audit.eventName,
         targetType: tool.audit.targetType,
         reason,
@@ -1420,8 +1429,7 @@ async function callTool(
       outcome: "denied",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       reason,
@@ -1442,8 +1450,7 @@ async function callTool(
       outcome: "denied",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       reason: limit.reason,
@@ -1474,8 +1481,7 @@ async function callTool(
       outcome: "allowed",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       sensitiveInputFields: tool.audit.sensitiveInputFields,
@@ -1497,8 +1503,7 @@ async function callTool(
       outcome: "failed",
       method: "tools/call",
       toolName: tool.name,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
       reason,
@@ -1536,7 +1541,8 @@ async function readResource(
   protocol: McpRequestProtocolContext,
   params: McpResourceReadParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "resourceHandlers">> &
-    Pick<CreateMcpRoutesOptions, "audit">,
+    Pick<CreateMcpRoutesOptions, "audit"> &
+    Readonly<{ onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void }>,
 ) {
   if (typeof params.uri !== "string") {
     return jsonRpcError(null, -32602, "Resource URI is required.");
@@ -1592,12 +1598,15 @@ async function readResource(
       outcome: "denied",
       method: "resources/read",
       resourceUri: params.uri,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: pseudoTool.audit.eventName,
       targetType: pseudoTool.audit.targetType,
       reason: authorization.reason,
     });
+    if (authorization.missingScopes && authorization.missingScopes.length > 0) {
+      options.onScopeChallenge?.(authorization.missingScopes);
+      return jsonRpcError(null, -32001, authorization.reason, { missingScopes: authorization.missingScopes });
+    }
 
     return jsonRpcError(null, -32001, authorization.reason);
   }
@@ -1608,8 +1617,7 @@ async function readResource(
       outcome: "denied",
       method: "resources/read",
       resourceUri: params.uri,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: pseudoTool.audit.eventName,
       targetType: pseudoTool.audit.targetType,
       reason: accountOwnershipReason,
@@ -1625,8 +1633,7 @@ async function readResource(
       outcome: "denied",
       method: "resources/read",
       resourceUri: params.uri,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: pseudoTool.audit.eventName,
       targetType: pseudoTool.audit.targetType,
       reason,
@@ -1649,8 +1656,7 @@ async function readResource(
       outcome: "allowed",
       method: "resources/read",
       resourceUri: params.uri,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: pseudoTool.audit.eventName,
       targetType: pseudoTool.audit.targetType,
     });
@@ -1670,8 +1676,7 @@ async function readResource(
       outcome: "failed",
       method: "resources/read",
       resourceUri: params.uri,
-      actorId: actor?.userId ?? null,
-      accountId: actor?.accountId ?? null,
+      ...mcpAuditActor(actor),
       auditEventName: pseudoTool.audit.eventName,
       targetType: pseudoTool.audit.targetType,
       reason,
@@ -1817,6 +1822,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           return c.json(mcpProtectedInvocationAuthenticationRequiredResponse(request.id), 401);
         }
 
+        let scopeChallenge: readonly AgentOAuthScope[] = [];
         const result = await callTool(c.req.raw, actor, protocol, params, {
           services,
           toolHandlers,
@@ -1824,7 +1830,14 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           idempotencyStore,
           toolCallLimiter: options.toolCallLimiter,
           agentGrantRateLimiter: options.agentGrantRateLimiter,
+          onScopeChallenge: (scopes) => {
+            scopeChallenge = scopes;
+          },
         });
+        if (scopeChallenge.length > 0) {
+          c.header("WWW-Authenticate", mcpProtectedResourceChallenge(c.req.raw, scopeChallenge));
+          return c.json({ ...result, id: request.id ?? null }, 401);
+        }
         return c.json({ ...result, id: request.id ?? null });
       }
       case "resources/read": {
@@ -1834,11 +1847,19 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           return c.json(mcpProtectedInvocationAuthenticationRequiredResponse(request.id), 401);
         }
 
+        let scopeChallenge: readonly AgentOAuthScope[] = [];
         const result = await readResource(c.req.raw, actor, protocol, params, {
           services,
           resourceHandlers,
           audit: options.audit,
+          onScopeChallenge: (scopes) => {
+            scopeChallenge = scopes;
+          },
         });
+        if (scopeChallenge.length > 0) {
+          c.header("WWW-Authenticate", mcpProtectedResourceChallenge(c.req.raw, scopeChallenge));
+          return c.json({ ...result, id: request.id ?? null }, 401);
+        }
         return c.json({ ...result, id: request.id ?? null });
       }
       default:

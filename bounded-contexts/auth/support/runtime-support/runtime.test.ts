@@ -265,8 +265,54 @@ describe("Auth request actor resolution", () => {
       accountId: "acc_1",
       membershipId: "mem_1",
       roleKey: "owner",
-      permissions: ["catalog.view", "listings.view", "orders.manage"],
+      permissions: ["catalog.view", "orders.manage"],
+      agentGrant: {
+        grantId: "lpa_1",
+        scopes: ["catalog:read", "checkout:write"],
+        rolePermissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
+      },
     });
     expect(linkedPlatformAuthorizations.resolveAccessToken).toHaveBeenCalledWith("hashed:ucp_at_secret");
+  });
+
+  it("intersects linked OAuth scopes with the member role permissions", async () => {
+    const services = createServices({
+      membership: {
+        membership_id: "mem_1",
+        user_id: "usr_1",
+        account_id: "acc_1",
+        role_key: "viewer",
+        role_permissions: ["payouts.view"],
+        status: "active",
+        updated_at: new Date().toISOString(),
+      },
+    });
+    const linkedPlatformAuthorizations = {
+      resolveAccessToken: vi.fn(async () => ({
+        authorization_id: "lpa_1",
+        user_id: "usr_1",
+        account_id: "acc_1",
+        scopes: ["payouts:request"],
+      })),
+    };
+
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://platform.test/mcp", {
+        headers: { authorization: "Bearer ucp_at_secret" },
+      }),
+      { linkedPlatformAuthorizations },
+    );
+
+    expect(actor).toMatchObject({
+      sessionId: "ucp:lpa_1",
+      roleKey: "viewer",
+      permissions: [],
+      agentGrant: {
+        grantId: "lpa_1",
+        scopes: ["payouts:request"],
+        rolePermissions: ["payouts.view"],
+      },
+    });
   });
 });

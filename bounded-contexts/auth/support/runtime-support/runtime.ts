@@ -1,4 +1,4 @@
-import type { ResolvedActor } from "@chase-sets/auth-context";
+import { normalizeAgentOAuthScopes, type ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { readAuthSessionToken, readCookie } from "../auth-support/http";
 import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
@@ -136,6 +136,9 @@ async function resolveLinkedPlatformActor(
     return null;
   }
 
+  const rolePermissions = membership.role_permissions as readonly string[];
+  const scopes = normalizeAgentOAuthScopes(linked.scopes);
+
   return {
     sessionId: `ucp:${linked.authorization_id}`,
     tenantId: services.identity.bootstrapTenantId,
@@ -143,6 +146,11 @@ async function resolveLinkedPlatformActor(
     accountId: linked.account_id,
     membershipId: membership.membership_id,
     roleKey: membership.role_key,
-    permissions: resolveUcpScopedPermissions(linked.scopes, membership.role_permissions as readonly string[]),
+    permissions: resolveUcpScopedPermissions(scopes, rolePermissions),
+    agentGrant: {
+      grantId: linked.authorization_id,
+      scopes,
+      rolePermissions,
+    },
   };
 }

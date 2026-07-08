@@ -28,6 +28,28 @@ describe("UCP OAuth routes", () => {
       registration_endpoint: "https://marketplace.example/ucp/oauth/register",
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
+      scopes_supported: expect.arrayContaining(["catalog:read", "listings:write", "payouts:request", "account:read"]),
+      scope_families_supported: expect.arrayContaining([
+        expect.objectContaining({
+          family: "listings",
+          label: "Listings",
+          scopes: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "listings:write",
+              label: "Manage your listings",
+            }),
+          ]),
+        }),
+        expect.objectContaining({
+          family: "payouts",
+          scopes: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "payouts:request",
+              label: "Request payouts",
+            }),
+          ]),
+        }),
+      ]),
     });
   });
 
