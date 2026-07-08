@@ -209,10 +209,12 @@ describe("MCP runtime routes", () => {
     const body = (await response.json()) as { tools: Array<{ name: string; annotations: { availability: string } }> };
     expect(body.tools.map((tool) => tool.name).sort()).toEqual([
       "checkout.get-cart",
+      "inventory.adjust-item",
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
       "inventory.get-import-batch",
       "inventory.list-import-sources",
+      "inventory.list-items",
       "marketplace.accept-offer",
       "marketplace.counter-offer",
       "marketplace.create-listing",
@@ -222,6 +224,8 @@ describe("MCP runtime routes", () => {
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
+      "pricing.explain-signals",
+      "pricing.recommend-price",
     ]);
     expect(body.tools).toEqual(
       expect.arrayContaining([
@@ -265,6 +269,13 @@ describe("MCP runtime routes", () => {
     await expect(response.json()).resolves.toEqual({
       resources: [
         expect.objectContaining({
+          uriTemplate: "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["inventory.view"],
+          }),
+        }),
+        expect.objectContaining({
           uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
           annotations: expect.objectContaining({
             availability: "available",
@@ -283,6 +294,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["offers.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["pricing.view"],
           }),
         }),
         expect.objectContaining({

@@ -184,18 +184,58 @@ export async function listInventoryItems(
     accountId: string;
     limit?: number;
     offset?: number;
+    catalogItemId?: string | null;
+    productId?: string | null;
+    storageLocationId?: string | null;
+    availability?: "available" | "held" | "out-of-stock" | null;
   }>,
 ) {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
+  const catalogItemId = params.catalogItemId?.trim() || null;
+  const productId = params.productId?.trim() || null;
+  const storageLocationId = params.storageLocationId?.trim() || null;
+  const availability = params.availability ?? null;
 
   const itemsResult = await db.query<BaseInventoryItemRow>(
-    `WITH paged_items AS (
+    `WITH matching_items AS (
          SELECT
-           *,
+           item.item_id,
+           item.account_id,
+           item.catalog_catalog_item_id,
+           item.product_id,
+           item.selected_options,
+           item.graded_card,
+           item.storage_location_id,
+           item.total_quantity,
+           COALESCE(active_holds.held_quantity, 0) AS held_quantity,
+           item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
+           item.acquisition_cost_amount,
+           item.created_at,
+           item.updated_at,
            COUNT(*) OVER()::integer AS total_count
-         FROM inventory_items
-         WHERE account_id = $1
+         FROM inventory_items AS item
+         LEFT JOIN LATERAL (
+           SELECT SUM(quantity)::integer AS held_quantity
+           FROM inventory_holds
+           WHERE inventory_holds.item_id = item.item_id
+             AND status = 'active'
+         ) AS active_holds
+           ON true
+         WHERE item.account_id = $1
+           AND ($4::text IS NULL OR item.catalog_catalog_item_id = $4)
+           AND ($5::text IS NULL OR item.product_id = $5)
+           AND ($6::text IS NULL OR item.storage_location_id = $6)
+           AND (
+             $7::text IS NULL
+             OR ($7 = 'available' AND item.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0)
+             OR ($7 = 'held' AND COALESCE(active_holds.held_quantity, 0) > 0)
+             OR ($7 = 'out-of-stock' AND item.total_quantity - COALESCE(active_holds.held_quantity, 0) = 0)
+           )
+       ),
+       paged_items AS (
+         SELECT *
+         FROM matching_items
          ORDER BY updated_at DESC, item_id ASC
          LIMIT $2
          OFFSET $3
@@ -213,24 +253,17 @@ export async function listInventoryItems(
          location.ship_from_code,
          location.ship_from_address,
          item.total_quantity,
-         COALESCE(active_holds.held_quantity, 0) AS held_quantity,
-         item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
+         item.held_quantity,
+         item.available_quantity,
          item.acquisition_cost_amount::text AS acquisition_cost_amount,
          item.created_at,
          item.updated_at
        FROM paged_items AS item
        INNER JOIN inventory_storage_locations AS location
          ON location.storage_location_id = item.storage_location_id
-       LEFT JOIN LATERAL (
-         SELECT SUM(quantity)::integer AS held_quantity
-         FROM inventory_holds
-         WHERE inventory_holds.item_id = item.item_id
-           AND status = 'active'
-       ) AS active_holds
-         ON true
        ORDER BY item.updated_at DESC, item.item_id ASC
        `,
-    [params.accountId, limit, offset],
+    [params.accountId, limit, offset, catalogItemId, productId, storageLocationId, availability],
   );
 
   const catalogItems = await loadCatalogItemSummaries(db, [

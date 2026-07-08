@@ -884,22 +884,35 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
-      readTool(
-        "inventory",
-        "list-items",
-        "List Inventory Items",
-        "List inventory items and sale readiness for an account.",
-        "inventory.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            status: stringProperty("Optional inventory status."),
-          },
-          ["accountId"],
+      {
+        ...readTool(
+          "inventory",
+          "list-items",
+          "List Inventory Items",
+          "List inventory items, hold-derived availability, and sale readiness for an account.",
+          "inventory.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              catalogItemId: stringProperty("Optional Catalog Item natural key filter."),
+              productId: stringProperty("Optional resolved Product natural key filter."),
+              storageLocationId: stringProperty("Optional storage location filter."),
+              status: stringProperty("Deprecated alias for availability.", ["available", "held", "out-of-stock"]),
+              availability: stringProperty("Optional hold-derived availability filter.", [
+                "available",
+                "held",
+                "out-of-stock",
+              ]),
+              limit: integerProperty("Maximum items to return."),
+              offset: integerProperty("Result offset."),
+            },
+            ["accountId"],
+          ),
+          "inventory-item",
+          ["Use before creating or updating listings, pricing recommendations, or stock holds."],
         ),
-        "inventory-item",
-        ["Use before creating or updating listings."],
-      ),
+        availability: "available",
+      },
       {
         ...readTool(
           "inventory",
@@ -995,16 +1008,32 @@ export const mcpServiceCatalog = [
         availability: "available",
         outputSchema: inventoryImportBatchDetailOutputSchema,
       },
-      writeTool(
-        "inventory",
-        "adjust-item",
-        "Adjust Inventory Item",
-        "Adjust inventory item quantity, condition, or storage metadata.",
-        "inventory.manage",
-        mutationInput("inventoryItemId", "Inventory item to adjust."),
-        "inventory-item",
-        ["Use for explicit stock corrections after checking open holds."],
-      ),
+      {
+        ...writeTool(
+          "inventory",
+          "adjust-item",
+          "Adjust Inventory Item",
+          "Adjust inventory item quantity through the stock ledger while preserving active hold constraints.",
+          "inventory.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              inventoryItemId: stringProperty("Inventory item to adjust."),
+              quantityDelta: integerProperty(
+                "Signed quantity adjustment. Positive adds stock; negative removes stock.",
+              ),
+              reason: stringProperty("Business reason for the stock adjustment."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "inventoryItemId", "quantityDelta", "reason", "idempotencyKey", "confirmationText"],
+          ),
+          "inventory-item",
+          ["Use for explicit stock corrections after checking active holds and ledger history."],
+        ),
+        availability: "available",
+      },
       writeTool(
         "inventory",
         "archive-location",
@@ -1018,14 +1047,17 @@ export const mcpServiceCatalog = [
       ),
     ],
     resources: [
-      resource(
-        "inventory",
-        "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
-        "Inventory Item",
-        "Seller-owned inventory item state.",
-        "inventory.view",
-        ["Use before pricing, listing, or fulfillment actions."],
-      ),
+      {
+        ...resource(
+          "inventory",
+          "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
+          "Inventory Item",
+          "Seller-owned inventory item state, hold-derived availability, and stock ledger.",
+          "inventory.view",
+          ["Use before pricing, listing, stock holds, or adjustment actions."],
+        ),
+        availability: "available",
+      },
       {
         ...resource(
           "inventory",
@@ -1301,50 +1333,67 @@ export const mcpServiceCatalog = [
       "Pricing",
       "bounded-contexts/pricing",
       "Market price snapshots, pricing signals, and price recommendations.",
-      "listings.view",
+      "pricing.view",
       ["price-recommendation"],
       {
         packageName: "@chase-sets/pricing",
       },
     ),
     tools: [
-      readTool(
-        "pricing",
-        "recommend-price",
-        "Recommend Price",
-        "Get a price recommendation for inventory or listing context.",
-        "listings.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            catalogItemId: stringProperty("Catalog item identifier."),
-            condition: stringProperty("Item condition or grade."),
-          },
-          ["accountId", "catalogItemId"],
+      {
+        ...readTool(
+          "pricing",
+          "recommend-price",
+          "Recommend Price",
+          "Get existing seller price recommendations for a Catalog Item natural key.",
+          "pricing.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              catalogItemId: stringProperty("Catalog Item natural key."),
+              limit: integerProperty("Maximum recommendations to return."),
+              offset: integerProperty("Result offset."),
+            },
+            ["accountId", "catalogItemId"],
+          ),
+          "price-recommendation",
+          ["Use to support seller pricing decisions, not to mutate listings directly."],
         ),
-        "price-recommendation",
-        ["Use to support seller pricing decisions, not to mutate listings directly."],
-      ),
-      readTool(
-        "pricing",
-        "explain-signals",
-        "Explain Pricing Signals",
-        "Explain recent market, inventory, order, and fulfillment signals used by pricing.",
-        "listings.view",
-        objectSchema({ catalogItemId: stringProperty("Catalog item identifier.") }, ["catalogItemId"]),
-        "market-price-snapshot",
-        ["Use when an agent needs to justify a recommendation."],
-      ),
+        availability: "available",
+      },
+      {
+        ...readTool(
+          "pricing",
+          "explain-signals",
+          "Explain Pricing Signals",
+          "Explain recent market, inventory, order, and fulfillment signals used by pricing.",
+          "pricing.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              catalogItemId: stringProperty("Catalog Item natural key."),
+              productId: stringProperty("Optional resolved Product natural key."),
+            },
+            ["accountId", "catalogItemId"],
+          ),
+          "market-price-snapshot",
+          ["Use when an agent needs to justify a recommendation."],
+        ),
+        availability: "available",
+      },
     ],
     resources: [
-      resource(
-        "pricing",
-        "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
-        "Price Recommendation",
-        "Pricing recommendation read model.",
-        "listings.view",
-        ["Use before listing price updates."],
-      ),
+      {
+        ...resource(
+          "pricing",
+          "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
+          "Price Recommendation",
+          "Pricing recommendation read model for the actor account and Catalog Item natural key.",
+          "pricing.view",
+          ["Use before listing price updates."],
+        ),
+        availability: "available",
+      },
     ],
   },
   {

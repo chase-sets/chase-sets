@@ -144,10 +144,12 @@ describe("MCP service catalog", () => {
         .sort(),
     ).toEqual([
       "checkout.get-cart",
+      "inventory.adjust-item",
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
       "inventory.get-import-batch",
       "inventory.list-import-sources",
+      "inventory.list-items",
       "marketplace.accept-offer",
       "marketplace.counter-offer",
       "marketplace.create-listing",
@@ -157,6 +159,8 @@ describe("MCP service catalog", () => {
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
+      "pricing.explain-signals",
+      "pricing.recommend-price",
     ]);
     expect(
       flattenAvailableMcpResources()
@@ -165,10 +169,12 @@ describe("MCP service catalog", () => {
     ).toEqual([
       "chase-sets://checkout/{accountId}/cart",
       "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+      "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
       "chase-sets://marketplace/{accountId}/listings/{listingId}",
       "chase-sets://marketplace/{accountId}/offers/{offerId}",
+      "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
     ]);
-    expect(flattenMcpTools().find((tool) => tool.name === "inventory.list-items")?.availability).toBe("planned");
+    expect(flattenMcpTools().find((tool) => tool.name === "inventory.archive-location")?.availability).toBe("planned");
   });
 
   it("publishes output schemas for available MCP handler outputs", () => {

@@ -1,0 +1,182 @@
+import { describe, expect, it, vi } from "vitest";
+import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
+import { createInventoryItemMcpHandlers } from "./mcp";
+import type { InventoryItemServices } from "./runtime";
+
+const actor = {
+  sessionId: "sess_1",
+  tenantId: "tnt_1",
+  userId: "usr_1",
+  accountId: "acc_1",
+  membershipId: "mem_1",
+  roleKey: "manager",
+  permissions: ["inventory.view", "inventory.manage"],
+} satisfies ResolvedActor;
+
+const legacyMcpProtocol = {
+  protocolVersion: "2025-06-18",
+  stateless: false,
+  clientInfo: null,
+  clientCapabilities: null,
+} satisfies McpRequestProtocolContext;
+
+function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedActor = actor) {
+  return {
+    actor: requestActor,
+    tool: null as never,
+    arguments: arguments_,
+    request: new Request("https://api.test/mcp"),
+    protocol: legacyMcpProtocol,
+  };
+}
+
+function itemRow(overrides: Record<string, unknown> = {}) {
+  return {
+    item_id: "inv_1",
+    account_id: "acc_1",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "prod_1",
+    language_code: "en",
+    item_title: "Charizard",
+    item_subtitle: null,
+    selected_options: [{ dimensionId: "condition", optionId: "near-mint" }],
+    product_summary: "Condition: Near Mint",
+    graded_card: null,
+    storage_location_id: "loc_1",
+    storage_location_name: "Shelf A",
+    ship_from_code: "AUS",
+    ship_from_address: {
+      name: "Seller",
+      line1: "1 Main",
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      country: "US",
+    },
+    total_quantity: 4,
+    held_quantity: 1,
+    available_quantity: 3,
+    acquisition_cost_amount: "10.00",
+    created_at: "2026-07-08T00:00:00.000Z",
+    updated_at: "2026-07-08T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function services(): InventoryItemServices {
+  return {
+    listItems: vi.fn(async () => ({ items: [itemRow()], total: 1 })),
+    getItem: vi.fn(async (itemId, accountId) =>
+      itemRow({ item_id: itemId, account_id: accountId, holds: [], ledger: [] }),
+    ),
+    adjustItem: vi.fn(async (params) => ({ itemId: params.itemId, version: 3 })),
+  } as unknown as InventoryItemServices;
+}
+
+describe("inventory item MCP handlers", () => {
+  it("lists account inventory with natural key and hold-derived availability filters", async () => {
+    const fakeServices = services();
+    const handlers = createInventoryItemMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["inventory.list-items"]?.(
+      mcpRequest({
+        accountId: "acc_1",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        storageLocationId: "loc_1",
+        availability: "available",
+        limit: 25,
+        offset: 5,
+      }),
+    );
+
+    expect(result).toMatchObject({ accountId: "acc_1", total: 1, count: 1 });
+    expect(fakeServices.listItems).toHaveBeenCalledWith({
+      accountId: "acc_1",
+      catalogItemId: "cat_1",
+      productId: "prod_1",
+      storageLocationId: "loc_1",
+      availability: "available",
+      limit: 25,
+      offset: 5,
+    });
+  });
+
+  it("adjusts stock through Inventory and returns an MCP write receipt", async () => {
+    const fakeServices = services();
+    const handlers = createInventoryItemMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["inventory.adjust-item"]?.(
+      mcpRequest({
+        accountId: "acc_1",
+        inventoryItemId: "inv_1",
+        quantityDelta: -1,
+        reason: "Correct physical count",
+        idempotencyKey: "idem_1",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      accountId: "acc_1",
+      id: "inv_1",
+      inventoryItemId: "inv_1",
+      version: 3,
+      status: "adjusted",
+      quantityDelta: -1,
+      resourceUri: "chase-sets://inventory/acc_1/items/inv_1",
+    });
+    expect(fakeServices.adjustItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_1",
+        itemId: "inv_1",
+        quantityDelta: -1,
+        reason: "Correct physical count",
+        idempotencyKey: "idem_1",
+      }),
+      expect.objectContaining({
+        audit: {
+          performedByUserId: "usr_1",
+          forAccountId: "acc_1",
+        },
+      }),
+    );
+  });
+
+  it("rejects account mismatches and dry-run writes before mutating stock", async () => {
+    const fakeServices = services();
+    const handlers = createInventoryItemMcpHandlers(fakeServices);
+
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({ accountId: "acc_other", inventoryItemId: "inv_1", quantityDelta: 1, reason: "Count" }),
+      ),
+    ).rejects.toThrow("accountId must match the authenticated actor account.");
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: 1,
+          reason: "Count",
+          dryRun: true,
+        }),
+      ),
+    ).rejects.toThrow("dryRun is not supported for inventory item MCP writes yet.");
+    expect(fakeServices.adjustItem).not.toHaveBeenCalled();
+  });
+
+  it("reads inventory item resources by URI", async () => {
+    const handlers = createInventoryItemMcpHandlers(services());
+
+    const result = await handlers.resourceHandlers["chase-sets://inventory/{accountId}/items/{inventoryItemId}"]?.({
+      actor,
+      resource: null as never,
+      uri: "chase-sets://inventory/acc_1/items/inv_1",
+      request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
+    });
+
+    expect(result).toMatchObject({ item_id: "inv_1", account_id: "acc_1", available_quantity: 3 });
+  });
+});

@@ -12,7 +12,7 @@ describe("inventory item read model queries", () => {
       ): Promise<PgQueryResult<Row>> => {
         calls.push({ sql, values });
 
-        if (sql.includes("WITH paged_items AS")) {
+        if (sql.includes("WITH matching_items AS")) {
           return {
             rows: [
               {
@@ -55,14 +55,18 @@ describe("inventory item read model queries", () => {
     };
 
     const result = await listInventoryItems(db, { accountId: "acc_1", limit: 100, offset: 0 });
-    const listQuery = calls.find((call) => call.sql.includes("WITH paged_items AS"));
+    const listQuery = calls.find((call) => call.sql.includes("WITH matching_items AS"));
 
     expect(result.total).toBe(12);
     expect(result.items).toHaveLength(1);
-    expect(listQuery?.values).toEqual(["acc_1", 100, 0]);
+    expect(listQuery?.values).toEqual(["acc_1", 100, 0, null, null, null, null]);
     expect(listQuery?.sql).toContain("COUNT(*) OVER()::integer AS total_count");
     expect(listQuery?.sql).toContain("FROM inventory_items");
-    expect(listQuery?.sql).toContain("WHERE account_id = $1");
+    expect(listQuery?.sql).toContain("WHERE item.account_id = $1");
+    expect(listQuery?.sql).toContain("($4::text IS NULL OR item.catalog_catalog_item_id = $4)");
+    expect(listQuery?.sql).toContain("($5::text IS NULL OR item.product_id = $5)");
+    expect(listQuery?.sql).toContain("($6::text IS NULL OR item.storage_location_id = $6)");
+    expect(listQuery?.sql).toContain("$7::text IS NULL");
     expect(listQuery?.sql).toContain("LIMIT $2");
     expect(listQuery?.sql).toContain("OFFSET $3");
     expect(listQuery?.sql).toContain("LEFT JOIN LATERAL");
@@ -82,7 +86,7 @@ describe("inventory item read model queries", () => {
       ): Promise<PgQueryResult<Row>> => {
         calls.push({ sql, values });
 
-        if (sql.includes("WITH paged_items AS")) {
+        if (sql.includes("WITH matching_items AS")) {
           return { rows: [], rowCount: 0 };
         }
 
@@ -96,6 +100,36 @@ describe("inventory item read model queries", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.sql).not.toContain("SELECT COUNT(*) AS count");
     expect(calls.some((call) => call.sql.includes("inventory_catalog_items"))).toBe(false);
+  });
+
+  it("passes natural key and hold-derived availability filters into the paged inventory query", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db: PgQueryable = {
+      query: async <Row = Record<string, unknown>>(
+        sql: string,
+        values: readonly unknown[] = [],
+      ): Promise<PgQueryResult<Row>> => {
+        calls.push({ sql, values });
+
+        if (sql.includes("WITH matching_items AS")) {
+          return { rows: [], rowCount: 0 };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
+
+    await listInventoryItems(db, {
+      accountId: "acc_1",
+      catalogItemId: "cat_1",
+      productId: "prod_1",
+      storageLocationId: "loc_1",
+      availability: "available",
+      limit: 25,
+      offset: 5,
+    });
+
+    expect(calls[0]?.values).toEqual(["acc_1", 25, 5, "cat_1", "prod_1", "loc_1", "available"]);
   });
 
   it("lists native CSV export rows scoped to the account", async () => {
