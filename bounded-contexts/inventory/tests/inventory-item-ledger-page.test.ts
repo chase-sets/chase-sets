@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InventoryItemDetailPage } from "../features/inventory-items/ui/inventory-item-detail-page";
 import type { InventoryItemDetail } from "../features/inventory-items/ui/contracts";
 
@@ -60,22 +60,29 @@ const item: InventoryItemDetail = {
 
 describe("inventory item stock ledger page", () => {
   it("narrates sale, pre-ship cancel, manual adjust, and expired checkout hold journeys", () => {
-    const html = renderToString(
-      createElement(InventoryItemDetailPage, {
-        item,
-        currentPath: "/account/inventory/items/inv_1",
-      }),
-    );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-06T12:00:00.000Z"));
 
-    expect(html).toContain("Stock Ledger");
-    expect(html).toContain("Sale recorded");
-    expect(html).toContain("order-cancelled");
-    expect(html).toContain("Shelf count correction");
-    expect(html).toContain("checkout-expired");
-    expect(html).toContain("/account/sales/ord_sale");
-    expect(html).toContain("/account/sales/ord_cancel");
-    expect(html).toContain("ledgerKind=hold-consumed");
-    expect(html).toContain("Expires");
+    try {
+      const html = renderToString(
+        createElement(InventoryItemDetailPage, {
+          item,
+          currentPath: "/account/inventory/items/inv_1",
+        }),
+      );
+
+      expect(html).toContain("Stock Ledger");
+      expect(html).toContain("Sale recorded");
+      expect(html).toContain("order-cancelled");
+      expect(html).toContain("Shelf count correction");
+      expect(html).toContain("checkout-expired");
+      expect(html).toContain("/account/sales/ord_sale");
+      expect(html).toContain("/account/sales/ord_cancel");
+      expect(html).toContain("ledgerKind=hold-consumed");
+      expect(html).toContain("Expires");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
