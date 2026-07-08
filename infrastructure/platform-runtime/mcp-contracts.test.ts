@@ -148,8 +148,13 @@ describe("MCP service catalog", () => {
       "inventory.create-import-batch",
       "inventory.get-import-batch",
       "inventory.list-import-sources",
+      "marketplace.accept-offer",
+      "marketplace.counter-offer",
       "marketplace.create-listing",
+      "marketplace.decline-offer",
+      "marketplace.list-offers",
       "marketplace.publish-listing",
+      "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
     ]);
@@ -161,6 +166,7 @@ describe("MCP service catalog", () => {
       "chase-sets://checkout/{accountId}/cart",
       "chase-sets://inventory/{accountId}/import-batches/{batchId}",
       "chase-sets://marketplace/{accountId}/listings/{listingId}",
+      "chase-sets://marketplace/{accountId}/offers/{offerId}",
     ]);
     expect(flattenMcpTools().find((tool) => tool.name === "inventory.list-items")?.availability).toBe("planned");
   });
@@ -249,6 +255,41 @@ describe("MCP service catalog", () => {
         }),
       ).toEqual([]);
     }
+    for (const toolName of [
+      "marketplace.submit-offer",
+      "marketplace.counter-offer",
+      "marketplace.accept-offer",
+      "marketplace.decline-offer",
+    ]) {
+      expect(
+        validateOutputSchema(findMcpTool(toolName)?.outputSchema, {
+          accountId: "acct_1",
+          id: "off_1",
+          offerId: "off_1",
+          version: 2,
+          status: "accepted",
+          resourceUri: "chase-sets://marketplace/acct_1/offers/off_1",
+        }),
+      ).toEqual([]);
+    }
+    expect(
+      validateOutputSchema(findMcpTool("marketplace.list-offers")?.outputSchema, {
+        accountId: "acct_1",
+        side: "submitted",
+        items: [
+          {
+            offer_id: "off_1",
+            buyer_account_id: "acct_1",
+            product_id: "cat_1::condition:near-mint",
+            price_amount: "20.00",
+            quantity_requested: 1,
+            status: "submitted",
+          },
+        ],
+        total: 1,
+        count: 1,
+      }),
+    ).toEqual([]);
   });
 
   it("requires confirmation and idempotency for sensitive and destructive tools", () => {
@@ -303,7 +344,7 @@ describe("MCP tool authorization", () => {
       }),
     ).toEqual({
       allowed: false,
-      reason: "Missing required permission: offers.manage.",
+      reason: "Missing required permission: offers.manage, listings.view.",
     });
   });
 
