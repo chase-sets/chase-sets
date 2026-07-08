@@ -12,6 +12,7 @@ import {
   buildFulfillmentAccountProjectionHandlers,
   buildFulfillmentOrderProjectionHandlers,
 } from "./features/shipments/integrations/source/source-projection";
+import { createFulfillmentShipmentMcpHandlers } from "./features/shipments/api/mcp";
 
 export const module = defineBoundedContextModule<FulfillmentServices, PgTransactionalPool, FulfillmentHostPorts>({
   manifest: contextManifest,
@@ -19,6 +20,7 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
   schemaMigrations: fulfillmentSchemaMigrations,
   createServices: (pool, ports) => createFulfillmentServices(pool, ports),
   buildApis: (services) => [buildFulfillmentApi(services), buildFulfillmentProviderWebhookApi(services)],
+  buildMcpHandlers: (services) => createFulfillmentShipmentMcpHandlers(services.shipments),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

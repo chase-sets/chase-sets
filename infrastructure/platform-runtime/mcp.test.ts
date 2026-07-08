@@ -209,6 +209,9 @@ describe("MCP runtime routes", () => {
     const body = (await response.json()) as { tools: Array<{ name: string; annotations: { availability: string } }> };
     expect(body.tools.map((tool) => tool.name).sort()).toEqual([
       "checkout.get-cart",
+      "fulfillment.list-shipments",
+      "fulfillment.purchase-label",
+      "fulfillment.void-label",
       "inventory.adjust-item",
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
@@ -247,6 +250,14 @@ describe("MCP runtime routes", () => {
             confirmationRequired: true,
             confirmationMatchInputField: "confirmationText",
             confirmationExpectedValue: "Create Inventory Import Batch.",
+          }),
+        }),
+        expect.objectContaining({
+          name: "fulfillment.purchase-label",
+          annotations: expect.objectContaining({
+            confirmationRequired: true,
+            confirmationMatchInputField: "confirmationText",
+            confirmationExpectedValue: "Purchase Label.",
           }),
         }),
         expect.objectContaining({
@@ -308,6 +319,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["orders.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["fulfillment.view"],
           }),
         }),
       ],
