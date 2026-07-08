@@ -43,33 +43,42 @@ After a rotation applies, rerun the Helm upgrade or restart the affected runtime
 
 ## Ingress
 
-Ingress is disabled by default while App Platform still owns public routing. Enable it only after the DOKS ingress controller and cert-manager issuer exist:
+`doksIngress` is disabled by default while App Platform still owns public routing. Staging deploys enable it only when `DOKS_INGRESS_TARGET` is set; the render/deploy values use the `STAGING_APP_SERVING` flag to choose the active host set:
 
 ```yaml
-ingress:
+doksIngress:
   enabled: true
   className: nginx
   clusterIssuer: letsencrypt-production
+  tls:
+    enabled: true
+    secretName: chase-sets-platform-doks-tls
   hosts:
-    - host: staging.chasesets.com
+    - host: doks.staging.chasesets.com
       paths:
+        - path: /.well-known
+          service: platform-api
+        - path: /ucp
+          service: platform-api
+        - path: /mcp
+          service: platform-api
         - path: /api
           service: platform-api
         - path: /
           service: marketplace
-    - host: www.staging.chasesets.com
+    - host: www.doks.staging.chasesets.com
       paths:
         - path: /api
           service: platform-api
         - path: /
           service: public-web
-    - host: marketplace.staging.chasesets.com
+    - host: marketplace.doks.staging.chasesets.com
       paths:
         - path: /api
           service: platform-api
         - path: /
           service: marketplace
-    - host: admin.staging.chasesets.com
+    - host: admin.doks.staging.chasesets.com
       paths:
         - path: /api
           service: platform-api
@@ -77,7 +86,7 @@ ingress:
           service: admin-web
 ```
 
-Provider webhook, MCP, UCP, and well-known paths should stay routed to `platform-api` before DNS cutover. The matching DNS cutover records live in `infrastructure/digitalocean/environment-dns` and remain disabled until a DOKS load balancer target is known.
+When `STAGING_APP_SERVING=app-platform`, hosts are the `doks.<zone>` shadow validation names. When it flips to `doks`, hosts become the live staging apex plus `www`, `marketplace`, and `admin`. The chart renders one `Ingress` and one SAN `Certificate` for the active host set. Provider webhook, MCP, UCP, well-known, and `/api` paths stay routed to `platform-api` before the web catch-all. The matching DNS records live in `infrastructure/digitalocean/environment-dns` and remain disabled until a DOKS load balancer target is known.
 
 ## Rollouts
 

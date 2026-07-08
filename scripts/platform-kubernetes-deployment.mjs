@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import process from "node:process";
-import { buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
+import { buildDoksIngressValues, buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
@@ -44,6 +44,10 @@ export function buildHelmUpgradeArgs(options = {}) {
   const imagePullSecret = options.imagePullSecret ?? "";
   const envOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const environmentValuesPath = platformValuesPathForEnvironment(envOverrides.DEPLOYMENT_ENVIRONMENT);
+  const doksIngressSetArgs =
+    envOverrides.DEPLOYMENT_ENVIRONMENT === "staging"
+      ? buildDoksIngressHelmSetArgs(buildDoksIngressValues({ env: options.env ?? {} }))
+      : [];
 
   return [
     "upgrade",
@@ -58,6 +62,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     timeout,
     "--atomic",
     ...(environmentValuesPath ? ["--values", environmentValuesPath] : []),
+    ...doksIngressSetArgs,
     "--set-string",
     `global.image.registry=${image.registry}`,
     "--set-string",
@@ -82,6 +87,33 @@ export function platformValuesPathForEnvironment(environmentName) {
 
 function escapeHelmSetStringValue(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll(",", "\\,");
+}
+
+function buildDoksIngressHelmSetArgs(doksIngress) {
+  if (!doksIngress.enabled) {
+    return [];
+  }
+
+  return [
+    ["--set", "doksIngress.enabled=true"],
+    ["--set-string", `doksIngress.className=${escapeHelmSetStringValue(doksIngress.className)}`],
+    ["--set-string", `doksIngress.clusterIssuer=${escapeHelmSetStringValue(doksIngress.clusterIssuer)}`],
+    ["--set", `doksIngress.tls.enabled=${doksIngress.tls.enabled ? "true" : "false"}`],
+    ["--set-string", `doksIngress.tls.secretName=${escapeHelmSetStringValue(doksIngress.tls.secretName)}`],
+    ...doksIngress.hosts.flatMap((host, hostIndex) => [
+      ["--set-string", `doksIngress.hosts[${hostIndex}].host=${escapeHelmSetStringValue(host.host)}`],
+      ...host.paths.flatMap((route, routeIndex) => [
+        [
+          "--set-string",
+          `doksIngress.hosts[${hostIndex}].paths[${routeIndex}].path=${escapeHelmSetStringValue(route.path)}`,
+        ],
+        [
+          "--set-string",
+          `doksIngress.hosts[${hostIndex}].paths[${routeIndex}].service=${escapeHelmSetStringValue(route.service)}`,
+        ],
+      ]),
+    ]),
+  ].flat();
 }
 
 export function buildHelmRollbackArgs(options = {}) {
@@ -437,6 +469,7 @@ function parseArgs(argv, env = process.env) {
     releaseTag: readOption(rest, "--release-tag", env.ROLLBACK_RELEASE_TAG ?? ""),
     outPath: readOption(rest, "--out", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET_OUT),
     githubOutputPath: readOption(rest, "--github-output", env.GITHUB_OUTPUT),
+    env,
   };
 }
 

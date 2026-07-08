@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 import {
+  buildDoksIngressValues,
   buildPlatformHelmValues,
   buildPlatformHelmStagingValues,
   chartValuesRelativePath,
@@ -53,9 +54,11 @@ describe("render platform Helm values", () => {
     expect(Object.values(values.components).filter((component) => component.kind === "service")).toHaveLength(4);
     expect(Object.values(values.components).filter((component) => component.kind === "worker")).toHaveLength(1);
     expect(Object.values(values.components).filter((component) => component.kind === "job")).toHaveLength(1);
-    expect(values.ingress).toMatchObject({
+    expect(values.doksIngress).toMatchObject({
       enabled: false,
       className: "nginx",
+      clusterIssuer: "",
+      annotations: {},
       tls: {
         enabled: true,
         secretName: "chase-sets-platform-tls",
@@ -166,6 +169,76 @@ describe("render platform Helm values", () => {
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(Number(envValue("DATABASE_POOL_MAX")));
   });
 
+  it("keeps DOKS ingress off by default in the staging overlay", () => {
+    const stagingValues = buildPlatformHelmStagingValues();
+
+    expect(stagingValues.doksIngress).toEqual({
+      enabled: false,
+      className: "nginx",
+      clusterIssuer: "letsencrypt-production",
+      annotations: {},
+      tls: {
+        enabled: true,
+        secretName: "chase-sets-platform-doks-tls",
+      },
+      hosts: [],
+    });
+  });
+
+  it("renders DOKS shadow ingress hosts while App Platform serves live staging traffic", () => {
+    const doksIngress = buildDoksIngressValues({
+      env: {
+        DOKS_INGRESS_TARGET: "203.0.113.10",
+        STAGING_APP_SERVING: "app-platform",
+      },
+    });
+
+    expect(doksIngress.enabled).toBe(true);
+    expect(doksIngress.className).toBe("nginx");
+    expect(doksIngress.clusterIssuer).toBe("letsencrypt-production");
+    expect(doksIngress.hosts.map((host) => host.host)).toEqual([
+      "doks.staging.chasesets.com",
+      "www.doks.staging.chasesets.com",
+      "marketplace.doks.staging.chasesets.com",
+      "admin.doks.staging.chasesets.com",
+    ]);
+    expect(Object.fromEntries(doksIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
+      "doks.staging.chasesets.com": { path: "/", service: "marketplace" },
+      "www.doks.staging.chasesets.com": { path: "/", service: "public-web" },
+      "marketplace.doks.staging.chasesets.com": { path: "/", service: "marketplace" },
+      "admin.doks.staging.chasesets.com": { path: "/", service: "admin-web" },
+    });
+    expect(doksIngress.hosts[0].paths.map((route) => route.path)).toEqual([
+      "/.well-known",
+      "/ucp",
+      "/mcp",
+      "/api/payments/provider/webhooks",
+      "/api/settlement/provider/money-movement/webhooks",
+      "/api/notifications/provider/email/webhooks",
+      "/api/fulfillment/provider/postage/webhooks",
+      "/api",
+      "/",
+    ]);
+    expect(doksIngress.hosts[0].paths.slice(0, -1).every((route) => route.service === "platform-api")).toBe(true);
+  });
+
+  it("renders DOKS live ingress hosts after the staging serving flag flips", () => {
+    const stagingValues = buildPlatformHelmStagingValues({
+      env: {
+        DOKS_INGRESS_TARGET: "203.0.113.10",
+        STAGING_APP_SERVING: "doks",
+      },
+    });
+
+    expect(stagingValues.doksIngress.enabled).toBe(true);
+    expect(stagingValues.doksIngress.hosts.map((host) => host.host)).toEqual([
+      "staging.chasesets.com",
+      "www.staging.chasesets.com",
+      "marketplace.staging.chasesets.com",
+      "admin.staging.chasesets.com",
+    ]);
+  });
+
   it("wires the worker startup/liveness/readiness probes in the deployment template", () => {
     const [helperTemplate] = readChartFiles(["templates/_helpers.tpl"]);
 
@@ -236,6 +309,7 @@ describe("render platform Helm values", () => {
   it("keeps live deploy wiring out of the scaffold", () => {
     const chartFiles = [
       "templates/_helpers.tpl",
+      "templates/certificate.yaml",
       "templates/deployment.yaml",
       "templates/ingress.yaml",
       "templates/job.yaml",
@@ -253,7 +327,9 @@ describe("render platform Helm values", () => {
       .filter((enabled) => enabled != null);
 
     expect(chartText).not.toMatch(/^kind: Secret$/m);
-    expect(readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")).toContain("enabled: false");
+    expect(readFileSync(path.join(repoRoot, chartValuesRelativePath), "utf8")).toContain("doksIngress:");
+    expect(chartText).toContain(".Values.doksIngress");
+    expect(chartText).toContain("kind: Certificate");
     expect(chartText).not.toContain("ExternalSecret");
     expect(chartText).not.toContain("SecretProviderClass");
     expect(rolloutStates).toEqual([false, false]);

@@ -1,4 +1,13 @@
 generatedBy: "node ./scripts/render-platform-helm-values.mjs"
+doksIngress:
+  enabled: false
+  className: "nginx"
+  clusterIssuer: "letsencrypt-production"
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: "chase-sets-platform-doks-tls"
+  hosts: []
 components:
   platform-worker:
     envOverrides:

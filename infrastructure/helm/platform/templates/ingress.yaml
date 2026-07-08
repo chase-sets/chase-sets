@@ -1,33 +1,34 @@
-{{- if .Values.ingress.enabled }}
+{{- $ingress := .Values.doksIngress -}}
+{{- if $ingress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "chase-sets-platform.fullname" . }}
   labels:
-{{ include "chase-sets-platform.labels" (dict "root" . "name" "ingress") | nindent 4 }}
-  {{- if or .Values.ingress.clusterIssuer .Values.ingress.annotations }}
+{{ include "chase-sets-platform.labels" (dict "root" . "name" "doks-ingress") | nindent 4 }}
+  {{- if or $ingress.clusterIssuer $ingress.annotations }}
   annotations:
-    {{- if .Values.ingress.clusterIssuer }}
-    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    {{- if $ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ $ingress.clusterIssuer | quote }}
     {{- end }}
-    {{- with .Values.ingress.annotations }}
+    {{- with $ingress.annotations }}
 {{ toYaml . | nindent 4 }}
     {{- end }}
   {{- end }}
 spec:
-  {{- if .Values.ingress.className }}
-  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- if $ingress.className }}
+  ingressClassName: {{ $ingress.className | quote }}
   {{- end }}
-  {{- if .Values.ingress.tls.enabled }}
+  {{- if $ingress.tls.enabled }}
   tls:
-    {{- range .Values.ingress.hosts }}
     - hosts:
+        {{- range $ingress.hosts }}
         - {{ .host | quote }}
-      secretName: {{ default $.Values.ingress.tls.secretName .tlsSecretName | quote }}
-    {{- end }}
+        {{- end }}
+      secretName: {{ $ingress.tls.secretName | quote }}
   {{- end }}
   rules:
-    {{- range .Values.ingress.hosts }}
+    {{- range $ingress.hosts }}
     - host: {{ .host | quote }}
       http:
         paths:
