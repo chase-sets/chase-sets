@@ -24,6 +24,9 @@ controller:
       service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"
       service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
   config:
+    # Keep this paired with do-loadbalancer-enable-proxy-protocol above: the DO
+    # load balancer sends PROXY headers, and ingress-nginx must consume them
+    # before HTTP parsing while preserving real client IPs.
     use-proxy-protocol: "true"
     use-forwarded-headers: "true"
     # cert-manager annotates its own solver Ingress to bypass ssl-redirect, so a
