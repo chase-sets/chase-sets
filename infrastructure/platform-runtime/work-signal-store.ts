@@ -109,7 +109,21 @@ CREATE INDEX IF NOT EXISTS idx_platform_projection_checkpoint_waiters_expiry
 export type WorkSignalPriorityLane = "hot" | "standard" | "bulk";
 export type WorkSignalWakeOrigin = "relay" | "api-wait" | "reconciliation" | "operator";
 export type ProjectionWakeIntentState = "queued" | "claimed" | "completed" | "failed" | "expired";
-export type ProjectionWakeIntentEnqueueOutcome = "created" | "coalesced" | "requeued_completed" | "requeued_expired";
+export type ProjectionWakeIntentEnqueueOutcome =
+  | "created"
+  | "coalesced"
+  | "requeued_completed"
+  | "requeued_expired"
+  /**
+   * The coalescing-key row is pinned by another transaction's row lock and the
+   * bounded enqueue lock wait expired. The enqueue is skipped without error:
+   * durable events remain the source of truth and fallback polling still
+   * drains the projection, so a lost coalesce extension is safe — but the
+   * enqueuer (the relay fan-out loop) must never wedge behind a hung or
+   * orphaned lock holder (issue #4649 shape: zombie rows pinned through a
+   * deploy-churn window starve claims and cleanup via SKIP LOCKED).
+   */
+  | "blocked";
 export type ProjectionWakeRoutingMode = "safe_over_wake" | "unspecified";
 
 export type JsonRecord = Record<string, unknown>;
@@ -241,6 +255,16 @@ export type WorkSignalCleanupResult = Readonly<{
   prunedWakeIntents: number;
   prunedCheckpointReadiness: number;
   prunedCheckpointWaiters: number;
+  /**
+   * Wake intents that matched the expiry predicate but survived the expire
+   * pass. The expire scan uses `FOR UPDATE SKIP LOCKED`, so a row pinned by
+   * another transaction's row lock is skipped silently; a count that stays
+   * nonzero across passes means zombie rows are pinned by a hung or orphaned
+   * lock holder (kill it via `pg_locks`/`pg_terminate_backend` — see the
+   * push-wake operations runbook). Claims skip the same locked rows, so these
+   * intents also read as perpetually `queued` starvation in drill evidence.
+   */
+  immortalWakeIntents: number;
 }>;
 
 export type EnqueueProjectionWakeIntentInput = Readonly<{
@@ -360,6 +384,12 @@ export type WorkSignalStoreOptions = Readonly<{
   defaultWakeTtlMs?: number;
   defaultReadinessTtlMs?: number;
   defaultWaiterTtlMs?: number;
+  /**
+   * Upper bound on how long an enqueue may wait for the coalescing-key row
+   * lock before yielding a `blocked` outcome. Applied as a transaction-local
+   * `lock_timeout` when the store runs over a transactional pool.
+   */
+  enqueueLockTimeoutMs?: number;
   readConsistencyGateway?: WorkSignalReadConsistencyGatewayOptions;
   observer?: WorkSignalStoreObserver;
   now?: () => Date;
@@ -401,6 +431,8 @@ export type PostgresWorkSignalStore = Readonly<{
 const DEFAULT_WAKE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_READINESS_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_WAITER_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_WAKE_ENQUEUE_LOCK_TIMEOUT_MS = 2_000;
+const POSTGRES_LOCK_NOT_AVAILABLE_CODE = "55P03";
 const DEFAULT_CLEANUP_LIMIT = 500;
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
 const CURRENT_SCHEMA_VERSION = 1;
@@ -557,6 +589,10 @@ export function createPostgresWorkSignalStore(
   const defaultWakeTtlMs = options.defaultWakeTtlMs ?? DEFAULT_WAKE_TTL_MS;
   const defaultReadinessTtlMs = options.defaultReadinessTtlMs ?? DEFAULT_READINESS_TTL_MS;
   const defaultWaiterTtlMs = options.defaultWaiterTtlMs ?? DEFAULT_WAITER_TTL_MS;
+  const enqueueLockTimeoutMs = Math.max(
+    1,
+    Math.floor(options.enqueueLockTimeoutMs ?? DEFAULT_WAKE_ENQUEUE_LOCK_TIMEOUT_MS),
+  );
   const checkpointReadyWaiter =
     options.readConsistencyGateway?.waitForReadinessNotifications && isTransactionalPool(db)
       ? createPostgresWorkSignalWaiter(db, {
@@ -583,9 +619,10 @@ export function createPostgresWorkSignalStore(
           priorityLane,
         });
 
-      const result = await query<ProjectionWakeIntentEnqueueRow>(
-        db,
-        `
+      const runEnqueueUpsert = async (client: PgQueryable) =>
+        query<ProjectionWakeIntentEnqueueRow>(
+          client,
+          `
         WITH existing AS MATERIALIZED (
           SELECT state
           FROM platform_projection_wake_intents
@@ -710,28 +747,74 @@ export function createPostgresWorkSignalStore(
         FROM upsert
         LEFT JOIN existing ON true
         `,
-        [
-          `projection-wake-${randomUUID()}`,
-          coalescingKey,
-          input.sourceContextName,
-          input.targetContextName,
-          input.projectionName,
-          input.checkpointKey,
-          requiredPosition,
-          input.requiredCursor ?? null,
-          priorityLane,
-          input.origin,
-          input.schemaVersion ?? CURRENT_SCHEMA_VERSION,
-          input.payloadVersion ?? CURRENT_PAYLOAD_VERSION,
-          input.correlationId ?? null,
-          JSON.stringify(input.metadata ?? {}),
-          formatTimestamp(nextEligibleAt),
-          formatTimestamp(expiresAt),
-          formatTimestamp(createdAt),
-        ],
-      );
+          [
+            `projection-wake-${randomUUID()}`,
+            coalescingKey,
+            input.sourceContextName,
+            input.targetContextName,
+            input.projectionName,
+            input.checkpointKey,
+            requiredPosition,
+            input.requiredCursor ?? null,
+            priorityLane,
+            input.origin,
+            input.schemaVersion ?? CURRENT_SCHEMA_VERSION,
+            input.payloadVersion ?? CURRENT_PAYLOAD_VERSION,
+            input.correlationId ?? null,
+            JSON.stringify(input.metadata ?? {}),
+            formatTimestamp(nextEligibleAt),
+            formatTimestamp(expiresAt),
+            formatTimestamp(createdAt),
+          ],
+        );
 
-      const row = requireSingleRow(result.rows);
+      let row: ProjectionWakeIntentEnqueueRow;
+      try {
+        row = await runWorkSignalWrite(db, async (client) => {
+          if (isTransactionalPool(db)) {
+            // Bound every lock wait in this transaction. The coalescing-key
+            // row can be pinned by a hung or orphaned transaction (deploy
+            // churn, half-open connections); without a bound the enqueuer —
+            // the relay fan-out loop — wedges indefinitely behind it, halting
+            // fan-out for the whole source context. Transaction-local, so it
+            // is PgBouncer transaction-pooling safe.
+            await query(client, "SELECT set_config('lock_timeout', $1, true)", [`${enqueueLockTimeoutMs}ms`]);
+          }
+          return requireSingleRow((await runEnqueueUpsert(client)).rows);
+        });
+      } catch (error) {
+        if (!isLockNotAvailableError(error)) {
+          throw error;
+        }
+
+        // The pinned row already carries a queued/claimed demand for this
+        // coalescing key; losing this coalesce extension is safe because
+        // durable events remain the source of truth and fallback polling
+        // still drains the projection. Read it without locking so the caller
+        // gets the durable record plus an explicit `blocked` outcome.
+        const existing = await query<ProjectionWakeIntentRow>(
+          db,
+          `SELECT ${WAKE_INTENT_COLUMNS} FROM platform_projection_wake_intents WHERE coalescing_key = $1`,
+          [coalescingKey],
+        );
+        const existingRow = existing.rows[0];
+        if (!existingRow) {
+          throw error;
+        }
+
+        const blockedRecord = mapProjectionWakeIntentRow(existingRow);
+        notifyProjectionWakeIntentEnqueued(options.observer, {
+          outcome: "blocked",
+          sourceContextName: blockedRecord.sourceContextName,
+          targetContextName: blockedRecord.targetContextName,
+          projectionName: blockedRecord.projectionName,
+          priorityLane: blockedRecord.priorityLane,
+          origin: blockedRecord.origin,
+          routingMode: workSignalRoutingMode(input.metadata),
+        });
+        return blockedRecord;
+      }
+
       const record = mapProjectionWakeIntentRow(row);
       await tryEmitProjectionWakeIntentWorkSignal(db, record, row.enqueue_outcome, now);
       notifyProjectionWakeIntentEnqueued(options.observer, {
@@ -1203,6 +1286,25 @@ export function createPostgresWorkSignalStore(
         [formatTimestamp(before), limit],
       );
 
+      // Rows that still match the expiry predicate after the expire pass are
+      // pinned: the expire scan's FOR UPDATE SKIP LOCKED silently skips rows
+      // locked by another transaction, and claims skip the same rows, so a
+      // hung or orphaned lock holder turns them into immortal zombies that
+      // read as perpetually queued starvation (issue #4649). Count them
+      // without locking so operators and drills can tell zombies from
+      // ordinary backlog; the runbook remedy is terminating the lock holder.
+      const immortalResult = await query<Readonly<{ immortal_count: number }>>(
+        db,
+        `
+        SELECT COUNT(*)::integer AS immortal_count
+        FROM platform_projection_wake_intents
+        WHERE state IN ('queued', 'claimed', 'failed')
+          AND expires_at <= $1::timestamptz
+          AND (state <> 'claimed' OR claimed_until <= $1::timestamptz)
+        `,
+        [formatTimestamp(before)],
+      );
+
       const prunedWakeIntents = await query(
         db,
         `
@@ -1261,6 +1363,7 @@ export function createPostgresWorkSignalStore(
         prunedWakeIntents: prunedWakeIntents.rowCount ?? 0,
         prunedCheckpointReadiness: prunedCheckpointReadiness.rowCount ?? 0,
         prunedCheckpointWaiters: prunedCheckpointWaiters.rowCount ?? 0,
+        immortalWakeIntents: Number(immortalResult.rows[0]?.immortal_count ?? 0),
       };
     },
 
@@ -1684,6 +1787,19 @@ async function runWorkSignalWrite<T>(
 
 function isTransactionalPool(db: PgQueryable | PgTransactionalPool): db is PgTransactionalPool {
   return typeof (db as PgTransactionalPool).connect === "function";
+}
+
+/**
+ * Postgres `lock_not_available` (SQLSTATE 55P03): a bounded `lock_timeout`
+ * expired while waiting for a row lock. For wake-intent enqueues this is the
+ * pinned-row signal, not a failure — see the `blocked` enqueue outcome.
+ */
+function isLockNotAvailableError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    (error as Readonly<{ code?: unknown }>).code === POSTGRES_LOCK_NOT_AVAILABLE_CODE,
+  );
 }
 
 async function query<T extends object = Record<string, unknown>>(

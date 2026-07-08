@@ -1004,6 +1004,7 @@ describe("work signal cleanup runner", () => {
             prunedWakeIntents: 3,
             prunedCheckpointReadiness: 4,
             prunedCheckpointWaiters: 1,
+            immortalWakeIntents: 0,
           };
         },
       },

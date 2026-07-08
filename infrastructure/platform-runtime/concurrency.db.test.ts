@@ -16,6 +16,11 @@ import {
 import { createPostgresDurableJobStore, durableJobSchemaSql } from "./durable-job-store";
 import { createPostgresDurableJobWorkUnitStore, durableJobWorkUnitSchemaSql } from "./durable-job-work-units";
 import { createPostgresUcpIdempotencyStore } from "./ucp";
+import {
+  createPostgresWorkSignalStore,
+  platformWorkSignalStoreSchemaSql,
+  type ProjectionWakeIntentEnqueuedEvent,
+} from "./work-signal-store";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -684,5 +689,122 @@ describe("platform runtime Postgres concurrency guards", () => {
     expect(reclaimedGhost?.state).toBe("running");
     expect(reclaimedGhost?.attemptCount).toBe(1);
     expect(reclaimedGhost?.claimedUntil).not.toBeNull();
+  });
+
+  it("keeps the wake pipeline live when a wake-intent row is pinned by another transaction's row lock", async () => {
+    // Regression for issue #4649 (staging drill 28950995223): four identity
+    // relay intents sat `queued` with attemptCount 0 through active claim and
+    // cleanup passes because a hung transaction from the deploy-churn window
+    // held their row locks. Every mutating scan on the table uses
+    // FOR UPDATE SKIP LOCKED (claims, cleanup-expire) or a plain FOR UPDATE
+    // (the enqueue coalescing read), so a pinned row silently starves claims,
+    // survives the reaper, and can wedge the relay's fan-out loop behind an
+    // unbounded lock wait.
+    await pools.platform.query(platformWorkSignalStoreSchemaSql);
+    const enqueueEvents: ProjectionWakeIntentEnqueuedEvent[] = [];
+    const store = createPostgresWorkSignalStore(pools.platform, {
+      enqueueLockTimeoutMs: 250,
+      observer: { projectionWakeIntentEnqueued: (event) => enqueueEvents.push(event) },
+    });
+
+    const pinned = await store.enqueueProjectionWakeIntent({
+      sourceContextName: "identity",
+      targetContextName: "commercial-terms",
+      projectionName: "commercial-terms-account-projection",
+      checkpointKey: "commercial-terms-account-projection:identity:v1",
+      requiredPosition: 12n,
+      priorityLane: "standard",
+      origin: "relay",
+    });
+    const healthy = await store.enqueueProjectionWakeIntent({
+      sourceContextName: "checkout",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-projection",
+      checkpointKey: "checkout.session-projection:checkout:v1",
+      requiredPosition: 7n,
+      priorityLane: "standard",
+      origin: "relay",
+    });
+
+    const pinningClient = await pools.platform.connect();
+    try {
+      await pinningClient.query("BEGIN");
+      await pinningClient.query(
+        "SELECT wake_intent_id FROM platform_projection_wake_intents WHERE wake_intent_id = $1 FOR UPDATE",
+        [pinned.wakeIntentId],
+      );
+
+      // 1. The relay's coalescing enqueue must not wedge behind the pinned
+      //    row: it returns within the bounded lock wait with an explicit
+      //    `blocked` outcome and the existing durable record, without
+      //    mutating the row.
+      const blocked = await store.enqueueProjectionWakeIntent({
+        sourceContextName: "identity",
+        targetContextName: "commercial-terms",
+        projectionName: "commercial-terms-account-projection",
+        checkpointKey: "commercial-terms-account-projection:identity:v1",
+        requiredPosition: 40n,
+        priorityLane: "standard",
+        origin: "relay",
+      });
+      expect(blocked.wakeIntentId).toBe(pinned.wakeIntentId);
+      expect(enqueueEvents.at(-1)).toMatchObject({
+        outcome: "blocked",
+        targetContextName: "commercial-terms",
+        priorityLane: "standard",
+      });
+      const pinnedRowAfterBlocked = await pools.platform.query(
+        "SELECT required_position, attempt_count, state FROM platform_projection_wake_intents WHERE wake_intent_id = $1",
+        [pinned.wakeIntentId],
+      );
+      expect(pinnedRowAfterBlocked.rows[0]).toMatchObject({
+        required_position: "12",
+        attempt_count: 0,
+        state: "queued",
+      });
+
+      // 2. Claims skip the pinned row (SKIP LOCKED) instead of blocking, and
+      //    still serve the rest of the lane — the drill's starvation shape:
+      //    the pinned intent stays queued at attempt 0 while later intents
+      //    complete around it.
+      const claimed = await store.claimNextProjectionWakeIntent({
+        claimOwnerId: "worker-a:projection-wake-scheduler.standard.lane-1",
+        claimTtlMs: 60_000,
+        priorityLanes: ["standard"],
+        targetContextNames: ["checkout", "commercial-terms", "identity"],
+      });
+      expect(claimed?.wakeIntentId).toBe(healthy.wakeIntentId);
+      await store.completeProjectionWakeIntent({
+        wakeIntentId: healthy.wakeIntentId,
+        claimOwnerId: "worker-a:projection-wake-scheduler.standard.lane-1",
+        claimFencingToken: claimed!.claimFencingToken!,
+      });
+
+      // 3. The reaper cannot expire the pinned row (SKIP LOCKED again) — it
+      //    must surface the zombie as immortal instead of silently skipping
+      //    it, so operators can tell pinned rows from ordinary backlog.
+      const horizon = new Date(Date.now() + 30 * 60 * 1000);
+      const pinnedCleanup = await store.cleanupExpiredWorkSignals({ before: horizon });
+      expect(pinnedCleanup.expiredWakeIntents).toBe(0);
+      expect(pinnedCleanup.immortalWakeIntents).toBe(1);
+      expect(pinnedCleanup.prunedWakeIntents).toBe(1);
+    } finally {
+      await pinningClient.query("ROLLBACK");
+      pinningClient.release();
+    }
+
+    // 4. Once the pinning transaction dies (operator terminates the backend,
+    //    or the connection reaps), the next cleanup pass terminal-izes the
+    //    zombie promptly — no manual SQL.
+    const horizon = new Date(Date.now() + 30 * 60 * 1000);
+    const releasedCleanup = await store.cleanupExpiredWorkSignals({ before: horizon });
+    expect(releasedCleanup.expiredWakeIntents).toBe(1);
+    expect(releasedCleanup.immortalWakeIntents).toBe(0);
+    expect(releasedCleanup.prunedWakeIntents).toBe(1);
+
+    const remaining = await pools.platform.query(
+      "SELECT COUNT(*)::integer AS remaining FROM platform_projection_wake_intents",
+    );
+    expect(remaining.rows[0]).toMatchObject({ remaining: 0 });
   });
 });

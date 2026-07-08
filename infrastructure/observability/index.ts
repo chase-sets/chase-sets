@@ -426,7 +426,7 @@ export type ProjectionWakeIntentOutcomeSignal = Readonly<{
 }>;
 
 export type ProjectionWakeIntentEnqueueOutcomeSignal = Readonly<{
-  outcome: "created" | "coalesced" | "requeued_completed" | "requeued_expired";
+  outcome: "created" | "coalesced" | "requeued_completed" | "requeued_expired" | "blocked";
   sourceContextName: string;
   targetContextName: string;
   projectionName: string;
