@@ -192,9 +192,15 @@
       { "name": "inventory.list-import-sources", "ownerSlice": "import-batches" },
       { "name": "inventory.create-import-batch", "ownerSlice": "import-batches" },
       { "name": "inventory.get-import-batch", "ownerSlice": "import-batches" },
-      { "name": "inventory.commit-import-batch", "ownerSlice": "import-batches" }
+      { "name": "inventory.commit-import-batch", "ownerSlice": "import-batches" },
+      { "name": "inventory.list-items", "ownerSlice": "inventory-items" },
+      { "name": "inventory.adjust-item", "ownerSlice": "inventory-items" }
     ],
     "resources": [
+      {
+        "uriTemplate": "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
+        "ownerSlice": "inventory-items"
+      },
       {
         "uriTemplate": "chase-sets://inventory/{accountId}/import-batches/{batchId}",
         "ownerSlice": "import-batches"

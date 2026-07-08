@@ -123,6 +123,18 @@
       "requiresAuth": true
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "pricing.recommend-price", "ownerSlice": "recommendations" },
+      { "name": "pricing.explain-signals", "ownerSlice": "recommendations" }
+    ],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
+        "ownerSlice": "recommendations"
+      }
+    ]
+  },
   "mutationConsistencyInventory": [
     {
       "id": "pricing.recommendation-publish-command-snapshot",

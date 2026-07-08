@@ -16,12 +16,14 @@ import { pricingSchemaSql } from "./support/runtime-support/schema";
 import { seedPricingDatabase } from "./support/runtime-support/seed";
 import type { PricingServices } from "./support/runtime-support/services";
 import { createPricingServices } from "./support/runtime-support/services";
+import { createPricingRecommendationMcpHandlers } from "./features/recommendations/api/mcp";
 
 export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, void>({
   manifest: contextManifest,
   schemaSql: pricingSchemaSql,
   createServices: (pool) => createPricingServices(pool),
   buildApis: (services) => [buildPricingApi(services)],
+  buildMcpHandlers: (services) => createPricingRecommendationMcpHandlers(services.recommendations),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

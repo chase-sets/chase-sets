@@ -27,8 +27,10 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import {
   getAccountRecommendation,
+  explainAccountPricingSignals,
   listAccountRecommendations,
   listAccountRecommendationsByIds,
+  recommendAccountPrice,
   type AccountRecommendationListItem,
 } from "../read-model/queries";
 import { buildPricingRecommendationProjectionHandlers } from "../read-model/projection";
@@ -354,6 +356,12 @@ export type PricingRecommendationServices = Readonly<{
     recommendationId: string,
     accountId: string,
   ) => ReturnType<typeof getAccountRecommendation>;
+  recommendAccountPrice: (
+    params: Parameters<typeof recommendAccountPrice>[1],
+  ) => ReturnType<typeof recommendAccountPrice>;
+  explainAccountPricingSignals: (
+    params: Parameters<typeof explainAccountPricingSignals>[1],
+  ) => ReturnType<typeof explainAccountPricingSignals>;
   refreshRecommendations: (
     params: Readonly<{ accountId: string }>,
     context: EventStoreContext,
@@ -865,6 +873,8 @@ export function createPricingRecommendationRuntime(
     listAccountRecommendations: (params) => listAccountRecommendations(deps.db, params),
     getAccountRecommendation: (recommendationId, accountId) =>
       getAccountRecommendation(deps.db, recommendationId, accountId),
+    recommendAccountPrice: (params) => recommendAccountPrice(deps.db, params),
+    explainAccountPricingSignals: (params) => explainAccountPricingSignals(deps.db, params),
     getRecommendationWorkUnitSummary: (input = {}) => workUnitStore.summarize(input),
     projectors: [
       createProjectionHandlerSet({
