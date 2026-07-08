@@ -326,7 +326,7 @@ function toHelmComponent(component) {
     replicas: component.replicas,
     source: {
       digitalOceanKind: component.terraformKind,
-      instanceCountExpression: component.instanceCountExpression,
+      instanceCountExpression: helmInstanceCountExpression(component),
     },
     command: helmCommand(component),
     env: helmEnv(component),
@@ -404,6 +404,14 @@ function helmCommand(component) {
   }
 
   return component.command;
+}
+
+function helmInstanceCountExpression(component) {
+  if (component.name === "platform-worker") {
+    return "local.worker_instances";
+  }
+
+  return component.instanceCountExpression;
 }
 
 function helmEnv(component) {

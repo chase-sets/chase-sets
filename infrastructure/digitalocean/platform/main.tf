@@ -1054,7 +1054,7 @@ resource "digitalocean_app" "platform" {
       name               = "platform-worker"
       run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
       instance_size_slug = local.worker_instance_size_slug
-      instance_count     = local.worker_instances
+      instance_count     = local.app_platform_worker_instances
 
       image {
         registry_type = "DOCR"

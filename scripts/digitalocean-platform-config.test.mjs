@@ -416,11 +416,21 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).not.toContain('variable "catalog_asset_public_base_url"');
 
     const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
+    const platformWorker = terraformWorkerBlock(platformMain, "platform-worker");
     expect(platformVariables).toContain('variable "platform_bootstrap_owner"');
     expect(platformVariables).toContain('contains(["app-platform", "doks"], var.platform_bootstrap_owner)');
+    expectTerraformAssignment(
+      platformLocals,
+      "app_platform_worker_instances",
+      'var.platform_bootstrap_owner == "doks" ? 0 : local.worker_instances',
+    );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_platform_bootstrap_owner: ${{ vars.DOKS_INGRESS_TARGET != '' && 'doks' || 'app-platform' }}",
     );
+    expect(platformWorker).toContain("instance_count     = local.app_platform_worker_instances");
+    expect(platformWorker).not.toContain("local.public_web_instances");
+    expect(platformWorker).not.toContain("local.marketplace_web_instances");
+    expect(platformWorker).not.toContain("local.api_instances");
     expect(platformBootstrapJob).toContain('key   = "PLATFORM_BOOTSTRAP_OWNER"');
     expect(platformBootstrapJob).toContain("value = var.platform_bootstrap_owner");
     expect(platformBootstrapJob).toContain("PLATFORM_BOOTSTRAP_OWNER:-app-platform");
@@ -637,6 +647,11 @@ describe("DigitalOcean platform configuration", () => {
       platformLocals,
       "worker_instances",
       "var.worker_instance_count > 0 ? var.worker_instance_count : local.default_worker_instances",
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "app_platform_worker_instances",
+      'var.platform_bootstrap_owner == "doks" ? 0 : local.worker_instances',
     );
     expect(platformVariables).toContain('variable "worker_instance_size_slug"');
     expect(platformVariables).toContain('variable "worker_instance_count"');
