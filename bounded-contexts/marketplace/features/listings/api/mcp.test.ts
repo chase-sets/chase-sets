@@ -24,6 +24,34 @@ const legacyMcpProtocol = {
 
 function services(): MarketplaceListingServices {
   return {
+    listSellerListings: vi.fn(async () => ({
+      items: [
+        {
+          listing_id: "lst_1",
+          account_id: "acc_1",
+          status: "active",
+          price_amount: "20.00",
+        },
+      ],
+      total: 1,
+    })),
+    getSellerListingAvailability: vi.fn(async (accountId) => ({
+      account_id: accountId,
+      status: "available",
+      disabled_reason_category: null,
+      available_again_on: null,
+      disabled_at: null,
+      enabled_at: "2026-07-08T00:00:00.000Z",
+      updated_at: "2026-07-08T00:00:00.000Z",
+    })),
+    listSellerListingFeeLockReport: vi.fn(async () => ({
+      items: [{ listing_id: "lst_1", price_amount: "20.00", seller_net_unit_amount: "19.00" }],
+      total: 1,
+    })),
+    listSellerInventoryItemSupply: vi.fn(async () => ({
+      items: [{ item_id: "inv_1", available_quantity: 3 }],
+      total: 1,
+    })),
     createListing: vi.fn(async () => ({
       listingId: "lst_1" as never,
       version: 1,
@@ -50,6 +78,53 @@ function services(): MarketplaceListingServices {
 }
 
 describe("marketplace listing MCP handlers", () => {
+  it("lists seller listings through the Marketplace listing read model", async () => {
+    const fakeServices = services();
+    const handlers = createMarketplaceListingMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["marketplace.list-listings"]?.({
+      actor,
+      tool: null as never,
+      arguments: { accountId: "acc_1", limit: 10, offset: 5 },
+      request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
+    });
+
+    expect(result).toMatchObject({ accountId: "acc_1", total: 1, count: 1 });
+    expect(fakeServices.listSellerListings).toHaveBeenCalledWith({
+      accountId: "acc_1",
+      limit: 10,
+      offset: 5,
+    });
+  });
+
+  it("returns seller insight reads from current Marketplace read models", async () => {
+    const fakeServices = services();
+    const handlers = createMarketplaceListingMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["marketplace.get-seller-insights"]?.({
+      actor,
+      tool: null as never,
+      arguments: { accountId: "acc_1", catalogItemId: "cat_1", limit: 10 },
+      request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
+    });
+
+    expect(result).toMatchObject({
+      accountId: "acc_1",
+      availability: { status: "available" },
+      listings: { total: 1, count: 1 },
+      feeLockReport: { total: 1, count: 1 },
+      supply: { total: 1, count: 1 },
+    });
+    expect(fakeServices.listSellerInventoryItemSupply).toHaveBeenCalledWith({
+      accountId: "acc_1",
+      catalogItemId: "cat_1",
+      limit: 10,
+      offset: 0,
+    });
+  });
+
   it("creates draft listings through the Marketplace listing service and returns a receipt", async () => {
     const fakeServices = services();
     const handlers = createMarketplaceListingMcpHandlers(fakeServices);

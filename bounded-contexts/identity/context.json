@@ -213,6 +213,10 @@
     }
   ],
   "anonymousRoutes": [{ "routePath": "/api/identity/api-keys/resolve", "methods": ["POST"] }],
+  "mcpCapabilities": {
+    "tools": [{ "name": "identity.get-account", "ownerSlice": "accounts" }],
+    "resources": [{ "uriTemplate": "chase-sets://identity/{accountId}/account", "ownerSlice": "accounts" }]
+  },
   "readAfterWriteRouteInventory": [
     {
       "id": "identity.admin-account-detail-fresh-read",

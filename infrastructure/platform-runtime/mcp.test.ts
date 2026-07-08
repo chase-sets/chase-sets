@@ -212,6 +212,7 @@ describe("MCP runtime routes", () => {
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
       "fulfillment.void-label",
+      "identity.get-account",
       "inventory.adjust-item",
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
@@ -222,11 +223,16 @@ describe("MCP runtime routes", () => {
       "marketplace.counter-offer",
       "marketplace.create-listing",
       "marketplace.decline-offer",
+      "marketplace.get-reputation-summary",
+      "marketplace.get-seller-insights",
+      "marketplace.list-listings",
       "marketplace.list-offers",
+      "marketplace.list-reviews",
       "marketplace.publish-listing",
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
+      "platform-operations.get-seller-insight-summary",
       "pricing.explain-signals",
       "pricing.recommend-price",
     ]);
@@ -280,6 +286,13 @@ describe("MCP runtime routes", () => {
     await expect(response.json()).resolves.toEqual({
       resources: [
         expect.objectContaining({
+          uriTemplate: "chase-sets://identity/{accountId}/account",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["accounts.view"],
+          }),
+        }),
+        expect.objectContaining({
           uriTemplate: "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
           annotations: expect.objectContaining({
             availability: "available",
@@ -308,6 +321,20 @@ describe("MCP runtime routes", () => {
           }),
         }),
         expect.objectContaining({
+          uriTemplate: "chase-sets://marketplace/{accountId}/reputation/summaries/{subjectAccountId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["reputation.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://marketplace/{accountId}/reviews/{reviewId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["reputation.view"],
+          }),
+        }),
+        expect.objectContaining({
           uriTemplate: "chase-sets://pricing/catalog-items/{catalogItemId}/recommendations",
           annotations: expect.objectContaining({
             availability: "available",
@@ -326,6 +353,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["fulfillment.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://platform-operations/{accountId}/insights/summary",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["accounts.view"],
           }),
         }),
       ],

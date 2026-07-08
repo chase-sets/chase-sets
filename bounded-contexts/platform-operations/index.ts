@@ -8,6 +8,7 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildPlatformOperationsApi } from "./api";
 import contextManifest from "./context.json";
+import { createInsightsDashboardMcpHandlers } from "./features/insights-dashboards/api/mcp";
 import { buildExperienceApi } from "./features/platform-feedback/api/http";
 import {
   buildMarketplaceReportedContentProjectionHandlers,
@@ -47,6 +48,7 @@ export const module = defineBoundedContextModule<
     buildExperienceApi(services.platformFeedback, services.reportedContent, services.riskAlerts),
     buildSupportApi(services.supportRequests),
   ],
+  buildMcpHandlers: (services) => createInsightsDashboardMcpHandlers(services.insightsDashboards),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

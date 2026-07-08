@@ -727,16 +727,19 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
-      readTool(
-        "identity",
-        "get-account",
-        "Get Account",
-        "Read account profile, status, and membership summary.",
-        "accounts.view",
-        objectSchema({ accountId: stringProperty("Authenticated account scope.") }, ["accountId"]),
-        "account",
-        ["Use when an agent needs account profile facts or status."],
-      ),
+      {
+        ...readTool(
+          "identity",
+          "get-account",
+          "Get Account",
+          "Read account profile, status, and membership summary.",
+          "accounts.view",
+          objectSchema({ accountId: stringProperty("Authenticated account scope.") }, ["accountId"]),
+          "account",
+          ["Use when an agent needs account profile facts or status."],
+        ),
+        availability: "available",
+      },
       readTool(
         "identity",
         "list-memberships",
@@ -780,6 +783,17 @@ export const mcpServiceCatalog = [
       ),
     ],
     resources: [
+      {
+        ...resource(
+          "identity",
+          "chase-sets://identity/{accountId}/account",
+          "Account",
+          "Account profile, badge, and lifecycle read model.",
+          "accounts.view",
+          ["Use when an agent needs account profile facts or status."],
+        ),
+        availability: "available",
+      },
       resource(
         "identity",
         "chase-sets://identity/{accountId}/memberships",
@@ -1118,22 +1132,48 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
-      readTool(
-        "marketplace",
-        "list-listings",
-        "List Listings",
-        "List account listings and publication state.",
-        "listings.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            status: stringProperty("Optional listing status."),
-          },
-          ["accountId"],
+      {
+        ...readTool(
+          "marketplace",
+          "list-listings",
+          "List Listings",
+          "List account listings and publication state.",
+          "listings.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              status: stringProperty("Optional listing status."),
+              limit: integerProperty("Maximum listings to return."),
+              offset: integerProperty("Result offset."),
+            },
+            ["accountId"],
+          ),
+          "listing",
+          ["Use before listing price or publication changes."],
         ),
-        "listing",
-        ["Use before listing price or publication changes."],
-      ),
+        availability: "available",
+      },
+      {
+        ...readTool(
+          "marketplace",
+          "get-seller-insights",
+          "Get Seller Insights",
+          "Read seller availability, listings, fee-lock rows, and sellable supply from current Marketplace read models.",
+          "listings.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              catalogItemId: stringProperty("Optional Catalog Item filter for supply."),
+              limit: integerProperty("Maximum rows to return per section."),
+              offset: integerProperty("Result offset."),
+            },
+            ["accountId"],
+          ),
+          "seller-insights",
+          ["Use before repricing, listing maintenance, or seller workflow recommendations."],
+        ),
+        availability: "available",
+      },
       {
         ...readTool(
           "marketplace",
@@ -1158,6 +1198,47 @@ export const mcpServiceCatalog = [
         ),
         availability: "available",
         outputSchema: marketplaceOfferListOutputSchema,
+      },
+      {
+        ...readTool(
+          "marketplace",
+          "get-reputation-summary",
+          "Get Reputation Summary",
+          "Read the public review summary currently available for an account.",
+          "reputation.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              subjectAccountId: stringProperty("Account whose reputation summary should be read."),
+            },
+            ["accountId"],
+          ),
+          "review-summary",
+          ["Use before explaining seller or buyer review history."],
+        ),
+        availability: "available",
+      },
+      {
+        ...readTool(
+          "marketplace",
+          "list-reviews",
+          "List Reviews",
+          "List written, received, or public account reviews from Marketplace review read models.",
+          "reputation.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              side: stringProperty("Review side.", ["written", "received", "public"]),
+              subjectAccountId: stringProperty("Reviewed account for public review reads."),
+              limit: integerProperty("Maximum reviews to return."),
+              offset: integerProperty("Result offset."),
+            },
+            ["accountId"],
+          ),
+          "review",
+          ["Use before review support, reputation explanations, or review-detail reads."],
+        ),
+        availability: "available",
       },
       {
         ...writeTool(
@@ -1356,6 +1437,28 @@ export const mcpServiceCatalog = [
           "Offer state and participant-safe details.",
           "offers.view",
           ["Use before offer negotiation or acceptance."],
+        ),
+        availability: "available",
+      },
+      {
+        ...resource(
+          "marketplace",
+          "chase-sets://marketplace/{accountId}/reputation/summaries/{subjectAccountId}",
+          "Reputation Summary",
+          "Public review rollup currently available for an account.",
+          "reputation.view",
+          ["Use for account trust and review workflows."],
+        ),
+        availability: "available",
+      },
+      {
+        ...resource(
+          "marketplace",
+          "chase-sets://marketplace/{accountId}/reviews/{reviewId}",
+          "Review",
+          "Review detail visible to the actor as author or subject.",
+          "reputation.view",
+          ["Use for review support and reputation explanations."],
         ),
         availability: "available",
       },
@@ -1916,6 +2019,42 @@ export const mcpServiceCatalog = [
         "accounts.view",
         ["Use for analysis and recommendation context."],
       ),
+    ],
+  },
+  {
+    serviceId: "platform-operations",
+    serviceName: "Platform Operations",
+    kind: "bounded-context",
+    owner: "bounded-contexts/platform-operations",
+    packageName: "@chase-sets/platform-operations",
+    serviceBoundary: "Operator workflows, support read models, risk queues, and current insight dashboard reads.",
+    tools: [
+      {
+        ...readTool(
+          "platform-operations",
+          "get-seller-insight-summary",
+          "Get Seller Insight Summary",
+          "Read seller dashboard KPIs currently exposed by Platform Operations insights dashboards.",
+          "accounts.view",
+          objectSchema({ accountId: stringProperty("Authenticated account scope.") }, ["accountId"]),
+          "seller-insight-summary",
+          ["Use for non-mutating seller performance analysis."],
+        ),
+        availability: "available",
+      },
+    ],
+    resources: [
+      {
+        ...resource(
+          "platform-operations",
+          "chase-sets://platform-operations/{accountId}/insights/summary",
+          "Seller Insight Summary",
+          "Sales performance, fulfillment latency, and conversion KPI summary.",
+          "accounts.view",
+          ["Use for seller dashboard analysis."],
+        ),
+        availability: "available",
+      },
     ],
   },
   {
