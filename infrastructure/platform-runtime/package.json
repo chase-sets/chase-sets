@@ -6,6 +6,7 @@
   "exports": {
     ".": "./index.ts",
     "./api": "./api.ts",
+    "./agent-guardrails": "./agent-guardrails.ts",
     "./auth": "./auth.ts",
     "./context-pools": "./context-pools.ts",
     "./config-schema": "./config-schema.ts",

@@ -333,6 +333,69 @@ describe("checkout UCP handlers", () => {
     expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  it("blocks known headless checkout spend above the linked agent grant cap", async () => {
+    const sessions = createSessions();
+    const spendPolicy = {
+      authorize: vi.fn(async () => ({
+        allowed: false as const,
+        reason: "This agent grant exceeded its platform spend cap.",
+        remainingCents: 1_000,
+        capCents: 2_000,
+      })),
+    };
+    const handlers = createCheckoutUcpHandlers(
+      {
+        sessions,
+      },
+      {
+        agentGrantSpendPolicy: spendPolicy,
+        paymentHandoff: {
+          payment: { provider: "test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-agentic-payment",
+            agenticPayment: {} as never,
+            evidence: { mandate: "verified" },
+          }),
+        },
+      },
+    );
+
+    const response = await handlers.restHandlers.complete_checkout(
+      input(
+        {
+          marketplace_checkout_fee_quote_fingerprint: "quote_1",
+          total_amount: "25.00",
+        },
+        { id: "chk_1" },
+        { ...actor, sessionId: "ucp:auth_1" },
+      ),
+    );
+
+    expect(response.ucp.status).toBe("requires_action");
+    expect(response.messages).toEqual([
+      expect.objectContaining({
+        code: "agent_grant_spend_cap_exceeded",
+        message: "This agent grant exceeded its platform spend cap.",
+      }),
+    ]);
+    expect(response.guardrail).toEqual({
+      type: "agent_grant_spend_cap",
+      cap_cents: 2_000,
+      remaining_cents: 1_000,
+    });
+    expect(spendPolicy.authorize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        grantId: "auth_1",
+        accountId: "acc_buyer",
+        operation: "complete_checkout",
+        amountCents: 2_500,
+      }),
+    );
+    expect(sessions.setShippingAddress).not.toHaveBeenCalled();
+    expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
   it("returns a trusted handoff for headless offer-intent completion without ordering or payment side effects", async () => {
     const offerIntentSession = session({
       source_type: "offer-intent",

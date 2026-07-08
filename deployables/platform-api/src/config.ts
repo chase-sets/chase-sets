@@ -48,6 +48,13 @@ import {
   DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS,
   type UcpBusinessSigningKeySet,
 } from "@chase-sets/platform-runtime/ucp";
+import {
+  DEFAULT_AGENT_GRANT_RATE_LIMIT_RULE,
+  DEFAULT_AGENT_GRANT_SPEND_CAP_CENTS,
+  DEFAULT_AGENT_GRANT_SPEND_CAP_WINDOW_MS,
+  type AgentGrantSpendCapPolicyOptions,
+} from "@chase-sets/platform-runtime/agent-guardrails";
+import type { RateLimitRule } from "@chase-sets/http/rate-limit";
 import type {
   ReadConsistencyExactDependencyMode,
   ReadConsistencyRouteTuning,
@@ -102,6 +109,8 @@ export type PlatformApiBaseConfig = Readonly<{
   internalAuthSecret?: string;
   realtime?: PlatformApiRealtimeConfig;
   mcpToolCallLimits?: PlatformApiMcpToolCallLimitsConfig;
+  agentGrantRateLimit?: RateLimitRule;
+  agentGrantSpendCap?: AgentGrantSpendCapPolicyOptions;
   readConsistency?: PlatformApiReadConsistencyConfig;
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
@@ -552,6 +561,19 @@ function loadBaseConfig(): PlatformApiBaseConfig {
         "MCP_MAX_CONCURRENT_EXTERNAL_PROVIDER_TOOL_CALLS_PER_PRINCIPAL",
         2,
       ),
+    },
+    agentGrantRateLimit: {
+      max: getPositiveNumberEnv("AGENT_GRANT_WRITE_RATE_LIMIT_MAX", DEFAULT_AGENT_GRANT_RATE_LIMIT_RULE.max),
+      windowMs: getPositiveNumberEnv(
+        "AGENT_GRANT_WRITE_RATE_LIMIT_WINDOW_MS",
+        DEFAULT_AGENT_GRANT_RATE_LIMIT_RULE.windowMs,
+      ),
+      disabled: getBooleanEnv("AGENT_GRANT_WRITE_RATE_LIMIT_DISABLED", false),
+    },
+    agentGrantSpendCap: {
+      capCents: getPositiveNumberEnv("AGENT_GRANT_SPEND_CAP_CENTS", DEFAULT_AGENT_GRANT_SPEND_CAP_CENTS),
+      windowMs: getPositiveNumberEnv("AGENT_GRANT_SPEND_CAP_WINDOW_MS", DEFAULT_AGENT_GRANT_SPEND_CAP_WINDOW_MS),
+      disabled: getBooleanEnv("AGENT_GRANT_SPEND_CAP_DISABLED", false),
     },
     readConsistency: {
       timeoutMs: getRequiredPositiveNumberEnv("READ_CONSISTENCY_TIMEOUT_MS", 2_500),

@@ -43,6 +43,7 @@ import {
   type PlatformIdempotencyRecord,
   type PlatformIdempotencyStore,
 } from "./idempotency";
+import { agentGrantIdFromActor, type AgentGrantRateLimiter } from "./agent-guardrails";
 import { resolveClientAddress } from "./http";
 
 export type McpRuntimeEnv = {
@@ -116,6 +117,7 @@ export type CreateMcpRoutesOptions = Readonly<{
   audit?: McpAuditSink;
   idempotencyStore?: McpIdempotencyStore;
   toolCallLimiter?: McpToolCallLimiter;
+  agentGrantRateLimiter?: AgentGrantRateLimiter;
   allowInMemoryIdempotencyStoreForTests?: boolean;
 }>;
 
@@ -946,6 +948,7 @@ async function acquireMcpToolCallLease(
       transport: "native-mcp",
       toolName: tool.name,
       limitKind,
+      grantId: agentGrantIdFromActor(actor),
       actorId: actor?.userId ?? null,
       accountId: actor?.accountId ?? null,
       clientAddress: resolveClientAddress(request),
@@ -1157,7 +1160,7 @@ async function callTool(
   protocol: McpRequestProtocolContext,
   params: McpToolCallParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers" | "idempotencyStore">> &
-    Pick<CreateMcpRoutesOptions, "audit" | "toolCallLimiter">,
+    Pick<CreateMcpRoutesOptions, "audit" | "toolCallLimiter" | "agentGrantRateLimiter">,
 ) {
   if (typeof params.name !== "string") {
     return jsonRpcError(null, -32602, "Tool name is required.");
@@ -1243,6 +1246,27 @@ async function callTool(
     });
 
     return mcpToolErrorResult(reason);
+  }
+
+  const agentGrantRateLimit =
+    tool.guardrails.idempotencyKey === "required"
+      ? enforceMcpAgentGrantRateLimit(options.agentGrantRateLimiter, tool.name, actor)
+      : null;
+  if (agentGrantRateLimit) {
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "tools/call",
+      toolName: tool.name,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: tool.audit.eventName,
+      targetType: tool.audit.targetType,
+      reason: agentGrantRateLimit,
+      sensitiveInputFields: tool.audit.sensitiveInputFields,
+      limitKind: "write",
+    });
+
+    return mcpToolErrorResult(agentGrantRateLimit);
   }
 
   const idempotency =
@@ -1402,6 +1426,25 @@ async function callTool(
   } finally {
     await Promise.resolve(limit.lease?.release()).catch(() => undefined);
   }
+}
+
+function enforceMcpAgentGrantRateLimit(
+  limiter: AgentGrantRateLimiter | undefined,
+  operation: string,
+  actor: ResolvedActor | null,
+) {
+  const grantId = agentGrantIdFromActor(actor);
+  if (!limiter || !grantId) {
+    return null;
+  }
+
+  const decision = limiter.check({
+    grantId,
+    accountId: actor?.accountId ?? null,
+    actorId: actor?.userId ?? null,
+    operation,
+  });
+  return decision.allowed ? null : decision.reason;
 }
 
 async function readResource(
@@ -1689,6 +1732,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           audit: options.audit,
           idempotencyStore,
           toolCallLimiter: options.toolCallLimiter,
+          agentGrantRateLimiter: options.agentGrantRateLimiter,
         });
         return c.json({ ...result, id: request.id ?? null });
       }

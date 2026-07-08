@@ -7,6 +7,7 @@ export type McpToolCallLimitRequest = Readonly<{
   transport: "native-mcp" | "ucp-mcp";
   toolName: string;
   limitKind: McpToolCallLimitKind;
+  grantId?: string | null;
   actorId?: string | null;
   accountId?: string | null;
   agentProfileUrl?: string | null;
@@ -112,6 +113,7 @@ function mcpToolCallConnectionKey(request: McpToolCallLimitRequest) {
       [
         request.accountId ? `account:${request.accountId}` : "",
         request.actorId ? `actor:${request.actorId}` : "",
+        request.grantId ? `grant:${request.grantId}` : "",
         request.agentProfileUrl ? `agent:${request.agentProfileUrl}` : "",
         request.clientAddress ? `client:${request.clientAddress}` : "",
       ]
