@@ -78,6 +78,542 @@
       ]
     },
     {
+      "name": "discovery.search-market",
+      "title": "Search Market",
+      "description": "Search active public marketplace items and buyer-visible supply.",
+      "service_id": "discovery",
+      "risk": "read",
+      "access_scope": "public",
+      "required_permissions": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Marketplace search term."
+          },
+          "search": {
+            "type": "string",
+            "description": "Deprecated alias for query."
+          },
+          "category": {
+            "type": "string",
+            "description": "Optional category name or slug."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Optional public tag."
+          },
+          "blueprintId": {
+            "type": "string",
+            "description": "Optional blueprint identifier."
+          },
+          "language": {
+            "type": "string",
+            "description": "Optional language code."
+          },
+          "marketActivity": {
+            "type": "string",
+            "description": "Optional marketplace activity filter.",
+            "enum": [
+              "listings",
+              "offers",
+              "any"
+            ]
+          },
+          "sort": {
+            "type": "string",
+            "description": "Optional sort mode.",
+            "enum": [
+              "relevance",
+              "title_asc",
+              "title_desc",
+              "newest"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum items to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Result offset."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Cursor for the next page."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "items",
+          "total",
+          "count",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "Public discovery search rows.",
+            "items": {
+              "type": "object",
+              "description": "Public discovery item row.",
+              "additionalProperties": true,
+              "required": [
+                "catalog_item_id",
+                "slug",
+                "title",
+                "status"
+              ],
+              "properties": {
+                "catalog_item_id": {
+                  "type": "string",
+                  "description": "Catalog item identifier."
+                },
+                "slug": {
+                  "type": "string",
+                  "description": "Public item slug."
+                },
+                "title": {
+                  "type": "string",
+                  "description": "Public item title."
+                },
+                "subtitle": {
+                  "type": "string",
+                  "description": "Optional public item subtitle."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Public lifecycle status.",
+                  "enum": [
+                    "active"
+                  ]
+                }
+              }
+            }
+          },
+          "facets": {
+            "type": "array",
+            "description": "Search facet groups.",
+            "items": {
+              "type": "object",
+              "description": "Facet group.",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total matching public item count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned public item count."
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Cursor for the next page when available."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to compare public marketplace options without exposing account-private data."
+      ]
+    },
+    {
+      "name": "discovery.get-item-detail",
+      "title": "Get Item Detail",
+      "description": "Read public marketplace item detail, listing options, and offer affordances.",
+      "service_id": "discovery",
+      "risk": "read",
+      "access_scope": "public",
+      "required_permissions": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "itemSlug"
+        ],
+        "properties": {
+          "itemSlug": {
+            "type": "string",
+            "description": "Public marketplace item slug."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "catalog_item_id",
+          "slug",
+          "title",
+          "status",
+          "market_listings"
+        ],
+        "properties": {
+          "catalog_item_id": {
+            "type": "string",
+            "description": "Catalog item identifier."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Public item slug."
+          },
+          "title": {
+            "type": "string",
+            "description": "Public item title."
+          },
+          "subtitle": {
+            "type": "string",
+            "description": "Optional public item subtitle."
+          },
+          "description": {
+            "type": "string",
+            "description": "Public item description."
+          },
+          "status": {
+            "type": "string",
+            "description": "Public lifecycle status.",
+            "enum": [
+              "active"
+            ]
+          },
+          "market_listings": {
+            "type": "array",
+            "description": "Buyer-visible active listings.",
+            "items": {
+              "type": "object",
+              "description": "Buyer-visible active listing.",
+              "additionalProperties": true,
+              "required": [
+                "listing_id",
+                "product_id",
+                "price_amount",
+                "visible_quantity",
+                "status"
+              ],
+              "properties": {
+                "listing_id": {
+                  "type": "string",
+                  "description": "Listing identifier."
+                },
+                "product_id": {
+                  "type": "string",
+                  "description": "Product identifier."
+                },
+                "price_amount": {
+                  "type": "string",
+                  "description": "Listing unit price."
+                },
+                "visible_quantity": {
+                  "type": "integer",
+                  "description": "Buyer-visible quantity."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Buyer-visible listing status.",
+                  "enum": [
+                    "active"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to inspect public item detail before adding to cart or submitting an offer."
+      ]
+    },
+    {
+      "name": "discovery.get-chatgpt-product-feed",
+      "title": "Get ChatGPT Product Feed",
+      "description": "Return active public marketplace products in the ChatGPT product feed shape.",
+      "service_id": "discovery",
+      "risk": "read",
+      "access_scope": "public",
+      "required_permissions": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Marketplace search term."
+          },
+          "category": {
+            "type": "string",
+            "description": "Optional category name or slug."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Optional public tag."
+          },
+          "blueprintId": {
+            "type": "string",
+            "description": "Optional blueprint identifier."
+          },
+          "language": {
+            "type": "string",
+            "description": "Optional language code."
+          },
+          "marketActivity": {
+            "type": "string",
+            "description": "Optional marketplace activity filter.",
+            "enum": [
+              "listings",
+              "offers",
+              "any"
+            ]
+          },
+          "sort": {
+            "type": "string",
+            "description": "Optional sort mode.",
+            "enum": [
+              "relevance",
+              "title_asc",
+              "title_desc",
+              "newest"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum products to return."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Result offset."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Cursor for the next page."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "feedFormat",
+          "products",
+          "total",
+          "count",
+          "nextCursor"
+        ],
+        "properties": {
+          "feedFormat": {
+            "type": "string",
+            "description": "Feed format identifier.",
+            "enum": [
+              "chatgpt-product-feed/v1"
+            ]
+          },
+          "products": {
+            "type": "array",
+            "description": "ChatGPT product feed rows.",
+            "items": {
+              "type": "object",
+              "description": "ChatGPT product feed product.",
+              "additionalProperties": true,
+              "required": [
+                "id",
+                "title",
+                "url",
+                "availability",
+                "price",
+                "variants"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Catalog item identifier."
+                },
+                "title": {
+                  "type": "string",
+                  "description": "Product title."
+                },
+                "subtitle": {
+                  "type": "string",
+                  "description": "Optional product subtitle."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description."
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Public product URL."
+                },
+                "image_url": {
+                  "type": "string",
+                  "description": "Primary public image URL."
+                },
+                "availability": {
+                  "type": "object",
+                  "description": "Product availability summary.",
+                  "additionalProperties": true,
+                  "required": [
+                    "status",
+                    "quantity"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "description": "Availability status.",
+                      "enum": [
+                        "in_stock",
+                        "out_of_stock"
+                      ]
+                    },
+                    "quantity": {
+                      "type": "integer",
+                      "description": "Buyer-visible quantity."
+                    }
+                  }
+                },
+                "price": {
+                  "type": "object",
+                  "description": "Lowest visible product price.",
+                  "additionalProperties": true,
+                  "required": [
+                    "currency",
+                    "amount",
+                    "display"
+                  ],
+                  "properties": {
+                    "currency": {
+                      "type": "string",
+                      "description": "Currency code."
+                    },
+                    "amount": {
+                      "type": "string",
+                      "description": "Decimal price amount when listed."
+                    },
+                    "display": {
+                      "type": "string",
+                      "description": "Buyer-facing price display."
+                    }
+                  }
+                },
+                "variants": {
+                  "type": "array",
+                  "description": "Buyer-visible listing variants.",
+                  "items": {
+                    "type": "object",
+                    "description": "Listing variant.",
+                    "additionalProperties": true,
+                    "required": [
+                      "id",
+                      "listing_id",
+                      "url",
+                      "price",
+                      "availability"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "description": "Product identifier."
+                      },
+                      "listing_id": {
+                        "type": "string",
+                        "description": "Listing identifier."
+                      },
+                      "title": {
+                        "type": "string",
+                        "description": "Variant title."
+                      },
+                      "url": {
+                        "type": "string",
+                        "description": "Public listing URL."
+                      },
+                      "price": {
+                        "type": "object",
+                        "description": "Variant price.",
+                        "additionalProperties": true,
+                        "required": [
+                          "currency",
+                          "amount",
+                          "display"
+                        ],
+                        "properties": {
+                          "currency": {
+                            "type": "string",
+                            "description": "Currency code."
+                          },
+                          "amount": {
+                            "type": "string",
+                            "description": "Decimal price amount."
+                          },
+                          "display": {
+                            "type": "string",
+                            "description": "Buyer-facing price display."
+                          }
+                        }
+                      },
+                      "availability": {
+                        "type": "object",
+                        "description": "Variant availability.",
+                        "additionalProperties": true,
+                        "required": [
+                          "status",
+                          "quantity"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "description": "Availability status.",
+                            "enum": [
+                              "in_stock",
+                              "out_of_stock"
+                            ]
+                          },
+                          "quantity": {
+                            "type": "integer",
+                            "description": "Buyer-visible quantity."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total matching public item count."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Returned product count."
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Cursor for the next page when available."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use when ChatGPT needs product-card feed rows from public storefront discovery."
+      ]
+    },
+    {
       "name": "inventory.list-items",
       "title": "List Inventory Items",
       "description": "List inventory items, hold-derived availability, and sale readiness for an account.",
@@ -4565,6 +5101,17 @@
       ],
       "expected_usage": [
         "Use when an agent needs account profile facts or status."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://discovery/items/{itemSlug}",
+      "title": "Item Detail",
+      "description": "Public marketplace item detail composition.",
+      "service_id": "discovery",
+      "access_scope": "public",
+      "required_permissions": [],
+      "expected_usage": [
+        "Use for public product discovery and marketplace comparison."
       ]
     },
     {

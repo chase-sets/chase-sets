@@ -300,8 +300,18 @@ function mcpToolErrorResult(text: string) {
   });
 }
 
-function mcpAuthenticationRequiredResponse(id: JsonRpcRequest["id"] = null) {
-  return jsonRpcError(id, -32001, "An authenticated actor is required for native MCP discovery.");
+function publicAvailableMcpServices(services: readonly McpServiceDescriptor[]): McpServiceDescriptor[] {
+  return services
+    .map((serviceDescriptor) => ({
+      ...serviceDescriptor,
+      tools: serviceDescriptor.tools.filter(
+        (tool) => tool.permissionBoundary.scope === "public" && isAvailableMcpCapability(tool),
+      ),
+      resources: serviceDescriptor.resources.filter(
+        (resource) => resource.permissionBoundary.scope === "public" && isAvailableMcpCapability(resource),
+      ),
+    }))
+    .filter((serviceDescriptor) => serviceDescriptor.tools.length > 0 || serviceDescriptor.resources.length > 0);
 }
 
 function mcpProtectedInvocationAuthenticationRequiredResponse(id: JsonRpcRequest["id"] = null) {
@@ -310,6 +320,13 @@ function mcpProtectedInvocationAuthenticationRequiredResponse(id: JsonRpcRequest
 
 function requireMcpDiscoveryActor(actor: ResolvedActor | null | undefined) {
   return actor ? null : mcpAuthenticationRequiredResponse();
+}
+
+function mcpServicesVisibleToActor(
+  services: readonly McpServiceDescriptor[],
+  actor: ResolvedActor | null | undefined,
+): readonly McpServiceDescriptor[] {
+  return actor ? services : publicAvailableMcpServices(services);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -1697,35 +1714,26 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   app.use("*", createMcpHttpOriginPolicyMiddleware(options.originPolicy));
 
   app.get("/services", (c) => {
-    const actorError = requireMcpDiscoveryActor(c.get("actor"));
-    if (actorError) {
-      return c.json(actorError, 401);
-    }
+    const visibleServices = mcpServicesVisibleToActor(services, c.get("actor"));
 
     return c.json({
-      services,
+      services: visibleServices,
     });
   });
 
   app.get("/tools", (c) => {
-    const actorError = requireMcpDiscoveryActor(c.get("actor"));
-    if (actorError) {
-      return c.json(actorError, 401);
-    }
+    const visibleServices = mcpServicesVisibleToActor(services, c.get("actor"));
 
     return c.json({
-      tools: flattenAvailableMcpTools(services).map(toToolListItem),
+      tools: flattenAvailableMcpTools(visibleServices).map(toToolListItem),
     });
   });
 
   app.get("/resources", (c) => {
-    const actorError = requireMcpDiscoveryActor(c.get("actor"));
-    if (actorError) {
-      return c.json(actorError, 401);
-    }
+    const visibleServices = mcpServicesVisibleToActor(services, c.get("actor"));
 
     return c.json({
-      resources: flattenAvailableMcpResources(services).map(toResourceListItem),
+      resources: flattenAvailableMcpResources(visibleServices).map(toResourceListItem),
     });
   });
 
@@ -1754,19 +1762,9 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
 
     switch (request.method) {
       case "server/discover": {
-        const actorError = requireMcpDiscoveryActor(actor);
-        if (actorError) {
-          return c.json({ ...actorError, id: request.id ?? null }, 401);
-        }
-
         return c.json(jsonRpcResult(request.id, mcpServerDiscovery(extensionCapabilities)));
       }
       case "initialize": {
-        const actorError = requireMcpDiscoveryActor(actor);
-        if (actorError) {
-          return c.json({ ...actorError, id: request.id ?? null }, 401);
-        }
-
         if (protocol.stateless || paramsRecord(request.params).protocolVersion === MCP_STATELESS_PROTOCOL_VERSION) {
           return c.json(
             jsonRpcError(
@@ -1792,26 +1790,20 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         );
       }
       case "tools/list": {
-        const actorError = requireMcpDiscoveryActor(actor);
-        if (actorError) {
-          return c.json({ ...actorError, id: request.id ?? null }, 401);
-        }
+        const visibleServices = mcpServicesVisibleToActor(services, actor);
 
         return c.json(
           jsonRpcResult(request.id, {
-            tools: flattenAvailableMcpTools(services).map(toToolListItem),
+            tools: flattenAvailableMcpTools(visibleServices).map(toToolListItem),
           }),
         );
       }
       case "resources/list": {
-        const actorError = requireMcpDiscoveryActor(actor);
-        if (actorError) {
-          return c.json({ ...actorError, id: request.id ?? null }, 401);
-        }
+        const visibleServices = mcpServicesVisibleToActor(services, actor);
 
         return c.json(
           jsonRpcResult(request.id, {
-            resources: flattenAvailableMcpResources(services).map(toResourceListItem),
+            resources: flattenAvailableMcpResources(visibleServices).map(toResourceListItem),
           }),
         );
       }

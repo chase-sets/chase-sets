@@ -610,6 +610,143 @@ const checkoutSessionCancellationReceiptOutputSchema = objectSchema(
   ["accountId", "id", "sessionId", "status", "resourceUri", "releasedReservationIds"],
 );
 
+const discoverySearchOutputSchema: McpJsonSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["items", "total", "count", "nextCursor"],
+  properties: {
+    items: arrayProperty("Public discovery search rows.", {
+      type: "object",
+      description: "Public discovery item row.",
+      additionalProperties: true,
+      required: ["catalog_item_id", "slug", "title", "status"],
+      properties: {
+        catalog_item_id: stringProperty("Catalog item identifier."),
+        slug: stringProperty("Public item slug."),
+        title: stringProperty("Public item title."),
+        subtitle: stringProperty("Optional public item subtitle."),
+        status: stringProperty("Public lifecycle status.", ["active"]),
+      },
+    }),
+    facets: arrayProperty("Search facet groups.", {
+      type: "object",
+      description: "Facet group.",
+      additionalProperties: true,
+      properties: {},
+    }),
+    total: integerProperty("Total matching public item count."),
+    count: integerProperty("Returned public item count."),
+    nextCursor: stringProperty("Cursor for the next page when available."),
+  },
+};
+
+const discoveryItemDetailOutputSchema: McpJsonSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["catalog_item_id", "slug", "title", "status", "market_listings"],
+  properties: {
+    catalog_item_id: stringProperty("Catalog item identifier."),
+    slug: stringProperty("Public item slug."),
+    title: stringProperty("Public item title."),
+    subtitle: stringProperty("Optional public item subtitle."),
+    description: stringProperty("Public item description."),
+    status: stringProperty("Public lifecycle status.", ["active"]),
+    market_listings: arrayProperty("Buyer-visible active listings.", {
+      type: "object",
+      description: "Buyer-visible active listing.",
+      additionalProperties: true,
+      required: ["listing_id", "product_id", "price_amount", "visible_quantity", "status"],
+      properties: {
+        listing_id: stringProperty("Listing identifier."),
+        product_id: stringProperty("Product identifier."),
+        price_amount: stringProperty("Listing unit price."),
+        visible_quantity: integerProperty("Buyer-visible quantity."),
+        status: stringProperty("Buyer-visible listing status.", ["active"]),
+      },
+    }),
+  },
+};
+
+const discoveryChatGptFeedOutputSchema: McpJsonSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["feedFormat", "products", "total", "count", "nextCursor"],
+  properties: {
+    feedFormat: stringProperty("Feed format identifier.", ["chatgpt-product-feed/v1"]),
+    products: arrayProperty("ChatGPT product feed rows.", {
+      type: "object",
+      description: "ChatGPT product feed product.",
+      additionalProperties: true,
+      required: ["id", "title", "url", "availability", "price", "variants"],
+      properties: {
+        id: stringProperty("Catalog item identifier."),
+        title: stringProperty("Product title."),
+        subtitle: stringProperty("Optional product subtitle."),
+        description: stringProperty("Product description."),
+        url: stringProperty("Public product URL."),
+        image_url: stringProperty("Primary public image URL."),
+        availability: {
+          type: "object",
+          description: "Product availability summary.",
+          additionalProperties: true,
+          required: ["status", "quantity"],
+          properties: {
+            status: stringProperty("Availability status.", ["in_stock", "out_of_stock"]),
+            quantity: integerProperty("Buyer-visible quantity."),
+          },
+        },
+        price: {
+          type: "object",
+          description: "Lowest visible product price.",
+          additionalProperties: true,
+          required: ["currency", "amount", "display"],
+          properties: {
+            currency: stringProperty("Currency code."),
+            amount: stringProperty("Decimal price amount when listed."),
+            display: stringProperty("Buyer-facing price display."),
+          },
+        },
+        variants: arrayProperty("Buyer-visible listing variants.", {
+          type: "object",
+          description: "Listing variant.",
+          additionalProperties: true,
+          required: ["id", "listing_id", "url", "price", "availability"],
+          properties: {
+            id: stringProperty("Product identifier."),
+            listing_id: stringProperty("Listing identifier."),
+            title: stringProperty("Variant title."),
+            url: stringProperty("Public listing URL."),
+            price: {
+              type: "object",
+              description: "Variant price.",
+              additionalProperties: true,
+              required: ["currency", "amount", "display"],
+              properties: {
+                currency: stringProperty("Currency code."),
+                amount: stringProperty("Decimal price amount."),
+                display: stringProperty("Buyer-facing price display."),
+              },
+            },
+            availability: {
+              type: "object",
+              description: "Variant availability.",
+              additionalProperties: true,
+              required: ["status", "quantity"],
+              properties: {
+                status: stringProperty("Availability status.", ["in_stock", "out_of_stock"]),
+                quantity: integerProperty("Buyer-visible quantity."),
+              },
+            },
+          },
+        }),
+      },
+    }),
+    total: integerProperty("Total matching public item count."),
+    count: integerProperty("Returned product count."),
+    nextCursor: stringProperty("Cursor for the next page when available."),
+  },
+};
+
 const settlementWalletOutputSchema = objectSchema(
   {
     accountId: stringProperty("Authenticated account scope."),
@@ -1092,16 +1229,27 @@ export const mcpServiceCatalog = [
           "discovery",
           "search-market",
           "Search Market",
-          "Search public marketplace supply.",
+          "Search active public marketplace items and buyer-visible supply.",
           "accounts.view",
           objectSchema({
             query: stringProperty("Marketplace search term."),
-            filters: arrayProperty("Optional marketplace filters.", stringProperty("Filter expression.")),
+            search: stringProperty("Deprecated alias for query."),
+            category: stringProperty("Optional category name or slug."),
+            tag: stringProperty("Optional public tag."),
+            blueprintId: stringProperty("Optional blueprint identifier."),
+            language: stringProperty("Optional language code."),
+            marketActivity: stringProperty("Optional marketplace activity filter.", ["listings", "offers", "any"]),
+            sort: stringProperty("Optional sort mode.", ["relevance", "title_asc", "title_desc", "newest"]),
+            limit: integerProperty("Maximum items to return."),
+            offset: integerProperty("Result offset."),
+            cursor: stringProperty("Cursor for the next page."),
           }),
           "market-search",
           ["Use to compare public marketplace options without exposing account-private data."],
         ),
+        availability: "available",
         permissionBoundary: publicBoundary,
+        outputSchema: discoverySearchOutputSchema,
       },
       {
         ...readTool(
@@ -1114,7 +1262,35 @@ export const mcpServiceCatalog = [
           "item-detail",
           ["Use to inspect public item detail before adding to cart or submitting an offer."],
         ),
+        availability: "available",
         permissionBoundary: publicBoundary,
+        outputSchema: discoveryItemDetailOutputSchema,
+      },
+      {
+        ...readTool(
+          "discovery",
+          "get-chatgpt-product-feed",
+          "Get ChatGPT Product Feed",
+          "Return active public marketplace products in the ChatGPT product feed shape.",
+          "accounts.view",
+          objectSchema({
+            query: stringProperty("Marketplace search term."),
+            category: stringProperty("Optional category name or slug."),
+            tag: stringProperty("Optional public tag."),
+            blueprintId: stringProperty("Optional blueprint identifier."),
+            language: stringProperty("Optional language code."),
+            marketActivity: stringProperty("Optional marketplace activity filter.", ["listings", "offers", "any"]),
+            sort: stringProperty("Optional sort mode.", ["relevance", "title_asc", "title_desc", "newest"]),
+            limit: integerProperty("Maximum products to return."),
+            offset: integerProperty("Result offset."),
+            cursor: stringProperty("Cursor for the next page."),
+          }),
+          "chatgpt-product-feed",
+          ["Use when ChatGPT needs product-card feed rows from public storefront discovery."],
+        ),
+        availability: "available",
+        permissionBoundary: publicBoundary,
+        outputSchema: discoveryChatGptFeedOutputSchema,
       },
     ],
     resources: [
@@ -1127,6 +1303,7 @@ export const mcpServiceCatalog = [
           "accounts.view",
           ["Use for public product discovery and marketplace comparison."],
         ),
+        availability: "available",
         permissionBoundary: publicBoundary,
       },
     ],

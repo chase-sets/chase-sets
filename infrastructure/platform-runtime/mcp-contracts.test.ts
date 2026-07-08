@@ -149,6 +149,9 @@ describe("MCP service catalog", () => {
       "checkout.remove-cart-line",
       "checkout.select-saved-address",
       "checkout.update-cart-line",
+      "discovery.get-chatgpt-product-feed",
+      "discovery.get-item-detail",
+      "discovery.search-market",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
       "fulfillment.void-label",
@@ -189,6 +192,7 @@ describe("MCP service catalog", () => {
         .sort(),
     ).toEqual([
       "chase-sets://checkout/{accountId}/cart",
+      "chase-sets://discovery/items/{itemSlug}",
       "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
       "chase-sets://identity/{accountId}/account",
       "chase-sets://inventory/{accountId}/import-batches/{batchId}",
@@ -321,6 +325,65 @@ describe("MCP service catalog", () => {
             eventIds: ["evt_cancelled"],
           },
         ],
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("discovery.search-market")?.outputSchema, {
+        items: [
+          {
+            catalog_item_id: "cat_1",
+            slug: "charizard-cat_1",
+            title: "Charizard",
+            status: "active",
+          },
+        ],
+        facets: [],
+        total: 1,
+        count: 1,
+        nextCursor: "cursor_1",
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("discovery.get-item-detail")?.outputSchema, {
+        catalog_item_id: "cat_1",
+        slug: "charizard-cat_1",
+        title: "Charizard",
+        status: "active",
+        market_listings: [
+          {
+            listing_id: "lst_1",
+            product_id: "cat_1::condition:near-mint",
+            price_amount: "12.34",
+            visible_quantity: 1,
+            status: "active",
+          },
+        ],
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("discovery.get-chatgpt-product-feed")?.outputSchema, {
+        feedFormat: "chatgpt-product-feed/v1",
+        products: [
+          {
+            id: "cat_1",
+            title: "Charizard",
+            url: "https://marketplace.example/items/charizard-cat_1",
+            availability: { status: "in_stock", quantity: 1 },
+            price: { currency: "USD", amount: "12.34", display: "$12.34" },
+            variants: [
+              {
+                id: "cat_1::condition:near-mint",
+                listing_id: "lst_1",
+                url: "https://marketplace.example/listings/charizard-near-mint-lst_1",
+                price: { currency: "USD", amount: "12.34", display: "$12.34" },
+                availability: { status: "in_stock", quantity: 1 },
+              },
+            ],
+          },
+        ],
+        total: 1,
+        count: 1,
+        nextCursor: "cursor_1",
       }),
     ).toEqual([]);
     for (const toolName of [

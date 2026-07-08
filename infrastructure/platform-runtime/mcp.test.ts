@@ -303,6 +303,9 @@ describe("MCP runtime routes", () => {
       "checkout.remove-cart-line",
       "checkout.select-saved-address",
       "checkout.update-cart-line",
+      "discovery.get-chatgpt-product-feed",
+      "discovery.get-item-detail",
+      "discovery.search-market",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
       "fulfillment.void-label",
@@ -349,6 +352,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["inventory.view"],
+          }),
+        }),
+        expect.objectContaining({
+          name: "discovery.search-market",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: [],
           }),
         }),
         expect.objectContaining({
@@ -475,6 +485,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["accounts.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://discovery/items/{itemSlug}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: [],
           }),
         }),
         expect.objectContaining({
@@ -682,23 +699,36 @@ describe("MCP runtime routes", () => {
     ]);
   });
 
-  it("requires an authenticated actor for native discovery endpoints", async () => {
+  it("lists only public available capabilities for anonymous native discovery endpoints", async () => {
     const app = createMcpRoutes();
-    const endpoints = ["/services", "/tools", "/resources"];
+    const servicesResponse = await app.request("/services");
+    const toolsResponse = await app.request("/tools");
+    const resourcesResponse = await app.request("/resources");
 
-    for (const endpoint of endpoints) {
-      const response = await app.request(endpoint);
-
-      expect(response.status).toBe(401);
-      await expect(response.json()).resolves.toEqual({
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32001,
-          message: "An authenticated actor is required for native MCP discovery.",
-        },
-      });
-    }
+    expect(servicesResponse.status).toBe(200);
+    await expect(servicesResponse.json()).resolves.toMatchObject({
+      services: [
+        expect.objectContaining({
+          serviceId: "discovery",
+          tools: [
+            expect.objectContaining({ name: "discovery.search-market" }),
+            expect.objectContaining({ name: "discovery.get-item-detail" }),
+            expect.objectContaining({ name: "discovery.get-chatgpt-product-feed" }),
+          ],
+          resources: [expect.objectContaining({ uriTemplate: "chase-sets://discovery/items/{itemSlug}" })],
+        }),
+      ],
+    });
+    await expect(toolsResponse.json()).resolves.toMatchObject({
+      tools: [
+        expect.objectContaining({ name: "discovery.search-market" }),
+        expect.objectContaining({ name: "discovery.get-item-detail" }),
+        expect.objectContaining({ name: "discovery.get-chatgpt-product-feed" }),
+      ],
+    });
+    await expect(resourcesResponse.json()).resolves.toMatchObject({
+      resources: [expect.objectContaining({ uriTemplate: "chase-sets://discovery/items/{itemSlug}" })],
+    });
   });
 
   it("filters JSON-RPC list methods to available capabilities", async () => {
@@ -717,6 +747,9 @@ describe("MCP runtime routes", () => {
       result: {
         tools: expect.arrayContaining([
           expect.objectContaining({ name: "checkout.get-cart" }),
+          expect.objectContaining({ name: "discovery.search-market" }),
+          expect.objectContaining({ name: "discovery.get-item-detail" }),
+          expect.objectContaining({ name: "discovery.get-chatgpt-product-feed" }),
           expect.objectContaining({ name: "inventory.list-import-sources" }),
           expect.objectContaining({ name: "inventory.create-import-batch" }),
           expect.objectContaining({ name: "inventory.get-import-batch" }),
@@ -732,6 +765,9 @@ describe("MCP runtime routes", () => {
     await expect(resourcesResponse.json()).resolves.toMatchObject({
       result: {
         resources: expect.arrayContaining([
+          expect.objectContaining({
+            uriTemplate: "chase-sets://discovery/items/{itemSlug}",
+          }),
           expect.objectContaining({
             uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
           }),
@@ -957,25 +993,48 @@ describe("MCP runtime routes", () => {
     });
   });
 
-  it("requires an authenticated actor for JSON-RPC discovery methods", async () => {
+  it("lists only public available capabilities for anonymous JSON-RPC discovery methods", async () => {
     const app = createMcpRoutes();
 
-    for (const method of ["initialize", "server/discover", "tools/list", "resources/list"]) {
-      const response = await app.request("/", {
-        method: "POST",
-        body: JSON.stringify(createRequest(method)),
-      });
+    const discoverResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("server/discover")),
+    });
+    const initializeResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("initialize", { protocolVersion: MCP_PROTOCOL_VERSION })),
+    });
+    const toolsResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+    });
+    const resourcesResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("resources/list")),
+    });
 
-      expect(response.status).toBe(401);
-      await expect(response.json()).resolves.toEqual({
-        jsonrpc: "2.0",
-        id: "request_1",
-        error: {
-          code: -32001,
-          message: "An authenticated actor is required for native MCP discovery.",
-        },
-      });
-    }
+    expect(discoverResponse.status).toBe(200);
+    await expect(discoverResponse.json()).resolves.toMatchObject({
+      result: { serverInfo: { name: "chase-sets-platform" } },
+    });
+    expect(initializeResponse.status).toBe(200);
+    await expect(initializeResponse.json()).resolves.toMatchObject({
+      result: { serverInfo: { name: "chase-sets-platform" } },
+    });
+    await expect(toolsResponse.json()).resolves.toMatchObject({
+      result: {
+        tools: [
+          expect.objectContaining({ name: "discovery.search-market" }),
+          expect.objectContaining({ name: "discovery.get-item-detail" }),
+          expect.objectContaining({ name: "discovery.get-chatgpt-product-feed" }),
+        ],
+      },
+    });
+    await expect(resourcesResponse.json()).resolves.toMatchObject({
+      result: {
+        resources: [expect.objectContaining({ uriTemplate: "chase-sets://discovery/items/{itemSlug}" })],
+      },
+    });
   });
 
   it("rejects native MCP JSON-RPC batches as transport-level invalid requests", async () => {
