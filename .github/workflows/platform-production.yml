@@ -343,6 +343,23 @@ jobs:
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
+      # DOKS is the primary rollout lane and always runs. The App Platform lane
+      # is legacy: it exists only to keep App Platform's alias DNS reconciled
+      # while both platforms serve during the #4053 cutover window. Flipping the
+      # single APP_PLATFORM_LANE repo variable to "disabled" is the #4055 kill
+      # switch — it stops the workflow maintaining App Platform without touching
+      # the DOKS rollout, smoke, or shadow-host verification below.
+      APP_PLATFORM_LANE: ${{ vars.APP_PLATFORM_LANE || 'enabled' }}
+      # Which platform serves the live staging hosts. #4604 wires this into the
+      # environment-dns root: "app-platform" keeps App Platform on the live
+      # hosts (DOKS proven via shadow hosts); "doks" flips the live A records to
+      # the DOKS load balancer. Smoke always targets the live hosts, so it runs
+      # against whichever platform serves live traffic.
+      STAGING_APP_SERVING: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}
+      # DOKS ingress load balancer IPv4. When set, environment-dns publishes the
+      # doks.<zone> shadow validation hosts so the rollout lane can prove DOKS
+      # ingress + cert-manager before any live-host flip.
+      DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
     steps:
       - name: Record staging start
         id: staging_started
@@ -523,6 +540,10 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           TF_VAR_google_workspace_dkim_txt_value: ${{ vars.GOOGLE_WORKSPACE_DKIM_TXT_VALUE || '' }}
+          # #4604 serving flags: default reproduces today's App Platform serving
+          # and publishes the DOKS shadow hosts when DOKS_INGRESS_TARGET is set.
+          TF_VAR_staging_app_serving: ${{ env.STAGING_APP_SERVING }}
+          TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}
         run: terraform apply -auto-approve
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -588,8 +609,11 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
+      # Legacy App Platform lane: only reconcile App Platform's alias CNAMEs
+      # while the lane is enabled. The #4055 kill switch (APP_PLATFORM_LANE
+      # = disabled) skips this without affecting the DOKS rollout below.
       - name: Reconcile staging App Platform alias DNS state
-        if: env.SHOULD_DEPLOY != 'false'
+        if: env.SHOULD_DEPLOY != 'false' && env.APP_PLATFORM_LANE != 'disabled'
         working-directory: infrastructure/digitalocean/platform
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -1045,6 +1069,41 @@ jobs:
             --delay-ms 30000 \
             "${ingress_args[@]}"
 
+      # Pre-cutover DOKS proof (#4604, epic #4059): while App Platform still
+      # serves the live hosts, prove the DOKS rollout is externally serving on
+      # the doks.<zone> shadow hosts with valid cert-manager TLS. The ingress
+      # wait does a TLS-validating HTTPS GET, so a missing or invalid
+      # certificate fails the step. Skips cleanly until DOKS_INGRESS_TARGET is
+      # set (no shadow hosts published yet). Once serving flips to DOKS, the
+      # live-host ingress wait above is itself the DOKS proof.
+      - name: Verify staging DOKS shadow hosts
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          serving="$(terraform output -raw staging_app_serving)"
+          echo "Staging live hosts serve from: ${serving}."
+          mapfile -t shadow_domains < <(terraform output -json doks_ingress_shadow_domains | jq -r '.[]')
+          if [ "${#shadow_domains[@]}" -eq 0 ]; then
+            echo "No DOKS ingress shadow hosts are published (DOKS_INGRESS_TARGET unset); skipping pre-cutover shadow verification."
+            exit 0
+          fi
+
+          shadow_args=()
+          for hostname in "${shadow_domains[@]}"; do
+            shadow_args+=(--url "https://${hostname}/health/ready")
+          done
+
+          cd ../../..
+          node ./scripts/platform-ingress-wait.mjs \
+            --attempts 60 \
+            --delay-ms 30000 \
+            "${shadow_args[@]}"
+          echo "DOKS ingress shadow hosts served valid TLS and readiness ahead of the #4053 cutover."
+
       # Second freshness re-check before the ~3.5-minute smoke/critical-flow/
       # canary tail: a superseded release's staging state has no consumer, so
       # skip the verification work too (issue #1418).
@@ -1085,6 +1144,9 @@ jobs:
           SMOKE_FETCH_TIMEOUT_MS: "15000"
         run: |
           set -euo pipefail
+          # Smoke targets the live hosts, which resolve to whichever platform
+          # serves live traffic per the #4604 STAGING_APP_SERVING flag.
+          echo "Smoking the live staging hosts (serving platform: ${STAGING_APP_SERVING})."
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
@@ -1340,6 +1402,7 @@ jobs:
           SMOKE_SELLER_EMAIL: stripe-staging+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
           SMOKE_SELLER_PASSWORD: staging-stripe-${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke ${{ github.run_id }}-${{ github.run_attempt }}
+          SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.STAGING_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}

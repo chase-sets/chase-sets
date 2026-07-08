@@ -2530,6 +2530,47 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
   });
 
+  it("makes DOKS the primary rollout lane with a single-flag App Platform kill switch (#4049)", () => {
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const reconcileStep = workflowStep(deployStagingJob, "Reconcile staging App Platform alias DNS state");
+    const envDnsApplyStep = workflowStep(deployStagingJob, "Terraform apply staging environment DNS");
+    const shadowStep = workflowStep(deployStagingJob, "Verify staging DOKS shadow hosts");
+    const smokeStep = workflowSteps(deployStagingJob, "Smoke check").at(-1);
+
+    // Single-flag kill switch: one repo variable, defaulting to enabled, drives
+    // the legacy App Platform lane. #4055 flips it to "disabled".
+    expect(deployStagingJob).toContain("APP_PLATFORM_LANE: ${{ vars.APP_PLATFORM_LANE || 'enabled' }}");
+    expect(reconcileStep).toContain("env.APP_PLATFORM_LANE != 'disabled'");
+
+    // The DOKS rollout, ingress wait, and shadow verification never gate on the
+    // kill switch — DOKS is the primary lane and always runs.
+    expect(workflowStep(deployStagingJob, "Deploy staging Kubernetes release")).not.toContain("APP_PLATFORM_LANE");
+    expect(workflowStep(deployStagingJob, "Wait for staging ingress URLs")).not.toContain("APP_PLATFORM_LANE");
+    expect(shadowStep).not.toContain("APP_PLATFORM_LANE");
+
+    // #4604 serving flags flow from repo variables into environment-dns so the
+    // deploy lane can publish shadow hosts and flip live-host serving.
+    expect(deployStagingJob).toContain("STAGING_APP_SERVING: ${{ vars.STAGING_APP_SERVING || 'app-platform' }}");
+    expect(deployStagingJob).toContain("DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}");
+    expect(envDnsApplyStep).toContain("TF_VAR_staging_app_serving: ${{ env.STAGING_APP_SERVING }}");
+    expect(envDnsApplyStep).toContain("TF_VAR_doks_ingress_target: ${{ env.DOKS_INGRESS_TARGET }}");
+
+    // Pre-cutover DOKS proof: TLS-validating probes against the doks.<zone>
+    // shadow hosts, ordered after the rollout's live-host ingress wait and
+    // before the smoke tail, skipping cleanly until shadow hosts are published.
+    expect(shadowStep).toContain("terraform output -json doks_ingress_shadow_domains");
+    expect(shadowStep).toContain("./scripts/platform-ingress-wait.mjs");
+    expect(shadowStep).toContain("skipping pre-cutover shadow verification");
+    const ingressWaitIndex = deployStagingJob.indexOf("- name: Wait for staging ingress URLs");
+    const shadowIndex = deployStagingJob.indexOf("- name: Verify staging DOKS shadow hosts");
+    const smokeIndex = deployStagingJob.lastIndexOf("- name: Smoke check");
+    expect(ingressWaitIndex).toBeLessThan(shadowIndex);
+    expect(shadowIndex).toBeLessThan(smokeIndex);
+
+    // Smoke targets the live hosts, i.e. whichever platform serves live traffic.
+    expect(smokeStep).toContain("serving platform: ${STAGING_APP_SERVING}");
+  });
+
   it("wires staging and production app telemetry to the secured observability stack", () => {
     expect(platformVariables).toContain('variable "observability_enabled"');
     expect(platformVariables).toContain('variable "observability_otlp_headers"');
@@ -3197,6 +3238,9 @@ describe("DigitalOcean platform configuration", () => {
       "SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke ${{ github.run_id }}-${{ github.run_attempt }}",
     );
     expect(stagingMoneySmokeStep).toContain(
+      "SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.STAGING_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}",
+    );
+    expect(stagingMoneySmokeStep).toContain(
       "PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}",
     );
     expect(stagingMoneySmokeStep).toContain(
@@ -3226,6 +3270,9 @@ describe("DigitalOcean platform configuration", () => {
       "PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}",
     );
     expect(previewMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: preview");
+    expect(previewMoneySmokeStep).toContain(
+      "SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.PREVIEW_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}",
+    );
     expect(previewMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
     expect(previewMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
 
