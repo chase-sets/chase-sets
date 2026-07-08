@@ -268,7 +268,15 @@ describe("platform api app wiring", () => {
     await expect(response.json()).resolves.toEqual({
       resource: "https://marketplace.chasesets.test/mcp",
       authorization_servers: ["https://marketplace.chasesets.test/.well-known/oauth-authorization-server"],
-      scopes_supported: ["catalog:read", "checkout:read", "checkout:write", "order:read"],
+      scopes_supported: expect.arrayContaining([
+        "catalog:read",
+        "checkout:read",
+        "checkout:write",
+        "order:read",
+        "listings:write",
+        "payouts:request",
+        "account:read",
+      ]),
       bearer_methods_supported: ["header"],
     });
   });

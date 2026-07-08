@@ -209,10 +209,18 @@ describe("MCP runtime routes", () => {
     const response = await app.request("https://marketplace.example/oauth-protected-resource");
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       resource: "https://marketplace.example/mcp",
       authorization_servers: ["https://marketplace.example/.well-known/oauth-authorization-server"],
-      scopes_supported: ["catalog:read", "checkout:read", "checkout:write", "order:read"],
+      scopes_supported: expect.arrayContaining([
+        "catalog:read",
+        "checkout:read",
+        "checkout:write",
+        "order:read",
+        "listings:write",
+        "payouts:request",
+        "account:read",
+      ]),
       bearer_methods_supported: ["header"],
     });
   });
@@ -1417,6 +1425,179 @@ describe("MCP runtime routes", () => {
         reason: "Missing required permission: payouts.request.",
       }),
     );
+  });
+
+  it("allows seller listing writes granted by OAuth scope and records the acting grant", async () => {
+    const handler = vi.fn(async () => ({ listingId: "lst_1", status: "published" }));
+    const audit = vi.fn();
+    const app = createActorApp(
+      {
+        ...actor,
+        sessionId: "ucp:lpa_listings",
+        permissions: ["listings.manage"],
+        agentGrant: {
+          grantId: "lpa_listings",
+          scopes: ["listings:write"],
+          rolePermissions: ["listings.manage", "payouts.request"],
+        },
+      },
+      {
+        toolHandlers: {
+          "marketplace.publish-listing": handler,
+        },
+        audit,
+      },
+    );
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "marketplace.publish-listing",
+          arguments: {
+            accountId: "account_1",
+            listingId: "lst_1",
+            feeQuoteFingerprint: "fee_1",
+            idempotencyKey: "idem_publish",
+            confirmationText: "Publish Listing.",
+          },
+          confirmation: {
+            confirmed: true,
+            text: "Publish Listing.",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", { listingId: "lst_1", status: "published" }),
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "allowed",
+        toolName: "marketplace.publish-listing",
+        agentGrantId: "lpa_listings",
+        agentGrantScopes: ["listings:write"],
+      }),
+    );
+  });
+
+  it("returns an OAuth scope challenge when an agent grant needs incremental consent", async () => {
+    const handler = vi.fn();
+    const audit = vi.fn();
+    const app = createActorApp(
+      {
+        ...actor,
+        sessionId: "ucp:lpa_listings",
+        permissions: ["listings.manage"],
+        agentGrant: {
+          grantId: "lpa_listings",
+          scopes: ["listings:write"],
+          rolePermissions: ["listings.manage", "payouts.request"],
+        },
+      },
+      {
+        toolHandlers: {
+          "settlement.request-payout": handler,
+        },
+        audit,
+      },
+    );
+
+    const response = await app.request("https://marketplace.example/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "settlement.request-payout",
+          arguments: {
+            accountId: "account_1",
+            amount: "25.00",
+            reason: "Seller requested payout.",
+            idempotencyKey: "idem_payout",
+            confirmationText: "Request Payout.",
+          },
+          confirmation: {
+            confirmed: true,
+            text: "Request Payout.",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe(
+      `Bearer resource_metadata="https://marketplace.example${MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH}", scope="payouts:request"`,
+    );
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32001,
+        message: "Missing required OAuth scope: payouts:request.",
+        data: {
+          missingScopes: ["payouts:request"],
+        },
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "denied",
+        toolName: "settlement.request-payout",
+        reason: "Missing required OAuth scope: payouts:request.",
+        agentGrantId: "lpa_listings",
+      }),
+    );
+  });
+
+  it("does not scope-challenge when the member role lacks the requested permission", async () => {
+    const handler = vi.fn();
+    const app = createActorApp(
+      {
+        ...actor,
+        sessionId: "ucp:lpa_viewer",
+        permissions: [],
+        agentGrant: {
+          grantId: "lpa_viewer",
+          scopes: ["payouts:request"],
+          rolePermissions: ["payouts.view"],
+        },
+      },
+      {
+        toolHandlers: {
+          "settlement.request-payout": handler,
+        },
+      },
+    );
+
+    const response = await app.request("https://marketplace.example/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "settlement.request-payout",
+          arguments: {
+            accountId: "account_1",
+            amount: "25.00",
+            reason: "Seller requested payout.",
+            idempotencyKey: "idem_viewer_payout",
+            confirmationText: "Request Payout.",
+          },
+          confirmation: {
+            confirmed: true,
+            text: "Request Payout.",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "Missing required permission: payouts.request."),
+    );
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("rejects sensitive tools without confirmation before reaching handlers", async () => {

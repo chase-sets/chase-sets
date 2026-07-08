@@ -1,3 +1,10 @@
+import {
+  agentOAuthScopesForPermissions,
+  missingAgentOAuthScopesForPermissions,
+  type AgentOAuthGrantContext,
+  type AgentOAuthScope,
+} from "@chase-sets/auth-context";
+
 export type McpServiceKind = "bounded-context" | "external-provider" | "infrastructure";
 export type McpAccessScope = "public" | "actor" | "account" | "operator";
 export type McpToolRisk = "read" | "sensitive" | "destructive";
@@ -24,6 +31,7 @@ export type McpJsonSchemaProperty = Readonly<{
 export type McpPermissionBoundary = Readonly<{
   scope: McpAccessScope;
   requiredPermissions: readonly string[];
+  requiredScopes?: readonly AgentOAuthScope[];
   accountScoped: boolean;
   auditPrincipal: "actor" | "system";
 }>;
@@ -87,9 +95,12 @@ export type McpActor = Readonly<{
   actorId: string;
   accountId?: string | null;
   permissions: readonly string[];
+  agentGrant?: AgentOAuthGrantContext;
 }>;
 
-export type McpToolInvocationAuthorization = Readonly<{ allowed: true }> | Readonly<{ allowed: false; reason: string }>;
+export type McpToolInvocationAuthorization =
+  | Readonly<{ allowed: true }>
+  | Readonly<{ allowed: false; reason: string; missingScopes?: readonly AgentOAuthScope[] }>;
 
 export const CORE_MCP_SERVICE_IDS = [
   "auth",
@@ -152,6 +163,7 @@ const objectSchema = (properties: McpJsonSchema["properties"], required: readonl
 const readBoundary = (permission: string, scope: McpAccessScope = "account"): McpPermissionBoundary => ({
   scope,
   requiredPermissions: [permission],
+  requiredScopes: agentOAuthScopesForPermissions([permission]),
   accountScoped: scope === "account",
   auditPrincipal: "actor",
 });
@@ -159,6 +171,7 @@ const readBoundary = (permission: string, scope: McpAccessScope = "account"): Mc
 const publicBoundary: McpPermissionBoundary = {
   scope: "public",
   requiredPermissions: [],
+  requiredScopes: [],
   accountScoped: false,
   auditPrincipal: "actor",
 };
@@ -2742,6 +2755,15 @@ export function authorizeMcpToolInvocation(
   );
 
   if (missingPermissions.length > 0) {
+    const missingScopes = missingOAuthScopesForAuthorization(tool, actor, missingPermissions);
+    if (missingScopes.length > 0) {
+      return {
+        allowed: false,
+        reason: `Missing required OAuth scope: ${missingScopes.join(", ")}.`,
+        missingScopes,
+      };
+    }
+
     return {
       allowed: false,
       reason: `Missing required permission: ${missingPermissions.join(", ")}.`,
@@ -2797,6 +2819,31 @@ export function authorizeMcpToolInvocation(
   }
 
   return { allowed: true };
+}
+
+function missingOAuthScopesForAuthorization(
+  tool: McpToolDescriptor,
+  actor: McpActor | null,
+  missingPermissions: readonly string[],
+): readonly AgentOAuthScope[] {
+  const grant = actor?.agentGrant;
+  if (!grant || missingPermissions.length === 0) {
+    return [];
+  }
+
+  const rolePermissions = new Set(grant.rolePermissions);
+  if (missingPermissions.some((permission) => !rolePermissions.has(permission))) {
+    return [];
+  }
+
+  const requiredScopes =
+    tool.permissionBoundary.requiredScopes && tool.permissionBoundary.requiredScopes.length > 0
+      ? tool.permissionBoundary.requiredScopes
+      : agentOAuthScopesForPermissions(tool.permissionBoundary.requiredPermissions);
+  const missingScopes = missingAgentOAuthScopesForPermissions(missingPermissions, grant.scopes).filter((scope) =>
+    requiredScopes.includes(scope),
+  );
+  return [...new Set(missingScopes)].sort();
 }
 
 export function validateMcpServiceCatalog(
