@@ -439,6 +439,10 @@
       {
         "uriTemplate": "chase-sets://marketplace/{accountId}/reviews/{reviewId}",
         "ownerSlice": "reviews"
+      },
+      {
+        "uriTemplate": "ui://chase-sets/product-cards/v1.html",
+        "ownerSlice": "listings"
       }
     ]
   },

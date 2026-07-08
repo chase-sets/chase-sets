@@ -3,8 +3,11 @@ import {
   buildUcpBusinessProfile,
   createUcpEnvelope,
   UCP_CAPABILITIES,
+  UCP_MCP_CART_REVIEW_RESOURCE_URI,
+  UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
   UCP_MCP_ENDPOINT_PATH,
   UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+  UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
   UCP_MCP_RESOURCES,
   UCP_MCP_TOOLS,
   UCP_REST_ENDPOINT_PATH,
@@ -78,10 +81,18 @@ describe("UCP MCP tools", () => {
     });
   });
 
-  it("advertises a reusable marketplace result component for catalog tools", () => {
+  it("advertises MCP Apps resources for the agent commerce journey", () => {
     expect(UCP_MCP_RESOURCES).toEqual([
       expect.objectContaining({
-        uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+        uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+        mimeType: "text/html;profile=mcp-app",
+      }),
+      expect.objectContaining({
+        uri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+        mimeType: "text/html;profile=mcp-app",
+      }),
+      expect.objectContaining({
+        uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
         mimeType: "text/html;profile=mcp-app",
       }),
     ]);
@@ -91,10 +102,23 @@ describe("UCP MCP tools", () => {
           tool.capability === UCP_CAPABILITIES.catalogSearch || tool.capability === UCP_CAPABILITIES.catalogLookup,
       ).map((tool) => [tool.name, tool.resultResourceUri]),
     ).toEqual([
-      ["search_catalog", UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI],
-      ["lookup_catalog", UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI],
-      ["get_product", UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI],
+      ["search_catalog", UCP_MCP_PRODUCT_CARDS_RESOURCE_URI],
+      ["lookup_catalog", UCP_MCP_PRODUCT_CARDS_RESOURCE_URI],
+      ["get_product", UCP_MCP_PRODUCT_CARDS_RESOURCE_URI],
     ]);
+    expect(
+      UCP_MCP_TOOLS.filter((tool) => tool.capability === UCP_CAPABILITIES.checkout).map((tool) => [
+        tool.name,
+        tool.resultResourceUri,
+      ]),
+    ).toEqual([
+      ["create_checkout", UCP_MCP_CART_REVIEW_RESOURCE_URI],
+      ["get_checkout", UCP_MCP_CART_REVIEW_RESOURCE_URI],
+      ["update_checkout", UCP_MCP_CART_REVIEW_RESOURCE_URI],
+      ["complete_checkout", UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI],
+      ["cancel_checkout", UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI],
+    ]);
+    expect(UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI).toBe(UCP_MCP_PRODUCT_CARDS_RESOURCE_URI);
   });
 });
 

@@ -1594,6 +1594,18 @@ export const mcpServiceCatalog = [
         ),
         availability: "available",
       },
+      {
+        ...resource(
+          "marketplace",
+          "ui://chase-sets/product-cards/v1.html",
+          "Product Cards Widget",
+          "MCP Apps HTML template for in-chat marketplace product cards.",
+          "listings.view",
+          ["Use as the output template for UCP catalog search and product lookup results."],
+          "public",
+        ),
+        permissionBoundary: publicBoundary,
+      },
     ],
   },
   {
@@ -1788,6 +1800,26 @@ export const mcpServiceCatalog = [
           ["Use before checkout mutations."],
         ),
         availability: "available",
+      },
+      {
+        ...resource(
+          "checkout",
+          "ui://chase-sets/cart-review/v1.html",
+          "Cart Review Widget",
+          "MCP Apps HTML template for in-chat cart and checkout review.",
+          "orders.view",
+          ["Use as the output template for UCP checkout session review results."],
+        ),
+      },
+      {
+        ...resource(
+          "checkout",
+          "ui://chase-sets/checkout-handoff/v1.html",
+          "Checkout Handoff Widget",
+          "MCP Apps HTML template for trusted checkout handoff actions.",
+          "orders.view",
+          ["Use as the output template when trusted UI is required for checkout completion or cancellation."],
+        ),
       },
     ],
   },

@@ -150,14 +150,31 @@ function writeAnnotations(
 }
 
 export const UCP_MCP_APP_RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
-export const UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI = "ui://chase-sets/marketplace-results/v1.html";
+export const UCP_MCP_PRODUCT_CARDS_RESOURCE_URI = "ui://chase-sets/product-cards/v1.html";
+export const UCP_MCP_CART_REVIEW_RESOURCE_URI = "ui://chase-sets/cart-review/v1.html";
+export const UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI = "ui://chase-sets/checkout-handoff/v1.html";
+export const UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI = UCP_MCP_PRODUCT_CARDS_RESOURCE_URI;
 
 export const UCP_MCP_RESOURCES = [
   {
-    uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
-    name: "marketplace_results",
-    title: "Marketplace Results",
-    description: "Renders Chase Sets marketplace products, price signals, availability, and checkout actions.",
+    uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+    name: "product_cards",
+    title: "Product Cards",
+    description: "Renders Chase Sets marketplace products, price signals, availability, and product actions.",
+    mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE,
+  },
+  {
+    uri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
+    name: "cart_review",
+    title: "Cart Review",
+    description: "Renders checkout session lines, totals, shipping options, and review actions.",
+    mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE,
+  },
+  {
+    uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+    name: "checkout_handoff",
+    title: "Checkout Handoff",
+    description: "Renders trusted checkout handoff state for final order and payment actions.",
     mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE,
   },
 ] as const satisfies readonly UcpMcpResourceDescriptor[];
@@ -170,7 +187,7 @@ export const UCP_MCP_TOOLS = [
     description:
       "Use this when a ChatGPT user wants to find public Chase Sets marketplace products by query or simple filters. This only reads public marketplace discovery data.",
     idempotencyKeyRequired: false,
-    resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+    resultResourceUri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -203,7 +220,7 @@ export const UCP_MCP_TOOLS = [
     description:
       "Use this when a ChatGPT user already has one or more Chase Sets product or catalog item identifiers and needs public marketplace product details.",
     idempotencyKeyRequired: false,
-    resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+    resultResourceUri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -230,7 +247,7 @@ export const UCP_MCP_TOOLS = [
     description:
       "Use this when a ChatGPT user needs one public marketplace product detail, variants, account availability, and option-selection context.",
     idempotencyKeyRequired: false,
-    resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+    resultResourceUri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -252,6 +269,7 @@ export const UCP_MCP_TOOLS = [
     description:
       "Use this after the user chooses marketplace items to create a Chase Sets checkout session. This requires a linked buyer account and does not move money.",
     idempotencyKeyRequired: false,
+    resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: true,
@@ -278,6 +296,7 @@ export const UCP_MCP_TOOLS = [
     description:
       "Use this to read a checkout session for the linked buyer account. Do not use it for public product discovery.",
     idempotencyKeyRequired: false,
+    resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -299,6 +318,7 @@ export const UCP_MCP_TOOLS = [
     description:
       "Use this to update shipping option, optimization goal, or shipping address on an existing Chase Sets checkout session. This requires a linked buyer account and does not move money.",
     idempotencyKeyRequired: false,
+    resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: true,
@@ -323,6 +343,7 @@ export const UCP_MCP_TOOLS = [
     description:
       "Use this only after the user asks to place the order. ChatGPT OAuth callers receive a trusted checkout handoff; signed UCP/AP2 agents may continue only when Payments verifies mandate support.",
     idempotencyKeyRequired: true,
+    resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: true,
@@ -348,6 +369,7 @@ export const UCP_MCP_TOOLS = [
     description:
       "Use this only when the user asks to cancel or abandon checkout. Checkout cancellation currently returns a trusted UI handoff because Checkout does not own a cancel command yet.",
     idempotencyKeyRequired: true,
+    resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,

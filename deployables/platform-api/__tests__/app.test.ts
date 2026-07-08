@@ -19,7 +19,12 @@ import {
   MCP_PROTOCOL_VERSION_2026_07_28,
   MCP_PROTOCOL_VERSION_HEADER,
 } from "@chase-sets/platform-runtime/mcp-protocol";
-import { createUcpEnvelope, UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI } from "@chase-sets/platform-runtime/ucp";
+import {
+  createUcpEnvelope,
+  UCP_MCP_CART_REVIEW_RESOURCE_URI,
+  UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+  UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+} from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
 
 function signedUcpHeaders(body: string) {
@@ -1288,7 +1293,7 @@ describe("platform api app wiring", () => {
         jsonrpc: "2.0",
         id: "resource-read",
         method: "resources/read",
-        params: { uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI },
+        params: { uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI },
       }),
     });
     const searchResponse = await app.request("/ucp/mcp", {
@@ -1371,11 +1376,11 @@ describe("platform api app wiring", () => {
     expect(resourcesResponse.status).toBe(200);
     await expect(resourcesResponse.json()).resolves.toMatchObject({
       result: {
-        resources: [
-          expect.objectContaining({
-            uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
-          }),
-        ],
+        resources: expect.arrayContaining([
+          expect.objectContaining({ uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI }),
+          expect.objectContaining({ uri: UCP_MCP_CART_REVIEW_RESOURCE_URI }),
+          expect.objectContaining({ uri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI }),
+        ]),
       },
     });
     expect(resourceReadResponse.status).toBe(200);
@@ -1383,8 +1388,8 @@ describe("platform api app wiring", () => {
       result: {
         contents: [
           expect.objectContaining({
-            uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
-            text: expect.stringContaining("Chase Sets Marketplace Results"),
+            uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+            text: expect.stringContaining("Chase Sets Product Cards"),
           }),
         ],
       },
