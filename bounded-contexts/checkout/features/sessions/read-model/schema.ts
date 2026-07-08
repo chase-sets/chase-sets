@@ -45,17 +45,15 @@ export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260707_checkout_session_reservations",
     description: "Add checkout session reservation snapshots for checkout inventory holds.",
+    // A single ADD COLUMN ... NOT NULL DEFAULT is a metadata-only change in PostgreSQL 11+
+    // (no table rewrite, no full scan) that holds ACCESS EXCLUSIVE only for an instant. The
+    // previous ADD (nullable) -> UPDATE -> SET DEFAULT -> SET NOT NULL sequence held
+    // ACCESS EXCLUSIVE across a full-table validation scan, so under live read traffic each
+    // statement repeatedly hit lock_timeout and the schema-bootstrap retry loop span silently
+    // until the deploy quiesce killed it. See #4638.
     statements: [
       `ALTER TABLE checkout_session_pages
-  ADD COLUMN IF NOT EXISTS checkout_reservations jsonb NULL;`,
-      `UPDATE checkout_session_pages
-  SET checkout_reservations = '[]'::jsonb
-  WHERE checkout_reservations IS NULL;`,
-      `ALTER TABLE checkout_session_pages
-  ALTER COLUMN checkout_reservations SET DEFAULT '[]'::jsonb;`,
-      `SET lock_timeout = '5s';`,
-      `ALTER TABLE checkout_session_pages
-  ALTER COLUMN checkout_reservations SET NOT NULL;`,
+  ADD COLUMN IF NOT EXISTS checkout_reservations jsonb NOT NULL DEFAULT '[]'::jsonb;`,
     ],
   },
 ];

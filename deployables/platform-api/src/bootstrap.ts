@@ -11,7 +11,13 @@ import { apiContextRegistry } from "./generated/api-context-registry";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } from "./test-support/provider-gateways";
 
-const DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 1_800_000;
+// Keep every seed substep budget comfortably inside the deploy-quiesce window (the bootstrap
+// job is killed ~780s in). A 30-minute lock budget could never clear before that kill, so it
+// only produced silent hangs (exit 124) instead of an actionable error. Bounding the budgets
+// here lets schema-bootstrap surface its descriptive lock-timeout error, and the substep
+// timeout catches any non-lock stall, both well before the job is force-killed. See #4638.
+const DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS = 300_000;
+const DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS = 600_000;
 
 async function bootstrap() {
   const config = await runBootstrapPhase("load-config", () => loadBootstrapConfig());
@@ -45,6 +51,7 @@ async function bootstrap() {
         enabledDataProfiles: config.dataProfiles ?? [],
         environmentName: config.deploymentEnvironment ?? null,
         runtimeProfile: config.runtimeProfile,
+        substepTimeoutMs: DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS,
         schemaBootstrap: {
           lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
           lockTimeoutRetryBudgetMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,

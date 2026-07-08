@@ -489,6 +489,46 @@ describe("platform host api registry", () => {
     expect(checkoutProjector.runOnce).not.toHaveBeenCalled();
   });
 
+  it("fails a stuck seed substep with a descriptive timeout instead of hanging silently", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const registry = [
+      {
+        contextName: "catalog",
+        packageName: "@test/catalog",
+        manifest: {
+          contextName: "catalog",
+          apiDeployables: ["platform-api"],
+        },
+        module: createModule("catalog", {
+          seedProfiles: ["catalog-integration-bootstrap"],
+          // Never resolves: models a seed blocked on a database lock or a projection no
+          // running worker can apply (the #4638 failure mode).
+          seed: () => new Promise<void>(() => undefined),
+        }),
+      },
+    ] as const satisfies ApiContextRegistry;
+    const runtime = createApiHost(registry, "platform-api", {
+      pools: { catalog: createPool() as never },
+    });
+
+    try {
+      await expect(
+        seedApiHostIfEmpty(registry, "platform-api", runtime, {
+          enabledDataProfiles: productionLikeDataProfiles,
+          environmentName: "staging",
+          substepTimeoutMs: 50,
+        }),
+      ).rejects.toThrow(/substep 'seed:catalog' exceeded 50ms/);
+
+      expect(logSpy).toHaveBeenCalledWith("[seed-api-host] schema-bootstrap:catalog started.");
+      expect(logSpy).toHaveBeenCalledWith("[seed-api-host] seed:catalog started.");
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
   it("keeps full runtime drains for scenario bootstrap", async () => {
     const identityProjector = createCountingProjector();
     const authProjector = createCountingProjector();
