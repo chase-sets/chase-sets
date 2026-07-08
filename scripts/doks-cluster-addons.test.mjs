@@ -50,19 +50,20 @@ describe("doks cluster addons planner", () => {
     expect(productionController.command.join(" ")).toContain("=chase-sets-production-doks-ingress");
   });
 
-  it("pins the DigitalOcean load balancer type to REGIONAL so forwarding rules target the NodePorts and PROXY protocol is supported", () => {
-    // On DOKS 1.33.1-do.0+ the CCM default is REGIONAL_NETWORK (a same-port
-    // passthrough network LB that forwards :80/:443 to host :80/:443, where a
-    // NodePort controller has nothing listening, and that cannot do PROXY
-    // protocol). Pin REGIONAL explicitly -- an absent annotation resolves to the
-    // wrong default on the 1.36 cluster. See ingress-nginx-values.yaml header.
-    expect(ingressNginxValues).toContain('service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL"');
-    expect(ingressNginxValues).not.toContain('service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL_NETWORK"');
+  it("pairs the DOKS REGIONAL_NETWORK load balancer with hostPort ingress targets", () => {
+    // Live #4680 evidence showed the DOKS 1.36 CCM forces REGIONAL_NETWORK and
+    // re-stamps the annotation within seconds. REGIONAL_NETWORK is same-port L4
+    // passthrough, so controller pods must bind host :80/:443 for LB targets.
+    expect(ingressNginxValues).toContain('service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL_NETWORK"');
+    expect(ingressNginxValues).toMatch(/\n  hostPort:\n    enabled: true\n/);
+    expect(ingressNginxValues).toContain("externalTrafficPolicy: Local");
+    expect(ingressNginxValues).toContain("DOKS 1.36 CCM coerces this Service to REGIONAL_NETWORK");
   });
 
-  it("keeps load balancer and ingress-nginx PROXY protocol settings paired", () => {
-    expect(ingressNginxValues).toContain('service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"');
-    expect(ingressNginxValues).toContain('use-proxy-protocol: "true"');
+  it("keeps load balancer and ingress-nginx PROXY protocol disabled for REGIONAL_NETWORK", () => {
+    expect(ingressNginxValues).not.toContain("service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol");
+    expect(ingressNginxValues).toContain('use-proxy-protocol: "false"');
+    expect(ingressNginxValues).not.toContain('use-proxy-protocol: "true"');
   });
 
   it("installs every helm release atomically so a failed release rolls back", () => {
