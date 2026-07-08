@@ -319,11 +319,7 @@ export type ApiHostSeedOptions = BcSeedOptions &
     substepTimeoutMs?: number;
   }>;
 
-async function runSeedSubstep<T>(
-  label: string,
-  timeoutMs: number | undefined,
-  action: () => Promise<T>,
-): Promise<T> {
+async function runSeedSubstep<T>(label: string, timeoutMs: number | undefined, action: () => Promise<T>): Promise<T> {
   const startedAt = Date.now();
   console.log(`[seed-api-host] ${label} started.`);
   try {
