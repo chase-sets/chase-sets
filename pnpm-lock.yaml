@@ -27,6 +27,9 @@ importers:
         specifier: ^3.0.2
         version: 3.0.2
     devDependencies:
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:packages/typescript-compiler-api
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.60.0
@@ -1855,6 +1858,12 @@ importers:
       react-router:
         specifier: ^7.14.0
         version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+
+  packages/typescript-compiler-api:
+    dependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 
 packages:
 

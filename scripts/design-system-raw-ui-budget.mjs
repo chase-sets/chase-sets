@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import prettier from "prettier";
-import ts from "typescript";
+import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles, defaultSkippedDirectories } from "./lib/files.mjs";
 import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 import { checkedExtensions, isCheckedProductionFile, sourceKindFor } from "./design-system-legacy-inventory.mjs";

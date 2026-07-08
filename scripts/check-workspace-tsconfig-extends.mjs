@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles } from "./lib/files.mjs";
 import { normalizeRelative, repoRoot, workspaceRoots } from "./lib/repo.mjs";
 

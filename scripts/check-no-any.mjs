@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import ts from "typescript";
+import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles, defaultSkippedDirectories } from "./lib/files.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
