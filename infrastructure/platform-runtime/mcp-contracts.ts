@@ -520,6 +520,107 @@ const marketplaceListingReceiptOutputSchema = objectSchema(
   ["accountId", "id", "listingId", "version", "status", "resourceUri"],
 );
 
+const marketplaceSelectedOptionInputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Selected product option.",
+  additionalProperties: false,
+  required: ["dimensionId", "optionId"],
+  properties: {
+    dimensionId: stringProperty("Product option dimension identifier."),
+    optionId: stringProperty("Selected option identifier."),
+  },
+};
+
+const marketplaceShippingDestinationInputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Buyer shipping destination snapshot required to submit an offer.",
+  additionalProperties: false,
+  required: ["name", "line1", "city", "state", "postalCode", "country"],
+  properties: {
+    name: stringProperty("Recipient name."),
+    company: stringProperty("Optional company."),
+    line1: stringProperty("Street address line 1."),
+    line2: stringProperty("Optional street address line 2."),
+    city: stringProperty("City."),
+    state: stringProperty("State or region."),
+    postalCode: stringProperty("Postal code."),
+    country: stringProperty("Country code."),
+    phone: stringProperty("Optional recipient phone."),
+    email: stringProperty("Optional recipient email."),
+  },
+};
+
+const marketplaceSubmitOfferInputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated buyer account scope."),
+    catalogItemId: stringProperty("Catalog item identifier."),
+    productId: stringProperty("Product identifier derived from selected options."),
+    itemTitle: stringProperty("Item title snapshot."),
+    itemSubtitle: stringProperty("Optional item subtitle snapshot."),
+    selectedOptions: arrayProperty("Selected product options.", marketplaceSelectedOptionInputProperty),
+    productSummary: stringProperty("Optional product summary snapshot."),
+    shippingDestinationSnapshot: marketplaceShippingDestinationInputProperty,
+    priceAmount: stringProperty("Offer unit price in decimal currency format."),
+    quantityRequested: integerProperty("Quantity requested by the buyer."),
+    offerIdOverride: stringProperty("Optional deterministic offer id for idempotent handoffs."),
+    idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+    confirmationText: stringProperty("Exact user or policy confirmation text."),
+    dryRun: booleanProperty("Validate the action without committing it."),
+  },
+  [
+    "accountId",
+    "catalogItemId",
+    "productId",
+    "itemTitle",
+    "shippingDestinationSnapshot",
+    "priceAmount",
+    "quantityRequested",
+    "idempotencyKey",
+    "confirmationText",
+  ],
+);
+
+const marketplaceOfferReceiptOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    id: stringProperty("Offer identifier."),
+    offerId: stringProperty("Offer identifier."),
+    version: integerProperty("Committed offer stream version."),
+    status: stringProperty("Lifecycle write result."),
+    resourceUri: stringProperty("MCP resource URI for the offer."),
+    catalogItemId: stringProperty("Catalog item used to submit the offer."),
+    productId: stringProperty("Product targeted by the offer."),
+    counteredOfferId: stringProperty("Offer being countered when this receipt came from a counter-offer."),
+  },
+  ["accountId", "id", "offerId", "version", "status", "resourceUri"],
+);
+
+const marketplaceOfferListOutputSchema: McpJsonSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["accountId", "side", "items", "total", "count"],
+  properties: {
+    accountId: stringProperty("Authenticated account scope."),
+    side: stringProperty("Offer side.", ["submitted", "matched"]),
+    items: arrayProperty("Offer rows visible to the actor.", {
+      type: "object",
+      description: "Participant-safe offer row.",
+      additionalProperties: true,
+      required: ["offer_id", "buyer_account_id", "product_id", "price_amount", "quantity_requested", "status"],
+      properties: {
+        offer_id: stringProperty("Offer identifier."),
+        buyer_account_id: stringProperty("Buyer account identifier."),
+        product_id: stringProperty("Product identifier."),
+        price_amount: stringProperty("Offer unit price."),
+        quantity_requested: integerProperty("Requested quantity."),
+        status: stringProperty("Offer status."),
+      },
+    }),
+    total: integerProperty("Total visible offer count."),
+    count: integerProperty("Returned offer count."),
+  },
+};
+
 export const mcpServiceCatalog = [
   {
     ...service(
@@ -967,22 +1068,65 @@ export const mcpServiceCatalog = [
         "listing",
         ["Use before listing price or publication changes."],
       ),
-      readTool(
-        "marketplace",
-        "list-offers",
-        "List Offers",
-        "List submitted offers and offer matches visible to the actor.",
-        "offers.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            side: stringProperty("Offer side.", ["submitted", "matched"]),
-          },
-          ["accountId"],
+      {
+        ...readTool(
+          "marketplace",
+          "list-offers",
+          "List Offers",
+          "List submitted offers and offer matches visible to the actor.",
+          "offers.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              side: stringProperty("Offer side.", ["submitted", "matched"]),
+              limit: integerProperty("Maximum offers to return."),
+              offset: integerProperty("Result offset."),
+              productIds: stringProperty("Optional comma-separated product ids for seller matches."),
+              status: stringProperty("Optional offer status filter.", ["submitted"]),
+              canFulfill: booleanProperty("When true, return only seller matches with enough active supply."),
+            },
+            ["accountId"],
+          ),
+          "offer",
+          ["Use before accepting, declining, or revising offers."],
         ),
-        "offer",
-        ["Use before accepting, declining, or revising offers."],
-      ),
+        availability: "available",
+        outputSchema: marketplaceOfferListOutputSchema,
+      },
+      {
+        ...writeTool(
+          "marketplace",
+          "submit-offer",
+          "Submit Offer",
+          "Submit a buyer offer for a specific product, price, quantity, and shipping destination.",
+          "offers.manage",
+          marketplaceSubmitOfferInputSchema,
+          "offer",
+          ["Use after resolving the product, selected options, price, quantity, and shipping destination."],
+        ),
+        availability: "available",
+        outputSchema: marketplaceOfferReceiptOutputSchema,
+      },
+      {
+        ...writeTool(
+          "marketplace",
+          "counter-offer",
+          "Counter Offer",
+          "Submit a replacement buyer offer that records the offer being countered in the MCP receipt.",
+          "offers.manage",
+          objectSchema(
+            {
+              ...marketplaceSubmitOfferInputSchema.properties,
+              counteredOfferId: stringProperty("Offer being countered."),
+            },
+            [...(marketplaceSubmitOfferInputSchema.required ?? []), "counteredOfferId"],
+          ),
+          "offer",
+          ["Use when the buyer wants to answer a prior offer position with a new submitted offer."],
+        ),
+        availability: "available",
+        outputSchema: marketplaceOfferReceiptOutputSchema,
+      },
       {
         ...writeTool(
           "marketplace",
@@ -1075,17 +1219,56 @@ export const mcpServiceCatalog = [
         availability: "available",
         outputSchema: marketplaceListingReceiptOutputSchema,
       },
-      writeTool(
-        "marketplace",
-        "accept-offer",
-        "Accept Offer",
-        "Accept a buyer offer and begin order creation.",
-        "offers.manage",
-        mutationInput("offerId", "Offer to accept."),
-        "offer",
-        ["Use only after confirming price, quantity, and seller intent."],
-        "sensitive",
-      ),
+      {
+        ...writeTool(
+          "marketplace",
+          "accept-offer",
+          "Accept Offer",
+          "Accept a buyer offer and begin order creation.",
+          "offers.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated seller account scope."),
+              offerId: stringProperty("Offer to accept."),
+              feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
+              sourceActionKey: stringProperty("Optional source action key for semantic handoffs."),
+              reason: stringProperty("Business reason for the action."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "offerId", "feeQuoteFingerprint", "idempotencyKey", "confirmationText"],
+          ),
+          "offer",
+          ["Use only after confirming price, quantity, seller supply, and commercial terms."],
+          "sensitive",
+        ),
+        availability: "available",
+        permissionBoundary: {
+          ...readBoundary("offers.manage"),
+          requiredPermissions: ["offers.manage", "listings.view"],
+        },
+        outputSchema: marketplaceOfferReceiptOutputSchema,
+      },
+      {
+        ...writeTool(
+          "marketplace",
+          "decline-offer",
+          "Decline Offer",
+          "Hide a seller offer match without ending marketplace-wide buyer demand.",
+          "offers.manage",
+          mutationInput("offerId", "Offer match to decline."),
+          "offer",
+          ["Use when the seller does not want this matched offer for their active listing."],
+          "sensitive",
+        ),
+        availability: "available",
+        permissionBoundary: {
+          ...readBoundary("offers.manage"),
+          requiredPermissions: ["offers.manage", "listings.view"],
+        },
+        outputSchema: marketplaceOfferReceiptOutputSchema,
+      },
     ],
     resources: [
       {
@@ -1099,14 +1282,17 @@ export const mcpServiceCatalog = [
         ),
         availability: "available",
       },
-      resource(
-        "marketplace",
-        "chase-sets://marketplace/{accountId}/offers/{offerId}",
-        "Offer",
-        "Offer state and participant-safe details.",
-        "offers.view",
-        ["Use before offer negotiation or acceptance."],
-      ),
+      {
+        ...resource(
+          "marketplace",
+          "chase-sets://marketplace/{accountId}/offers/{offerId}",
+          "Offer",
+          "Offer state and participant-safe details.",
+          "offers.view",
+          ["Use before offer negotiation or acceptance."],
+        ),
+        availability: "available",
+      },
     ],
   },
   {
