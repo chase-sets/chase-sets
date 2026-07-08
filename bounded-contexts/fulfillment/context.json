@@ -104,6 +104,19 @@
       "purpose": "Durable outbound notification outbox consumed only by shipment event projectors."
     }
   ],
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "fulfillment.list-shipments", "ownerSlice": "shipments" },
+      { "name": "fulfillment.purchase-label", "ownerSlice": "shipments" },
+      { "name": "fulfillment.void-label", "ownerSlice": "shipments" }
+    ],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
+        "ownerSlice": "shipments"
+      }
+    ]
+  },
   "apiDeployables": ["platform-api"],
   "apiMounts": [
     {

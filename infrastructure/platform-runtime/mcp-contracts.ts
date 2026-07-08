@@ -344,6 +344,40 @@ const mutationInput = (idName: string, description: string): McpJsonSchema =>
     ["accountId", idName, "reason", "idempotencyKey", "confirmationText"],
   );
 
+const postageAddressProperty = (description: string): McpJsonSchemaProperty => ({
+  type: "object",
+  description,
+  additionalProperties: false,
+  properties: {
+    name: stringProperty("Recipient or sender name."),
+    company: stringProperty("Optional company name."),
+    street1: stringProperty("Street line 1."),
+    street2: stringProperty("Optional street line 2."),
+    line1: stringProperty("Deprecated alias for street1."),
+    line2: stringProperty("Deprecated alias for street2."),
+    city: stringProperty("City."),
+    state: stringProperty("State or province."),
+    postalCode: stringProperty("Postal code."),
+    country: stringProperty("Country code."),
+    phone: stringProperty("Optional phone number."),
+    email: stringProperty("Optional email address."),
+  },
+  required: ["name", "city", "state", "postalCode", "country"],
+});
+
+const postagePackageProperty = (): McpJsonSchemaProperty => ({
+  type: "object",
+  description: "Optional package override for postage purchase.",
+  additionalProperties: false,
+  properties: {
+    lengthInches: { type: "number", description: "Package length in inches." },
+    widthInches: { type: "number", description: "Package width in inches." },
+    heightInches: { type: "number", description: "Package height in inches." },
+    weightOunces: { type: "number", description: "Package weight in ounces." },
+  },
+  required: ["lengthInches", "widthInches", "heightInches", "weightOunces"],
+});
+
 const importSourceProfileOutputProperty: McpJsonSchemaProperty = {
   type: "object",
   description: "Inventory import source profile.",
@@ -1650,54 +1684,81 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
-      readTool(
-        "fulfillment",
-        "list-shipments",
-        "List Shipments",
-        "List shipments for purchases or sales.",
-        "fulfillment.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            side: stringProperty("Shipment side.", ["purchase", "sale"]),
-          },
-          ["accountId"],
+      {
+        ...readTool(
+          "fulfillment",
+          "list-shipments",
+          "List Shipments",
+          "List shipments for purchases or sales.",
+          "fulfillment.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              side: stringProperty("Shipment side.", ["purchase", "sale"]),
+            },
+            ["accountId"],
+          ),
+          "shipment",
+          ["Use before label, tracking, or delivery support actions."],
         ),
-        "shipment",
-        ["Use before label, tracking, or delivery support actions."],
-      ),
-      writeTool(
-        "fulfillment",
-        "purchase-label",
-        "Purchase Label",
-        "Purchase a postage label through the fulfillment workflow.",
-        "fulfillment.manage",
-        mutationInput("shipmentId", "Shipment needing a label."),
-        "shipment",
-        ["Use after confirming package, sender, recipient, and service level."],
-        "sensitive",
-      ),
-      writeTool(
-        "fulfillment",
-        "void-label",
-        "Void Label",
-        "Void an unused postage label.",
-        "fulfillment.manage",
-        mutationInput("shipmentId", "Shipment with label to void."),
-        "shipment",
-        ["Use only after confirming the label is unused and eligible to void."],
-        "destructive",
-      ),
+        availability: "available",
+      },
+      {
+        ...writeTool(
+          "fulfillment",
+          "purchase-label",
+          "Purchase Label",
+          "Purchase a postage label through the fulfillment workflow.",
+          "fulfillment.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              shipmentId: stringProperty("Shipment needing a label."),
+              serviceLevel: stringProperty("USPS service level."),
+              sender: postageAddressProperty("Optional sender address override."),
+              recipient: postageAddressProperty("Optional recipient address override."),
+              overrideReason: stringProperty("Reason for changing sender or recipient address snapshots."),
+              package: postagePackageProperty(),
+              reason: stringProperty("Business reason for the action."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "shipmentId", "reason", "idempotencyKey", "confirmationText"],
+          ),
+          "shipment",
+          ["Use after confirming package, sender, recipient, and service level."],
+          "sensitive",
+        ),
+        availability: "available",
+      },
+      {
+        ...writeTool(
+          "fulfillment",
+          "void-label",
+          "Void Label",
+          "Void an unused postage label.",
+          "fulfillment.manage",
+          mutationInput("shipmentId", "Shipment with label to void."),
+          "shipment",
+          ["Use only after confirming the label is unused and eligible to void."],
+          "destructive",
+        ),
+        availability: "available",
+      },
     ],
     resources: [
-      resource(
-        "fulfillment",
-        "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
-        "Shipment",
-        "Shipment state, package, label, and tracking read model.",
-        "fulfillment.view",
-        ["Use before fulfillment mutations."],
-      ),
+      {
+        ...resource(
+          "fulfillment",
+          "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
+          "Shipment",
+          "Shipment state, package, label, and tracking read model.",
+          "fulfillment.view",
+          ["Use before fulfillment mutations."],
+        ),
+        availability: "available",
+      },
     ],
   },
   {

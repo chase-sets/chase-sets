@@ -144,6 +144,9 @@ describe("MCP service catalog", () => {
         .sort(),
     ).toEqual([
       "checkout.get-cart",
+      "fulfillment.list-shipments",
+      "fulfillment.purchase-label",
+      "fulfillment.void-label",
       "inventory.adjust-item",
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
@@ -168,6 +171,7 @@ describe("MCP service catalog", () => {
         .sort(),
     ).toEqual([
       "chase-sets://checkout/{accountId}/cart",
+      "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",
       "chase-sets://inventory/{accountId}/import-batches/{batchId}",
       "chase-sets://inventory/{accountId}/items/{inventoryItemId}",
       "chase-sets://marketplace/{accountId}/listings/{listingId}",
