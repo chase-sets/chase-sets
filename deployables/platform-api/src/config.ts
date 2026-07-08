@@ -302,6 +302,8 @@ const REQUIRED_STRIPE_PAYMENT_WEBHOOK_EVENTS = [
   "radar.early_fraud_warning.created",
   "review.opened",
   "review.closed",
+  "shared_payment.granted_token.used",
+  "shared_payment.granted_token.deactivated",
 ] as const;
 
 const REQUIRED_STRIPE_CONNECT_ACCOUNT_WEBHOOK_EVENTS: Readonly<Record<PlatformStripeConnectAccountsApi, string[]>> = {

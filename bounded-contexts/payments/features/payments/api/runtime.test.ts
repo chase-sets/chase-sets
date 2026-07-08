@@ -644,6 +644,50 @@ describe("payment runtime", () => {
     ).toBe(false);
   });
 
+  it("records Shared Payment Token provider events as acknowledged ignored inbox rows", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const { db, webhookEvents } = createReconciliationDb({});
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_spt_used",
+      processorName: "stripe",
+      kind: "shared-payment-token-used",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_agentic",
+      providerObjectReference: "spt_123",
+      internalPaymentId: "pay_agentic",
+      processorStatus: "used",
+      failureCode: null,
+      failureMessage: null,
+      occurredAt: "2026-04-29T00:10:00.000Z",
+    } as never);
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: true,
+    });
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: true,
+    });
+
+    expect(webhookEvents).toHaveLength(1);
+    expect(webhookEvents[0]).toEqual([
+      "evt_spt_used",
+      "stripe",
+      "shared-payment-token-used",
+      "spt_123",
+      expect.any(String),
+    ]);
+    expect(readAllEvents()).toEqual([]);
+  });
+
   it("records early fraud warnings, refunds undisputed captured payments, and ignores redelivery", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();

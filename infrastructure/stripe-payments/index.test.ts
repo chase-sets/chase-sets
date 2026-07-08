@@ -1063,4 +1063,65 @@ describe("Stripe payment processor gateway", () => {
       },
     });
   });
+
+  it("maps Stripe Shared Payment Token lifecycle webhooks to acknowledged inbox events", async () => {
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const usedBody = JSON.stringify({
+      id: "evt_spt_used",
+      type: "shared_payment.granted_token.used",
+      created: now,
+      data: {
+        object: {
+          id: "spt_123",
+          status: "used",
+          payment_intent: "pi_agentic",
+          metadata: { payment_id: "pay_agentic" },
+        },
+      },
+    });
+    const deactivatedBody = JSON.stringify({
+      id: "evt_spt_deactivated",
+      type: "shared_payment.granted_token.deactivated",
+      created: now,
+      data: {
+        object: {
+          id: "spt_123",
+          status: "deactivated",
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody: usedBody,
+        signatureHeader: signature(usedBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_spt_used",
+      kind: "shared-payment-token-used",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_agentic",
+      providerObjectReference: "spt_123",
+      internalPaymentId: "pay_agentic",
+      processorStatus: "used",
+    });
+    await expect(
+      gateway.parseWebhook({
+        rawBody: deactivatedBody,
+        signatureHeader: signature(deactivatedBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_spt_deactivated",
+      kind: "shared-payment-token-deactivated",
+      processorPaymentReference: "spt_123",
+      providerObjectReference: "spt_123",
+      processorStatus: "deactivated",
+    });
+  });
 });

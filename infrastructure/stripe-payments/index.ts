@@ -761,6 +761,28 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
     };
   }
 
+  if (event.type === "shared_payment.granted_token.used" || event.type === "shared_payment.granted_token.deactivated") {
+    const providerObjectReference = normalizeOptionalText(paymentObject.id ?? null);
+    const paymentIntentReference = stripeObjectReference(paymentObject.payment_intent);
+    const reference = paymentIntentReference ?? providerObjectReference ?? event.id;
+    return {
+      eventId: event.id,
+      kind:
+        event.type === "shared_payment.granted_token.used"
+          ? "shared-payment-token-used"
+          : "shared-payment-token-deactivated",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: reference,
+      providerObjectReference,
+      internalPaymentId: metadataPaymentId(paymentObject) as PaymentProcessorWebhookEvent["internalPaymentId"],
+      processorStatus: normalizeOptionalText(paymentObject.status) ?? event.type,
+      failureCode: null,
+      failureMessage: null,
+      occurredAt,
+    };
+  }
+
   const processorPaymentReference = paymentObject.id?.trim();
   if (!processorPaymentReference) {
     return null;
