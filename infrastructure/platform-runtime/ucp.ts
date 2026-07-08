@@ -31,6 +31,12 @@ import {
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "./http";
+import {
+  agentGrantIdFromActor,
+  platformAgentGuardrailsSchemaSql,
+  type AgentGrantGuardrailViolation,
+  type AgentGrantRateLimiter,
+} from "./agent-guardrails";
 
 export {
   buildUcpBusinessProfile,
@@ -139,6 +145,7 @@ export type UcpRuntimeObserver = Readonly<{
   idempotencyConflict?: (event: UcpRuntimeIdempotencyEvent) => void;
   operationCompleted?: (event: UcpRuntimeOperationEvent) => void;
   toolCallLimited?: (event: UcpRuntimeToolLimitEvent) => void;
+  agentGuardrailTriggered?: (event: AgentGrantGuardrailViolation) => void;
 }>;
 
 export type UcpRuntimeSecurityEvent = Readonly<{
@@ -177,6 +184,7 @@ export type CreateUcpRoutesOptions = Readonly<{
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   idempotencyStore?: UcpIdempotencyStore;
   mcpToolCallLimiter?: McpToolCallLimiter;
+  agentGrantRateLimiter?: AgentGrantRateLimiter;
   allowInMemoryIdempotencyStoreForTests?: boolean;
   signatureVerification?: UcpSignatureVerificationOptions;
   businessSigningKeys?: UcpBusinessSigningKeySet;
@@ -342,6 +350,8 @@ CREATE TABLE IF NOT EXISTS platform_ucp_agent_profiles (
 
 CREATE INDEX IF NOT EXISTS platform_ucp_agent_profiles_expires_at_idx
   ON platform_ucp_agent_profiles (expires_at);
+
+${platformAgentGuardrailsSchemaSql}
 `;
 
 function requestOrigin(request: Request) {
@@ -1314,6 +1324,11 @@ async function invokeRestWrite(
     return c.json(idempotencyRequiredEnvelope(operation), 400);
   }
 
+  const rateLimit = enforceAgentGrantRateLimit(c, options, operation);
+  if (rateLimit) {
+    return c.json(rateLimit, 429);
+  }
+
   const input = handlerInput(c, params);
   const key = idempotencyScope(operation, c.req.raw, input.actor);
   const requestHash = await requestBodyHash(c.req.raw);
@@ -1381,6 +1396,11 @@ async function invokeMcpTool(
   idempotencyStore: UcpIdempotencyStore,
 ) {
   const toolName = tool.name;
+  const rateLimit = enforceAgentGrantRateLimit(c, options, toolName);
+  if (rateLimit) {
+    return rateLimit;
+  }
+
   const input: UcpOperationHandlerInput = {
     actor: c.get("actor") ?? null,
     context: c.get("context") ?? null,
@@ -1484,8 +1504,10 @@ async function acquireUcpMcpToolCallLease(
       transport: "ucp-mcp",
       toolName: tool.name,
       limitKind,
+      grantId: agentGrantIdFromActor(actor),
       actorId: actor?.userId ?? null,
       accountId: actor?.accountId ?? null,
+      agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
       clientAddress: resolveClientAddress(c.req.raw),
     });
 
@@ -1519,6 +1541,49 @@ function emitUcpToolCallLimited(
     accountId: actor?.accountId ?? null,
     agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
   });
+}
+
+function enforceAgentGrantRateLimit(
+  c: Context<UcpRuntimeEnv>,
+  options: Pick<CreateUcpRoutesOptions, "agentGrantRateLimiter" | "observer">,
+  operation: string,
+) {
+  const actor = c.get("actor") ?? null;
+  const grantId = agentGrantIdFromActor(actor);
+  if (!options.agentGrantRateLimiter || !grantId) {
+    return null;
+  }
+
+  const decision = options.agentGrantRateLimiter.check({
+    grantId,
+    accountId: actor?.accountId ?? null,
+    actorId: actor?.userId ?? null,
+    operation,
+  });
+  if (decision.allowed) {
+    return null;
+  }
+
+  const violation = {
+    kind: "rate-limit" as const,
+    grantId,
+    accountId: actor?.accountId ?? null,
+    operation,
+    reason: decision.reason,
+    evidence: {
+      retryAfterSeconds: decision.decision.retryAfterSeconds,
+      limit: decision.decision.limit,
+      resetAt: new Date(decision.decision.resetAt).toISOString(),
+    },
+  };
+  emitObserver(options.observer?.agentGuardrailTriggered, violation);
+  return createUcpEnvelope("error", {}, [
+    {
+      severity: "error",
+      code: "agent_grant_rate_limited",
+      message: decision.reason,
+    },
+  ]);
 }
 
 function ucpMcpToolLimitEnvelope(reason: string) {

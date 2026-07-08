@@ -1,5 +1,6 @@
 import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import { agentGrantIdFromActor, type AgentGrantSpendPolicy } from "@chase-sets/platform-runtime/agent-guardrails";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   createCheckoutOrdersThroughOrdering,
@@ -77,6 +78,7 @@ export function createCheckoutUcpHandlers(
   options: Readonly<{
     paymentHandoff?: UcpPaymentHandlerHandoff;
     signCheckout?: (checkout: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>;
+    agentGrantSpendPolicy?: AgentGrantSpendPolicy;
   }> = {},
 ): CheckoutUcpHandlers {
   const handlers = {
@@ -105,7 +107,7 @@ export function createCheckoutUcpHandlers(
                 access.context,
               )
             : sourceType === "offer-intent"
-              ? await createOfferIntent(checkout, source, body, access)
+              ? await createOfferIntent(checkout, source, body, access, input, options.agentGrantSpendPolicy)
               : await createBuyNow(checkout, source, body, access);
 
         const session = await checkout.sessions.getSession(result.sessionId, access.actor.accountId);
@@ -222,6 +224,15 @@ export function createCheckoutUcpHandlers(
       if (guardedPaymentResponse?.kind === "headless-agentic-payment") {
         try {
           assertNoUnsupportedCustomerEconomicsInput(body);
+          const spendGuard = await authorizeAgentGrantSpend(options.agentGrantSpendPolicy, input, {
+            operation: "complete_checkout",
+            operationId: `complete_checkout:${sessionId}:${readNullableString(body.idempotencyKey) ?? input.request.headers.get("Idempotency-Key") ?? "unknown"}`,
+            amountCents: readKnownCheckoutPaymentAmountCents(body, session),
+          });
+          if (spendGuard) {
+            return spendGuard;
+          }
+
           const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
           if (shippingAddress) {
             await checkout.sessions.setShippingAddress(
@@ -442,12 +453,27 @@ async function createOfferIntent(
   source: Readonly<Record<string, unknown>>,
   body: CheckoutIntentBody,
   access: CheckoutAccess,
+  input: UcpOperationHandlerInput,
+  spendPolicy: AgentGrantSpendPolicy | undefined,
 ) {
   if (access.actor.roleKey === "guest-buyer") {
     throw new Error("Register or sign in before placing purchase intent.");
   }
 
   const item = readCheckoutItem(source, body);
+  const offerPriceAmount =
+    readNullableString(source.offerPriceAmount ?? source.offer_price_amount) ??
+    readMoneyMajorUnits(readObject(source.offerPrice ?? source.offer_price)) ??
+    "";
+  const spendGuard = await authorizeAgentGrantSpend(spendPolicy, input, {
+    operation: "create_offer_intent",
+    operationId: `create_offer_intent:${access.actor.sessionId}:${readString(item.catalogItemId ?? item.catalog_item_id ?? item.id) ?? "unknown"}:${offerPriceAmount}`,
+    amountCents: moneyToCents(offerPriceAmount),
+  });
+  if (spendGuard) {
+    throw new Error(spendGuard.messages?.[0]?.message ?? "This agent grant exceeded its platform spend cap.");
+  }
+
   return checkout.sessions.createOfferIntent(
     {
       accountId: access.actor.accountId as AccountId,
@@ -457,10 +483,7 @@ async function createOfferIntent(
       itemSubtitle: readNullableString(item.itemSubtitle ?? item.subtitle),
       selectedOptions: readSelectedOptions(item.selectedOptions ?? item.selected_options),
       productSummary: readNullableString(item.productSummary ?? item.product_summary),
-      offerPriceAmount:
-        readNullableString(source.offerPriceAmount ?? source.offer_price_amount) ??
-        readMoneyMajorUnits(readObject(source.offerPrice ?? source.offer_price)) ??
-        "",
+      offerPriceAmount,
       quantity: readQuantity(item.quantity),
       shippingOption: readShippingOption(body),
       optimizationGoal: readOptimizationGoal(body),
@@ -707,6 +730,74 @@ function readMoneyMajorUnits(value: Readonly<Record<string, unknown>> | null) {
   }
 
   return `${amount.slice(0, -2) || "0"}.${amount.slice(-2).padStart(2, "0")}`;
+}
+
+async function authorizeAgentGrantSpend(
+  spendPolicy: AgentGrantSpendPolicy | undefined,
+  input: UcpOperationHandlerInput,
+  params: Readonly<{ operation: string; operationId: string; amountCents: number }>,
+): Promise<UcpEnvelope | null> {
+  const grantId = agentGrantIdFromActor(input.actor);
+  if (!spendPolicy || !grantId || params.amountCents <= 0) {
+    return null;
+  }
+
+  const decision = await spendPolicy.authorize({
+    grantId,
+    accountId: input.actor?.accountId ?? null,
+    operation: params.operation,
+    operationId: params.operationId,
+    amountCents: params.amountCents,
+  });
+  if (decision.allowed) {
+    return null;
+  }
+
+  return createUcpEnvelope(
+    "requires_action",
+    {
+      action: {
+        type: "trusted_checkout_handoff",
+        reason: decision.reason,
+      },
+      guardrail: {
+        type: "agent_grant_spend_cap",
+        cap_cents: decision.capCents,
+        remaining_cents: decision.remainingCents,
+      },
+    },
+    [
+      {
+        severity: "error",
+        code: "agent_grant_spend_cap_exceeded",
+        message: decision.reason,
+      },
+    ],
+  );
+}
+
+function readKnownCheckoutPaymentAmountCents(body: Readonly<Record<string, unknown>>, session: CheckoutSessionRow) {
+  const explicitAmount = moneyToCents(
+    readNullableString(body.totalAmount ?? body.total_amount ?? body.amount ?? body.payment_amount),
+  );
+  if (explicitAmount > 0) {
+    return explicitAmount;
+  }
+
+  if (session.source_type === "offer-intent") {
+    return session.lines.reduce((total, line) => total + moneyToCents(line.offerPriceAmount) * line.quantity, 0);
+  }
+
+  return 0;
+}
+
+function moneyToCents(value: unknown) {
+  const raw = readNullableString(value);
+  if (!raw || !/^\d+(\.\d{1,2})?$/.test(raw)) {
+    return 0;
+  }
+
+  return Math.round(Number(raw) * 100);
 }
 
 function checkoutNotFound() {

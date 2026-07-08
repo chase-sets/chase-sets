@@ -43,6 +43,10 @@ import {
 import type { McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
 import { createMcpToolCallLimiterFromRealtime } from "@chase-sets/platform-runtime/mcp-tool-call-limiter";
 import {
+  createAgentGrantRateLimiter,
+  createPostgresAgentGrantSpendPolicy,
+} from "@chase-sets/platform-runtime/agent-guardrails";
+import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
@@ -454,6 +458,12 @@ const ucpObserver = {
       ...event,
     });
   },
+  agentGuardrailTriggered: (event) => {
+    logger.warn("Agent grant guardrail triggered.", {
+      type: "ucp.agent_guardrail.triggered",
+      ...event,
+    });
+  },
 } satisfies UcpRuntimeObserver;
 const mcpAudit = (record: McpAuditRecord) => {
   recordMcpAuditRecord(record);
@@ -490,6 +500,8 @@ configureDefaultDurableJobStreamLimiter(
 const mcpToolCallLimiter = realtimeStreamLimiter.limiter
   ? createMcpToolCallLimiterFromRealtime(realtimeStreamLimiter.limiter, config.mcpToolCallLimits)
   : undefined;
+const agentGrantRateLimiter = createAgentGrantRateLimiter(config.agentGrantRateLimit);
+const agentGrantSpendPolicy = createPostgresAgentGrantSpendPolicy(pools.control, config.agentGrantSpendCap);
 const drainState = createProcessDrainState();
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
@@ -560,13 +572,16 @@ const app = buildPlatformApiApp(runtime, {
     },
     observer: ucpObserver,
     mcpToolCallLimiter,
+    agentGrantRateLimiter,
   },
+  agentGrantSpendPolicy,
   mcp: {
     audit: mcpAudit,
     idempotencyStore: createPostgresUcpIdempotencyStore<unknown>(pools.control, {
       retentionMs: 7 * 24 * 60 * 60 * 1000,
     }),
     toolCallLimiter: mcpToolCallLimiter,
+    agentGrantRateLimiter,
   },
   realtimeResourceLimits: {
     maxTopicsPerStream: config.realtime.maxTopicsPerStream,
