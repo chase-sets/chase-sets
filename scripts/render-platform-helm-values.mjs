@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 
 export const chartValuesRelativePath = "infrastructure/helm/platform/values.yaml";
+export const chartStagingValuesRelativePath = "infrastructure/helm/platform/values.staging.yaml";
 const platformMainRelativePath = "infrastructure/digitalocean/platform/main.tf";
 const platformLocalsRelativePath = "infrastructure/digitalocean/platform/locals.tf";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
@@ -150,6 +151,16 @@ const databasePoolMaxByComponent = {
   "platform-bootstrap": "4",
 };
 
+export const doksStagingWorkerEnvOverrides = {
+  // DOKS staging intentionally keeps projection/operation/job runners at the
+  // compact Helm baseline and adds only the representative wake headroom from
+  // #4633: 1 projection + 1 operations + 1 job + 1 inventory-import + 1
+  // dispatch + 1 scheduled + 3 wake = 9.
+  DATABASE_POOL_MAX: "9",
+  WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3",
+  WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2",
+};
+
 const rolloutEligibleComponents = new Set(["public-web", "marketplace"]);
 
 // DOKS-only health wiring. App Platform workers expose no HTTP port, but the
@@ -259,23 +270,51 @@ export function renderPlatformHelmValues(options = {}) {
     );
 }
 
+export function buildPlatformHelmStagingValues() {
+  return {
+    generatedBy,
+    components: {
+      "platform-worker": {
+        envOverrides: doksStagingWorkerEnvOverrides,
+      },
+    },
+  };
+}
+
+export function renderPlatformHelmStagingValues() {
+  return `${renderYaml(buildPlatformHelmStagingValues())}\n`;
+}
+
 export function syncPlatformHelmValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
-  const outputPath = path.join(rootDir, chartValuesRelativePath);
-  const content = renderPlatformHelmValues({ repoRoot: rootDir });
+  const generatedFiles = [
+    {
+      relativePath: chartValuesRelativePath,
+      content: renderPlatformHelmValues({ repoRoot: rootDir }),
+    },
+    {
+      relativePath: chartStagingValuesRelativePath,
+      content: renderPlatformHelmStagingValues(),
+    },
+  ];
 
   if (options.check) {
-    if (!existsSync(outputPath)) {
-      throw new Error(`${normalizeRelative(outputPath, rootDir)} is missing`);
-    }
-    const currentContent = readFileSync(outputPath, "utf8");
-    if (currentContent !== content) {
-      throw new Error(`${normalizeRelative(outputPath, rootDir)} is stale; run ${generatedBy}`);
+    for (const generatedFile of generatedFiles) {
+      const outputPath = path.join(rootDir, generatedFile.relativePath);
+      if (!existsSync(outputPath)) {
+        throw new Error(`${normalizeRelative(outputPath, rootDir)} is missing`);
+      }
+      const currentContent = readFileSync(outputPath, "utf8");
+      if (currentContent !== generatedFile.content) {
+        throw new Error(`${normalizeRelative(outputPath, rootDir)} is stale; run ${generatedBy}`);
+      }
     }
     return { checked: true };
   }
 
-  writeFileSync(outputPath, content, "utf8");
+  for (const generatedFile of generatedFiles) {
+    writeFileSync(path.join(rootDir, generatedFile.relativePath), generatedFile.content, "utf8");
+  }
   return { checked: false };
 }
 

@@ -9,6 +9,7 @@ export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-
 
 const chartName = "chase-sets-platform";
 const chartPath = "infrastructure/helm/platform";
+const stagingValuesPath = `${chartPath}/values.staging.yaml`;
 const defaultRelease = "chase-sets-platform";
 const defaultNamespace = "chase-sets-platform";
 const defaultTimeout = "10m";
@@ -42,6 +43,7 @@ export function buildHelmUpgradeArgs(options = {}) {
   const image = parsePlatformImageRef(requiredOption(options.image, "image"));
   const imagePullSecret = options.imagePullSecret ?? "";
   const envOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
+  const environmentValuesPath = platformValuesPathForEnvironment(envOverrides.DEPLOYMENT_ENVIRONMENT);
 
   return [
     "upgrade",
@@ -55,6 +57,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     "--timeout",
     timeout,
     "--atomic",
+    ...(environmentValuesPath ? ["--values", environmentValuesPath] : []),
     "--set-string",
     `global.image.registry=${image.registry}`,
     "--set-string",
@@ -71,6 +74,10 @@ export function buildHelmUpgradeArgs(options = {}) {
       `global.envOverrides.${name}=${escapeHelmSetStringValue(value)}`,
     ]),
   ];
+}
+
+export function platformValuesPathForEnvironment(environmentName) {
+  return environmentName === "staging" ? stagingValuesPath : null;
 }
 
 function escapeHelmSetStringValue(value) {

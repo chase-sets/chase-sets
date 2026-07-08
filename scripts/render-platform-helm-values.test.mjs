@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import { runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 import {
   buildPlatformHelmValues,
+  buildPlatformHelmStagingValues,
   chartValuesRelativePath,
+  doksStagingWorkerEnvOverrides,
   extractDigitalOceanPlatformComponents,
   readPlatformSources,
   syncPlatformHelmValues,
@@ -81,7 +83,7 @@ describe("render platform Helm values", () => {
     );
   });
 
-  it("gives the worker a health probe port and fits every runner group in its pool budget", () => {
+  it("keeps the baseline worker small and fits every runner group in its pool budget", () => {
     const values = buildPlatformHelmValues({ repoRoot });
     const worker = values.components["platform-worker"];
 
@@ -117,6 +119,34 @@ describe("render platform Helm values", () => {
 
     expect(totalRunnerConcurrency).toBe(8);
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(poolMax);
+    expect(envValue("WORKER_WAKE_MAX_CONCURRENT_RUNNERS")).toBe("2");
+    expect(envValue("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT")).toBe("1");
+  });
+
+  it("renders a staging-only DOKS worker overlay with representative wake headroom", () => {
+    const baselineValues = buildPlatformHelmValues({ repoRoot });
+    const stagingValues = buildPlatformHelmStagingValues();
+    const worker = baselineValues.components["platform-worker"];
+    const workerOverrides = stagingValues.components["platform-worker"].envOverrides;
+
+    expect(workerOverrides).toEqual(doksStagingWorkerEnvOverrides);
+
+    const envValue = (name) => workerOverrides[name] ?? worker.env.find((entry) => entry.name === name)?.value;
+    const totalRunnerConcurrency = [
+      "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS",
+      "WORKER_PROJECTION_OPERATION_RUNNER_COUNT",
+      "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
+      "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS",
+      "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS",
+      "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS",
+      "WORKER_WAKE_MAX_CONCURRENT_RUNNERS",
+    ].reduce((total, name) => total + Number(envValue(name)), 0);
+
+    expect(envValue("DATABASE_POOL_MAX")).toBe("9");
+    expect(envValue("WORKER_WAKE_MAX_CONCURRENT_RUNNERS")).toBe("3");
+    expect(envValue("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT")).toBe("2");
+    expect(totalRunnerConcurrency).toBe(9);
+    expect(totalRunnerConcurrency).toBeLessThanOrEqual(Number(envValue("DATABASE_POOL_MAX")));
   });
 
   it("wires the worker startup/liveness/readiness probes in the deployment template", () => {
@@ -127,6 +157,8 @@ describe("render platform Helm values", () => {
     expect(helperTemplate).toContain("livenessProbe:");
     expect(helperTemplate).toContain("if $component.startupPath");
     expect(helperTemplate).toContain("failureThreshold: 30");
+    expect(helperTemplate).toContain("$componentEnvOverrides");
+    expect(helperTemplate).toContain("hasKey $componentEnvOverrides .name");
   });
 
   it("scaffolds Rollouts only for public buyer web components and keeps them disabled by default", () => {

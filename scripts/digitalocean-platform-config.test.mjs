@@ -100,6 +100,7 @@ const platformStagingBootstrapHookDrillWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-bootstrap-hook-drill.yml"),
   "utf8",
 );
+const platformHelmStagingValues = readFileSync(resolve("infrastructure/helm/platform/values.staging.yaml"), "utf8");
 const digitaloceanPlatformRunbook = readFileSync(resolve("docs/runbooks/digitalocean-platform-deployment.md"), "utf8");
 const doksPlatformOperationsRunbook = readFileSync(resolve("docs/runbooks/doks-platform-operations.md"), "utf8");
 const productionPgBouncerSessionSafety = readFileSync(
@@ -994,6 +995,7 @@ describe("DigitalOcean platform configuration", () => {
     const stagingSmokeStep = workflowSteps(deployStagingJob, "Smoke check").at(-1);
     const productionSmokeStep = workflowSteps(deployProductionJob, "Smoke check").at(-1);
     const stagingKubeconfigStep = workflowStep(deployStagingJob, "Configure staging Kubernetes context");
+    const stagingDatabaseUrlsStep = workflowStep(deployStagingJob, "Export staging Kubernetes database URLs");
     const stagingRuntimeSecretsStep = workflowStep(deployStagingJob, "Apply staging Kubernetes runtime secrets");
     const stagingRegistryPullSecretStep = workflowStep(
       deployStagingJob,
@@ -1114,6 +1116,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingKubeconfigStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
     expect(stagingKubeconfigStep).toContain("Configured staging Kubernetes context: ${current_context}");
     expect(stagingKubeconfigStep).toContain("Using staging DOKS cluster Terraform state address");
+    expect(stagingDatabaseUrlsStep).toContain('resource("digitalocean_database_user", "contexts")');
+    expect(stagingDatabaseUrlsStep).toContain('resource("digitalocean_database_cluster", "postgres")');
+    expect(stagingDatabaseUrlsStep).toContain("clusterAttrs.host");
+    expect(stagingDatabaseUrlsStep).not.toContain("digitalocean_database_connection_pool");
     expect(stagingRuntimeSecretsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
     expect(stagingRuntimeSecretsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(stagingRegistryPullSecretStep).toContain("doctl registry get --format Name --no-header");
@@ -1128,6 +1134,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingDeployStep).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
     expect(stagingDeployStep).toContain('--image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME"');
     expect(stagingDeployStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=staging"');
+    expect(platformHelmStagingValues).toContain('generatedBy: "node ./scripts/render-platform-helm-values.mjs"');
+    expect(platformHelmStagingValues).toContain("platform-worker:");
+    expect(platformHelmStagingValues).toContain('DATABASE_POOL_MAX: "9"');
+    expect(platformHelmStagingValues).toContain('WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3"');
+    expect(platformHelmStagingValues).toContain('WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2"');
+    expect(platformHelmStagingValues).not.toContain("WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS");
+    expect(platformHelmStagingValues).not.toContain("WORKER_PROJECTION_OPERATION_RUNNER_COUNT");
     expect(stagingDeployStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
     expect(stagingDeployStep).toContain(
       '--runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap"',

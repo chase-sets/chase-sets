@@ -86,6 +86,45 @@ describe("worker capacity", () => {
     expect(() => assertRunnerCapacity(fitted, { workerName: "Platform worker" })).not.toThrow();
   });
 
+  it("fits the DOKS staging representative wake tier inside the worker pool (#4633 regression)", () => {
+    const groups = [
+      { name: "projections", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "operations", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "jobs", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "inventory-jobs", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "dispatch", runnerCount: 1, maxConcurrentRunners: 1 },
+      { name: "scheduled", runnerCount: 1, maxConcurrentRunners: 1 },
+      {
+        name: "wakes",
+        runnerCount: 4,
+        maxConcurrentRunners: 3,
+        reservedRunnerSlots: 1,
+        reservedRunnerCount: 1,
+        sharedRunnerCount: 3,
+      },
+    ];
+
+    const underSizedPool = summarizeRunnerCapacity(8, groups);
+    expect(underSizedPool.configuredRunnerConcurrency).toBe(9);
+    expect(underSizedPool.overPoolCapacity).toBe(true);
+    expect(() => assertRunnerCapacity(underSizedPool, { workerName: "Platform worker" })).toThrow(
+      "Platform worker runner concurrency (9) exceeds DATABASE_POOL_MAX (8)",
+    );
+
+    const fitted = summarizeRunnerCapacity(9, groups);
+    expect(fitted.configuredRunnerConcurrency).toBe(9);
+    expect(fitted.overPoolCapacity).toBe(false);
+    expect(fitted.runnerGroups.wakes).toMatchObject({
+      runnerCount: 4,
+      maxConcurrentRunners: 3,
+      reservedRunnerSlots: 1,
+      reservedRunnerCount: 1,
+      sharedRunnerCount: 3,
+    });
+    expect(() => assertRunnerCapacity(fitted, { workerName: "Platform worker" })).not.toThrow();
+    expect(() => assertRunnerLaneIsolation(fitted, { workerName: "Platform worker" })).not.toThrow();
+  });
+
   it("summarizes reserved hot wake capacity separately from shared runner capacity", () => {
     expect(
       summarizeRunnerCapacity(6, [
