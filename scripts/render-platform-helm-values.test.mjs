@@ -83,7 +83,11 @@ describe("render platform Helm values", () => {
       if (terraformComponent.name !== "platform-worker") {
         expect(helmComponent.port ?? null).toBe(terraformComponent.port ?? null);
       }
-      expect(helmComponent.source.instanceCountExpression).toBe(terraformComponent.instanceCountExpression);
+      if (terraformComponent.name === "platform-worker") {
+        expect(helmComponent.source.instanceCountExpression).toBe("local.worker_instances");
+      } else {
+        expect(helmComponent.source.instanceCountExpression).toBe(terraformComponent.instanceCountExpression);
+      }
     }
 
     expect(values.components["public-web"].source.instanceCountExpression).toBe("local.public_web_instances");

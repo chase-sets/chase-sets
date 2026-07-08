@@ -733,6 +733,7 @@ locals {
   worker_instance_size_slug         = trimspace(var.worker_instance_size_slug) != "" ? var.worker_instance_size_slug : local.worker_default_instance_size_slug
   default_worker_instances          = local.is_staging ? 2 : 1
   worker_instances                  = var.worker_instance_count > 0 ? var.worker_instance_count : local.default_worker_instances
+  app_platform_worker_instances     = var.platform_bootstrap_owner == "doks" ? 0 : local.worker_instances
 
   public_uptime_check_targets = {
     for domain in local.public_domains :
