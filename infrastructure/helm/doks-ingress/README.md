@@ -44,11 +44,22 @@ node ./scripts/doks-cluster-addons.mjs --environment staging --dry-run
 
 ## Load Balancer And TLS Posture
 
-The DigitalOcean Load Balancer runs in L4 pass-through for ports 80/443 so NGINX
-terminates TLS with cert-manager-issued certificates. Port 80 is not force-redirected
-at the load balancer, so cert-manager HTTP-01 challenges reach the controller. PROXY
-protocol is enabled on both the load balancer and the controller so real client IPs
-survive for rate limiting and `CHASE_SETS_TRUST_FORWARDED_HEADERS`.
+The controller Service pins `service.beta.kubernetes.io/do-loadbalancer-type: REGIONAL`
+(a connection-terminating / HTTP DigitalOcean Load Balancer). NGINX terminates TLS with
+cert-manager-issued certificates; port 80 is not force-redirected at the load balancer,
+so cert-manager HTTP-01 challenges reach the controller. PROXY protocol is enabled on
+both the load balancer and the controller so real client IPs survive for rate limiting
+and `CHASE_SETS_TRUST_FORWARDED_HEADERS`.
+
+`REGIONAL` must be set explicitly. On DOKS 1.33.1-do.0 and later the CCM default is
+`REGIONAL_NETWORK` (a network / same-port pass-through load balancer). That default is
+wrong here: a network LB requires the LB port and node target port to match, so it
+forwards `:80`/`:443` to host `:80`/`:443` where this NodePort controller listens on
+nothing (connections refused), and it does not support PROXY protocol. `REGIONAL`
+rewrites the forwarding rules to the allocated NodePorts and supports PROXY protocol.
+The annotation lives in git-managed values because the CCM reconciles the Service back
+to these values — a hand-applied `kubectl annotate` does not survive a helm upgrade.
+See [DigitalOcean load balancer configuration](https://docs.digitalocean.com/products/kubernetes/how-to/configure-load-balancers/).
 
 ## Rendering
 
