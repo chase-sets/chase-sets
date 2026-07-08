@@ -146,6 +146,79 @@ describe("work signal store", () => {
     ]);
   });
 
+  it("bounds the enqueue lock wait over a transactional pool and yields a blocked outcome for pinned rows", async () => {
+    // Issue #4649: a wake-intent row pinned by a hung transaction must never
+    // wedge the relay's fan-out loop behind an unbounded FOR UPDATE wait. The
+    // enqueue runs with a transaction-local lock_timeout; on 55P03 it reads
+    // the pinned row without locking and reports `blocked` instead of
+    // throwing or emitting a work signal.
+    const poolCalls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const clientCalls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const enqueuedEvents: unknown[] = [];
+    const pool = {
+      query: async (sql: string, values: readonly unknown[] = []) => {
+        poolCalls.push({ sql, values });
+        if (sql.includes("FROM platform_projection_wake_intents WHERE coalescing_key")) {
+          return { rows: [wakeIntentRow({ priority_lane: "standard", origin: "relay" })], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      connect: async () => ({
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          clientCalls.push({ sql, values });
+          if (sql.includes("WITH existing AS MATERIALIZED")) {
+            throw Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" });
+          }
+          return { rows: [], rowCount: 0 };
+        },
+        release: () => {},
+      }),
+    };
+    const store = createPostgresWorkSignalStore(pool as never, {
+      enqueueLockTimeoutMs: 250,
+      observer: {
+        projectionWakeIntentEnqueued: (event) => enqueuedEvents.push(event),
+      },
+      now: () => NOW,
+    });
+
+    await expect(
+      store.enqueueProjectionWakeIntent({
+        sourceContextName: "identity",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        checkpointKey: "checkout.checkout-session-projection:catalog",
+        requiredPosition: 40,
+        priorityLane: "standard",
+        origin: "relay",
+      }),
+    ).resolves.toMatchObject({
+      wakeIntentId: "projection-wake-1",
+      state: "queued",
+      attemptCount: 0,
+    });
+
+    const lockTimeoutCall = clientCalls.find((call) => call.sql.includes("set_config('lock_timeout'"));
+    expect(lockTimeoutCall?.values[0]).toBe("250ms");
+    expect(clientCalls.map((call) => call.sql.split("\n")[0].trim().slice(0, 12))).toContain("ROLLBACK");
+    // The pinned row is read without locking, and no wake work signal is
+    // emitted for a blocked enqueue — nothing changed for claimers.
+    const fallbackRead = poolCalls.find((call) => call.sql.includes("WHERE coalescing_key"));
+    expect(fallbackRead?.sql).not.toContain("FOR UPDATE");
+    expect(poolCalls.some((call) => call.sql.includes("pg_notify"))).toBe(false);
+    expect(enqueuedEvents).toEqual([
+      {
+        outcome: "blocked",
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        priorityLane: "standard",
+        origin: "relay",
+        routingMode: "unspecified",
+      },
+    ]);
+  });
+
   it("reports bounded enqueue outcomes and routing mode without disrupting writes", async () => {
     const outcomes = ["created", "coalesced", "requeued_completed", "requeued_expired"] as const;
     const enqueuedEvents: unknown[] = [];
@@ -853,6 +926,9 @@ describe("work signal store", () => {
             rowCount: 1,
           };
         }
+        if (sql.includes("immortal_count")) {
+          return { rows: [{ immortal_count: 1 }], rowCount: 1 };
+        }
         return { rows: [], rowCount: 2 };
       },
     });
@@ -867,6 +943,10 @@ describe("work signal store", () => {
       prunedWakeIntents: 2,
       prunedCheckpointReadiness: 2,
       prunedCheckpointWaiters: 2,
+      // Served by the fake as 1: the expiry-predicate rows that survived the
+      // expire pass (pinned by another transaction's row lock) are surfaced
+      // instead of silently skipped.
+      immortalWakeIntents: 1,
     });
     await expect(store.summarizeProjectionWakeIntents()).resolves.toEqual({
       queuedCount: 2,
@@ -881,8 +961,14 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain("FOR UPDATE SKIP LOCKED");
     expect(calls[0].sql).toContain("AND (state <> 'claimed' OR claimed_until <= $1::timestamptz)");
     expect(calls[0].values[1]).toBe(25);
-    expect(calls[3].sql).toContain("satisfied_at <= $1::timestamptz");
-    expect(calls[4].sql).toContain("stale_claim_count");
+    // The immortal probe runs right after the expire pass, over the same
+    // expiry predicate, WITHOUT locking — it must see the rows the locked
+    // expire scan skipped.
+    expect(calls[1].sql).toContain("immortal_count");
+    expect(calls[1].sql).toContain("AND (state <> 'claimed' OR claimed_until <= $1::timestamptz)");
+    expect(calls[1].sql).not.toContain("FOR UPDATE");
+    expect(calls[4].sql).toContain("satisfied_at <= $1::timestamptz");
+    expect(calls[5].sql).toContain("stale_claim_count");
   });
 
   it("summarizes wake intents grouped by lane, origin, and state with structural fields only", async () => {
