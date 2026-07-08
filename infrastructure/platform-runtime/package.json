@@ -19,6 +19,7 @@
     "./health": "./health.ts",
     "./http": "./http.ts",
     "./mcp": "./mcp.ts",
+    "./mcp-contracts": "./mcp-contracts.ts",
     "./mcp-protocol": "./mcp-protocol.ts",
     "./mcp-tool-call-limiter": "./mcp-tool-call-limiter.ts",
     "./projection-operations-routes": "./projection-operations-routes.ts",
