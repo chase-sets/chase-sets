@@ -176,7 +176,7 @@ export const sourceContextWakeRegistry = [
       "ordering:ordering-marketplace-supply-input-projection",
       "pricing:pricing-catalog-input-projection",
     ],
-    routeDependencyIds: ["catalog.catalog-item-command-to-admin-detail", "catalog.catalog-item-command-to-admin-list"],
+    routeDependencyIds: [],
   }),
   registryEntry({
     sourceContextName: "checkout",

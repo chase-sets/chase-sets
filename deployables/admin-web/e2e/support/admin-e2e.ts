@@ -51,6 +51,41 @@ export async function isProjectionFreshnessTimeoutResponse(response: APIResponse
   return body?.error?.code === "projection_freshness_timeout";
 }
 
+export async function waitForProjectionPositionFromResponse(
+  page: Page,
+  response: APIResponse | PlaywrightResponse,
+  options: Readonly<{
+    sourceContextName: string;
+    targetContextName: string;
+    projectionName: string;
+    label: string;
+    timeoutMs?: number;
+  }>,
+) {
+  const source = decodeCommitReceipt(responseHeader(response, CHASE_SETS_COMMIT_RECEIPT_HEADER)).find(
+    (candidate) => candidate.sourceContextName === options.sourceContextName,
+  );
+  expect(source, `${options.label} should include a ${options.sourceContextName} commit receipt`).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        const observedPosition = await refreshProjectionPosition(page, {
+          sourceContextName: options.sourceContextName,
+          targetContextName: options.targetContextName,
+          projectionName: options.projectionName,
+          label: options.label,
+        });
+
+        return BigInt(observedPosition) >= BigInt(source!.maxGlobalPosition)
+          ? "caught-up"
+          : `behind:${observedPosition}/${source!.maxGlobalPosition}`;
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: options.timeoutMs ?? 90_000 },
+    )
+    .toBe("caught-up");
+}
+
 function createReadAfterWriteHeaderFactory(
   sources: readonly SourceCommitPosition[],
   targetContextName: string,
@@ -79,6 +114,56 @@ function responseHeader(response: APIResponse | PlaywrightResponse, headerName: 
   }
 
   return null;
+}
+
+type ProjectionStatusResponse = Readonly<{
+  projectionGroups?: readonly ProjectionGroupStatus[];
+}>;
+
+type ProjectionGroupStatus = Readonly<{
+  targetContextName?: string;
+  projectionName?: string;
+  subscriptions?: readonly ProjectionSubscriptionStatus[];
+}>;
+
+type ProjectionSubscriptionStatus = Readonly<{
+  sourceContextName?: string;
+  lastGlobalPosition?: string;
+}>;
+
+async function refreshProjectionPosition(
+  page: Page,
+  options: Readonly<{
+    sourceContextName: string;
+    targetContextName: string;
+    projectionName: string;
+    label: string;
+  }>,
+) {
+  const response = await page.request.post(`${requestOrigin(page)}/api/platform/projections/refresh`);
+  expect(response.status(), `${options.label} should refresh projection status`).toBe(200);
+
+  const body = (await response.json()) as ProjectionStatusResponse;
+  const group = body.projectionGroups?.find(
+    (candidate) =>
+      candidate.targetContextName === options.targetContextName && candidate.projectionName === options.projectionName,
+  );
+
+  return maxObservedProjectionPosition(group, options.sourceContextName);
+}
+
+function maxObservedProjectionPosition(group: ProjectionGroupStatus | undefined, sourceContextName: string) {
+  const positions =
+    group?.subscriptions
+      ?.filter((subscription) => subscription.sourceContextName === sourceContextName)
+      .map((subscription) => subscription.lastGlobalPosition)
+      .filter((position): position is string => typeof position === "string" && /^(0|[1-9]\d*)$/.test(position)) ?? [];
+
+  return positions.reduce((max, position) => (BigInt(position) > BigInt(max) ? position : max), "0");
+}
+
+function requestOrigin(page: Page) {
+  return new URL(page.url()).origin;
 }
 
 export async function expectPageOk(page: Page, path: string) {

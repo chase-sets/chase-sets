@@ -69,27 +69,7 @@
     {
       "mountPath": "/api/catalog",
       "kind": "primary",
-      "requiresAuth": true,
-      "readFreshnessRoutes": [
-        {
-          "routePath": "/items",
-          "methods": ["GET", "HEAD"],
-          "dependencies": [
-            {
-              "readModelTable": "catalog_admin_catalog_item_list_pages"
-            }
-          ]
-        },
-        {
-          "routePath": "/items/:id",
-          "methods": ["GET", "HEAD"],
-          "dependencies": [
-            {
-              "readModelTable": "catalog_admin_catalog_item_detail_pages"
-            }
-          ]
-        }
-      ]
+      "requiresAuth": true
     }
   ],
   "projectionGroups": [
@@ -665,58 +645,6 @@
       "crossCuttingRuntimeComposition": true
     }
   },
-  "readAfterWriteRouteInventory": [
-    {
-      "id": "catalog.catalog-item-command-to-admin-list",
-      "owner": "catalog",
-      "risk": "important",
-      "freshnessSlo": {
-        "flowClass": "important-self-refresh",
-        "p95Ms": 2500,
-        "p99Ms": 5000
-      },
-      "source": {
-        "routeId": "catalog-items",
-        "actions": ["Create draft catalog item", "Remove draft catalog item"],
-        "command": "Catalog item draft commands"
-      },
-      "destination": {
-        "routeId": "catalog-items",
-        "apiContextName": "catalog",
-        "apiRoutePath": "/items",
-        "readModelTables": ["catalog_admin_catalog_item_list_pages"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "Catalog item admin list reads can forward create/remove write receipts to Catalog so the admin list page projection reaches the command position before callers assert row visibility or absence."
-        }
-      }
-    },
-    {
-      "id": "catalog.catalog-item-command-to-admin-detail",
-      "owner": "catalog",
-      "risk": "important",
-      "freshnessSlo": {
-        "flowClass": "important-self-refresh",
-        "p95Ms": 2500,
-        "p99Ms": 5000
-      },
-      "source": {
-        "routeId": "catalog-items-detail",
-        "actions": ["Create draft catalog item", "Remove draft catalog item"],
-        "command": "Catalog item draft commands"
-      },
-      "destination": {
-        "routeId": "catalog-items-detail",
-        "apiContextName": "catalog",
-        "apiRoutePath": "/items/:id",
-        "readModelTables": ["catalog_admin_catalog_item_detail_pages"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "Catalog item admin detail reads can forward create/remove write receipts to Catalog so the admin detail page projection reaches the command position before callers assert draft visibility or removal."
-        }
-      }
-    }
-  ],
   "mutationConsistencyInventory": [
     {
       "id": "catalog.admin-model-api-command-snapshots",
