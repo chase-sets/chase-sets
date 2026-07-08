@@ -105,6 +105,17 @@ function parseShippingAddress(value: unknown) {
   };
 }
 
+function parseCheckoutReservations(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((reservation: Record<string, unknown>) => ({
+        holdId: String(reservation.holdId ?? ""),
+        sellerAccountId: String(reservation.sellerAccountId ?? ""),
+        inventoryItemId: String(reservation.inventoryItemId ?? ""),
+        quantity: Number(reservation.quantity ?? 0),
+      }))
+    : [];
+}
+
 export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices) {
   const app = new Hono<OrderingApiEnv>();
 
@@ -192,6 +203,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
           fulfillmentPreviewRevision:
             typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : null,
           acknowledgedMaterialChanges: body.acknowledgedMaterialChanges === true,
+          checkoutReservations: parseCheckoutReservations(body.checkoutReservations),
           customerAccountIsGuest:
             !access.actor.permissions.includes("orders.manage") &&
             access.actor.permissions.includes("guest-checkout.manage"),

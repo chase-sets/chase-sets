@@ -2,6 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CartReadinessSnapshot } from "../../cart/domain/readiness";
 import type {
   CheckoutSessionLine,
+  CheckoutSessionReservation,
   CheckoutShippingAddress,
   CheckoutSourceCommitPosition,
   CheckoutSplitGroupHandoff,
@@ -23,6 +24,7 @@ export type CheckoutSessionRow = Readonly<{
   lines: readonly CheckoutSessionLine[];
   order_ids: readonly string[];
   order_write_commit_positions: readonly CheckoutSourceCommitPosition[];
+  checkout_reservations: readonly CheckoutSessionReservation[];
   payment_id: string | null;
   submitted_offer_id: string | null;
   created_at: string;
@@ -44,6 +46,7 @@ type CheckoutSessionPageRow = Omit<
     lines: unknown;
     order_ids: unknown;
     order_write_commit_positions: unknown;
+    checkout_reservations: unknown;
   }>;
 
 function mapCommitPositions(value: unknown): CheckoutSourceCommitPosition[] {
@@ -94,6 +97,9 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
       ? row.order_ids.filter((value): value is string => typeof value === "string")
       : [],
     order_write_commit_positions: mapCommitPositions(row.order_write_commit_positions),
+    checkout_reservations: Array.isArray(row.checkout_reservations)
+      ? (row.checkout_reservations as CheckoutSessionReservation[])
+      : [],
   };
 }
 
@@ -118,6 +124,7 @@ export async function getCheckoutSession(
        lines,
        order_ids,
        order_write_commit_positions,
+       checkout_reservations,
        payment_id,
        submitted_offer_id,
        created_at,

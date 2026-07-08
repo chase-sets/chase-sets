@@ -101,7 +101,10 @@
         "inventory.item.created",
         "inventory.item.adjusted",
         "inventory.hold.placed",
-        "inventory.hold.released"
+        "inventory.hold.converted",
+        "inventory.hold.extended",
+        "inventory.hold.released",
+        "inventory.hold.expired"
       ],
       "order": 30,
       "projectionHandlerSetNames": ["marketplace-inventory-supply-projection"]

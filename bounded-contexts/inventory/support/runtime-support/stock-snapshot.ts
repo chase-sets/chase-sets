@@ -114,12 +114,12 @@ async function loadAggregateHoldSnapshots(input: {
        account_id,
        item_id,
        quantity,
-       released_holds.stream_id IS NULL AS active
+       terminal_holds.stream_id IS NULL AS active
      FROM placed_holds
-     LEFT JOIN event_store_events AS released_holds
-       ON released_holds.stream_id = placed_holds.stream_id
-      AND released_holds.tenant_id = $1
-      AND released_holds.event_type = 'inventory.hold.released'`,
+     LEFT JOIN event_store_events AS terminal_holds
+       ON terminal_holds.stream_id = placed_holds.stream_id
+      AND terminal_holds.tenant_id = $1
+      AND terminal_holds.event_type IN ('inventory.hold.released', 'inventory.hold.expired')`,
     [input.tenantId, input.accountId, input.itemId],
   );
 

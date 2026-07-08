@@ -10,7 +10,7 @@ import { checkoutCartSchemaSql } from "../../features/cart/read-model/schema";
 import { checkoutSellListSchemaSql } from "../../features/sell-list/read-model/schema";
 import { checkoutPaymentAffordanceSchemaSql } from "../../features/sessions/integrations/payments/payment-affordance-schema";
 import { checkoutPaymentSummarySchemaSql } from "../../features/sessions/integrations/payments/payment-summary-schema";
-import { checkoutSessionSchemaSql } from "../../features/sessions/read-model/schema";
+import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../../features/sessions/read-model/schema";
 
 export const checkoutSchemaSql = [
   checkoutCatalogProjectionSchemaSql,
@@ -25,4 +25,7 @@ export const checkoutSchemaSql = [
   checkoutSessionSchemaSql,
 ].join("\n");
 
-export const checkoutSchemaMigrations = [...checkoutMarketplaceSellerOptionsSchemaMigrations] as const;
+export const checkoutSchemaMigrations = [
+  ...checkoutMarketplaceSellerOptionsSchemaMigrations,
+  ...checkoutSessionSchemaMigrations,
+] as const;

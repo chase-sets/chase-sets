@@ -237,7 +237,7 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
 
       const feedbackId = createId("pfb");
       const result = await commandHandler({
-        streamId: `experience.platform-feedback-${feedbackId}`,
+        streamId: `platform-operations.platform-feedback-${feedbackId}`,
         command: {
           type: "SubmitPlatformFeedback",
           feedbackId,
@@ -265,7 +265,7 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
       const promptId = stablePromptId(params.accountId, workflow, key);
       const until = snoozedUntil(now);
       const result = await commandHandler({
-        streamId: `experience.platform-feedback-prompt-${promptId}`,
+        streamId: `platform-operations.platform-feedback-prompt-${promptId}`,
         command: {
           type: "DismissPlatformFeedbackPrompt",
           promptId,
@@ -311,7 +311,7 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
     async markReviewed(feedbackId, reviewedByUserId, context) {
       const feedback = await requireFeedback(deps.db, feedbackId);
       const result = await commandHandler({
-        streamId: `experience.platform-feedback-${feedback.feedback_id}`,
+        streamId: `platform-operations.platform-feedback-${feedback.feedback_id}`,
         command: {
           type: "MarkPlatformFeedbackReviewed",
           reviewedByUserId,
@@ -325,7 +325,7 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
     async archive(feedbackId, archivedByUserId, context) {
       const feedback = await requireFeedback(deps.db, feedbackId);
       const result = await commandHandler({
-        streamId: `experience.platform-feedback-${feedback.feedback_id}`,
+        streamId: `platform-operations.platform-feedback-${feedback.feedback_id}`,
         command: {
           type: "ArchivePlatformFeedback",
           archivedByUserId,
@@ -340,7 +340,7 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
       const feedback = await requireFeedback(deps.db, feedbackId);
       const noteId = createId("pfn");
       const result = await commandHandler({
-        streamId: `experience.platform-feedback-${feedback.feedback_id}`,
+        streamId: `platform-operations.platform-feedback-${feedback.feedback_id}`,
         command: {
           type: "RecordPlatformFeedbackOperatorNote",
           noteId,
@@ -364,9 +364,7 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
       createProjectionHandlerSet({
         projectionName: "experience-platform-feedback-projection",
         handlers: buildPlatformFeedbackProjectionHandlers(deps.db),
-        // Feedback events keep their durable experience. stream prefix, so the
-        // platform-operations default (`platform-operations.`) must not apply.
-        streamPrefixes: ["experience."],
+        streamPrefixes: ["platform-operations."],
       }),
     ],
   };

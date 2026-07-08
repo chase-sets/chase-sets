@@ -203,6 +203,13 @@ export type CheckoutOrderLineSnapshot = Readonly<{
   availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
+export type CheckoutInventoryReservationInput = Readonly<{
+  holdId: string;
+  sellerAccountId: string;
+  inventoryItemId: string;
+  quantity: number;
+}>;
+
 export type CheckoutShippingAddressSnapshot = TaxDestinationAddress;
 
 type DemandAllocation = Readonly<{
@@ -261,6 +268,7 @@ type SellerOrderDraft = Readonly<{
     reservationRequestId: string;
     inventoryItemId: string;
     quantity: number;
+    holdId?: string | null;
   }>;
 }>;
 
@@ -314,6 +322,8 @@ export type CheckoutFulfillmentPreview = Readonly<{
     lines: readonly Readonly<{
       lineKey: string;
       listingId: string;
+      sellerAccountId: string;
+      inventoryItemId: string;
       catalogItemId: string;
       productId: string;
       itemTitle: string;
@@ -368,6 +378,7 @@ export type OrderingOrderServices = Readonly<{
       optimizationGoal?: "lowest-total" | "fewest-shipments";
       fulfillmentPreviewRevision?: string | null;
       acknowledgedMaterialChanges?: boolean;
+      checkoutReservations?: readonly CheckoutInventoryReservationInput[];
       customerAccountIsGuest?: boolean;
       orderIdsOverride?: readonly OrderId[];
     }>,
@@ -628,6 +639,42 @@ function calculateShippingIncentive(
   };
 }
 
+function checkoutReservationKey(input: Pick<CheckoutInventoryReservationInput, "sellerAccountId" | "inventoryItemId">) {
+  return `${input.sellerAccountId.trim()}|${input.inventoryItemId.trim()}`;
+}
+
+function checkoutReservationMap(reservations: readonly CheckoutInventoryReservationInput[] = []) {
+  const map = new Map<string, CheckoutInventoryReservationInput[]>();
+  for (const reservation of reservations) {
+    const key = checkoutReservationKey(reservation);
+    const existing = map.get(key) ?? [];
+    existing.push(reservation);
+    map.set(key, existing);
+  }
+  return map;
+}
+
+function consumeCheckoutReservationHoldId(
+  reservations: Map<string, CheckoutInventoryReservationInput[]>,
+  allocation: DemandAllocation,
+) {
+  const key = checkoutReservationKey({
+    sellerAccountId: allocation.candidate.sellerAccountId,
+    inventoryItemId: allocation.candidate.inventoryItemId,
+  });
+  const candidates = reservations.get(key);
+  const index = candidates?.findIndex((reservation) => reservation.quantity === allocation.quantity) ?? -1;
+  if (!candidates || index < 0) {
+    return null;
+  }
+
+  const [reservation] = candidates.splice(index, 1);
+  if (candidates.length === 0) {
+    reservations.delete(key);
+  }
+  return reservation?.holdId ?? null;
+}
+
 function quotePlan(
   demandPlans: readonly DemandPlan[],
   shippingOption: ShippingOption,
@@ -644,7 +691,9 @@ function quotePlan(
   }>,
   sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
+  checkoutReservations: readonly CheckoutInventoryReservationInput[] = [],
 ): CheckoutPlan {
+  const availableCheckoutReservations = checkoutReservationMap(checkoutReservations);
   const groupedBySellerAndOrigin = new Map<
     string,
     {
@@ -712,6 +761,7 @@ function quotePlan(
         reservationRequestId: createId("rsv"),
         inventoryItemId: allocation.candidate.inventoryItemId,
         quantity: allocation.quantity,
+        holdId: consumeCheckoutReservationHoldId(availableCheckoutReservations, allocation),
       });
       sellerDraft.sellerDisplayName = sellerDraft.sellerDisplayName ?? allocation.candidate.sellerDisplayName;
       sellerDraft.subtotalCents += moneyToCents(lineTotalAmount);
@@ -858,6 +908,7 @@ function chooseBestPlan(
   sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
   optimizationGoal: "lowest-total" | "fewest-shipments" = "lowest-total",
+  checkoutReservations: readonly CheckoutInventoryReservationInput[] = [],
 ) {
   let bestPlan: CheckoutPlan | null = null;
   const search = (index: number, chosen: DemandPlan[]) => {
@@ -871,6 +922,7 @@ function chooseBestPlan(
         feeOverride,
         sourceType,
         sourceReferenceId,
+        checkoutReservations,
       );
       const isBetter =
         optimizationGoal === "fewest-shipments"
@@ -1123,6 +1175,8 @@ function planToPreview(
       return {
         lineKey,
         listingId: line.listingId,
+        sellerAccountId: draft.sellerAccountId,
+        inventoryItemId: line.inventoryItemId,
         catalogItemId: line.catalogItemId,
         productId: line.productId,
         itemTitle: line.itemTitle,
@@ -1250,6 +1304,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
             inventoryItemId: reservation.inventoryItemId,
             sellerAccountId: draft.sellerAccountId,
             quantity: reservation.quantity,
+            holdId: reservation.holdId,
           })),
         },
         context,
@@ -1719,6 +1774,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         params.sourceType,
         params.checkoutSessionId,
         params.optimizationGoal ?? "lowest-total",
+        params.checkoutReservations ?? [],
       );
       await assertPlanPurchaseLimits(deps.db, params.buyerAccountId, plan, params.sourceType, params.checkoutSessionId);
       if (params.customerAccountIsGuest && (await planHasAccountScopedPurchaseLimits(deps.db, plan))) {

@@ -4,12 +4,14 @@ import type { CheckoutApiEnv } from "../../../api";
 import type { CheckoutSessionServices } from "./runtime";
 
 const {
+  mockCreateCheckoutInventoryReservations,
   mockCreateCheckoutOrdersThroughOrdering,
   mockCreateCheckoutPaymentThroughPayments,
   mockPreviewCheckoutFulfillmentThroughOrdering,
   mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   mockSubmitPurchaseIntentThroughMarketplace,
 } = vi.hoisted(() => ({
+  mockCreateCheckoutInventoryReservations: vi.fn(),
   mockCreateCheckoutOrdersThroughOrdering: vi.fn(),
   mockCreateCheckoutPaymentThroughPayments: vi.fn(),
   mockPreviewCheckoutFulfillmentThroughOrdering: vi.fn(),
@@ -18,6 +20,7 @@ const {
 }));
 
 vi.mock("../../../support/request-support/checkout-confirmation", () => ({
+  createCheckoutInventoryReservations: mockCreateCheckoutInventoryReservations,
   createCheckoutOrdersThroughOrdering: mockCreateCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments: mockCreateCheckoutPaymentThroughPayments,
   previewCheckoutFulfillmentThroughOrdering: mockPreviewCheckoutFulfillmentThroughOrdering,
@@ -182,6 +185,7 @@ function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSes
       },
     ],
     shipping_address: shippingAddress,
+    checkout_reservations: [],
     order_ids: [],
     order_write_commit_positions: [],
     payment_id: null,
@@ -242,6 +246,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     verifyShippingAddress: vi.fn(async (address) => ({ status: "accepted", shippingAddress: address }) as const),
     setShippingAddress: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     assertReadyForOrderCreation: vi.fn(async ({ sessionId }) => createSession({ session_id: sessionId })),
+    recordCheckoutReservations: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
@@ -264,6 +269,7 @@ function expectNoCheckoutConfirmSideEffects(services: CheckoutSessionServices) {
 }
 
 useMockReset(
+  mockCreateCheckoutInventoryReservations,
   mockCreateCheckoutOrdersThroughOrdering,
   mockCreateCheckoutPaymentThroughPayments,
   mockPreviewCheckoutFulfillmentThroughOrdering,
@@ -273,6 +279,7 @@ useMockReset(
 
 describe("checkout session routes", () => {
   beforeEach(() => {
+    mockCreateCheckoutInventoryReservations.mockResolvedValue({ reservations: [], unavailableLines: [] });
     mockPreviewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
     mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
   });
@@ -1404,6 +1411,89 @@ describe("checkout session routes", () => {
     expect(emitted).not.toContain("pay_1");
   });
 
+  it("records successful checkout holds before returning line-level reservation failures", async () => {
+    const reservation = {
+      holdId: "hld_checkout_1",
+      lineKey: "cli_1",
+      sellerAccountId: "acc_seller",
+      inventoryItemId: "inv_1",
+      quantity: 1,
+      expiresAt: "2026-04-29T00:15:00.000Z",
+      extensionCount: 0,
+      status: "active",
+    } as const;
+    const unavailableLine = {
+      lineKey: "cli_2",
+      sellerAccountId: "acc_seller_2",
+      inventoryItemId: "inv_2",
+      catalogItemId: "cat_2",
+      productId: "prod_2",
+      itemTitle: "Blastoise",
+      productSummary: "Raw",
+      quantity: 1,
+      reason: "reserved-by-another-buyer",
+    } as const;
+    mockCreateCheckoutInventoryReservations.mockResolvedValue({
+      reservations: [reservation],
+      unavailableLines: [unavailableLine],
+    });
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+      recordCheckoutReservations: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ session_id: sessionId, checkout_reservations: [reservation] }),
+        commitPosition: "67",
+        commitEventIds: ["evt_checkout_reservations_recorded"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "67",
+            eventIds: ["evt_checkout_reservations_recorded"],
+          },
+        ],
+      })),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "checkout_reservation_unavailable",
+        message: "One or more checkout items were just reserved by another buyer.",
+      },
+      unavailableLines: [unavailableLine],
+      commitPosition: "67",
+      commitEventIds: ["evt_checkout_reservations_recorded"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "67",
+          eventIds: ["evt_checkout_reservations_recorded"],
+        },
+      ],
+    });
+    expect(services.recordCheckoutReservations).toHaveBeenCalledWith(
+      {
+        sessionId: "chk_1",
+        accountId: "acc_buyer",
+        reservations: [reservation],
+      },
+      expect.any(Object),
+    );
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
   it("confirms a multi-seller buy checkout with one payment action and support-safe group references", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const multiSellerSession = createSession({
@@ -1840,6 +1930,7 @@ describe("checkout session routes", () => {
     expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledWith(expect.any(Request), expect.any(Object), {
       fulfillmentPreviewRevision: "fulfillment-rev-2",
       acknowledgedMaterialChanges: true,
+      checkoutReservations: [],
     });
     expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
   });

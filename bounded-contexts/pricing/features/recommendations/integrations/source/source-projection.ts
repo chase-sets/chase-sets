@@ -91,6 +91,28 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
   };
 }
 
+async function markPricingInventoryHoldTerminal(
+  db: PgQueryable,
+  params: Readonly<{
+    holdId: string;
+    status: "released" | "expired";
+    releasedAt: string;
+    recordedAt: string;
+    streamVersion: number;
+  }>,
+): Promise<void> {
+  await db.query(
+    `UPDATE pricing_inventory_hold_inputs
+     SET status = $2,
+         released_at = $3,
+         updated_at = $4,
+         last_stream_version = $5
+     WHERE hold_id = $1
+       AND last_stream_version < $5`,
+    [params.holdId, params.status, params.releasedAt, params.recordedAt, params.streamVersion],
+  );
+}
+
 export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "inventory.item.created": async (event) => {
@@ -178,22 +200,61 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
         [data.holdId, data.itemId, data.accountId, data.quantity, event.timing.recordedAt, event.streamVersion],
       );
     },
+    "inventory.hold.converted": async (event) => {
+      const data = event.data as {
+        holdId: string;
+      };
+
+      await db.query(
+        `UPDATE pricing_inventory_hold_inputs
+         SET updated_at = $2,
+             last_stream_version = $3
+         WHERE hold_id = $1
+           AND last_stream_version < $3`,
+        [data.holdId, event.timing.recordedAt, event.streamVersion],
+      );
+    },
+    "inventory.hold.extended": async (event) => {
+      const data = event.data as {
+        holdId: string;
+      };
+
+      await db.query(
+        `UPDATE pricing_inventory_hold_inputs
+         SET updated_at = $2,
+             last_stream_version = $3
+         WHERE hold_id = $1
+           AND last_stream_version < $3`,
+        [data.holdId, event.timing.recordedAt, event.streamVersion],
+      );
+    },
     "inventory.hold.released": async (event) => {
       const data = event.data as {
         holdId: string;
         releasedAt: string;
       };
 
-      await db.query(
-        `UPDATE pricing_inventory_hold_inputs
-         SET status = 'released',
-             released_at = $2,
-             updated_at = $3,
-             last_stream_version = $4
-         WHERE hold_id = $1
-           AND last_stream_version < $4`,
-        [data.holdId, data.releasedAt, event.timing.recordedAt, event.streamVersion],
-      );
+      await markPricingInventoryHoldTerminal(db, {
+        holdId: data.holdId,
+        status: "released",
+        releasedAt: data.releasedAt,
+        recordedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
+      });
+    },
+    "inventory.hold.expired": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        expiredAt: string;
+      };
+
+      await markPricingInventoryHoldTerminal(db, {
+        holdId: data.holdId,
+        status: "expired",
+        releasedAt: data.expiredAt,
+        recordedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
+      });
     },
   };
 }

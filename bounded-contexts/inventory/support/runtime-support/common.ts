@@ -3,7 +3,7 @@ import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
 export type InventoryStorageLocationId = TypedUlid<"loc">;
 export type InventoryHoldId = TypedUlid<"hld">;
 
-export type InventoryHoldStatus = "active" | "released" | "consumed";
+export type InventoryHoldStatus = "active" | "released" | "consumed" | "expired";
 
 export class InventoryDomainError extends Error {
   public constructor(message: string) {

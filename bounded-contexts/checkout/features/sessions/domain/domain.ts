@@ -48,6 +48,17 @@ export type CheckoutSessionLine = Readonly<{
   availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
+export type CheckoutSessionReservation = Readonly<{
+  holdId: string;
+  lineKey: string;
+  sellerAccountId: string;
+  inventoryItemId: string;
+  quantity: number;
+  expiresAt: string;
+  extensionCount: number;
+  status: "active" | "expired" | "converted";
+}>;
+
 export type CheckoutSplitGroupHandoff = Readonly<{
   status: "ready";
   groups: readonly CartReadinessFulfillmentGroup[];
@@ -83,6 +94,7 @@ export type CheckoutSessionState = Readonly<{
   lines: CheckoutSessionLine[];
   orderIds: readonly OrderId[];
   orderWriteCommitPositions: readonly CheckoutSourceCommitPosition[];
+  checkoutReservations: readonly CheckoutSessionReservation[];
   paymentId: PaymentId | null;
   submittedOfferId: string | null;
   createdAt: string | null;
@@ -103,6 +115,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   lines: [],
   orderIds: [],
   orderWriteCommitPositions: [],
+  checkoutReservations: [],
   paymentId: null,
   submittedOfferId: null,
   createdAt: null,
@@ -155,6 +168,12 @@ export type RecordOrdersCreatedCommand = Readonly<{
   recordedAt: string;
 }>;
 
+export type RecordCheckoutReservationsCommand = Readonly<{
+  type: "RecordCheckoutReservations";
+  reservations: readonly CheckoutSessionReservation[];
+  recordedAt: string;
+}>;
+
 export type RecordPaymentStartedCommand = Readonly<{
   type: "RecordPaymentStarted";
   paymentId: PaymentId;
@@ -173,6 +192,7 @@ export type CheckoutSessionCommand =
   | SelectOptimizationGoalCommand
   | RecordFulfillmentPreviewCommand
   | SetShippingAddressCommand
+  | RecordCheckoutReservationsCommand
   | RecordOrdersCreatedCommand
   | RecordPaymentStartedCommand
   | RecordOfferSubmittedCommand;
@@ -241,6 +261,15 @@ export type CheckoutOrdersCreatedEvent = DomainEvent<
   }>
 >;
 
+export type CheckoutReservationsRecordedEvent = DomainEvent<
+  "checkout.session.reservations-recorded",
+  Readonly<{
+    sessionId: CheckoutSessionId;
+    reservations: CheckoutSessionReservation[];
+    recordedAt: string;
+  }>
+>;
+
 export type CheckoutPaymentStartedEvent = DomainEvent<
   "checkout.session.payment-started",
   Readonly<{
@@ -265,6 +294,7 @@ export type CheckoutSessionEvent =
   | CheckoutOptimizationGoalSelectedEvent
   | CheckoutFulfillmentPreviewRecordedEvent
   | CheckoutShippingAddressSetEvent
+  | CheckoutReservationsRecordedEvent
   | CheckoutOrdersCreatedEvent
   | CheckoutPaymentStartedEvent
   | CheckoutOfferSubmittedEvent;
@@ -463,6 +493,26 @@ function normalizeOrderIds(orderIds: readonly OrderId[]) {
   return normalized;
 }
 
+function normalizeCheckoutReservations(reservations: readonly CheckoutSessionReservation[]) {
+  return reservations.map((reservation) => ({
+    holdId: normalizeRequiredText(reservation.holdId, "Checkout reservations must include a hold id."),
+    lineKey: normalizeRequiredText(reservation.lineKey, "Checkout reservations must include a line key."),
+    sellerAccountId: normalizeRequiredText(
+      reservation.sellerAccountId,
+      "Checkout reservations must include a seller account.",
+    ),
+    inventoryItemId: normalizeRequiredText(
+      reservation.inventoryItemId,
+      "Checkout reservations must include an inventory item.",
+    ),
+    quantity: ensurePositiveInteger(reservation.quantity, "Checkout reservation quantity must be positive."),
+    expiresAt: normalizeRequiredText(reservation.expiresAt, "Checkout reservations must include an expiry."),
+    extensionCount: Math.max(0, Math.trunc(Number(reservation.extensionCount))),
+    status:
+      reservation.status === "expired" || reservation.status === "converted" ? reservation.status : ("active" as const),
+  }));
+}
+
 function normalizeCommitPositions(positions: readonly CheckoutSourceCommitPosition[] = []) {
   return positions.flatMap((position) => {
     const sourceContextName = position.sourceContextName.trim();
@@ -597,6 +647,23 @@ export const decideCheckoutSession: AggregateDecider<
           },
         },
       ];
+    case "RecordCheckoutReservations":
+      assert(state.sessionId !== null, "Checkout session must be started first.");
+      assert(state.orderIds.length === 0, "Checkout reservations cannot change after orders are created.");
+      assert(state.sourceType !== "offer-intent", "Purchase intent does not reserve checkout inventory.");
+      return [
+        {
+          type: "checkout.session.reservations-recorded",
+          data: {
+            sessionId: state.sessionId,
+            reservations: normalizeCheckoutReservations(command.reservations),
+            recordedAt: normalizeRequiredText(
+              command.recordedAt,
+              "Checkout reservation recording must include a timestamp.",
+            ),
+          },
+        },
+      ];
     case "RecordPaymentStarted":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assert(state.orderIds.length > 0, "Orders must be created before payment starts.");
@@ -658,6 +725,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         lines: event.data.lines,
         orderIds: [],
         orderWriteCommitPositions: [],
+        checkoutReservations: [],
         paymentId: null,
         submittedOfferId: null,
         createdAt: event.data.createdAt,
@@ -698,7 +766,17 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
       return {
         ...state,
         orderIds: event.data.orderIds,
+        checkoutReservations: state.checkoutReservations.map((reservation) => ({
+          ...reservation,
+          status: "converted",
+        })),
         orderWriteCommitPositions: event.data.orderWriteCommitPositions ?? [],
+        updatedAt: event.data.recordedAt,
+      };
+    case "checkout.session.reservations-recorded":
+      return {
+        ...state,
+        checkoutReservations: event.data.reservations,
         updatedAt: event.data.recordedAt,
       };
     case "checkout.session.payment-started":

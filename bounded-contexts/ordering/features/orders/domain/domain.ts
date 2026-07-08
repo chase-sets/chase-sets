@@ -168,6 +168,7 @@ export type CreateOrderCommand = Readonly<{
       inventoryItemId: string;
       sellerAccountId: string;
       quantity: number;
+      holdId?: string | null;
     }>
   >;
 }>;
@@ -241,6 +242,7 @@ export type OrderCreatedEvent = DomainEvent<
         inventoryItemId: string;
         sellerAccountId: string;
         quantity: number;
+        holdId?: string | null;
       }>
     >;
   }>
@@ -391,6 +393,7 @@ function normalizeReservationRequests(requests: CreateOrderCommand["reservationR
         request.quantity,
         "Reservation request quantity must be a positive whole number.",
       ),
+      holdId: normalizeOptionalText(request.holdId),
     };
   });
 }
@@ -801,7 +804,7 @@ export const evolveOrderingOrder: AggregateEvolver<OrderingOrderState, OrderingO
           inventoryItemId: request.inventoryItemId,
           sellerAccountId: request.sellerAccountId,
           quantity: request.quantity,
-          holdId: null,
+          holdId: request.holdId ?? null,
           status: "pending",
           rejectionReason: null,
           releasedAt: null,

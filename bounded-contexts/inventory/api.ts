@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { InventoryServices } from "./support/runtime-support/services";
 import { inventoryCatalogItemRoutes } from "./support/catalog-item-support/route";
-import { inventoryHoldRoutes } from "./features/holds/api/route";
+import { inventoryCheckoutReservationRoutes, inventoryHoldRoutes } from "./features/holds/api/route";
 import { inventoryImportBatchRoutes } from "./features/import-batches/api/route";
 import { inventoryItemRoutes } from "./features/inventory-items/api/route";
 import { inventoryRestockDecisionRoutes } from "./features/restock-decisions/api/route";
@@ -20,7 +20,11 @@ export type InventoryApiEnv = {
   };
 };
 
-function requiredPermissionForMethod(method: string) {
+function requiredPermissionForMethod(method: string, path: string) {
+  if (method.toUpperCase() === "POST" && path.includes("/checkout-reservations")) {
+    return "orders.manage";
+  }
+
   switch (method.toUpperCase()) {
     case "GET":
     case "HEAD":
@@ -47,8 +51,11 @@ export function buildInventoryApi(services: InventoryServices) {
       );
     }
 
-    const requiredPermission = requiredPermissionForMethod(c.req.method);
-    if (!actor.permissions.includes(requiredPermission)) {
+    const requiredPermission = requiredPermissionForMethod(c.req.method, c.req.path);
+    if (
+      !actor.permissions.includes(requiredPermission) &&
+      !(requiredPermission === "orders.manage" && actor.permissions.includes("guest-checkout.manage"))
+    ) {
       return c.json(
         {
           error: {
@@ -69,6 +76,7 @@ export function buildInventoryApi(services: InventoryServices) {
   app.route("/items", inventoryItemRoutes(services.items, services.holds));
   app.route("/restock-decisions", inventoryRestockDecisionRoutes(services.restockDecisions));
   app.route("/holds", inventoryHoldRoutes(services.holds));
+  app.route("/checkout-reservations", inventoryCheckoutReservationRoutes(services.holds));
 
   return app;
 }

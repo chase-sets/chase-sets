@@ -146,6 +146,7 @@ describe("platform feedback runtime", () => {
     }
 
     expect(queryParams[0]).toEqual(["acc_test", "listing-publish", "2026-04-07T12:00:00.000Z"]);
+    expect(allEvents[0]?.streamId).toMatch(/^platform-operations\.platform-feedback-/);
     expect(allEvents[0]?.eventType).toBe("experience.platform-feedback.submitted");
   });
 
@@ -234,6 +235,9 @@ describe("platform feedback runtime", () => {
     const archived = await runtime.archive(submitted.feedbackId, "usr_admin", context);
 
     expect(archived.version).toBe(3);
+    expect([...new Set(allEvents.map((event) => event.streamId))]).toEqual([
+      `platform-operations.platform-feedback-${submitted.feedbackId}`,
+    ]);
     expect(allEvents.map((event) => event.eventType)).toEqual([
       "experience.platform-feedback.submitted",
       "experience.platform-feedback.reviewed",

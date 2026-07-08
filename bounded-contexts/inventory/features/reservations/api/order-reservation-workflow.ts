@@ -42,25 +42,41 @@ export async function reserveOrderInventoryRequest(
   }
 
   let holdId: InventoryHoldId;
-  let holdPlan: Awaited<ReturnType<InventoryHoldServices["planCreateHold"]>>;
+  let holdPlan:
+    | Awaited<ReturnType<InventoryHoldServices["planCreateHold"]>>
+    | Awaited<ReturnType<InventoryHoldServices["planConvertCheckoutHold"]>>;
   try {
-    holdPlan = await services.holds.planCreateHold(
-      {
-        holdId: orderReservationHoldId(request.reservationRequestId),
-        accountId: request.sellerAccountId as AccountId,
-        itemId: request.inventoryItemId,
-        quantity: request.quantity,
-        reason: "Ordering commitment",
-        notes: null,
-        purpose: "order",
-        sourceRef: {
+    if (request.holdId) {
+      holdPlan = await services.holds.planConvertCheckoutHold(
+        {
+          holdId: request.holdId as InventoryHoldId,
+          accountId: request.sellerAccountId as AccountId,
+          itemId: request.inventoryItemId,
+          quantity: request.quantity,
           orderId,
           reservationRequestId: request.reservationRequestId,
         },
-        expiresAt: null,
-      },
-      context,
-    );
+        context,
+      );
+    } else {
+      holdPlan = await services.holds.planCreateHold(
+        {
+          holdId: orderReservationHoldId(request.reservationRequestId),
+          accountId: request.sellerAccountId as AccountId,
+          itemId: request.inventoryItemId,
+          quantity: request.quantity,
+          reason: "Ordering commitment",
+          notes: null,
+          purpose: "order",
+          sourceRef: {
+            orderId,
+            reservationRequestId: request.reservationRequestId,
+          },
+          expiresAt: null,
+        },
+        context,
+      );
+    }
     holdId = holdPlan.holdId;
   } catch (error) {
     if (isTransientHoldPlacementFailure(error)) {

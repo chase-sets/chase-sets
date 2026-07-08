@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const checkoutSessionSchemaSql = `
 CREATE TABLE IF NOT EXISTS checkout_session_pages (
   session_id text PRIMARY KEY,
@@ -14,6 +16,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   lines jsonb NOT NULL DEFAULT '[]'::jsonb,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  checkout_reservations jsonb NOT NULL DEFAULT '[]'::jsonb,
   payment_id text NULL,
   submitted_offer_id text NULL,
   created_at timestamptz NOT NULL,
@@ -37,3 +40,22 @@ ALTER TABLE checkout_session_pages
 ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS fulfillment_preview_snapshot jsonb NULL;
 `;
+
+export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260707_checkout_session_reservations",
+    description: "Add checkout session reservation snapshots for checkout inventory holds.",
+    statements: [
+      `ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS checkout_reservations jsonb NULL;`,
+      `UPDATE checkout_session_pages
+  SET checkout_reservations = '[]'::jsonb
+  WHERE checkout_reservations IS NULL;`,
+      `ALTER TABLE checkout_session_pages
+  ALTER COLUMN checkout_reservations SET DEFAULT '[]'::jsonb;`,
+      `SET lock_timeout = '5s';`,
+      `ALTER TABLE checkout_session_pages
+  ALTER COLUMN checkout_reservations SET NOT NULL;`,
+    ],
+  },
+];

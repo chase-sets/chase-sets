@@ -36,6 +36,7 @@ import {
 import {
   CheckoutApiError,
   createCheckoutRequestApiClient,
+  type CheckoutFulfillmentPreview,
   type CheckoutShipFromAddressRow,
 } from "../support/request-support/api-client";
 import {
@@ -366,12 +367,24 @@ function shouldRefreshPaymentStart(error: unknown) {
   return readApiErrorCode(error.body) === "payment_start_pending";
 }
 
+function shouldRefreshReservationUnavailable(error: unknown) {
+  if (!(error instanceof CheckoutApiError) || error.status !== 409) {
+    return false;
+  }
+
+  return readApiErrorCode(error.body) === "checkout_reservation_unavailable";
+}
+
 function paymentQuoteRefreshPath(sessionId: string, paymentMethodCategory: string) {
   return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated&quote=required`;
 }
 
 function paymentStartRefreshPath(sessionId: string, paymentMethodCategory: string) {
   return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated&resumePaymentStart=1`;
+}
+
+function reservationUnavailableRefreshPath(sessionId: string, paymentMethodCategory: string) {
+  return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated&reservation=unavailable`;
 }
 
 function checkoutPreviewRealtimeTopics(
@@ -414,6 +427,42 @@ async function loadFulfillmentPreview(
     fulfillmentPreview: session.fulfillment_preview_snapshot,
     previewError: null,
   };
+}
+
+type CheckoutReservationUnavailableLine = CheckoutFulfillmentPreview["sellerGroups"][number]["lines"][number];
+
+function checkoutReservationLineKey(
+  line: Pick<CheckoutReservationUnavailableLine, "lineKey" | "sellerAccountId" | "inventoryItemId">,
+) {
+  return `${line.lineKey}|${line.sellerAccountId}|${line.inventoryItemId}`;
+}
+
+function loadReservationUnavailableLines(
+  searchParams: URLSearchParams,
+  session: CheckoutSessionForReviewedPreview,
+  fulfillmentPreview: CheckoutFulfillmentPreview | null,
+): readonly CheckoutReservationUnavailableLine[] {
+  if (searchParams.get("reservation") !== "unavailable" || !fulfillmentPreview) {
+    return [];
+  }
+
+  const nowMs = Date.now();
+  const currentReservationKeys = new Set(
+    session.checkout_reservations
+      .filter((reservation) => {
+        if (reservation.status !== "active") {
+          return false;
+        }
+
+        const expiresAtMs = Date.parse(reservation.expiresAt);
+        return Number.isFinite(expiresAtMs) && expiresAtMs > nowMs;
+      })
+      .map(checkoutReservationLineKey),
+  );
+
+  return fulfillmentPreview.sellerGroups
+    .flatMap((group) => group.lines)
+    .filter((line) => !currentReservationKeys.has(checkoutReservationLineKey(line)));
 }
 
 type CheckoutRequestApiClient = ReturnType<typeof createCheckoutRequestApiClient>;
@@ -684,6 +733,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     selectedPaymentMethodCategory,
     session.order_ids,
   );
+  const reservationUnavailableLines = loadReservationUnavailableLines(searchParams, session, fulfillmentPreview);
 
   return {
     session,
@@ -707,6 +757,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     ),
     isSignedInBuyer: Boolean(actor && actor.roleKey !== "guest-buyer"),
     fulfillmentPreview,
+    reservationUnavailableLines,
     previewError,
     reviewRefreshed: searchParams.get("review") === "updated",
     paymentQuoteRequired: searchParams.get("quote") === "required",
@@ -851,11 +902,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
       } catch (error) {
         const refreshPaymentQuote = shouldRefreshPaymentQuote(error);
         const refreshPaymentStart = shouldRefreshPaymentStart(error);
+        const refreshReservationUnavailable = shouldRefreshReservationUnavailable(error);
         const refreshPath = refreshPaymentQuote
           ? paymentQuoteRefreshPath(params.sessionId, visiblePaymentMethodCategory)
           : refreshPaymentStart
             ? paymentStartRefreshPath(params.sessionId, visiblePaymentMethodCategory)
-            : null;
+            : refreshReservationUnavailable
+              ? reservationUnavailableRefreshPath(params.sessionId, visiblePaymentMethodCategory)
+              : null;
         if (refreshPath) {
           return redirect(
             await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
@@ -938,6 +992,7 @@ export default function CheckoutSessionRoute() {
       paymentPreview={data.paymentPreview}
       selectedPaymentMethodCategory={data.selectedPaymentMethodCategory}
       fulfillmentPreview={data.fulfillmentPreview}
+      reservationUnavailableLines={data.reservationUnavailableLines}
       savedShippingAddresses={data.savedShippingAddresses}
       savedCheckoutInstruments={data.savedCheckoutInstruments}
       guestCheckoutContact={data.guestCheckoutContact}

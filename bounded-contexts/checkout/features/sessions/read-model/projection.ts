@@ -35,11 +35,12 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
            lines,
            order_ids,
            order_write_commit_positions,
+           checkout_reservations,
            payment_id,
            submitted_offer_id,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, '[]'::jsonb, '[]'::jsonb, NULL, NULL, $11, $11)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, $11, $11)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
@@ -168,6 +169,10 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         `UPDATE checkout_session_pages
          SET order_ids = $2,
              order_write_commit_positions = $3,
+             checkout_reservations = (
+               SELECT COALESCE(jsonb_agg(reservation || jsonb_build_object('status', 'converted')), '[]'::jsonb)
+               FROM jsonb_array_elements(checkout_reservations) AS reservation
+             ),
              updated_at = $4
          WHERE session_id = $1`,
         [
@@ -176,6 +181,22 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
           JSON.stringify(Array.isArray(data.orderWriteCommitPositions) ? data.orderWriteCommitPositions : []),
           data.recordedAt,
         ],
+      );
+    },
+    "checkout.session.reservations-recorded": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data as {
+        sessionId: string;
+        reservations: unknown;
+        recordedAt: string;
+      };
+
+      await projectionDb.query(
+        `UPDATE checkout_session_pages
+         SET checkout_reservations = $2,
+             updated_at = $3
+         WHERE session_id = $1`,
+        [data.sessionId, JSON.stringify(Array.isArray(data.reservations) ? data.reservations : []), data.recordedAt],
       );
     },
     "checkout.session.payment-started": async (event, context) => {

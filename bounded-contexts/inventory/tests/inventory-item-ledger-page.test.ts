@@ -42,7 +42,7 @@ const item: InventoryItemDetail = {
       notes: null,
       purpose: "checkout",
       source_ref: null,
-      expires_at: "2026-07-07T23:59:59.000Z",
+      expires_at: "2099-07-07T23:59:59.000Z",
       status: "active",
       created_at: "2026-07-06T03:00:00.000Z",
       updated_at: "2026-07-06T03:00:00.000Z",

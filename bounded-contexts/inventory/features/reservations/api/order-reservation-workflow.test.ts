@@ -42,6 +42,7 @@ function reservationState(status: InventoryReservationState["status"] = null): I
 function createServices(
   options: Readonly<{
     planCreateHold?: InventoryHoldServices["planCreateHold"];
+    planConvertCheckoutHold?: InventoryHoldServices["planConvertCheckoutHold"];
     commandHandler?: InventoryReservationServices["commandHandler"];
     appendToStreams?: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   }> = {},
@@ -76,11 +77,25 @@ function createServices(
   const holds = {
     commandHandler: vi.fn(),
     planCreateHold,
+    planConvertCheckoutHold:
+      options.planConvertCheckoutHold ??
+      vi.fn<InventoryHoldServices["planConvertCheckoutHold"]>(async (params, planContext) => ({
+        kind: "append",
+        holdId: params.holdId,
+        append: appendInput(
+          `inventory.hold-${params.holdId}`,
+          "inventory.hold.converted",
+          { holdId: params.holdId },
+          planContext,
+        ),
+      })),
     createHold: vi.fn(async (params) => ({
       holdId: params.holdId ?? ("hld_generated" as InventoryHoldId),
       version: 1,
     })),
     releaseHold: vi.fn(),
+    expireDueCheckoutHolds: vi.fn(),
+    extendCheckoutHold: vi.fn(),
     getHold: vi.fn(),
     projectors: [],
   } satisfies InventoryHoldServices;
@@ -201,6 +216,35 @@ describe("order inventory reservation workflow", () => {
     expect(services.holds.planCreateHold).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ holdId: orderReservationHoldId(request.reservationRequestId) }),
+      context,
+    );
+  });
+
+  it("converts a supplied checkout hold and confirms the reservation without a fresh placement", async () => {
+    const services = createServices();
+    const checkoutRequest = {
+      ...request,
+      holdId: "hld_checkout_session_line_1",
+    };
+
+    await reserveOrderInventoryRequest(services, { orderId: "ord_1", request: checkoutRequest, context });
+
+    expect(services.holds.planCreateHold).not.toHaveBeenCalled();
+    expect(services.holds.planConvertCheckoutHold).toHaveBeenCalledWith(
+      {
+        holdId: "hld_checkout_session_line_1",
+        accountId: request.sellerAccountId as AccountId,
+        itemId: request.inventoryItemId,
+        quantity: request.quantity,
+        orderId: "ord_1",
+        reservationRequestId: request.reservationRequestId,
+      },
+      context,
+    );
+    expect(services.reservations.planConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        holdId: "hld_checkout_session_line_1",
+      }),
       context,
     );
   });

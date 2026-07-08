@@ -3,6 +3,9 @@ import {
   inventoryHoldPurposes,
   inventoryHoldReleaseReasons,
   type InventoryHoldPlacedPayload,
+  type InventoryHoldConvertedPayload,
+  type InventoryHoldExpiredPayload,
+  type InventoryHoldExtendedPayload,
   type InventoryHoldPurpose,
   type InventoryHoldReleaseReason,
   type InventoryHoldReleasedPayload,
@@ -33,6 +36,8 @@ export type InventoryHoldState = Readonly<{
   releasedAt: string | null;
   releaseReason: InventoryHoldReleaseReason | null;
   consumedAt: string | null;
+  expiredAt: string | null;
+  extensionCount: number;
 }>;
 
 export const initialInventoryHoldState: InventoryHoldState = {
@@ -49,6 +54,8 @@ export const initialInventoryHoldState: InventoryHoldState = {
   releasedAt: null,
   releaseReason: null,
   consumedAt: null,
+  expiredAt: null,
+  extensionCount: 0,
 };
 
 export type PlaceInventoryHoldCommand = Readonly<{
@@ -76,10 +83,32 @@ export type ConsumeInventoryHoldCommand = Readonly<{
   consumptionReason: string;
 }>;
 
+export type ConvertInventoryHoldCommand = Readonly<{
+  type: "ConvertInventoryHold";
+  convertedAt: string;
+  orderId: string;
+  reservationRequestId: string;
+}>;
+
+export type ExpireInventoryHoldCommand = Readonly<{
+  type: "ExpireInventoryHold";
+  expiredAt: string;
+}>;
+
+export type ExtendInventoryHoldCommand = Readonly<{
+  type: "ExtendInventoryHold";
+  extendedAt: string;
+  expiresAt: string;
+  maxExtensionCount: number;
+}>;
+
 export type InventoryHoldCommand =
   | PlaceInventoryHoldCommand
   | ReleaseInventoryHoldCommand
-  | ConsumeInventoryHoldCommand;
+  | ConsumeInventoryHoldCommand
+  | ConvertInventoryHoldCommand
+  | ExpireInventoryHoldCommand
+  | ExtendInventoryHoldCommand;
 
 export type InventoryHeldEvent = DomainEvent<
   "inventory.hold.placed",
@@ -101,7 +130,28 @@ export type InventoryConsumedEvent = DomainEvent<
   }>
 >;
 
-export type InventoryHoldEvent = InventoryHeldEvent | InventoryReleasedEvent | InventoryConsumedEvent;
+export type InventoryHoldConvertedEvent = DomainEvent<
+  "inventory.hold.converted",
+  InventoryHoldConvertedPayload & Readonly<{ holdId: InventoryHoldId }>
+>;
+
+export type InventoryHoldExpiredEvent = DomainEvent<
+  "inventory.hold.expired",
+  InventoryHoldExpiredPayload & Readonly<{ holdId: InventoryHoldId }>
+>;
+
+export type InventoryHoldExtendedEvent = DomainEvent<
+  "inventory.hold.extended",
+  InventoryHoldExtendedPayload & Readonly<{ holdId: InventoryHoldId }>
+>;
+
+export type InventoryHoldEvent =
+  | InventoryHeldEvent
+  | InventoryReleasedEvent
+  | InventoryConsumedEvent
+  | InventoryHoldConvertedEvent
+  | InventoryHoldExpiredEvent
+  | InventoryHoldExtendedEvent;
 
 export const decideInventoryHold: AggregateDecider<InventoryHoldState, InventoryHoldCommand, InventoryHoldEvent> = (
   state,
@@ -159,6 +209,64 @@ export const decideInventoryHold: AggregateDecider<InventoryHoldState, Inventory
           },
         },
       ];
+    case "ConvertInventoryHold":
+      requireCreatedInventoryHold(state);
+      assert(state.status === "active", "Only active holds can be converted.");
+      assert(state.purpose === "checkout", "Only checkout inventory holds can be converted to orders.");
+      return [
+        {
+          type: "inventory.hold.converted",
+          data: {
+            holdId: state.id!,
+            convertedAt: normalizeLabel(command.convertedAt),
+            purpose: "order",
+            sourceRef: normalizeOrderSourceRef({
+              orderId: command.orderId,
+              reservationRequestId: command.reservationRequestId,
+            }),
+            expiresAt: null,
+          },
+        },
+      ];
+    case "ExpireInventoryHold":
+      requireCreatedInventoryHold(state);
+      assert(state.status === "active", "Only active holds can expire.");
+      assert(state.purpose === "checkout", "Only checkout inventory holds can expire automatically.");
+      assert(state.expiresAt !== null, "Checkout inventory holds require an expiry before they can expire.");
+      assert(
+        Date.parse(command.expiredAt) >= Date.parse(state.expiresAt),
+        "Checkout inventory holds cannot expire before their expiry time.",
+      );
+      return [
+        {
+          type: "inventory.hold.expired",
+          data: {
+            holdId: state.id!,
+            expiredAt: normalizeLabel(command.expiredAt),
+          },
+        },
+      ];
+    case "ExtendInventoryHold":
+      requireCreatedInventoryHold(state);
+      assert(state.status === "active", "Only active holds can be extended.");
+      assert(state.purpose === "checkout", "Only checkout inventory holds can be extended.");
+      assert(state.expiresAt !== null, "Checkout inventory holds require an expiry before they can be extended.");
+      assert(state.extensionCount < command.maxExtensionCount, "Checkout reservation extension limit reached.");
+      assert(
+        Date.parse(command.expiresAt) > Date.parse(state.expiresAt),
+        "Checkout reservation extension must move expiry later.",
+      );
+      return [
+        {
+          type: "inventory.hold.extended",
+          data: {
+            holdId: state.id!,
+            extendedAt: normalizeLabel(command.extendedAt),
+            expiresAt: normalizeLabel(command.expiresAt),
+            extensionCount: state.extensionCount + 1,
+          },
+        },
+      ];
     default:
       return assertNever(command);
   }
@@ -181,6 +289,8 @@ export const evolveInventoryHold: AggregateEvolver<InventoryHoldState, Inventory
         releasedAt: null,
         releaseReason: null,
         consumedAt: null,
+        expiredAt: null,
+        extensionCount: 0,
       };
     case "inventory.hold.released":
       return {
@@ -195,6 +305,27 @@ export const evolveInventoryHold: AggregateEvolver<InventoryHoldState, Inventory
         ...state,
         status: "consumed",
         consumedAt: event.data.consumedAt,
+      };
+    case "inventory.hold.converted":
+      return {
+        ...state,
+        purpose: event.data.purpose,
+        sourceRef: event.data.sourceRef,
+        expiresAt: event.data.expiresAt,
+      };
+    case "inventory.hold.expired":
+      return {
+        ...state,
+        status: "expired",
+        expiredAt: event.data.expiredAt,
+        releasedAt: event.data.expiredAt,
+        releaseReason: "checkout-expired",
+      };
+    case "inventory.hold.extended":
+      return {
+        ...state,
+        expiresAt: event.data.expiresAt,
+        extensionCount: event.data.extensionCount,
       };
     default:
       return assertNever(event);
@@ -211,7 +342,7 @@ function validateHoldPurpose(purpose: InventoryHoldPurpose) {
     `Unsupported inventory hold purpose: ${String(purpose)}.`,
   );
   assert(
-    purpose === "order" || purpose === "manual",
+    purpose === "order" || purpose === "manual" || purpose === "checkout",
     `Inventory hold purpose ${purpose} is planned but not active yet.`,
   );
 }
@@ -226,11 +357,23 @@ function validateReleaseReason(releaseReason: InventoryHoldReleaseReason) {
 function validateHoldSourceRef(purpose: InventoryHoldPurpose, sourceRef: InventoryHoldSourceRef) {
   if (purpose === "order") {
     assert(sourceRef !== null, "Order inventory holds require a source reference.");
+    assert("orderId" in sourceRef, "Order inventory holds require an order source reference.");
     assert(normalizeLabel(sourceRef.orderId).length > 0, "Order inventory holds require an order id.");
     assert(
       normalizeLabel(sourceRef.reservationRequestId).length > 0,
       "Order inventory holds require a reservation request id.",
     );
+    return;
+  }
+
+  if (purpose === "checkout") {
+    assert(sourceRef !== null, "Checkout inventory holds require a source reference.");
+    assert("checkoutSessionId" in sourceRef, "Checkout inventory holds require a checkout source reference.");
+    assert(
+      normalizeLabel(sourceRef.checkoutSessionId).length > 0,
+      "Checkout inventory holds require a checkout session id.",
+    );
+    assert(normalizeLabel(sourceRef.lineKey).length > 0, "Checkout inventory holds require a line key.");
     return;
   }
 
@@ -240,7 +383,18 @@ function validateHoldSourceRef(purpose: InventoryHoldPurpose, sourceRef: Invento
 function validateHoldExpiry(purpose: InventoryHoldPurpose, expiresAt: string | null) {
   if (purpose === "order" || purpose === "manual") {
     assert(expiresAt === null, `${purpose} inventory holds do not expire automatically.`);
+    return;
   }
+  if (purpose === "checkout") {
+    assert(expiresAt !== null, "Checkout inventory holds require an expiry.");
+  }
+}
+
+function normalizeOrderSourceRef(sourceRef: { orderId: string; reservationRequestId: string }) {
+  return {
+    orderId: normalizeLabel(sourceRef.orderId),
+    reservationRequestId: normalizeLabel(sourceRef.reservationRequestId),
+  };
 }
 
 function normalizeHoldSourceRef(sourceRef: InventoryHoldSourceRef): InventoryHoldSourceRef {
@@ -248,8 +402,12 @@ function normalizeHoldSourceRef(sourceRef: InventoryHoldSourceRef): InventoryHol
     return null;
   }
 
-  return {
-    orderId: normalizeLabel(sourceRef.orderId),
-    reservationRequestId: normalizeLabel(sourceRef.reservationRequestId),
-  };
+  if ("checkoutSessionId" in sourceRef) {
+    return {
+      checkoutSessionId: normalizeLabel(sourceRef.checkoutSessionId) as never,
+      lineKey: normalizeLabel(sourceRef.lineKey),
+    };
+  }
+
+  return normalizeOrderSourceRef(sourceRef);
 }

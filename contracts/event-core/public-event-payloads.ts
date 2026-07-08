@@ -57,10 +57,17 @@ export const inventoryHoldReleaseReasons = [
 
 export type InventoryHoldReleaseReason = (typeof inventoryHoldReleaseReasons)[number];
 
-export type InventoryHoldSourceRef = Readonly<{
+export type InventoryHoldOrderSourceRef = Readonly<{
   orderId: string;
   reservationRequestId: string;
-}> | null;
+}>;
+
+export type InventoryHoldCheckoutSourceRef = Readonly<{
+  checkoutSessionId: CheckoutSessionId;
+  lineKey: string;
+}>;
+
+export type InventoryHoldSourceRef = InventoryHoldOrderSourceRef | InventoryHoldCheckoutSourceRef | null;
 
 export type InventoryHoldPlacedPayload = Readonly<{
   holdId: string;
@@ -78,6 +85,26 @@ export type InventoryHoldReleasedPayload = Readonly<{
   holdId: string;
   releasedAt: string;
   releaseReason: InventoryHoldReleaseReason;
+}>;
+
+export type InventoryHoldConvertedPayload = Readonly<{
+  holdId: string;
+  convertedAt: string;
+  purpose: "order";
+  sourceRef: InventoryHoldOrderSourceRef;
+  expiresAt: null;
+}>;
+
+export type InventoryHoldExpiredPayload = Readonly<{
+  holdId: string;
+  expiredAt: string;
+}>;
+
+export type InventoryHoldExtendedPayload = Readonly<{
+  holdId: string;
+  extendedAt: string;
+  expiresAt: string;
+  extensionCount: number;
 }>;
 
 export type InventoryHoldConsumedPayload = Readonly<{
@@ -130,6 +157,9 @@ export type InventoryEventPayloads = Readonly<{
   "inventory.item.adjusted": InventoryItemAdjustedPayload;
   "inventory.hold.placed": InventoryHoldPlacedPayload;
   "inventory.hold.released": InventoryHoldReleasedPayload;
+  "inventory.hold.converted": InventoryHoldConvertedPayload;
+  "inventory.hold.expired": InventoryHoldExpiredPayload;
+  "inventory.hold.extended": InventoryHoldExtendedPayload;
   "inventory.hold.consumed": InventoryHoldConsumedPayload;
   "inventory.reservation.confirmed": InventoryReservationConfirmedPayload;
   "inventory.reservation.rejected": InventoryReservationRejectedPayload;

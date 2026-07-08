@@ -99,7 +99,7 @@ export async function seedPlatformFeedbackData(
   for (const sample of samples) {
     try {
       await services.platformFeedback.commandHandler({
-        streamId: `experience.platform-feedback-${sample.feedbackId}`,
+        streamId: `platform-operations.platform-feedback-${sample.feedbackId}`,
         command: {
           type: "SubmitPlatformFeedback",
           ...sample,

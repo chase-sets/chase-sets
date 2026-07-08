@@ -28,6 +28,7 @@ const session: CheckoutSessionRow = {
   ],
   order_ids: ["ord_1", "ord_2"],
   order_write_commit_positions: [],
+  checkout_reservations: [],
   payment_id: "pay_1",
   submitted_offer_id: null,
   split_group_handoff: {

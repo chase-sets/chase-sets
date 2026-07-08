@@ -34,6 +34,31 @@ export async function recomputeCheckoutSellerOptionSupply(db: PgQueryable, itemI
   );
 }
 
+async function markCheckoutSupplyHoldTerminal(
+  db: PgQueryable,
+  params: Readonly<{
+    holdId: string;
+    status: "released" | "expired";
+    releasedAt: string;
+    recordedAt: string;
+    streamVersion: number;
+  }>,
+): Promise<string | null> {
+  const released = await db.query<{ item_id: string }>(
+    `UPDATE checkout_supply_holds
+     SET status = $2,
+         released_at = $3,
+         updated_at = $4,
+         last_stream_version = $5
+     WHERE hold_id = $1
+       AND last_stream_version < $5
+     RETURNING item_id`,
+    [params.holdId, params.status, params.releasedAt, params.recordedAt, params.streamVersion],
+  );
+
+  return released.rows[0]?.item_id ?? null;
+}
+
 /**
  * Checkout-local inventory supply/holds handler set. It maintains replay-safe
  * auxiliary supply/hold tables keyed by the inventory item id and recomputes
@@ -219,25 +244,64 @@ export function buildCheckoutInventorySupplyProjectionHandlers(db: PgQueryable):
 
       await recomputeCheckoutSellerOptionSupply(db, data.itemId);
     },
+    "inventory.hold.converted": async (event) => {
+      const data = event.data as {
+        holdId: string;
+      };
+
+      await db.query(
+        `UPDATE checkout_supply_holds
+         SET updated_at = $2,
+             last_stream_version = $3
+         WHERE hold_id = $1
+           AND last_stream_version < $3`,
+        [data.holdId, event.timing.recordedAt, event.streamVersion],
+      );
+    },
+    "inventory.hold.extended": async (event) => {
+      const data = event.data as {
+        holdId: string;
+      };
+
+      await db.query(
+        `UPDATE checkout_supply_holds
+         SET updated_at = $2,
+             last_stream_version = $3
+         WHERE hold_id = $1
+           AND last_stream_version < $3`,
+        [data.holdId, event.timing.recordedAt, event.streamVersion],
+      );
+    },
     "inventory.hold.released": async (event) => {
       const data = event.data as {
         holdId: string;
         releasedAt: string;
       };
 
-      const released = await db.query<{ item_id: string }>(
-        `UPDATE checkout_supply_holds
-         SET status = 'released',
-             released_at = $2,
-             updated_at = $3,
-             last_stream_version = $4
-         WHERE hold_id = $1
-           AND last_stream_version < $4
-         RETURNING item_id`,
-        [data.holdId, data.releasedAt, event.timing.recordedAt, event.streamVersion],
-      );
+      const itemId = await markCheckoutSupplyHoldTerminal(db, {
+        holdId: data.holdId,
+        status: "released",
+        releasedAt: data.releasedAt,
+        recordedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
+      });
+      if (itemId) {
+        await recomputeCheckoutSellerOptionSupply(db, itemId);
+      }
+    },
+    "inventory.hold.expired": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        expiredAt: string;
+      };
 
-      const itemId = released.rows[0]?.item_id;
+      const itemId = await markCheckoutSupplyHoldTerminal(db, {
+        holdId: data.holdId,
+        status: "expired",
+        releasedAt: data.expiredAt,
+        recordedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
+      });
       if (itemId) {
         await recomputeCheckoutSellerOptionSupply(db, itemId);
       }

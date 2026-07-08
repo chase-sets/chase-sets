@@ -13,6 +13,7 @@ import type { CheckoutSessionCreateResult, CheckoutSessionServices } from "./run
 import type { CheckoutSessionRow } from "../read-model/queries";
 import {
   createCheckoutOrdersThroughOrdering,
+  createCheckoutInventoryReservations,
   createCheckoutPaymentThroughPayments,
   normalizeRequestedBalanceCreditAmount,
   previewCheckoutFulfillmentThroughOrdering,
@@ -1261,9 +1262,36 @@ export function createAccountCheckoutSessionRoutes(
           sessionId,
           accountId: access.actor.accountId as AccountId,
         });
+        const reservationAttempt = await createCheckoutInventoryReservations(c.req.raw, readySession);
+        const checkoutReservations = [...reservationAttempt.reservations];
+        if (checkoutReservations.length > 0) {
+          const reservationResult = await services.recordCheckoutReservations(
+            {
+              sessionId,
+              accountId: access.actor.accountId as AccountId,
+              reservations: checkoutReservations,
+            },
+            context,
+          );
+          writeSources.push(reservationResult);
+        }
+        if (reservationAttempt.unavailableLines.length > 0) {
+          return c.json(
+            {
+              error: {
+                code: "checkout_reservation_unavailable",
+                message: t("checkout.features.sessions.api.route.checkout.reservation.unavailable"),
+              },
+              unavailableLines: reservationAttempt.unavailableLines,
+              ...checkoutCommitMetadataFromSources(writeSources),
+            },
+            409,
+          );
+        }
         const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, readySession, {
           fulfillmentPreviewRevision,
           acknowledgedMaterialChanges,
+          checkoutReservations,
         });
         orderIds = checkoutOrders.orderIds;
         orderCreationWriteResult = checkoutOrders.writeResult;

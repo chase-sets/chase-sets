@@ -34,7 +34,7 @@ Values:
 
 - `order`: active; stock committed to an Ordering-owned order reservation.
 - `manual`: active; stock held by an account-initiated Inventory action.
-- `checkout`: Planned; stock reserved during a checkout payment step.
+- `checkout`: active; stock reserved during a checkout payment step before order creation.
 - `pos`: Planned; stock committed by a point-of-sale interaction.
 - `channel`: Planned; stock committed by an external sales channel.
 - `transfer`: Planned; stock committed for movement between Inventory locations or owners.
@@ -46,6 +46,7 @@ A **Hold Source Reference** is the structured owner reference for an Inventory H
 Notes:
 
 - Order holds reference the `orderId` and `reservationRequestId` that own the commitment.
+- Checkout holds reference the `checkoutSessionId` and line key that own the payment-step reservation.
 - Manual holds have no source reference.
 
 ## Hold Expiry
@@ -55,7 +56,17 @@ A **Hold Expiry** is the optional time when an Inventory Hold can expire automat
 Notes:
 
 - Order and manual holds do not expire automatically.
-- Planned checkout holds will use expiry so abandoned payment-step reservations can release stock without manual action.
+- Checkout holds use expiry so abandoned payment-step reservations can leave the held state without manual action.
+
+## Expired Hold
+
+An **Expired Hold** is a checkout hold that reached its expiry time before conversion to an order hold.
+
+Notes:
+
+- Expiry is a terminal hold state distinct from release.
+- Expired checkout holds emit `inventory.hold.expired` so abandonment analytics and buyer messaging stay honest.
+- Expired holds no longer reduce Available Quantity.
 
 ## Hold Release Reason
 

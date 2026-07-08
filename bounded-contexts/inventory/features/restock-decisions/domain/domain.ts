@@ -1,5 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type {
+  InventoryHoldOrderSourceRef,
   InventoryHoldSourceRef,
   InventoryRestockDecisionOutcome,
 } from "@chase-sets/event-core/public-event-payloads";
@@ -182,13 +183,7 @@ export const evolveRestockDecision: AggregateEvolver<RestockDecisionState, Resto
 };
 
 function normalizePending(command: MarkRestockDecisionPendingCommand): RestockDecisionPendingEvent["data"] {
-  const sourceRef = command.sourceRef
-    ? {
-        orderId: normalizeLabel(command.sourceRef.orderId),
-        reservationRequestId: normalizeLabel(command.sourceRef.reservationRequestId),
-      }
-    : null;
-  assert(sourceRef !== null, "Restock decisions require order provenance.");
+  const sourceRef = normalizeOrderSourceRef(command.sourceRef);
 
   return {
     decisionId: normalizeLabel(command.decisionId),
@@ -201,5 +196,14 @@ function normalizePending(command: MarkRestockDecisionPendingCommand): RestockDe
     shipmentId: normalizeOptionalText(command.shipmentId),
     returnReason: normalizeOptionalText(command.returnReason),
     pendingAt: normalizeLabel(command.pendingAt),
+  };
+}
+
+function normalizeOrderSourceRef(sourceRef: InventoryHoldSourceRef): InventoryHoldOrderSourceRef {
+  assert(sourceRef !== null && "orderId" in sourceRef, "Restock decisions require order provenance.");
+
+  return {
+    orderId: normalizeLabel(sourceRef.orderId),
+    reservationRequestId: normalizeLabel(sourceRef.reservationRequestId),
   };
 }

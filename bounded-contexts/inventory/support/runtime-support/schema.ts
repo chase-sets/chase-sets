@@ -1,6 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { inventoryCatalogItemSchemaSql } from "../catalog-item-support/schema";
-import { inventoryHoldSchemaSql } from "../../features/holds/read-model/schema";
+import { inventoryHoldSchemaMigrations, inventoryHoldSchemaSql } from "../../features/holds/read-model/schema";
 import { inventoryImportBatchSchemaSql } from "../../features/import-batches/read-model/schema";
 import {
   inventoryItemSchemaMigrations,
@@ -21,4 +21,4 @@ export const inventorySchemaSql = [
   inventoryReservationSchemaSql,
 ].join("\n\n");
 
-export const inventorySchemaMigrations = [...inventoryItemSchemaMigrations] as const;
+export const inventorySchemaMigrations = [...inventoryItemSchemaMigrations, ...inventoryHoldSchemaMigrations] as const;

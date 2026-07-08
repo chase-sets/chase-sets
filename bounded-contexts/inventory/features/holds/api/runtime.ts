@@ -7,6 +7,7 @@ import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-c
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type {
+  InventoryHoldOrderSourceRef,
   InventoryHoldPurpose,
   InventoryHoldReleaseReason,
   InventoryHoldSourceRef,
@@ -47,6 +48,18 @@ export type InventoryHoldPlacementParams = Readonly<{
 export type InventoryHoldPlacementPlan =
   | Readonly<{
       kind: "already-placed";
+      holdId: InventoryHoldId;
+      version: number;
+    }>
+  | Readonly<{
+      kind: "append";
+      holdId: InventoryHoldId;
+      append: AppendToStreamInput;
+    }>;
+
+export type InventoryHoldConversionPlan =
+  | Readonly<{
+      kind: "already-converted";
       holdId: InventoryHoldId;
       version: number;
     }>
@@ -101,6 +114,33 @@ export type InventoryHoldServices = Readonly<{
       accountId: string;
       holdId: string;
       releaseReason: InventoryHoldReleaseReason;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ holdId: string; version: number }>;
+  planConvertCheckoutHold: (
+    params: Readonly<{
+      holdId: InventoryHoldId;
+      accountId: AccountId;
+      itemId: string;
+      quantity: number;
+      orderId: string;
+      reservationRequestId: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<InventoryHoldConversionPlan>;
+  expireDueCheckoutHolds: (
+    params: Readonly<{
+      now?: string;
+      limit?: number;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<readonly { holdId: string; version: number }[]>;
+  extendCheckoutHold: (
+    params: Readonly<{
+      accountId: string;
+      holdId: string;
+      expiresAt: string;
+      maxExtensionCount: number;
     }>,
     context: EventStoreContext,
   ) => Promise<{ holdId: string; version: number }>;
@@ -192,9 +232,67 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
     };
   };
 
+  const planConvertCheckoutHold: InventoryHoldServices["planConvertCheckoutHold"] = async (params, context) => {
+    const streamId = `inventory.hold-${params.holdId}`;
+    const existing = await repository.load(streamId);
+    const orderSourceRef: InventoryHoldOrderSourceRef = {
+      orderId: params.orderId,
+      reservationRequestId: params.reservationRequestId,
+    };
+
+    if (existing.state.id === null) {
+      throw new InventoryDomainError("Checkout inventory hold not found.");
+    }
+
+    if (
+      existing.state.status === "active" &&
+      existing.state.accountId === params.accountId &&
+      existing.state.itemId === params.itemId &&
+      existing.state.quantity === params.quantity &&
+      existing.state.purpose === "order" &&
+      JSON.stringify(existing.state.sourceRef) === JSON.stringify(orderSourceRef) &&
+      existing.state.expiresAt === null
+    ) {
+      return {
+        kind: "already-converted",
+        holdId: params.holdId,
+        version: existing.version,
+      };
+    }
+
+    if (
+      existing.state.status !== "active" ||
+      existing.state.accountId !== params.accountId ||
+      existing.state.itemId !== params.itemId ||
+      existing.state.quantity !== params.quantity ||
+      existing.state.purpose !== "checkout"
+    ) {
+      throw new InventoryDomainError("Checkout inventory hold cannot be converted for this order.");
+    }
+
+    const events = decideInventoryHold(existing.state, {
+      type: "ConvertInventoryHold",
+      convertedAt: new Date().toISOString(),
+      orderId: params.orderId,
+      reservationRequestId: params.reservationRequestId,
+    });
+
+    return {
+      kind: "append",
+      holdId: params.holdId,
+      append: {
+        streamId,
+        expectedVersion: existing.version,
+        events: events.map((event) => codec.encode(event)),
+        context,
+      },
+    };
+  };
+
   return {
     commandHandler,
     planCreateHold,
+    planConvertCheckoutHold,
     createHold: async (params, context) => {
       const plan = await planCreateHold(params, context);
       if (plan.kind === "already-placed") {
@@ -227,6 +325,61 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
           type: "ReleaseInventoryHold",
           releasedAt: new Date().toISOString(),
           releaseReason: params.releaseReason,
+        },
+        context,
+      });
+
+      return {
+        holdId: params.holdId,
+        version: result.version,
+      };
+    },
+    expireDueCheckoutHolds: async (params, context) => {
+      const now = params.now ?? new Date().toISOString();
+      const limit = Math.max(1, Math.min(500, Math.trunc(params.limit ?? 100)));
+      const due = await deps.db.query<{ hold_id: string }>(
+        `SELECT hold_id
+         FROM inventory_holds
+         WHERE status = 'active'
+           AND purpose = 'checkout'
+           AND expires_at IS NOT NULL
+           AND expires_at <= $1
+         ORDER BY expires_at ASC, hold_id ASC
+         LIMIT $2`,
+        [now, limit],
+      );
+      const expired: { holdId: string; version: number }[] = [];
+
+      for (const row of due.rows) {
+        const result = await commandHandler({
+          streamId: `inventory.hold-${row.hold_id}`,
+          command: {
+            type: "ExpireInventoryHold",
+            expiredAt: now,
+          },
+          context,
+        });
+        expired.push({ holdId: row.hold_id, version: result.version });
+      }
+
+      return expired;
+    },
+    extendCheckoutHold: async (params, context) => {
+      const hold = await getInventoryHold(deps.db, params.holdId, params.accountId);
+      if (!hold) {
+        throw new InventoryDomainError("Inventory hold not found.");
+      }
+      if (hold.purpose !== "checkout" || hold.status !== "active") {
+        throw new InventoryDomainError("Only active checkout inventory holds can be extended.");
+      }
+
+      const result = await commandHandler({
+        streamId: `inventory.hold-${params.holdId}`,
+        command: {
+          type: "ExtendInventoryHold",
+          extendedAt: new Date().toISOString(),
+          expiresAt: params.expiresAt,
+          maxExtensionCount: params.maxExtensionCount,
         },
         context,
       });
