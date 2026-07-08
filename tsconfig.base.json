@@ -2,7 +2,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
+    "module": "Preserve",
     "moduleResolution": "Bundler",
     "lib": [
       "ES2022",
@@ -745,6 +745,7 @@
       "@chase-sets/web-notifications": [
         "./infrastructure/web-notifications/index.ts"
       ]
-    }
+    },
+    "verbatimModuleSyntax": true
   }
 }

@@ -88,6 +88,16 @@ describe("sync-workspace-metadata --check", () => {
     expect(readFileSync(path.join(fixture.rootDir, "tsconfig.base.json"), "utf8")).toMatch(
       /^\/\/ Workspace tsconfigs extend this file or tsconfig\.vitest\.json;/,
     );
+    const tsconfigBase = JSON.parse(
+      readFileSync(path.join(fixture.rootDir, "tsconfig.base.json"), "utf8").replace(/^\/\/.*\n/, ""),
+    );
+    expect(tsconfigBase.compilerOptions).toMatchObject({
+      module: "Preserve",
+      moduleResolution: "Bundler",
+      verbatimModuleSyntax: true,
+    });
+    expect(tsconfigBase.compilerOptions).not.toHaveProperty("importsNotUsedAsValues");
+    expect(tsconfigBase.compilerOptions).not.toHaveProperty("preserveValueImports");
     expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).not.toThrow();
   });
 

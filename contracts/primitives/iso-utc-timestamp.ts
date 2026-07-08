@@ -1,4 +1,4 @@
-import { Branded } from "./brand";
+import type { Branded } from "./brand";
 
 export type IsoUtcTimestamp = Branded<string, "IsoUtcTimestamp">;
 

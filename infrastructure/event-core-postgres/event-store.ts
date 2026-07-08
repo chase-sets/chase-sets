@@ -5,8 +5,8 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { EventId } from "@chase-sets/primitives/typed-ids";
 import {
   createEventStoreError,
-  EventStoreError,
   type AppendToStreamsResult,
+  type EventStoreError,
   type EventStore,
 } from "@chase-sets/event-core/event-store";
 import { ZERO_GLOBAL_POSITION, globalPositionFromBigInt, parseGlobalPosition } from "@chase-sets/event-core/storage";
