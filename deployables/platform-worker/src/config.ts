@@ -45,6 +45,7 @@ export type PlatformWorkerConfig = Readonly<{
   workerId: string;
   maxConcurrentRunners: number;
   projectionMaxConcurrentRunners: number;
+  projectionPriorityRefreshIntervalMs: number;
   jobMaxConcurrentRunners: number;
   dispatchMaxConcurrentRunners: number;
   scheduledMaxConcurrentRunners: number;
@@ -288,6 +289,10 @@ export function loadConfig(): PlatformWorkerConfig {
       "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS",
       Math.min(2, maxConcurrentRunners),
     ),
+    // Idle-runner backlog refresh cadence (#4763): surfaces orphaned backlog on
+    // groups that fell behind without running so they re-enter the fair
+    // rotation instead of starving behind the discovery cascade.
+    projectionPriorityRefreshIntervalMs: getPositiveNumberEnv("WORKER_PROJECTION_PRIORITY_REFRESH_INTERVAL_MS", 5_000),
     jobMaxConcurrentRunners: getPositiveNumberEnv("WORKER_JOB_MAX_CONCURRENT_RUNNERS", 1),
     dispatchMaxConcurrentRunners: getPositiveNumberEnv("WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS", 1),
     scheduledMaxConcurrentRunners: getPositiveNumberEnv("WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS", 1),

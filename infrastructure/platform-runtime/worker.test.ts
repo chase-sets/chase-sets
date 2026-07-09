@@ -772,6 +772,112 @@ describe("worker runner loop", () => {
     expect(calls.filter((call) => call === "high-backlog-projection")).toHaveLength(1);
   });
 
+  it("refreshes an idle behind-group's cached priority so it is not starved behind always-positive backlog runners (#4763)", async () => {
+    // Reproduces the staging starvation: two always-positive high-backlog
+    // groups (the discovery cascade) saturate both slots, while a group that
+    // fell behind WITHOUT running keeps a cached priority of 0 and is only ever
+    // a fallback candidate — which never fires while positive runners exist.
+    const calls: string[] = [];
+    let idleRefreshCalls = 0;
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const makeHotRunner = (name: string): WorkerRunner => ({
+      name,
+      kind: "projection-group",
+      priority: () => 500n,
+      runOnce: async () => {
+        calls.push(name);
+        // Busy passes reschedule immediately, keeping both slots hot.
+        return { processed: 1, lastGlobalPosition: "500" as never };
+      },
+    });
+    // Backlog accrued while idle: invisible to selection until refreshed.
+    let idleCachedPriority = 0n;
+    const idleBehindRunner: WorkerRunner = {
+      name: "idle-behind-projection",
+      kind: "projection-group",
+      priority: () => idleCachedPriority,
+      refreshPriority: async () => {
+        idleRefreshCalls += 1;
+        idleCachedPriority = 5n;
+      },
+      runOnce: async () => {
+        calls.push("idle-behind-projection");
+        idleCachedPriority = 0n;
+        return { processed: 5, lastGlobalPosition: "5" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [makeHotRunner("hot-a-projection"), makeHotRunner("hot-b-projection"), idleBehindRunner],
+      maxConcurrentRunners: 2,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      priorityRefreshIntervalMs: 10,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toContain("idle-behind-projection");
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(idleRefreshCalls).toBeGreaterThan(0);
+    expect(calls).toContain("idle-behind-projection");
+  });
+
+  it("does not refresh idle runner priorities when the sweep is disabled (interval 0)", async () => {
+    const calls: string[] = [];
+    let idleRefreshCalls = 0;
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const hotRunner: WorkerRunner = {
+      name: "hot-projection",
+      kind: "projection-group",
+      priority: () => 500n,
+      runOnce: async () => {
+        calls.push("hot-projection");
+        return { processed: 1, lastGlobalPosition: "500" as never };
+      },
+    };
+    const idleRunner: WorkerRunner = {
+      name: "idle-projection",
+      kind: "projection-group",
+      priority: () => 0n,
+      refreshPriority: async () => {
+        idleRefreshCalls += 1;
+      },
+      runOnce: async () => {
+        calls.push("idle-projection");
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [hotRunner, idleRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      // priorityRefreshIntervalMs omitted -> sweep disabled.
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls.filter((call) => call === "hot-projection").length).toBeGreaterThan(2);
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(idleRefreshCalls).toBe(0);
+  });
+
   it("temporarily backs off failing high-priority runners so other ready runners can make progress", async () => {
     const calls: string[] = [];
     const failed: string[] = [];

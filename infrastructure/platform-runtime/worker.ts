@@ -85,6 +85,18 @@ export type WorkerRunner = Readonly<{
    * passes.
    */
   reservedCapacity?: boolean;
+  /**
+   * Refreshes this runner's cached backlog so a subsequent `priority()` call
+   * reflects the live source head. The loop invokes this on idle runners whose
+   * cached `priority()` reads 0 so a group that fell behind WITHOUT running
+   * (e.g. backlog appended during a wake-relay outage, which leaves no wake
+   * intent and no runner pass to update the cache) surfaces a positive
+   * priority and re-enters the fair rotation instead of starving behind an
+   * always-positive high-backlog group (the discovery cascade). Read-only: it
+   * must never process events, acquire the run lease, or advance a checkpoint,
+   * so exactly-once and the #4730 idle-lease yield stay intact.
+   */
+  refreshPriority?: () => Promise<void>;
   projectionStatusSnapshot?: () => ContextProjectionGroupStatus;
 }>;
 
@@ -222,6 +234,14 @@ type WorkerRunnerLoopOptions = Readonly<{
   failureBackoffBaseMs?: number;
   failureBackoffMaxMs?: number;
   statusHeartbeatIntervalMs?: number;
+  /**
+   * Interval at which the loop refreshes the cached backlog of idle runners
+   * (those exposing `refreshPriority` whose current `priority()` reads 0) so a
+   * group that fell behind without running is not permanently invisible to
+   * backlog-priority selection. `0` (the default) disables the sweep, which
+   * keeps loops whose runners expose no `refreshPriority` free of extra work.
+   */
+  priorityRefreshIntervalMs?: number;
   observer?: WorkerRuntimeObserver;
   onError?: (error: unknown, runner: WorkerRunner) => void;
 }>;
@@ -500,6 +520,10 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
   const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
+  const refreshableRunners = options.runners.filter((runner) => runner.refreshPriority);
+  const priorityRefreshIntervalMs = Math.max(0, Math.floor(options.priorityRefreshIntervalMs ?? 0));
+  let priorityRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let priorityRefreshing = false;
   const statusPublishState: WorkerStatusPublishState = {
     heartbeatIntervalMs: Math.max(
       0,
@@ -746,6 +770,71 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     }
   };
 
+  // Idle-runner priority refresh (anti-starvation). A projection group that
+  // fell behind WITHOUT running keeps a cached backlog of 0, so `priority()`
+  // reads 0 and `selectNextRunner` never distinguishes it from a genuinely
+  // caught-up group: it can only ever be a fallback, which never fires while
+  // the discovery cascade holds positive priority. Re-reading the live source
+  // head for such idle runners surfaces their real backlog as a positive
+  // priority, so they re-enter the fair rotation and drain. This is read-only
+  // (no lease, no event processing, no checkpoint advance), so exactly-once,
+  // the #4730 idle-lease yield, and the #4643 wake-cohort anti-starvation are
+  // all preserved.
+  const refreshIdleRunnerPriorities = async (): Promise<void> => {
+    if (stopped || priorityRefreshing || refreshableRunners.length === 0) {
+      return;
+    }
+    priorityRefreshing = true;
+    const now = Date.now();
+    let surfacedBacklog = false;
+    try {
+      for (const runner of refreshableRunners) {
+        if (stopped) {
+          break;
+        }
+        // Draining runners refresh their own cache each pass, and backing-off
+        // runners cannot be made eligible by a refresh, so skip both.
+        if (activeRunnerNames.has(runner.name)) {
+          continue;
+        }
+        const failedBackoff = failedRunnerBackoffs.get(runner.name);
+        if (failedBackoff && failedBackoff.eligibleAt > now) {
+          continue;
+        }
+        // Only groups that currently look caught-up (cached priority 0) can be
+        // hiding orphaned backlog; positive-priority groups are already in the
+        // rotation, so re-reading them would only add source-head load.
+        if (resolveRunnerPriority(runner) > 0n) {
+          continue;
+        }
+        try {
+          await runner.refreshPriority?.();
+        } catch (error) {
+          options.onError?.(error, runner);
+          continue;
+        }
+        if (resolveRunnerPriority(runner) > 0n) {
+          surfacedBacklog = true;
+        }
+      }
+    } finally {
+      priorityRefreshing = false;
+    }
+    if (surfacedBacklog) {
+      queueImmediateSchedule();
+    }
+  };
+
+  const startPriorityRefreshTimer = () => {
+    if (priorityRefreshIntervalMs <= 0 || refreshableRunners.length === 0 || priorityRefreshTimer) {
+      return;
+    }
+    priorityRefreshTimer = setInterval(() => {
+      void refreshIdleRunnerPriorities();
+    }, priorityRefreshIntervalMs);
+    priorityRefreshTimer.unref?.();
+  };
+
   const schedule = () => {
     if (stopped) {
       return;
@@ -809,12 +898,19 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   };
 
   return {
-    start: () => schedule(),
+    start: () => {
+      startPriorityRefreshTimer();
+      schedule();
+    },
     nudge: () => queueImmediateSchedule(),
     stop: async () => {
       stopped = true;
       if (timer) {
         clearTimeout(timer);
+      }
+      if (priorityRefreshTimer) {
+        clearInterval(priorityRefreshTimer);
+        priorityRefreshTimer = null;
       }
       for (const abortController of activeAbortControllers.values()) {
         abortController.abort();
@@ -1223,6 +1319,16 @@ export function createProjectionGroupWorkerRunner(
     name: createProjectionGroupRunnerName(group),
     kind: "projection-group",
     priority: () => BigInt(group.getStatus().outstandingEventCount),
+    refreshPriority: async () => {
+      // Re-read the live source head for every subscription so
+      // `group.getStatus().outstandingEventCount` (this runner's priority)
+      // reflects backlog that accrued while the group sat idle. Read-only,
+      // mirroring `refreshProjectionGroupStatuses`; never runs a projection.
+      await group.refreshStatus();
+      for (const subscriptionRunner of group.subscriptionRunners) {
+        await subscriptionRunner.refreshStatus();
+      }
+    },
     projectionStatusSnapshot: () => group.getStatus(),
     runOnce: async (context) => {
       const runContext: ProjectionRunContext = {
