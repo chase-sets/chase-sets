@@ -36,6 +36,10 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
   const directListenerContexts = extractStringList(localsSource, "worker_listener_source_contexts");
   const apiWaiterContexts = extractStringList(localsSource, "api_waiter_contexts");
   const stagingPoolOverrides = extractNumberMap(localsSource, "staging_context_database_connection_pool_sizes");
+  const productionPoolOverrides = extractNumberMap(
+    localsSource,
+    "production_context_database_connection_pool_size_overrides",
+  );
   const clusterConnectionLimits = extractNumberMap(localsSource, "cluster_connection_limits");
   const connectionBudgetUpgradeTriggerPercent = Number(
     extractNumericLocal(localsSource, "connection_budget_upgrade_trigger_percent"),
@@ -58,6 +62,7 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
       .filter((entry) => entry.rolloutWave === "wave-2-commerce-dependencies")
       .map((entry) => entry.sourceContextName),
     stagingPoolOverrides,
+    productionPoolOverrides,
     clusterConnectionLimits,
     defaults: {
       apiDatabasePoolMax: Number(extractQuotedLocal(localsSource, "api_database_pool_max")),
@@ -98,6 +103,10 @@ export function buildPushWakeCapacityEvidence(input) {
     (sum, contextName) => sum + (input.stagingPoolOverrides[contextName] ?? 1),
     0,
   );
+  const productionPgbouncerAllocation = input.platformContextNames.reduce(
+    (sum, contextName) => sum + (input.productionPoolOverrides[contextName] ?? 1),
+    0,
+  );
 
   const staging = buildEnvironmentBudget({
     environment: "staging",
@@ -119,18 +128,22 @@ export function buildPushWakeCapacityEvidence(input) {
     input.defaults.productionWorkerDatabasePoolMax *
     input.defaults.workerComponentCount *
     input.defaults.productionWorkerInstances;
+  // #4655 converged production query traffic onto managed transaction pools, so
+  // production now uses the same PgBouncer server-side allocation branch as
+  // staging: app pool maxima are client-side only, and the summed production
+  // pool sizes are the cluster-backend footprint of pooled query traffic.
   const production = buildEnvironmentBudget({
     environment: "production",
     databaseSize: input.defaults.productionDatabaseSize,
     clusterConnectionLimits: input.clusterConnectionLimits,
     upgradeTriggerPercent: input.defaults.connectionBudgetUpgradeTriggerPercent,
-    pgbouncerServerBackendAllocation: 0,
+    pgbouncerServerBackendAllocation: productionPgbouncerAllocation,
     directListenerCount: input.directListenerContexts.length,
     apiWaiterListenerDemand:
       input.apiWaiterContexts.length * input.defaults.apiComponentCount * input.defaults.productionApiInstances,
     bootstrapDemand: input.defaults.bootstrapDatabasePoolMax,
-    directAppBackendDemand: productionApiPoolDemand + productionWorkerPoolDemand,
-    productionLikeDirectBindings: true,
+    directAppBackendDemand: 0,
+    productionLikeDirectBindings: false,
   });
   const doksStagingDirectAppBackendDemand =
     input.defaults.apiDatabasePoolMax * input.defaults.apiComponentCount * input.defaults.stagingApiInstances +

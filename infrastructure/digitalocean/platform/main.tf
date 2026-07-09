@@ -221,7 +221,7 @@ resource "digitalocean_database_user" "wake_listeners" {
 }
 
 resource "digitalocean_database_connection_pool" "contexts" {
-  for_each = local.non_production_connection_pool_contexts
+  for_each = local.connection_pool_contexts
 
   cluster_id = digitalocean_database_cluster.postgres.id
   name       = "${each.key}-runtime"
@@ -468,17 +468,12 @@ resource "digitalocean_app" "platform" {
       }
     }
 
-    dynamic "database" {
-      for_each = local.is_non_production ? {} : local.context_databases
-      content {
-        name         = "db-${database.key}"
-        engine       = "PG"
-        production   = true
-        cluster_name = digitalocean_database_cluster.postgres.name
-        db_name      = database.value
-        db_user      = digitalocean_database_user.contexts[database.key].name
-      }
-    }
+    # #4655 converged production query traffic onto managed transaction pools,
+    # so production no longer attaches App Platform database bindings (the
+    # `$${db-<context>.DATABASE_URL}` path is gone). Every environment now
+    # derives DATABASE_URL_* from digitalocean_database_connection_pool.contexts
+    # exactly like staging, and reaches the cluster over the public host with
+    # SSL + credentials (no Terraform-managed database firewall/trusted sources).
 
     service {
       name               = "public-web"

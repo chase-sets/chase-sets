@@ -206,18 +206,20 @@ describe("DigitalOcean platform runbook", () => {
       "Separate provisioned, active, and exposed context sets (#3223)",
     );
     expect(deployableProfileDatabaseCompanion).toContain("Publish profile-aware connection budget output (#3225)");
-    expect(deployableProfileDatabaseCompanion).toContain("Keep production transaction PgBouncer disabled");
+    expect(deployableProfileDatabaseCompanion).toContain(
+      "Converge production query traffic onto managed transaction pools",
+    );
     expect(deployableProfileDatabaseCompanion).toContain("projection rebuild, PITR/backups, or precreated fork");
   });
 });
 
 describe("Production PgBouncer session-safety audit", () => {
-  it("documents the direct-only gate before production transaction pooling", () => {
+  it("documents the landed production transaction-pool posture and direct-only exceptions", () => {
     expect(productionPgBouncerSessionSafety).toContain(
-      "Do not route production `DATABASE_URL_*` runtime traffic through DigitalOcean transaction-mode PgBouncer yet.",
+      "Production `DATABASE_URL_*` query traffic runs through DigitalOcean transaction-mode PgBouncer pools.",
     );
     expect(productionPgBouncerSessionSafety).toContain(
-      "Production pooling remains a good target after a dedicated rollout adds Terraform-managed production transaction pools",
+      "converged production query traffic onto managed transaction pools",
     );
     expect(productionPgBouncerSessionSafety).toContain("Context-owned durable/realtime waiters");
     expect(productionPgBouncerSessionSafety).toContain("DATABASE_URL_<CONTEXT>_WAITER");
@@ -226,6 +228,10 @@ describe("Production PgBouncer session-safety audit", () => {
     expect(productionPgBouncerSessionSafety).toContain(
       "Add Terraform-managed production transaction pools only for query-safe traffic.",
     );
+    // Session-state audit: the event-append lock is transaction-scoped and the
+    // only session-scoped path (schema bootstrap) stays direct.
+    expect(productionPgBouncerSessionSafety).toContain("pg_advisory_xact_lock");
+    expect(productionPgBouncerSessionSafety).toContain("schema bootstrap");
   });
 });
 
@@ -865,11 +871,30 @@ describe("DigitalOcean platform configuration", () => {
     );
     expectTerraformAssignment(platformLocals, "connection_budget_upgrade_trigger_percent", "80");
     expect(platformLocals).toContain("connection_budget_upgrade_trigger = floor(");
-    expect(platformLocals).toContain("cluster_backend_demand = local.is_production ? (");
-    expect(platformLocals).toContain("cluster_backend_demand_deploy_overlap = local.is_production ? (");
+    // #4655 converged production query traffic onto pools, so the cluster
+    // backend demand is the same non-branching PgBouncer server-side allocation
+    // model in every environment (no is_production direct-binding branch).
+    expect(platformLocals).toContain("cluster_backend_demand = (");
+    expect(platformLocals).toContain("cluster_backend_demand_deploy_overlap = (");
+    expect(platformLocals).not.toContain("cluster_backend_demand = local.is_production ? (");
     expect(platformLocals).toContain(
       "local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand",
     );
+    expect(platformLocals).toContain(
+      "local.pgbouncer_server_backend_allocation + 2 * local.relay_listener_demand + 2 * local.api_waiter_listener_demand + local.bootstrap_demand",
+    );
+    expect(platformLocals).toContain("production_context_database_connection_pool_size_overrides = {");
+    expect(platformLocals).toContain(
+      "context_name => lookup(local.production_context_database_connection_pool_size_overrides, context_name, 1)",
+    );
+    expect(platformLocals).toContain(
+      "connection_pool_contexts = toset(keys(local.context_database_connection_pool_sizes))",
+    );
+    expect(platformMain).toContain("for_each = local.connection_pool_contexts");
+    expect(platformMain).not.toContain("for_each = local.non_production_connection_pool_contexts");
+    // Production no longer attaches App Platform database bindings (#4655).
+    expect(platformMain).not.toContain("db_user      = digitalocean_database_user.contexts[database.key].name");
+    expect(platformLocals).not.toContain('context_name => format("$${db-%s.DATABASE_URL}", context_name)');
     expect(platformLocals).toContain("active_profile_connection_budget = {");
     expectTerraformAssignment(platformLocals, "profile", "local.runtime_profile_name");
     expectTerraformAssignment(platformLocals, "active_context_count", "length(local.active_runtime_context_names)");
@@ -896,7 +921,7 @@ describe("DigitalOcean platform configuration", () => {
       "local.connection_budget_upgrade_trigger",
     );
     expect(platformLocals).toContain("rolling_deploy_upgrade_required = (");
-    expect(platformLocals).toContain("production_pgbouncer_ready = false");
+    expect(platformLocals).toContain("production_pgbouncer_ready = true");
     expect(platformLocals).toContain("connection_budget_profiles = {");
     expect(platformLocals).toContain("landing = merge(local.active_profile_connection_budget");
     expect(platformLocals).toContain("active_context_count      = length(local.landing_context_names)");
@@ -1350,7 +1375,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("production_provisioned_context_names = distinct(concat(");
     expect(platformLocals).toContain("local.platform_context_names");
     expect(platformLocals).toContain("local.production_additional_provisioned_context_names");
-    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(4);
+    // Provisioning locals (name tokens, databases, users) iterate the full
+    // provisioned set. #4655 moved context_database_urls to iterate the active
+    // local.context_names (only active contexts get a query pool), so the
+    // provisioned-set iteration count drops from 4 to 3.
+    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(3);
   });
 
   it("keeps production context database names within DigitalOcean limits", () => {
