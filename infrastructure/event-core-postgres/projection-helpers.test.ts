@@ -6,9 +6,13 @@ import {
   removeJsonbArrayElement,
   replaceJsonbArrayElement,
   refreshAffectedRows,
+  runBoundedProjectionCascade,
+  runInProjectionCascadeContext,
   transitionStatus,
   updateRow,
   upsertRow,
+  type ProjectionCascadeController,
+  type ProjectionCascadeCursor,
 } from "./projection-helpers";
 
 const NOW = "2026-06-12T12:00:00.000Z";
@@ -456,3 +460,118 @@ function normalizeSql(sql: string): string {
 function isString(value: unknown): value is string {
   return typeof value === "string";
 }
+
+describe("runBoundedProjectionCascade", () => {
+  type FakeController = ProjectionCascadeController & { refreshedCount: () => number };
+
+  function createFakeController(budget: number): FakeController {
+    const cursors = new Map<number, ProjectionCascadeCursor>();
+    let ordinal = -1;
+    let remaining = budget;
+    let exhausted = false;
+    let refreshed = 0;
+    return {
+      nextOrdinal: () => (ordinal += 1),
+      budgetRemaining: () => remaining,
+      isExhausted: () => exhausted,
+      consume: (count: number) => {
+        remaining -= count;
+        refreshed += count;
+      },
+      markExhausted: () => {
+        exhausted = true;
+      },
+      refreshedCount: () => refreshed,
+      loadCursor: (o: number) => Promise.resolve(cursors.get(o) ?? { cursorId: null, completed: false }),
+      saveCursor: (o: number, cursorId: string | null, completed: boolean) => {
+        cursors.set(o, { cursorId, completed });
+        return Promise.resolve();
+      },
+    };
+  }
+
+  it("processes the whole set in one slice when no controller is active", async () => {
+    const slices: string[][] = [];
+    await runBoundedProjectionCascade(["b", "a", "a", "c"], async (ids) => {
+      slices.push([...ids]);
+    });
+    // De-duplicated, single pass, order preserved from the caller's set.
+    expect(slices).toEqual([["b", "a", "c"]]);
+  });
+
+  it("completes a set that fits the budget in one pass without exhausting", async () => {
+    const controller = createFakeController(10);
+    const slices: string[][] = [];
+    await runInProjectionCascadeContext(controller, () =>
+      runBoundedProjectionCascade(["i3", "i1", "i2"], async (ids) => {
+        slices.push([...ids]);
+      }),
+    );
+    expect(slices).toEqual([["i1", "i2", "i3"]]);
+    expect(controller.isExhausted()).toBe(false);
+    expect(await controller.loadCursor(0)).toEqual({ cursorId: "i3", completed: true });
+  });
+
+  it("bounds a large set per pass and resumes from the cursor on the next pass", async () => {
+    const ids = ["i1", "i2", "i3", "i4", "i5"];
+
+    const first = createFakeController(2);
+    const firstSlices: string[][] = [];
+    await runInProjectionCascadeContext(first, () =>
+      runBoundedProjectionCascade(ids, async (slice) => {
+        firstSlices.push([...slice]);
+      }),
+    );
+    expect(firstSlices).toEqual([["i1", "i2"]]);
+    expect(first.isExhausted()).toBe(true);
+    expect(first.refreshedCount()).toBe(2);
+    const cursorAfterFirst = await first.loadCursor(0);
+    expect(cursorAfterFirst).toEqual({ cursorId: "i2", completed: false });
+
+    // Second pass resumes from the persisted cursor (pre-seeded on a fresh controller).
+    const second = createFakeController(10);
+    await second.saveCursor(0, cursorAfterFirst.cursorId, cursorAfterFirst.completed);
+    const secondSlices: string[][] = [];
+    await runInProjectionCascadeContext(second, () =>
+      runBoundedProjectionCascade(ids, async (slice) => {
+        secondSlices.push([...slice]);
+      }),
+    );
+    expect(secondSlices).toEqual([["i3", "i4", "i5"]]);
+    expect(second.isExhausted()).toBe(false);
+    expect(await second.loadCursor(0)).toEqual({ cursorId: "i5", completed: true });
+  });
+
+  it("skips a site whose cursor is already completed (idempotent resume)", async () => {
+    const controller = createFakeController(10);
+    await controller.saveCursor(0, "i9", true);
+    const slices: string[][] = [];
+    await runInProjectionCascadeContext(controller, () =>
+      runBoundedProjectionCascade(["i1", "i2"], async (ids) => {
+        slices.push([...ids]);
+      }),
+    );
+    expect(slices).toEqual([]);
+    expect(controller.isExhausted()).toBe(false);
+  });
+
+  it("defers later sites once the shared per-pass budget is exhausted", async () => {
+    const controller = createFakeController(2);
+    const siteA: string[][] = [];
+    const siteB: string[][] = [];
+    await runInProjectionCascadeContext(controller, async () => {
+      await runBoundedProjectionCascade(["a1", "a2", "a3"], async (ids) => {
+        siteA.push([...ids]);
+      });
+      await runBoundedProjectionCascade(["b1", "b2"], async (ids) => {
+        siteB.push([...ids]);
+      });
+    });
+    // Site A consumes the whole budget and exhausts the pass; site B is deferred.
+    expect(siteA).toEqual([["a1", "a2"]]);
+    expect(siteB).toEqual([]);
+    expect(controller.isExhausted()).toBe(true);
+    expect(await controller.loadCursor(0)).toEqual({ cursorId: "a2", completed: false });
+    expect(await controller.loadCursor(1)).toEqual({ cursorId: null, completed: false });
+  });
+});

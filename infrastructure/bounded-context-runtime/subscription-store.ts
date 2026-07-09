@@ -10,9 +10,90 @@ import {
   buildStreamPrefixFilterSql,
   type PgQueryable,
   type PgTransactionalPool,
+  type ProjectionCascadeController,
+  type ProjectionCascadeCursor,
 } from "@chase-sets/event-core-postgres";
 import { SUBSCRIPTION_CHECKPOINTS_TABLE } from "./schema";
 import { withProjectionTransaction } from "./projection-transactions";
+
+const CASCADE_PROGRESS_TABLE = "event_projection_cascade_progress";
+
+export async function loadCascadeCursor(
+  db: PgQueryable,
+  projectionKey: string,
+  eventId: string,
+  ordinal: number,
+): Promise<ProjectionCascadeCursor> {
+  const result = await db.query<Readonly<{ cursor_id: string | null; completed: boolean }>>(
+    `SELECT cursor_id, completed
+     FROM ${CASCADE_PROGRESS_TABLE}
+     WHERE projection_key = $1 AND event_id = $2 AND cascade_ordinal = $3`,
+    [projectionKey, eventId, ordinal],
+  );
+  const row = result.rows[0];
+  return { cursorId: row?.cursor_id ?? null, completed: row?.completed ?? false };
+}
+
+export async function saveCascadeCursor(
+  db: PgQueryable,
+  projectionKey: string,
+  eventId: string,
+  ordinal: number,
+  cursorId: string | null,
+  completed: boolean,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO ${CASCADE_PROGRESS_TABLE} (projection_key, event_id, cascade_ordinal, cursor_id, completed, updated_at)
+     VALUES ($1, $2, $3, $4, $5, now())
+     ON CONFLICT (projection_key, event_id, cascade_ordinal)
+     DO UPDATE SET cursor_id = EXCLUDED.cursor_id, completed = EXCLUDED.completed, updated_at = now()`,
+    [projectionKey, eventId, ordinal, cursorId, completed],
+  );
+}
+
+export async function clearCascadeProgress(db: PgQueryable, projectionKey: string, eventId?: string): Promise<void> {
+  if (eventId === undefined) {
+    await db.query(`DELETE FROM ${CASCADE_PROGRESS_TABLE} WHERE projection_key = $1`, [projectionKey]);
+    return;
+  }
+  await db.query(`DELETE FROM ${CASCADE_PROGRESS_TABLE} WHERE projection_key = $1 AND event_id = $2`, [
+    projectionKey,
+    eventId,
+  ]);
+}
+
+/**
+ * Concrete per-event cascade controller backed by the cascade-progress table on the
+ * current projection transaction. The runner installs it around the handler; cascade
+ * choke points drive it through `runBoundedProjectionCascade`. `refreshedCount()`
+ * lets the runner report forward progress even when the checkpoint stays pinned.
+ */
+export function createDbProjectionCascadeController(
+  db: PgQueryable,
+  input: Readonly<{ projectionKey: string; eventId: string; budget: number }>,
+): ProjectionCascadeController & Readonly<{ refreshedCount: () => number }> {
+  let ordinal = -1;
+  let remaining = Math.max(0, Math.floor(input.budget));
+  let exhausted = false;
+  let refreshed = 0;
+
+  return {
+    nextOrdinal: () => (ordinal += 1),
+    budgetRemaining: () => remaining,
+    isExhausted: () => exhausted,
+    consume: (count: number) => {
+      remaining -= count;
+      refreshed += count;
+    },
+    markExhausted: () => {
+      exhausted = true;
+    },
+    refreshedCount: () => refreshed,
+    loadCursor: (cursorOrdinal: number) => loadCascadeCursor(db, input.projectionKey, input.eventId, cursorOrdinal),
+    saveCursor: (cursorOrdinal: number, cursorId: string | null, completed: boolean) =>
+      saveCascadeCursor(db, input.projectionKey, input.eventId, cursorOrdinal, cursorId, completed),
+  };
+}
 
 const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
 
@@ -356,6 +437,7 @@ export async function deleteSubscriptionCheckpoint(
     [checkpointKey, fencingToken],
   );
   context?.throwIfLeaseLost?.();
+  await clearCascadeProgress(db, checkpointKey);
   await clearProjectionErrors(db, checkpointKey);
 }
 

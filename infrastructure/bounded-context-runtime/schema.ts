@@ -144,7 +144,20 @@ CREATE INDEX IF NOT EXISTS event_subscription_applications_projection_status_upd
   ON event_subscription_applications (projection_key, status, updated_at);
 
 CREATE INDEX IF NOT EXISTS event_subscription_applications_status_position_idx
-  ON event_subscription_applications (status, global_position);`;
+  ON event_subscription_applications (status, global_position);
+
+CREATE TABLE IF NOT EXISTS event_projection_cascade_progress (
+  projection_key text NOT NULL,
+  event_id text NOT NULL,
+  cascade_ordinal integer NOT NULL CHECK (cascade_ordinal >= 0),
+  cursor_id text NULL,
+  completed boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (projection_key, event_id, cascade_ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS event_projection_cascade_progress_event_idx
+  ON event_projection_cascade_progress (projection_key, event_id);`;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

@@ -177,6 +177,13 @@ export type BcEventSubscriptionDeclaration = Readonly<{
    * stalling the whole projection forever. `0`/omitted uses the runtime default.
    */
   readonly projectionTransactionBudgetEscalationMs?: number;
+  /**
+   * Maximum number of dependent rows this projection's cascade may refresh in one
+   * event transaction before the runtime commits the chunk and resumes the same
+   * event on a later pass. Bounds fan-out so a structural event cannot exceed its
+   * transaction budget. Omitted/`0` uses the runtime default.
+   */
+  readonly projectionCascadeChunkSize?: number;
   readonly order?: number;
 }>;
 
@@ -261,6 +268,7 @@ export type BcEventSubscription = Readonly<{
   readonly projectionTransactionTimeoutMs?: number;
   readonly projectionStatementTimeoutMs?: number;
   readonly projectionTransactionBudgetEscalationMs?: number;
+  readonly projectionCascadeChunkSize?: number;
   readonly order?: number;
 }>;
 
@@ -371,6 +379,7 @@ export function buildEventSubscriptionsFromManifest<TEventPayloads extends Event
       projectionTransactionTimeoutMs: normalizedDeclaration.projectionTransactionTimeoutMs,
       projectionStatementTimeoutMs: normalizedDeclaration.projectionStatementTimeoutMs,
       projectionTransactionBudgetEscalationMs: normalizedDeclaration.projectionTransactionBudgetEscalationMs,
+      projectionCascadeChunkSize: normalizedDeclaration.projectionCascadeChunkSize,
       order: normalizedDeclaration.order,
     };
   });

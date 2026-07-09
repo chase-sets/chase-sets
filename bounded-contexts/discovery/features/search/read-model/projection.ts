@@ -8,6 +8,7 @@ import {
   removeJsonbArrayElement,
   replaceJsonbArrayElement,
   refreshAffectedRows,
+  runBoundedProjectionCascade,
   transitionStatus,
   updateRow,
   upsertRow,
@@ -940,6 +941,26 @@ function formatReferenceTypeLabel(typeKey: string): string {
     .join(" ");
 }
 
+/**
+ * Refresh a set of search items, bounded + resumable when a cascade controller is
+ * active (a projection event apply): at most the per-pass budget is refreshed and a
+ * durable cursor lets a large fan-out resume on a later pass without exceeding the
+ * transaction budget. Without a controller (rebuild/retry) it refreshes the whole set.
+ */
+async function refreshDiscoverySearchItems(
+  db: PgQueryable,
+  itemIds: readonly string[],
+  throwIfCancelled?: () => void,
+): Promise<void> {
+  await runBoundedProjectionCascade(itemIds, async (slice) => {
+    for (const itemId of slice) {
+      throwIfCancelled?.();
+      await refreshDiscoverySearchItem(db, itemId);
+    }
+    throwIfCancelled?.();
+  });
+}
+
 async function refreshItemsByReferenceRecord(
   db: PgQueryable,
   referenceRecordId: string,
@@ -958,11 +979,7 @@ async function refreshItemsByReferenceRecord(
     itemIds.push(...(await findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, recordId)));
   }
 
-  for (const itemId of new Set(itemIds)) {
-    throwIfCancelled?.();
-    await refreshDiscoverySearchItem(db, itemId);
-  }
-  throwIfCancelled?.();
+  await refreshDiscoverySearchItems(db, itemIds, throwIfCancelled);
 }
 
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
@@ -981,23 +998,25 @@ async function refreshItemsByBlueprint(
   blueprintId: string,
   throwIfCancelled?: () => void,
 ): Promise<void> {
-  await refreshAffectedRows(db, {
+  const itemIds = await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE },
     where: [{ column: "blueprint_id", value: blueprintId }],
     throwIfCancelled,
-    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+    refresh: () => Promise.resolve(),
   });
+  await refreshDiscoverySearchItems(db, itemIds, throwIfCancelled);
 }
 
 async function refreshItemsByField(db: PgQueryable, fieldId: string, throwIfCancelled?: () => void): Promise<void> {
-  await refreshAffectedRows(db, {
+  const itemIds = await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE },
     where: [{ column: "field_values", operator: "@>", cast: "jsonb", value: [{ fieldId }] }],
     throwIfCancelled,
-    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+    refresh: () => Promise.resolve(),
   });
+  await refreshDiscoverySearchItems(db, itemIds, throwIfCancelled);
 }
 
 async function refreshItemsByDimension(
@@ -1005,7 +1024,7 @@ async function refreshItemsByDimension(
   dimensionId: string,
   throwIfCancelled?: () => void,
 ): Promise<void> {
-  await refreshAffectedRows(db, {
+  const itemIds = await refreshAffectedRows(db, {
     select: { tableAlias: "item", column: "catalog_item_id", distinct: true },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE, alias: "item" },
     joins: [
@@ -1022,8 +1041,9 @@ async function refreshItemsByDimension(
     ],
     where: [{ tableAlias: "rule", column: "dimension_id", value: dimensionId }],
     throwIfCancelled,
-    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+    refresh: () => Promise.resolve(),
   });
+  await refreshDiscoverySearchItems(db, itemIds, throwIfCancelled);
 }
 
 async function refreshItemsByCategory(
@@ -1031,13 +1051,14 @@ async function refreshItemsByCategory(
   categoryId: string,
   throwIfCancelled?: () => void,
 ): Promise<void> {
-  await refreshAffectedRows(db, {
+  const itemIds = await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE },
     where: [{ column: "category_ids", operator: "@>", cast: "jsonb", value: [categoryId] }],
     throwIfCancelled,
-    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+    refresh: () => Promise.resolve(),
   });
+  await refreshDiscoverySearchItems(db, itemIds, throwIfCancelled);
 }
 
 async function applyCatalogItemDisplayIdentity(
