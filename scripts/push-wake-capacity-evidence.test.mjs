@@ -74,19 +74,26 @@ describe("push wake capacity evidence", () => {
         additionalDirectListenerContextsBeforeUpgradeTrigger: 9,
       },
     });
+    // #4655 converged production query traffic onto managed transaction pools:
+    // production now uses the PgBouncer server-side allocation branch (summed
+    // production pool sizes = 29) instead of direct App Platform bindings, so
+    // apiPoolDemand/workerPoolDemand are client-side only and the rolling-deploy
+    // overlap (63) is well clear of the 75 tier-upgrade trigger and no longer
+    // moves when worker/API instances scale.
     expect(evidence.environments.production).toMatchObject({
       apiPoolDemand: 12,
       workerPoolDemand: 8,
+      pgbouncerServerBackendAllocation: 29,
       upgradeTriggerPercent: 80,
       upgradeTrigger: 75,
       apiWaiterListenerDemand: 8,
-      steadyState: { total: 39, limit: 94, headroom: 55 },
+      steadyState: { total: 48, limit: 94, headroom: 46 },
       deployOverlap: {
-        total: 74,
+        total: 63,
         limit: 94,
-        headroom: 20,
-        additionalDirectListenerContextsAtCurrentTier: 10,
-        additionalDirectListenerContextsBeforeUpgradeTrigger: 0,
+        headroom: 31,
+        additionalDirectListenerContextsAtCurrentTier: 15,
+        additionalDirectListenerContextsBeforeUpgradeTrigger: 6,
       },
     });
   });
@@ -108,14 +115,14 @@ describe("push wake capacity evidence", () => {
     expect(evidence.expansionDecision.wave2DirectListenerExpansion).toMatchObject({
       additionalListenerContextCount: 2,
       additionalOverlapDemand: 4,
-      expandedOverlapDemand: 78,
+      expandedOverlapDemand: 67,
       fitsCurrentTier: true,
       requiredDatabaseSize: null,
     });
     expect(evidence.volumeLoadProofPosture.posture).toBe("not-proven-by-this-ci-evidence");
 
     const markdown = renderPushWakeCapacityMarkdown(evidence);
-    expect(markdown).toContain("Rolling-deploy overlap: 74/94");
+    expect(markdown).toContain("Rolling-deploy overlap: 63/94");
     expect(markdown).toContain("Worker pool: 8 -> 9; wake max 3; standard lane 2");
     expect(markdown).toContain("Query connection mode: `direct`");
     expect(markdown).toContain("Tier-upgrade trigger: 75/94 (80%)");

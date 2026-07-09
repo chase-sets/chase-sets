@@ -18,7 +18,7 @@ Production may pre-provision the full canonical context database set while stayi
 2. Separate provisioned, active, and exposed context sets (#3223).
 3. Guard durable production database deletes/replacements (#3224).
 4. Publish profile-aware connection budget output (#3225).
-5. Keep production transaction PgBouncer disabled until session-safety proof and waiter splitting are complete (#3226, #3234).
+5. Converge production query traffic onto managed transaction pools once session-safety proof and waiter splitting are complete (#3226, #3234; landed by #4655 with production query pools and `production_pgbouncer_ready = true`, waiter/listener/bootstrap traffic direct).
 6. Cut over profiled API and worker topology (#3213-#3217).
 7. Update topology fitness and remove retired deployables only after release-health evidence is clean (#3218, #3219).
 

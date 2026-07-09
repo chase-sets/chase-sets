@@ -280,15 +280,21 @@ locals {
   # Ledger and assumptions: docs/architecture/push-wake-connection-budget.md.
   #
   # Connection semantics being modeled:
-  # - Non-production app components (API/worker/bootstrap) connect through the
-  #   managed PgBouncer transaction pools. Those are client-side connections;
-  #   the cluster backends they can occupy are capped by the server-side pool
-  #   sizes in context_database_connection_pool_sizes, not by app pool maxima.
-  # - Production app components use App Platform database bindings, which are
-  #   direct session-compatible cluster connections, so app pool maxima count
-  #   directly against cluster backends.
-  # - Relay listener URLs are direct in every environment that defines them,
-  #   because LISTEN is incompatible with transaction pooling.
+  # - Every environment's app components (API/worker/bootstrap) connect through
+  #   the managed PgBouncer transaction pools. #4655 converged production query
+  #   traffic onto the same pooled shape staging proved, closing the last
+  #   staging/production database-topology asymmetry. Those are client-side
+  #   connections; the cluster backends they can occupy are capped by the
+  #   server-side pool sizes in context_database_connection_pool_sizes, not by
+  #   app pool maxima, so KEDA burst worker scaling (#4057) stays budget-safe.
+  # - Relay listener URLs and context-owned API waiters stay direct in every
+  #   environment that defines them, because LISTEN is incompatible with
+  #   transaction pooling; #4655 preserves that direct parity.
+  # - The schema-bootstrap session advisory lock (SET lock_timeout held across
+  #   statements, #3636) is session-scoped, so production runtime bootstrap runs
+  #   on the direct DOKS-exported session cluster URLs; only the interim App
+  #   Platform bootstrap job rides the pooled URLs staging has proven (single
+  #   instance, worker quiesced, idempotent DDL).
   # - DATABASE_POOL_MAX is a per-database-URL cap (one node-postgres pool per
   #   context database), not a per-process aggregate. The budget treats it as
   #   the per-process concurrent-backend allowance: worker runner concurrency
@@ -303,8 +309,10 @@ locals {
   runtime_profile_name   = local.runtime_profile
 
   # Worst-case app-side pool demand (per-process pool max x component count x
-  # instances). Direct cluster backends in production; PgBouncer client-side
-  # connections in non-production.
+  # instances). These are PgBouncer client-side connections in every environment
+  # (#4655) and never reach the cluster as backends; the server-side pool
+  # allocation below is the whole app-query cluster footprint. Retained for the
+  # client-side connection totals documented in the connection-budget ledger.
   api_total_pool_demand    = tonumber(local.api_database_pool_max) * local.api_component_count * local.api_instances
   worker_total_pool_demand = tonumber(local.worker_database_pool_max) * local.worker_component_count * local.worker_instances
 
@@ -331,7 +339,8 @@ locals {
   # Server-side PgBouncer backend allocation: a DigitalOcean managed pool's
   # "size" is the number of cluster backends that pool may hold, so the sum of
   # configured pool sizes is the worst-case backend footprint of all pooled
-  # app traffic in non-production. Production attaches no managed pools.
+  # app query traffic. #4655 attaches production query pools too, so this is now
+  # the whole app-query cluster footprint in every environment.
   pgbouncer_server_backend_allocation = (
     length(local.context_database_connection_pool_sizes) > 0
     ? sum(values(local.context_database_connection_pool_sizes))
@@ -380,11 +389,12 @@ locals {
       local.cluster_backend_demand_deploy_overlap * 100 >
       local.cluster_connection_limit * local.connection_budget_upgrade_trigger_percent
     )
-    # Refreshed by #3342: production query traffic stays on direct App
-    # Platform bindings at current scale. A dedicated follow-up with staging
-    # and production plan evidence must add query-safe production transaction
-    # pools before this can flip true.
-    production_pgbouncer_ready = false
+    # Landed by #4655: production query traffic now runs through managed
+    # transaction pools with its own budget entries, mirroring the staging
+    # pooled shape while waiter/listener/bootstrap traffic stays direct. The
+    # #3342 refresh set the convergence direction; this flips it true with
+    # staging + production plan evidence showing no destructive database actions.
+    production_pgbouncer_ready = true
   }
 
   connection_budget_profiles = {
@@ -399,7 +409,7 @@ locals {
       profile               = "proof"
       active_context_count  = length(local.platform_context_names)
       exposed_context_count = length(local.platform_context_names)
-      note                  = "Proof mode shares the public bounded-context surface; production query traffic remains direct until #3342 is followed by a dedicated production transaction-pool rollout."
+      note                  = "Proof mode shares the public bounded-context surface; #4655 converged production query traffic onto managed transaction pools, so pooled server-side allocation is the app-query backend footprint in every mode."
     })
     public = merge(local.active_profile_connection_budget, {
       profile               = "public"
@@ -408,24 +418,22 @@ locals {
     })
   }
 
-  # Worst-case steady-state direct cluster backend demand. Production bindings
-  # are all direct, so every app pool counts; in non-production only the
-  # PgBouncer server-side allocation, the direct relay listeners, and the
-  # bootstrap reservation reach the cluster.
-  cluster_backend_demand = local.is_production ? (
-    local.api_total_pool_demand + local.worker_total_pool_demand + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand
-    ) : (
+  # Worst-case steady-state cluster backend demand. #4655 converged production
+  # query traffic onto managed transaction pools, so in every environment only
+  # the PgBouncer server-side allocation, the direct relay listeners, the direct
+  # API waiters, and the bootstrap/maintenance reservation reach the cluster.
+  # App pool maxima are client-side only and never count as cluster backends.
+  cluster_backend_demand = (
     local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand
   )
 
-  # Rolling-deploy overlap envelope: App Platform starts replacement
-  # containers before stopping the old ones, so direct app backends and relay
-  # listener connections can momentarily double. The PgBouncer server-side
-  # allocation does not grow with client count, which is exactly why
-  # non-production query traffic stays on pooled URLs.
-  cluster_backend_demand_deploy_overlap = local.is_production ? (
-    2 * (local.api_total_pool_demand + local.worker_total_pool_demand) + 2 * local.relay_listener_demand + 2 * local.api_waiter_listener_demand + local.bootstrap_demand
-    ) : (
+  # Rolling-deploy overlap envelope: App Platform starts replacement containers
+  # before stopping the old ones, so direct relay/waiter listener connections
+  # can momentarily double. The PgBouncer server-side allocation does not grow
+  # with client count, which is exactly why converging production query traffic
+  # onto pools (#4655) makes KEDA burst scaling budget-safe: adding API or
+  # worker instances adds zero cluster backends to this overlap envelope.
+  cluster_backend_demand_deploy_overlap = (
     local.pgbouncer_server_backend_allocation + 2 * local.relay_listener_demand + 2 * local.api_waiter_listener_demand + local.bootstrap_demand
   )
 
@@ -614,15 +622,47 @@ locals {
     public-presence = 3
   })
 
+  # Production query-safe transaction pools (#4655): production adopts the
+  # staging pooled shape with its own budget entries, sized for production's
+  # lower worker/job concurrency (worker pool 8 with single job/operations
+  # lanes) and two-instance API rather than staging's heavier drill lanes. The
+  # per-context sizes are the server-side cluster-backend cap for each context's
+  # pooled query traffic; the sum is the production PgBouncer allocation in the
+  # connection-budget ledger. Only active runtime contexts get a query pool
+  # (provisioned-but-inactive contexts such as reputation carry no query pool),
+  # so the size map is keyed by local.context_names in every profile.
+  production_context_database_connection_pool_size_overrides = {
+    auth            = 2
+    catalog         = 4
+    checkout        = 2
+    control         = 3
+    discovery       = 2
+    identity        = 2
+    marketplace     = 3
+    public-presence = 2
+  }
+
+  production_context_database_connection_pool_sizes = {
+    for context_name in local.context_names :
+    context_name => lookup(local.production_context_database_connection_pool_size_overrides, context_name, 1)
+  }
+
   context_database_connection_pool_sizes = local.is_staging ? local.staging_context_database_connection_pool_sizes : (
-    local.is_non_production ? local.default_context_database_connection_pool_sizes : {}
+    local.is_production ? local.production_context_database_connection_pool_sizes : local.default_context_database_connection_pool_sizes
   )
 
-  non_production_connection_pool_contexts = local.is_non_production ? local.context_databases : {}
+  # Every environment now provisions managed transaction pools for its active
+  # runtime contexts (#4655 added production). The pool set matches the sized
+  # contexts exactly so a pool always has a budgeted size.
+  connection_pool_contexts = toset(keys(local.context_database_connection_pool_sizes))
 
+  # Query traffic runs through the managed transaction pools in every
+  # environment (#4655). Waiter and relay listener URLs stay direct (built from
+  # the wake-listener users on the cluster host) because LISTEN is incompatible
+  # with transaction pooling.
   context_database_urls = {
-    for context_name in local.context_database_names :
-    context_name => local.is_non_production ? format(
+    for context_name in local.context_names :
+    context_name => format(
       "postgresql://%s:%s@%s:%d/%s?sslmode=require",
       urlencode(digitalocean_database_connection_pool.contexts[context_name].user),
       urlencode(coalesce(
@@ -632,7 +672,7 @@ locals {
       digitalocean_database_connection_pool.contexts[context_name].host,
       digitalocean_database_connection_pool.contexts[context_name].port,
       urlencode(digitalocean_database_connection_pool.contexts[context_name].name),
-    ) : format("$${db-%s.DATABASE_URL}", context_name)
+    )
   }
 
   context_database_env = {
