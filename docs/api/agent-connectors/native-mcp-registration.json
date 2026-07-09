@@ -4140,6 +4140,197 @@
       ]
     },
     {
+      "name": "payments.start-payment-method-setup",
+      "title": "Start Payment Method Setup",
+      "description": "Create a one-time Stripe-hosted card-setup page and return its HTTPS URL for URL-mode elicitation. A card number never transits chat; the buyer enters it on the hosted page.",
+      "service_id": "payments",
+      "risk": "sensitive",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.manage"
+      ],
+      "required_scopes": [
+        "checkout:write"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "returnUrl",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "returnUrl": {
+            "type": "string",
+            "description": "HTTPS URL where the hosted page returns after card setup."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable key supplied by the agent host."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate without creating a hosted setup session."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "id",
+          "setupReferenceId",
+          "status",
+          "url",
+          "consentText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "id": {
+            "type": "string",
+            "description": "Payment-method setup reference."
+          },
+          "setupReferenceId": {
+            "type": "string",
+            "description": "Payment-method setup reference to poll for attachment."
+          },
+          "status": {
+            "type": "string",
+            "description": "Provider-neutral setup session status."
+          },
+          "url": {
+            "type": "string",
+            "description": "Hosted HTTPS card-setup page URL. No client secret is exposed."
+          },
+          "consentText": {
+            "type": "string",
+            "description": "Consent text the buyer accepts when saving the payment method."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use once, before in-chat checkout completion, when the account has no stored payment method.",
+        "Return the hosted URL to the user for a one-time card-entry hop; then poll confirm-payment-method-setup."
+      ]
+    },
+    {
+      "name": "payments.confirm-payment-method-setup",
+      "title": "Confirm Payment Method Setup",
+      "description": "Poll a payment-method setup session and confirm whether a stored payment method is now attached to the account.",
+      "service_id": "payments",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "orders.manage"
+      ],
+      "required_scopes": [
+        "checkout:write"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "setupReferenceId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "setupReferenceId": {
+            "type": "string",
+            "description": "Setup reference returned by start-payment-method-setup."
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "setupReferenceId",
+          "attached",
+          "status"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "setupReferenceId": {
+            "type": "string",
+            "description": "Payment-method setup reference that was polled."
+          },
+          "attached": {
+            "type": "boolean",
+            "description": "Whether a payment method is now attached to the account."
+          },
+          "status": {
+            "type": "string",
+            "description": "Attachment status: attached or pending."
+          },
+          "paymentMethod": {
+            "type": "object",
+            "description": "Display-safe stored payment-method facts. No provider reference or fingerprint.",
+            "additionalProperties": true,
+            "required": [
+              "instrumentId",
+              "displayLabel",
+              "paymentMethodCategory",
+              "isDefault",
+              "readiness"
+            ],
+            "properties": {
+              "instrumentId": {
+                "type": "string",
+                "description": "Chase Sets stored payment-method identifier."
+              },
+              "displayLabel": {
+                "type": "string",
+                "description": "Display label, e.g. brand and last four digits."
+              },
+              "paymentMethodCategory": {
+                "type": "string",
+                "description": "Payment-method category."
+              },
+              "isDefault": {
+                "type": "boolean",
+                "description": "Whether this is the account default payment method."
+              },
+              "readiness": {
+                "type": "string",
+                "description": "Stored payment-method readiness."
+              }
+            }
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Poll after directing the user to the hosted setup URL, until attachment is confirmed."
+      ]
+    },
+    {
       "name": "payments.get-payment",
       "title": "Get Payment",
       "description": "Read payment and refund state for an order payment.",
