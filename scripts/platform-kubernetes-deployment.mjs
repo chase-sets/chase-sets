@@ -443,7 +443,9 @@ function isHelmReleaseNotFound(error) {
   return /release:\s*not found/i.test(output) || /release [^\n]+ not found/i.test(output);
 }
 
-function parseArgs(argv, env = process.env) {
+// Exported so the deploy-artifact guard can drive the EXACT workflow argv
+// end-to-end (CLI parse -> helm arg construction) - see issue #4743.
+export function parseArgs(argv, env = process.env) {
   const command = argv.find((arg) => arg !== "--");
   if (!command || !["deploy", "rollback", "diagnostics", "plan", "capture-rollback-target"].includes(command)) {
     throw new Error(
