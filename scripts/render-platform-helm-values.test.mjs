@@ -148,6 +148,14 @@ describe("render platform Helm values", () => {
     expect(worker.port).toBe(8080);
     expect(worker.healthPath).toBe("/health/ready");
     expect(worker.startupPath).toBe("/health/live");
+    // #4765: liveness itself must test process life, not DB readiness, with a
+    // tolerant ~60s failure window (periodSeconds * failureThreshold).
+    expect(worker.livenessPath).toBe("/health/live");
+    expect(worker.livenessProbe).toEqual({
+      periodSeconds: 10,
+      timeoutSeconds: 5,
+      failureThreshold: 6,
+    });
     // No in-cluster consumer, so no ClusterIP Service is minted for the worker.
     expect(worker.service).toBeUndefined();
 
@@ -210,10 +218,14 @@ describe("render platform Helm values", () => {
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(Number(envValue("DATABASE_POOL_MAX")));
   });
 
-  it("scales and resources only the staging DOKS API with tolerant process liveness", () => {
+  it("scales and resources only the staging DOKS API, inheriting base-chart tolerant process liveness", () => {
     const baselineValues = buildPlatformHelmValues({ repoRoot });
     const stagingValues = buildPlatformHelmStagingValues();
 
+    // #4765 widened scope: tolerant liveness (startupPath/livenessPath/
+    // livenessProbe) is now a BASE-chart default for platform-api, so every
+    // environment gets it -- not just staging. The staging overlay stays
+    // scoped to what is genuinely staging-only: replica count and resources.
     expect(stagingValues.components["platform-api"]).toEqual(doksStagingApiOverrides);
     expect(stagingValues.components["platform-api"]).toEqual({
       replicas: 2,
@@ -221,21 +233,99 @@ describe("render platform Helm values", () => {
         requests: { cpu: "250m", memory: "512Mi" },
         limits: { cpu: "1", memory: "1Gi" },
       },
+    });
+    expect(stagingValues.components["platform-api"].startupPath).toBeUndefined();
+    expect(stagingValues.components["platform-api"].livenessPath).toBeUndefined();
+    expect(stagingValues.components["platform-api"].livenessProbe).toBeUndefined();
+
+    // Base (production and preview render this without any overlay).
+    const baselineApi = baselineValues.components["platform-api"];
+    expect(baselineApi.replicas).toBe(1);
+    expect(baselineApi.resources).toEqual({});
+    // Readiness stays strict and DB-aware; traffic gating is unchanged (#4765).
+    expect(baselineApi.healthPath).toBe("/health/ready");
+    // Liveness tests process life instead, with a tolerant ~60s window
+    // (periodSeconds * failureThreshold), so DB slowness or a briefly-busy
+    // event loop no longer kills the pod (proven live in preview
+    // chase-sets-pr-4766: Exit Code 137 / "failed liveness probe .../health/ready").
+    expect(baselineApi.startupPath).toBe("/health/live");
+    expect(baselineApi.livenessPath).toBe("/health/live");
+    expect(baselineApi.livenessProbe).toEqual({
+      periodSeconds: 10,
+      timeoutSeconds: 5,
+      failureThreshold: 6,
+    });
+  });
+
+  it("merges base + staging platform-api values into the same tolerant-liveness/strict-readiness shape Helm would render", () => {
+    // Simulates Helm's `-f values.yaml -f values.staging.yaml` shallow merge
+    // per top-level component key (values.staging.yaml never sets
+    // startupPath/livenessPath/livenessProbe for platform-api, so the base
+    // values must survive the merge unchanged).
+    const baselineApi = buildPlatformHelmValues({ repoRoot }).components["platform-api"];
+    const stagingApi = buildPlatformHelmStagingValues().components["platform-api"];
+    const merged = { ...baselineApi, ...stagingApi };
+
+    expect(merged).toMatchObject({
+      replicas: 2,
+      resources: {
+        requests: { cpu: "250m", memory: "512Mi" },
+        limits: { cpu: "1", memory: "1Gi" },
+      },
+      healthPath: "/health/ready",
       startupPath: "/health/live",
+      livenessPath: "/health/live",
       livenessProbe: {
         periodSeconds: 10,
         timeoutSeconds: 5,
         failureThreshold: 6,
       },
     });
+  });
 
-    // Production and previews render the generated base without this overlay.
-    const baselineApi = baselineValues.components["platform-api"];
-    expect(baselineApi.replicas).toBe(1);
-    expect(baselineApi.resources).toEqual({});
-    expect(baselineApi.healthPath).toBe("/health/ready");
-    expect(baselineApi.startupPath).toBeUndefined();
-    expect(baselineApi.livenessProbe).toBeUndefined();
+  it("gives preview and production the tolerant liveness fix from the base chart alone (no --values overlay)", () => {
+    // scripts/platform-kubernetes-deployment.mjs's platformValuesPathForEnvironment
+    // only supplies `--values values.staging.yaml` for DEPLOYMENT_ENVIRONMENT
+    // "staging"; preview and production `helm upgrade` calls pass no
+    // environment values file at all, so they render values.yaml alone. The
+    // live preview evidence for #4765 (namespace chase-sets-pr-4766) was hit
+    // on exactly this base-only path, which is why the fix must live in the
+    // base chart rather than only in the staging overlay.
+    const previewAndProductionApi = buildPlatformHelmValues({ repoRoot }).components["platform-api"];
+
+    expect(previewAndProductionApi.healthPath).toBe("/health/ready");
+    expect(previewAndProductionApi.livenessPath).toBe("/health/live");
+    expect(previewAndProductionApi.livenessProbe).toEqual({
+      periodSeconds: 10,
+      timeoutSeconds: 5,
+      failureThreshold: 6,
+    });
+    // Preview/production get no replica/resource overlay -- only staging does.
+    expect(previewAndProductionApi.replicas).toBe(1);
+    expect(previewAndProductionApi.resources).toEqual({});
+  });
+
+  it("leaves liveness untouched for components that do not serve /health/live", () => {
+    // Verified against source: admin-web, marketplace, and public-web each
+    // register only a `health/ready` route (deployables/<name>/app/routes.ts
+    // -> routes/health-ready.ts using createWebReadyLoader) and expose no
+    // /health/live route, unlike platform-api (createHealthRoutes in
+    // infrastructure/platform-runtime/health.ts, mounted at /health) and
+    // platform-worker (deployables/platform-worker/src/main.ts). Their
+    // liveness must keep falling back to healthPath unchanged.
+    const values = buildPlatformHelmValues({ repoRoot });
+
+    for (const name of ["admin-web", "marketplace", "public-web"]) {
+      const component = values.components[name];
+      expect(component.livenessPath, `${name} should not get a livenessPath override`).toBeUndefined();
+      expect(component.livenessProbe, `${name} should not get a livenessProbe override`).toBeUndefined();
+    }
+
+    expect(values.components["public-web"].healthPath).toBe("/");
+    expect(values.components.marketplace.healthPath).toBe("/health/ready");
+    expect(values.components.marketplace.startupPath).toBeUndefined();
+    expect(values.components["admin-web"].healthPath).toBe("/health/ready");
+    expect(values.components["admin-web"].startupPath).toBeUndefined();
   });
 
   it("gives the staging DOKS worker relay ownership now that the App Platform worker is omitted", () => {
@@ -360,7 +450,7 @@ describe("render platform Helm values", () => {
     });
   });
 
-  it("wires the worker startup/liveness/readiness probes in the deployment template", () => {
+  it("wires the startup/liveness/readiness probes in the deployment template with one liveness-path source of truth", () => {
     const [helperTemplate] = readChartFiles(["templates/_helpers.tpl"]);
 
     expect(helperTemplate).toContain("readinessProbe:");
@@ -371,6 +461,20 @@ describe("render platform Helm values", () => {
     expect(helperTemplate).toContain("with $component.livenessProbe");
     expect(helperTemplate).toContain("$componentEnvOverrides");
     expect(helperTemplate).toContain("hasKey $componentEnvOverrides .name");
+
+    // #4765: livenessPath (falling back to healthPath) is the sole source of
+    // truth for which path liveness probes, decoupled from startupPath (which
+    // now only controls whether a startup probe exists at all). Readiness
+    // always uses healthPath, unconditionally, and no longer shares a `path:`
+    // expression with liveness (pre-#4765 both used $component.startupPath).
+    expect(helperTemplate).toContain("path: {{ default $component.healthPath $component.livenessPath | quote }}");
+    expect(helperTemplate).toContain("path: {{ $component.healthPath | quote }}");
+    expect(helperTemplate).toContain("path: {{ $component.startupPath | quote }}");
+    const pathExpressionLines = helperTemplate.split("\n").filter((line) => line.includes("path: {{"));
+    // readinessProbe (healthPath), startupProbe (startupPath), livenessProbe
+    // (default-fallback expression) -- exactly one `path:` line each, no
+    // duplicate/coupled path expressions.
+    expect(pathExpressionLines).toHaveLength(3);
   });
 
   it("scaffolds Rollouts only for public buyer web components and keeps them disabled by default", () => {

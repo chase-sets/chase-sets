@@ -168,6 +168,23 @@ containers:
     {{- end }}
     env:
 {{ include "chase-sets-platform.env" . | nindent 6 }}
+    {{- /*
+      Probe wiring is intentionally decoupled and each path has exactly one
+      source of truth:
+        - readinessProbe always uses healthPath (DB-aware; gates traffic/rollout).
+        - startupProbe exists only if startupPath is set (boot-grace window;
+          purely about *whether* a startup probe exists, not which path
+          liveness uses).
+        - livenessProbe uses livenessPath if the component sets one
+          (process-life check, e.g. /health/live), else falls back to
+          healthPath unchanged for every component that has not opted in.
+      Before #4765 startupPath doubled as "the liveness path", which coupled
+      an unrelated boot-grace concern to liveness and left platform-api's
+      liveness on the DB-aware healthPath by default with tight Kubernetes
+      defaults (timeout=1s period=10s failureThreshold=3) -- proven in a live
+      preview namespace to kill healthy pods (Exit Code 137) under nothing
+      worse than brief DB or event-loop pressure.
+    */ -}}
     {{- if and $component.port $component.healthPath }}
     readinessProbe:
       httpGet:
@@ -180,22 +197,14 @@ containers:
         port: http
       periodSeconds: 10
       failureThreshold: 30
-    livenessProbe:
-      httpGet:
-        path: {{ $component.startupPath | quote }}
-        port: http
-      {{- with $component.livenessProbe }}
-{{ toYaml . | nindent 6 }}
-      {{- end }}
-    {{- else }}
-    livenessProbe:
-      httpGet:
-        path: {{ $component.healthPath | quote }}
-        port: http
-      {{- with $component.livenessProbe }}
-{{ toYaml . | nindent 6 }}
-      {{- end }}
     {{- end }}
+    livenessProbe:
+      httpGet:
+        path: {{ default $component.healthPath $component.livenessPath | quote }}
+        port: http
+      {{- with $component.livenessProbe }}
+{{ toYaml . | nindent 6 }}
+      {{- end }}
     {{- end }}
     {{- with $component.resources }}
     resources:

@@ -215,6 +215,11 @@ export const doksStagingApiOverrides = {
   // and give the scheduler enough information to avoid memory-pressure churn.
   // This mirrors the existing 1 vCPU / 1 GiB App Platform API envelope while
   // reserving a conservative baseline that lets the scheduler place both.
+  //
+  // Tolerant process liveness (startupPath/livenessPath/livenessProbe) is now
+  // a base-chart default for platform-api (see componentsWithProcessLiveness
+  // below), inherited here through the values.yaml + values.staging.yaml Helm
+  // merge, so it is intentionally NOT duplicated in this staging-only overlay.
   replicas: 2,
   resources: {
     requests: {
@@ -225,15 +230,6 @@ export const doksStagingApiOverrides = {
       cpu: "1",
       memory: "1Gi",
     },
-  },
-  // Readiness remains the strict /health/ready check from values.yaml. Liveness
-  // must test process life instead of database readiness: tolerate a one-minute
-  // busy window, then restart a process whose event loop is genuinely hung.
-  startupPath: "/health/live",
-  livenessProbe: {
-    periodSeconds: 10,
-    timeoutSeconds: 5,
-    failureThreshold: 6,
   },
 };
 
@@ -276,9 +272,36 @@ const doksHealthProbeByComponent = {
   "platform-worker": {
     port: 8080,
     readinessPath: "/health/ready",
-    startupPath: "/health/live",
   },
 };
+
+// #4765 widened scope: the base chart's liveness probe defaulted to whatever
+// path readiness used (see the `livenessPath` fallback in _helpers.tpl),
+// which put platform-api's liveness on the DB-aware /health/ready check with
+// Kubernetes' default 1s timeout / 10s period / 3-failure threshold. A live
+// preview namespace (chase-sets-pr-4766) proved this kills healthy pods
+// (Exit Code 137, kubelet "failed liveness probe ... /health/ready") under
+// nothing worse than brief DB or event-loop pressure, breaking that PR's own
+// Stripe money smoke step with 502/503s. Readiness must stay strict on
+// /health/ready so traffic gating is unchanged; liveness must instead test
+// process life via the DB-free /health/live endpoint with a tolerant ~60s
+// failure window, so only a genuinely hung process gets restarted.
+//
+// Only components verified (by reading their server source) to actually
+// serve /health/live get this: platform-api (createHealthRoutes in
+// infrastructure/platform-runtime/health.ts, mounted at /health) and
+// platform-worker (deployables/platform-worker/src/main.ts). The React
+// Router web deployables (admin-web, marketplace, public-web) each register
+// only a `health/ready` route (deployables/<name>/app/routes.ts +
+// routes/health-ready.ts) and have no /health/live route today, so their
+// liveness is deliberately left on the existing healthPath default.
+const tolerantLivenessPath = "/health/live";
+const tolerantLivenessProbe = {
+  periodSeconds: 10,
+  timeoutSeconds: 5,
+  failureThreshold: 6,
+};
+const componentsWithProcessLiveness = new Set(["platform-api", "platform-worker"]);
 
 export function readPlatformSources(rootDir = repoRoot) {
   return {
@@ -573,15 +596,25 @@ function toHelmComponent(component) {
     result.healthPath = component.healthPath;
   }
 
-  // Attach the DOKS-only health probe port and paths for components (workers)
-  // that serve health over HTTP but declare no App Platform http_port. No
-  // ClusterIP Service is created: the probes target the pod's container port
-  // directly, and nothing in-cluster consumes the worker.
+  // Attach the DOKS-only health probe port and readiness path for components
+  // (workers) that serve health over HTTP but declare no App Platform
+  // http_port. No ClusterIP Service is created: the probes target the pod's
+  // container port directly, and nothing in-cluster consumes the worker.
   const healthProbe = doksHealthProbeByComponent[component.name];
   if (healthProbe) {
     result.port = healthProbe.port;
     result.healthPath = healthProbe.readinessPath;
-    result.startupPath = healthProbe.startupPath;
+  }
+
+  // Tolerant process liveness (#4765): only for components verified to serve
+  // /health/live. startupPath holds liveness off until boot completes;
+  // livenessPath is the single explicit source of truth for which path
+  // liveness probes (see _helpers.tpl) and is intentionally independent of
+  // startupPath so a startup grace period never implies a liveness path.
+  if (componentsWithProcessLiveness.has(component.name)) {
+    result.startupPath = tolerantLivenessPath;
+    result.livenessPath = tolerantLivenessPath;
+    result.livenessProbe = { ...tolerantLivenessProbe };
   }
 
   if (rolloutEligibleComponents.has(component.name)) {

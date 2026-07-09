@@ -18,11 +18,6 @@ components:
       limits:
         cpu: "1"
         memory: "1Gi"
-    startupPath: "/health/live"
-    livenessProbe:
-      periodSeconds: 10
-      timeoutSeconds: 5
-      failureThreshold: 6
   platform-worker:
     envOverrides:
       DATABASE_POOL_MAX: "12"
