@@ -97,6 +97,38 @@ function signedUcpHeaders(body: string) {
   };
 }
 
+function stubPaymentsCheckoutStatusFetch(
+  getCheckoutStatus: (params: Readonly<Record<string, unknown>>) => Promise<unknown>,
+) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/api/marketplace/account/checkout/status") {
+      return Response.json(
+        await getCheckoutStatus({
+          accountId: "account_1",
+          orderIds: url.searchParams.get("orderIds")?.split(",").filter(Boolean) ?? [],
+          currencyCode: url.searchParams.get("currencyCode") ?? "usd",
+          requestedBalanceCreditAmount: url.searchParams.get("requestedBalanceCreditAmount"),
+          paymentMethodCategory: url.searchParams.get("paymentMethodCategory"),
+        }),
+      );
+    }
+
+    return Response.json(
+      {
+        error: {
+          code: "unexpected_fetch",
+          message: `Unexpected forwarded fetch in MCP journey test: ${request.method} ${url.pathname}`,
+        },
+      },
+      { status: 500 },
+    );
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 const shippingDestination = {
   name: "Ari Buyer",
   line1: "100 Market St",
@@ -440,7 +472,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
           },
         ],
       },
-      getCheckoutStatus: vi.fn(async () => ({
+      getCheckoutStatus: vi.fn(async (_params: Readonly<Record<string, unknown>>) => ({
         order_ids: ["order_1"],
         currency_code: "usd",
         amount: "25.00",
@@ -588,34 +620,40 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         },
       }),
     );
-    const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_1/complete", {
-      method: "POST",
-      body: checkoutBody,
-      headers: signedUcpHeaders(checkoutBody),
-    });
+    const paymentsFetch = stubPaymentsCheckoutStatusFetch(paymentServices.getCheckoutStatus);
+    try {
+      const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_1/complete", {
+        method: "POST",
+        body: checkoutBody,
+        headers: signedUcpHeaders(checkoutBody),
+      });
 
-    expect(spendCapResponse.status).toBe(200);
-    await expect(spendCapResponse.json()).resolves.toMatchObject({
-      ucp: {
-        status: "requires_action",
-      },
-      messages: [
-        {
-          code: "agent_grant_spending_mandate_blocked",
-          message: "This agent grant exceeded its platform spend cap.",
+      expect(spendCapResponse.status).toBe(200);
+      await expect(spendCapResponse.json()).resolves.toMatchObject({
+        ucp: {
+          status: "requires_action",
         },
-      ],
-    });
-    expect(paymentServices.getCheckoutStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orderIds: ["order_1"],
-      }),
-    );
-    expect(spendPolicy.authorize).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operation: "complete_checkout",
-        amountCents: 2_605,
-      }),
-    );
+        messages: [
+          {
+            code: "agent_grant_spending_mandate_blocked",
+            message: "This agent grant exceeded its platform spend cap.",
+          },
+        ],
+      });
+      expect(paymentsFetch).toHaveBeenCalledTimes(1);
+      expect(paymentServices.getCheckoutStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderIds: ["order_1"],
+        }),
+      );
+      expect(spendPolicy.authorize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "complete_checkout",
+          amountCents: 2_605,
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
