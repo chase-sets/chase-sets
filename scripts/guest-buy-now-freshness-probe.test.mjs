@@ -14,7 +14,9 @@ import {
   buyNowRouteTransitionWaitOptions,
   classifyGuestBuyNowObservation,
   detectFreshWriteMetadata,
+  evaluateProjectionConvergence,
   evaluateWakeRuntimeReadiness,
+  fetchProjectionStatusSnapshot,
   isCheckoutSessionDocumentResponseUrl,
   isBuyReadinessUrl,
   isBuySessionUrl,
@@ -22,10 +24,13 @@ import {
   resolveGuestBuyNowItemCandidates,
   resolveGuestBuyNowItemPath,
   runGuestBuyNowFreshnessProbe,
+  runProjectionConvergenceGate,
   startAccountSession,
   submitAccountBuyNowActionFallback,
   validateGuestBuyNowProbeOptions,
+  waitForProjectionConvergence,
   waitForWakeRuntimePreflight,
+  SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON,
 } from "./guest-buy-now-freshness-probe.mjs";
 
 const baseOptions = {
@@ -52,6 +57,20 @@ const readyWakeStatusSnapshot = {
 const unreadyWakeStatusSnapshot = {
   schedulers: { available: true, activeWakeCapableWorkerCount: 0 },
   relay: { available: true, lease: { state: "standby", ownerId: null } },
+};
+
+const convergedProjectionStatusSnapshot = {
+  projectionGroups: [
+    { projectionName: "checkout-session-projection", caughtUp: true, state: "caught-up" },
+    { projectionName: "auth-identity-invitation-projection", caughtUp: true, state: "idle" },
+  ],
+};
+
+const laggingProjectionStatusSnapshot = {
+  projectionGroups: [
+    { projectionName: "checkout-session-projection", caughtUp: true, state: "caught-up" },
+    { projectionName: "auth-identity-invitation-projection", caughtUp: false, state: "behind" },
+  ],
 };
 
 class FakeResponse {
@@ -1610,5 +1629,205 @@ describe("guest Buy Now freshness probe", () => {
     expect(attempts).toEqual([1]);
     expect(evidence.failureReason).toBe("permanent-checkout-session-not-found");
     expect(evidence.promotionDecision).toBe("abort");
+  });
+
+  it("consumes remaining retries when the account setup races post-rollout projection catch-up", async () => {
+    const attempts = [];
+    const evidence = await runGuestBuyNowFreshnessProbe({
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      flow: "account",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      maxAttempts: 3,
+      observe: async (_options, attempt) => {
+        attempts.push(attempt);
+        if (attempt < 3) {
+          const error = new Error(
+            "Buy Now probe auth invitation projection did not reach identity position 46060; last observed 46054.",
+          );
+          error.stage = "start-account-session";
+          error.reason = SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON;
+          throw error;
+        }
+
+        return {
+          latencyMs: 1500,
+          readyLatencyMs: 1500,
+          afterWritePresent: true,
+          sessionCookiePresent: true,
+          checkoutReviewVisible: true,
+          negativeProbe: healthyProbe,
+        };
+      },
+    });
+
+    expect(attempts).toEqual([1, 2, 3]);
+    expect(evidence.promotionDecision).toBe("promote");
+    expect(evidence.attemptSummaries.slice(0, 2)).toEqual([
+      {
+        attempt: 1,
+        finalState: "fail",
+        promotionDecision: "abort",
+        failureReason: SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON,
+        readyLatencyMs: null,
+      },
+      {
+        attempt: 2,
+        finalState: "fail",
+        promotionDecision: "abort",
+        failureReason: SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON,
+        readyLatencyMs: null,
+      },
+    ]);
+  });
+
+  it("evaluates projection convergence from projection-status snapshots", () => {
+    expect(evaluateProjectionConvergence(convergedProjectionStatusSnapshot)).toEqual({
+      converged: true,
+      available: true,
+      totalGroups: 2,
+      caughtUpGroups: 2,
+      laggingGroups: [],
+      reasons: [],
+    });
+    expect(evaluateProjectionConvergence(laggingProjectionStatusSnapshot)).toMatchObject({
+      converged: false,
+      available: true,
+      totalGroups: 2,
+      caughtUpGroups: 1,
+      laggingGroups: ["auth-identity-invitation-projection"],
+      reasons: ["projection-groups-not-caught-up"],
+    });
+    expect(evaluateProjectionConvergence({})).toMatchObject({
+      converged: false,
+      available: false,
+      reasons: ["projection-status-unavailable"],
+    });
+  });
+
+  it("scopes projection convergence to the requested projection names", () => {
+    expect(
+      evaluateProjectionConvergence(laggingProjectionStatusSnapshot, ["checkout-session-projection"]),
+    ).toMatchObject({ converged: true, totalGroups: 1, laggingGroups: [] });
+    expect(evaluateProjectionConvergence(laggingProjectionStatusSnapshot, ["missing-projection"])).toMatchObject({
+      converged: false,
+      reasons: ["required-projection-group-not-found", "no-projection-groups-found"],
+    });
+  });
+
+  it("polls the projection-status surface until every group is caught up", async () => {
+    let now = 1_000;
+    const sleeps = [];
+    const snapshots = [laggingProjectionStatusSnapshot, convergedProjectionStatusSnapshot];
+    const result = await waitForProjectionConvergence({
+      adminBaseUrl: "https://admin.staging.chasesets.com",
+      fetchProjectionStatus: async () => snapshots.shift(),
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      convergenceBudgetMs: 300_000,
+      convergencePollIntervalMs: 5_000,
+    });
+
+    expect(result).toMatchObject({
+      attempted: true,
+      converged: true,
+      convergedAfterMs: 5_000,
+      sampleCount: 2,
+    });
+    expect(sleeps).toEqual([5_000]);
+  });
+
+  it("keeps polling through transient fetch failures during fleet restart", async () => {
+    let now = 0;
+    const outcomes = [
+      () => {
+        throw new Error("connection refused");
+      },
+      () => convergedProjectionStatusSnapshot,
+    ];
+    const result = await waitForProjectionConvergence({
+      adminBaseUrl: "https://admin.staging.chasesets.com",
+      fetchProjectionStatus: async () => outcomes.shift()(),
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      convergenceBudgetMs: 300_000,
+      convergencePollIntervalMs: 5_000,
+    });
+
+    expect(result).toMatchObject({ converged: true, sampleCount: 1 });
+  });
+
+  it("proceeds without blocking when projections never converge within the budget", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-projection-gate-"));
+    const outFile = join(directory, "staging-projection-convergence-gate.json");
+    let now = 0;
+    const evidence = await runProjectionConvergenceGate({
+      adminBaseUrl: "https://admin.staging.chasesets.com",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      outPath: outFile,
+      fetchProjectionStatus: async () => laggingProjectionStatusSnapshot,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      convergenceBudgetMs: 15_000,
+      convergencePollIntervalMs: 5_000,
+    });
+
+    expect(evidence).toMatchObject({
+      promotionDecision: "proceed",
+      convergenceBudgetMs: 15_000,
+      convergenceProjectionNames: "all",
+      gate: { attempted: true, converged: false, convergedAfterMs: null },
+    });
+    expect(evidence.gate.final.laggingGroups).toEqual(["auth-identity-invitation-projection"]);
+    expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("signs in as admin and reads the projection refresh surface for status", async () => {
+    const calls = [];
+    const fetchImpl = vi.fn(async (url, init) => {
+      calls.push({ url, method: init?.method ?? "GET" });
+      if (String(url).endsWith("/api/auth/password-sign-in")) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { sessionToken: "admin-token" };
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return convergedProjectionStatusSnapshot;
+        },
+      };
+    });
+
+    const snapshot = await fetchProjectionStatusSnapshot(
+      {
+        adminBaseUrl: "https://admin.staging.chasesets.com",
+        adminEmail: "admin@example.test",
+        adminPassword: "secret",
+      },
+      fetchImpl,
+    );
+
+    expect(snapshot).toEqual(convergedProjectionStatusSnapshot);
+    expect(calls).toEqual([
+      { url: "https://admin.staging.chasesets.com/api/auth/password-sign-in", method: "POST" },
+      { url: "https://admin.staging.chasesets.com/api/platform/projections/refresh", method: "POST" },
+    ]);
   });
 });

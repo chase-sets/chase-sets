@@ -1247,6 +1247,58 @@ jobs:
           cd ../../..
           ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" pnpm run test:e2e:deployed
 
+      - name: Await staging projection convergence
+        id: projection_convergence_gate
+        if: env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          PROJECTION_CONVERGENCE_BUDGET_MS: ${{ vars.STAGING_PROJECTION_CONVERGENCE_BUDGET_MS || '300000' }}
+          PROJECTION_CONVERGENCE_POLL_INTERVAL_MS: ${{ vars.STAGING_PROJECTION_CONVERGENCE_POLL_INTERVAL_MS || '5000' }}
+          PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'all' }}
+        run: |
+          set -euo pipefail
+          admin_domain="$(terraform output -raw admin_domain)"
+          if [ -z "$admin_domain" ]; then
+            echo "Required staging admin domain was not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          gate_out=artifacts/release-health/staging-projection-convergence-gate.json
+          # Bounded convergence gate (issue #4709): every deploy rolls the fleet, so the
+          # Buy Now freshness probes race post-rollout projection replay. Wait for the
+          # staging projection-status surface to report all groups caught-up (or spend the
+          # budget) before probing. This never blocks promotion on its own; the probe step
+          # that follows still fails loudly on steady-state SLO breaches.
+          set +e
+          pnpm run guest-buy-now:freshness-probe -- \
+            --convergence-gate \
+            --environment staging \
+            --admin-base-url "https://${admin_domain}" \
+            --convergence-budget-ms "${PROJECTION_CONVERGENCE_BUDGET_MS}" \
+            --convergence-poll-interval-ms "${PROJECTION_CONVERGENCE_POLL_INTERVAL_MS}" \
+            --convergence-projection-names "${PROJECTION_CONVERGENCE_PROJECTION_NAMES}" \
+            --out "$gate_out"
+          gate_exit=$?
+          set -e
+          converged="$(jq -r '.gate.converged // "unknown"' "$gate_out" 2>/dev/null || echo unknown)"
+          converged_after_ms="$(jq -r '.gate.convergedAfterMs // "did not converge"' "$gate_out" 2>/dev/null || echo unknown)"
+          lagging="$(jq -r '(.gate.final.laggingGroups // []) | join(", ")' "$gate_out" 2>/dev/null || echo "")"
+          {
+            echo "## Staging projection convergence gate"
+            echo ""
+            echo "| Converged | Converged after (ms) | Budget (ms) | Lagging groups |"
+            echo "| --- | --- | --- | --- |"
+            echo "| ${converged} | ${converged_after_ms} | ${PROJECTION_CONVERGENCE_BUDGET_MS} | ${lagging:-none} |"
+            echo ""
+            echo "Bounded pre-probe gate (issue #4709): waits for staging projections to catch up after the fleet rollout before the Buy Now freshness probes run. Timing gate only; does not block promotion."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$gate_exit" -ne 0 ]; then
+            echo "Staging projection convergence gate failed to run (exit ${gate_exit})." >&2
+            exit 1
+          fi
+
       - name: Staging Buy Now freshness probes
         id: buy_now_probes
         if: env.SHOULD_DEPLOY != 'false'
