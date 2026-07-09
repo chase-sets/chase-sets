@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyPlatformSecretManifest,
   buildNamespaceManifest,
+  buildPlatformSecretBundle,
   buildPlatformSecretManifest,
   collectPlatformSecretKeys,
   summarizePlatformSecret,
@@ -82,6 +83,83 @@ describe("platform Kubernetes secret", () => {
         },
       }),
     ).toThrow("STRIPE_SECRET_KEY");
+  });
+
+  it("synthesizes disposable preview Postgres secrets and database URLs", () => {
+    const bundle = buildPlatformSecretBundle({
+      values: {
+        ...sampleValues,
+        previewPostgres: {
+          secretName: "chase-sets-preview-postgres",
+          service: { port: 5432 },
+          superuserSecretKey: "POSTGRES_PASSWORD",
+          applicationSecretKey: "APP_DATABASE_PASSWORD",
+        },
+      },
+      namespace: "chase-sets-pr-123",
+      release: "chase-sets-pr-123",
+      deploymentEnvironment: "preview",
+      secretKeys: [
+        "DATABASE_URL_CHECKOUT",
+        "DATABASE_URL_CATALOG_WAITER",
+        "PLATFORM_CONTROL_DATABASE_URL",
+        "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL",
+        "STRIPE_SECRET_KEY",
+      ],
+      env: {
+        PREVIEW_POSTGRES_SUPERUSER_PASSWORD: "super-secret",
+        PREVIEW_POSTGRES_APPLICATION_PASSWORD: "app-secret",
+        STRIPE_SECRET_KEY: "sk_test_secret",
+      },
+    });
+
+    expect(bundle.previewPostgresSecret).toMatchObject({
+      kind: "Secret",
+      metadata: {
+        name: "chase-sets-preview-postgres",
+        namespace: "chase-sets-pr-123",
+      },
+      data: {
+        POSTGRES_PASSWORD: Buffer.from("super-secret").toString("base64"),
+        APP_DATABASE_PASSWORD: Buffer.from("app-secret").toString("base64"),
+      },
+    });
+    // The in-cluster preview Postgres does not serve SSL and the shared pool
+    // factory force-upgrades non-local hosts without an explicit sslmode, so
+    // every synthesized preview URL must state sslmode=disable.
+    expect(Buffer.from(bundle.runtimeSecret.data.PLATFORM_PREVIEW_POSTGRES_ADMIN_URL, "base64").toString("utf8")).toBe(
+      "postgresql://postgres:super-secret@chase-sets-pr-123-chase-sets-platform-preview-postgres:5432/postgres?sslmode=disable",
+    );
+    expect(Buffer.from(bundle.runtimeSecret.data.DATABASE_URL_CHECKOUT, "base64").toString("utf8")).toBe(
+      "postgresql://cs_preview_checkout:app-secret@chase-sets-pr-123-chase-sets-platform-preview-postgres:5432/chase_sets_preview_checkout?sslmode=disable",
+    );
+    expect(Buffer.from(bundle.runtimeSecret.data.DATABASE_URL_CATALOG_WAITER, "base64").toString("utf8")).toBe(
+      "postgresql://cs_preview_catalog:app-secret@chase-sets-pr-123-chase-sets-platform-preview-postgres:5432/chase_sets_preview_catalog?sslmode=disable",
+    );
+    expect(JSON.stringify(bundle)).not.toContain("super-secret");
+    expect(JSON.stringify(bundle)).not.toContain("app-secret");
+  });
+
+  it("never rewrites non-preview database URLs to sslmode=disable", () => {
+    const bundle = buildPlatformSecretBundle({
+      values: sampleValues,
+      namespace: "staging",
+      deploymentEnvironment: "staging",
+      env: {
+        DATABASE_URL_CHECKOUT:
+          "postgresql://cs_staging_checkout:managed@private-db.ondigitalocean.com:25061/chase_sets_staging_checkout?sslmode=require",
+        STRIPE_SECRET_KEY: "sk_test_secret",
+      },
+    });
+
+    expect(Buffer.from(bundle.runtimeSecret.data.DATABASE_URL_CHECKOUT, "base64").toString("utf8")).toBe(
+      "postgresql://cs_staging_checkout:managed@private-db.ondigitalocean.com:25061/chase_sets_staging_checkout?sslmode=require",
+    );
+    expect(bundle.previewPostgresSecret).toBeNull();
+    const decodedSecretValues = Object.values(bundle.runtimeSecret.data).map((value) =>
+      Buffer.from(value, "base64").toString("utf8"),
+    );
+    expect(decodedSecretValues.join("\n")).not.toContain("sslmode=disable");
   });
 
   it("applies the secret manifest through kubectl stdin", async () => {

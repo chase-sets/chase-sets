@@ -7,6 +7,7 @@ import { createFilesystemObjectStorage, createS3ObjectStorage } from "@chase-set
 import { createPlatformApiHost } from "./app";
 import { loadBootstrapConfig } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { ensurePreviewPostgresDatabases } from "./preview-postgres";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } from "./test-support/provider-gateways";
@@ -21,6 +22,9 @@ const DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS = 600_000;
 
 async function bootstrap() {
   const config = await runBootstrapPhase("load-config", () => loadBootstrapConfig());
+  if (config.previewPostgresAdminUrl) {
+    await runBootstrapPhase("preview-postgres-databases", () => ensurePreviewPostgresDatabases(config));
+  }
   const pools = await runBootstrapPhase("create-database-pools", () => createPlatformApiPools(config));
 
   try {

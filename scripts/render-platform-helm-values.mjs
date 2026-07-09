@@ -19,6 +19,9 @@ const stagingEnvironmentZone = "staging.chasesets.com";
 const doksIngressClassName = "nginx";
 const doksIngressClusterIssuer = "letsencrypt-production";
 const doksIngressTlsSecretName = "chase-sets-platform-doks-tls";
+const previewEnvironmentZone = "preview.chasesets.com";
+const previewPostgresPort = 5432;
+const previewPostgresSecretName = "chase-sets-preview-postgres";
 
 const platformApiIngressPrefixes = [
   "/.well-known",
@@ -48,6 +51,7 @@ const deploymentKindByTerraformKind = {
 
 const secretEnvFallbacks = new Set([
   "PLATFORM_CONTROL_DATABASE_URL",
+  "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL",
   "PLATFORM_WORK_SIGNAL_DATABASE_URL",
   "PLATFORM_INTERNAL_AUTH_SECRET",
   "PLATFORM_ADMIN_EMAIL",
@@ -207,6 +211,10 @@ export function platformHelmComponentName(componentName, options = {}) {
   return helmDnsName(`${platformHelmFullname(options)}-${componentName}`);
 }
 
+export function platformHelmPreviewPostgresName(options = {}) {
+  return helmDnsName(`${platformHelmFullname(options)}-preview-postgres`);
+}
+
 function platformApiInternalOrigin() {
   return `http://${platformHelmComponentName("platform-api")}:8080`;
 }
@@ -299,6 +307,28 @@ export function buildPlatformHelmValues(options = {}) {
       },
       hosts: [],
     },
+    previewPostgres: {
+      enabled: false,
+      image: {
+        // Same image as local dev (docker-compose.dev.yml) and CI DB-test
+        // service containers: Debian-based Postgres 16 with pgvector baked in.
+        // The discovery context's schema bootstrap runs CREATE EXTENSION
+        // vector, which plain postgres:16-alpine does not ship.
+        repository: "pgvector/pgvector",
+        tag: "pg16",
+        pullPolicy: "IfNotPresent",
+      },
+      service: {
+        port: previewPostgresPort,
+      },
+      secretName: previewPostgresSecretName,
+      superuserSecretKey: "POSTGRES_PASSWORD",
+      applicationSecretKey: "APP_DATABASE_PASSWORD",
+      storage: {
+        emptyDir: {},
+      },
+      resources: {},
+    },
     components: Object.fromEntries(components.map((component) => [component.name, toHelmComponent(component)])),
   };
 }
@@ -363,6 +393,25 @@ export function buildDoksIngressValues(options = {}) {
   };
 }
 
+export function buildPreviewDoksIngressValues(options = {}) {
+  const previewIdentifier = String(options.previewIdentifier ?? options.env?.PREVIEW_IDENTIFIER ?? "").trim();
+  if (!/^pr-[0-9]+$/.test(previewIdentifier)) {
+    throw new Error("Preview DOKS ingress requires a preview identifier like pr-123.");
+  }
+
+  return {
+    enabled: true,
+    className: doksIngressClassName,
+    clusterIssuer: doksIngressClusterIssuer,
+    annotations: {},
+    tls: {
+      enabled: true,
+      secretName: `${previewIdentifier}-platform-tls`,
+    },
+    hosts: buildPreviewDoksIngressHosts(previewIdentifier),
+  };
+}
+
 function buildDoksIngressHosts(hostMode) {
   const hosts =
     hostMode === "live"
@@ -394,6 +443,23 @@ function buildDoksIngressHosts(hostMode) {
     },
     {
       host: hosts.admin,
+      paths: doksIngressPaths("admin-web"),
+    },
+  ];
+}
+
+function buildPreviewDoksIngressHosts(previewIdentifier) {
+  return [
+    {
+      host: `${previewIdentifier}.${previewEnvironmentZone}`,
+      paths: doksIngressPaths("public-web"),
+    },
+    {
+      host: `marketplace.${previewIdentifier}.${previewEnvironmentZone}`,
+      paths: doksIngressPaths("marketplace"),
+    },
+    {
+      host: `admin.${previewIdentifier}.${previewEnvironmentZone}`,
       paths: doksIngressPaths("admin-web"),
     },
   ];
@@ -536,7 +602,14 @@ function helmInstanceCountExpression(component) {
 
 function helmEnv(component) {
   if (component.name === "platform-bootstrap") {
-    return component.env.filter((entry) => entry.name !== "PLATFORM_BOOTSTRAP_OWNER");
+    return [
+      ...component.env.filter((entry) => entry.name !== "PLATFORM_BOOTSTRAP_OWNER"),
+      {
+        name: "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL",
+        secret: true,
+        secretKey: "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL",
+      },
+    ].sort((left, right) => left.name.localeCompare(right.name, "en"));
   }
 
   return component.env;

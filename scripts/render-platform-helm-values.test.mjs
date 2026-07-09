@@ -6,6 +6,7 @@ import {
   buildDoksIngressValues,
   buildPlatformHelmValues,
   buildPlatformHelmStagingValues,
+  buildPreviewDoksIngressValues,
   chartValuesRelativePath,
   doksStagingWorkerEnvOverrides,
   extractDigitalOceanPlatformComponents,
@@ -35,7 +36,7 @@ function componentEnvValue(component, name) {
 function expectedHelmEnvKeys(terraformComponent) {
   const keys = componentEnvKeys(terraformComponent);
   if (terraformComponent.name === "platform-bootstrap") {
-    return keys.filter((key) => key !== "PLATFORM_BOOTSTRAP_OWNER");
+    return [...keys.filter((key) => key !== "PLATFORM_BOOTSTRAP_OWNER"), "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL"].sort();
   }
 
   return keys;
@@ -70,6 +71,16 @@ describe("render platform Helm values", () => {
         secretName: "chase-sets-platform-tls",
       },
       hosts: [],
+    });
+    expect(values.previewPostgres).toMatchObject({
+      enabled: false,
+      // Must match local dev and CI DB-test containers: the discovery schema
+      // bootstrap requires the pgvector extension, which postgres:*-alpine
+      // images do not ship.
+      image: { repository: "pgvector/pgvector", tag: "pg16" },
+      service: { port: 5432 },
+      secretName: "chase-sets-preview-postgres",
+      storage: { emptyDir: {} },
     });
     expect(values.global.imagePullSecrets).toEqual([]);
     expect(values.global.envOverrides).toEqual({});
@@ -296,6 +307,23 @@ describe("render platform Helm values", () => {
     ]);
   });
 
+  it("renders DOKS preview ingress hosts for a preview identifier", () => {
+    const previewIngress = buildPreviewDoksIngressValues({ previewIdentifier: "pr-123" });
+
+    expect(previewIngress.enabled).toBe(true);
+    expect(previewIngress.tls.secretName).toBe("pr-123-platform-tls");
+    expect(previewIngress.hosts.map((host) => host.host)).toEqual([
+      "pr-123.preview.chasesets.com",
+      "marketplace.pr-123.preview.chasesets.com",
+      "admin.pr-123.preview.chasesets.com",
+    ]);
+    expect(Object.fromEntries(previewIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
+      "pr-123.preview.chasesets.com": { path: "/", service: "public-web" },
+      "marketplace.pr-123.preview.chasesets.com": { path: "/", service: "marketplace" },
+      "admin.pr-123.preview.chasesets.com": { path: "/", service: "admin-web" },
+    });
+  });
+
   it("wires the worker startup/liveness/readiness probes in the deployment template", () => {
     const [helperTemplate] = readChartFiles(["templates/_helpers.tpl"]);
 
@@ -348,7 +376,7 @@ describe("render platform Helm values", () => {
       "admin-web": 5,
       marketplace: 13,
       "platform-api": 82,
-      "platform-bootstrap": 51,
+      "platform-bootstrap": 52,
       "platform-worker": 112,
       "public-web": 12,
     });
@@ -370,6 +398,7 @@ describe("render platform Helm values", () => {
       "templates/deployment.yaml",
       "templates/ingress.yaml",
       "templates/job.yaml",
+      "templates/preview-postgres.yaml",
       "templates/rbac.yaml",
       "templates/rollout.yaml",
       "templates/service.yaml",
@@ -397,6 +426,8 @@ describe("render platform Helm values", () => {
     expect(chartText).toContain("imagePullSecrets:");
     expect(chartText).toContain("global.envOverrides");
     expect(chartText).toContain("hasKey $envOverrides .name");
+    expect(chartText).toContain("previewPostgres:");
+    expect(chartText).toContain("preview-postgres");
   });
 
   it("models the opt-in Argo Rollout contract for public-web and marketplace", () => {

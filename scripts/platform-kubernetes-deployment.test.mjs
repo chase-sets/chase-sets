@@ -280,6 +280,43 @@ describe("platform Kubernetes deployment", () => {
     expect(args.filter((arg) => String(arg).includes("WORKER_PROJECTION_WAKE_RELAY_ENABLED"))).toEqual([]);
   });
 
+  it("derives CHASE_SETS_INTERNAL_API_ORIGIN from the release fullname so previews reach their own API", () => {
+    // The webs (admin-web, marketplace, public-web) resolve the current actor
+    // through the in-cluster platform-api Service. That Service name is derived
+    // from the release fullname (`<release>-<chart>-platform-api`), so an origin
+    // baked into values.yaml only resolves for the release it was rendered
+    // against (`chase-sets-platform`, i.e. staging/production). Previews deploy
+    // under release `chase-sets-pr-<n>`, so the baked host does not exist and the
+    // webs 500 with getaddrinfo ENOTFOUND / 503 on actor resolution. The chart
+    // must compute the origin from its own fullname helper instead.
+    const envHelper = readFileSync("infrastructure/helm/platform/templates/_helpers.tpl", "utf8");
+    const chartValues = readFileSync("infrastructure/helm/platform/values.yaml", "utf8");
+
+    // The env helper computes the origin from the platform-api component name
+    // (which is release-fullname-derived), not from the baked base value.
+    expect(envHelper).toContain('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    expect(envHelper).toContain(
+      'value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}',
+    );
+
+    // Precedence: an explicit envOverride still wins (it is checked first), and
+    // the computed origin sits ahead of the plain base-value fallback so the
+    // baked staging default can never leak into a preview release.
+    const globalOverrideBranch = envHelper.indexOf("hasKey $envOverrides .name");
+    const originBranch = envHelper.indexOf('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const baseValueBranch = envHelper.indexOf('value: {{ default "" .value | quote }}');
+    expect(globalOverrideBranch).toBeGreaterThan(-1);
+    expect(originBranch).toBeGreaterThan(globalOverrideBranch);
+    expect(baseValueBranch).toBeGreaterThan(originBranch);
+
+    // The chart base still declares the origin as a plain value (not a secret),
+    // otherwise the env helper's value branch would be bypassed entirely.
+    const baseOriginIndex = chartValues.indexOf('- name: "CHASE_SETS_INTERNAL_API_ORIGIN"');
+    expect(baseOriginIndex).toBeGreaterThan(-1);
+    const baseOriginEntry = chartValues.slice(baseOriginIndex, chartValues.indexOf("- name:", baseOriginIndex + 1));
+    expect(baseOriginEntry).not.toContain("secret");
+  });
+
   it("threads DOKS ingress Helm values only for staging when an ingress target is configured", () => {
     const stagingArgs = buildHelmUpgradeArgs({
       release: "staging-platform",
@@ -326,6 +363,78 @@ describe("platform Kubernetes deployment", () => {
     });
 
     expect(productionArgs).not.toContain("doksIngress.enabled=true");
+  });
+
+  it("enables preview Postgres and PR-specific ingress only for preview deployments", () => {
+    const previewArgs = buildHelmUpgradeArgs({
+      release: "chase-sets-pr-123",
+      namespace: "chase-sets-pr-123",
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:pr-123",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "preview",
+        PREVIEW_IDENTIFIER: "pr-123",
+      },
+    });
+
+    expect(previewArgs).toEqual(expect.arrayContaining(["--set", "previewPostgres.enabled=true"]));
+    expect(previewArgs).toEqual(
+      expect.arrayContaining([
+        "--set",
+        "doksIngress.enabled=true",
+        "--set-string",
+        "doksIngress.hosts[0].host=pr-123.preview.chasesets.com",
+        "--set-string",
+        "doksIngress.hosts[1].host=marketplace.pr-123.preview.chasesets.com",
+        "--set-string",
+        "doksIngress.hosts[2].host=admin.pr-123.preview.chasesets.com",
+      ]),
+    );
+  });
+
+  it("pins preview workloads to the dedicated preview node pool and keeps other environments off it", () => {
+    const previewArgs = buildHelmUpgradeArgs({
+      release: "chase-sets-pr-123",
+      namespace: "chase-sets-pr-123",
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:pr-123",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "preview",
+        PREVIEW_IDENTIFIER: "pr-123",
+      },
+    });
+
+    // The nodeSelector targets the staging cluster's preview pool label and
+    // the toleration matches its preview-only NoSchedule taint (#4745).
+    expect(previewArgs).toEqual(
+      expect.arrayContaining([
+        "--set-string",
+        "global.nodeSelector.chase-sets\\.com/pool=preview",
+        "--set-string",
+        "global.tolerations[0].key=chase-sets.com/preview-only",
+        "--set-string",
+        "global.tolerations[0].operator=Equal",
+        "--set-string",
+        "global.tolerations[0].value=true",
+        "--set-string",
+        "global.tolerations[0].effect=NoSchedule",
+      ]),
+    );
+
+    for (const environment of ["staging", "production"]) {
+      const args = buildHelmUpgradeArgs({
+        release: `${environment}-platform`,
+        namespace: environment,
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          DEPLOYMENT_ENVIRONMENT: environment,
+        },
+      });
+
+      expect(args.join("\n")).not.toContain("global.nodeSelector.chase-sets");
+      expect(args.join("\n")).not.toContain("preview-only");
+    }
   });
 
   it("escapes comma-separated runtime environment override values for Helm", () => {

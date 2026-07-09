@@ -3,7 +3,19 @@ moved {
   to   = digitalocean_app.platform
 }
 
+moved {
+  from = digitalocean_database_cluster.postgres
+  to   = digitalocean_database_cluster.postgres[0]
+}
+
+moved {
+  from = terraform_data.context_database_grants
+  to   = terraform_data.context_database_grants[0]
+}
+
 resource "digitalocean_database_cluster" "postgres" {
+  count = local.managed_postgres_enabled ? 1 : 0
+
   name             = "${local.name_prefix}-postgres"
   engine           = "pg"
   version          = var.postgres_version
@@ -199,14 +211,14 @@ check "production_tax_readiness" {
 }
 
 resource "digitalocean_database_db" "contexts" {
-  for_each   = local.context_databases
-  cluster_id = digitalocean_database_cluster.postgres.id
+  for_each   = local.managed_context_databases
+  cluster_id = digitalocean_database_cluster.postgres[0].id
   name       = each.value
 }
 
 resource "digitalocean_database_user" "contexts" {
-  for_each   = local.context_database_users
-  cluster_id = digitalocean_database_cluster.postgres.id
+  for_each   = local.managed_context_database_users
+  cluster_id = digitalocean_database_cluster.postgres[0].id
   name       = each.value
 }
 
@@ -216,14 +228,14 @@ resource "digitalocean_database_user" "contexts" {
 # event-store SELECT, never DML on domain tables.
 resource "digitalocean_database_user" "wake_listeners" {
   for_each   = local.wake_listener_database_users
-  cluster_id = digitalocean_database_cluster.postgres.id
+  cluster_id = digitalocean_database_cluster.postgres[0].id
   name       = each.value
 }
 
 resource "digitalocean_database_connection_pool" "contexts" {
   for_each = local.connection_pool_contexts
 
-  cluster_id = digitalocean_database_cluster.postgres.id
+  cluster_id = digitalocean_database_cluster.postgres[0].id
   name       = "${each.key}-runtime"
   mode       = "transaction"
   size       = local.context_database_connection_pool_sizes[each.key]
@@ -232,10 +244,12 @@ resource "digitalocean_database_connection_pool" "contexts" {
 }
 
 resource "terraform_data" "context_database_grants" {
+  count = local.managed_postgres_enabled ? 1 : 0
+
   triggers_replace = concat(
-    [digitalocean_database_cluster.postgres.id],
+    [digitalocean_database_cluster.postgres[0].id],
     [
-      for context_name in sort(keys(local.context_databases)) :
+      for context_name in sort(keys(local.managed_context_databases)) :
       "${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.contexts[context_name].id}"
     ],
   )
@@ -246,17 +260,17 @@ resource "terraform_data" "context_database_grants" {
 
     environment = {
       DATABASE_GRANTS_JSON = jsonencode([
-        for context_name in sort(keys(local.context_databases)) : {
+        for context_name in sort(keys(local.managed_context_databases)) : {
           database = digitalocean_database_db.contexts[context_name].name
           user     = digitalocean_database_user.contexts[context_name].name
         }
       ])
-      PGDATABASE = digitalocean_database_db.contexts[sort(keys(local.context_databases))[0]].name
-      PGHOST     = digitalocean_database_cluster.postgres.host
-      PGPASSWORD = digitalocean_database_cluster.postgres.password
-      PGPORT     = tostring(digitalocean_database_cluster.postgres.port)
+      PGDATABASE = digitalocean_database_db.contexts[sort(keys(local.managed_context_databases))[0]].name
+      PGHOST     = digitalocean_database_cluster.postgres[0].host
+      PGPASSWORD = digitalocean_database_cluster.postgres[0].password
+      PGPORT     = tostring(digitalocean_database_cluster.postgres[0].port)
       PGSSLMODE  = "require"
-      PGUSER     = digitalocean_database_cluster.postgres.user
+      PGUSER     = digitalocean_database_cluster.postgres[0].user
     }
   }
 
@@ -275,7 +289,7 @@ resource "terraform_data" "wake_listener_database_grants" {
   count = length(local.wake_listener_grant_contexts) > 0 ? 1 : 0
 
   triggers_replace = concat(
-    [digitalocean_database_cluster.postgres.id],
+    [digitalocean_database_cluster.postgres[0].id],
     [
       for context_name in sort(local.wake_listener_grant_contexts) :
       "${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.wake_listeners[context_name].id}"
@@ -295,11 +309,11 @@ resource "terraform_data" "wake_listener_database_grants" {
         }
       ])
       PGDATABASE = digitalocean_database_db.contexts[sort(local.wake_listener_grant_contexts)[0]].name
-      PGHOST     = digitalocean_database_cluster.postgres.host
-      PGPASSWORD = digitalocean_database_cluster.postgres.password
-      PGPORT     = tostring(digitalocean_database_cluster.postgres.port)
+      PGHOST     = digitalocean_database_cluster.postgres[0].host
+      PGPASSWORD = digitalocean_database_cluster.postgres[0].password
+      PGPORT     = tostring(digitalocean_database_cluster.postgres[0].port)
       PGSSLMODE  = "require"
-      PGUSER     = digitalocean_database_cluster.postgres.user
+      PGUSER     = digitalocean_database_cluster.postgres[0].user
     }
   }
 
@@ -1955,7 +1969,7 @@ resource "digitalocean_uptime_alert" "platform_down" {
 }
 
 resource "digitalocean_monitor_alert" "managed_postgres" {
-  for_each = var.managed_postgres_alerts_enabled && length(var.alert_emails) > 0 ? local.managed_postgres_alert_policies : {}
+  for_each = local.managed_postgres_enabled && var.managed_postgres_alerts_enabled && length(var.alert_emails) > 0 ? local.managed_postgres_alert_policies : {}
 
   description = each.value.description
   type        = each.value.type
@@ -1963,7 +1977,7 @@ resource "digitalocean_monitor_alert" "managed_postgres" {
   value       = each.value.value
   window      = each.value.window
   enabled     = true
-  entities    = [digitalocean_database_cluster.postgres.id]
+  entities    = [digitalocean_database_cluster.postgres[0].id]
 
   alerts {
     email = var.alert_emails

@@ -126,6 +126,7 @@ export type PlatformApiBootstrapConfig = PlatformApiBaseConfig &
   Readonly<{
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     platformAdmin: PlatformApiPlatformAdminConfig | null;
+    previewPostgresAdminUrl: string | null;
   }>;
 
 export type PlatformApiPlatformAdminConfig = Readonly<{
@@ -613,7 +614,21 @@ export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
     ...baseConfig,
     listingPhotoStorage: loadListingPhotoStorageConfig(baseConfig.port, productionLike, catalogAssetStorage),
     platformAdmin: loadPlatformAdminConfig(),
+    previewPostgresAdminUrl: loadPreviewPostgresAdminUrl(baseConfig.deploymentEnvironment),
   };
+}
+
+function loadPreviewPostgresAdminUrl(deploymentEnvironment: DeploymentEnvironment | undefined): string | null {
+  const adminUrl = getOptionalEnv("PLATFORM_PREVIEW_POSTGRES_ADMIN_URL");
+  if (!adminUrl) {
+    return null;
+  }
+
+  if (deploymentEnvironment !== "preview") {
+    throw new Error("PLATFORM_PREVIEW_POSTGRES_ADMIN_URL may only be configured for preview deployments.");
+  }
+
+  return adminUrl;
 }
 
 export function loadConfig(): PlatformApiConfig {

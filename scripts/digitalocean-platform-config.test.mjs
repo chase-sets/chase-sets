@@ -46,6 +46,12 @@ const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platf
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
+const platformKubernetesDeploymentScript = readFileSync(resolve("scripts/platform-kubernetes-deployment.mjs"), "utf8");
+const renderPlatformHelmValuesScript = readFileSync(resolve("scripts/render-platform-helm-values.mjs"), "utf8");
+const previewPostgresTemplate = readFileSync(
+  resolve("infrastructure/helm/platform/templates/preview-postgres.yaml"),
+  "utf8",
+);
 const platformPreviewCleanupWorkflow = readFileSync(resolve(".github/workflows/platform-preview-cleanup.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 const platformDigitalOceanDriftDigestWorkflow = readFileSync(
@@ -1377,9 +1383,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("local.production_additional_provisioned_context_names");
     // Provisioning locals (name tokens, databases, users) iterate the full
     // provisioned set. #4655 moved context_database_urls to iterate the active
-    // local.context_names (only active contexts get a query pool), so the
-    // provisioned-set iteration count drops from 4 to 3.
-    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(3);
+    // local.context_names (only active contexts get a query pool), and the
+    // per-preview in-cluster Postgres change (#4656) adds one provisioned-set
+    // comprehension for the synthesized preview URLs, so the provisioned-set
+    // iteration count is 4. Production provisioning semantics are unchanged.
+    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(4);
   });
 
   it("keeps production context database names within DigitalOcean limits", () => {
@@ -2280,12 +2288,33 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewJob).toContain("needs['e2e-tests'].result == 'success'");
     expect(previewJob).toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
     expect(previewJob).toContain("id: preview_domains");
-    expect(previewJob).toContain('echo "landing_domain_ready=${landing_domain_ready}" >> "$GITHUB_OUTPUT"');
-    expect(previewJob).toContain("SMOKE_REQUIRE_LANDING: ${{ steps.preview_domains.outputs.landing_domain_ready");
+    expect(previewJob).toContain('echo "landing_domain_ready=${landing_domain_ready}"');
+    expect(previewJob).toContain('} >> "$GITHUB_OUTPUT"');
+    // Landing-only smoke is gated on landing-domain readiness through
+    // SMOKE_REQUIRE_LANDING rather than a shell skip message: the smoke runner
+    // is told not to require landing when its ingress is not yet reachable.
     expect(previewJob).toContain(
-      "Preview landing domain ${landing_domain} is not active yet; landing-only smoke will be skipped.",
+      "SMOKE_REQUIRE_LANDING: ${{ steps.preview_domains.outputs.landing_domain_ready == 'true' && 'true' || 'false' }}",
     );
-    expect(previewJob).toContain('pnpm run smoke:platform -- "https://${landing_domain}"');
+    expect(previewJob).toContain('"https://${{ steps.preview_domains.outputs.landing_domain }}"');
+    expect(previewJob).toContain("pnpm run smoke:platform --");
+
+    // Optional provider endpoints must never be passed as empty --runtime-env
+    // overrides: the deploy script fails closed on empty values, and the Helm
+    // chart's preview env defaults already carry the retired App Platform
+    // preview posture when a repository variable is unset.
+    expect(previewJob).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"');
+    expect(previewJob).toContain(
+      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"',
+    );
+    expect(previewJob).toContain('add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"');
+    expect(previewJob).toContain('add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"');
+    expect(previewJob).toContain(
+      'add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"',
+    );
+    expect(previewJob).not.toContain('--runtime-env "STRIPE_API_BASE_URL=');
+    expect(previewJob).not.toContain('--runtime-env "EASYPOST_API_BASE_URL=');
+    expect(previewJob).not.toContain('--runtime-env "SES_');
 
     expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(requiredJob).toContain("needs['change-scope'].outputs.deploy == 'true'");
@@ -2552,6 +2581,90 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformDoksFoundationWorkflow).toContain("registry.digitalocean.com/chase-sets/chase-sets-platform");
     expect(platformDoksFoundationWorkflow).toContain("kubectl create job platform-image-pull-proof");
     expect(platformDoksFoundationWorkflow).toContain("platform-doks-foundation-${{ inputs.environment }}");
+  });
+
+  it("pins preview workloads to the dedicated preview node pool scheduling contract", () => {
+    // The staging DOKS preview node pool itself (label, taint, scale-to-zero
+    // autoscaling) ships separately with #4745 and is guarded by
+    // scripts/doks-preview-node-pool.test.mjs. This guard pins the deploy-side
+    // wiring: the preview deploy path pins every preview workload to the pool
+    // via nodeSelector + taint toleration; other environments never set these.
+    expect(platformKubernetesDeploymentScript).toContain('envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"');
+    expect(platformKubernetesDeploymentScript).toContain('"global.nodeSelector.chase-sets\\\\.com/pool=preview"');
+    expect(platformKubernetesDeploymentScript).toContain('"global.tolerations[0].key=chase-sets.com/preview-only"');
+    expect(platformKubernetesDeploymentScript).toContain('"global.tolerations[0].effect=NoSchedule"');
+
+    // The in-cluster preview Postgres pod schedules with the same values as
+    // the component workloads (which render them through the podSpec helper).
+    expect(previewPostgresTemplate).toContain(".Values.global.nodeSelector");
+    expect(previewPostgresTemplate).toContain(".Values.global.tolerations");
+  });
+
+  it("publishes and tears down per-preview DNS pointing at the DOKS ingress load balancer", () => {
+    const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const publishStep = workflowStep(deployJob, "Publish preview DNS records");
+
+    // Sourced from the DOKS_INGRESS_TARGET repository variable (never hardcoded),
+    // with a resolve-from-cluster fallback against the ingress-nginx controller.
+    expect(deployJob).toContain("DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}");
+    expect(publishStep).toContain('target="${DOKS_INGRESS_TARGET:-}"');
+    expect(publishStep).toContain("kubectl --namespace ingress-nginx get service ingress-nginx-controller");
+    expect(publishStep).toContain("{.status.loadBalancer.ingress[0].ip}");
+    expect(publishStep).toContain("node ./scripts/digitalocean-preview-cleanup-sweep.mjs apply-dns");
+    expect(publishStep).toContain('--pr-number "${{ github.event.pull_request.number }}"');
+    expect(publishStep).toContain('--target "$target"');
+
+    // DNS must exist before the Ingress is created (ACME HTTP-01) and before the
+    // ingress-URL readiness probes, so the apex + wildcard resolve.
+    const publishIndex = deployJob.indexOf("- name: Publish preview DNS records");
+    const deployIndex = deployJob.indexOf("- name: Deploy preview Kubernetes release");
+    const waitIndex = deployJob.indexOf("- name: Wait for preview ingress URLs");
+    expect(publishIndex).toBeGreaterThan(-1);
+    expect(publishIndex).toBeLessThan(deployIndex);
+    expect(deployIndex).toBeLessThan(waitIndex);
+
+    // Teardown removes the records in the closed-PR/scheduled cleanup workflow;
+    // Terraform destroy never sees them because they are created outside Terraform.
+    const destroyStep = workflowStep(platformPreviewCleanupWorkflow, "Delete preview DNS records");
+    expect(destroyStep).toContain("node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns");
+    expect(destroyStep).toContain('--pr-number "${{ matrix.pr_number }}"');
+
+    // Runbook documents the per-preview DNS lifecycle.
+    expect(digitaloceanPlatformRunbook).toContain(
+      "publishes this preview's own `pr-<number>.preview.chasesets.com` apex A record and a `*.pr-<number>.preview.chasesets.com` wildcard",
+    );
+  });
+
+  it("blocks on the preview ACME certificate before probing https ingress URLs", () => {
+    const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const certStep = workflowStep(deployJob, "Wait for preview TLS certificate");
+
+    // cert-manager's ingress-shim names the Certificate after the preview TLS
+    // secret, which the preview Helm values set to "<preview>-platform-tls".
+    expect(certStep).toContain('certificate_name="${PREVIEW_IDENTIFIER}-platform-tls"');
+    expect(certStep).toContain('namespace="$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(certStep).toContain('kubectl wait --for=condition=Ready "certificate/${certificate_name}"');
+    expect(certStep).toContain("--timeout=600s");
+    // Timeout surfaces a clear message and dumps cert-manager diagnostics.
+    expect(certStep).toContain('kubectl describe "certificate/${certificate_name}"');
+    expect(certStep).toContain("kubectl get certificaterequests,orders,challenges");
+    expect(certStep).toContain("kubectl describe challenges");
+
+    // The cert wait sits after the Helm deploy issues the Ingress and before the
+    // https ingress-URL readiness probes, which then pass quickly.
+    const deployIndex = deployJob.indexOf("- name: Deploy preview Kubernetes release");
+    const certIndex = deployJob.indexOf("- name: Wait for preview TLS certificate");
+    const waitIndex = deployJob.indexOf("- name: Wait for preview ingress URLs");
+    expect(certIndex).toBeGreaterThan(deployIndex);
+    expect(certIndex).toBeLessThan(waitIndex);
+
+    // The app-host https /health/ready probes remain the final end-to-end gate.
+    const waitStep = workflowStep(deployJob, "Wait for preview ingress URLs");
+    expect(waitStep).toContain('"https://${admin_domain}/health/ready"');
+    expect(waitStep).toContain('"https://${marketplace_domain}/health/ready"');
+
+    // The preview TLS certificate secret name matches the derived resource name.
+    expect(renderPlatformHelmValuesScript).toContain("secretName: `${previewIdentifier}-platform-tls`");
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
@@ -2840,7 +2953,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPreviewCleanupWorkflow).not.toContain("Wait for active App Platform deployment");
     expect(platformPreviewCleanupWorkflow).not.toContain("digitalocean-app-deployment.mjs");
     expect(digitaloceanPlatformRunbook).toContain(
-      "Terraform destroy should converge the remaining state; inspect the uploaded cleanup logs before removing the state key by hand.",
+      "Inspect the uploaded cleanup logs before removing a legacy state key by hand.",
     );
     expect(digitaloceanPlatformRunbook).not.toContain("waits for any active App Platform deployment to finish");
     expect(digitaloceanPlatformRunbook).not.toContain(
@@ -2997,7 +3110,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("read_traffic_to_standbys = false");
     expect(platformMain).toContain('check "production_database_standby_approval"');
     expect(platformMain).toContain('resource "digitalocean_monitor_alert" "managed_postgres"');
-    expect(platformMain).toContain("entities    = [digitalocean_database_cluster.postgres.id]");
+    expect(platformMain).toContain("entities    = [digitalocean_database_cluster.postgres[0].id]");
     expect(platformLocals).toContain('"v1/dbaas/alerts/disk_utilization_alerts"');
     expect(platformLocals).toContain('"v1/dbaas/alerts/memory_utilization_alerts"');
     expect(platformLocals).toContain('"v1/dbaas/alerts/cpu_alerts"');
@@ -3347,12 +3460,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID");
     expect(platformPrWorkflow).toContain("Preview deployments require Stripe test-mode keys.");
     expect(previewMoneySmokeStep).toContain("SMOKE_REGISTER_SELLER");
-    expect(previewMoneySmokeStep).toContain(
-      "PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}",
-    );
-    expect(previewMoneySmokeStep).toContain(
-      "PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}",
-    );
+    // The Kubernetes preview job no longer exports TF_VAR_platform_admin_* at
+    // job scope, so the money smoke reads admin credentials straight from
+    // repository secrets instead of falling back through Terraform variables.
+    expect(previewMoneySmokeStep).toContain("PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
+    expect(previewMoneySmokeStep).toContain("PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
     expect(previewMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: preview");
     expect(previewMoneySmokeStep).toContain(
       "SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.PREVIEW_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}",

@@ -17,7 +17,7 @@ The platform still needs near-real-time projection readiness. The existing polli
 - realtime SSE writes durable outbox rows and wakes browser streams;
 - scheduled/manual work can enqueue durable work or trigger worker runners.
 
-DigitalOcean infrastructure constrains the design. Staging and preview use Terraform-created per-context PgBouncer transaction pools for normal query traffic. `LISTEN` requires a direct or session-compatible connection, and the current context pool shape already consumes the practical pool-count budget. Production has historically used App Platform database bindings for context URLs, so production must be aligned to the same logical query/listener/control-plane topology as staging before push enablement.
+DigitalOcean infrastructure constrains the design. Staging uses Terraform-created per-context PgBouncer transaction pools for normal query traffic, while PR previews use disposable in-cluster Postgres and remain fallback-first. `LISTEN` requires a direct or session-compatible connection, and the current staging context pool shape already consumes the practical pool-count budget. Production has historically used App Platform database bindings for context URLs, so production must be aligned to the same logical query/listener/control-plane topology as staging before push enablement.
 
 ## Decision
 

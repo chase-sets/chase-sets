@@ -2,7 +2,11 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import process from "node:process";
-import { buildDoksIngressValues, buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
+import {
+  buildDoksIngressValues,
+  buildPlatformHelmValues,
+  buildPreviewDoksIngressValues,
+} from "./render-platform-helm-values.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
@@ -47,6 +51,36 @@ export function buildHelmUpgradeArgs(options = {}) {
   const doksIngressSetArgs =
     envOverrides.DEPLOYMENT_ENVIRONMENT === "staging"
       ? buildDoksIngressHelmSetArgs(buildDoksIngressValues({ env: options.env ?? {} }))
+      : envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"
+        ? buildDoksIngressHelmSetArgs(
+            buildPreviewDoksIngressValues({
+              env: options.env ?? {},
+              previewIdentifier: envOverrides.PREVIEW_IDENTIFIER ?? options.env?.PREVIEW_IDENTIFIER,
+            }),
+          )
+        : [];
+  const previewPostgresSetArgs =
+    envOverrides.DEPLOYMENT_ENVIRONMENT === "preview" ? ["--set", "previewPostgres.enabled=true"] : [];
+  // Preview workloads (including the in-cluster preview Postgres) schedule
+  // exclusively onto the dedicated staging preview node pool (#4745): the
+  // nodeSelector targets the pool label and the toleration matches its
+  // preview-only NoSchedule taint. Staging and production releases never set
+  // these, so their pods cannot land on preview nodes and previews cannot
+  // land on the staging runtime node.
+  const previewSchedulingSetArgs =
+    envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"
+      ? [
+          "--set-string",
+          "global.nodeSelector.chase-sets\\.com/pool=preview",
+          "--set-string",
+          "global.tolerations[0].key=chase-sets.com/preview-only",
+          "--set-string",
+          "global.tolerations[0].operator=Equal",
+          "--set-string",
+          "global.tolerations[0].value=true",
+          "--set-string",
+          "global.tolerations[0].effect=NoSchedule",
+        ]
       : [];
 
   return [
@@ -63,6 +97,8 @@ export function buildHelmUpgradeArgs(options = {}) {
     "--atomic",
     ...(environmentValuesPath ? ["--values", environmentValuesPath] : []),
     ...doksIngressSetArgs,
+    ...previewPostgresSetArgs,
+    ...previewSchedulingSetArgs,
     "--set-string",
     `global.image.registry=${image.registry}`,
     "--set-string",

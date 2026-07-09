@@ -138,6 +138,45 @@ describe("digitalocean-drift-digest", () => {
     );
   });
 
+  it("warns when a PR preview managed Postgres cluster exists", async () => {
+    const result = await runDigitalOceanDriftDigest(BASE_OPTIONS, {
+      execFile: async (_command, args) => {
+        if (args.join(" ") === "databases list --output json") {
+          return {
+            stdout: JSON.stringify([
+              {
+                id: "db-preview",
+                name: "chase-sets-pr-123-postgres",
+                status: "online",
+                created_at: "2026-07-01T00:00:00.000Z",
+              },
+            ]),
+          };
+        }
+        return { stdout: JSON.stringify(responseFor(args)) };
+      },
+    });
+
+    expect(result.record.resources.databases).toEqual([
+      expect.objectContaining({
+        id: "db-preview",
+        name: "chase-sets-pr-123-postgres",
+        classification: "forbidden-preview-managed-postgres",
+        terraformRoot: null,
+      }),
+    ]);
+    expect(result.record.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "preview-managed-postgres-violation",
+          resourceType: "database",
+          resourceName: "chase-sets-pr-123-postgres",
+          severity: "warning",
+        }),
+      ]),
+    );
+  });
+
   it("warns when the newest production database backup is stale", async () => {
     const result = await runDigitalOceanDriftDigest(BASE_OPTIONS, {
       execFile: async (_command, args) => {

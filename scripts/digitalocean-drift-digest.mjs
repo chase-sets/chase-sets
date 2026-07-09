@@ -119,7 +119,8 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
     collections: collection.collections,
     expectedResources: {
       apps: ["chase-sets-platform", "chase-sets-staging-platform", "chase-sets-pr-<number>-platform"],
-      databases: ["chase-sets-postgres", "chase-sets-staging-postgres", "chase-sets-pr-<number>-postgres"],
+      databases: ["chase-sets-postgres", "chase-sets-staging-postgres"],
+      forbiddenPreviewDatabases: ["chase-sets-pr-<number>-postgres"],
       restorePoints: [`${RESTORE_POINT_PREFIX}<release-timestamp>-<sha>`],
       restoreDrills: [`${RESTORE_DRILL_PREFIX}<yyyymmdd>-<run-id>-<attempt>`],
       registryRepositories: [options.repository],
@@ -603,6 +604,21 @@ function databaseFindings(database) {
       ),
     ];
   }
+  if (database.classification === "forbidden-preview-managed-postgres") {
+    return [
+      {
+        severity: "warning",
+        category: "preview-managed-postgres-violation",
+        resourceType: "database",
+        resourceName: database.name,
+        owner: "platform",
+        terraformRoot: null,
+        action:
+          "Delete this PR preview managed database cluster; previews must use disposable in-cluster Postgres in their Kubernetes namespace.",
+        evidence: { id: database.id, createdAt: database.createdAt },
+      },
+    ];
+  }
   return [];
 }
 
@@ -884,10 +900,10 @@ function classifyDatabase(name) {
   if (name.startsWith(RESTORE_DRILL_PREFIX)) {
     return "operator-managed";
   }
-  if (
-    ["chase-sets-postgres", "chase-sets-staging-postgres"].includes(name) ||
-    /^chase-sets-pr-\d+-postgres$/.test(name)
-  ) {
+  if (/^chase-sets-pr-\d+-postgres$/.test(name)) {
+    return "forbidden-preview-managed-postgres";
+  }
+  if (["chase-sets-postgres", "chase-sets-staging-postgres"].includes(name)) {
     return "terraform-managed";
   }
   return chaseSetsName(name) ? "unknown-chase-sets" : "external";
