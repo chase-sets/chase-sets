@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildDeploymentEvidence,
@@ -167,6 +168,62 @@ describe("platform Kubernetes deployment", () => {
         },
       }),
     ).not.toContain("--values");
+  });
+
+  it("guards the deploy-applied staging artifacts so the DOKS worker relay flag can never render false", () => {
+    // Deploy-artifact guard for issue #4743: the staging helm upgrade applies
+    // exactly (chart values.yaml) + (--values values.staging.yaml) + the
+    // --set-string args below, resolved by _helpers.tpl's env precedence
+    // (secret > component envOverrides > global envOverrides > base value).
+    // A render-level assertion on the generator constant is NOT enough — the
+    // regression this pins was invisible at render level: the merged fix sat
+    // in the repo while the applied estate kept relay=false (superseded
+    // deploys skipped the helm step; bootstrap-hook failures atomically
+    // rolled back to the pre-fix revision). This test pins every artifact the
+    // deploy actually reads.
+    const chartValues = readFileSync("infrastructure/helm/platform/values.yaml", "utf8");
+    const stagingValues = readFileSync("infrastructure/helm/platform/values.staging.yaml", "utf8");
+    const envHelper = readFileSync("infrastructure/helm/platform/templates/_helpers.tpl", "utf8");
+
+    // 1. The staging overlay — the artifact helm merges last — must carry the
+    //    relay flag as a platform-worker component override set to "true".
+    const overlaySection = stagingValues.slice(stagingValues.indexOf("platform-worker:"));
+    expect(overlaySection).toContain('WORKER_PROJECTION_WAKE_RELAY_ENABLED: "true"');
+
+    // 2. The chart base must still declare the env entry as a plain value
+    //    (previews stay relay-off; a secret-backed entry would bypass the
+    //    override branch in the env helper entirely).
+    expect(chartValues).toContain('- name: "WORKER_PROJECTION_WAKE_RELAY_ENABLED"');
+    const baseEntryIndex = chartValues.indexOf('- name: "WORKER_PROJECTION_WAKE_RELAY_ENABLED"');
+    const baseEntry = chartValues.slice(baseEntryIndex, chartValues.indexOf("- name:", baseEntryIndex + 1));
+    expect(baseEntry).toContain('value: "false"');
+    expect(baseEntry).not.toContain("secret");
+
+    // 3. The env helper's precedence must keep component envOverrides ahead of
+    //    global envOverrides ahead of the base value, so the staging overlay
+    //    wins over both the chart default and any --set-string global
+    //    override.
+    const componentBranch = envHelper.indexOf("hasKey $componentEnvOverrides .name");
+    const globalBranch = envHelper.indexOf("hasKey $envOverrides .name");
+    const baseBranch = envHelper.indexOf('value: {{ default "" .value | quote }}');
+    expect(componentBranch).toBeGreaterThan(-1);
+    expect(globalBranch).toBeGreaterThan(componentBranch);
+    expect(baseBranch).toBeGreaterThan(globalBranch);
+
+    // 4. The staging helm invocation must include the overlay and must not
+    //    smuggle a conflicting relay value through --set-string overrides.
+    const args = buildHelmUpgradeArgs({
+      release: "staging-platform",
+      namespace: "staging",
+      timeout: "12m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "staging",
+        CHASE_SETS_RUNTIME_PROFILE: "public",
+      },
+    });
+    expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.staging.yaml"]));
+    expect(args.filter((arg) => String(arg).includes("WORKER_PROJECTION_WAKE_RELAY_ENABLED"))).toEqual([]);
   });
 
   it("threads DOKS ingress Helm values only for staging when an ingress target is configured", () => {
