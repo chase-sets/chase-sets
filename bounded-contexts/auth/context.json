@@ -83,6 +83,7 @@
     },
     {
       "sourceContextName": "ordering",
+      "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
       "subscriptionVersion": 1,
       "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
@@ -91,6 +92,7 @@
     },
     {
       "sourceContextName": "fulfillment",
+      "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
       "subscriptionVersion": 1,
       "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
@@ -99,6 +101,7 @@
     },
     {
       "sourceContextName": "payments",
+      "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
       "subscriptionVersion": 1,
       "eventTypes": ["payments.refund-issued"],
@@ -138,6 +141,7 @@
     {
       "projectionName": "auth-agent-order-webhook-projection",
       "sourceContextNames": ["ordering", "fulfillment", "payments"],
+      "sourceContextMount": "when-all-sources-mounted",
       "ownedTables": ["identity_agent_webhook_deliveries"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "append-only-no-reset"

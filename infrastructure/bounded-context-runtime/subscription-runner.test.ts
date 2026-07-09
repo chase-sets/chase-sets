@@ -112,6 +112,58 @@ describe("bounded context subscription runner", () => {
     expect(runners).toEqual([]);
   });
 
+  it("skips all-sources subscriptions until every projection source context is mounted", () => {
+    const orderingPool = createMockPool();
+    const authPool = createMockPool();
+
+    const runners = resolveModuleSubscriptions([
+      {
+        contextName: "ordering",
+        module: {
+          contextName: "ordering",
+          buildSubscriptions: () => [],
+        } as unknown as BcApiModule,
+        services: {},
+        pool: orderingPool as never,
+        projectionHandlerSets: [],
+      },
+      {
+        contextName: "auth",
+        module: {
+          contextName: "auth",
+          projectionGroups: [
+            {
+              projectionName: "auth-agent-order-webhook-projection",
+              sourceContextNames: ["ordering", "payments"],
+              sourceContextMount: "when-all-sources-mounted",
+              ownedTables: ["identity_agent_webhook_deliveries"],
+              resetStrategy: "append-only-no-reset",
+              requiredDuringBootstrap: false,
+            },
+          ],
+          buildSubscriptions: () => [
+            {
+              subscriptionName: "auth.agent-order-webhook-projection",
+              sourceContextName: "ordering",
+              sourceContextMount: "when-all-sources-mounted",
+              projectionName: "auth-agent-order-webhook-projection",
+              subscriptionVersion: 1,
+              handlers: {
+                "ordering.order.created": async () => undefined,
+              },
+              eventTypes: ["ordering.order.created"],
+            },
+          ],
+        } as unknown as BcApiModule,
+        services: {},
+        pool: authPool as never,
+        projectionHandlerSets: [],
+      },
+    ]);
+
+    expect(runners).toEqual([]);
+  });
+
   it("derives event filters from handler keys when no eventTypes are declared", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

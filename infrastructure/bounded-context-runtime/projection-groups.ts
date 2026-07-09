@@ -81,6 +81,7 @@ export type ContextProjectionGroup = Readonly<{
   projectionRevision: number;
   targetContextName: string;
   sourceContextNames: readonly string[];
+  sourceContextMount?: BcProjectionGroup["sourceContextMount"];
   optionalSourceContextNames: readonly string[];
   ownedTables: readonly string[];
   resetStrategy?: BcProjectionGroupResetStrategy;
@@ -395,6 +396,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
       projectionRevision,
       targetContextName: entry.contextName,
       sourceContextNames,
+      sourceContextMount: group.sourceContextMount,
       optionalSourceContextNames,
       ownedTables,
       resetStrategy: group.resetStrategy,
@@ -514,6 +516,13 @@ export function resolveModuleProjectionGroups(
           (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
         ),
       );
+      if (
+        group.sourceContextMount === "when-all-sources-mounted" &&
+        !group.sourceContextNames.every((sourceContextName) => mountedContextNames.has(sourceContextName))
+      ) {
+        continue;
+      }
+
       if (groupRunners.length === 0) {
         const onlyUnmountedOptionalSources = group.sourceContextNames.every(
           (sourceContextName) =>

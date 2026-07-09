@@ -173,7 +173,7 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly order?: number;
 }>;
 
-export type BcSourceContextMount = "required" | "when-mounted";
+export type BcSourceContextMount = "required" | "when-mounted" | "when-all-sources-mounted";
 
 export type BcSubscriptionHandlerKind = "projection" | "reaction";
 export type BcReactionIdempotencyPolicy = "idempotent-command-dispatch";
@@ -205,6 +205,7 @@ export type BcProjectionGroupDeclaration = Readonly<{
   readonly handlerKind?: BcSubscriptionHandlerKind;
   readonly projectionRevision?: number;
   readonly sourceContextNames: readonly string[];
+  readonly sourceContextMount?: BcSourceContextMount;
   readonly optionalSourceContextNames?: readonly string[];
   readonly ownedTables: readonly string[];
   readonly sideEffectOnly?: boolean;

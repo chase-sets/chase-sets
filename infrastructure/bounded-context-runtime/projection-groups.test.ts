@@ -173,6 +173,28 @@ describe("bounded context projection groups", () => {
     expect(groups).toEqual([]);
   });
 
+  it("omits all-sources-mounted projection groups when any source context is unmounted", () => {
+    const targetPool = createMockPool();
+
+    const groups = createProjectionGroupRuntime(
+      "auth",
+      targetPool,
+      [
+        {
+          projectionName: "auth-agent-order-webhook-projection",
+          sourceContextNames: ["ordering", "payments"],
+          sourceContextMount: "when-all-sources-mounted",
+          ownedTables: ["identity_agent_webhook_deliveries"],
+          resetStrategy: "append-only-no-reset",
+          requiredDuringBootstrap: false,
+        },
+      ],
+      [],
+    );
+
+    expect(groups).toEqual([]);
+  });
+
   it("fails closed when a side-effect projection group declares owned tables", async () => {
     const targetPool = createMockPool();
 

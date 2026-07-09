@@ -521,8 +521,6 @@
     }
   },
   "runtimeDeployables": ["platform-worker"],
-  "sourceRuntimeDeployables": ["platform-worker"],
-  "sourceRuntimeProfiles": ["landing"],
   "apiRuntimeProfiles": ["proof", "public"],
   "workerRuntimeProfiles": ["proof", "public"]
 }
