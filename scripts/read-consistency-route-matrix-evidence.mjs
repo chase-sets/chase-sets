@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -71,6 +71,7 @@ export function parseReadConsistencyRouteMatrixEvidenceArgs(argv, env = process.
       readOption(argv, "--out") ??
       readEnv("READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_OUT", env) ??
       "artifacts/wake-drills/read-consistency-route-matrix-evidence.json",
+    samplerFile: readOption(argv, "--sampler-file") ?? readEnv("READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_FILE", env),
   };
 }
 
@@ -91,7 +92,34 @@ export function validateReadConsistencyRouteMatrixEvidenceOptions(options) {
   return errors;
 }
 
-export async function runReadConsistencyRouteMatrixEvidence(options, queryPrometheus = null) {
+/**
+ * Optional join against the route-matrix sampler artifact (issue #4721): the
+ * sampler self-generates traffic where the m53 design permits and records a
+ * support-safe blocker for every route it cannot drive (private/representative
+ * commerce state, unconfigured observation inputs). Without the join, a
+ * blocked-by-design route with zero in-window samples is indistinguishable
+ * from a regression, and the evidence stays red on every ambient-less window.
+ */
+export function samplerRoutesByTemplate(samplerReport) {
+  if (!samplerReport || !Array.isArray(samplerReport.routes)) {
+    return new Map();
+  }
+
+  return new Map(
+    samplerReport.routes
+      .filter((route) => isNonEmptyString(route?.routeTemplate))
+      .map((route) => [
+        route.routeTemplate,
+        {
+          status: isNonEmptyString(route.status) ? route.status : "unknown",
+          outcomeCategory: isNonEmptyString(route.outcomeCategory) ? route.outcomeCategory : null,
+          blockerCategory: isNonEmptyString(route.blockerCategory) ? route.blockerCategory : null,
+        },
+      ]),
+  );
+}
+
+export async function runReadConsistencyRouteMatrixEvidence(options, queryPrometheus = null, samplerReport = null) {
   const query =
     queryPrometheus ??
     ((prometheusQuery) =>
@@ -99,6 +127,7 @@ export async function runReadConsistencyRouteMatrixEvidence(options, queryPromet
         prometheusUrl: options.prometheusUrl,
         prometheusToken: options.prometheusToken,
       }));
+  const samplerRoutes = samplerRoutesByTemplate(samplerReport);
   const globalWorkSignalErrorRate = await query(workSignalErrorRateQuery(options.window));
   const routes = [];
 
@@ -125,17 +154,21 @@ export async function runReadConsistencyRouteMatrixEvidence(options, queryPromet
     ]);
 
     routes.push(
-      routeMatrixRouteEvidence(route, {
-        sampleCount,
-        p95Ms,
-        p99Ms,
-        timeoutRate,
-        workSignalErrorRate: globalWorkSignalErrorRate,
-        missingReceiptCount,
-        diagnosticMissingReceiptCount,
-        missingTargetContextCount,
-        exactDependencyFallbackCount: fallbackCount,
-      }),
+      routeMatrixRouteEvidence(
+        route,
+        {
+          sampleCount,
+          p95Ms,
+          p99Ms,
+          timeoutRate,
+          workSignalErrorRate: globalWorkSignalErrorRate,
+          missingReceiptCount,
+          diagnosticMissingReceiptCount,
+          missingTargetContextCount,
+          exactDependencyFallbackCount: fallbackCount,
+        },
+        samplerRoutes.get(route.routeTemplate) ?? null,
+      ),
     );
   }
 
@@ -165,6 +198,15 @@ export function buildReadConsistencyRouteMatrixEvidence(input) {
       diagnosticMissingReceiptCount: nonNegativeInteger(route.wakeBeforeWait.diagnosticMissingReceiptCount),
       missingTargetContextCount: nonNegativeInteger(route.wakeBeforeWait.missingTargetContextCount),
       exactDependencyFallbackCount: nonNegativeInteger(route.wakeBeforeWait.exactDependencyFallbackCount),
+      ...(route.wakeBeforeWait.sampler
+        ? {
+            sampler: {
+              status: route.wakeBeforeWait.sampler.status,
+              outcomeCategory: route.wakeBeforeWait.sampler.outcomeCategory ?? null,
+              blockerCategory: route.wakeBeforeWait.sampler.blockerCategory ?? null,
+            },
+          }
+        : {}),
       targetContext: route.targetContext,
       projectionName: route.projectionName,
     },
@@ -193,13 +235,19 @@ export function buildReadConsistencyRouteMatrixEvidence(input) {
     summary: {
       routeCount: routes.length,
       passingRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "pass").length,
+      failingRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "fail").length,
+      // Blocked = the sampler recorded a support-safe blocker and the window
+      // held zero samples: a coverage gap to close (issue #4721), never proof
+      // of wake health and never conflated with a failing route.
+      blockedRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "blocked").length,
+      coverage: routes.some((route) => route.wakeBeforeWait.status === "blocked") ? "partial" : "full",
       globalWorkSignalErrorRate: nonNegativeRate(input.globalWorkSignalErrorRate),
     },
     routes,
   };
 }
 
-export function routeMatrixRouteEvidence(route, measurement) {
+export function routeMatrixRouteEvidence(route, measurement, samplerRoute = null) {
   const sampleCount = nonNegativeInteger(measurement.sampleCount);
   const p95Ms = nullableNonNegativeInteger(measurement.p95Ms);
   const p99Ms = nullableNonNegativeInteger(measurement.p99Ms);
@@ -209,7 +257,7 @@ export function routeMatrixRouteEvidence(route, measurement) {
   const diagnosticMissingReceiptCount = nonNegativeInteger(measurement.diagnosticMissingReceiptCount);
   const missingTargetContextCount = nonNegativeInteger(measurement.missingTargetContextCount);
   const exactDependencyFallbackCount = nonNegativeInteger(measurement.exactDependencyFallbackCount);
-  const status =
+  const metricStatus =
     sampleCount > 0 &&
     p95Ms !== null &&
     p99Ms !== null &&
@@ -220,6 +268,12 @@ export function routeMatrixRouteEvidence(route, measurement) {
     exactDependencyFallbackCount === 0
       ? "pass"
       : "fail";
+  // A route the sampler could not drive (support-safe blocker recorded) with
+  // zero in-window samples is a coverage gap, not an SLO regression: report it
+  // as `blocked` so the m53 evidence distinguishes "no traffic possible" from
+  // "traffic present and failing" (issue #4721). Ambient samples always win —
+  // any nonzero sampleCount keeps the strict metric-based verdict.
+  const status = samplerRoute?.status === "blocked" && sampleCount === 0 ? "blocked" : metricStatus;
 
   return {
     routeTemplate: route.routeTemplate,
@@ -240,6 +294,15 @@ export function routeMatrixRouteEvidence(route, measurement) {
       diagnosticMissingReceiptCount,
       missingTargetContextCount,
       exactDependencyFallbackCount,
+      ...(samplerRoute
+        ? {
+            sampler: {
+              status: samplerRoute.status,
+              outcomeCategory: samplerRoute.outcomeCategory,
+              blockerCategory: samplerRoute.blockerCategory,
+            },
+          }
+        : {}),
     },
   };
 }
@@ -375,13 +438,29 @@ async function main(argv, env = process.env) {
     }
     return 2;
   }
-  const evidence = await runReadConsistencyRouteMatrixEvidence(options);
+  let samplerReport = null;
+  if (isNonEmptyString(options.samplerFile)) {
+    try {
+      samplerReport = JSON.parse(await readFile(options.samplerFile, "utf8"));
+    } catch (error) {
+      console.error(
+        `--sampler-file '${options.samplerFile}' could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return 2;
+    }
+  }
+  const evidence = await runReadConsistencyRouteMatrixEvidence(options, null, samplerReport);
   if (options.outPath) {
     await mkdir(dirname(options.outPath), { recursive: true });
     await writeFile(options.outPath, `${JSON.stringify(evidence, null, 2)}\n`);
   }
   console.log(JSON.stringify(evidence, null, 2));
-  return evidence.routes.every((route) => route.wakeBeforeWait.status === "pass") ? 0 : 1;
+  // Fail only on routes with real in-window signal that breaches. Routes the
+  // sampler recorded as blocked-by-design surface as `blocked` with
+  // coverage: "partial" — a loudly reported coverage gap, not gate noise that
+  // reads identically to a wake regression (issue #4721). The release-health
+  // report keeps treating any non-pass route as not-passing evidence.
+  return evidence.routes.some((route) => route.wakeBeforeWait.status === "fail") ? 1 : 0;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

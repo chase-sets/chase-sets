@@ -29,6 +29,10 @@ on:
 
 permissions:
   contents: read
+  # Deploy-quiescence gate (issue #4721): the sampler's self-generated traffic
+  # must not race an in-flight staging rollout, so the job lists Platform
+  # Deploy runs before driving samples.
+  actions: read
 
 concurrency:
   group: platform-staging-route-matrix-evidence
@@ -129,6 +133,76 @@ jobs:
             exit 1
           fi
 
+      - name: Await deploy quiescence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_QUIESCENCE_BUDGET_S: ${{ vars.STAGING_ROUTE_MATRIX_DEPLOY_QUIESCENCE_BUDGET_S || '1500' }}
+          DEPLOY_QUIESCENCE_POLL_INTERVAL_S: ${{ vars.STAGING_ROUTE_MATRIX_DEPLOY_QUIESCENCE_POLL_INTERVAL_S || '30' }}
+        run: |
+          set -euo pipefail
+          # Issue #4721: run 28996898078 drove its checkout samples while a
+          # Platform Deploy was rolling the staging fleet (05:33:50-05:50:29Z),
+          # so every receipt-backed evaluation in the window timed out and the
+          # evidence read as a wake regression. Wait (bounded) until no deploy
+          # run is in progress before generating traffic. Timing gate only:
+          # on budget exhaustion we proceed and let the samples fail loudly.
+          deadline=$((SECONDS + DEPLOY_QUIESCENCE_BUDGET_S))
+          while :; do
+            in_flight="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/platform-production.yml/runs?status=in_progress&per_page=1" --jq '.total_count' 2>/dev/null || echo 0)"
+            queued="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/platform-production.yml/runs?status=queued&per_page=1" --jq '.total_count' 2>/dev/null || echo 0)"
+            if [ "${in_flight:-0}" = "0" ] && [ "${queued:-0}" = "0" ]; then
+              echo "No Platform Deploy runs in flight; proceeding with route-matrix sampling."
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::warning::Platform Deploy still in flight after ${DEPLOY_QUIESCENCE_BUDGET_S}s; route-matrix samples may race the rollout." \
+                | tee -a "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+            echo "Platform Deploy in flight (running=${in_flight}, queued=${queued}); waiting ${DEPLOY_QUIESCENCE_POLL_INTERVAL_S}s..."
+            sleep "${DEPLOY_QUIESCENCE_POLL_INTERVAL_S}"
+          done
+
+      - name: Await staging projection convergence
+        env:
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          PROJECTION_CONVERGENCE_BUDGET_MS: ${{ vars.STAGING_PROJECTION_CONVERGENCE_BUDGET_MS || '300000' }}
+          PROJECTION_CONVERGENCE_POLL_INTERVAL_MS: ${{ vars.STAGING_PROJECTION_CONVERGENCE_POLL_INTERVAL_MS || '5000' }}
+          PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'all' }}
+        run: |
+          set -euo pipefail
+          gate_out=artifacts/wake-drills/route-matrix-projection-convergence-gate.json
+          # Bounded convergence gate (issues #4709/#4721, same mode the deploy
+          # probes use): wait for staging projections to report caught-up after
+          # any recent rollout before driving samples. Timing gate only; the
+          # samples and evidence still fail loudly on steady-state breaches.
+          set +e
+          pnpm run guest-buy-now:freshness-probe -- \
+            --convergence-gate \
+            --environment staging \
+            --admin-base-url "https://admin.staging.chasesets.com" \
+            --convergence-budget-ms "${PROJECTION_CONVERGENCE_BUDGET_MS}" \
+            --convergence-poll-interval-ms "${PROJECTION_CONVERGENCE_POLL_INTERVAL_MS}" \
+            --convergence-projection-names "${PROJECTION_CONVERGENCE_PROJECTION_NAMES}" \
+            --out "$gate_out"
+          gate_exit=$?
+          set -e
+          converged="$(jq -r '.gate.converged // "unknown"' "$gate_out" 2>/dev/null || echo unknown)"
+          converged_after_ms="$(jq -r '.gate.convergedAfterMs // "did not converge"' "$gate_out" 2>/dev/null || echo unknown)"
+          lagging="$(jq -r '(.gate.final.laggingGroups // []) | join(", ")' "$gate_out" 2>/dev/null || echo "")"
+          {
+            echo "## Route-matrix projection convergence gate"
+            echo ""
+            echo "| Converged | Converged after (ms) | Budget (ms) | Lagging groups |"
+            echo "| --- | --- | --- | --- |"
+            echo "| ${converged} | ${converged_after_ms} | ${PROJECTION_CONVERGENCE_BUDGET_MS} | ${lagging:-none} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$gate_exit" -ne 0 ]; then
+            echo "Route-matrix projection convergence gate failed to run (exit ${gate_exit})." >&2
+            exit 1
+          fi
+
       - name: Drive checkout route-matrix sample
         env:
           GUEST_BUY_NOW_PROBE_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
@@ -219,6 +293,7 @@ jobs:
             --prometheus-token "${PROMETHEUS_QUERY_TOKEN}" \
             --environment "${ROUTE_MATRIX_EVIDENCE_ENVIRONMENT}" \
             --window "${ROUTE_MATRIX_EVIDENCE_WINDOW}" \
+            --sampler-file "${READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT}" \
             --out "${READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_OUT}"
 
       - name: Summarize route-matrix evidence
@@ -267,6 +342,9 @@ jobs:
               "- checkedAt: " + (.checkedAt // "unknown"),
               "- window: " + (.window // "unknown"),
               "- routes: " + ((.summary.passingRouteCount | tostring) + "/" + (.summary.routeCount | tostring) + " passing"),
+              "- failing: " + ((.summary.failingRouteCount // "unknown") | tostring),
+              "- blocked (coverage gap, not SLO signal): " + ((.summary.blockedRouteCount // "unknown") | tostring),
+              "- coverage: " + (.summary.coverage // "unknown"),
               "",
               "| Route | Status | Samples | p95 | p99 | Target | Projection |",
               "| --- | --- | ---: | ---: | ---: | --- | --- |",
