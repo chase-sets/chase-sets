@@ -9,6 +9,11 @@ import {
   type AgentOAuthScope,
 } from "@chase-sets/auth-context";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import {
+  isAgentGrantRail,
+  type AgentGrantConsentDirectory,
+  type AgentSpendingMandate,
+} from "@chase-sets/platform-runtime/agent-guardrails";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AuthServices } from "../runtime-support/services";
@@ -131,6 +136,9 @@ export type UcpOAuthRoutesOptions = Readonly<{
   }>;
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
   fetchClientIdMetadata?: (url: string) => Promise<unknown>;
+  // Per-grant spending mandates (agent consent state). Surfaced in introspection and the
+  // connected-agents listing, and configured through the mandate endpoint.
+  agentGrantConsent?: AgentGrantConsentDirectory;
 }>;
 
 const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
@@ -497,6 +505,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     }
 
     const scopes = normalizeScopes(authorization.scopes);
+    const mandate = await options.agentGrantConsent?.resolveMandate(authorization.authorization_id);
     return c.json({
       active: true,
       client_id: authorization.client_id,
@@ -506,6 +515,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       platform_profile_url: authorization.platform_profile_url,
       scope: scopes.join(" "),
       exp: Math.floor(new Date(authorization.access_token_expires_at).getTime() / 1000),
+      ...(mandate ? { spending_mandate: mandateToJson(mandate) } : {}),
     });
   });
 
@@ -530,21 +540,34 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     }
 
     const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
+    const consent = options.agentGrantConsent;
     return c.json({
-      authorizations: authorizations.map((authorization) => ({
-        id: authorization.authorization_id,
-        platform_profile_url: authorization.platform_profile_url,
-        client_id: authorization.client_id,
-        scopes: normalizeScopes(authorization.scopes),
-        status: authorization.status,
-        access_token_expires_at: authorization.access_token_expires_at,
-        refresh_token_expires_at: authorization.refresh_token_expires_at,
-        granted_at: authorization.granted_at,
-        last_refreshed_at: authorization.last_refreshed_at,
-        revoked_at: authorization.revoked_at,
-        revocation_reason: authorization.revocation_reason,
-        updated_at: authorization.updated_at,
-      })),
+      authorizations: await Promise.all(
+        authorizations.map(async (authorization) => {
+          const [mandate, spend] = consent
+            ? await Promise.all([
+                consent.resolveMandate(authorization.authorization_id),
+                consent.getSpendSummary(authorization.authorization_id),
+              ])
+            : [undefined, undefined];
+          return {
+            id: authorization.authorization_id,
+            platform_profile_url: authorization.platform_profile_url,
+            client_id: authorization.client_id,
+            scopes: normalizeScopes(authorization.scopes),
+            status: authorization.status,
+            access_token_expires_at: authorization.access_token_expires_at,
+            refresh_token_expires_at: authorization.refresh_token_expires_at,
+            granted_at: authorization.granted_at,
+            last_refreshed_at: authorization.last_refreshed_at,
+            revoked_at: authorization.revoked_at,
+            revocation_reason: authorization.revocation_reason,
+            updated_at: authorization.updated_at,
+            ...(mandate ? { spending_mandate: mandateToJson(mandate) } : {}),
+            ...(spend ? { spend: { daily_cents: spend.dailyCents, monthly_cents: spend.monthlyCents } } : {}),
+          };
+        }),
+      ),
     });
   });
 
@@ -563,7 +586,88 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     return c.json({ revoked });
   });
 
+  // Configure the spending mandate for a linked agent grant. This is the opt-in a person
+  // makes (during consent or the connected-agents UI) to move off the conservative default.
+  app.put("/authorizations/:id/mandate", async (c) => {
+    if (!options.agentGrantConsent) {
+      return c.json({ error: "unsupported", error_description: "Spending mandates are not configured." }, 404);
+    }
+
+    const actor = await options.resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "login_required" }, 401);
+    }
+
+    const authorizationId = c.req.param("id");
+    const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
+    if (!authorizations.some((authorization) => authorization.authorization_id === authorizationId)) {
+      return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
+    }
+
+    const body = readObject(await c.req.json().catch(() => null));
+    const parsed = parseSpendingMandate(body);
+    if (!parsed.ok) {
+      return c.json({ error: "invalid_request", error_description: parsed.error }, 400);
+    }
+
+    await options.agentGrantConsent.setMandate({
+      grantId: authorizationId,
+      accountId: actor.accountId,
+      mandate: parsed.mandate,
+    });
+    const mandate = await options.agentGrantConsent.resolveMandate(authorizationId);
+    return c.json({ spending_mandate: mandateToJson(mandate) });
+  });
+
   return app;
+}
+
+function mandateToJson(mandate: AgentSpendingMandate) {
+  return {
+    max_per_order_cents: mandate.maxPerOrderCents,
+    daily_cap_cents: mandate.dailyCapCents,
+    monthly_cap_cents: mandate.monthlyCapCents,
+    human_present_required: mandate.humanPresentRequired,
+    allowed_rails: mandate.allowedRails,
+  };
+}
+
+function parseSpendingMandate(
+  body: Readonly<Record<string, unknown>> | null,
+): { ok: true; mandate: AgentSpendingMandate } | { ok: false; error: string } {
+  if (!body) {
+    return { ok: false, error: "A spending mandate body is required." };
+  }
+
+  const maxPerOrderCents = readCentsOrNull(body.max_per_order_cents);
+  const dailyCapCents = readCentsOrNull(body.daily_cap_cents);
+  const monthlyCapCents = readCentsOrNull(body.monthly_cap_cents);
+  if (maxPerOrderCents === "invalid" || dailyCapCents === "invalid" || monthlyCapCents === "invalid") {
+    return { ok: false, error: "Spending caps must be non-negative integer cent amounts or null." };
+  }
+
+  const rawRails = body.allowed_rails;
+  if (!Array.isArray(rawRails) || rawRails.length === 0 || !rawRails.every(isAgentGrantRail)) {
+    return { ok: false, error: "allowed_rails must list one or more supported payment rails." };
+  }
+
+  return {
+    ok: true,
+    mandate: {
+      maxPerOrderCents,
+      dailyCapCents,
+      monthlyCapCents,
+      humanPresentRequired: body.human_present_required !== false,
+      allowedRails: [...new Set(rawRails)],
+    },
+  };
+}
+
+function readCentsOrNull(value: unknown): number | null | "invalid" {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : "invalid";
 }
 
 async function refreshAccessToken(c: Context, options: UcpOAuthRoutesOptions, body: Readonly<Record<string, unknown>>) {

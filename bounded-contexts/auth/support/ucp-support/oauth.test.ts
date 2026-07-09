@@ -362,7 +362,94 @@ describe("UCP OAuth routes", () => {
       authorizations: [{ id: "lpa_1", status: "revoked" }],
     });
   });
+
+  it("surfaces and configures the per-grant spending mandate for the connected agent", async () => {
+    const agentGrantConsent = createInMemoryConsentDirectory();
+    const options = createOAuthOptions({ agentGrantConsent });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    await options.linkedPlatformAuthorizations.grant({
+      authorizationId: "lpa_1",
+      platformProfileUrl: "https://agent.example/.well-known/ucp",
+      clientId: "agent-client",
+      userId: "user_1",
+      accountId: "account_1",
+      scopes: ["catalog:read"],
+      accessTokenHash: "hash:access",
+      refreshTokenHash: "hash:refresh",
+      accessTokenExpiresAt: "2026-05-16T20:00:00.000Z",
+      refreshTokenExpiresAt: "2026-06-16T20:00:00.000Z",
+      grantedAt: "2026-05-16T19:00:00.000Z",
+    });
+
+    // Defaults to the conservative handoff-only mandate before any opt-in.
+    const before = await app.request("/ucp/oauth/authorizations");
+    await expect(before.json()).resolves.toMatchObject({
+      authorizations: [
+        {
+          id: "lpa_1",
+          spending_mandate: { human_present_required: true, allowed_rails: ["handoff-only"] },
+          spend: { daily_cents: 0, monthly_cents: 0 },
+        },
+      ],
+    });
+
+    const configured = await app.request("/ucp/oauth/authorizations/lpa_1/mandate", {
+      method: "PUT",
+      body: JSON.stringify({
+        max_per_order_cents: 4_000,
+        daily_cap_cents: 5_000,
+        monthly_cap_cents: 20_000,
+        human_present_required: false,
+        allowed_rails: ["ap2"],
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(configured.status).toBe(200);
+    await expect(configured.json()).resolves.toEqual({
+      spending_mandate: {
+        max_per_order_cents: 4_000,
+        daily_cap_cents: 5_000,
+        monthly_cap_cents: 20_000,
+        human_present_required: false,
+        allowed_rails: ["ap2"],
+      },
+    });
+
+    // Rejects an invalid rail.
+    const rejected = await app.request("/ucp/oauth/authorizations/lpa_1/mandate", {
+      method: "PUT",
+      body: JSON.stringify({ allowed_rails: ["wire-transfer"] }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(rejected.status).toBe(400);
+
+    // Rejects configuring a grant that does not belong to the account.
+    const foreign = await app.request("/ucp/oauth/authorizations/lpa_unknown/mandate", {
+      method: "PUT",
+      body: JSON.stringify({ allowed_rails: ["ap2"] }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(foreign.status).toBe(404);
+  });
 });
+
+function createInMemoryConsentDirectory() {
+  const mandates = new Map<string, unknown>();
+  const HANDOFF_ONLY = {
+    maxPerOrderCents: 0,
+    dailyCapCents: 0,
+    monthlyCapCents: 0,
+    humanPresentRequired: true,
+    allowedRails: ["handoff-only"],
+  };
+  return {
+    resolveMandate: async (grantId: string) => mandates.get(grantId) ?? HANDOFF_ONLY,
+    setMandate: async ({ grantId, mandate }: { grantId: string; mandate: unknown }) => {
+      mandates.set(grantId, mandate);
+    },
+    getSpendSummary: async () => ({ dailyCents: 0, monthlyCents: 0 }),
+  } as unknown as NonNullable<Parameters<typeof createUcpOAuthRoutes>[0]["agentGrantConsent"]>;
+}
 
 function createOAuthOptions(overrides: Partial<Parameters<typeof createUcpOAuthRoutes>[0]> = {}) {
   const db = createAuthorizationCodeDb();

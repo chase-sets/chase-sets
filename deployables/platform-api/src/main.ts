@@ -44,6 +44,7 @@ import type { McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
 import { createMcpToolCallLimiterFromRealtime } from "@chase-sets/platform-runtime/mcp-tool-call-limiter";
 import {
   createAgentGrantRateLimiter,
+  createPostgresAgentGrantConsentDirectory,
   createPostgresAgentGrantSpendPolicy,
 } from "@chase-sets/platform-runtime/agent-guardrails";
 import {
@@ -501,7 +502,11 @@ const mcpToolCallLimiter = realtimeStreamLimiter.limiter
   ? createMcpToolCallLimiterFromRealtime(realtimeStreamLimiter.limiter, config.mcpToolCallLimits)
   : undefined;
 const agentGrantRateLimiter = createAgentGrantRateLimiter(config.agentGrantRateLimit);
-const agentGrantSpendPolicy = createPostgresAgentGrantSpendPolicy(pools.control, config.agentGrantSpendCap);
+const agentGrantConsent = createPostgresAgentGrantConsentDirectory(pools.control);
+const agentGrantSpendPolicy = createPostgresAgentGrantSpendPolicy(pools.control, {
+  ...config.agentGrantSpendCap,
+  mandateResolver: agentGrantConsent.resolveMandate,
+});
 const drainState = createProcessDrainState();
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   ...(config.readConsistency?.wakeBeforeWaitEnabled || config.readConsistency?.readinessNotificationsEnabled
@@ -575,6 +580,7 @@ const app = buildPlatformApiApp(runtime, {
     agentGrantRateLimiter,
   },
   agentGrantSpendPolicy,
+  agentGrantConsent,
   mcp: {
     audit: mcpAudit,
     idempotencyStore: createPostgresUcpIdempotencyStore<unknown>(pools.control, {
