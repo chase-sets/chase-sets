@@ -673,10 +673,13 @@ locals {
   connection_pool_contexts = toset(keys(local.context_database_connection_pool_sizes))
 
   preview_postgres_host = "chase-sets-preview-postgres"
+  # The in-cluster preview Postgres does not serve SSL, so preview URLs state
+  # sslmode=disable explicitly; managed staging/production URLs keep
+  # sslmode=require.
   preview_context_database_urls = {
     for context_name in local.context_database_names :
     context_name => format(
-      "postgresql://%s:preview-app@%s:5432/%s",
+      "postgresql://%s:preview-app@%s:5432/%s?sslmode=disable",
       urlencode(local.context_database_users[context_name]),
       local.preview_postgres_host,
       urlencode(local.context_databases[context_name]),

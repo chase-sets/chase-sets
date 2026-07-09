@@ -245,7 +245,12 @@ function previewDatabaseUser(contextName) {
 }
 
 function postgresUrl({ username, password, host, port, database }) {
-  return `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
+  // The disposable in-cluster preview Postgres does not serve SSL, and the
+  // shared pool factory force-upgrades URLs without an explicit sslmode to
+  // verified SSL for non-local hosts. Preview URLs must therefore state
+  // sslmode=disable; staging/production URLs are never synthesized here and
+  // keep their managed-cluster sslmode=require shape.
+  return `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}?sslmode=disable`;
 }
 
 function generateSecretToken(options) {
