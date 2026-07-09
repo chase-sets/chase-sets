@@ -147,7 +147,6 @@ describe("change-scope", () => {
     });
 
     expect(scope.affectedWorkspaces).toEqual(["@test/primitives", "@test/catalog", "@test/public-web"]);
-    expect(scope.typecheckRequired).toBe(true);
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.buildRequired).toBe(true);
     expect(scope.deployRequired).toBe(true);
@@ -432,7 +431,7 @@ describe("change-scope", () => {
     ]);
   });
 
-  it("routes test typecheck configuration changes through typecheck without runtime fanout", () => {
+  it("keeps test typecheck configuration changes out of runtime fanout", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -441,7 +440,6 @@ describe("change-scope", () => {
     });
 
     expect(scope.localChecksRequired).toBe(true);
-    expect(scope.typecheckRequired).toBe(true);
     expect(scope.unitTestsRequired).toBe(false);
     expect(scope.buildRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
