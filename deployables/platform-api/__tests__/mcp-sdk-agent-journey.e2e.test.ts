@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as paymentsModule } from "@chase-sets/payments";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
@@ -94,6 +95,38 @@ function signedUcpHeaders(body: string) {
     Signature: "sig1=:placeholder:",
     "Content-Digest": `sha-256=:${createHash("sha256").update(body).digest("base64")}:`,
   };
+}
+
+function stubPaymentsCheckoutStatusFetch(
+  getCheckoutStatus: (params: Readonly<Record<string, unknown>>) => Promise<unknown>,
+) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/api/marketplace/account/checkout/status") {
+      return Response.json(
+        await getCheckoutStatus({
+          accountId: "account_1",
+          orderIds: url.searchParams.get("orderIds")?.split(",").filter(Boolean) ?? [],
+          currencyCode: url.searchParams.get("currencyCode") ?? "usd",
+          requestedBalanceCreditAmount: url.searchParams.get("requestedBalanceCreditAmount"),
+          paymentMethodCategory: url.searchParams.get("paymentMethodCategory"),
+        }),
+      );
+    }
+
+    return Response.json(
+      {
+        error: {
+          code: "unexpected_fetch",
+          message: `Unexpected forwarded fetch in MCP journey test: ${request.method} ${url.pathname}`,
+        },
+      },
+      { status: 500 },
+    );
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 const shippingDestination = {
@@ -413,28 +446,63 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       listSellerOfferMatches: vi.fn(),
       getOffer: vi.fn(),
     };
+    const spendPolicy = {
+      authorize: vi.fn(async () => ({
+        allowed: false,
+        limitKind: "daily-cap" as const,
+        reason: "This agent grant exceeded its platform spend cap.",
+        remainingCents: 0,
+        capCents: 100,
+      })),
+    };
+    const paymentServices = {
+      publicConfig: {
+        processorName: "stripe",
+        publishableKey: "pk_test_123",
+        confirmationExperience: "processor-managed-form",
+        dynamicPaymentMethods: true,
+        sensitivePaymentDetailsHandledByProcessor: true,
+        agenticPaymentHandlers: [
+          {
+            id: "stripe-shared-payment-token",
+            provider: "stripe",
+            type: "shared_payment_token",
+            requiresAp2Mandate: true,
+            confirmationExperience: "server-confirmed-payment-intent",
+          },
+        ],
+      },
+      getCheckoutStatus: vi.fn(async (_params: Readonly<Record<string, unknown>>) => ({
+        order_ids: ["order_1"],
+        currency_code: "usd",
+        amount: "25.00",
+        marketplace_checkout_fee: {
+          payment_method_category: "card",
+          external_basis_amount: "25.00",
+          marketplace_checkout_fee_amount: "1.05",
+          marketplace_checkout_fee_reduction_amount: "0.00",
+          total_amount: "26.05",
+          processor_amount: "26.05",
+          policy_version: "marketplace-checkout-fee-v1",
+          quote_fingerprint: "quote_1",
+          quoted_at: "2026-07-09T00:00:00.000Z",
+        },
+        payment_method_quotes: [],
+        wallet_credit: {
+          requested_amount: "0.00",
+          applied_amount: "0.00",
+          external_amount: "25.00",
+        },
+        can_start_payment: true,
+        unavailable_reasons: [],
+        unavailable_reason_details: [],
+      })),
+    };
     const app = buildPlatformApiApp(
       createRuntime(
         {
           checkout: { sessions: checkoutSessions },
-          payments: {
-            publicConfig: {
-              processorName: "stripe",
-              publishableKey: "pk_test_123",
-              confirmationExperience: "processor-managed-form",
-              dynamicPaymentMethods: true,
-              sensitivePaymentDetailsHandledByProcessor: true,
-              agenticPaymentHandlers: [
-                {
-                  id: "stripe-shared-payment-token",
-                  provider: "stripe",
-                  type: "shared_payment_token",
-                  requiresAp2Mandate: true,
-                  confirmationExperience: "server-confirmed-payment-intent",
-                },
-              ],
-            },
-          },
+          payments: paymentServices,
           marketplace: {
             listings: {},
             offers: guardedOffers,
@@ -450,20 +518,19 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
               reviews: {},
             },
           },
+          {
+            module: paymentsModule,
+            services: {
+              payments: paymentServices,
+              projectors: [],
+            },
+          },
         ],
       ),
       {
         resolveActor: vi.fn(async () => agentActor(["offers.manage", "orders.view", "orders.manage"])),
         mcp: { agentGrantRateLimiter: rateLimiter },
-        agentGrantSpendPolicy: {
-          authorize: vi.fn(async () => ({
-            allowed: false,
-            limitKind: "daily-cap" as const,
-            reason: "This agent grant exceeded its platform spend cap.",
-            remainingCents: 0,
-            capCents: 100,
-          })),
-        },
+        agentGrantSpendPolicy: spendPolicy,
         ucpAp2MandateVerifier: {
           verify: vi.fn(async () => ({ ok: true as const, evidence: { verifier: "uat" } })),
         },
@@ -533,7 +600,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
           availabilityState: "available",
         },
       ],
-      order_ids: [],
+      order_ids: ["order_1"],
       payment_id: null,
       submitted_offer_id: null,
       created_at: "2026-07-08T00:00:00.000Z",
@@ -543,7 +610,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     const checkoutBody = JSON.stringify(
       createUcpEnvelope("ok", {
         marketplace_checkout_fee_quote_fingerprint: "quote_1",
-        total_amount: "25.00",
+        total_amount: "10.00",
         ap2: {
           checkout_mandate: "checkout_mandate",
         },
@@ -553,23 +620,40 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         },
       }),
     );
-    const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_1/complete", {
-      method: "POST",
-      body: checkoutBody,
-      headers: signedUcpHeaders(checkoutBody),
-    });
+    const paymentsFetch = stubPaymentsCheckoutStatusFetch(paymentServices.getCheckoutStatus);
+    try {
+      const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_1/complete", {
+        method: "POST",
+        body: checkoutBody,
+        headers: signedUcpHeaders(checkoutBody),
+      });
 
-    expect(spendCapResponse.status).toBe(200);
-    await expect(spendCapResponse.json()).resolves.toMatchObject({
-      ucp: {
-        status: "requires_action",
-      },
-      messages: [
-        {
-          code: "agent_grant_spending_mandate_blocked",
-          message: "This agent grant exceeded its platform spend cap.",
+      expect(spendCapResponse.status).toBe(200);
+      await expect(spendCapResponse.json()).resolves.toMatchObject({
+        ucp: {
+          status: "requires_action",
         },
-      ],
-    });
+        messages: [
+          {
+            code: "agent_grant_spending_mandate_blocked",
+            message: "This agent grant exceeded its platform spend cap.",
+          },
+        ],
+      });
+      expect(paymentsFetch).toHaveBeenCalledTimes(1);
+      expect(paymentServices.getCheckoutStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderIds: ["order_1"],
+        }),
+      );
+      expect(spendPolicy.authorize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "complete_checkout",
+          amountCents: 2_605,
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

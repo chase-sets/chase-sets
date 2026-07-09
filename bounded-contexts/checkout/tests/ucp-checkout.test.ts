@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
@@ -6,6 +6,15 @@ import { createCheckoutUcpHandlers } from "../support/ucp-support/checkout";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
 import { CheckoutDomainError } from "../support/runtime-support/common";
+
+const checkoutConfirmationMocks = vi.hoisted(() => ({
+  createCheckoutOrdersThroughOrdering: vi.fn(),
+  createCheckoutPaymentThroughPayments: vi.fn(),
+  getCheckoutPaymentStatusThroughPayments: vi.fn(),
+  releaseCheckoutInventoryReservations: vi.fn(),
+}));
+
+vi.mock("../support/request-support/checkout-confirmation", () => checkoutConfirmationMocks);
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -119,6 +128,42 @@ function input(
 }
 
 describe("checkout UCP handlers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["line_1"],
+      writeResult: { commitPosition: "33" },
+    });
+    checkoutConfirmationMocks.createCheckoutPaymentThroughPayments.mockResolvedValue({ payment_id: "pay_1" });
+    checkoutConfirmationMocks.getCheckoutPaymentStatusThroughPayments.mockResolvedValue({
+      order_ids: ["ord_1"],
+      currency_code: "usd",
+      amount: "25.00",
+      marketplace_checkout_fee: {
+        payment_method_category: "card",
+        external_basis_amount: "25.00",
+        marketplace_checkout_fee_amount: "1.05",
+        marketplace_checkout_fee_reduction_amount: "0.00",
+        total_amount: "26.05",
+        processor_amount: "26.05",
+        policy_version: "marketplace-checkout-fee-v1",
+        quote_fingerprint: "quote_1",
+        quoted_at: "2026-07-09T00:00:00.000Z",
+      },
+      payment_method_quotes: [],
+      wallet_credit: {
+        requested_amount: "0.00",
+        applied_amount: "0.00",
+        external_amount: "25.00",
+      },
+      can_start_payment: true,
+      unavailable_reasons: [],
+      unavailable_reason_details: [],
+    });
+    checkoutConfirmationMocks.releaseCheckoutInventoryReservations.mockResolvedValue([]);
+  });
+
   it("creates buy-now checkout through Checkout-owned session services", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });
@@ -361,7 +406,7 @@ describe("checkout UCP handlers", () => {
     expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
-  it("blocks known headless checkout spend above the linked agent grant cap", async () => {
+  it("blocks headless checkout spend from the Payments-computed order total instead of the request amount", async () => {
     const sessions = createSessions();
     const spendPolicy = {
       authorize: vi.fn(async () => ({
@@ -393,7 +438,7 @@ describe("checkout UCP handlers", () => {
       input(
         {
           marketplace_checkout_fee_quote_fingerprint: "quote_1",
-          total_amount: "25.00",
+          total_amount: "10.00",
         },
         { id: "chk_1" },
         { ...actor, sessionId: "ucp:auth_1" },
@@ -418,12 +463,27 @@ describe("checkout UCP handlers", () => {
         grantId: "auth_1",
         accountId: "acc_buyer",
         operation: "complete_checkout",
-        amountCents: 2_500,
+        amountCents: 2_605,
       }),
     );
+    expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+    expect(checkoutConfirmationMocks.getCheckoutPaymentStatusThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      ["ord_1"],
+      null,
+      "card",
+      { commitPosition: "33" },
+    );
     expect(sessions.setShippingAddress).not.toHaveBeenCalled();
-    expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(sessions.recordOrdersCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "chk_1",
+        orderIds: ["ord_1"],
+      }),
+      context,
+    );
     expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(checkoutConfirmationMocks.createCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
   });
 
   it("returns a trusted handoff for headless offer-intent completion without ordering or payment side effects", async () => {

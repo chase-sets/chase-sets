@@ -324,28 +324,29 @@ export async function createCheckoutPaymentThroughPayments(
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null,
   orderCreationWriteResult?: unknown,
   readinessRetry?: PaymentStartReadinessRetryOptions,
+  preReadCheckoutStatus?: unknown,
 ) {
   const confirmedFingerprint = marketplaceCheckoutFeeQuoteFingerprint?.trim();
   if (!confirmedFingerprint) {
     throw new Error("Review the payment quote before creating checkout payment.");
   }
 
-  const forwardedFreshReadHeaders = paymentsFreshReadHeadersFromForwardedRequest(request);
   const hasSameRequestOrderWrite = hasPaymentsFreshReadAfterWriteSource(orderCreationWriteResult);
+  const forwardedFreshReadHeaders = paymentsFreshReadHeadersFromForwardedRequest(request);
   const needsOrderInputFreshRead =
     hasSameRequestOrderWrite || readFreshWriteToken(request) !== null || forwardedFreshReadHeaders !== undefined;
+  const paymentsApi = createPaymentsApiForCheckoutOrderRead(request, {
+    orderCreationWriteResult,
+    forwardedFreshReadHeaders,
+    hasSameRequestOrderWrite,
+  });
   const shouldRetryPendingOrderReadiness = orderIds.length > 0;
-  const paymentsApi = hasSameRequestOrderWrite
-    ? createPaymentsRequestApiClient(request, { afterWriteSource: orderCreationWriteResult })
-    : forwardedFreshReadHeaders
-      ? createPaymentsRequestApiClient(request, { headers: forwardedFreshReadHeaders })
-      : createPaymentsRequestApiClient(request);
 
   const maxAttempts = shouldRetryPendingOrderReadiness ? normalizeRetryAttemptCount(readinessRetry?.maxAttempts) : 1;
   const delayMs = normalizeRetryDelayMs(readinessRetry?.delayMs);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      if (needsOrderInputFreshRead) {
+      if (needsOrderInputFreshRead && (attempt > 1 || preReadCheckoutStatus === undefined)) {
         await paymentsApi.getCheckoutStatus({
           orderIds,
           requestedBalanceCreditAmount,
@@ -375,6 +376,59 @@ export async function createCheckoutPaymentThroughPayments(
   }
 
   throw new Error("Payment start retry loop exited without creating payment.");
+}
+
+export async function getCheckoutPaymentStatusThroughPayments(
+  request: Request,
+  orderIds: readonly string[],
+  requestedBalanceCreditAmount?: string | null,
+  paymentMethodCategory: string = "card",
+  orderCreationWriteResult?: unknown,
+  readinessRetry?: PaymentStartReadinessRetryOptions,
+) {
+  const forwardedFreshReadHeaders = paymentsFreshReadHeadersFromForwardedRequest(request);
+  const hasSameRequestOrderWrite = hasPaymentsFreshReadAfterWriteSource(orderCreationWriteResult);
+  const shouldRetryPendingOrderReadiness = orderIds.length > 0;
+  const paymentsApi = createPaymentsApiForCheckoutOrderRead(request, {
+    orderCreationWriteResult,
+    forwardedFreshReadHeaders,
+    hasSameRequestOrderWrite,
+  });
+
+  const maxAttempts = shouldRetryPendingOrderReadiness ? normalizeRetryAttemptCount(readinessRetry?.maxAttempts) : 1;
+  const delayMs = normalizeRetryDelayMs(readinessRetry?.delayMs);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await paymentsApi.getCheckoutStatus({
+        orderIds,
+        requestedBalanceCreditAmount,
+        paymentMethodCategory,
+      });
+    } catch (error) {
+      if (attempt >= maxAttempts || !paymentOrderReadinessIsPending(error)) {
+        throw error;
+      }
+
+      await waitForPaymentStartRetry(delayMs);
+    }
+  }
+
+  throw new Error("Payment checkout status retry loop exited without reading server totals.");
+}
+
+function createPaymentsApiForCheckoutOrderRead(
+  request: Request,
+  options: Readonly<{
+    orderCreationWriteResult?: unknown;
+    forwardedFreshReadHeaders?: HeadersInit | undefined;
+    hasSameRequestOrderWrite?: boolean;
+  }>,
+) {
+  return options.hasSameRequestOrderWrite
+    ? createPaymentsRequestApiClient(request, { afterWriteSource: options.orderCreationWriteResult })
+    : options.forwardedFreshReadHeaders
+      ? createPaymentsRequestApiClient(request, { headers: options.forwardedFreshReadHeaders })
+      : createPaymentsRequestApiClient(request);
 }
 
 function paymentsFreshReadHeadersFromForwardedRequest(request: Request): HeadersInit | undefined {
