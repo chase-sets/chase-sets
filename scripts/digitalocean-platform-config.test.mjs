@@ -419,15 +419,21 @@ describe("DigitalOcean platform configuration", () => {
     const platformWorker = terraformWorkerBlock(platformMain, "platform-worker");
     expect(platformVariables).toContain('variable "platform_bootstrap_owner"');
     expect(platformVariables).toContain('contains(["app-platform", "doks"], var.platform_bootstrap_owner)');
+    // #4738: App Platform clamps worker instance_count 0 back to 1, so the
+    // worker component is omitted entirely (empty for_each list) when DOKS owns
+    // the platform runtime, and present with local.worker_instances otherwise.
     expectTerraformAssignment(
       platformLocals,
       "app_platform_worker_instances",
-      'var.platform_bootstrap_owner == "doks" ? 0 : local.worker_instances',
+      'var.platform_bootstrap_owner == "doks" ? [] : [local.worker_instances]',
     );
+    expect(platformMain).toContain('dynamic "worker" {');
+    expect(platformMain).toContain("for_each = local.app_platform_worker_instances");
+    expect(platformMain).not.toContain("instance_count     = local.app_platform_worker_instances");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_platform_bootstrap_owner: ${{ vars.DOKS_INGRESS_TARGET != '' && 'doks' || 'app-platform' }}",
     );
-    expect(platformWorker).toContain("instance_count     = local.app_platform_worker_instances");
+    expect(platformWorker).toContain("instance_count     = worker.value");
     expect(platformWorker).not.toContain("local.public_web_instances");
     expect(platformWorker).not.toContain("local.marketplace_web_instances");
     expect(platformWorker).not.toContain("local.api_instances");
@@ -651,7 +657,7 @@ describe("DigitalOcean platform configuration", () => {
     expectTerraformAssignment(
       platformLocals,
       "app_platform_worker_instances",
-      'var.platform_bootstrap_owner == "doks" ? 0 : local.worker_instances',
+      'var.platform_bootstrap_owner == "doks" ? [] : [local.worker_instances]',
     );
     expect(platformVariables).toContain('variable "worker_instance_size_slug"');
     expect(platformVariables).toContain('variable "worker_instance_count"');
@@ -770,7 +776,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("tonumber(local.worker_inventory_import_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_OPERATION_RUNNER_COUNT"')).toBe(1);
-    expect(platformMain).toContain('worker {\n      name               = "platform-worker"');
+    // #4738: the worker is rendered through a conditional dynamic block so the
+    // App Platform component is absent entirely when DOKS owns the runtime.
+    expect(platformMain).toContain(
+      'dynamic "worker" {\n      for_each = local.app_platform_worker_instances\n      content {\n        name               = "platform-worker"',
+    );
     expect(platformMain).not.toMatch(/name\s+= "platform-worker"[\s\S]*?http_port\s+= 8080/);
   });
 

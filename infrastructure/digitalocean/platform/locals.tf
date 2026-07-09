@@ -733,7 +733,16 @@ locals {
   worker_instance_size_slug         = trimspace(var.worker_instance_size_slug) != "" ? var.worker_instance_size_slug : local.worker_default_instance_size_slug
   default_worker_instances          = local.is_staging ? 2 : 1
   worker_instances                  = var.worker_instance_count > 0 ? var.worker_instance_count : local.default_worker_instances
-  app_platform_worker_instances     = var.platform_bootstrap_owner == "doks" ? 0 : local.worker_instances
+  # DigitalOcean App Platform clamps a worker instance_count of 0 back to 1
+  # (#4738), so #4670's scale-to-zero never actually stops the App Platform
+  # worker. When DOKS owns the platform bootstrap/runtime the App Platform
+  # worker component is dropped from the rendered spec entirely (empty list =>
+  # no dynamic "worker" block) so it can never claim projection-group leases and
+  # block the helm pre-upgrade bootstrap quiesce with a Postgres 55P03 lock
+  # timeout. Otherwise the component is present with local.worker_instances.
+  # Production keeps its worker until its own cutover flips
+  # platform_bootstrap_owner to "doks".
+  app_platform_worker_instances = var.platform_bootstrap_owner == "doks" ? [] : [local.worker_instances]
 
   public_uptime_check_targets = {
     for domain in local.public_domains :
