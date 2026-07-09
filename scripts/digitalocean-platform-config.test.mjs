@@ -1203,10 +1203,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingDeployStep).toContain('--runtime-env "DEPLOYMENT_ENVIRONMENT=staging"');
     expect(platformHelmStagingValues).toContain('generatedBy: "node ./scripts/render-platform-helm-values.mjs"');
     expect(platformHelmStagingValues).toContain("platform-worker:");
-    expect(platformHelmStagingValues).toContain('DATABASE_POOL_MAX: "9"');
+    expect(platformHelmStagingValues).toContain('DATABASE_POOL_MAX: "12"');
+    expect(platformHelmStagingValues).toContain('WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "4"');
     expect(platformHelmStagingValues).toContain('WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3"');
     expect(platformHelmStagingValues).toContain('WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2"');
-    expect(platformHelmStagingValues).not.toContain("WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS");
     expect(platformHelmStagingValues).not.toContain("WORKER_PROJECTION_OPERATION_RUNNER_COUNT");
     expect(stagingDeployStep).toContain('--runtime-env "CHASE_SETS_RUNTIME_PROFILE=public"');
     expect(stagingDeployStep).toContain(

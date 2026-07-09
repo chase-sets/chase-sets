@@ -49,29 +49,29 @@ describe("push wake capacity evidence", () => {
       headroom: 32,
       additionalDirectListenerContextsBeforeUpgradeTrigger: 6,
     });
-    expect(evidence.terraformDefaults.doksStagingWorkerDatabasePoolMax).toBe(9);
+    expect(evidence.terraformDefaults.doksStagingWorkerDatabasePoolMax).toBe(12);
     expect(evidence.environments.doksStaging).toMatchObject({
       queryConnectionMode: "direct",
       apiPoolDemand: 6,
-      workerPoolDemand: 9,
+      workerPoolDemand: 12,
       upgradeTriggerPercent: 80,
       upgradeTrigger: 75,
       apiWaiterListenerDemand: 4,
       workerCapacity: {
         previousDatabasePoolMax: 8,
-        databasePoolMax: 9,
-        configuredRunnerConcurrency: 9,
+        databasePoolMax: 12,
+        configuredRunnerConcurrency: 12,
         wakeMaxConcurrentRunners: 3,
         wakeStandardLaneRunnerCount: 2,
-        steadyStatePoolDelta: 1,
-        deployOverlapPoolDelta: 2,
+        steadyStatePoolDelta: 4,
+        deployOverlapPoolDelta: 8,
       },
-      steadyState: { total: 30, limit: 94, headroom: 64 },
+      steadyState: { total: 33, limit: 94, headroom: 61 },
       deployOverlap: {
-        total: 56,
+        total: 62,
         limit: 94,
-        headroom: 38,
-        additionalDirectListenerContextsBeforeUpgradeTrigger: 9,
+        headroom: 32,
+        additionalDirectListenerContextsBeforeUpgradeTrigger: 6,
       },
     });
     // #4655 converged production query traffic onto managed transaction pools:
@@ -123,7 +123,7 @@ describe("push wake capacity evidence", () => {
 
     const markdown = renderPushWakeCapacityMarkdown(evidence);
     expect(markdown).toContain("Rolling-deploy overlap: 63/94");
-    expect(markdown).toContain("Worker pool: 8 -> 9; wake max 3; standard lane 2");
+    expect(markdown).toContain("Worker pool: 8 -> 12; wake max 3; standard lane 2");
     expect(markdown).toContain("Query connection mode: `direct`");
     expect(markdown).toContain("Tier-upgrade trigger: 75/94 (80%)");
     expect(markdown).toContain("Posture: **wave-2-direct-listeners-fit-current-tier**");

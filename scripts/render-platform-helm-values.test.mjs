@@ -174,6 +174,9 @@ describe("render platform Helm values", () => {
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(poolMax);
     expect(envValue("WORKER_WAKE_MAX_CONCURRENT_RUNNERS")).toBe("2");
     expect(envValue("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT")).toBe("1");
+    // #4762 widens projection concurrency for the DOKS staging overlay only;
+    // the base/preview worker keeps the conservative single projection slot.
+    expect(envValue("WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS")).toBe("1");
   });
 
   it("renders a staging-only DOKS worker overlay with representative wake headroom", () => {
@@ -195,10 +198,14 @@ describe("render platform Helm values", () => {
       "WORKER_WAKE_MAX_CONCURRENT_RUNNERS",
     ].reduce((total, name) => total + Number(envValue(name)), 0);
 
-    expect(envValue("DATABASE_POOL_MAX")).toBe("9");
+    // #4762: the projection runner group is widened to 4 so the small starved
+    // projection groups drain alongside the 2 large discovery cascade groups,
+    // and DATABASE_POOL_MAX rises 9 -> 12 one-for-one with the +3 slots.
+    expect(envValue("WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS")).toBe("4");
+    expect(envValue("DATABASE_POOL_MAX")).toBe("12");
     expect(envValue("WORKER_WAKE_MAX_CONCURRENT_RUNNERS")).toBe("3");
     expect(envValue("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT")).toBe("2");
-    expect(totalRunnerConcurrency).toBe(9);
+    expect(totalRunnerConcurrency).toBe(12);
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(Number(envValue("DATABASE_POOL_MAX")));
   });
 
