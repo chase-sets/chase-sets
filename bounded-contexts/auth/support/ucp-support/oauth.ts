@@ -12,6 +12,8 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AuthServices } from "../runtime-support/services";
+import { generateAgentWebhookSigningSecret, previewAgentWebhookSigningSecret } from "./agent-webhooks/webhook-signing";
+import { parseWebhookRegistration } from "./agent-webhooks/agent-webhook-registration";
 
 export const authUcpOAuthSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_ucp_oauth_clients (
@@ -240,9 +242,17 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "invalid_client_metadata", error_description: metadataResult.error }, 400);
     }
 
+    const webhookResult = parseWebhookRegistration(body);
+    if (!webhookResult.ok) {
+      return c.json({ error: "invalid_client_metadata", error_description: webhookResult.error }, 400);
+    }
+
     const clientId = createId("ocl");
     const issuedAt = new Date();
     const metadata = { ...metadataResult.metadata, clientId };
+    // The signing secret is returned exactly once, here, and is otherwise only
+    // ever read by the delivery dispatcher — never echoed in list/detail reads.
+    const signingSecret = webhookResult.registration ? generateAgentWebhookSigningSecret() : null;
     await options.auth.db.query(
       `INSERT INTO identity_ucp_oauth_clients (
          client_id,
@@ -254,8 +264,11 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
          grant_types,
          response_types,
          token_endpoint_auth_method,
-         client_id_issued_at
-       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::timestamptz)`,
+         client_id_issued_at,
+         webhook_callback_url,
+         webhook_signing_secret,
+         webhook_signing_secret_created_at
+       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::timestamptz, $11, $12, $13::timestamptz)`,
       [
         clientId,
         metadata.clientName ?? null,
@@ -267,6 +280,9 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
         JSON.stringify(metadata.responseTypes),
         metadata.tokenEndpointAuthMethod,
         issuedAt.toISOString(),
+        webhookResult.registration?.callbackUrl ?? null,
+        signingSecret,
+        signingSecret ? issuedAt.toISOString() : null,
       ],
     );
 
@@ -282,6 +298,14 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
         grant_types: metadata.grantTypes,
         response_types: metadata.responseTypes,
         token_endpoint_auth_method: "none",
+        webhook:
+          webhookResult.registration && signingSecret
+            ? {
+                callback_url: webhookResult.registration.callbackUrl,
+                signing_secret: signingSecret,
+                signing_secret_preview: previewAgentWebhookSigningSecret(signingSecret),
+              }
+            : undefined,
       },
       201,
     );
