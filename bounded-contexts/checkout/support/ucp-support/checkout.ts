@@ -9,6 +9,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
+  getCheckoutPaymentStatusThroughPayments,
   releaseCheckoutInventoryReservations,
 } from "../request-support/checkout-confirmation";
 import type { CheckoutServices } from "../runtime-support/services";
@@ -229,15 +230,6 @@ export function createCheckoutUcpHandlers(
       if (guardedPaymentResponse?.kind === "headless-agentic-payment") {
         try {
           assertNoUnsupportedCustomerEconomicsInput(body);
-          const spendGuard = await authorizeAgentGrantSpend(options.agentGrantSpendPolicy, input, {
-            operation: "complete_checkout",
-            operationId: `complete_checkout:${sessionId}:${readNullableString(body.idempotencyKey) ?? input.request.headers.get("Idempotency-Key") ?? "unknown"}`,
-            amountCents: readKnownCheckoutPaymentAmountCents(body, session),
-            ...readCheckoutSpendContext(body, guardedPaymentResponse.agenticPayment),
-          });
-          if (spendGuard) {
-            return spendGuard;
-          }
 
           const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
           if (shippingAddress) {
@@ -329,18 +321,46 @@ export function createCheckoutUcpHandlers(
             );
           }
 
+          const requestedBalanceCreditAmount = readNullableString(
+            body.requestedBalanceCreditAmount ?? body.requested_balance_credit_amount,
+          );
+          const paymentMethodCategory =
+            readString(body.paymentMethodCategory ?? body.payment_method_category) ?? "card";
+          const checkoutStatus = shouldAuthorizeAgentGrantSpend(options.agentGrantSpendPolicy, input)
+            ? await getCheckoutPaymentStatusThroughPayments(
+                input.request,
+                orderIds,
+                requestedBalanceCreditAmount,
+                paymentMethodCategory,
+                orderCreationWriteResult,
+              )
+            : null;
+          if (checkoutStatus) {
+            const spendGuard = await authorizeAgentGrantSpend(options.agentGrantSpendPolicy, input, {
+              operation: "complete_checkout",
+              operationId: `complete_checkout:${sessionId}:${readNullableString(body.idempotencyKey) ?? input.request.headers.get("Idempotency-Key") ?? "unknown"}`,
+              amountCents: moneyToCents(checkoutStatus.marketplace_checkout_fee.total_amount),
+              ...readCheckoutSpendContext(body, guardedPaymentResponse.agenticPayment),
+            });
+            if (spendGuard) {
+              return spendGuard;
+            }
+          }
+
           const payment = await createCheckoutPaymentThroughPayments(
             input.request,
             sessionId,
             orderIds,
-            readNullableString(body.requestedBalanceCreditAmount ?? body.requested_balance_credit_amount),
-            readString(body.paymentMethodCategory ?? body.payment_method_category) ?? "card",
+            requestedBalanceCreditAmount,
+            paymentMethodCategory,
             marketplaceCheckoutFeeQuoteFingerprint,
             null,
             false,
             "/account/payments/:paymentId",
             guardedPaymentResponse.agenticPayment,
             orderCreationWriteResult,
+            undefined,
+            checkoutStatus ?? undefined,
           );
           const paymentId = payment.payment_id;
           await checkout.sessions.recordPaymentStarted(
@@ -752,6 +772,13 @@ function readMoneyMajorUnits(value: Readonly<Record<string, unknown>> | null) {
   return `${amount.slice(0, -2) || "0"}.${amount.slice(-2).padStart(2, "0")}`;
 }
 
+function shouldAuthorizeAgentGrantSpend(
+  spendPolicy: AgentGrantSpendPolicy | undefined,
+  input: UcpOperationHandlerInput,
+) {
+  return spendPolicy !== undefined && agentGrantIdFromActor(input.actor) !== null;
+}
+
 async function authorizeAgentGrantSpend(
   spendPolicy: AgentGrantSpendPolicy | undefined,
   input: UcpOperationHandlerInput,
@@ -765,8 +792,6 @@ async function authorizeAgentGrantSpend(
   }>,
 ): Promise<UcpEnvelope | null> {
   const grantId = agentGrantIdFromActor(input.actor);
-  // Enforce even when the amount is unknown: the rail and human-presence gates do not depend
-  // on the amount, so an agent cannot bypass the conservative default by omitting the total.
   if (!spendPolicy || !grantId) {
     return null;
   }
@@ -825,21 +850,6 @@ function readCheckoutSpendContext(
   const humanNotPresentAuthorized =
     readString(payment?.ap2PaymentMandateId) !== undefined || ap2?.human_not_present === true;
   return { rail, humanPresent, humanNotPresentAuthorized };
-}
-
-function readKnownCheckoutPaymentAmountCents(body: Readonly<Record<string, unknown>>, session: CheckoutSessionRow) {
-  const explicitAmount = moneyToCents(
-    readNullableString(body.totalAmount ?? body.total_amount ?? body.amount ?? body.payment_amount),
-  );
-  if (explicitAmount > 0) {
-    return explicitAmount;
-  }
-
-  if (session.source_type === "offer-intent") {
-    return session.lines.reduce((total, line) => total + moneyToCents(line.offerPriceAmount) * line.quantity, 0);
-  }
-
-  return 0;
 }
 
 function moneyToCents(value: unknown) {
