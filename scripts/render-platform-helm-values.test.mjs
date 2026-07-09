@@ -191,6 +191,41 @@ describe("render platform Helm values", () => {
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(Number(envValue("DATABASE_POOL_MAX")));
   });
 
+  it("gives the staging DOKS worker relay ownership now that the App Platform worker is omitted", () => {
+    // Invariant for issue #4743: #4739 removes the App Platform worker
+    // component when DOKS owns the estate, and that worker was the only
+    // relay-enabled process. The estate's sole remaining worker MUST run the
+    // projection wake relay — with the base Helm value left at "false"
+    // (previews have no listener URLs by design), the staging overlay is the
+    // only thing standing between a DOKS-owned estate and a fleet-wide dead
+    // relay (expired `projection-wake-relay:active` lease under the removed
+    // worker, empty wake ledger, authenticated read-after-write timeouts).
+    const baselineValues = buildPlatformHelmValues({ repoRoot });
+    const stagingValues = buildPlatformHelmStagingValues();
+    const worker = baselineValues.components["platform-worker"];
+    const workerOverrides = stagingValues.components["platform-worker"].envOverrides;
+
+    // Base stays relay-off for previews...
+    expect(worker.env.find((entry) => entry.name === "WORKER_PROJECTION_WAKE_RELAY_ENABLED")?.value).toBe("false");
+    // ...and the staging overlay flips the sole worker to relay owner.
+    expect(workerOverrides.WORKER_PROJECTION_WAKE_RELAY_ENABLED).toBe("true");
+
+    // The relay's live-listen prerequisites must already be wired into the
+    // worker env (direct listener URLs; LISTEN is PgBouncer-incompatible).
+    const workerEnvNames = new Set(worker.env.map((entry) => entry.name));
+    for (const contextKey of [
+      "WORKER_LISTENER_DATABASE_URL_CHECKOUT",
+      "WORKER_LISTENER_DATABASE_URL_IDENTITY",
+      "WORKER_LISTENER_DATABASE_URL_INVENTORY",
+      "WORKER_LISTENER_DATABASE_URL_MARKETPLACE",
+      "WORKER_LISTENER_DATABASE_URL_ORDERING",
+      "WORKER_LISTENER_DATABASE_URL_PAYMENTS",
+      "WORKER_LISTENER_DATABASE_URL_PUBLIC_PRESENCE",
+    ]) {
+      expect(workerEnvNames.has(contextKey)).toBe(true);
+    }
+  });
+
   it("keeps DOKS ingress off by default in the staging overlay", () => {
     const stagingValues = buildPlatformHelmStagingValues();
 
