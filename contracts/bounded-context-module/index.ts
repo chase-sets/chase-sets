@@ -173,7 +173,8 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly order?: number;
 }>;
 
-export type BcSourceContextMount = "required" | "when-mounted";
+export const BC_SOURCE_CONTEXT_MOUNTS = ["required", "when-mounted", "when-all-sources-mounted"] as const;
+export type BcSourceContextMount = (typeof BC_SOURCE_CONTEXT_MOUNTS)[number];
 
 export type BcSubscriptionHandlerKind = "projection" | "reaction";
 export type BcReactionIdempotencyPolicy = "idempotent-command-dispatch";
@@ -194,23 +195,44 @@ export type BcEventReactionDeclaration = Readonly<{
   readonly order?: number;
 }>;
 
-export type BcProjectionGroupResetStrategy =
-  | "replay-only"
-  | "append-only-no-reset"
-  | "truncate-owned-tables"
-  | "generation-cutover";
+export const BC_PROJECTION_GROUP_RESET_STRATEGIES = [
+  "replay-only",
+  "append-only-no-reset",
+  "truncate-owned-tables",
+  "generation-cutover",
+] as const;
+export type BcProjectionGroupResetStrategy = (typeof BC_PROJECTION_GROUP_RESET_STRATEGIES)[number];
 
 export type BcProjectionGroupDeclaration = Readonly<{
   readonly projectionName: string;
   readonly handlerKind?: BcSubscriptionHandlerKind;
   readonly projectionRevision?: number;
   readonly sourceContextNames: readonly string[];
+  readonly sourceContextMount?: BcSourceContextMount;
   readonly optionalSourceContextNames?: readonly string[];
   readonly ownedTables: readonly string[];
   readonly sideEffectOnly?: boolean;
   readonly resetStrategy?: BcProjectionGroupResetStrategy;
   readonly requiredDuringBootstrap?: boolean;
 }>;
+
+export const BC_RUNTIME_PROFILES = ["landing", "proof", "public"] as const;
+export type BcRuntimeProfile = (typeof BC_RUNTIME_PROFILES)[number];
+export type BcApiRuntimeProfile = BcRuntimeProfile;
+export type BcWorkerRuntimeProfile = BcRuntimeProfile;
+
+type BcEventSubscriptionManifestDeclaration = Omit<BcEventSubscriptionDeclaration, "sourceContextMount"> &
+  Readonly<{
+    readonly sourceContextMount?: string;
+  }>;
+
+type BcEventReactionManifestDeclaration = BcEventReactionDeclaration;
+
+type BcProjectionGroupManifestDeclaration = Omit<BcProjectionGroupDeclaration, "sourceContextMount" | "resetStrategy"> &
+  Readonly<{
+    readonly sourceContextMount?: string;
+    readonly resetStrategy?: string;
+  }>;
 
 export type BcEventSubscription = Readonly<{
   readonly subscriptionName: string;
@@ -238,13 +260,39 @@ export type BcContextManifest = Readonly<{
   readonly contextName: string;
   readonly apiBasePath: string;
   readonly streamPrefix: string;
-  readonly apiMounts?: readonly unknown[];
-  readonly anonymousRoutes?: readonly unknown[];
+  readonly apiMounts?: readonly BcApiMount[];
+  readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly mcpCapabilities?: BcMcpCapabilities;
   readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
   readonly eventReactions?: readonly BcEventReactionDeclaration[];
-  readonly projectionGroups?: readonly unknown[];
+  readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
+  readonly apiRuntimeProfiles?: readonly BcApiRuntimeProfile[];
+  readonly workerRuntimeProfiles?: readonly BcWorkerRuntimeProfile[];
 }>;
+
+export type BcContextManifestInput = Omit<
+  BcContextManifest,
+  | "apiMounts"
+  | "anonymousRoutes"
+  | "eventSubscriptions"
+  | "eventReactions"
+  | "projectionGroups"
+  | "apiRuntimeProfiles"
+  | "workerRuntimeProfiles"
+> &
+  Readonly<{
+    readonly apiMounts?: readonly unknown[];
+    readonly anonymousRoutes?: readonly unknown[];
+    readonly eventSubscriptions?: readonly BcEventSubscriptionManifestDeclaration[];
+    readonly eventReactions?: readonly BcEventReactionManifestDeclaration[];
+    readonly projectionGroups?: readonly BcProjectionGroupManifestDeclaration[];
+    readonly apiRuntimeProfiles?: readonly string[];
+    readonly workerRuntimeProfiles?: readonly string[];
+  }>;
+
+export function defineBoundedContextManifest(manifest: BcContextManifestInput): BcContextManifest {
+  return normalizeContextManifest(manifest);
+}
 
 export type BcEventSubscriptionHandlerMapBuilder<TEventPayloads extends EventPayloadMap = EventPayloadMap> = (
   declaration: BcEventSubscriptionDeclaration,
@@ -264,7 +312,7 @@ export type BcEventSubscriptionHandlerRegistrations<TEventPayloads extends Event
 export type BuildEventSubscriptionsFromManifestInput<TEventPayloads extends EventPayloadMap = EventPayloadMap> =
   Readonly<{
     contextName: string;
-    manifest: Pick<BcContextManifest, "eventSubscriptions">;
+    manifest: Pick<BcContextManifestInput, "eventSubscriptions">;
     handlers: BcEventSubscriptionHandlerRegistrations<TEventPayloads>;
   }>;
 
@@ -287,31 +335,34 @@ export function buildEventSubscriptionsFromManifest<TEventPayloads extends Event
       );
     }
 
+    const normalizedDeclaration = normalizeEventSubscriptionDeclaration(contextName, declaration);
     const normalizedRegistration = normalizeEventSubscriptionHandlerRegistration(
       contextName,
       projectionName,
       registration,
     );
-    const handlerMap = coerceProjectorHandlerMap(normalizedRegistration.buildHandlers(declaration));
+    const handlerMap = coerceProjectorHandlerMap(normalizedRegistration.buildHandlers(normalizedDeclaration));
 
     return {
       subscriptionName: normalizedRegistration.subscriptionName,
       handlerKind: "projection",
-      sourceContextName: declaration.sourceContextName,
-      ...(declaration.sourceContextMount ? { sourceContextMount: declaration.sourceContextMount } : {}),
-      projectionName: declaration.projectionName,
-      subscriptionVersion: declaration.subscriptionVersion,
+      sourceContextName: normalizedDeclaration.sourceContextName,
+      ...(normalizedDeclaration.sourceContextMount
+        ? { sourceContextMount: normalizedDeclaration.sourceContextMount }
+        : {}),
+      projectionName: normalizedDeclaration.projectionName,
+      subscriptionVersion: normalizedDeclaration.subscriptionVersion,
       handlers: normalizedRegistration.filterToEventTypes
-        ? selectEventSubscriptionHandlers(handlerMap, declaration.eventTypes)
+        ? selectEventSubscriptionHandlers(handlerMap, normalizedDeclaration.eventTypes)
         : handlerMap,
-      eventTypes: declaration.eventTypes,
-      streamPrefixes: declaration.streamPrefixes,
-      errorPolicy: declaration.errorPolicy,
-      batchSize: declaration.batchSize,
-      checkpointBatchSize: declaration.checkpointBatchSize,
-      projectionTransactionTimeoutMs: declaration.projectionTransactionTimeoutMs,
-      projectionStatementTimeoutMs: declaration.projectionStatementTimeoutMs,
-      order: declaration.order,
+      eventTypes: normalizedDeclaration.eventTypes,
+      streamPrefixes: normalizedDeclaration.streamPrefixes,
+      errorPolicy: normalizedDeclaration.errorPolicy,
+      batchSize: normalizedDeclaration.batchSize,
+      checkpointBatchSize: normalizedDeclaration.checkpointBatchSize,
+      projectionTransactionTimeoutMs: normalizedDeclaration.projectionTransactionTimeoutMs,
+      projectionStatementTimeoutMs: normalizedDeclaration.projectionStatementTimeoutMs,
+      order: normalizedDeclaration.order,
     };
   });
 }
@@ -334,7 +385,7 @@ export type BcEventReactionHandlerRegistrations<TEventPayloads extends EventPayl
 
 export type BuildEventReactionsFromManifestInput<TEventPayloads extends EventPayloadMap = EventPayloadMap> = Readonly<{
   contextName: string;
-  manifest: Pick<BcContextManifest, "eventReactions">;
+  manifest: Pick<BcContextManifestInput, "eventReactions">;
   handlers: BcEventReactionHandlerRegistrations<TEventPayloads>;
 }>;
 
@@ -456,7 +507,7 @@ export type DefineBoundedContextModuleInput<
   TRouter = unknown,
   TProjectionHandlerSet extends BcProjectionHandlerSet = BcProjectionHandlerSet,
 > = Readonly<{
-  manifest: BcContextManifest;
+  manifest: BcContextManifestInput;
   schemaSql: string;
   schemaMigrations?: readonly BcSchemaMigration[];
   createServices: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["createServices"];
@@ -490,18 +541,18 @@ export function defineBoundedContextModule<
 >(
   input: DefineBoundedContextModuleInput<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>,
 ): BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet> {
+  const manifest = normalizeContextManifest(input.manifest);
+
   return {
-    contextName: input.manifest.contextName,
-    routePrefix: input.manifest.apiBasePath,
-    streamPrefix: input.manifest.streamPrefix,
+    contextName: manifest.contextName,
+    routePrefix: manifest.apiBasePath,
+    streamPrefix: manifest.streamPrefix,
     schemaSql: input.schemaSql,
     ...(input.schemaMigrations ? { schemaMigrations: input.schemaMigrations } : {}),
-    apiMounts: (input.manifest.apiMounts ?? []) as readonly BcApiMount[],
-    anonymousRoutes: (input.manifest.anonymousRoutes ?? []) as readonly BcAnonymousRoute[],
-    ...(input.manifest.mcpCapabilities ? { mcpCapabilities: input.manifest.mcpCapabilities } : {}),
-    ...(input.manifest.projectionGroups
-      ? { projectionGroups: input.manifest.projectionGroups as readonly BcProjectionGroupDeclaration[] }
-      : {}),
+    apiMounts: manifest.apiMounts ?? [],
+    anonymousRoutes: manifest.anonymousRoutes ?? [],
+    ...(manifest.mcpCapabilities ? { mcpCapabilities: manifest.mcpCapabilities } : {}),
+    ...(manifest.projectionGroups ? { projectionGroups: manifest.projectionGroups } : {}),
     createServices: input.createServices,
     buildApis: input.buildApis,
     ...(input.buildMcpHandlers ? { buildMcpHandlers: input.buildMcpHandlers } : {}),
@@ -511,6 +562,150 @@ export function defineBoundedContextModule<
     ...(input.seedProfiles ? { seedProfiles: input.seedProfiles } : {}),
     ...(input.seed ? { seed: input.seed } : {}),
   };
+}
+
+function normalizeContextManifest(manifest: BcContextManifestInput): BcContextManifest {
+  return {
+    contextName: manifest.contextName,
+    apiBasePath: manifest.apiBasePath,
+    streamPrefix: manifest.streamPrefix,
+    ...(manifest.apiMounts ? { apiMounts: manifest.apiMounts as readonly BcApiMount[] } : {}),
+    ...(manifest.anonymousRoutes ? { anonymousRoutes: manifest.anonymousRoutes as readonly BcAnonymousRoute[] } : {}),
+    ...(manifest.mcpCapabilities ? { mcpCapabilities: manifest.mcpCapabilities } : {}),
+    ...(manifest.eventSubscriptions
+      ? {
+          eventSubscriptions: manifest.eventSubscriptions.map((declaration) =>
+            normalizeEventSubscriptionDeclaration(manifest.contextName, declaration),
+          ),
+        }
+      : {}),
+    ...(manifest.eventReactions ? { eventReactions: manifest.eventReactions } : {}),
+    ...(manifest.projectionGroups
+      ? {
+          projectionGroups: manifest.projectionGroups.map((declaration) =>
+            normalizeProjectionGroupDeclaration(manifest.contextName, declaration),
+          ),
+        }
+      : {}),
+    ...(manifest.apiRuntimeProfiles
+      ? {
+          apiRuntimeProfiles: normalizeRuntimeProfiles(
+            manifest.contextName,
+            "apiRuntimeProfiles",
+            manifest.apiRuntimeProfiles,
+          ),
+        }
+      : {}),
+    ...(manifest.workerRuntimeProfiles
+      ? {
+          workerRuntimeProfiles: normalizeRuntimeProfiles(
+            manifest.contextName,
+            "workerRuntimeProfiles",
+            manifest.workerRuntimeProfiles,
+          ),
+        }
+      : {}),
+  };
+}
+
+function normalizeEventSubscriptionDeclaration(
+  contextName: string,
+  declaration: BcEventSubscriptionManifestDeclaration,
+): BcEventSubscriptionDeclaration {
+  const { sourceContextMount: rawSourceContextMount, ...rest } = declaration;
+  const sourceContextMount = normalizeOptionalSourceContextMount(
+    contextName,
+    declaration.projectionName,
+    rawSourceContextMount,
+  );
+
+  return {
+    ...rest,
+    ...(sourceContextMount ? { sourceContextMount } : {}),
+  };
+}
+
+function normalizeProjectionGroupDeclaration(
+  contextName: string,
+  declaration: BcProjectionGroupManifestDeclaration,
+): BcProjectionGroupDeclaration {
+  const {
+    sourceContextMount: rawSourceContextMount,
+    resetStrategy: rawResetStrategy,
+    projectionName,
+    ...rest
+  } = declaration;
+  const sourceContextMount = normalizeOptionalSourceContextMount(contextName, projectionName, rawSourceContextMount);
+  const resetStrategy = normalizeOptionalProjectionGroupResetStrategy(contextName, projectionName, rawResetStrategy);
+
+  return {
+    ...rest,
+    projectionName,
+    ...(sourceContextMount ? { sourceContextMount } : {}),
+    ...(resetStrategy ? { resetStrategy } : {}),
+  };
+}
+
+function normalizeOptionalSourceContextMount(
+  contextName: string,
+  projectionName: string,
+  value: string | undefined,
+): BcSourceContextMount | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (isSourceContextMount(value)) {
+    return value;
+  }
+
+  throw new Error(
+    `Context '${contextName}' projection '${projectionName}' declares unsupported sourceContextMount '${value}'. Expected one of: ${BC_SOURCE_CONTEXT_MOUNTS.join(", ")}.`,
+  );
+}
+
+function normalizeOptionalProjectionGroupResetStrategy(
+  contextName: string,
+  projectionName: string,
+  value: string | undefined,
+): BcProjectionGroupResetStrategy | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (isProjectionGroupResetStrategy(value)) {
+    return value;
+  }
+
+  throw new Error(
+    `Context '${contextName}' projection group '${projectionName}' declares unsupported resetStrategy '${value}'. Expected one of: ${BC_PROJECTION_GROUP_RESET_STRATEGIES.join(", ")}.`,
+  );
+}
+
+function normalizeRuntimeProfiles(
+  contextName: string,
+  propertyName: "apiRuntimeProfiles" | "workerRuntimeProfiles",
+  values: readonly string[],
+): readonly BcRuntimeProfile[] {
+  return values.map((value) => {
+    if (isRuntimeProfile(value)) {
+      return value;
+    }
+
+    throw new Error(
+      `Context '${contextName}' declares unsupported ${propertyName} entry '${value}'. Expected one of: ${BC_RUNTIME_PROFILES.join(", ")}.`,
+    );
+  });
+}
+
+function isSourceContextMount(value: string): value is BcSourceContextMount {
+  return includesString(BC_SOURCE_CONTEXT_MOUNTS, value);
+}
+
+function isProjectionGroupResetStrategy(value: string): value is BcProjectionGroupResetStrategy {
+  return includesString(BC_PROJECTION_GROUP_RESET_STRATEGIES, value);
+}
+
+function isRuntimeProfile(value: string): value is BcRuntimeProfile {
+  return includesString(BC_RUNTIME_PROFILES, value);
 }
 
 function parseEventSubscriptionKey(
@@ -596,4 +791,11 @@ function defaultSubscriptionName(contextName: string, projectionName: string): s
 
 function coerceProjectorHandlerMap(handlers: ProjectorHandlerMap | BcEventSubscriptionHandlerMap): ProjectorHandlerMap {
   return handlers as ProjectorHandlerMap;
+}
+
+function includesString<const TValues extends readonly string[]>(
+  values: TValues,
+  value: string,
+): value is TValues[number] {
+  return (values as readonly string[]).includes(value);
 }

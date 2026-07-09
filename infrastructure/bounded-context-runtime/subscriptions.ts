@@ -1,6 +1,7 @@
 import type {
   BcApiModule,
   BcEventSubscription,
+  BcProjectionGroup,
   BcProjectionHandlerSet,
   BcSubscriptionHandlerKind,
 } from "@chase-sets/bounded-context-module";
@@ -502,12 +503,13 @@ export function createSubscriptionRunner(
   const shouldPersistIdleCheckpointFastForward = (
     fromGlobalPosition: GlobalPosition,
     toGlobalPosition: GlobalPosition,
+    force = false,
   ): boolean => {
     const gap = BigInt(toGlobalPosition) - BigInt(fromGlobalPosition);
     if (gap <= 0n) {
       return false;
     }
-    if (gap >= IDLE_CHECKPOINT_FAST_FORWARD_MIN_GAP) {
+    if (force || gap >= IDLE_CHECKPOINT_FAST_FORWARD_MIN_GAP) {
       return true;
     }
 
@@ -517,9 +519,10 @@ export function createSubscriptionRunner(
     fromGlobalPosition: GlobalPosition,
     toGlobalPosition: GlobalPosition,
     saveCheckpoint: (lastGlobalPosition: GlobalPosition) => Promise<void>,
+    force = false,
   ): Promise<boolean> => {
     // Fast-forward is safe only because source appends are serialized by the global append advisory lock.
-    if (!shouldPersistIdleCheckpointFastForward(fromGlobalPosition, toGlobalPosition)) {
+    if (!shouldPersistIdleCheckpointFastForward(fromGlobalPosition, toGlobalPosition, force)) {
       return false;
     }
 
@@ -776,6 +779,7 @@ export function createSubscriptionRunner(
             checkpoint,
             status.sourceHeadGlobalPosition,
             saveLeasedSubscriptionCheckpoint,
+            context?.settleIdleCheckpoints === true,
           );
           const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
           status.blockedStreamCount = errorSummary.blockedStreamCount;
@@ -1067,6 +1071,7 @@ export function createSubscriptionRunner(
               checkpointBeforeTailFastForward,
               lastGlobalPosition,
               saveLeasedSubscriptionCheckpoint,
+              context?.settleIdleCheckpoints === true,
             );
             if (persistedTailFastForward) {
               lastCheckpointedGlobalPosition = lastGlobalPosition;
@@ -1108,6 +1113,7 @@ export function resolveModuleSubscriptions(
   mountedContexts: readonly MountedContextRuntimeEntry[],
 ): readonly ContextSubscriptionRunner[] {
   const contextsByName = new Map(mountedContexts.map((entry) => [entry.contextName, entry]));
+  const mountedContextNames = new Set(contextsByName.keys());
   const runners: ContextSubscriptionRunner[] = [];
 
   for (const entry of mountedContexts) {
@@ -1115,6 +1121,9 @@ export function resolveModuleSubscriptions(
       continue;
     }
 
+    const projectionSourcesByName = new Map(
+      resolveDeclaredProjectionGroups(entry).map((group) => [group.projectionName, group.sourceContextNames]),
+    );
     const declaredSubscriptions = entry.module.buildSubscriptions?.(entry.services) ?? [];
     const declaredProjectionNames = new Set(declaredSubscriptions.map((subscription) => subscription.projectionName));
     const subscriptions = [
@@ -1127,6 +1136,13 @@ export function resolveModuleSubscriptions(
 
     for (const subscription of subscriptions) {
       validateSubscriptionEventFilters(entry.contextName, subscription);
+      if (
+        subscription.sourceContextMount === "when-all-sources-mounted" &&
+        !allProjectionSourcesMounted(subscription, projectionSourcesByName, mountedContextNames)
+      ) {
+        continue;
+      }
+
       const sourceEntry = contextsByName.get(subscription.sourceContextName);
       if (!sourceEntry) {
         if (subscription.sourceContextMount === "when-mounted") {
@@ -1143,6 +1159,23 @@ export function resolveModuleSubscriptions(
   }
 
   return sortSubscriptionRunners(runners);
+}
+
+function resolveDeclaredProjectionGroups(entry: MountedContextRuntimeEntry): readonly BcProjectionGroup[] {
+  return entry.module.buildProjectionGroups?.(entry.services) ?? entry.module.projectionGroups ?? [];
+}
+
+function allProjectionSourcesMounted(
+  subscription: BcEventSubscription,
+  projectionSourcesByName: ReadonlyMap<string, readonly string[]>,
+  mountedContextNames: ReadonlySet<string>,
+): boolean {
+  const sourceContextNames = projectionSourcesByName.get(subscription.projectionName);
+  if (!sourceContextNames) {
+    return mountedContextNames.has(subscription.sourceContextName);
+  }
+
+  return sourceContextNames.every((sourceContextName) => mountedContextNames.has(sourceContextName));
 }
 
 function createLocalProjectionSubscription(
@@ -1320,8 +1353,9 @@ export async function drainContextRuntime(
   runtime: Readonly<{
     subscriptionRunners?: readonly ContextSubscriptionRunner[];
   }>,
+  context?: ProjectionRunContext,
 ): Promise<void> {
-  await drainContextProcesses({ subscriptionRunners: runtime.subscriptionRunners });
+  await drainContextProcesses({ subscriptionRunners: runtime.subscriptionRunners }, context);
 }
 
 export async function compactRuntimeSubscriptionLedgers(

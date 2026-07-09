@@ -80,6 +80,33 @@
       ],
       "order": 30,
       "projectionHandlerSetNames": ["auth-identity-invitation-projection"]
+    },
+    {
+      "sourceContextName": "ordering",
+      "sourceContextMount": "when-all-sources-mounted",
+      "projectionName": "auth-agent-order-webhook-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
+      "order": 40,
+      "projectionHandlerSetNames": ["auth-agent-order-webhook-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "sourceContextMount": "when-all-sources-mounted",
+      "projectionName": "auth-agent-order-webhook-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
+      "order": 50,
+      "projectionHandlerSetNames": ["auth-agent-order-webhook-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "sourceContextMount": "when-all-sources-mounted",
+      "projectionName": "auth-agent-order-webhook-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["payments.refund-issued"],
+      "order": 60,
+      "projectionHandlerSetNames": ["auth-agent-order-webhook-projection"]
     }
   ],
   "projectionGroups": [
@@ -112,6 +139,14 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "auth-agent-order-webhook-projection",
+      "sourceContextNames": ["ordering", "fulfillment", "payments"],
+      "sourceContextMount": "when-all-sources-mounted",
+      "ownedTables": ["identity_agent_webhook_deliveries"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "append-only-no-reset"
+    },
+    {
       "projectionName": "auth-session-projection",
       "sourceContextNames": ["auth"],
       "ownedTables": ["identity_sessions", "identity_session_lookup"],
@@ -124,6 +159,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox used for magic-link email, SMS sign-in codes, and future Auth notification channels."
+    },
+    {
+      "portName": "agentWebhookOrderResolvers",
+      "providedBy": "platform-worker",
+      "purpose": "Ordering-owned read-model resolvers used by Auth's agent webhook projection to map order and shipment events to the buyer account."
     },
     {
       "portName": "socialLoginProviders",

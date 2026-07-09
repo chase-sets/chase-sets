@@ -77,27 +77,48 @@ export type AgentWebhookTarget = Readonly<{
  * `accountId`: an active linked-platform authorization granting `order:read`
  * whose OAuth client has registered a webhook callback. One order can fan out to
  * several linked platforms.
+ *
+ * The two facts live in different context databases — linked-platform
+ * authorizations are Identity-owned while the callback URL / signing secret ride
+ * on the Auth-owned OAuth client record — so the lookup is a two-pool join in
+ * memory rather than a single SQL join. Both queryables may point at the same
+ * connection when a caller happens to co-locate the tables.
  */
 export async function resolveAgentWebhookTargets(
-  db: PgQueryable,
+  linkedAuthorizationsDb: PgQueryable,
+  oauthClientsDb: PgQueryable,
   accountId: string,
 ): Promise<readonly AgentWebhookTarget[]> {
-  const result = await db.query<{ client_id: string; account_id: string; webhook_callback_url: string }>(
-    `SELECT DISTINCT authorization.client_id, authorization.account_id, client.webhook_callback_url
-     FROM identity_linked_platform_authorizations AS authorization
-     JOIN identity_ucp_oauth_clients AS client ON client.client_id = authorization.client_id
-     WHERE authorization.account_id = $1
-       AND authorization.status = 'active'
-       AND client.webhook_callback_url IS NOT NULL
-       AND client.webhook_signing_secret IS NOT NULL
-       AND authorization.scopes ? $2`,
+  const grants = await linkedAuthorizationsDb.query<{ client_id: string; account_id: string }>(
+    `SELECT DISTINCT client_id, account_id
+     FROM identity_linked_platform_authorizations
+     WHERE account_id = $1
+       AND status = 'active'
+       AND scopes ? $2`,
     [accountId, AGENT_WEBHOOK_ORDER_SCOPE],
   );
-  return result.rows.map((row) => ({
-    clientId: row.client_id,
-    accountId: row.account_id,
-    callbackUrl: row.webhook_callback_url,
-  }));
+  if (grants.rows.length === 0) {
+    return [];
+  }
+
+  const accountByClient = new Map(grants.rows.map((row) => [row.client_id, row.account_id]));
+  const clientIds = [...accountByClient.keys()];
+  const clients = await oauthClientsDb.query<{ client_id: string; webhook_callback_url: string }>(
+    `SELECT client_id, webhook_callback_url
+     FROM identity_ucp_oauth_clients
+     WHERE client_id = ANY($1)
+       AND webhook_callback_url IS NOT NULL
+       AND webhook_signing_secret IS NOT NULL`,
+    [clientIds],
+  );
+
+  return clients.rows.flatMap((row) => {
+    const targetAccountId = accountByClient.get(row.client_id);
+    if (!targetAccountId) {
+      return [];
+    }
+    return [{ clientId: row.client_id, accountId: targetAccountId, callbackUrl: row.webhook_callback_url }];
+  });
 }
 
 /** Resolve a client's plaintext signing secret for outbound signing (dispatcher only). */

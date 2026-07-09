@@ -264,6 +264,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "medium",
     affectedProjectionNames: [
+      "auth:auth-agent-order-webhook-projection",
       "fulfillment:fulfillment-shipment-projection",
       "inventory:inventory-fulfillment-restock-workflow",
       "payments:payments-fulfillment-dispute-evidence-source-projection",
@@ -453,6 +454,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "high",
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
+      "auth:auth-agent-order-webhook-projection",
       "fulfillment:fulfillment-order-source-projection",
       "inventory:inventory-order-reservation-workflow",
       "notifications:notifications-source-facts-outbox-projection",
@@ -488,6 +490,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "medium",
     affectedProjectionNames: [
+      "auth:auth-agent-order-webhook-projection",
       "checkout:checkout.payment-affordance-projection",
       "checkout:checkout.payment-summary-projection",
       "fulfillment:fulfillment-payment-fraud-source-projection",

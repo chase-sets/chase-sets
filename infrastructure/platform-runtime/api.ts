@@ -461,6 +461,15 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
         await drainContextRuntime(runtime);
       });
     }
+
+    // Settle every subscription at its source head before the host reports ready.
+    // Steady-state drains defer small idle checkpoint fast-forwards, which would
+    // otherwise leave cross-context projections that subscribe to a subset of a
+    // source's event types reporting a false tail lag whenever the source seeds
+    // trailing non-subscribed events.
+    await runSeedSubstep("projection-settle:all", substepTimeoutMs, () =>
+      drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
+    );
   }
 }
 

@@ -3,6 +3,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import {
   buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
+  defineBoundedContextManifest,
   defineEventReactionHandlers,
   defineEventSubscriptionHandlers,
   defineBoundedContextModule,
@@ -145,6 +146,61 @@ describe("buildEventSubscriptionsFromManifest", () => {
     expect(Object.keys(subscription?.handlers ?? {})).toEqual(["catalog.catalog-item.published"]);
   });
 
+  it("normalizes JSON-imported source context mount gating", () => {
+    const sourceContextMount = "when-all-sources-mounted" as string;
+    const handler = vi.fn(async () => undefined);
+    const [subscription] = buildEventSubscriptionsFromManifest({
+      contextName: "inventory",
+      manifest: {
+        eventSubscriptions: [
+          {
+            sourceContextName: "catalog",
+            sourceContextMount,
+            projectionName: "inventory-catalog-item-projection",
+            subscriptionVersion: 2,
+            projectionHandlerSetNames: ["inventory-catalog-item-projection"],
+            eventTypes: ["catalog.catalog-item.published"],
+          },
+        ],
+      },
+      handlers: {
+        "catalog.inventory-catalog-item-projection": () => ({
+          "catalog.catalog-item.published": handler,
+        }),
+      },
+    });
+
+    expect(subscription).toMatchObject({
+      sourceContextName: "catalog",
+      sourceContextMount: "when-all-sources-mounted",
+      projectionName: "inventory-catalog-item-projection",
+    });
+  });
+
+  it("rejects unsupported JSON-imported source context mount gating", () => {
+    expect(() =>
+      buildEventSubscriptionsFromManifest({
+        contextName: "inventory",
+        manifest: {
+          eventSubscriptions: [
+            {
+              sourceContextName: "catalog",
+              sourceContextMount: "after-first-source" as string,
+              projectionName: "inventory-catalog-item-projection",
+              subscriptionVersion: 2,
+              projectionHandlerSetNames: ["inventory-catalog-item-projection"],
+            },
+          ],
+        },
+        handlers: {
+          "catalog.inventory-catalog-item-projection": () => ({}),
+        },
+      }),
+    ).toThrow(
+      "Context 'inventory' projection 'inventory-catalog-item-projection' declares unsupported sourceContextMount 'after-first-source'.",
+    );
+  });
+
   it("accepts payload-specific handler maps for future typed subscription declarations", () => {
     type CatalogPublishedPayload = Readonly<{
       itemId: string;
@@ -246,6 +302,42 @@ describe("buildEventReactionsFromManifest", () => {
 });
 
 describe("defineBoundedContextModule", () => {
+  it("normalizes JSON-imported projection group gates and runtime profiles", () => {
+    const sourceContextMount = "when-all-sources-mounted" as string;
+    const resetStrategy = "append-only-no-reset" as string;
+    const apiRuntimeProfile = "landing" as string;
+    const workerRuntimeProfile = "public" as string;
+
+    const normalizedManifest = defineBoundedContextManifest({
+      contextName: "inventory",
+      apiBasePath: "/api/inventory",
+      streamPrefix: "inventory.",
+      projectionGroups: [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          sourceContextNames: ["catalog", "marketplace"],
+          sourceContextMount,
+          ownedTables: ["inventory_catalog_items"],
+          resetStrategy,
+        },
+      ],
+      apiRuntimeProfiles: [apiRuntimeProfile],
+      workerRuntimeProfiles: [workerRuntimeProfile],
+    });
+
+    expect(normalizedManifest.projectionGroups).toEqual([
+      {
+        projectionName: "inventory-catalog-item-projection",
+        sourceContextNames: ["catalog", "marketplace"],
+        sourceContextMount: "when-all-sources-mounted",
+        ownedTables: ["inventory_catalog_items"],
+        resetStrategy: "append-only-no-reset",
+      },
+    ]);
+    expect(normalizedManifest.apiRuntimeProfiles).toEqual(["landing"]);
+    expect(normalizedManifest.workerRuntimeProfiles).toEqual(["public"]);
+  });
+
   it("derives manifest-owned module fields and keeps supplied wiring", async () => {
     const services = { db: "db" };
     const module = defineBoundedContextModule({

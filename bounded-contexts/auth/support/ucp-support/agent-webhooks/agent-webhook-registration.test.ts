@@ -39,19 +39,49 @@ describe("parseWebhookRegistration", () => {
 });
 
 describe("resolveAgentWebhookTargets", () => {
-  it("joins active order:read authorizations to callback-bearing clients", async () => {
-    const query = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({
-      rows: [{ client_id: "ocl_1", account_id: "acc_buyer", webhook_callback_url: "https://agent.example/hooks" }],
+  it("joins active order:read authorizations (Identity) to callback-bearing clients (Auth)", async () => {
+    const linkedAuthorizationsQuery = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({
+      rows: [{ client_id: "ocl_1", account_id: "acc_buyer" }],
       rowCount: 1,
     }));
-    const targets = await resolveAgentWebhookTargets({ query } as never, "acc_buyer");
+    const oauthClientsQuery = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({
+      rows: [{ client_id: "ocl_1", webhook_callback_url: "https://agent.example/hooks" }],
+      rowCount: 1,
+    }));
+
+    const targets = await resolveAgentWebhookTargets(
+      { query: linkedAuthorizationsQuery } as never,
+      { query: oauthClientsQuery } as never,
+      "acc_buyer",
+    );
+
     expect(targets).toEqual([
       { clientId: "ocl_1", accountId: "acc_buyer", callbackUrl: "https://agent.example/hooks" },
     ]);
-    const [sql, values] = query.mock.calls[0];
-    expect(sql).toContain("JOIN identity_ucp_oauth_clients");
-    expect(sql).toContain("authorization.scopes ? $2");
-    expect(values).toEqual(["acc_buyer", AGENT_WEBHOOK_ORDER_SCOPE]);
+
+    const [grantSql, grantValues] = linkedAuthorizationsQuery.mock.calls[0];
+    expect(grantSql).toContain("FROM identity_linked_platform_authorizations");
+    expect(grantSql).toContain("scopes ? $2");
+    expect(grantValues).toEqual(["acc_buyer", AGENT_WEBHOOK_ORDER_SCOPE]);
+
+    const [clientSql, clientValues] = oauthClientsQuery.mock.calls[0];
+    expect(clientSql).toContain("FROM identity_ucp_oauth_clients");
+    expect(clientSql).toContain("webhook_callback_url IS NOT NULL");
+    expect(clientValues).toEqual([["ocl_1"]]);
+  });
+
+  it("skips the client lookup when the account has no active authorizations", async () => {
+    const linkedAuthorizationsQuery = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const oauthClientsQuery = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+
+    const targets = await resolveAgentWebhookTargets(
+      { query: linkedAuthorizationsQuery } as never,
+      { query: oauthClientsQuery } as never,
+      "acc_buyer",
+    );
+
+    expect(targets).toEqual([]);
+    expect(oauthClientsQuery).not.toHaveBeenCalled();
   });
 });
 

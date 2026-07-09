@@ -27,6 +27,30 @@ const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
   checkpointKey: "inventory-order-reservation-workflow:ordering:v1",
 } as const;
 
+const AGENT_WEBHOOK_TARGETS = [
+  {
+    sourceContextName: "ordering",
+    eventType: "ordering.order.created",
+    targetContextName: "auth",
+    projectionName: "auth-agent-order-webhook-projection",
+    checkpointKey: "auth-agent-order-webhook-projection:ordering:v1",
+  },
+  {
+    sourceContextName: "fulfillment",
+    eventType: "fulfillment.shipment.dispatched",
+    targetContextName: "auth",
+    projectionName: "auth-agent-order-webhook-projection",
+    checkpointKey: "auth-agent-order-webhook-projection:fulfillment:v1",
+  },
+  {
+    sourceContextName: "payments",
+    eventType: "payments.refund-issued",
+    targetContextName: "auth",
+    projectionName: "auth-agent-order-webhook-projection",
+    checkpointKey: "auth-agent-order-webhook-projection:payments:v1",
+  },
+] as const;
+
 describe("platform worker projection wake interest graph", () => {
   it("boots the landing worker with source-only contexts required by active subscriptions", () => {
     const runtime = createPlatformWorkerHost("landing");
@@ -66,6 +90,30 @@ describe("platform worker projection wake interest graph", () => {
         }),
       ]),
     );
+  });
+
+  it("subscribes the Auth agent webhook projection to order, shipment, and refund updates", () => {
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+
+    for (const target of AGENT_WEBHOOK_TARGETS) {
+      const entries = lookupProjectionInterests(index, {
+        sourceContextName: target.sourceContextName,
+        eventType: target.eventType,
+      });
+
+      expect(entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            targetContextName: target.targetContextName,
+            projectionName: target.projectionName,
+            checkpointKey: target.checkpointKey,
+            sourceContextName: target.sourceContextName,
+            enabled: true,
+            eventTypes: expect.arrayContaining([target.eventType]),
+          }),
+        ]),
+      );
+    }
   });
 
   it("fans an Ordering created notification to Inventory instead of skipping as no-interests", async () => {
@@ -179,6 +227,11 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
       postageLabelProvider: createSandboxPostageLabelProvider(),
       draftListingCreator: { createDraftListings: async () => [] },
       notificationAdapter: { send: async () => undefined },
+      agentWebhookOrderResolvers: {
+        resolveOrderRecipient: async () => null,
+        resolveShipmentOrderId: async () => null,
+        resolveWebhookTargets: async () => [],
+      },
     },
     runtimeProfile,
   });
