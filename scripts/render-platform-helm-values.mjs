@@ -174,11 +174,25 @@ const databasePoolMaxByComponent = {
 };
 
 export const doksStagingWorkerEnvOverrides = {
-  // DOKS staging intentionally keeps projection/operation/job runners at the
-  // compact Helm baseline and adds only the representative wake headroom from
-  // #4633: 1 projection + 1 operations + 1 job + 1 inventory-import + 1
-  // dispatch + 1 scheduled + 3 wake = 9.
-  DATABASE_POOL_MAX: "9",
+  // DOKS staging keeps operation/job runners at the compact Helm baseline but
+  // widens the projection runner group to 4 (#4762): a ~1.8M-event backlog
+  // across ~28 independent projection groups was draining serially through the
+  // single default slot, so the 2 large discovery cascade groups monopolised it
+  // pass-after-pass and 26 small groups (auth, identity, checkout, ordering,
+  // settlement, ...) made zero progress. Groups are independent (own lease +
+  // checkpoint), so concurrent runners are safe by design. Runner budget:
+  // 4 projection + 1 operations + 1 job + 1 inventory-import + 1 dispatch +
+  // 1 scheduled + 3 wake = 12. Each projection runner holds ~1 connection
+  // during its transaction, so DATABASE_POOL_MAX rises from 9 to 12 one-for-one
+  // with the +3 projection slots. DOKS staging query traffic is still DIRECT
+  // (its Secret exporter builds DATABASE_URL_* from cluster host/port, not from
+  // the PgBouncer pool resources), so this +3 counts one-for-one against the
+  // cluster backend budget: DOKS staging steady-state 30->33 and rolling
+  // overlap 56->62, both well under the 94 tier limit and the 75 upgrade
+  // trigger (see docs/architecture/push-wake-connection-budget.md). The direct
+  // relay LISTEN connections are separate and unchanged.
+  DATABASE_POOL_MAX: "12",
+  WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "4",
   WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3",
   WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2",
   // The staging DOKS worker owns the projection wake relay (issue #4743).

@@ -73,6 +73,9 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
       productionWorkerDatabasePoolMax: extractTernaryNumbers(localsSource, "worker_default_database_pool_max")
         .falseValue,
       doksStagingWorkerDatabasePoolMax: Number(doksStagingWorkerEnvOverrides.DATABASE_POOL_MAX),
+      doksStagingProjectionMaxConcurrentRunners: Number(
+        doksStagingWorkerEnvOverrides.WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS ?? 1,
+      ),
       doksStagingWakeMaxConcurrentRunners: Number(doksStagingWorkerEnvOverrides.WORKER_WAKE_MAX_CONCURRENT_RUNNERS),
       doksStagingWakeStandardLaneRunnerCount: Number(
         doksStagingWorkerEnvOverrides.WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT,
@@ -171,7 +174,14 @@ export function buildPushWakeCapacityEvidence(input) {
     workerCapacity: {
       databasePoolMax: input.defaults.doksStagingWorkerDatabasePoolMax,
       previousDatabasePoolMax: input.defaults.productionWorkerDatabasePoolMax,
-      configuredRunnerConcurrency: 1 + 1 + 1 + 1 + 1 + 1 + input.defaults.doksStagingWakeMaxConcurrentRunners,
+      configuredRunnerConcurrency:
+        input.defaults.doksStagingProjectionMaxConcurrentRunners +
+        1 +
+        1 +
+        1 +
+        1 +
+        1 +
+        input.defaults.doksStagingWakeMaxConcurrentRunners,
       wakeMaxConcurrentRunners: input.defaults.doksStagingWakeMaxConcurrentRunners,
       wakeStandardLaneRunnerCount: input.defaults.doksStagingWakeStandardLaneRunnerCount,
       steadyStatePoolDelta:
@@ -208,7 +218,7 @@ export function buildPushWakeCapacityEvidence(input) {
   return {
     schemaVersion: PUSH_WAKE_CAPACITY_EVIDENCE_VERSION,
     checkedAt: input.checkedAt,
-    issueNumbers: [1363, 1364, 4633],
+    issueNumbers: [1363, 1364, 4633, 4762],
     sourcePaths: input.sourcePaths,
     terraformDefaults: {
       platformContextCount: input.platformContextNames.length,
