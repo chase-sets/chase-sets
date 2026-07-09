@@ -104,4 +104,71 @@ describe("Payments UCP handoff", () => {
       evidence: { verifier: "test" },
     });
   });
+
+  it("advertises the stored-payment-method off-session rail and setup tools", () => {
+    expect(handoff.payment.stored_payment_method).toEqual({
+      off_session_completion_enabled: true,
+      setup_tools: ["payments.start-payment-method-setup", "payments.confirm-payment-method-setup"],
+    });
+    expect(handoff.payment.handlers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "stored_payment_method",
+          requires_ap2_mandate: false,
+          requires_trusted_ui: false,
+          supports_challenge_handoff: true,
+        }),
+      ]),
+    );
+  });
+
+  it("selects the stored-payment-method rail from a saved instrument id without an AP2 mandate", async () => {
+    const decision = await handoff.evaluateCompleteRequest(
+      {
+        payment_data: {
+          provider: "stripe",
+          saved_checkout_instrument_id: "sci_card_1",
+        },
+      },
+      checkout,
+    );
+
+    expect(decision).toEqual({
+      kind: "headless-stored-payment-method",
+      savedCheckoutInstrumentId: "sci_card_1",
+    });
+  });
+
+  it("selects the stored-payment-method rail from a payment.instruments entry", async () => {
+    const decision = await handoff.evaluateCompleteRequest(
+      {
+        payment: {
+          instruments: [{ type: "stored_payment_method", id: "sci_card_2" }],
+        },
+      },
+      checkout,
+    );
+
+    expect(decision).toEqual({
+      kind: "headless-stored-payment-method",
+      savedCheckoutInstrumentId: "sci_card_2",
+    });
+  });
+
+  it("ignores non-stored-instrument payment references that are not saved instrument ids", async () => {
+    const decision = await handoff.evaluateCompleteRequest(
+      {
+        payment: {
+          instruments: [{ type: "stored_payment_method", id: "pm_not_an_instrument" }],
+        },
+      },
+      checkout,
+    );
+
+    // No AP2 mandate and no saved instrument id: falls through to the trusted-UI handoff.
+    expect(decision).toMatchObject({
+      kind: "respond",
+      response: { ucp: { status: "requires_action" } },
+    });
+  });
 });
