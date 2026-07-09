@@ -230,6 +230,7 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
       agentWebhookOrderResolvers: {
         resolveOrderRecipient: async () => null,
         resolveShipmentOrderId: async () => null,
+        resolveWebhookTargets: async () => [],
       },
     },
     runtimeProfile,

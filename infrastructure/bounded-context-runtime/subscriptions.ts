@@ -503,12 +503,13 @@ export function createSubscriptionRunner(
   const shouldPersistIdleCheckpointFastForward = (
     fromGlobalPosition: GlobalPosition,
     toGlobalPosition: GlobalPosition,
+    force = false,
   ): boolean => {
     const gap = BigInt(toGlobalPosition) - BigInt(fromGlobalPosition);
     if (gap <= 0n) {
       return false;
     }
-    if (gap >= IDLE_CHECKPOINT_FAST_FORWARD_MIN_GAP) {
+    if (force || gap >= IDLE_CHECKPOINT_FAST_FORWARD_MIN_GAP) {
       return true;
     }
 
@@ -518,9 +519,10 @@ export function createSubscriptionRunner(
     fromGlobalPosition: GlobalPosition,
     toGlobalPosition: GlobalPosition,
     saveCheckpoint: (lastGlobalPosition: GlobalPosition) => Promise<void>,
+    force = false,
   ): Promise<boolean> => {
     // Fast-forward is safe only because source appends are serialized by the global append advisory lock.
-    if (!shouldPersistIdleCheckpointFastForward(fromGlobalPosition, toGlobalPosition)) {
+    if (!shouldPersistIdleCheckpointFastForward(fromGlobalPosition, toGlobalPosition, force)) {
       return false;
     }
 
@@ -777,6 +779,7 @@ export function createSubscriptionRunner(
             checkpoint,
             status.sourceHeadGlobalPosition,
             saveLeasedSubscriptionCheckpoint,
+            context?.settleIdleCheckpoints === true,
           );
           const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
           status.blockedStreamCount = errorSummary.blockedStreamCount;
@@ -1068,6 +1071,7 @@ export function createSubscriptionRunner(
               checkpointBeforeTailFastForward,
               lastGlobalPosition,
               saveLeasedSubscriptionCheckpoint,
+              context?.settleIdleCheckpoints === true,
             );
             if (persistedTailFastForward) {
               lastCheckpointedGlobalPosition = lastGlobalPosition;
@@ -1349,8 +1353,9 @@ export async function drainContextRuntime(
   runtime: Readonly<{
     subscriptionRunners?: readonly ContextSubscriptionRunner[];
   }>,
+  context?: ProjectionRunContext,
 ): Promise<void> {
-  await drainContextProcesses({ subscriptionRunners: runtime.subscriptionRunners });
+  await drainContextProcesses({ subscriptionRunners: runtime.subscriptionRunners }, context);
 }
 
 export async function compactRuntimeSubscriptionLedgers(

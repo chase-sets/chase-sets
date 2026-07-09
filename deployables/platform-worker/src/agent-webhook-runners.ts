@@ -3,6 +3,7 @@ import {
   createFetchAgentWebhookSender,
   createPostgresAgentWebhookOutbox,
   resolveAgentWebhookSigningSecret,
+  resolveAgentWebhookTargets,
 } from "@chase-sets/auth/server";
 import {
   resolveOrderRecipient as resolveOrderingOrderRecipient,
@@ -11,10 +12,24 @@ import {
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { WorkerHostRuntime, WorkerRunner } from "@chase-sets/platform-runtime/worker";
 
-export function createOrderingAgentWebhookOrderResolvers(db: PgQueryable) {
+/**
+ * Cross-context resolvers the Auth agent-order-webhook projection needs but
+ * cannot reach from its own pool: order/shipment recipients live in Ordering,
+ * linked-platform authorizations in Identity, and webhook callbacks on the
+ * Auth-owned OAuth client record.
+ */
+export function createOrderingAgentWebhookOrderResolvers(
+  pools: Readonly<{
+    ordering: PgQueryable;
+    linkedAuthorizations: PgQueryable;
+    oauthClients: PgQueryable;
+  }>,
+) {
   return {
-    resolveOrderRecipient: (orderId: string) => resolveOrderingOrderRecipient(db, orderId),
-    resolveShipmentOrderId: (shipmentId: string) => resolveOrderingShipmentOrderId(db, shipmentId),
+    resolveOrderRecipient: (orderId: string) => resolveOrderingOrderRecipient(pools.ordering, orderId),
+    resolveShipmentOrderId: (shipmentId: string) => resolveOrderingShipmentOrderId(pools.ordering, shipmentId),
+    resolveWebhookTargets: (accountId: string) =>
+      resolveAgentWebhookTargets(pools.linkedAuthorizations, pools.oauthClients, accountId),
   };
 }
 

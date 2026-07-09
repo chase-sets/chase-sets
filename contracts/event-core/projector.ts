@@ -181,6 +181,14 @@ export type ProjectionRunContext = Readonly<{
   transactionTimeoutMs?: number;
   statementTimeoutMs?: number;
   throwIfLeaseLost?: () => void;
+  /**
+   * Force idle checkpoint fast-forwards to persist immediately, bypassing the
+   * steady-state gap/heartbeat throttle. Used by one-time drains (for example
+   * host bootstrap seeding) that must leave every subscription fully settled at
+   * its source head, even when only a small tail of non-subscribed source events
+   * remains.
+   */
+  settleIdleCheckpoints?: boolean;
 }>;
 
 export type ProjectionHandlerSet = Readonly<{

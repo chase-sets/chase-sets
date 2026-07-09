@@ -224,7 +224,11 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     sourceObservationTelemetry,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
-    agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers(pools.ordering),
+    agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers({
+      ordering: pools.ordering,
+      linkedAuthorizations: pools.identity,
+      oauthClients: pools.auth,
+    }),
     draftListingCreator,
   },
 });

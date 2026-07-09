@@ -17,7 +17,6 @@ import { createAuthServices } from "./support/runtime-support/services";
 import {
   AGENT_ORDER_WEBHOOK_PROJECTION,
   buildAgentOrderWebhookProjectionHandlers,
-  resolveAgentWebhookTargets,
 } from "./support/ucp-support/agent-webhooks";
 
 export const module = defineBoundedContextModule<AuthServices, PgTransactionalPool, AuthHostPorts>({
@@ -57,7 +56,7 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
 function buildAgentWebhookHandlers(services: AuthServices) {
   return buildAgentOrderWebhookProjectionHandlers({
     outbox: services.agentWebhookOutbox,
-    resolveWebhookTargets: (accountId) => resolveAgentWebhookTargets(services.db, accountId),
+    resolveWebhookTargets: services.agentWebhookOrderResolvers.resolveWebhookTargets,
     resolveOrderRecipient: services.agentWebhookOrderResolvers.resolveOrderRecipient,
     resolveShipmentOrderId: services.agentWebhookOrderResolvers.resolveShipmentOrderId,
   });

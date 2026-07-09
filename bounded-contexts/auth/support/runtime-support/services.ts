@@ -43,7 +43,11 @@ import {
   DEFAULT_REGISTRATION_ADMISSION_CONFIG,
   type RegistrationAdmissionConfig,
 } from "../api-support/registration-gates";
-import { createPostgresAgentWebhookOutbox, type AgentWebhookOutbox } from "../ucp-support/agent-webhooks";
+import {
+  createPostgresAgentWebhookOutbox,
+  type AgentWebhookOutbox,
+  type AgentWebhookTarget,
+} from "../ucp-support/agent-webhooks";
 
 type AuthIdentityReadServices = Readonly<{
   bootstrapTenantId: string;
@@ -107,11 +111,13 @@ export type AuthHostPorts = Readonly<{
 export type AgentWebhookOrderResolvers = Readonly<{
   resolveOrderRecipient: (orderId: string) => Promise<string | null>;
   resolveShipmentOrderId: (shipmentId: string) => Promise<string | null>;
+  resolveWebhookTargets: (accountId: string) => Promise<readonly AgentWebhookTarget[]>;
 }>;
 
 const noopAgentWebhookOrderResolvers: AgentWebhookOrderResolvers = {
   resolveOrderRecipient: async () => null,
   resolveShipmentOrderId: async () => null,
+  resolveWebhookTargets: async () => [],
 };
 
 function resolveRegistrationAdmissionConfig(
