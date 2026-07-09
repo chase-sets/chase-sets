@@ -2282,7 +2282,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewJob).toContain("needs['e2e-tests'].result == 'success'");
     expect(previewJob).toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
     expect(previewJob).toContain("id: preview_domains");
-    expect(previewJob).toContain('echo "landing_domain_ready=${landing_domain_ready}" >> "$GITHUB_OUTPUT"');
+    expect(previewJob).toContain('echo "landing_domain_ready=${landing_domain_ready}"');
+    expect(previewJob).toContain('} >> "$GITHUB_OUTPUT"');
     // Landing-only smoke is gated on landing-domain readiness through
     // SMOKE_REQUIRE_LANDING rather than a shell skip message: the smoke runner
     // is told not to require landing when its ingress is not yet reachable.

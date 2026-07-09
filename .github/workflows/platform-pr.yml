@@ -1154,7 +1154,6 @@ jobs:
           set -euo pipefail
           landing_domain="${PREVIEW_IDENTIFIER}.preview.chasesets.com"
           marketplace_domain="marketplace.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
-          admin_domain="admin.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
 
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
@@ -1208,10 +1207,12 @@ jobs:
             --attempts 6 \
             --delay-ms 5000 && landing_domain_ready=true || landing_domain_ready=false
 
-          echo "landing_domain=${landing_domain}" >> "$GITHUB_OUTPUT"
-          echo "marketplace_domain=${marketplace_domain}" >> "$GITHUB_OUTPUT"
-          echo "admin_domain=${admin_domain}" >> "$GITHUB_OUTPUT"
-          echo "landing_domain_ready=${landing_domain_ready}" >> "$GITHUB_OUTPUT"
+          {
+            echo "landing_domain=${landing_domain}"
+            echo "marketplace_domain=${marketplace_domain}"
+            echo "admin_domain=${admin_domain}"
+            echo "landing_domain_ready=${landing_domain_ready}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Smoke check
         env:
