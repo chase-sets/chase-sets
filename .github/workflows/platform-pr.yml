@@ -36,7 +36,6 @@ jobs:
       full_battery_required: ${{ steps.full-battery.outputs.required }}
       local_checks: ${{ steps.scope.outputs.local_checks }}
       terraform: ${{ steps.scope.outputs.terraform }}
-      typecheck: ${{ steps.scope.outputs.typecheck }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
       workflow_lint: ${{ steps.scope.outputs.workflow_lint }}
     steps:
@@ -121,7 +120,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.typecheck == 'true'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -130,7 +128,7 @@ jobs:
           install: true
 
       - name: Typecheck repository
-        run: pnpm run verify:typecheck -- --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+        run: pnpm run verify:typecheck
 
   unit-tests:
     name: Unit Tests
@@ -836,7 +834,7 @@ jobs:
       (needs['change-scope'].outputs.deploy == 'true' ||
        contains(github.event.pull_request.labels.*.name, 'preview')) &&
       (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') &&
-      (needs['change-scope'].outputs.typecheck != 'true' || needs.typecheck.result == 'success') &&
+      needs.typecheck.result == 'success' &&
       (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success') &&
       (needs['change-scope'].outputs.full_battery_required != 'true' ||
        needs['change-scope'].outputs.db_tests != 'true' ||
@@ -1275,7 +1273,7 @@ jobs:
 
           require_job "Change Scope" "${{ needs['change-scope'].result }}" "true"
           require_job "Static Checks" "${{ needs.static.result }}" "${{ needs['change-scope'].outputs.local_checks }}"
-          require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs['change-scope'].outputs.typecheck }}"
+          require_job "Typecheck" "${{ needs.typecheck.result }}" "true"
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests }}"
           require_job "Workflow Lint" "${{ needs['workflow-lint'].result }}" "${{ needs['change-scope'].outputs.workflow_lint }}"
 
