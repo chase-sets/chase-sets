@@ -19,6 +19,14 @@ spec:
       labels:
 {{ include "chase-sets-platform.selectorLabels" (dict "root" . "name" "preview-postgres") | nindent 8 }}
     spec:
+      {{- with .Values.global.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.tolerations }}
+      tolerations:
+{{ toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: postgres
           image: {{ printf "%s:%s" .Values.previewPostgres.image.repository .Values.previewPostgres.image.tag | quote }}

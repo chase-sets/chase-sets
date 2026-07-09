@@ -46,6 +46,11 @@ const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platf
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
+const platformKubernetesDeploymentScript = readFileSync(resolve("scripts/platform-kubernetes-deployment.mjs"), "utf8");
+const previewPostgresTemplate = readFileSync(
+  resolve("infrastructure/helm/platform/templates/preview-postgres.yaml"),
+  "utf8",
+);
 const platformPreviewCleanupWorkflow = readFileSync(resolve(".github/workflows/platform-preview-cleanup.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 const platformDigitalOceanDriftDigestWorkflow = readFileSync(
@@ -2575,6 +2580,23 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformDoksFoundationWorkflow).toContain("registry.digitalocean.com/chase-sets/chase-sets-platform");
     expect(platformDoksFoundationWorkflow).toContain("kubectl create job platform-image-pull-proof");
     expect(platformDoksFoundationWorkflow).toContain("platform-doks-foundation-${{ inputs.environment }}");
+  });
+
+  it("pins preview workloads to the dedicated preview node pool scheduling contract", () => {
+    // The staging DOKS preview node pool itself (label, taint, scale-to-zero
+    // autoscaling) ships separately with #4745 and is guarded by
+    // scripts/doks-preview-node-pool.test.mjs. This guard pins the deploy-side
+    // wiring: the preview deploy path pins every preview workload to the pool
+    // via nodeSelector + taint toleration; other environments never set these.
+    expect(platformKubernetesDeploymentScript).toContain('envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"');
+    expect(platformKubernetesDeploymentScript).toContain('"global.nodeSelector.chase-sets\\\\.com/pool=preview"');
+    expect(platformKubernetesDeploymentScript).toContain('"global.tolerations[0].key=chase-sets.com/preview-only"');
+    expect(platformKubernetesDeploymentScript).toContain('"global.tolerations[0].effect=NoSchedule"');
+
+    // The in-cluster preview Postgres pod schedules with the same values as
+    // the component workloads (which render them through the podSpec helper).
+    expect(previewPostgresTemplate).toContain(".Values.global.nodeSelector");
+    expect(previewPostgresTemplate).toContain(".Values.global.tolerations");
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {

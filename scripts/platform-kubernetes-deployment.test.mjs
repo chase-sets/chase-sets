@@ -355,6 +355,51 @@ describe("platform Kubernetes deployment", () => {
     );
   });
 
+  it("pins preview workloads to the dedicated preview node pool and keeps other environments off it", () => {
+    const previewArgs = buildHelmUpgradeArgs({
+      release: "chase-sets-pr-123",
+      namespace: "chase-sets-pr-123",
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:pr-123",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "preview",
+        PREVIEW_IDENTIFIER: "pr-123",
+      },
+    });
+
+    // The nodeSelector targets the staging cluster's preview pool label and
+    // the toleration matches its preview-only NoSchedule taint (#4745).
+    expect(previewArgs).toEqual(
+      expect.arrayContaining([
+        "--set-string",
+        "global.nodeSelector.chase-sets\\.com/pool=preview",
+        "--set-string",
+        "global.tolerations[0].key=chase-sets.com/preview-only",
+        "--set-string",
+        "global.tolerations[0].operator=Equal",
+        "--set-string",
+        "global.tolerations[0].value=true",
+        "--set-string",
+        "global.tolerations[0].effect=NoSchedule",
+      ]),
+    );
+
+    for (const environment of ["staging", "production"]) {
+      const args = buildHelmUpgradeArgs({
+        release: `${environment}-platform`,
+        namespace: environment,
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: {
+          DEPLOYMENT_ENVIRONMENT: environment,
+        },
+      });
+
+      expect(args.join("\n")).not.toContain("global.nodeSelector.chase-sets");
+      expect(args.join("\n")).not.toContain("preview-only");
+    }
+  });
+
   it("escapes comma-separated runtime environment override values for Helm", () => {
     expect(
       buildHelmUpgradeArgs({

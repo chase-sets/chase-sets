@@ -61,6 +61,27 @@ export function buildHelmUpgradeArgs(options = {}) {
         : [];
   const previewPostgresSetArgs =
     envOverrides.DEPLOYMENT_ENVIRONMENT === "preview" ? ["--set", "previewPostgres.enabled=true"] : [];
+  // Preview workloads (including the in-cluster preview Postgres) schedule
+  // exclusively onto the dedicated staging preview node pool (#4745): the
+  // nodeSelector targets the pool label and the toleration matches its
+  // preview-only NoSchedule taint. Staging and production releases never set
+  // these, so their pods cannot land on preview nodes and previews cannot
+  // land on the staging runtime node.
+  const previewSchedulingSetArgs =
+    envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"
+      ? [
+          "--set-string",
+          "global.nodeSelector.chase-sets\\.com/pool=preview",
+          "--set-string",
+          "global.tolerations[0].key=chase-sets.com/preview-only",
+          "--set-string",
+          "global.tolerations[0].operator=Equal",
+          "--set-string",
+          "global.tolerations[0].value=true",
+          "--set-string",
+          "global.tolerations[0].effect=NoSchedule",
+        ]
+      : [];
 
   return [
     "upgrade",
@@ -77,6 +98,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...(environmentValuesPath ? ["--values", environmentValuesPath] : []),
     ...doksIngressSetArgs,
     ...previewPostgresSetArgs,
+    ...previewSchedulingSetArgs,
     "--set-string",
     `global.image.registry=${image.registry}`,
     "--set-string",
