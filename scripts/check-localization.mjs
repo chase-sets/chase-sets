@@ -1,4 +1,4 @@
-import ts from "typescript";
+import ts from "@chase-sets/typescript-compiler-api";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 

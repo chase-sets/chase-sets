@@ -180,6 +180,7 @@
     "check:operator-surface-pm": "node ./scripts/check-operator-surface-pm-content.mjs"
   },
   "devDependencies": {
+    "@chase-sets/typescript-compiler-api": "workspace:*",
     "@playwright/test": "^1.60.0",
     "@react-router/dev": "^7.14.0",
     "@tailwindcss/vite": "^4.2.2",

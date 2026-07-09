@@ -1,0 +1,12 @@
+{
+  "name": "@chase-sets/typescript-compiler-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "dependencies": {
+    "typescript": "5.9.3"
+  }
+}
