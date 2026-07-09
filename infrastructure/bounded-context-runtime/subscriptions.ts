@@ -5,7 +5,12 @@ import type {
   BcProjectionHandlerSet,
   BcSubscriptionHandlerKind,
 } from "@chase-sets/bounded-context-module";
-import { isTransientProjectionError, ZERO_GLOBAL_POSITION, toTransportEvent } from "@chase-sets/event-core";
+import {
+  isProjectionTransactionBudgetExceededError,
+  isTransientProjectionError,
+  ZERO_GLOBAL_POSITION,
+  toTransportEvent,
+} from "@chase-sets/event-core";
 import type {
   ProjectionBlockedStream,
   ProjectionPoisonEvent,
@@ -33,6 +38,7 @@ import {
   isGlobalPositionGreater,
   loadProjectionBlockedStream,
   loadProjectionErrorSummary,
+  loadSubscriptionApplicationAgeMs,
   loadSubscriptionApplicationStatuses,
   loadSubscriptionCheckpoint,
   markProjectionBlockedStreamBlocked,
@@ -99,6 +105,31 @@ export type SubscriptionLedgerMetrics = Readonly<{
 const IDLE_CHECKPOINT_FAST_FORWARD_MIN_GAP = 100n;
 const IDLE_CHECKPOINT_FAST_FORWARD_HEARTBEAT_MS = 60_000;
 const REACTION_CHECKPOINT_BATCH_SIZE = 1;
+
+/**
+ * Default budget for the single-event transaction-budget watchdog: how long one
+ * event may stay stuck failing its projection transaction (measured from its
+ * durable first-claim time) before it is quarantined as poison so the checkpoint
+ * can advance. Only applies to events that fail with a *deterministic*
+ * transaction-budget overrun on the smallest checkpoint unit — a healthy
+ * transient blip (serialization/lock contention) is never quarantined. Generous
+ * by default so genuine transients recover; a projection whose per-event work can
+ * never fit its budget still makes forward progress instead of stalling forever.
+ *
+ * The default is comfortably larger than a single transaction budget so a legit
+ * slow-but-fitting event that overruns once (a GC pause, a one-off lock wait) is
+ * retried, not quarantined; only an event that keeps overrunning across attempts
+ * is parked. Lower it per subscription for a faster bulk-replay drain.
+ */
+const DEFAULT_PROJECTION_TRANSACTION_BUDGET_ESCALATION_MS = 300_000;
+
+function normalizeTransactionBudgetEscalationMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value < 0) {
+    return DEFAULT_PROJECTION_TRANSACTION_BUDGET_ESCALATION_MS;
+  }
+
+  return Math.floor(value);
+}
 
 export type ContextSubscriptionRunner = Readonly<{
   subscriptionName: string;
@@ -438,6 +469,9 @@ export function createSubscriptionRunner(
       ? Math.min(configuredCheckpointBatchSize, REACTION_CHECKPOINT_BATCH_SIZE)
       : configuredCheckpointBatchSize;
   const checkpointKey = createCheckpointKey(subscription);
+  const transactionBudgetEscalationMs = normalizeTransactionBudgetEscalationMs(
+    subscription.projectionTransactionBudgetEscalationMs,
+  );
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
   const status: {
     checkpointKey: string;
@@ -828,6 +862,20 @@ export function createSubscriptionRunner(
           knownFailure?: Readonly<{ eventId: string; error: unknown }>,
         ): Promise<SubscriptionBatchProgress> => {
           const progress = initialProgress();
+          const recordPoisonEvent = (event: SubscriptionTransportEvent, error: unknown) =>
+            recordProjectionPoisonEvent(targetPool, {
+              projectionKey: checkpointKey,
+              projectionName: subscription.projectionName,
+              targetContextName,
+              sourceContextName: subscription.sourceContextName,
+              subscriptionVersion: subscription.subscriptionVersion,
+              streamId: event.streamId,
+              streamVersion: event.streamVersion,
+              eventId: String(event.id),
+              eventType: event.type,
+              globalPosition: event.globalPosition,
+              error,
+            });
           const applicationStatuses = await loadSubscriptionApplicationStatuses(
             targetPool,
             checkpointKey,
@@ -911,6 +959,37 @@ export function createSubscriptionRunner(
                     continue;
                   }
 
+                  // Single-event transaction-budget watchdog. `checkpointBatchSize === 1`
+                  // is the smallest replay unit — there is no smaller batch to fall back
+                  // to — so an event whose projection work can never fit its transaction
+                  // budget would otherwise roll back and be re-read forever, silently
+                  // stalling the whole projection (and monopolising the shared runner
+                  // slot). Once such an event has been stuck longer than the escalation
+                  // budget, quarantine it as poison so the checkpoint advances and the
+                  // rest of the backlog drains; operators retry it via the blocked-stream
+                  // path once the underlying handler is bounded. Only deterministic
+                  // budget overruns escalate — ordinary transient blips still retry.
+                  if (
+                    checkpointBatchSize === 1 &&
+                    isProjectionTransactionBudgetExceededError(error) &&
+                    ((await loadSubscriptionApplicationAgeMs(targetPool, checkpointKey, String(event.id))) ?? 0) >=
+                      transactionBudgetEscalationMs
+                  ) {
+                    const poisonClaim = await recordSubscriptionApplicationFailure(
+                      targetPool,
+                      checkpointKey,
+                      event,
+                      "poison",
+                      error,
+                      context,
+                    );
+                    if (poisonClaim !== "already-applied") {
+                      await recordPoisonEvent(event, error);
+                    }
+                    await advanceProgress(progress, event);
+                    continue;
+                  }
+
                   if (progress.lastGlobalPosition !== progress.lastCheckpointedGlobalPosition) {
                     await saveLeasedSubscriptionCheckpoint(progress.lastGlobalPosition);
                     progress.lastCheckpointedGlobalPosition = progress.lastGlobalPosition;
@@ -931,19 +1010,7 @@ export function createSubscriptionRunner(
                   continue;
                 }
 
-                await recordProjectionPoisonEvent(targetPool, {
-                  projectionKey: checkpointKey,
-                  projectionName: subscription.projectionName,
-                  targetContextName,
-                  sourceContextName: subscription.sourceContextName,
-                  subscriptionVersion: subscription.subscriptionVersion,
-                  streamId: event.streamId,
-                  streamVersion: event.streamVersion,
-                  eventId: String(event.id),
-                  eventType: event.type,
-                  globalPosition: event.globalPosition,
-                  error,
-                });
+                await recordPoisonEvent(event, error);
               }
             }
 

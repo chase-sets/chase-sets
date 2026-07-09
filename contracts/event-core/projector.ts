@@ -235,6 +235,32 @@ export function isTransientProjectionError(error: unknown): boolean {
   );
 }
 
+const PROJECTION_TRANSACTION_BUDGET_EXCEEDED_MARKER = "projectionTransactionBudgetExceeded";
+
+/**
+ * A projection transaction that could not finish within its idle/statement/wall
+ * budget. Modelled as a transient failure (retryable) but tagged distinctly so
+ * the subscription runner can recognise a *deterministic* budget overrun — the
+ * same event with the same fan-out will overrun again — and escalate a single
+ * event that can never fit its budget, instead of re-reading it forever.
+ */
+export function createProjectionTransactionBudgetExceededError(message: string, options?: ErrorOptions): Error {
+  const error = createTransientProjectionError(message, options) as Error & {
+    [PROJECTION_TRANSACTION_BUDGET_EXCEEDED_MARKER]: true;
+  };
+  error[PROJECTION_TRANSACTION_BUDGET_EXCEEDED_MARKER] = true;
+  return error;
+}
+
+export function isProjectionTransactionBudgetExceededError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    PROJECTION_TRANSACTION_BUDGET_EXCEEDED_MARKER in error &&
+    (error as Record<string, unknown>)[PROJECTION_TRANSACTION_BUDGET_EXCEEDED_MARKER] === true
+  );
+}
+
 function assertPositiveInteger(value: number, fieldName: string): number {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${fieldName} must be a positive integer.`);
