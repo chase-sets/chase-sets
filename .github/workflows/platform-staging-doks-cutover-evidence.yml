@@ -188,6 +188,12 @@ jobs:
 
       - name: Smoke check DOKS endpoints
         env:
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_WRITE_WAITLIST: "false"
@@ -229,6 +235,8 @@ jobs:
 
       - name: DOKS marketplace critical flows
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           CI: "true"
           PLAYWRIGHT_SKIP_WEB_SERVER: "true"
           MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
@@ -245,11 +253,14 @@ jobs:
 
       - name: DOKS Buy Now freshness probes
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           GUEST_BUY_NOW_PROBE_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
           GUEST_BUY_NOW_PROBE_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || 'air balloon' }}
           GUEST_BUY_NOW_PROBE_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
           GUEST_BUY_NOW_PROBE_TIMEOUT_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
           GUEST_BUY_NOW_PROBE_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
+          GUEST_BUY_NOW_PROBE_SLO_MODE: ${{ vars.GUEST_BUY_NOW_CANARY_SLO_MODE || 'warn' }}
           GUEST_BUY_NOW_PROBE_ATTEMPTS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ATTEMPTS || '3' }}
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_BUDGET_MS || '120000' }}
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
@@ -285,19 +296,27 @@ jobs:
 
       - name: DOKS Stripe money smoke
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           SMOKE_REGISTER_SELLER: "true"
           SMOKE_SELLER_EMAIL: stripe-doks-cutover+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
           SMOKE_SELLER_PASSWORD: staging-stripe-doks-${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_SELLER_DISPLAY_NAME: Stripe DOKS Cutover Smoke ${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.STAGING_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}
-          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_MONEY_SMOKE_ENVIRONMENT: staging
           STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"
+          SMOKE_ORDER_IDS: ${{ vars.STAGING_SMOKE_ORDER_IDS || '' }}
+          SMOKE_BALANCE_CREDIT_AMOUNT: ${{ vars.STAGING_SMOKE_BALANCE_CREDIT_AMOUNT || '' }}
+          SMOKE_PAYMENT_METHOD_CATEGORY: ${{ vars.STAGING_SMOKE_PAYMENT_METHOD_CATEGORY || '' }}
+          SMOKE_CREATE_PAYMENT: ${{ vars.STAGING_SMOKE_CREATE_PAYMENT || '' }}
+          SMOKE_PAYOUT_AMOUNT: ${{ vars.STAGING_SMOKE_PAYOUT_AMOUNT || '' }}
+          SMOKE_REQUEST_PAYOUT: ${{ vars.STAGING_SMOKE_REQUEST_PAYOUT || '' }}
         run: |
           set -euo pipefail
           PLATFORM_API_BASE_URL="https://${{ steps.hosts.outputs.marketplace }}" \
