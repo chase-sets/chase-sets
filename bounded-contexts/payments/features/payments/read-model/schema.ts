@@ -150,10 +150,6 @@ CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
 CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_account_idx
   ON payments_saved_checkout_instruments (account_id, is_default DESC, updated_at DESC, instrument_id);
 
-CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_agent_grant_idx
-  ON payments_saved_checkout_instruments (account_id, agent_grant_id, readiness, updated_at DESC, instrument_id)
-  WHERE agent_grant_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS payments_saved_checkout_instruments_provider_ref_idx
   ON payments_saved_checkout_instruments (provider, provider_reference);
 
