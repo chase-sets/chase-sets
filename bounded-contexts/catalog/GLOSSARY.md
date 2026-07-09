@@ -106,6 +106,10 @@ Expansion and set scope records carry canonical `release-date`, `official-set-co
 
 `Scope Coverage` and `Scope Sync` are follow-on read/workflow concepts. They must consume Catalog Scope Records and reviewed Provider Scope Mappings instead of rebuilding scope identity from provider hints.
 
+## Provider Scope Mapping
+
+A `Provider Scope Mapping` is a reviewed, Catalog-owned mapping from provider vocabulary — a product-line or category id, set id, or set name — to exactly one Catalog Scope Record. Mappings carry review status and provenance; Scope Sync consumes only approved mappings and never rebuilds scope identity from provider hints.
+
 ## Alias Model
 
 A `Catalog Alias` is reviewable item-level evidence that a piece of text refers to a Catalog Item: an official equivalent in another language or market, a translation, a provider-localized name, a species name, a romanization, or a generated translation. Translation is one kind of alias, not the whole model.
