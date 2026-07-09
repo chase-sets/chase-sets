@@ -156,9 +156,12 @@ describe("worker runner loop", () => {
         releaseCalls += 1;
       },
     });
+    // Non-projection-group runners (jobs, wake lanes) keep their leases across
+    // idle passes — only projection-group leases yield on idle (#4730), since
+    // wake runners and recovery operations contend for that exact lease.
     const runner: WorkerRunner = {
-      name: "idle-projection",
-      kind: "projection-group",
+      name: "idle-job",
+      kind: "job",
       runOnce: async () => {
         runs += 1;
         return { processed: 0, lastGlobalPosition: "0" as never };
@@ -260,10 +263,16 @@ describe("worker runner loop", () => {
     }
   });
 
-  it("keeps a healthy idle projection-group lease held so live replay is never churned", async () => {
-    // Complements the yield behaviour: a caught-up group with no blocked streams
-    // has no parked poison to recover, so it must not churn its lease — the
-    // continuous runner keeps a single ownership across idle passes.
+  it("yields a healthy idle projection-group lease so wake runners on other workers can run the group", async () => {
+    // Regression for #4730: the polling loop used to hold a caught-up group's
+    // lease across idle passes ("never churned"). In multi-worker topology
+    // that starved the wake fast path completely — a checkout hot wake intent
+    // was observed claim/deferring "projection group lease was busy" every
+    // second for 3+ minutes and finally completing `already-satisfied` only
+    // after the holder's polling rotation advanced the checkpoint itself.
+    // Read-after-write freshness must run at wake latency, not rotation
+    // latency, so every idle pass releases the lease and re-acquires on the
+    // next visit.
     let acquireCalls = 0;
     let releaseCalls = 0;
     let runs = 0;
@@ -283,7 +292,7 @@ describe("worker runner loop", () => {
       },
     });
     const healthyGroupRunner: WorkerRunner = {
-      name: "catalog.catalog-item-projection",
+      name: "checkout.checkout.session-projection",
       kind: "projection-group",
       runOnce: async () => {
         runs += 1;
@@ -294,6 +303,60 @@ describe("worker runner loop", () => {
       workerId: "worker-a",
       controlPlane,
       runners: [healthyGroupRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 2,
+    });
+
+    loop.start();
+    try {
+      // Every idle pass releases the lease (a wake or recovery operation can
+      // acquire it in the gap) and the next pass re-acquires.
+      await vi.waitFor(() => {
+        expect(runs).toBeGreaterThanOrEqual(3);
+        expect(releaseCalls).toBeGreaterThanOrEqual(2);
+      });
+      expect(acquireCalls).toBeGreaterThanOrEqual(3);
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("keeps an actively draining projection-group lease held so backlog replay is never churned", async () => {
+    // Busy passes (processed > 0) keep single lease ownership and reschedule
+    // immediately — only IDLE passes yield (#4730). Backlog draining must not
+    // pay an acquire/release round trip per batch.
+    let acquireCalls = 0;
+    let releaseCalls = 0;
+    let runs = 0;
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        acquireCalls += 1;
+        return {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: String(acquireCalls),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+      },
+      renewLease: async () => true,
+      releaseLease: async () => {
+        releaseCalls += 1;
+      },
+    });
+    const drainingGroupRunner: WorkerRunner = {
+      name: "discovery.discovery-search-item-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        runs += 1;
+        return { processed: 25, lastGlobalPosition: String(runs * 25) as never, state: "running", blockedStreams: 0 };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [drainingGroupRunner],
       maxConcurrentRunners: 1,
       leaseTtlMs: 1_000,
       leaseRenewIntervalMs: 100,
@@ -338,9 +401,12 @@ describe("worker runner loop", () => {
         releaseCalls += 1;
       },
     });
+    // kind "job": renewal-failure drop/reacquire semantics are loop-generic,
+    // and a job lease is held across idle passes so the reacquire count stays
+    // deterministic (projection-group leases yield on idle per #4730).
     const runner: WorkerRunner = {
-      name: "renewal-sensitive-projection",
-      kind: "projection-group",
+      name: "renewal-sensitive-job",
+      kind: "job",
       runOnce: async (context) => {
         fencingTokens.push(context?.fencingToken ?? "");
         if (fencingTokens.length === 1) {
