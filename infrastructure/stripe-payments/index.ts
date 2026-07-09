@@ -57,6 +57,10 @@ type StripePaymentIntentResponse = Readonly<{
   payment_method?: string | Readonly<StripePaymentMethodResponse> | null;
   customer?: string | Readonly<{ id?: string | null }> | null;
   metadata?: Readonly<Record<string, string | null | undefined>> | null;
+  next_action?: Readonly<{
+    type?: string | null;
+    redirect_to_url?: Readonly<{ url?: string | null }> | null;
+  }> | null;
   last_payment_error?: Readonly<{
     code?: string | null;
     message?: string | null;
@@ -332,6 +336,18 @@ function paymentIntentReferenceFromSession(session: StripeCheckoutSessionRespons
     return normalizeOptionalText(paymentIntent);
   }
   return normalizeOptionalText(paymentIntent?.id ?? null);
+}
+
+// Off-session confirmation of a saved payment method can trigger a 3-D Secure / SCA challenge.
+// Stripe returns `status: "requires_action"` with a hosted authentication page in
+// `next_action.redirect_to_url.url`. Surfacing that URL is what lets Checkout hand a 3DS challenge
+// back to the human as a hosted link instead of silently stalling the payment.
+function paymentIntentAuthenticationUrl(intent: StripePaymentIntentResponse): string | null {
+  const url = normalizeOptionalText(intent.next_action?.redirect_to_url?.url ?? null);
+  if (!url) {
+    return null;
+  }
+  return /^https:\/\//i.test(url) ? url : null;
 }
 
 function mapPaymentIntentReconciliationResult(
@@ -1327,7 +1343,7 @@ export function createStripePaymentProcessorGateway(
           processorPaymentKind: "payment-intent",
           processorPaymentReference: body.id,
           processorClientSecret: body.client_secret?.trim() ?? null,
-          processorRedirectUrl: null,
+          processorRedirectUrl: paymentIntentAuthenticationUrl(body),
           processorStatus: body.status?.trim() ?? "requires_confirmation",
         };
       }

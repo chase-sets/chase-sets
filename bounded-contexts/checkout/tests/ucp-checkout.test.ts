@@ -553,6 +553,153 @@ describe("checkout UCP handlers", () => {
     expect(sessions.recordOfferSubmitted).not.toHaveBeenCalled();
   });
 
+  it("completes headless checkout off-session with a stored payment method when no challenge is required", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers(
+      { sessions },
+      {
+        paymentHandoff: {
+          payment: { provider: "test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
+          }),
+        },
+      },
+    );
+
+    const response = await handlers.restHandlers.complete_checkout(
+      input(
+        {
+          marketplace_checkout_fee_quote_fingerprint: "quote_1",
+          payment: { instruments: [{ type: "stored_payment_method", id: "sci_card_1" }] },
+        },
+        { id: "chk_1" },
+      ),
+    );
+
+    expect(response.ucp.status).toBe("ok");
+    expect(response.payment_id).toBe("pay_1");
+    expect(response.order_ids).toEqual(["ord_1"]);
+    expect(response.payment_rail).toBe("stored-payment-method");
+    // The saved instrument id is passed as savedCheckoutInstrumentId and no agentic payment is used.
+    expect(checkoutConfirmationMocks.createCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      "sci_card_1",
+      false,
+      "/account/payments/:paymentId",
+      null,
+      { commitPosition: "33" },
+      undefined,
+      undefined,
+    );
+    expect(sessions.recordPaymentStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
+      context,
+    );
+  });
+
+  it("hands off a hosted 3DS challenge URL when the off-session stored-PM charge requires action", async () => {
+    checkoutConfirmationMocks.createCheckoutPaymentThroughPayments.mockResolvedValueOnce({
+      payment_id: "pay_1",
+      status: "pending-confirmation",
+      processor_status: "requires_action",
+      processor_redirect_url: "https://hooks.stripe.test/3ds/pay_1",
+    });
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers(
+      { sessions },
+      {
+        paymentHandoff: {
+          payment: { provider: "test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
+          }),
+        },
+      },
+    );
+
+    const response = await handlers.restHandlers.complete_checkout(
+      input({ marketplace_checkout_fee_quote_fingerprint: "quote_1" }, { id: "chk_1" }),
+    );
+
+    expect(response.ucp.status).toBe("requires_action");
+    expect(response.payment_id).toBe("pay_1");
+    expect(response.order_ids).toEqual(["ord_1"]);
+    expect(response.action).toEqual(
+      expect.objectContaining({
+        type: "payment_challenge",
+        url: "https://hooks.stripe.test/3ds/pay_1",
+        payment_id: "pay_1",
+        resume: { operation: "complete_checkout", checkout_id: "chk_1" },
+      }),
+    );
+    expect(response.messages).toEqual([expect.objectContaining({ code: "payment_challenge_required" })]);
+    // The payment is recorded so a resume after the buyer authenticates finds the same payment.
+    expect(sessions.recordPaymentStarted).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
+      context,
+    );
+  });
+
+  it("resumes a challenged stored-PM checkout idempotently without recreating orders", async () => {
+    // The session already has orders and a payment from the first (challenged) attempt.
+    const sessions = createSessions({
+      getSession: vi.fn(async () => session({ order_ids: ["ord_1"], payment_id: "pay_1" })),
+      assertReadyForOrderCreation: vi.fn(async () => {
+        throw new Error("Orders must not be recreated on resume.");
+      }),
+    });
+    // The processor now reports the challenge is cleared and the payment is settling.
+    checkoutConfirmationMocks.createCheckoutPaymentThroughPayments.mockResolvedValueOnce({
+      payment_id: "pay_1",
+      status: "captured",
+      processor_status: "succeeded",
+      processor_redirect_url: null,
+    });
+    const handlers = createCheckoutUcpHandlers(
+      { sessions },
+      {
+        paymentHandoff: {
+          payment: { provider: "test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
+          }),
+        },
+      },
+    );
+
+    const response = await handlers.restHandlers.complete_checkout(
+      input({ marketplace_checkout_fee_quote_fingerprint: "quote_1" }, { id: "chk_1" }),
+    );
+
+    expect(response.ucp.status).toBe("ok");
+    expect(response.payment_id).toBe("pay_1");
+    expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(checkoutConfirmationMocks.createCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      "sci_card_1",
+      false,
+      "/account/payments/:paymentId",
+      null,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
   it("requires a linked buyer account", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });

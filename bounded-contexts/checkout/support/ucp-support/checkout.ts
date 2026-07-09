@@ -20,35 +20,40 @@ import { parseCartReadinessDecisionInput, type CartReadinessDecisionInput } from
 import { assertNoUnsupportedCustomerEconomicsInput } from "../../features/sessions/api/checkout-economics-runtime";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
+type UcpPaymentCompletionDecision =
+  | Readonly<{
+      kind: "respond";
+      response: UcpEnvelope;
+    }>
+  | Readonly<{
+      kind: "headless-agentic-payment";
+      agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[9];
+      evidence?: Readonly<Record<string, unknown>>;
+    }>
+  | Readonly<{
+      kind: "headless-stored-payment-method";
+      savedCheckoutInstrumentId: string;
+    }>;
 type UcpPaymentHandlerHandoff = Readonly<{
   payment: Readonly<Record<string, unknown>>;
   evaluateCompleteRequest: (
     body: Readonly<Record<string, unknown>>,
     checkout: Readonly<Record<string, unknown>>,
-  ) =>
-    | Readonly<{
-        kind: "respond";
-        response: UcpEnvelope;
-      }>
-    | Readonly<{
-        kind: "headless-agentic-payment";
-        agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[9];
-        evidence?: Readonly<Record<string, unknown>>;
-      }>
-    | Promise<
-        | Readonly<{
-            kind: "respond";
-            response: UcpEnvelope;
-          }>
-        | Readonly<{
-            kind: "headless-agentic-payment";
-            agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[9];
-            evidence?: Readonly<Record<string, unknown>>;
-          }>
-        | null
-      >
-    | null;
+  ) => UcpPaymentCompletionDecision | Promise<UcpPaymentCompletionDecision | null> | null;
 }>;
+
+// The money-moving instrument a headless completion charges. Both rails share the ordering,
+// mandate-enforcement, and 3DS-challenge handoff flow; they differ only in what Payments confirms.
+type HeadlessPaymentApproach =
+  | Readonly<{
+      kind: "agentic";
+      agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[9];
+      evidence?: Readonly<Record<string, unknown>>;
+    }>
+  | Readonly<{
+      kind: "stored-pm";
+      savedCheckoutInstrumentId: string;
+    }>;
 
 export type CheckoutUcpHandlers = Readonly<{
   restHandlers: Readonly<Record<string, UcpHandler>>;
@@ -87,6 +92,210 @@ export function createCheckoutUcpHandlers(
     agentGrantSpendPolicy?: AgentGrantSpendPolicy;
   }> = {},
 ): CheckoutUcpHandlers {
+  // Shared headless-completion flow for both the AP2 agentic rail and the stored-payment-method
+  // off-session rail. Creates orders once, enforces the agent grant's spending mandate against the
+  // server-computed total, charges through Payments, and hands a 3DS/SCA challenge back to the human
+  // as a hosted URL when the processor demands one. Idempotent on replay: order creation and payment
+  // creation are single-flight, and spend authorization is deduped by operation id, so re-invoking
+  // after the buyer clears a challenge resumes to the same payment.
+  const completeHeadlessCheckout = async (
+    input: UcpOperationHandlerInput,
+    access: CheckoutAccess,
+    sessionId: string,
+    body: Readonly<Record<string, unknown>>,
+    checkoutPayload: Readonly<Record<string, unknown>>,
+    approach: HeadlessPaymentApproach,
+  ): Promise<UcpEnvelope> => {
+    assertNoUnsupportedCustomerEconomicsInput(body);
+
+    const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
+    if (shippingAddress) {
+      await checkout.sessions.setShippingAddress(
+        {
+          sessionId,
+          accountId: access.actor.accountId as AccountId,
+          shippingAddress,
+        },
+        access.context,
+      );
+    }
+
+    const refreshedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
+    if (!refreshedSession) {
+      return checkoutNotFound();
+    }
+    if (refreshedSession.cancelled_at) {
+      return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(refreshedSession, options) });
+    }
+    if (refreshedSession.source_type === "offer-intent") {
+      return createUcpEnvelope(
+        "requires_action",
+        {
+          checkout: sessionToUcpCheckout(refreshedSession, options),
+          action: {
+            type: "trusted_checkout_handoff",
+            reason: "Purchase-intent offer submission still requires trusted UI review.",
+          },
+        },
+        [
+          {
+            severity: "warning",
+            code: "trusted_ui_required",
+            message: "UCP headless payment completion is only enabled for buy-now and cart checkout sessions.",
+          },
+        ],
+      );
+    }
+
+    const marketplaceCheckoutFeeQuoteFingerprint = readNullableString(
+      body.marketplaceCheckoutFeeQuoteFingerprint ?? body.marketplace_checkout_fee_quote_fingerprint,
+    );
+    if (!marketplaceCheckoutFeeQuoteFingerprint) {
+      return createUcpEnvelope(
+        "requires_action",
+        {
+          checkout: checkoutPayload,
+          action: {
+            type: "trusted_checkout_handoff",
+            reason: "Payment quote review is required before headless checkout can create payment.",
+          },
+        },
+        [
+          {
+            severity: "warning",
+            code: "payment_quote_required",
+            message:
+              "Provide a reviewed marketplace checkout fee quote fingerprint or continue in the trusted checkout UI.",
+          },
+        ],
+      );
+    }
+
+    let orderIds = [...refreshedSession.order_ids];
+    let orderCreationWriteResult: unknown;
+    if (orderIds.length === 0) {
+      const readySession = await checkout.sessions.assertReadyForOrderCreation({
+        sessionId,
+        accountId: access.actor.accountId as AccountId,
+      });
+      const checkoutOrders = await createCheckoutOrdersThroughOrdering(input.request, readySession, {
+        fulfillmentPreviewRevision: readNullableString(
+          body.fulfillmentPreviewRevision ?? body.fulfillment_preview_revision,
+        ),
+        acknowledgedMaterialChanges:
+          body.acknowledgedMaterialChanges === true || body.acknowledged_material_changes === true,
+      });
+      orderIds = checkoutOrders.orderIds;
+      orderCreationWriteResult = checkoutOrders.writeResult;
+      await checkout.sessions.recordOrdersCreated(
+        {
+          sessionId,
+          accountId: access.actor.accountId as AccountId,
+          orderIds,
+          fulfilledLineKeys: checkoutOrders.readyLineKeys,
+        },
+        access.context,
+      );
+    }
+
+    const requestedBalanceCreditAmount = readNullableString(
+      body.requestedBalanceCreditAmount ?? body.requested_balance_credit_amount,
+    );
+    const paymentMethodCategory = readString(body.paymentMethodCategory ?? body.payment_method_category) ?? "card";
+    const checkoutStatus = shouldAuthorizeAgentGrantSpend(options.agentGrantSpendPolicy, input)
+      ? await getCheckoutPaymentStatusThroughPayments(
+          input.request,
+          orderIds,
+          requestedBalanceCreditAmount,
+          paymentMethodCategory,
+          orderCreationWriteResult,
+        )
+      : null;
+    if (checkoutStatus) {
+      const spendGuard = await authorizeAgentGrantSpend(options.agentGrantSpendPolicy, input, {
+        operation: "complete_checkout",
+        operationId: `complete_checkout:${sessionId}:${readNullableString(body.idempotencyKey) ?? input.request.headers.get("Idempotency-Key") ?? "unknown"}`,
+        amountCents: moneyToCents(checkoutStatus.marketplace_checkout_fee.total_amount),
+        ...readCheckoutSpendContext(body, approach),
+      });
+      if (spendGuard) {
+        return spendGuard;
+      }
+    }
+
+    const payment = await createCheckoutPaymentThroughPayments(
+      input.request,
+      sessionId,
+      orderIds,
+      requestedBalanceCreditAmount,
+      paymentMethodCategory,
+      marketplaceCheckoutFeeQuoteFingerprint,
+      approach.kind === "stored-pm" ? approach.savedCheckoutInstrumentId : null,
+      false,
+      "/account/payments/:paymentId",
+      approach.kind === "agentic" ? approach.agenticPayment : null,
+      orderCreationWriteResult,
+      undefined,
+      checkoutStatus ?? undefined,
+    );
+    const paymentId = payment.payment_id;
+    await checkout.sessions.recordPaymentStarted(
+      {
+        sessionId,
+        accountId: access.actor.accountId as AccountId,
+        paymentId,
+      },
+      access.context,
+    );
+    const completedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
+    const completedCheckoutPayload = completedSession
+      ? sessionToUcpCheckout(completedSession, options)
+      : checkoutPayload;
+
+    // A 3DS/SCA challenge appears as a hosted next-action URL on a not-yet-settled payment. Surface
+    // it as a requires_action handoff the agent gives the human; the payment id lets them poll and
+    // resume complete_checkout once the buyer finishes authenticating.
+    const challengeUrl = readPaymentChallengeUrl(payment);
+    if (challengeUrl) {
+      return createUcpEnvelope(
+        "requires_action",
+        {
+          checkout: completedCheckoutPayload,
+          payment_id: paymentId,
+          order_ids: orderIds,
+          action: {
+            type: "payment_challenge",
+            url: challengeUrl,
+            reason:
+              "This payment needs the buyer to finish a secure bank verification (3-D Secure). Share the link so they can complete it, then call complete_checkout again to resume.",
+            payment_id: paymentId,
+            resume: {
+              operation: "complete_checkout",
+              checkout_id: sessionId,
+            },
+          },
+        },
+        [
+          {
+            severity: "warning",
+            code: "payment_challenge_required",
+            message:
+              "Off-session payment requires a 3-D Secure / SCA challenge; hand off the hosted URL to the buyer to authenticate.",
+          },
+        ],
+      );
+    }
+
+    return createUcpEnvelope("ok", {
+      checkout: completedCheckoutPayload,
+      payment_id: paymentId,
+      order_ids: orderIds,
+      ...(approach.kind === "agentic"
+        ? { ap2: { mandate_verification: "accepted", evidence: approach.evidence ?? null } }
+        : { payment_rail: "stored-payment-method" }),
+    });
+  };
+
   const handlers = {
     create_checkout: async (input: UcpOperationHandlerInput) => {
       const access = requireCheckoutAccess(input, "orders.manage");
@@ -227,160 +436,23 @@ export function createCheckoutUcpHandlers(
         );
       }
 
-      if (guardedPaymentResponse?.kind === "headless-agentic-payment") {
+      if (
+        guardedPaymentResponse?.kind === "headless-agentic-payment" ||
+        guardedPaymentResponse?.kind === "headless-stored-payment-method"
+      ) {
         try {
-          assertNoUnsupportedCustomerEconomicsInput(body);
-
-          const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
-          if (shippingAddress) {
-            await checkout.sessions.setShippingAddress(
-              {
-                sessionId,
-                accountId: access.actor.accountId as AccountId,
-                shippingAddress,
-              },
-              access.context,
-            );
-          }
-
-          const refreshedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
-          if (!refreshedSession) {
-            return checkoutNotFound();
-          }
-          if (refreshedSession.cancelled_at) {
-            return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(refreshedSession, options) });
-          }
-          if (refreshedSession.source_type === "offer-intent") {
-            return createUcpEnvelope(
-              "requires_action",
-              {
-                checkout: sessionToUcpCheckout(refreshedSession, options),
-                action: {
-                  type: "trusted_checkout_handoff",
-                  reason: "Purchase-intent offer submission still requires trusted UI review.",
-                },
-              },
-              [
-                {
-                  severity: "warning",
-                  code: "trusted_ui_required",
-                  message: "UCP headless payment completion is only enabled for buy-now and cart checkout sessions.",
-                },
-              ],
-            );
-          }
-
-          const marketplaceCheckoutFeeQuoteFingerprint = readNullableString(
-            body.marketplaceCheckoutFeeQuoteFingerprint ?? body.marketplace_checkout_fee_quote_fingerprint,
-          );
-          if (!marketplaceCheckoutFeeQuoteFingerprint) {
-            return createUcpEnvelope(
-              "requires_action",
-              {
-                checkout: checkoutPayload,
-                action: {
-                  type: "trusted_checkout_handoff",
-                  reason: "Payment quote review is required before headless checkout can create payment.",
-                },
-              },
-              [
-                {
-                  severity: "warning",
-                  code: "payment_quote_required",
-                  message:
-                    "Provide a reviewed marketplace checkout fee quote fingerprint or continue in the trusted checkout UI.",
-                },
-              ],
-            );
-          }
-
-          let orderIds = [...refreshedSession.order_ids];
-          let orderCreationWriteResult: unknown;
-          if (orderIds.length === 0) {
-            const readySession = await checkout.sessions.assertReadyForOrderCreation({
-              sessionId,
-              accountId: access.actor.accountId as AccountId,
-            });
-            const checkoutOrders = await createCheckoutOrdersThroughOrdering(input.request, readySession, {
-              fulfillmentPreviewRevision: readNullableString(
-                body.fulfillmentPreviewRevision ?? body.fulfillment_preview_revision,
-              ),
-              acknowledgedMaterialChanges:
-                body.acknowledgedMaterialChanges === true || body.acknowledged_material_changes === true,
-            });
-            orderIds = checkoutOrders.orderIds;
-            orderCreationWriteResult = checkoutOrders.writeResult;
-            await checkout.sessions.recordOrdersCreated(
-              {
-                sessionId,
-                accountId: access.actor.accountId as AccountId,
-                orderIds,
-                fulfilledLineKeys: checkoutOrders.readyLineKeys,
-              },
-              access.context,
-            );
-          }
-
-          const requestedBalanceCreditAmount = readNullableString(
-            body.requestedBalanceCreditAmount ?? body.requested_balance_credit_amount,
-          );
-          const paymentMethodCategory =
-            readString(body.paymentMethodCategory ?? body.payment_method_category) ?? "card";
-          const checkoutStatus = shouldAuthorizeAgentGrantSpend(options.agentGrantSpendPolicy, input)
-            ? await getCheckoutPaymentStatusThroughPayments(
-                input.request,
-                orderIds,
-                requestedBalanceCreditAmount,
-                paymentMethodCategory,
-                orderCreationWriteResult,
-              )
-            : null;
-          if (checkoutStatus) {
-            const spendGuard = await authorizeAgentGrantSpend(options.agentGrantSpendPolicy, input, {
-              operation: "complete_checkout",
-              operationId: `complete_checkout:${sessionId}:${readNullableString(body.idempotencyKey) ?? input.request.headers.get("Idempotency-Key") ?? "unknown"}`,
-              amountCents: moneyToCents(checkoutStatus.marketplace_checkout_fee.total_amount),
-              ...readCheckoutSpendContext(body, guardedPaymentResponse.agenticPayment),
-            });
-            if (spendGuard) {
-              return spendGuard;
-            }
-          }
-
-          const payment = await createCheckoutPaymentThroughPayments(
-            input.request,
-            sessionId,
-            orderIds,
-            requestedBalanceCreditAmount,
-            paymentMethodCategory,
-            marketplaceCheckoutFeeQuoteFingerprint,
-            null,
-            false,
-            "/account/payments/:paymentId",
-            guardedPaymentResponse.agenticPayment,
-            orderCreationWriteResult,
-            undefined,
-            checkoutStatus ?? undefined,
-          );
-          const paymentId = payment.payment_id;
-          await checkout.sessions.recordPaymentStarted(
-            {
-              sessionId,
-              accountId: access.actor.accountId as AccountId,
-              paymentId,
-            },
-            access.context,
-          );
-          const completedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
-          return createUcpEnvelope("ok", {
-            checkout: completedSession ? sessionToUcpCheckout(completedSession, options) : checkoutPayload,
-            payment_id: paymentId,
-            order_ids: orderIds,
-            ap2: {
-              mandate_verification: "accepted",
-              evidence: guardedPaymentResponse.evidence ?? null,
-            },
-          });
+          const approach: HeadlessPaymentApproach =
+            guardedPaymentResponse.kind === "headless-agentic-payment"
+              ? {
+                  kind: "agentic",
+                  agenticPayment: guardedPaymentResponse.agenticPayment,
+                  evidence: guardedPaymentResponse.evidence,
+                }
+              : {
+                  kind: "stored-pm",
+                  savedCheckoutInstrumentId: guardedPaymentResponse.savedCheckoutInstrumentId,
+                };
+          return await completeHeadlessCheckout(input, access, sessionId, body, checkoutPayload, approach);
         } catch (error) {
           return validationError(error);
         }
@@ -840,16 +912,37 @@ async function authorizeAgentGrantSpend(
 // policy can decide whether an autonomous, human-not-present purchase is permitted.
 function readCheckoutSpendContext(
   body: Readonly<Record<string, unknown>>,
-  agenticPayment: unknown,
+  approach: HeadlessPaymentApproach,
 ): Readonly<{ rail: AgentGrantRail; humanPresent: boolean; humanNotPresentAuthorized: boolean }> {
   const ap2 = readObject(body.ap2);
-  const payment = readObject(agenticPayment);
-  const kind = readString(payment?.kind);
-  const rail: AgentGrantRail = kind === "stored-payment-method" ? "stored-pm" : "ap2";
   const humanPresent = ap2?.human_present === true || body.human_present === true;
+  if (approach.kind === "stored-pm") {
+    // The saved instrument carries the buyer's standing off-session consent captured at setup, so a
+    // human-not-present charge is authorized here; the grant's mandate still gates the stored-pm rail
+    // and the per-order/daily/monthly caps.
+    return { rail: "stored-pm", humanPresent, humanNotPresentAuthorized: true };
+  }
+  const payment = readObject(approach.agenticPayment);
   const humanNotPresentAuthorized =
     readString(payment?.ap2PaymentMandateId) !== undefined || ap2?.human_not_present === true;
-  return { rail, humanPresent, humanNotPresentAuthorized };
+  return { rail: "ap2", humanPresent, humanNotPresentAuthorized };
+}
+
+// A 3DS/SCA challenge shows up as a hosted next-action URL on a payment that has not yet settled.
+// Off-session saved-instrument and shared-token charges only carry a redirect URL when the processor
+// demands additional buyer authentication, so its presence is the challenge signal to hand off.
+function readPaymentChallengeUrl(
+  payment: Readonly<{ status?: unknown; processor_redirect_url?: unknown }>,
+): string | null {
+  const status = typeof payment.status === "string" ? payment.status : "";
+  if (status === "captured" || status === "failed" || status === "cancelled" || status === "refunded") {
+    return null;
+  }
+  const redirectUrl = typeof payment.processor_redirect_url === "string" ? payment.processor_redirect_url.trim() : "";
+  if (!redirectUrl) {
+    return null;
+  }
+  return /^https:\/\//i.test(redirectUrl) ? redirectUrl : null;
 }
 
 function moneyToCents(value: unknown) {

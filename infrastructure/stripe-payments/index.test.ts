@@ -429,6 +429,92 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("surfaces the hosted 3DS challenge URL when an off-session saved-instrument charge requires action", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "pi_saved_3ds",
+            client_secret: "pi_saved_3ds_secret",
+            status: "requires_action",
+            next_action: {
+              type: "redirect_to_url",
+              redirect_to_url: { url: "https://hooks.stripe.test/3ds/pi_saved_3ds" },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const payment = await gateway.createPaymentSession({
+      paymentId: "pay_saved_3ds" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      amount: "26.05",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Saved payment needing 3DS",
+      savedCheckoutInstrument: {
+        instrumentId: "sci_card_1",
+        providerCustomerReference: "cus_123",
+        providerReference: "pm_123",
+        confirmationExperience: "off-session-token",
+        displayLabel: "Visa ending in 4242",
+      },
+    });
+
+    expect(payment.processorStatus).toBe("requires_action");
+    expect(payment.processorRedirectUrl).toBe("https://hooks.stripe.test/3ds/pi_saved_3ds");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("does not surface a challenge URL when an off-session saved-instrument charge succeeds", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "pi_saved_ok", client_secret: "pi_saved_ok_secret", status: "succeeded" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const payment = await gateway.createPaymentSession({
+      paymentId: "pay_saved_ok" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      amount: "26.05",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Saved payment",
+      savedCheckoutInstrument: {
+        instrumentId: "sci_card_1",
+        providerCustomerReference: "cus_123",
+        providerReference: "pm_123",
+        confirmationExperience: "off-session-token",
+        displayLabel: "Visa ending in 4242",
+      },
+    });
+
+    expect(payment.processorStatus).toBe("succeeded");
+    expect(payment.processorRedirectUrl).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
   it("creates agentic PaymentIntents with a Stripe shared payment token", async () => {
     const fetchMock = vi.fn(
       async () =>
