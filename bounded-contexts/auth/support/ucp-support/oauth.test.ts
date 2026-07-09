@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes } from "./oauth";
 
@@ -327,7 +327,8 @@ describe("UCP OAuth routes", () => {
   });
 
   it("lists and revokes linked platform authorizations for the current account", async () => {
-    const options = createOAuthOptions();
+    const revokeStoredPaymentMethodsForAgentGrant = vi.fn(async () => undefined);
+    const options = createOAuthOptions({ revokeStoredPaymentMethodsForAgentGrant });
     const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
     await options.linkedPlatformAuthorizations.grant({
       authorizationId: "lpa_1",
@@ -356,6 +357,15 @@ describe("UCP OAuth routes", () => {
 
     const revoke = await app.request("/ucp/oauth/authorizations/lpa_1/revoke", { method: "POST" });
     await expect(revoke.json()).resolves.toEqual({ revoked: true });
+    expect(revokeStoredPaymentMethodsForAgentGrant).toHaveBeenCalledWith({
+      accountId: "account_1",
+      agentGrantId: "lpa_1",
+      revokedAt: expect.any(String),
+    });
+
+    const replay = await app.request("/ucp/oauth/authorizations/lpa_1/revoke", { method: "POST" });
+    await expect(replay.json()).resolves.toEqual({ revoked: false });
+    expect(revokeStoredPaymentMethodsForAgentGrant).toHaveBeenCalledTimes(1);
 
     const after = await app.request("/ucp/oauth/authorizations");
     await expect(after.json()).resolves.toMatchObject({

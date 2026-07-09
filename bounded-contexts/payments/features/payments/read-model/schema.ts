@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS payments_provider_customers (
 CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
   instrument_id text PRIMARY KEY,
   account_id text NOT NULL,
+  agent_grant_id text NULL,
   payment_method_category text NOT NULL CHECK (payment_method_category IN ('card', 'bank-account', 'platform-credit')),
   provider text NOT NULL,
   provider_customer_reference text NULL,
@@ -149,6 +150,10 @@ CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
 CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_account_idx
   ON payments_saved_checkout_instruments (account_id, is_default DESC, updated_at DESC, instrument_id);
 
+CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_agent_grant_idx
+  ON payments_saved_checkout_instruments (account_id, agent_grant_id, readiness, updated_at DESC, instrument_id)
+  WHERE agent_grant_id IS NOT NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS payments_saved_checkout_instruments_provider_ref_idx
   ON payments_saved_checkout_instruments (provider, provider_reference);
 
@@ -165,9 +170,17 @@ CREATE TABLE IF NOT EXISTS payments_saved_checkout_instrument_audit (
 CREATE INDEX IF NOT EXISTS payments_saved_checkout_instrument_audit_account_idx
   ON payments_saved_checkout_instrument_audit (account_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS payments_revoked_agent_grants (
+  account_id text NOT NULL,
+  agent_grant_id text NOT NULL,
+  revoked_at timestamptz NOT NULL,
+  PRIMARY KEY (account_id, agent_grant_id)
+);
+
 CREATE TABLE IF NOT EXISTS payments_saved_checkout_setup_sessions (
   setup_reference_id text PRIMARY KEY,
   account_id text NOT NULL,
+  agent_grant_id text NULL,
   provider text NOT NULL,
   provider_customer_reference text NOT NULL,
   processor_setup_reference text NOT NULL UNIQUE,
@@ -360,6 +373,23 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_saved_checkout_instruments_provider_fingerprint_idx
   ON payments_saved_checkout_instruments (provider, provider_fingerprint)
   WHERE provider_fingerprint IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260709_payments_saved_checkout_instrument_agent_grant",
+    description: "Track agent grant ownership for saved checkout instruments so grant revocation can detach them.",
+    statements: [
+      `ALTER TABLE payments_saved_checkout_instruments ADD COLUMN IF NOT EXISTS agent_grant_id text NULL`,
+      `ALTER TABLE payments_saved_checkout_setup_sessions ADD COLUMN IF NOT EXISTS agent_grant_id text NULL`,
+      `CREATE TABLE IF NOT EXISTS payments_revoked_agent_grants (
+  account_id text NOT NULL,
+  agent_grant_id text NOT NULL,
+  revoked_at timestamptz NOT NULL,
+  PRIMARY KEY (account_id, agent_grant_id)
+)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_saved_checkout_instruments_agent_grant_idx
+  ON payments_saved_checkout_instruments (account_id, agent_grant_id, readiness, updated_at DESC, instrument_id)
+  WHERE agent_grant_id IS NOT NULL`,
     ],
   },
 ] as const;

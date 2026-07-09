@@ -222,7 +222,30 @@ describe("payment MCP stored-payment-method rail", () => {
       accountId: "acc_buyer",
       returnUrlBase: "https://app.chasesets.test",
       returnUrlPath: "/account/payment-methods?ref=1",
+      agentGrantId: null,
     });
+  });
+
+  it("tags agent-created setup sessions with the agent grant id", async () => {
+    const fakeServices = setupServices();
+    const handlers = createPaymentMcpHandlers(fakeServices);
+
+    await handlers.toolHandlers["payments.start-payment-method-setup"]?.(
+      mcpRequest(
+        {
+          accountId: "acc_buyer",
+          returnUrl: "https://app.chasesets.test/account/payment-methods",
+        },
+        {
+          ...managingActor,
+          agentGrant: { grantId: "lpa_1", scopes: ["checkout:write"], rolePermissions: ["orders.manage"] },
+        },
+      ),
+    );
+
+    expect(fakeServices.createSavedCheckoutSetupSession).toHaveBeenCalledWith(
+      expect.objectContaining({ agentGrantId: "lpa_1" }),
+    );
   });
 
   it("rejects a non-HTTPS return URL", async () => {

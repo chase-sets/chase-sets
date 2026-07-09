@@ -53,8 +53,10 @@ import {
   getSavedCheckoutInstrument,
   getSavedCheckoutInstrumentByProviderReference,
   getProviderCustomer,
+  getRevokedAgentGrant,
   getSavedCheckoutSetupSessionByProcessorReference,
   getSavedCheckoutSetupSessionBySetupReference,
+  listSavedCheckoutInstrumentsForAgentGrant,
   listPaymentProviderEvents,
   listPaymentProviderIdempotencyKeys,
   listPaymentProviderOperationsNeedingReconciliation,
@@ -65,6 +67,7 @@ import {
   markSavedCheckoutInstrumentRemoved,
   markPaymentCreationReservationInactive,
   recordSavedCheckoutInstrumentAudit,
+  recordRevokedAgentGrant,
   recordSavedCheckoutSetupSession,
   recordPaymentReconciliationRun,
   recordPaymentProviderIdempotencyKey,
@@ -663,6 +666,7 @@ async function persistProcessorSavedPaymentMethod(
     accountId: AccountId;
     providerCustomerReference: string;
     savedPaymentMethod: NonNullable<Awaited<ReturnType<PaymentProcessorGateway["retrieveSavedPaymentMethod"]>>>;
+    agentGrantId?: string | null;
     consentId?: string | null;
     consentText?: string | null;
     isDefault?: boolean;
@@ -678,12 +682,51 @@ async function persistProcessorSavedPaymentMethod(
   const existingInstrument = existingInstruments.find(
     (instrument) => instrument.provider_reference === params.savedPaymentMethod.providerReference,
   );
+  const revokedGrant = params.agentGrantId
+    ? await getRevokedAgentGrant(deps.db, { accountId: params.accountId, agentGrantId: params.agentGrantId })
+    : null;
+  if (revokedGrant) {
+    await deps.processorGateway.detachSavedPaymentMethod(params.savedPaymentMethod.providerReference);
+    const instrument = await upsertSavedCheckoutInstrument(deps.db, {
+      instrumentId:
+        existingInstrument?.instrument_id ??
+        savedInstrumentIdForProviderReference(params.savedPaymentMethod.providerReference),
+      accountId: params.accountId,
+      agentGrantId: params.agentGrantId,
+      paymentMethodCategory: params.savedPaymentMethod.paymentMethodCategory,
+      provider: params.savedPaymentMethod.processorName,
+      providerCustomerReference:
+        params.savedPaymentMethod.providerCustomerReference ?? params.providerCustomerReference,
+      providerReference: params.savedPaymentMethod.providerReference,
+      providerFingerprint: params.savedPaymentMethod.paymentMethodFingerprint ?? null,
+      displayLabel: params.savedPaymentMethod.displayLabel,
+      confirmationExperience: "off-session-token",
+      readiness: "removed",
+      allowRedisplay: params.savedPaymentMethod.allowRedisplay,
+      consentId: params.consentId ?? null,
+      consentText: params.consentText ?? null,
+      isDefault: false,
+      removedAt: revokedGrant.revoked_at,
+      timestamp: revokedGrant.revoked_at,
+    });
+    await recordSavedCheckoutInstrumentAudit(deps.db, {
+      auditId: `audit_agent_grant_revoked_${params.agentGrantId}_${instrument.instrument_id}`,
+      instrumentId: instrument.instrument_id,
+      accountId: params.accountId,
+      action: "agent-grant-revoked",
+      reason: params.agentGrantId,
+      performedByAccountId: params.accountId,
+      createdAt: revokedGrant.revoked_at,
+    });
+    return instrument;
+  }
   const shouldBecomeDefault =
     params.isDefault === true && (existingInstrument?.is_default === true || activeExistingInstruments.length === 0);
 
   const instrument = await upsertSavedCheckoutInstrument(deps.db, {
     instrumentId: savedInstrumentIdForProviderReference(params.savedPaymentMethod.providerReference),
     accountId: params.accountId,
+    agentGrantId: params.agentGrantId ?? existingInstrument?.agent_grant_id ?? null,
     paymentMethodCategory: params.savedPaymentMethod.paymentMethodCategory,
     provider: params.savedPaymentMethod.processorName,
     providerCustomerReference: params.savedPaymentMethod.providerCustomerReference ?? params.providerCustomerReference,
@@ -784,7 +827,12 @@ export type PaymentServices = Readonly<{
   listSavedCheckoutInstruments: (accountId: AccountId) => Promise<SavedCheckoutInstrumentRow[]>;
   ensureProviderCustomer: (params: Readonly<{ accountId: AccountId }>) => Promise<ProviderCustomerRow>;
   createSavedCheckoutSetupSession: (
-    params: Readonly<{ accountId: AccountId; returnUrlBase?: string | null; returnUrlPath?: string | null }>,
+    params: Readonly<{
+      accountId: AccountId;
+      returnUrlBase?: string | null;
+      returnUrlPath?: string | null;
+      agentGrantId?: string | null;
+    }>,
   ) => Promise<SavedCheckoutSetupSessionRow>;
   reconcileSavedCheckoutSetupSession: (
     params: Readonly<{ accountId: AccountId; setupReference: string }>,
@@ -798,6 +846,9 @@ export type PaymentServices = Readonly<{
     params: Readonly<{ accountId: AccountId; instrumentId: string }>,
     context: EventStoreContext,
   ) => Promise<SavedCheckoutInstrumentRow | null>;
+  revokeSavedCheckoutInstrumentsForAgentGrant: (
+    params: Readonly<{ accountId: AccountId; agentGrantId: string; revokedAt?: string }>,
+  ) => Promise<Readonly<{ detached: number; alreadyRemoved: number; instrumentIds: readonly string[] }>>;
   reconcileSavedCheckoutInstruments: (
     params: Readonly<{ accountId: AccountId }>,
     context: EventStoreContext,
@@ -1339,6 +1390,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       return recordSavedCheckoutSetupSession(deps.db, {
         setupReferenceId,
         accountId,
+        agentGrantId: params.agentGrantId ?? null,
         provider: setupSession.processorName,
         providerCustomerReference: customer.provider_customer_reference,
         processorSetupReference: setupSession.processorSetupReference,
@@ -1371,6 +1423,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         accountId,
         providerCustomerReference: setupSession.provider_customer_reference,
         savedPaymentMethod: result.savedPaymentMethod,
+        agentGrantId: setupSession.agent_grant_id,
         consentId: setupSession.consent_id,
         consentText: setupSession.consent_text,
         isDefault: true,
@@ -1427,6 +1480,42 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       });
       await publishCheckoutAffordances(accountId, context);
       return getSavedCheckoutInstrument(deps.db, { accountId, instrumentId: instrument.instrument_id });
+    },
+    async revokeSavedCheckoutInstrumentsForAgentGrant(params) {
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+      const agentGrantId = normalizeRequiredText(params.agentGrantId, "Agent grant is required.");
+      const revokedAt = params.revokedAt ?? new Date().toISOString();
+      await recordRevokedAgentGrant(deps.db, { accountId, agentGrantId, revokedAt });
+      const instruments = await listSavedCheckoutInstrumentsForAgentGrant(deps.db, { accountId, agentGrantId });
+      const alreadyRemoved = instruments.filter((instrument) => instrument.readiness === "removed").length;
+      let detached = 0;
+
+      for (const instrument of instruments) {
+        if (instrument.provider_reference) {
+          await deps.processorGateway.detachSavedPaymentMethod(instrument.provider_reference);
+          detached += 1;
+        }
+        await markSavedCheckoutInstrumentRemoved(deps.db, {
+          accountId,
+          instrumentId: instrument.instrument_id,
+          timestamp: revokedAt,
+        });
+        await recordSavedCheckoutInstrumentAudit(deps.db, {
+          auditId: `audit_agent_grant_revoked_${agentGrantId}_${instrument.instrument_id}`,
+          instrumentId: instrument.instrument_id,
+          accountId,
+          action: "agent-grant-revoked",
+          reason: agentGrantId,
+          performedByAccountId: accountId,
+          createdAt: revokedAt,
+        });
+      }
+
+      return {
+        detached,
+        alreadyRemoved,
+        instrumentIds: instruments.map((instrument) => instrument.instrument_id),
+      };
     },
     async reconcileSavedCheckoutInstruments(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
@@ -2126,6 +2215,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             accountId: setupSession.account_id as AccountId,
             providerCustomerReference: setupSession.provider_customer_reference,
             savedPaymentMethod: webhookEvent.savedPaymentMethod,
+            agentGrantId: setupSession.agent_grant_id,
             consentId: setupSession.consent_id,
             consentText: setupSession.consent_text,
             isDefault: true,

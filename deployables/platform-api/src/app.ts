@@ -219,7 +219,16 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     : undefined;
   const checkoutServices = runtime.services.checkout as Parameters<typeof createCheckoutUcpHandlers>[0] | undefined;
   const paymentsServices = runtime.services.payments as
-    | { publicConfig?: Parameters<typeof createPaymentsUcpHandoff>[0] }
+    | {
+        publicConfig?: Parameters<typeof createPaymentsUcpHandoff>[0];
+        payments?: {
+          revokeSavedCheckoutInstrumentsForAgentGrant?: (params: {
+            accountId: string;
+            agentGrantId: string;
+            revokedAt: string;
+          }) => Promise<unknown>;
+        };
+      }
     | undefined;
   const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
     ? createPaymentsUcpHandoff(paymentsServices.publicConfig, {
@@ -331,6 +340,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
         linkedPlatformAuthorizations: identityServices.identity.linkedPlatformAuthorizations,
         resolveActor,
         agentGrantConsent: options.agentGrantConsent,
+        revokeStoredPaymentMethodsForAgentGrant:
+          paymentsServices?.payments?.revokeSavedCheckoutInstrumentsForAgentGrant,
       }),
     );
     app.use("/ucp/v1/*", platformActorMiddleware);

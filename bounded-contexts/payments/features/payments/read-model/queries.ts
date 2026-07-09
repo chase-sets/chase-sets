@@ -80,6 +80,7 @@ export type PaymentAccountRiskSourceRow = Readonly<{
 export type SavedCheckoutInstrumentRow = Readonly<{
   instrument_id: string;
   account_id: string;
+  agent_grant_id: string | null;
   payment_method_category: "card" | "bank-account" | "platform-credit";
   provider: string;
   provider_customer_reference: string | null;
@@ -110,6 +111,7 @@ export type ProviderCustomerRow = Readonly<{
 export type SavedCheckoutSetupSessionRow = Readonly<{
   setup_reference_id: string;
   account_id: string;
+  agent_grant_id: string | null;
   provider: string;
   provider_customer_reference: string;
   processor_setup_reference: string;
@@ -585,6 +587,7 @@ export async function listSavedCheckoutInstruments(
     `SELECT
        instrument_id,
        account_id,
+       agent_grant_id,
        payment_method_category,
        provider,
        provider_customer_reference,
@@ -617,6 +620,7 @@ export async function getSavedCheckoutInstrument(
     `SELECT
        instrument_id,
        account_id,
+       agent_grant_id,
        payment_method_category,
        provider,
        provider_customer_reference,
@@ -649,6 +653,7 @@ export async function getSavedCheckoutInstrumentByProviderReference(
     `SELECT
        instrument_id,
        account_id,
+       agent_grant_id,
        payment_method_category,
        provider,
        provider_customer_reference,
@@ -668,6 +673,72 @@ export async function getSavedCheckoutInstrumentByProviderReference(
      WHERE provider = $1
        AND provider_reference = $2`,
     [params.provider, params.providerReference],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function listSavedCheckoutInstrumentsForAgentGrant(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; agentGrantId: string }>,
+): Promise<SavedCheckoutInstrumentRow[]> {
+  const result = await db.query<SavedCheckoutInstrumentRow>(
+    `SELECT
+       instrument_id,
+       account_id,
+       agent_grant_id,
+       payment_method_category,
+       provider,
+       provider_customer_reference,
+       provider_reference,
+       provider_fingerprint,
+       display_label,
+       confirmation_experience,
+       is_default,
+       readiness,
+       allow_redisplay,
+       consent_id,
+       consent_text,
+       removed_at,
+       created_at,
+       updated_at
+     FROM payments_saved_checkout_instruments
+     WHERE account_id = $1
+       AND agent_grant_id = $2
+       AND readiness <> 'removed'
+     ORDER BY updated_at ASC, instrument_id ASC`,
+    [params.accountId, params.agentGrantId],
+  );
+
+  return result.rows;
+}
+
+export async function recordRevokedAgentGrant(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; agentGrantId: string; revokedAt: string }>,
+) {
+  await db.query(
+    `INSERT INTO payments_revoked_agent_grants (
+       account_id,
+       agent_grant_id,
+       revoked_at
+     ) VALUES ($1, $2, $3)
+     ON CONFLICT (account_id, agent_grant_id) DO UPDATE
+     SET revoked_at = LEAST(payments_revoked_agent_grants.revoked_at, EXCLUDED.revoked_at)`,
+    [params.accountId, params.agentGrantId, params.revokedAt],
+  );
+}
+
+export async function getRevokedAgentGrant(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; agentGrantId: string }>,
+): Promise<Readonly<{ account_id: string; agent_grant_id: string; revoked_at: string }> | null> {
+  const result = await db.query<{ account_id: string; agent_grant_id: string; revoked_at: string }>(
+    `SELECT account_id, agent_grant_id, revoked_at
+     FROM payments_revoked_agent_grants
+     WHERE account_id = $1
+       AND agent_grant_id = $2`,
+    [params.accountId, params.agentGrantId],
   );
 
   return result.rows[0] ?? null;
@@ -748,6 +819,7 @@ export async function upsertSavedCheckoutInstrument(
   instrument: Readonly<{
     instrumentId: string;
     accountId: string;
+    agentGrantId?: string | null;
     paymentMethodCategory: "card" | "bank-account" | "platform-credit";
     provider: string;
     providerCustomerReference?: string | null;
@@ -769,13 +841,14 @@ export async function upsertSavedCheckoutInstrument(
     `WITH cleared_default AS (
        UPDATE payments_saved_checkout_instruments
        SET is_default = false,
-           updated_at = $16
+           updated_at = $17
        WHERE account_id = $2
-          AND $14 = true
+          AND $15 = true
      )
      INSERT INTO payments_saved_checkout_instruments (
        instrument_id,
        account_id,
+       agent_grant_id,
        payment_method_category,
        provider,
        provider_customer_reference,
@@ -791,9 +864,10 @@ export async function upsertSavedCheckoutInstrument(
        removed_at,
        created_at,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)
      ON CONFLICT (provider, provider_reference) DO UPDATE
      SET account_id = EXCLUDED.account_id,
+         agent_grant_id = EXCLUDED.agent_grant_id,
          payment_method_category = EXCLUDED.payment_method_category,
          provider_customer_reference = EXCLUDED.provider_customer_reference,
          provider_fingerprint = EXCLUDED.provider_fingerprint,
@@ -809,6 +883,7 @@ export async function upsertSavedCheckoutInstrument(
      RETURNING
        instrument_id,
        account_id,
+       agent_grant_id,
        payment_method_category,
        provider,
        provider_customer_reference,
@@ -827,6 +902,7 @@ export async function upsertSavedCheckoutInstrument(
     [
       instrument.instrumentId,
       instrument.accountId,
+      instrument.agentGrantId ?? null,
       instrument.paymentMethodCategory,
       instrument.provider,
       instrument.providerCustomerReference ?? null,
@@ -919,6 +995,7 @@ export async function recordSavedCheckoutSetupSession(
   session: Readonly<{
     setupReferenceId: string;
     accountId: string;
+    agentGrantId?: string | null;
     provider: string;
     providerCustomerReference: string;
     processorSetupReference: string;
@@ -935,6 +1012,7 @@ export async function recordSavedCheckoutSetupSession(
     `INSERT INTO payments_saved_checkout_setup_sessions (
        setup_reference_id,
        account_id,
+       agent_grant_id,
        provider,
        provider_customer_reference,
        processor_setup_reference,
@@ -945,17 +1023,19 @@ export async function recordSavedCheckoutSetupSession(
        consent_text,
        created_at,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
      ON CONFLICT (setup_reference_id) DO UPDATE
      SET processor_setup_reference = EXCLUDED.processor_setup_reference,
          processor_client_secret = EXCLUDED.processor_client_secret,
          processor_redirect_url = EXCLUDED.processor_redirect_url,
          processor_status = EXCLUDED.processor_status,
+         agent_grant_id = EXCLUDED.agent_grant_id,
          updated_at = EXCLUDED.updated_at
      RETURNING *`,
     [
       session.setupReferenceId,
       session.accountId,
+      session.agentGrantId ?? null,
       session.provider,
       session.providerCustomerReference,
       session.processorSetupReference,
