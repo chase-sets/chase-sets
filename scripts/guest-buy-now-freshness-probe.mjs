@@ -11,6 +11,15 @@ export const DEFAULT_READY_SLO_MS = 10_000;
 export const DEFAULT_MAX_ATTEMPTS = 1;
 export const DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS = 120_000;
 export const DEFAULT_WAKE_RUNTIME_READY_POLL_INTERVAL_MS = 5_000;
+export const DEFAULT_PROJECTION_CONVERGENCE_BUDGET_MS = 300_000;
+export const DEFAULT_PROJECTION_CONVERGENCE_POLL_INTERVAL_MS = 5_000;
+export const PROJECTION_CONVERGENCE_GATE_VERSION = "guest-buy-now-projection-convergence-gate/v1";
+// Setup-stage projection lag (the account flow's synthetic invitation waiting on
+// the auth-identity-invitation-projection to catch up after a fleet rollout) is a
+// transient post-restart catch-up condition, not a defect. It must consume the
+// remaining attempt budget instead of aborting the probe on the first observation
+// (issue #4709). Steady-state setup errors still surface once the budget is spent.
+export const SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON = "setup-stage-projection-lag";
 export const PRODUCTION_FEASIBILITY_DECISION = Object.freeze({
   feasible: false,
   decision: "production-proof-mode-only",
@@ -165,6 +174,21 @@ export function parseGuestBuyNowProbeArgs(argv, env = process.env) {
         readEnv("GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS", env),
       DEFAULT_WAKE_RUNTIME_READY_POLL_INTERVAL_MS,
     ),
+    convergenceGate:
+      readFlag(argv, "--convergence-gate") || readBoolean(readEnv("GUEST_BUY_NOW_PROBE_CONVERGENCE_GATE", env)),
+    convergenceBudgetMs: normalizeNonNegativeInteger(
+      readOption(argv, "--convergence-budget-ms") ??
+        readEnv("GUEST_BUY_NOW_PROBE_CONVERGENCE_BUDGET_MS", env) ??
+        DEFAULT_PROJECTION_CONVERGENCE_BUDGET_MS,
+    ),
+    convergencePollIntervalMs: normalizePositiveInteger(
+      readOption(argv, "--convergence-poll-interval-ms") ??
+        readEnv("GUEST_BUY_NOW_PROBE_CONVERGENCE_POLL_INTERVAL_MS", env),
+      DEFAULT_PROJECTION_CONVERGENCE_POLL_INTERVAL_MS,
+    ),
+    convergenceProjectionNames:
+      readOption(argv, "--convergence-projection-names") ??
+      readEnv("GUEST_BUY_NOW_PROBE_CONVERGENCE_PROJECTION_NAMES", env),
     skipNegativeProbe:
       readFlag(argv, "--skip-negative-probe") || readBoolean(readEnv("GUEST_BUY_NOW_PROBE_SKIP_NEGATIVE_PROBE", env)),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
@@ -563,7 +587,8 @@ function retryableProbeFailure(failureReason) {
   return (
     failureReason === "checkout-ready-slo-exceeded" ||
     failureReason === "browser-navigation-timeout" ||
-    failureReason === "platform-temporary-unavailable"
+    failureReason === "platform-temporary-unavailable" ||
+    failureReason === SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON
   );
 }
 
@@ -794,6 +819,221 @@ export async function waitForWakeRuntimePreflight(options) {
     initial,
     final,
   };
+}
+
+export function normalizeConvergenceProjectionNames(value) {
+  const text = normalizeString(value);
+  if (!text || text.toLowerCase() === "all") {
+    return null;
+  }
+  const names = text
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return names.length > 0 ? names : null;
+}
+
+function isProjectionGroupCaughtUp(group) {
+  if (group?.caughtUp === true) {
+    return true;
+  }
+  if (group?.caughtUp === false) {
+    return false;
+  }
+  const state = normalizeString(group?.state);
+  return state === "caught-up" || state === "idle";
+}
+
+export function evaluateProjectionConvergence(snapshot, projectionNames = null) {
+  const allGroups = Array.isArray(snapshot?.projectionGroups) ? snapshot.projectionGroups : null;
+  if (!allGroups) {
+    return {
+      converged: false,
+      available: false,
+      totalGroups: 0,
+      caughtUpGroups: 0,
+      laggingGroups: [],
+      reasons: ["projection-status-unavailable"],
+    };
+  }
+
+  const requested = Array.isArray(projectionNames) && projectionNames.length > 0 ? projectionNames : null;
+  const reasons = [];
+  if (requested) {
+    const missing = requested.filter(
+      (name) => !allGroups.some((group) => normalizeString(group?.projectionName) === name),
+    );
+    if (missing.length > 0) {
+      reasons.push("required-projection-group-not-found");
+    }
+  }
+
+  const groups = requested
+    ? allGroups.filter((group) => requested.includes(normalizeString(group?.projectionName)))
+    : allGroups;
+  if (groups.length === 0) {
+    reasons.push("no-projection-groups-found");
+    return { converged: false, available: true, totalGroups: 0, caughtUpGroups: 0, laggingGroups: [], reasons };
+  }
+
+  const laggingGroups = groups
+    .filter((group) => !isProjectionGroupCaughtUp(group))
+    .map((group) => normalizeString(group?.projectionName) ?? "unknown");
+  if (laggingGroups.length > 0) {
+    reasons.push("projection-groups-not-caught-up");
+  }
+
+  return {
+    converged: laggingGroups.length === 0 && reasons.length === 0,
+    available: true,
+    totalGroups: groups.length,
+    caughtUpGroups: groups.length - laggingGroups.length,
+    laggingGroups,
+    reasons,
+  };
+}
+
+export async function fetchProjectionStatusSnapshot(options, fetchImpl = fetch) {
+  const adminBaseUrl = normalizeUrl(options.adminBaseUrl);
+  if (!adminBaseUrl) {
+    return null;
+  }
+
+  const signInResponse = await fetchImpl(`${adminBaseUrl}/api/auth/password-sign-in`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: options.adminEmail, password: options.adminPassword }),
+  });
+  if (!signInResponse.ok) {
+    throw new Error(`Projection-status admin sign-in failed with HTTP ${signInResponse.status}.`);
+  }
+  const sessionToken = (await signInResponse.json())?.sessionToken;
+  if (!sessionToken) {
+    throw new Error("Projection-status admin sign-in did not return a session token.");
+  }
+
+  const statusResponse = await fetchImpl(`${adminBaseUrl}/api/platform/projections/refresh`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!statusResponse.ok) {
+    throw new Error(`Projection-status refresh failed with HTTP ${statusResponse.status}.`);
+  }
+
+  return statusResponse.json();
+}
+
+export async function waitForProjectionConvergence(options) {
+  const adminBaseUrl = normalizeUrl(options.adminBaseUrl);
+  if (!adminBaseUrl && !options.fetchProjectionStatus) {
+    return null;
+  }
+
+  const startedAt = readNow(options);
+  const deadline =
+    startedAt + normalizeNonNegativeInteger(options.convergenceBudgetMs ?? DEFAULT_PROJECTION_CONVERGENCE_BUDGET_MS);
+  const pollIntervalMs = normalizePositiveInteger(
+    options.convergencePollIntervalMs,
+    DEFAULT_PROJECTION_CONVERGENCE_POLL_INTERVAL_MS,
+  );
+  const projectionNames = normalizeConvergenceProjectionNames(options.convergenceProjectionNames);
+  const fetchProjectionStatus =
+    typeof options.fetchProjectionStatus === "function"
+      ? options.fetchProjectionStatus
+      : () => fetchProjectionStatusSnapshot(options, options.fetchImpl ?? fetch);
+  let sampleCount = 0;
+  let initial = null;
+  let final = null;
+
+  for (;;) {
+    let snapshot;
+    try {
+      snapshot = await fetchProjectionStatus();
+    } catch {
+      // A just-restarted fleet often refuses the status request for a few seconds.
+      // Treat transient fetch failures as "not converged yet" and keep polling until
+      // the budget expires rather than aborting the gate.
+      const fetchFailed = {
+        converged: false,
+        available: false,
+        totalGroups: 0,
+        caughtUpGroups: 0,
+        laggingGroups: [],
+        reasons: ["projection-status-fetch-failed"],
+      };
+      initial ??= fetchFailed;
+      final = fetchFailed;
+      const remainingMs = deadline - readNow(options);
+      if (remainingMs <= 0) {
+        break;
+      }
+      await sleepFor(options, Math.min(pollIntervalMs, remainingMs));
+      continue;
+    }
+
+    sampleCount += 1;
+    const evaluation = evaluateProjectionConvergence(snapshot, projectionNames);
+    initial ??= evaluation;
+    final = evaluation;
+    if (evaluation.converged) {
+      return {
+        attempted: true,
+        converged: true,
+        convergedAfterMs: Math.max(0, readNow(options) - startedAt),
+        sampleCount,
+        initial,
+        final,
+      };
+    }
+
+    const remainingMs = deadline - readNow(options);
+    if (remainingMs <= 0) {
+      break;
+    }
+    await sleepFor(options, Math.min(pollIntervalMs, remainingMs));
+  }
+
+  return {
+    attempted: true,
+    converged: false,
+    convergedAfterMs: null,
+    sampleCount,
+    initial,
+    final,
+  };
+}
+
+export async function runProjectionConvergenceGate(options) {
+  const gate = await waitForProjectionConvergence(options);
+  const evidence = {
+    schemaVersion: PROJECTION_CONVERGENCE_GATE_VERSION,
+    checkedAt: options.checkedAt ?? new Date().toISOString(),
+    environment: normalizeString(options.environment) ?? "staging",
+    convergenceBudgetMs: normalizeNonNegativeInteger(
+      options.convergenceBudgetMs ?? DEFAULT_PROJECTION_CONVERGENCE_BUDGET_MS,
+    ),
+    convergenceProjectionNames: normalizeConvergenceProjectionNames(options.convergenceProjectionNames) ?? "all",
+    // A timing gate never blocks promotion on its own: it waits out the post-rollout
+    // catch-up window so the SLO-sensitive Buy Now probe starts against a converged
+    // fleet, then proceeds regardless (issue #4709). Steady-state SLO breaches still
+    // fail loudly in the probe step that follows.
+    promotionDecision: "proceed",
+    gate: gate ?? {
+      attempted: false,
+      converged: null,
+      convergedAfterMs: null,
+      sampleCount: 0,
+      initial: null,
+      final: null,
+    },
+  };
+
+  if (options.outPath) {
+    await writeJsonRecord(options.outPath, evidence);
+  }
+
+  return evidence;
 }
 
 async function observeBuyNowCheckout(options) {
@@ -1173,9 +1413,16 @@ async function waitForAuthInvitationProjection(page, baseUrl, adminCookie, respo
     await page.waitForTimeout(SYNTHETIC_INVITATION_PROJECTION_POLL_MS);
   }
 
-  throw new Error(
+  throw setupStageProjectionLagError(
     `Buy Now probe auth invitation projection did not reach identity position ${identityCommit.maxGlobalPosition}; last observed ${lastObservedPosition}.`,
   );
+}
+
+function setupStageProjectionLagError(message) {
+  const error = new Error(message);
+  error.reason = SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON;
+  error.stage = "start-account-session";
+  return error;
 }
 
 function maxObservedPosition(group, sourceContextName) {
@@ -1624,6 +1871,19 @@ function readFlag(argv, name) {
 async function main(argv, env = process.env) {
   try {
     const options = parseGuestBuyNowProbeArgs(argv, env);
+    if (options.convergenceGate) {
+      const gateEvidence = await runProjectionConvergenceGate({
+        ...options,
+        outPath: options.outPath,
+      });
+      console.log(JSON.stringify(gateEvidence, null, 2));
+      if (gateEvidence.gate.attempted && gateEvidence.gate.converged === false) {
+        console.error(
+          `WARNING: staging projections did not fully converge within ${gateEvidence.convergenceBudgetMs}ms before the Buy Now probe (lagging: ${gateEvidence.gate.final?.laggingGroups?.join(", ") || "unknown"}). Proceeding to probes; steady-state SLO breaches still fail loudly.`,
+        );
+      }
+      return 0;
+    }
     const evidence = await runGuestBuyNowFreshnessProbe({
       ...options,
       guestEmail: options.guestEmail ?? DEFAULT_GUEST_EMAIL,
