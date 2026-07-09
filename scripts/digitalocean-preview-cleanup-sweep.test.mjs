@@ -2,17 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION,
   PREVIEW_DATABASE_DELETE_CONFIRMATION,
+  applyPreviewDnsRecords,
   buildPreviewDatabaseClusterInventory,
   cleanupLeakedPreviewDatabaseClusters,
   cleanupMatrixForTargets,
   classifyDatabaseCluster,
   combinePreviewCleanupCandidates,
+  destroyPreviewDnsRecords,
   discoverPreviewCleanupTargets,
   importPreviewDatabaseClusterIntoTerraformState,
   previewDatabaseClusterNameForPrNumber,
+  previewDnsRecordPlan,
   previewPrNumberFromDatabaseClusterName,
+  previewPrNumberFromDnsRecordFqdn,
   previewPrNumberFromStateKey,
+  resolvePreviewDnsZone,
   selectPreviewDatabaseClusterTargets,
+  selectPreviewDnsRecordTargets,
   selectPreviewStateTargets,
 } from "./digitalocean-preview-cleanup-sweep.mjs";
 
@@ -144,6 +150,8 @@ describe("digitalocean-preview-cleanup-sweep", () => {
           { id: "db-12", name: "chase-sets-pr-12-postgres", tags: ["preview"] },
           { id: "db-13", name: "chase-sets-pr-13-postgres", tags: ["preview"] },
         ],
+        listDomains: async () => [{ name: "chasesets.com" }],
+        listDomainRecords: async () => [],
         fetchPullRequest: async (prNumber) => ({
           state: prNumber === 11 ? "open" : "closed",
           merged: prNumber === 10,
@@ -350,5 +358,163 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(record.result).toBe("success");
     expect(record.action).toBe("already-managed");
     expect(commands).toEqual([["terraform", ["-chdir=infrastructure/digitalocean/platform", "state", "list"]]]);
+  });
+
+  it("plans a per-preview apex plus two-label wildcard against the owning DNS zone", () => {
+    // No delegated preview zone: records live directly in the chasesets.com zone
+    // as `pr-<n>.preview` and `*.pr-<n>.preview`.
+    expect(previewDnsRecordPlan(4736, { registeredDomains: [{ name: "chasesets.com" }] })).toEqual({
+      prNumber: 4736,
+      zone: "chasesets.com",
+      target: null,
+      records: [
+        { role: "apex", fqdn: "pr-4736.preview.chasesets.com", name: "pr-4736.preview" },
+        { role: "wildcard", fqdn: "*.pr-4736.preview.chasesets.com", name: "*.pr-4736.preview" },
+      ],
+    });
+
+    // A delegated preview.chasesets.com child zone shortens the record names.
+    const delegated = previewDnsRecordPlan(4736, {
+      registeredDomains: [{ name: "chasesets.com" }, { name: "preview.chasesets.com" }],
+    });
+    expect(delegated.zone).toBe("preview.chasesets.com");
+    expect(delegated.records.map((entry) => entry.name)).toEqual(["pr-4736", "*.pr-4736"]);
+  });
+
+  it("resolves the longest registered zone that owns the preview host", () => {
+    expect(resolvePreviewDnsZone([{ name: "chasesets.com" }], "pr-9.preview.chasesets.com")).toBe("chasesets.com");
+    expect(resolvePreviewDnsZone([], "pr-9.preview.chasesets.com")).toBe("chasesets.com");
+  });
+
+  it("recognizes only per-preview apex and wildcard A record hosts", () => {
+    expect(previewPrNumberFromDnsRecordFqdn("pr-4736.preview.chasesets.com")).toBe(4736);
+    expect(previewPrNumberFromDnsRecordFqdn("*.pr-4736.preview.chasesets.com")).toBe(4736);
+    expect(previewPrNumberFromDnsRecordFqdn("admin.pr-4736.preview.chasesets.com")).toBeNull();
+    expect(previewPrNumberFromDnsRecordFqdn("assets.preview.chasesets.com")).toBeNull();
+    expect(previewPrNumberFromDnsRecordFqdn("marketplace.staging.chasesets.com")).toBeNull();
+  });
+
+  it("groups leftover preview A records by PR from zone-relative record names", () => {
+    expect(
+      selectPreviewDnsRecordTargets(
+        [
+          { id: "apex-7", type: "A", name: "pr-7.preview", data: "159.203.145.65" },
+          { id: "wild-7", type: "A", name: "*.pr-7.preview", data: "159.203.145.65" },
+          { id: "assets", type: "CNAME", name: "assets.preview", data: "cdn" },
+          { id: "staging", type: "A", name: "marketplace.staging", data: "1.2.3.4" },
+        ],
+        "chasesets.com",
+      ),
+    ).toEqual([
+      {
+        prNumber: 7,
+        zone: "chasesets.com",
+        records: [
+          { id: "wild-7", name: "*.pr-7.preview", fqdn: "*.pr-7.preview.chasesets.com", data: "159.203.145.65" },
+          { id: "apex-7", name: "pr-7.preview", fqdn: "pr-7.preview.chasesets.com", data: "159.203.145.65" },
+        ],
+      },
+    ]);
+  });
+
+  it("treats leftover preview DNS records for closed PRs as cleanup targets", async () => {
+    const result = await discoverPreviewCleanupTargets(
+      {
+        bucket: "chase-sets-terraform-state",
+        endpointUrl: "https://nyc3.digitaloceanspaces.com",
+        prefix: "platform/previews",
+        repository: "chase-sets/chase-sets",
+        githubToken: "token",
+        checkoutRef: "main",
+        imageSha: "abc123",
+        checkedAt: "2026-07-09T12:00:00.000Z",
+      },
+      {
+        awsJson: async () => ({ Contents: [] }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [{ name: "chasesets.com" }],
+        listDomainRecords: async () => [
+          { id: "apex-50", type: "A", name: "pr-50.preview", data: "159.203.145.65" },
+          { id: "wild-50", type: "A", name: "*.pr-50.preview", data: "159.203.145.65" },
+        ],
+        fetchPullRequest: async () => ({ state: "closed", merged: false }),
+      },
+    );
+
+    expect(result.record.dnsRecordCandidates).toEqual([
+      expect.objectContaining({ prNumber: 50, zone: "chasesets.com" }),
+    ]);
+    expect(result.record.targets).toEqual([
+      expect.objectContaining({ prNumber: 50, pullRequestState: "closed", selected: true }),
+    ]);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 50 })]);
+  });
+
+  it("upserts the apex and wildcard preview records against the DOKS ingress target", async () => {
+    const created = [];
+    const deleted = [];
+    const record = await applyPreviewDnsRecords(
+      { prNumber: 60, target: "159.203.145.65" },
+      {
+        listDomains: async () => [{ name: "chasesets.com" }],
+        listDomainRecords: async () => [
+          { id: "stale-apex", type: "A", name: "pr-60.preview", data: "1.1.1.1" },
+          { id: "wild-current", type: "A", name: "*.pr-60.preview", data: "159.203.145.65" },
+        ],
+        createDomainRecord: async (zone, name, data) => {
+          created.push([zone, name, data]);
+        },
+        deleteDomainRecord: async (zone, id) => {
+          deleted.push([zone, id]);
+        },
+      },
+    );
+
+    expect(record.result).toBe("success");
+    expect(record.zone).toBe("chasesets.com");
+    // Stale apex replaced; already-correct wildcard left untouched (idempotent).
+    expect(deleted).toEqual([["chasesets.com", "stale-apex"]]);
+    expect(created).toEqual([["chasesets.com", "pr-60.preview", "159.203.145.65"]]);
+    expect(record.actions).toEqual([
+      { fqdn: "pr-60.preview.chasesets.com", action: "replaced" },
+      { fqdn: "*.pr-60.preview.chasesets.com", action: "unchanged" },
+    ]);
+  });
+
+  it("rejects preview DNS apply without a valid IPv4 ingress target", async () => {
+    const record = await applyPreviewDnsRecords(
+      { prNumber: 61, target: "not-an-ip" },
+      { listDomains: async () => [{ name: "chasesets.com" }] },
+    );
+    expect(record.result).toBe("failure");
+    expect(record.errors).toContain("--target must be a valid IPv4 address (the DOKS ingress load balancer).");
+  });
+
+  it("deletes only the closing PR's apex and wildcard records on teardown", async () => {
+    const deleted = [];
+    const record = await destroyPreviewDnsRecords(
+      { prNumber: 70 },
+      {
+        listDomains: async () => [{ name: "chasesets.com" }],
+        listDomainRecords: async () => [
+          { id: "apex-70", type: "A", name: "pr-70.preview", data: "159.203.145.65" },
+          { id: "wild-70", type: "A", name: "*.pr-70.preview", data: "159.203.145.65" },
+          { id: "apex-71", type: "A", name: "pr-71.preview", data: "159.203.145.65" },
+        ],
+        deleteDomainRecord: async (zone, id) => {
+          deleted.push([zone, id]);
+        },
+      },
+    );
+
+    expect(record.result).toBe("success");
+    expect(deleted).toEqual([
+      ["chasesets.com", "wild-70"],
+      ["chasesets.com", "apex-70"],
+    ]);
+    expect(record.deletedRecords).toEqual([
+      { fqdn: "*.pr-70.preview.chasesets.com", id: "wild-70" },
+      { fqdn: "pr-70.preview.chasesets.com", id: "apex-70" },
+    ]);
   });
 });

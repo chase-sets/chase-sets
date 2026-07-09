@@ -2599,6 +2599,41 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewPostgresTemplate).toContain(".Values.global.tolerations");
   });
 
+  it("publishes and tears down per-preview DNS pointing at the DOKS ingress load balancer", () => {
+    const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const publishStep = workflowStep(deployJob, "Publish preview DNS records");
+
+    // Sourced from the DOKS_INGRESS_TARGET repository variable (never hardcoded),
+    // with a resolve-from-cluster fallback against the ingress-nginx controller.
+    expect(deployJob).toContain("DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}");
+    expect(publishStep).toContain('target="${DOKS_INGRESS_TARGET:-}"');
+    expect(publishStep).toContain("kubectl --namespace ingress-nginx get service ingress-nginx-controller");
+    expect(publishStep).toContain("{.status.loadBalancer.ingress[0].ip}");
+    expect(publishStep).toContain("node ./scripts/digitalocean-preview-cleanup-sweep.mjs apply-dns");
+    expect(publishStep).toContain('--pr-number "${{ github.event.pull_request.number }}"');
+    expect(publishStep).toContain('--target "$target"');
+
+    // DNS must exist before the Ingress is created (ACME HTTP-01) and before the
+    // ingress-URL readiness probes, so the apex + wildcard resolve.
+    const publishIndex = deployJob.indexOf("- name: Publish preview DNS records");
+    const deployIndex = deployJob.indexOf("- name: Deploy preview Kubernetes release");
+    const waitIndex = deployJob.indexOf("- name: Wait for preview ingress URLs");
+    expect(publishIndex).toBeGreaterThan(-1);
+    expect(publishIndex).toBeLessThan(deployIndex);
+    expect(deployIndex).toBeLessThan(waitIndex);
+
+    // Teardown removes the records in the closed-PR/scheduled cleanup workflow;
+    // Terraform destroy never sees them because they are created outside Terraform.
+    const destroyStep = workflowStep(platformPreviewCleanupWorkflow, "Delete preview DNS records");
+    expect(destroyStep).toContain("node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns");
+    expect(destroyStep).toContain('--pr-number "${{ matrix.pr_number }}"');
+
+    // Runbook documents the per-preview DNS lifecycle.
+    expect(digitaloceanPlatformRunbook).toContain(
+      "publishes this preview's own `pr-<number>.preview.chasesets.com` apex A record and a `*.pr-<number>.preview.chasesets.com` wildcard",
+    );
+  });
+
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
     expect(environmentDnsVariables).toContain('condition     = var.environment == "staging"');
     expect(environmentDnsLocals).toContain('environment_zone = "${var.environment}.${var.root_domain}"');

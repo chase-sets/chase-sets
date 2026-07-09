@@ -6,11 +6,24 @@ import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION = "digitalocean-preview-cleanup-sweep/v2";
 export const DIGITALOCEAN_PREVIEW_DATABASE_CLEANUP_VERSION = "digitalocean-preview-database-cleanup/v1";
+export const DIGITALOCEAN_PREVIEW_DNS_VERSION = "digitalocean-preview-dns/v1";
 export const DEFAULT_STATE_BUCKET = "chase-sets-terraform-state";
 export const DEFAULT_SPACES_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
 export const DEFAULT_PREVIEW_STATE_PREFIX = "platform/previews/";
 export const PREVIEW_DATABASE_TERRAFORM_ADDRESS = "digitalocean_database_cluster.postgres";
 export const PREVIEW_DATABASE_DELETE_CONFIRMATION = "delete leaked preview database clusters";
+
+// Per-preview DNS. The retired Terraform preview path created per-preview DNS
+// records; the Kubernetes preview path must do the same. A single wildcard at
+// `*.preview.chasesets.com` only matches one label, so it covers the apex host
+// `pr-<n>.preview.chasesets.com` but never the two-label app hosts
+// (`admin.pr-<n>.preview.chasesets.com`, `marketplace.pr-<n>.preview.chasesets.com`).
+// Each preview therefore needs its own apex A record plus a `*.pr-<n>.preview`
+// wildcard, both pointing at the DOKS ingress load balancer.
+export const PREVIEW_DNS_BASE_DOMAIN = "chasesets.com";
+export const PREVIEW_DNS_ENVIRONMENT_LABEL = "preview";
+export const PREVIEW_DNS_RECORD_TTL = 60;
+export const PREVIEW_DNS_IPV4_PATTERN = /^(\d{1,3}\.){3}\d{1,3}$/;
 
 function commandOutput(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -219,6 +232,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     imageSha: options.imageSha,
     stateCandidates: [],
     databaseClusterCandidates: [],
+    dnsRecordCandidates: [],
     candidates: [],
     targets: [],
     result: "failure",
@@ -235,6 +249,8 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
   const listDatabaseClusters =
     dependencies.listDatabaseClusters ??
     (() => commandJson("doctl", ["databases", "list", "--output", "json"], dependencies));
+  const listDomains = listPreviewDomains(dependencies);
+  const listDomainRecords = listPreviewDomainRecords(dependencies);
   const fetchPullRequest =
     dependencies.fetchPullRequest ??
     ((prNumber) =>
@@ -244,7 +260,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
         prNumber,
       }));
 
-  const record = { ...baseRecord, errors: [], warnings: [] };
+  const record = { ...baseRecord, dnsRecordCandidates: [], errors: [], warnings: [] };
   try {
     const listed = await awsJson([
       "s3api",
@@ -270,7 +286,40 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     record.warnings.push(describeError(error));
   }
 
+  // Leftover per-preview DNS records for closed PRs are drift, exactly like a
+  // leaked managed cluster: the Kubernetes preview path now creates a
+  // `pr-<n>.preview` apex + `*.pr-<n>.preview` wildcard, and a closed PR must
+  // not leave either behind. Surface them as cleanup candidates so the destroy
+  // matrix removes them even when no Terraform state or managed cluster remains.
+  try {
+    const domains = normalizeDomainList(await listDomains());
+    const zone = resolvePreviewDnsZone(
+      domains,
+      `${PREVIEW_DNS_ENVIRONMENT_LABEL}.${PREVIEW_DNS_BASE_DOMAIN}`,
+      PREVIEW_DNS_BASE_DOMAIN,
+    );
+    record.dnsRecordCandidates = selectPreviewDnsRecordTargets(await listDomainRecords(zone), zone);
+  } catch (error) {
+    record.warnings.push("Preview DNS record listing failed; state and cluster cleanup targets were still evaluated.");
+    record.warnings.push(describeError(error));
+  }
+
   record.candidates = combinePreviewCleanupCandidates(record.stateCandidates, record.databaseClusterCandidates);
+
+  for (const dnsCandidate of record.dnsRecordCandidates) {
+    const existing = record.candidates.find((candidate) => candidate.prNumber === dnsCandidate.prNumber);
+    if (existing) {
+      existing.dnsRecords = dnsCandidate.records;
+    } else {
+      record.candidates.push({
+        prNumber: dnsCandidate.prNumber,
+        stateKey: null,
+        databaseClusters: [],
+        dnsRecords: dnsCandidate.records,
+      });
+    }
+  }
+  record.candidates.sort((left, right) => left.prNumber - right.prNumber);
 
   for (const candidate of record.candidates) {
     try {
@@ -536,6 +585,296 @@ export async function importPreviewDatabaseClusterIntoTerraformState(options, de
   return record;
 }
 
+function normalizeDnsName(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/, "");
+}
+
+export function previewDnsFqdns(prNumber, baseDomain = PREVIEW_DNS_BASE_DOMAIN) {
+  const parsed = Number.parseInt(String(prNumber ?? ""), 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error("Preview PR number must be a positive integer.");
+  }
+  const normalizedBase = normalizeDnsName(baseDomain) || PREVIEW_DNS_BASE_DOMAIN;
+  const apex = `pr-${parsed}.${PREVIEW_DNS_ENVIRONMENT_LABEL}.${normalizedBase}`;
+  return { prNumber: parsed, baseDomain: normalizedBase, apex, wildcard: `*.${apex}` };
+}
+
+export function resolvePreviewDnsZone(registeredDomains, fqdn, fallback = PREVIEW_DNS_BASE_DOMAIN) {
+  const normalizedFqdn = normalizeDnsName(fqdn);
+  const names = (Array.isArray(registeredDomains) ? registeredDomains : [])
+    .map((domain) => normalizeDnsName(domain?.name ?? domain?.Name ?? domain))
+    .filter(Boolean);
+  const matches = names.filter((name) => normalizedFqdn === name || normalizedFqdn.endsWith(`.${name}`));
+  matches.sort((left, right) => right.length - left.length);
+  return matches[0] ?? normalizeDnsName(fallback);
+}
+
+export function previewDnsRecordName(fqdn, zone) {
+  const normalizedFqdn = normalizeDnsName(fqdn);
+  const normalizedZone = normalizeDnsName(zone);
+  if (normalizedFqdn === normalizedZone) {
+    return "@";
+  }
+  if (normalizedFqdn.endsWith(`.${normalizedZone}`)) {
+    return normalizedFqdn.slice(0, -normalizedZone.length - 1);
+  }
+  throw new Error(`${normalizedFqdn} is not inside DNS zone ${normalizedZone}.`);
+}
+
+export function previewDnsRecordPlan(prNumber, options = {}) {
+  const { apex, wildcard, prNumber: parsed, baseDomain } = previewDnsFqdns(prNumber, options.baseDomain);
+  const zone = resolvePreviewDnsZone(options.registeredDomains ?? [], apex, baseDomain);
+  return {
+    prNumber: parsed,
+    zone,
+    target: options.target ?? null,
+    records: [
+      { role: "apex", fqdn: apex, name: previewDnsRecordName(apex, zone) },
+      { role: "wildcard", fqdn: wildcard, name: previewDnsRecordName(wildcard, zone) },
+    ],
+  };
+}
+
+export function previewPrNumberFromDnsRecordFqdn(fqdn, baseDomain = PREVIEW_DNS_BASE_DOMAIN) {
+  const normalized = normalizeDnsName(fqdn);
+  const base = normalizeDnsName(baseDomain);
+  const pattern = new RegExp(`^(?:\\*\\.)?pr-(\\d+)\\.${PREVIEW_DNS_ENVIRONMENT_LABEL}\\.${escapeRegExp(base)}$`);
+  const match = normalized.match(pattern);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+export function selectPreviewDnsRecordTargets(records, zone, options = {}) {
+  const normalizedZone = normalizeDnsName(zone);
+  const baseDomain = options.baseDomain ?? PREVIEW_DNS_BASE_DOMAIN;
+  const byPr = new Map();
+
+  for (const record of Array.isArray(records) ? records : []) {
+    const type = String(record?.type ?? record?.Type ?? "").toUpperCase();
+    if (type !== "A") {
+      continue;
+    }
+    const name = normalizeDnsName(record?.name ?? record?.Name);
+    const fqdn = name === "@" || name === "" ? normalizedZone : `${name}.${normalizedZone}`;
+    const prNumber = previewPrNumberFromDnsRecordFqdn(fqdn, baseDomain);
+    if (!prNumber) {
+      continue;
+    }
+    const entry = byPr.get(prNumber) ?? { prNumber, zone: normalizedZone, records: [] };
+    entry.records.push({
+      id: String(record?.id ?? record?.ID ?? record?.Id ?? ""),
+      name,
+      fqdn,
+      data: String(record?.data ?? record?.Data ?? ""),
+    });
+    byPr.set(prNumber, entry);
+  }
+
+  return [...byPr.values()]
+    .map((entry) => ({
+      ...entry,
+      records: entry.records.sort((left, right) => left.fqdn.localeCompare(right.fqdn)),
+    }))
+    .sort((left, right) => left.prNumber - right.prNumber);
+}
+
+function listPreviewDomains(dependencies) {
+  const listDomains =
+    dependencies.listDomains ??
+    (() => commandJson("doctl", ["compute", "domain", "list", "--output", "json"], dependencies));
+  return listDomains;
+}
+
+function listPreviewDomainRecords(dependencies) {
+  const listDomainRecords =
+    dependencies.listDomainRecords ??
+    ((zone) => commandJson("doctl", ["compute", "domain", "records", "list", zone, "--output", "json"], dependencies));
+  return listDomainRecords;
+}
+
+export async function applyPreviewDnsRecords(options, dependencies = {}) {
+  const record = {
+    schemaVersion: DIGITALOCEAN_PREVIEW_DNS_VERSION,
+    mode: "apply",
+    prNumber: null,
+    zone: null,
+    target: String(options.target ?? "").trim(),
+    actions: [],
+    result: "failure",
+    warnings: [],
+    errors: [],
+  };
+
+  const parsedPr = Number.parseInt(String(options.prNumber ?? ""), 10);
+  if (!Number.isInteger(parsedPr) || parsedPr <= 0) {
+    record.errors.push("--pr-number must be a positive integer.");
+  }
+  if (!PREVIEW_DNS_IPV4_PATTERN.test(record.target)) {
+    record.errors.push("--target must be a valid IPv4 address (the DOKS ingress load balancer).");
+  }
+  if (record.errors.length > 0) {
+    return record;
+  }
+
+  const listDomains = listPreviewDomains(dependencies);
+  const listDomainRecords = listPreviewDomainRecords(dependencies);
+  const createRecord =
+    dependencies.createDomainRecord ??
+    ((zone, name, data) =>
+      commandOutput(
+        "doctl",
+        [
+          "compute",
+          "domain",
+          "records",
+          "create",
+          zone,
+          "--record-type",
+          "A",
+          "--record-name",
+          name,
+          "--record-data",
+          data,
+          "--record-ttl",
+          String(PREVIEW_DNS_RECORD_TTL),
+        ],
+        dependencies,
+      ));
+  const deleteRecord =
+    dependencies.deleteDomainRecord ??
+    ((zone, id) =>
+      commandOutput("doctl", ["compute", "domain", "records", "delete", zone, id, "--force"], dependencies));
+
+  let domains = [];
+  try {
+    domains = normalizeDomainList(await listDomains());
+  } catch (error) {
+    record.errors.push("DigitalOcean domain listing failed.");
+    record.errors.push(describeError(error));
+    return record;
+  }
+
+  const plan = previewDnsRecordPlan(parsedPr, {
+    registeredDomains: domains,
+    baseDomain: options.baseDomain,
+    target: record.target,
+  });
+  record.prNumber = plan.prNumber;
+  record.zone = plan.zone;
+
+  let existing = [];
+  try {
+    existing = await listDomainRecords(plan.zone);
+  } catch (error) {
+    record.errors.push(`Listing DNS records for ${plan.zone} failed.`);
+    record.errors.push(describeError(error));
+    return record;
+  }
+  const existingRecords = Array.isArray(existing) ? existing : [];
+
+  for (const planned of plan.records) {
+    const matches = existingRecords.filter(
+      (candidate) =>
+        String(candidate?.type ?? candidate?.Type ?? "").toUpperCase() === "A" &&
+        normalizeDnsName(candidate?.name ?? candidate?.Name) === normalizeDnsName(planned.name),
+    );
+    const alreadyPointed =
+      matches.length === 1 && String(matches[0]?.data ?? matches[0]?.Data ?? "").trim() === record.target;
+    if (alreadyPointed) {
+      record.actions.push({ fqdn: planned.fqdn, action: "unchanged" });
+      continue;
+    }
+
+    try {
+      for (const stale of matches) {
+        const id = String(stale?.id ?? stale?.ID ?? stale?.Id ?? "");
+        if (id) {
+          await deleteRecord(plan.zone, id);
+        }
+      }
+      await createRecord(plan.zone, planned.name, record.target);
+      record.actions.push({ fqdn: planned.fqdn, action: matches.length > 0 ? "replaced" : "created" });
+    } catch (error) {
+      record.errors.push(`Failed to upsert ${planned.fqdn}: ${describeError(error)}`);
+    }
+  }
+
+  record.result = record.errors.length > 0 ? "failure" : "success";
+  return record;
+}
+
+export async function destroyPreviewDnsRecords(options, dependencies = {}) {
+  const record = {
+    schemaVersion: DIGITALOCEAN_PREVIEW_DNS_VERSION,
+    mode: "destroy",
+    prNumber: null,
+    zone: null,
+    deletedRecords: [],
+    result: "failure",
+    warnings: [],
+    errors: [],
+  };
+
+  const parsedPr = Number.parseInt(String(options.prNumber ?? ""), 10);
+  if (!Number.isInteger(parsedPr) || parsedPr <= 0) {
+    record.errors.push("--pr-number must be a positive integer.");
+    return record;
+  }
+
+  const listDomains = listPreviewDomains(dependencies);
+  const listDomainRecords = listPreviewDomainRecords(dependencies);
+  const deleteRecord =
+    dependencies.deleteDomainRecord ??
+    ((zone, id) =>
+      commandOutput("doctl", ["compute", "domain", "records", "delete", zone, id, "--force"], dependencies));
+
+  let domains = [];
+  try {
+    domains = normalizeDomainList(await listDomains());
+  } catch (error) {
+    record.errors.push("DigitalOcean domain listing failed.");
+    record.errors.push(describeError(error));
+    return record;
+  }
+
+  const { apex, baseDomain } = previewDnsFqdns(parsedPr, options.baseDomain);
+  const zone = resolvePreviewDnsZone(domains, apex, baseDomain);
+  record.prNumber = parsedPr;
+  record.zone = zone;
+
+  let existing = [];
+  try {
+    existing = await listDomainRecords(zone);
+  } catch (error) {
+    record.errors.push(`Listing DNS records for ${zone} failed.`);
+    record.errors.push(describeError(error));
+    return record;
+  }
+
+  const targets = selectPreviewDnsRecordTargets(existing, zone, { baseDomain }).filter(
+    (target) => target.prNumber === parsedPr,
+  );
+  for (const target of targets) {
+    for (const dnsRecord of target.records) {
+      if (!dnsRecord.id) {
+        record.warnings.push(`Preview DNS record ${dnsRecord.fqdn} had no id; skipped deletion.`);
+        continue;
+      }
+      try {
+        await deleteRecord(zone, dnsRecord.id);
+        record.deletedRecords.push({ fqdn: dnsRecord.fqdn, id: dnsRecord.id });
+      } catch (error) {
+        record.errors.push(`Failed to delete ${dnsRecord.fqdn}: ${describeError(error)}`);
+      }
+    }
+  }
+
+  record.result = record.errors.length > 0 ? "failure" : "success";
+  return record;
+}
+
 async function fetchGithubPullRequest(input) {
   const response = await fetch(`https://api.github.com/repos/${input.repository}/pulls/${input.prNumber}`, {
     headers: {
@@ -615,6 +954,23 @@ function parseImportDatabaseArgs(argv, env = process.env) {
   };
 }
 
+function parseApplyDnsArgs(argv, env = process.env) {
+  return {
+    prNumber: readOption(argv, "--pr-number", env.PREVIEW_PR_NUMBER ?? ""),
+    target: readOption(argv, "--target", env.DOKS_INGRESS_TARGET ?? ""),
+    baseDomain: readOption(argv, "--base-domain", env.PREVIEW_DNS_BASE_DOMAIN ?? PREVIEW_DNS_BASE_DOMAIN),
+    outPath: readOption(argv, "--out", env.PREVIEW_DNS_RECORD_OUT),
+  };
+}
+
+function parseDestroyDnsArgs(argv, env = process.env) {
+  return {
+    prNumber: readOption(argv, "--pr-number", env.PREVIEW_PR_NUMBER ?? ""),
+    baseDomain: readOption(argv, "--base-domain", env.PREVIEW_DNS_BASE_DOMAIN ?? PREVIEW_DNS_BASE_DOMAIN),
+    outPath: readOption(argv, "--out", env.PREVIEW_DNS_RECORD_OUT),
+  };
+}
+
 function readOption(argv, name, fallback) {
   const inlinePrefix = `${name}=`;
   const inline = argv.find((entry) => entry.startsWith(inlinePrefix));
@@ -641,6 +997,19 @@ async function writeGithubOutputs(outputPath, outputs) {
     lines.push(`${key}=${String(value)}`);
   }
   await writeFile(outputPath, `${lines.join("\n")}\n`, { flag: "a" });
+}
+
+function normalizeDomainList(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (Array.isArray(value?.domains)) {
+    return value.domains;
+  }
+  if (Array.isArray(value?.Domains)) {
+    return value.Domains;
+  }
+  return [];
 }
 
 function normalizeDatabaseClusters(value) {
@@ -749,8 +1118,24 @@ async function main(argv = process.argv.slice(2)) {
     return record.result === "failure" ? 1 : 0;
   }
 
+  if (command === "apply-dns") {
+    const options = parseApplyDnsArgs(commandArgs);
+    const record = await applyPreviewDnsRecords(options);
+    await writeOptionalRecord(options.outPath, record);
+    console.log(JSON.stringify(record, null, 2));
+    return record.result === "failure" ? 1 : 0;
+  }
+
+  if (command === "destroy-dns") {
+    const options = parseDestroyDnsArgs(commandArgs);
+    const record = await destroyPreviewDnsRecords(options);
+    await writeOptionalRecord(options.outPath, record);
+    console.log(JSON.stringify(record, null, 2));
+    return record.result === "failure" ? 1 : 0;
+  }
+
   throw new Error(
-    "Usage: node scripts/digitalocean-preview-cleanup-sweep.mjs <discover|inventory|cleanup-databases|import-database> [options]",
+    "Usage: node scripts/digitalocean-preview-cleanup-sweep.mjs <discover|inventory|cleanup-databases|import-database|apply-dns|destroy-dns> [options]",
   );
 }
 

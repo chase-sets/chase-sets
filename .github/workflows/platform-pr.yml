@@ -890,6 +890,7 @@ jobs:
       CHASE_SETS_HELM_RELEASE: chase-sets-pr-${{ github.event.pull_request.number }}
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-pr-${{ github.event.pull_request.number }}
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -1146,6 +1147,32 @@ jobs:
             --dry-run=client \
             -o yaml | kubectl apply -f -
           echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
+
+      # Per-preview DNS must exist before the Helm deploy creates the Ingress so
+      # cert-manager's ACME HTTP-01 challenge resolves, and before the ingress
+      # wait probes the app hosts. A single `*.preview.chasesets.com` wildcard
+      # only matches one label, so it covers `pr-<n>.preview.chasesets.com` but
+      # never `admin.`/`marketplace.pr-<n>.preview.chasesets.com`. Publish this
+      # preview's own apex A record plus a `*.pr-<n>.preview` wildcard, both
+      # pointing at the DOKS ingress load balancer.
+      - name: Publish preview DNS records
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          target="${DOKS_INGRESS_TARGET:-}"
+          if [ -z "$target" ]; then
+            echo "DOKS_INGRESS_TARGET is unset; resolving the DOKS ingress load balancer IP from the ingress-nginx controller Service."
+            target="$(kubectl --namespace ingress-nginx get service ingress-nginx-controller \
+              --output 'jsonpath={.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+          fi
+          if [ -z "$target" ]; then
+            echo "Unable to determine the DOKS ingress load balancer IP; set the DOKS_INGRESS_TARGET repository variable or ensure the ingress-nginx controller Service has an assigned load balancer." >&2
+            exit 1
+          fi
+          node ./scripts/digitalocean-preview-cleanup-sweep.mjs apply-dns \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --target "$target"
 
       - name: Deploy preview Kubernetes release
         env:
