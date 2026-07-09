@@ -25,6 +25,16 @@ The chart renders these runtime Deployments when their component is enabled:
 
 `platform-bootstrap` is a Helm pre-install/pre-upgrade Job. It quiesces worker Deployments before bootstrap and restores them when bootstrap fails. Keep the release-time timeout budget ordered as: bootstrap command timeout `780s` < hook active deadline `890s` < Helm rollout timeout `15m` < app schema-lock retry budget `30m`. The worker drain/restore wait is capped at `45s` so a timed-out bootstrap command can still restore replicas and fail the Job before Helm's 900-second rollout window expires.
 
+## Preview Node Pool
+
+The staging cluster carries a dedicated `preview` node pool for PR preview environments so previews and the staging estate never contend for the same node. The pool is defined in `infrastructure/digitalocean/doks` and applies through the Platform DOKS Foundation Apply workflow like the rest of the root:
+
+- Staging-only: `preview_node_pool_enabled` is forced off outside `environment=staging`; production never hosts previews.
+- Scale-to-zero: the pool autoscales with `min_nodes = 0`, so it costs nothing while no previews are running. `preview_node_pool_max_nodes` bounds concurrent preview environments.
+- Sizing: `preview_node_pool_size` defaults to one node large enough for a full preview platform stack (web, admin, api, worker, bootstrap, in-cluster Postgres), so each preview scales out one node.
+- Isolation contract: nodes carry the label `chase-sets.com/pool=preview` and the taint `chase-sets.com/preview-only=true:NoSchedule`. Staging workloads never tolerate the taint, so they cannot schedule onto preview nodes; the preview deploy path pins preview pods to the pool with the matching toleration plus a `chase-sets.com/pool=preview` nodeSelector.
+- Evidence: the `preview_node_pool` Terraform output records the pool posture (name, size, autoscale bounds, taint) for foundation-apply evidence.
+
 ## Operator Shell Setup
 
 Initialize the DOKS Terraform root for the target environment and export a temporary kubeconfig. Do not commit kubeconfig files, Terraform state, or command output that contains secrets.

@@ -191,3 +191,26 @@ variable "tags" {
   default     = []
   description = "Extra DigitalOcean tags applied to DOKS resources."
 }
+
+variable "preview_node_pool_enabled" {
+  type        = bool
+  default     = true
+  description = "Provision the dedicated PR-preview node pool. Applies only to the staging cluster; production never hosts previews."
+}
+
+variable "preview_node_pool_size" {
+  type        = string
+  default     = "s-4vcpu-8gb"
+  description = "Droplet size slug for preview nodes, sized so one full preview platform stack (web, admin, api, worker, bootstrap, in-cluster Postgres) fits per node."
+}
+
+variable "preview_node_pool_max_nodes" {
+  type        = number
+  default     = 3
+  description = "Maximum preview nodes; bounds concurrent PR preview environments. The pool autoscales to zero when no previews are running."
+
+  validation {
+    condition     = var.preview_node_pool_max_nodes >= 1 && var.preview_node_pool_max_nodes <= 10
+    error_message = "preview_node_pool_max_nodes must be between 1 and 10."
+  }
+}
