@@ -280,6 +280,43 @@ describe("platform Kubernetes deployment", () => {
     expect(args.filter((arg) => String(arg).includes("WORKER_PROJECTION_WAKE_RELAY_ENABLED"))).toEqual([]);
   });
 
+  it("derives CHASE_SETS_INTERNAL_API_ORIGIN from the release fullname so previews reach their own API", () => {
+    // The webs (admin-web, marketplace, public-web) resolve the current actor
+    // through the in-cluster platform-api Service. That Service name is derived
+    // from the release fullname (`<release>-<chart>-platform-api`), so an origin
+    // baked into values.yaml only resolves for the release it was rendered
+    // against (`chase-sets-platform`, i.e. staging/production). Previews deploy
+    // under release `chase-sets-pr-<n>`, so the baked host does not exist and the
+    // webs 500 with getaddrinfo ENOTFOUND / 503 on actor resolution. The chart
+    // must compute the origin from its own fullname helper instead.
+    const envHelper = readFileSync("infrastructure/helm/platform/templates/_helpers.tpl", "utf8");
+    const chartValues = readFileSync("infrastructure/helm/platform/values.yaml", "utf8");
+
+    // The env helper computes the origin from the platform-api component name
+    // (which is release-fullname-derived), not from the baked base value.
+    expect(envHelper).toContain('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    expect(envHelper).toContain(
+      'value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}',
+    );
+
+    // Precedence: an explicit envOverride still wins (it is checked first), and
+    // the computed origin sits ahead of the plain base-value fallback so the
+    // baked staging default can never leak into a preview release.
+    const globalOverrideBranch = envHelper.indexOf("hasKey $envOverrides .name");
+    const originBranch = envHelper.indexOf('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const baseValueBranch = envHelper.indexOf('value: {{ default "" .value | quote }}');
+    expect(globalOverrideBranch).toBeGreaterThan(-1);
+    expect(originBranch).toBeGreaterThan(globalOverrideBranch);
+    expect(baseValueBranch).toBeGreaterThan(originBranch);
+
+    // The chart base still declares the origin as a plain value (not a secret),
+    // otherwise the env helper's value branch would be bypassed entirely.
+    const baseOriginIndex = chartValues.indexOf('- name: "CHASE_SETS_INTERNAL_API_ORIGIN"');
+    expect(baseOriginIndex).toBeGreaterThan(-1);
+    const baseOriginEntry = chartValues.slice(baseOriginIndex, chartValues.indexOf("- name:", baseOriginIndex + 1));
+    expect(baseOriginEntry).not.toContain("secret");
+  });
+
   it("threads DOKS ingress Helm values only for staging when an ingress target is configured", () => {
     const stagingArgs = buildHelmUpgradeArgs({
       release: "staging-platform",

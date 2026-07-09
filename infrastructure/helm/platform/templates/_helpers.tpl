@@ -65,6 +65,20 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{ include "chase-sets-platform.selectorLabels" . }}
 {{- end -}}
 
+{{- /*
+  Env precedence: secret > component envOverrides > global envOverrides >
+  CHASE_SETS_INTERNAL_API_ORIGIN (derived from the release fullname) > base value.
+
+  The in-cluster platform-api Service name is derived from the release fullname
+  (`<release>-<chart>-platform-api`), so an origin baked into values.yaml only
+  resolves for the release it was rendered against (`chase-sets-platform`, i.e.
+  staging/production). Previews deploy under release `chase-sets-pr-<n>`, whose
+  API Service is `chase-sets-pr-<n>-chase-sets-platform-platform-api`; the baked
+  origin then points at a non-existent host and the webs get ENOTFOUND / 503 on
+  actor resolution. Compute CHASE_SETS_INTERNAL_API_ORIGIN from the chart
+  fullname so it always matches the actual Service for the current release, in
+  every environment. An explicit envOverride still wins.
+*/ -}}
 {{- define "chase-sets-platform.env" -}}
 {{- $root := .root -}}
 {{- $envOverrides := default dict $root.Values.global.envOverrides -}}
@@ -80,6 +94,8 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
   value: {{ index $componentEnvOverrides .name | quote }}
   {{- else if hasKey $envOverrides .name }}
   value: {{ index $envOverrides .name | quote }}
+  {{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}
+  value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}
   {{- else }}
   value: {{ default "" .value | quote }}
   {{- end }}

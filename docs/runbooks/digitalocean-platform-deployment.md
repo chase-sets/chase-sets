@@ -102,7 +102,7 @@ Each pull request receives its own `pr-<number>` preview environment:
 
 Preview app components:
 
-- `public-web`, `marketplace`, `admin-web`.
+- `public-web`, `marketplace`, `admin-web`. Their internal `CHASE_SETS_INTERNAL_API_ORIGIN` (used for server-side actor resolution against `platform-api`) is computed by the Helm chart from the release fullname, so it resolves to the preview's own `chase-sets-pr-<number>-chase-sets-platform-platform-api` Service rather than the base staging release name.
 - `platform-api`: same-origin `/api/*` for landing, admin, and marketplace.
 - `platform-worker`: full-system background workers and worker health.
 - `platform-bootstrap`: `PRE_DEPLOY` schema, seed, control-plane, and platform-admin reconciliation.
