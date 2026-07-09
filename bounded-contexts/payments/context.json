@@ -207,6 +207,8 @@
   ],
   "mcpCapabilities": {
     "tools": [
+      { "name": "payments.start-payment-method-setup", "ownerSlice": "payments" },
+      { "name": "payments.confirm-payment-method-setup", "ownerSlice": "payments" },
       { "name": "payments.get-payment", "ownerSlice": "payments" },
       { "name": "payments.get-refund-status", "ownerSlice": "refunds" }
     ],

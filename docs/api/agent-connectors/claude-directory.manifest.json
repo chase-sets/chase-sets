@@ -74,6 +74,8 @@
     "checkout.cancel-session",
     "ordering.list-orders",
     "ordering.get-order",
+    "payments.start-payment-method-setup",
+    "payments.confirm-payment-method-setup",
     "payments.get-payment",
     "payments.get-refund-status",
     "fulfillment.list-shipments",

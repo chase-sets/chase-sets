@@ -1,15 +1,24 @@
+import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentServices } from "./runtime";
 
 export type PaymentMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
   resourceHandlers: Readonly<Record<string, McpResourceHandler>>;
 }>;
+
+/**
+ * Permission that gates the stored-payment-method rail. Card setup exists only to make
+ * in-chat checkout completion possible, so it shares the `checkout:write` scope's permission
+ * rather than introducing a parallel one.
+ */
+const PAYMENT_METHOD_SETUP_PERMISSION = "orders.manage";
 
 function readRequiredString(args: Readonly<Record<string, unknown>>, key: string) {
   const value = readMcpStringArgument(args, key);
@@ -24,6 +33,47 @@ function requirePermission(actor: Readonly<{ permissions: readonly string[] }>, 
   if (!actor.permissions.includes(permission)) {
     throw new Error(`Missing required permission: ${permission}.`);
   }
+}
+
+/**
+ * Parse an agent-supplied return URL, enforcing the HTTPS-only boundary. A payment-method setup
+ * hop must never bounce the buyer through a plaintext origin.
+ */
+function readHttpsUrl(args: Readonly<Record<string, unknown>>, key: string) {
+  const value = readRequiredString(args, key);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${key} must be an absolute HTTPS URL.`);
+  }
+  if (url.protocol !== "https:") {
+    throw new Error(`${key} must be an absolute HTTPS URL.`);
+  }
+
+  return url;
+}
+
+/**
+ * Guarantee the processor handed back a hosted setup page (not an embedded client secret) and that
+ * the page is HTTPS. This keeps the rail hosted-only: a card number never transits chat, and a
+ * client secret never leaves the server.
+ */
+function requireHostedSetupUrl(redirectUrl: string | null) {
+  if (!redirectUrl) {
+    throw new Error("A hosted payment-method setup URL is not available for this account.");
+  }
+  let url: URL;
+  try {
+    url = new URL(redirectUrl);
+  } catch {
+    throw new Error("A hosted payment-method setup URL is not available for this account.");
+  }
+  if (url.protocol !== "https:") {
+    throw new Error("A hosted payment-method setup URL is not available for this account.");
+  }
+
+  return url.toString();
 }
 
 function paymentUriParts(uri: string): Readonly<{ accountId: string; paymentId: string }> | null {
@@ -69,8 +119,75 @@ async function readPayment(
 }
 
 export function createPaymentMcpHandlers(
-  services: Pick<PaymentServices, "getAccountPayment" | "getPaymentMoneyTimeline">,
+  services: Pick<
+    PaymentServices,
+    | "getAccountPayment"
+    | "getPaymentMoneyTimeline"
+    | "createSavedCheckoutSetupSession"
+    | "reconcileSavedCheckoutSetupSession"
+  >,
 ): PaymentMcpHandlers {
+  const startPaymentMethodSetup: McpToolHandler = async ({ actor, arguments: args }) => {
+    const scopedActor = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));
+    requirePermission(scopedActor, PAYMENT_METHOD_SETUP_PERMISSION);
+    const returnUrl = readHttpsUrl(args, "returnUrl");
+    const session = await services.createSavedCheckoutSetupSession({
+      accountId: scopedActor.accountId as AccountId,
+      returnUrlBase: `${returnUrl.protocol}//${returnUrl.host}`,
+      returnUrlPath: `${returnUrl.pathname}${returnUrl.search}`,
+    });
+
+    // Return only the hosted page URL. The processor client secret stays server-side and is never
+    // echoed into a tool result or audit log.
+    return {
+      accountId: scopedActor.accountId,
+      id: session.setup_reference_id,
+      setupReferenceId: session.setup_reference_id,
+      status: session.processor_status,
+      url: requireHostedSetupUrl(session.processor_redirect_url),
+      consentText: session.consent_text,
+    };
+  };
+
+  const confirmPaymentMethodSetup: McpToolHandler = async ({ actor, arguments: args }) => {
+    const scopedActor = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));
+    requirePermission(scopedActor, PAYMENT_METHOD_SETUP_PERMISSION);
+    // Idempotent provider-state reconcile: safe to poll until the buyer finishes the hosted hop.
+    const instrument = await services.reconcileSavedCheckoutSetupSession(
+      {
+        accountId: scopedActor.accountId as AccountId,
+        setupReference: readRequiredString(args, "setupReferenceId"),
+      },
+      createActorEventStoreContext(scopedActor),
+    );
+
+    if (!instrument) {
+      return {
+        accountId: scopedActor.accountId,
+        setupReferenceId: readRequiredString(args, "setupReferenceId"),
+        attached: false,
+        status: "pending",
+        paymentMethod: null,
+      };
+    }
+
+    // Expose only display-safe facts. The provider payment-method reference and fingerprint are
+    // never returned — a PM reference must not appear in tool results unredacted.
+    return {
+      accountId: scopedActor.accountId,
+      setupReferenceId: readRequiredString(args, "setupReferenceId"),
+      attached: instrument.readiness === "ready",
+      status: instrument.readiness === "ready" ? "attached" : "pending",
+      paymentMethod: {
+        instrumentId: instrument.instrument_id,
+        displayLabel: instrument.display_label,
+        paymentMethodCategory: instrument.payment_method_category,
+        isDefault: instrument.is_default,
+        readiness: instrument.readiness,
+      },
+    };
+  };
+
   const getPayment: McpToolHandler = ({ actor, arguments: args }) =>
     readPayment(services, readRequiredString(args, "accountId"), readRequiredString(args, "paymentId"), actor);
 
@@ -104,6 +221,8 @@ export function createPaymentMcpHandlers(
 
   return {
     toolHandlers: {
+      "payments.start-payment-method-setup": startPaymentMethodSetup,
+      "payments.confirm-payment-method-setup": confirmPaymentMethodSetup,
       "payments.get-payment": getPayment,
       "payments.get-refund-status": getRefundStatus,
     },

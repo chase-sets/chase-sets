@@ -871,6 +871,41 @@ const paymentsRefundStatusOutputSchema = objectSchema(
   ["accountId", "paymentId", "orderIds", "status", "orderRefundCaps", "orderRefundedAmounts", "moneyTimeline"],
 );
 
+const paymentsPaymentMethodSetupOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    id: stringProperty("Payment-method setup reference."),
+    setupReferenceId: stringProperty("Payment-method setup reference to poll for attachment."),
+    status: stringProperty("Provider-neutral setup session status."),
+    url: stringProperty("Hosted HTTPS card-setup page URL. No client secret is exposed."),
+    consentText: stringProperty("Consent text the buyer accepts when saving the payment method."),
+  },
+  ["accountId", "id", "setupReferenceId", "status", "url", "consentText"],
+);
+
+const paymentsPaymentMethodConfirmationOutputSchema = objectSchema(
+  {
+    accountId: stringProperty("Authenticated account scope."),
+    setupReferenceId: stringProperty("Payment-method setup reference that was polled."),
+    attached: booleanProperty("Whether a payment method is now attached to the account."),
+    status: stringProperty("Attachment status: attached or pending."),
+    paymentMethod: {
+      type: "object",
+      description: "Display-safe stored payment-method facts. No provider reference or fingerprint.",
+      additionalProperties: true,
+      required: ["instrumentId", "displayLabel", "paymentMethodCategory", "isDefault", "readiness"],
+      properties: {
+        instrumentId: stringProperty("Chase Sets stored payment-method identifier."),
+        displayLabel: stringProperty("Display label, e.g. brand and last four digits."),
+        paymentMethodCategory: stringProperty("Payment-method category."),
+        isDefault: booleanProperty("Whether this is the account default payment method."),
+        readiness: stringProperty("Stored payment-method readiness."),
+      },
+    },
+  },
+  ["accountId", "setupReferenceId", "attached", "status"],
+);
+
 const fulfillmentTrackingOutputSchema = objectSchema(
   {
     accountId: stringProperty("Authenticated account scope."),
@@ -2478,6 +2513,53 @@ export const mcpServiceCatalog = [
       },
     ),
     tools: [
+      {
+        ...writeTool(
+          "payments",
+          "start-payment-method-setup",
+          "Start Payment Method Setup",
+          "Create a one-time Stripe-hosted card-setup page and return its HTTPS URL for URL-mode elicitation. A card number never transits chat; the buyer enters it on the hosted page.",
+          "orders.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              returnUrl: stringProperty("HTTPS URL where the hosted page returns after card setup."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate without creating a hosted setup session."),
+            },
+            ["accountId", "returnUrl", "idempotencyKey", "confirmationText"],
+          ),
+          "payment-method-setup",
+          [
+            "Use once, before in-chat checkout completion, when the account has no stored payment method.",
+            "Return the hosted URL to the user for a one-time card-entry hop; then poll confirm-payment-method-setup.",
+          ],
+          "sensitive",
+        ),
+        availability: "available",
+        outputSchema: paymentsPaymentMethodSetupOutputSchema,
+      },
+      {
+        ...readTool(
+          "payments",
+          "confirm-payment-method-setup",
+          "Confirm Payment Method Setup",
+          "Poll a payment-method setup session and confirm whether a stored payment method is now attached to the account.",
+          "orders.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              setupReferenceId: stringProperty("Setup reference returned by start-payment-method-setup."),
+            },
+            ["accountId", "setupReferenceId"],
+          ),
+          "payment-method-setup",
+          ["Poll after directing the user to the hosted setup URL, until attachment is confirmed."],
+        ),
+        availability: "available",
+        outputSchema: paymentsPaymentMethodConfirmationOutputSchema,
+      },
       {
         ...readTool(
           "payments",

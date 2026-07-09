@@ -178,8 +178,10 @@ describe("MCP service catalog", () => {
       "marketplace.update-listing-price",
       "ordering.get-order",
       "ordering.list-orders",
+      "payments.confirm-payment-method-setup",
       "payments.get-payment",
       "payments.get-refund-status",
+      "payments.start-payment-method-setup",
       "platform-operations.get-seller-insight-summary",
       "platform-operations.get-support-request",
       "platform-operations.list-support-requests",
@@ -535,6 +537,31 @@ describe("MCP service catalog", () => {
         status: "pending",
         url: "https://connect.stripe.test/setup/acct_provider_1",
         readiness: settlementReadiness,
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("payments.start-payment-method-setup")?.outputSchema, {
+        accountId: "acct_1",
+        id: "scs_1",
+        setupReferenceId: "scs_1",
+        status: "requires-action",
+        url: "https://checkout.stripe.test/setup/scs_1",
+        consentText: "Save this card for future purchases.",
+      }),
+    ).toEqual([]);
+    expect(
+      validateOutputSchema(findMcpTool("payments.confirm-payment-method-setup")?.outputSchema, {
+        accountId: "acct_1",
+        setupReferenceId: "scs_1",
+        attached: true,
+        status: "attached",
+        paymentMethod: {
+          instrumentId: "sci_1",
+          displayLabel: "Visa ····4242",
+          paymentMethodCategory: "card",
+          isDefault: true,
+          readiness: "ready",
+        },
       }),
     ).toEqual([]);
   });
