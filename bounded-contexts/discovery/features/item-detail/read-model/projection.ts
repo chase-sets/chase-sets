@@ -8,6 +8,7 @@ import {
   removeJsonbArrayElement,
   replaceJsonbArrayElement,
   refreshAffectedRows,
+  runBoundedProjectionCascade,
   transitionStatus,
   updateRow,
   upsertRow,
@@ -452,22 +453,23 @@ async function refreshDiscoveryItemDetailPages(
   itemIds: readonly string[],
   throwIfCancelled?: () => void,
 ): Promise<void> {
-  const uniqueItemIds = [...new Set(itemIds)];
-  if (uniqueItemIds.length === 0) {
-    return;
-  }
-
-  const productSchemaByBlueprintId = new Map<string, unknown | null>();
-  for (let offset = 0; offset < uniqueItemIds.length; offset += ITEM_DETAIL_REFRESH_CHUNK_SIZE) {
+  // Bounded + resumable: when a cascade controller is active (a projection event
+  // apply) this refreshes at most the per-pass budget and records a durable cursor
+  // so a large fan-out resumes on a later pass without blowing the transaction
+  // budget. Without a controller (rebuild/retry) it refreshes the whole set.
+  await runBoundedProjectionCascade(itemIds, async (slice) => {
+    const productSchemaByBlueprintId = new Map<string, unknown | null>();
+    for (let offset = 0; offset < slice.length; offset += ITEM_DETAIL_REFRESH_CHUNK_SIZE) {
+      throwIfCancelled?.();
+      await refreshDiscoveryItemDetailPageChunk(
+        db,
+        slice.slice(offset, offset + ITEM_DETAIL_REFRESH_CHUNK_SIZE),
+        productSchemaByBlueprintId,
+        throwIfCancelled,
+      );
+    }
     throwIfCancelled?.();
-    await refreshDiscoveryItemDetailPageChunk(
-      db,
-      uniqueItemIds.slice(offset, offset + ITEM_DETAIL_REFRESH_CHUNK_SIZE),
-      productSchemaByBlueprintId,
-      throwIfCancelled,
-    );
-  }
-  throwIfCancelled?.();
+  });
 }
 
 async function refreshDiscoveryItemDetailPageChunk(

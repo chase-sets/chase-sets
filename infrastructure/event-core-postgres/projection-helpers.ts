@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { PgQueryResult, PgQueryable } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 
@@ -573,4 +575,101 @@ function jsonbPathSegment(segment: string): string {
   }
 
   return segment;
+}
+
+/**
+ * Per-event cascade controller. A projection event whose handler fans out to a
+ * large set of dependent rows must not refresh them all inside one event
+ * transaction (the transaction budget cannot fit an unbounded fan-out). The
+ * subscription runner installs a controller (via {@link runInProjectionCascadeContext})
+ * for the current event; cascade choke points call {@link runBoundedProjectionCascade},
+ * which processes a bounded slice per pass and records a durable per-site cursor so
+ * the same event resumes where it left off on the next pass. The source checkpoint
+ * only advances once every site reports complete (controller not exhausted), so a
+ * partially-applied cascade is never observable as caught-up.
+ */
+export type ProjectionCascadeCursor = Readonly<{ cursorId: string | null; completed: boolean }>;
+
+export type ProjectionCascadeController = Readonly<{
+  /** Stable, monotonic ordinal for the current cascade site (one per bounded call). */
+  nextOrdinal: () => number;
+  /** Remaining per-pass refresh budget shared across all sites of this event. */
+  budgetRemaining: () => number;
+  /** Whether this pass has run out of budget and must resume on a later pass. */
+  isExhausted: () => boolean;
+  /** Record that `count` items were refreshed this pass. */
+  consume: (count: number) => void;
+  /** Mark this pass exhausted (a site could not finish within the budget). */
+  markExhausted: () => void;
+  loadCursor: (ordinal: number) => Promise<ProjectionCascadeCursor>;
+  saveCursor: (ordinal: number, cursorId: string | null, completed: boolean) => Promise<void>;
+}>;
+
+const projectionCascadeContext = new AsyncLocalStorage<ProjectionCascadeController>();
+
+export function runInProjectionCascadeContext<T>(controller: ProjectionCascadeController, work: () => T): T {
+  return projectionCascadeContext.run(controller, work);
+}
+
+export function getProjectionCascadeController(): ProjectionCascadeController | undefined {
+  return projectionCascadeContext.getStore();
+}
+
+/**
+ * Refresh an affected-item set, bounded and resumable when a cascade controller is
+ * active. Without a controller (rebuild/retry/tests) it processes the whole set in
+ * one pass, preserving the previous behaviour. With a controller it processes ids in
+ * deterministic ascending order, skips ids already covered by the durable cursor,
+ * refreshes at most the remaining budget this pass, advances the cursor, and marks
+ * either the site complete or the pass exhausted. Idempotent per-item refresh makes
+ * re-running a partial pass or a completed site safe.
+ */
+export async function runBoundedProjectionCascade(
+  ids: readonly string[],
+  processSlice: (ids: readonly string[]) => Promise<void>,
+): Promise<void> {
+  const uniqueIds = [...new Set(ids)];
+  const controller = getProjectionCascadeController();
+
+  if (!controller) {
+    if (uniqueIds.length > 0) {
+      await processSlice(uniqueIds);
+    }
+    return;
+  }
+
+  const ordinal = controller.nextOrdinal();
+  if (controller.isExhausted()) {
+    // A prior site used up this pass; this site resumes on a later pass.
+    return;
+  }
+
+  const cursor = await controller.loadCursor(ordinal);
+  if (cursor.completed) {
+    return;
+  }
+
+  const sortedIds = uniqueIds.slice().sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  const remainingIds = cursor.cursorId === null ? sortedIds : sortedIds.filter((id) => id > cursor.cursorId!);
+  if (remainingIds.length === 0) {
+    await controller.saveCursor(ordinal, cursor.cursorId, true);
+    return;
+  }
+
+  const budget = controller.budgetRemaining();
+  if (budget <= 0) {
+    controller.markExhausted();
+    return;
+  }
+
+  const slice = remainingIds.slice(0, budget);
+  await processSlice(slice);
+  controller.consume(slice.length);
+
+  const lastId = slice[slice.length - 1]!;
+  const completed = slice.length === remainingIds.length;
+  await controller.saveCursor(ordinal, lastId, completed);
+  if (!completed) {
+    controller.markExhausted();
+  }
 }

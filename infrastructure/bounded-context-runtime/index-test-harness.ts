@@ -32,6 +32,7 @@ export const applicationStatusByPool = new Map<object, Map<string, string>>();
 // Test override for `loadSubscriptionApplicationAgeMs` (ms an application row has
 // been stuck since first claim). Keyed by `${projectionKey}:${eventId}`; unset = 0.
 export const applicationAgeMsByPool = new Map<object, Map<string, number>>();
+export const cascadeProgressByPool = new Map<object, Map<string, { cursorId: string | null; completed: boolean }>>();
 export const readAllCallsByPool = new Map<object, Record<string, unknown>[]>();
 export const sourceHeadByPool = new Map<object, string>();
 export const generationRetentionByPool = new Map<object, Set<string>>();
@@ -121,6 +122,16 @@ export function getApplicationAgeStore(pool: object) {
   if (!store) {
     store = new Map();
     applicationAgeMsByPool.set(pool, store);
+  }
+
+  return store;
+}
+
+export function getCascadeProgressStore(pool: object) {
+  let store = cascadeProgressByPool.get(pool);
+  if (!store) {
+    store = new Map();
+    cascadeProgressByPool.set(pool, store);
   }
 
   return store;
@@ -360,6 +371,33 @@ export function createMockPool(): MockPool {
         return { rows: [] };
       }
 
+      if (sql.includes("event_projection_cascade_progress")) {
+        if (sql.includes("SELECT cursor_id, completed")) {
+          const key = `${String(params[0])}:${String(params[1])}:${String(params[2])}`;
+          const row = getCascadeProgressStore(pool).get(key);
+          return { rows: row ? [{ cursor_id: row.cursorId, completed: row.completed }] : [] };
+        }
+        if (sql.includes("INSERT INTO event_projection_cascade_progress")) {
+          const key = `${String(params[0])}:${String(params[1])}:${String(params[2])}`;
+          getCascadeProgressStore(pool).set(key, {
+            cursorId: params[3] === null || params[3] === undefined ? null : String(params[3]),
+            completed: Boolean(params[4]),
+          });
+          return { rows: [], rowCount: 1 } as never;
+        }
+        if (sql.includes("DELETE FROM event_projection_cascade_progress")) {
+          const projectionKey = String(params[0]);
+          const eventId = params[1] === undefined ? null : String(params[1]);
+          const prefix = eventId === null ? `${projectionKey}:` : `${projectionKey}:${eventId}:`;
+          for (const key of [...getCascadeProgressStore(pool).keys()]) {
+            if (key.startsWith(prefix)) {
+              getCascadeProgressStore(pool).delete(key);
+            }
+          }
+          return { rows: [], rowCount: 0 } as never;
+        }
+      }
+
       if (sql.includes("INSERT INTO event_projection_group_revisions")) {
         const key = `${params[0]}:${params[1]}`;
         getProjectionRevisionStore(pool).set(key, Number(params[2]));
@@ -533,6 +571,17 @@ export function createEventCoreMock() {
 export function createEventCorePostgresMock() {
   return {
     withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
+    runInProjectionCascadeContext: <T>(_controller: unknown, work: () => T): T => work(),
+    getProjectionCascadeController: () => undefined,
+    runBoundedProjectionCascade: async (
+      ids: readonly string[],
+      processSlice: (ids: readonly string[]) => Promise<void>,
+    ) => {
+      const unique = [...new Set(ids)];
+      if (unique.length > 0) {
+        await processSlice(unique);
+      }
+    },
     isPgConnectionLevelError: (error: unknown) => {
       if (typeof error !== "object" || error === null) {
         return false;
@@ -616,6 +665,7 @@ export function resetMockPoolState() {
   poisonEventsByPool.clear();
   applicationStatusByPool.clear();
   applicationAgeMsByPool.clear();
+  cascadeProgressByPool.clear();
   readAllCallsByPool.clear();
   sourceHeadByPool.clear();
   generationRetentionByPool.clear();

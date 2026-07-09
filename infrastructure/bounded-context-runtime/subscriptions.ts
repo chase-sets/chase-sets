@@ -23,6 +23,7 @@ import {
   createPostgresEventStore,
   createPostgresProjectionStore,
   isPgRetryableTransientError,
+  runInProjectionCascadeContext,
   type PgTransactionalPool,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
@@ -31,8 +32,10 @@ import {
   applyLagMetrics,
   calculateOutstandingEventCount,
   claimSubscriptionApplication,
+  clearCascadeProgress,
   compactSubscriptionApplicationLedger,
   createCheckpointKey,
+  createDbProjectionCascadeController,
   deleteSubscriptionCheckpoint,
   deriveSubscriptionReplayState,
   isGlobalPositionGreater,
@@ -116,16 +119,36 @@ const REACTION_CHECKPOINT_BATCH_SIZE = 1;
  * by default so genuine transients recover; a projection whose per-event work can
  * never fit its budget still makes forward progress instead of stalling forever.
  *
- * The default is comfortably larger than a single transaction budget so a legit
- * slow-but-fitting event that overruns once (a GC pause, a one-off lock wait) is
- * retried, not quarantined; only an event that keeps overrunning across attempts
- * is parked. Lower it per subscription for a faster bulk-replay drain.
+ * With the bounded/resumable cascade below as the primary path, well-behaved
+ * fan-out events never reach this budget; the watchdog remains the backstop for
+ * any event that still somehow exceeds it. The default is comfortably larger than
+ * a single transaction budget so a legit slow-but-fitting event that overruns once
+ * (a GC pause, a one-off lock wait) is retried, not quarantined; only an event
+ * that keeps overrunning is parked. Lower it per subscription for a faster drain.
  */
 const DEFAULT_PROJECTION_TRANSACTION_BUDGET_ESCALATION_MS = 300_000;
 
 function normalizeTransactionBudgetEscalationMs(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value) || value < 0) {
     return DEFAULT_PROJECTION_TRANSACTION_BUDGET_ESCALATION_MS;
+  }
+
+  return Math.floor(value);
+}
+
+/**
+ * Default per-pass cascade refresh budget: the maximum number of dependent rows a
+ * single event may refresh in one transaction before the runtime commits the chunk,
+ * pins the source checkpoint, and resumes the same event on the next pass. Keeps a
+ * fan-out-heavy structural event well inside its transaction budget while draining
+ * incrementally. This is the primary path for cascade events; tune per subscription
+ * via `projectionCascadeChunkSize`.
+ */
+const DEFAULT_PROJECTION_CASCADE_CHUNK_SIZE = 500;
+
+function normalizeCascadeChunkSize(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value < 1) {
+    return DEFAULT_PROJECTION_CASCADE_CHUNK_SIZE;
   }
 
   return Math.floor(value);
@@ -278,6 +301,7 @@ type SubscriptionBatchProgress = {
   lastCheckpointedGlobalPosition: GlobalPosition;
   eventsSinceCheckpoint: number;
   processed: number;
+  cascadeInProgress: boolean;
 };
 
 class BatchEventApplyError extends Error {
@@ -472,6 +496,7 @@ export function createSubscriptionRunner(
   const transactionBudgetEscalationMs = normalizeTransactionBudgetEscalationMs(
     subscription.projectionTransactionBudgetEscalationMs,
   );
+  const cascadeChunkSize = normalizeCascadeChunkSize(subscription.projectionCascadeChunkSize);
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
   const status: {
     checkpointKey: string;
@@ -843,6 +868,7 @@ export function createSubscriptionRunner(
           lastCheckpointedGlobalPosition: checkpoint,
           eventsSinceCheckpoint: 0,
           processed: 0,
+          cascadeInProgress: false,
         });
         const advanceProgress = async (
           progress: SubscriptionBatchProgress,
@@ -910,6 +936,7 @@ export function createSubscriptionRunner(
                 continue;
               }
 
+              let cascadeRefreshedThisEvent = 0;
               try {
                 if (knownFailure?.eventId === String(event.id)) {
                   throw knownFailure.error;
@@ -924,10 +951,29 @@ export function createSubscriptionRunner(
                       return "already-applied" as const;
                     }
 
-                    await runInProjectionDbContext(client, () =>
-                      handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                    // Bound the event's cascade fan-out: the handler refreshes at most
+                    // `cascadeChunkSize` dependent rows per pass, recording a durable
+                    // per-site cursor. A fan-out that fits leaves the controller
+                    // unexhausted and the event is marked applied; a larger fan-out
+                    // commits this chunk, leaves the event `started`, and resumes next
+                    // pass so the checkpoint never advances over a partial cascade.
+                    const cascadeController = createDbProjectionCascadeController(client, {
+                      projectionKey: checkpointKey,
+                      eventId: String(event.id),
+                      budget: cascadeChunkSize,
+                    });
+                    await runInProjectionCascadeContext(cascadeController, () =>
+                      runInProjectionDbContext(client, () =>
+                        handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                      ),
                     );
                     context?.throwIfLeaseLost?.();
+                    if (cascadeController.isExhausted()) {
+                      cascadeRefreshedThisEvent = cascadeController.refreshedCount();
+                      return "cascade-incomplete" as const;
+                    }
+
+                    await clearCascadeProgress(client, checkpointKey, String(event.id));
                     await recordSubscriptionApplicationCompleted(
                       client,
                       checkpointKey,
@@ -940,6 +986,14 @@ export function createSubscriptionRunner(
                   },
                   transactionTelemetry,
                 );
+                if (applicationResult === "cascade-incomplete") {
+                  // The chunk committed but the event is not fully applied. Report the
+                  // chunk as progress so the runner reschedules, keep the source
+                  // checkpoint pinned before this event, and resume it next pass.
+                  progress.processed += Math.max(1, cascadeRefreshedThisEvent);
+                  progress.cascadeInProgress = true;
+                  break;
+                }
                 if (applicationResult === "already-applied") {
                   await advanceProgress(progress, event);
                   continue;
@@ -1023,6 +1077,14 @@ export function createSubscriptionRunner(
           events: readonly SubscriptionTransportEvent[],
         ): Promise<SubscriptionBatchProgress> => {
           const progress = initialProgress();
+          // A single-event projection batch (the shape a `checkpointBatchSize`-1
+          // cascade projection produces once only one event is pending) supports the
+          // bounded/resumable cascade too, so a fan-out does not blow the budget just
+          // because it happened to be the last event in the stream. Multi-event
+          // batches never carry cascades (those projections commit per event).
+          const cascadeEvent = handlerKind !== "reaction" && events.length === 1 ? events[0] : undefined;
+          let cascadeIncomplete = false;
+          let cascadeRefreshed = 0;
           await withProjectionTransaction(
             targetPool,
             projectionRunContext,
@@ -1076,14 +1138,36 @@ export function createSubscriptionRunner(
                   continue;
                 }
 
+                const cascadeController =
+                  cascadeEvent && String(cascadeEvent.id) === eventId
+                    ? createDbProjectionCascadeController(client, {
+                        projectionKey: checkpointKey,
+                        eventId,
+                        budget: cascadeChunkSize,
+                      })
+                    : undefined;
                 try {
-                  await runInProjectionDbContext(client, () =>
-                    handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
-                  );
+                  const runHandler = () =>
+                    runInProjectionDbContext(client, () =>
+                      handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                    );
+                  await (cascadeController
+                    ? runInProjectionCascadeContext(cascadeController, runHandler)
+                    : runHandler());
                 } catch (error) {
                   throw new BatchEventApplyError(String(event.id), error);
                 }
                 context?.throwIfLeaseLost?.();
+                if (cascadeController?.isExhausted()) {
+                  // The cascade committed a chunk but is not done; leave the event
+                  // `started` and signal the pass so the checkpoint stays pinned.
+                  cascadeIncomplete = true;
+                  cascadeRefreshed = cascadeController.refreshedCount();
+                  continue;
+                }
+                if (cascadeController) {
+                  await clearCascadeProgress(client, checkpointKey, eventId);
+                }
                 completedEventIds.push(eventId);
               }
 
@@ -1091,6 +1175,14 @@ export function createSubscriptionRunner(
             },
             transactionTelemetry,
           );
+
+          if (cascadeIncomplete) {
+            // Keep the checkpoint before this (still unapplied) event; report the
+            // chunk as progress so the runner reschedules to resume it.
+            progress.cascadeInProgress = true;
+            progress.processed = Math.max(1, cascadeRefreshed);
+            return progress;
+          }
 
           if (events.length > 0) {
             progress.lastGlobalPosition = events[events.length - 1]!.globalPosition;
@@ -1137,7 +1229,9 @@ export function createSubscriptionRunner(
           await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
           lastCheckpointedGlobalPosition = lastGlobalPosition;
         }
-        if (storedEvents.length < batchSize) {
+        // A cascade still in progress leaves an unapplied event at
+        // `lastGlobalPosition + 1`; the idle tail fast-forward must not skip it.
+        if (storedEvents.length < batchSize && !progress.cascadeInProgress) {
           const observedSourceHeadGlobalPosition = isGlobalPositionGreater(
             lastGlobalPosition,
             status.sourceHeadGlobalPosition,
