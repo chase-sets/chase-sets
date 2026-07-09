@@ -6,6 +6,16 @@ locals {
   runtime_min_nodes          = var.runtime_node_pool_min_nodes == 0 ? local.runtime_node_count : var.runtime_node_pool_min_nodes
   runtime_max_nodes          = var.runtime_node_pool_max_nodes == 0 ? local.runtime_min_nodes : var.runtime_node_pool_max_nodes
 
+  # PR previews run only on the staging cluster, so the dedicated preview
+  # node pool never exists in production.
+  preview_node_pool_enabled = var.environment == "staging" && var.preview_node_pool_enabled
+
+  preview_node_pool_taint = {
+    key    = "chase-sets.com/preview-only"
+    value  = "true"
+    effect = "NoSchedule"
+  }
+
   base_tags = [
     var.environment,
     "platform",

@@ -26,3 +26,14 @@ output "container_registry_server_url" {
 output "registry_integration_enabled" {
   value = digitalocean_kubernetes_cluster.platform.registry_integration
 }
+
+output "preview_node_pool" {
+  description = "Dedicated PR-preview node pool posture (#4745); null when the pool is disabled or outside staging."
+  value = local.preview_node_pool_enabled ? {
+    name      = digitalocean_kubernetes_node_pool.preview[0].name
+    size      = digitalocean_kubernetes_node_pool.preview[0].size
+    min_nodes = digitalocean_kubernetes_node_pool.preview[0].min_nodes
+    max_nodes = digitalocean_kubernetes_node_pool.preview[0].max_nodes
+    taint     = local.preview_node_pool_taint
+  } : null
+}

@@ -48,6 +48,34 @@ resource "digitalocean_kubernetes_cluster" "platform" {
   ]
 }
 
+# Dedicated PR-preview node pool (#4745). Preview workloads schedule here
+# exclusively: the preview-only NoSchedule taint keeps staging pods off the
+# pool, and the preview Helm deploy path adds the matching toleration plus a
+# chase-sets.com/pool=preview nodeSelector so preview pods never land on the
+# staging runtime node. min_nodes = 0 scales the pool to zero when no
+# previews are running (m102 cost posture).
+resource "digitalocean_kubernetes_node_pool" "preview" {
+  count = local.preview_node_pool_enabled ? 1 : 0
+
+  cluster_id = digitalocean_kubernetes_cluster.platform.id
+  name       = "preview"
+  size       = var.preview_node_pool_size
+  auto_scale = true
+  min_nodes  = 0
+  max_nodes  = var.preview_node_pool_max_nodes
+  labels = {
+    "chase-sets.com/pool"        = "preview"
+    "chase-sets.com/environment" = var.environment
+  }
+  tags = distinct(concat(local.tags, ["preview"]))
+
+  taint {
+    key    = local.preview_node_pool_taint.key
+    value  = local.preview_node_pool_taint.value
+    effect = local.preview_node_pool_taint.effect
+  }
+}
+
 resource "digitalocean_kubernetes_node_pool" "additional" {
   for_each = var.additional_node_pools
 
