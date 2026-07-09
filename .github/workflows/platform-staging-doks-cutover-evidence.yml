@@ -244,6 +244,14 @@ jobs:
           MARKETPLACE_E2E_SEARCH_QUERY: ${{ vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || '' }}
+          # Synthetic marketplace accounts (empty MARKETPLACE_E2E_*) are admission-gated,
+          # so the critical-flows suite provisions each account's invitation as the
+          # platform admin before registering. Without these creds the helper skips
+          # provisioning, registration is refused (403 admission_required), and the
+          # authenticated specs fall back to a sign-in that 401s. The App Platform
+          # validation inherits the same admin identity via job-level TF_VAR_platform_admin_*.
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
           ADMIN_WEB_URL: https://${{ steps.hosts.outputs.admin }}
           MARKETPLACE_WEB_URL: https://${{ steps.hosts.outputs.marketplace }}
