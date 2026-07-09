@@ -1155,6 +1155,23 @@ jobs:
           landing_domain="${PREVIEW_IDENTIFIER}.preview.chasesets.com"
           marketplace_domain="marketplace.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
 
+          # Optional provider endpoint overrides are only passed when the
+          # repository variable is set. When absent, the Helm chart's preview
+          # env defaults apply (real Stripe/EasyPost API bases, empty SES
+          # values), matching the retired App Platform preview posture where
+          # empty env values fell through to runtime provider defaults.
+          optional_runtime_env=()
+          add_optional_runtime_env() {
+            if [ -n "$2" ]; then
+              optional_runtime_env+=(--runtime-env "$1=$2")
+            fi
+          }
+          add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
+          add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
+          add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
+          add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
+          add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
+
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
@@ -1169,13 +1186,9 @@ jobs:
             --runtime-env "CATALOG_ASSET_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com" \
             --runtime-env "CATALOG_ASSET_S3_REGION=nyc3" \
             --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \
-            --runtime-env "SES_AWS_REGION=${TF_VAR_ses_aws_region:-}" \
-            --runtime-env "SES_FROM_EMAIL=${TF_VAR_ses_from_email:-}" \
-            --runtime-env "SES_CONFIGURATION_SET_NAME=${TF_VAR_ses_configuration_set_name:-}" \
             --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}" \
-            --runtime-env "STRIPE_API_BASE_URL=${TF_VAR_stripe_api_base_url:-}" \
-            --runtime-env "EASYPOST_API_BASE_URL=${TF_VAR_easypost_api_base_url:-}" \
             --runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}" \
+            "${optional_runtime_env[@]}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"

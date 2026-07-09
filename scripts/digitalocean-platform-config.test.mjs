@@ -2293,6 +2293,23 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewJob).toContain('"https://${{ steps.preview_domains.outputs.landing_domain }}"');
     expect(previewJob).toContain("pnpm run smoke:platform --");
 
+    // Optional provider endpoints must never be passed as empty --runtime-env
+    // overrides: the deploy script fails closed on empty values, and the Helm
+    // chart's preview env defaults already carry the retired App Platform
+    // preview posture when a repository variable is unset.
+    expect(previewJob).toContain('add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"');
+    expect(previewJob).toContain(
+      'add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"',
+    );
+    expect(previewJob).toContain('add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"');
+    expect(previewJob).toContain('add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"');
+    expect(previewJob).toContain(
+      'add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"',
+    );
+    expect(previewJob).not.toContain('--runtime-env "STRIPE_API_BASE_URL=');
+    expect(previewJob).not.toContain('--runtime-env "EASYPOST_API_BASE_URL=');
+    expect(previewJob).not.toContain('--runtime-env "SES_');
+
     expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(requiredJob).toContain("needs['change-scope'].outputs.deploy == 'true'");
     expect(requiredJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
