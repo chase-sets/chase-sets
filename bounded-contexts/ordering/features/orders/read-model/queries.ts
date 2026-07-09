@@ -466,6 +466,30 @@ export async function listOrderIdsForSource(
   return result.rows.map((row) => row.order_id);
 }
 
+export async function resolveOrderRecipient(db: PgQueryable, orderId: string): Promise<string | null> {
+  const result = await db.query<{ buyer_account_id: string }>(
+    `SELECT buyer_account_id
+     FROM ordering_order_pages
+     WHERE order_id = $1
+     LIMIT 1`,
+    [orderId],
+  );
+
+  return result.rows[0]?.buyer_account_id ?? null;
+}
+
+export async function resolveShipmentOrderId(db: PgQueryable, shipmentId: string): Promise<string | null> {
+  const result = await db.query<{ order_id: string }>(
+    `SELECT order_id
+     FROM ordering_fulfillment_cancellation_inputs
+     WHERE shipment_id = $1
+     LIMIT 1`,
+    [shipmentId],
+  );
+
+  return result.rows[0]?.order_id ?? null;
+}
+
 export type PaymentDeadlineCancellationCandidate = Readonly<{
   order_id: string;
   payment_deadline_at: string;

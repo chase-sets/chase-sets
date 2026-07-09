@@ -43,6 +43,7 @@ import {
   DEFAULT_REGISTRATION_ADMISSION_CONFIG,
   type RegistrationAdmissionConfig,
 } from "../api-support/registration-gates";
+import { createPostgresAgentWebhookOutbox, type AgentWebhookOutbox } from "../ucp-support/agent-webhooks";
 
 type AuthIdentityReadServices = Readonly<{
   bootstrapTenantId: string;
@@ -83,6 +84,8 @@ export type AuthServices = Readonly<{
   identity: AuthIdentityReadServices;
   sessions: ReturnType<typeof createSessionRuntime>;
   notificationOutbox: NotificationOutbox;
+  agentWebhookOutbox: AgentWebhookOutbox;
+  agentWebhookOrderResolvers: AgentWebhookOrderResolvers;
   socialLoginProviders: readonly SocialLoginProvider[];
   adminGoogleWorkspaceSso: AdminGoogleWorkspaceSsoConfig | null;
   registrationAdmission: RegistrationAdmissionHostConfig;
@@ -95,10 +98,21 @@ export type AdminGoogleWorkspaceSsoConfig = Readonly<{
 
 export type AuthHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
+  agentWebhookOrderResolvers?: AgentWebhookOrderResolvers;
   socialLoginProviders?: readonly SocialLoginProvider[];
   adminGoogleWorkspaceSso?: AdminGoogleWorkspaceSsoConfig | null;
   registrationAdmission?: RegistrationAdmissionHostConfig;
 }>;
+
+export type AgentWebhookOrderResolvers = Readonly<{
+  resolveOrderRecipient: (orderId: string) => Promise<string | null>;
+  resolveShipmentOrderId: (shipmentId: string) => Promise<string | null>;
+}>;
+
+const noopAgentWebhookOrderResolvers: AgentWebhookOrderResolvers = {
+  resolveOrderRecipient: async () => null,
+  resolveShipmentOrderId: async () => null,
+};
 
 function resolveRegistrationAdmissionConfig(
   config: RegistrationAdmissionHostConfig | undefined,
@@ -123,6 +137,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
+  const agentWebhookOutbox = createPostgresAgentWebhookOutbox({ db });
   const sessions = createSessionRuntime({
     eventStore,
     checkpointStore,
@@ -154,6 +169,8 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
     },
     sessions,
     notificationOutbox,
+    agentWebhookOutbox,
+    agentWebhookOrderResolvers: ports.agentWebhookOrderResolvers ?? noopAgentWebhookOrderResolvers,
     socialLoginProviders: ports.socialLoginProviders ?? [],
     adminGoogleWorkspaceSso: ports.adminGoogleWorkspaceSso ?? null,
     registrationAdmission: resolveRegistrationAdmissionConfig(ports.registrationAdmission),

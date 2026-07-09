@@ -14,6 +14,11 @@ import { authSchemaSql } from "./support/runtime-support/schema";
 import { seedAuthDatabase } from "./support/runtime-support/seed";
 import type { AuthHostPorts, AuthServices } from "./support/runtime-support/services";
 import { createAuthServices } from "./support/runtime-support/services";
+import {
+  AGENT_ORDER_WEBHOOK_PROJECTION,
+  buildAgentOrderWebhookProjectionHandlers,
+  resolveAgentWebhookTargets,
+} from "./support/ucp-support/agent-webhooks";
 
 export const module = defineBoundedContextModule<AuthServices, PgTransactionalPool, AuthHostPorts>({
   manifest: contextManifest,
@@ -26,6 +31,18 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
       contextName: "auth",
       manifest: contextManifest,
       handlers: {
+        [`ordering.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: {
+          filterToEventTypes: true,
+          buildHandlers: () => buildAgentWebhookHandlers(services),
+        },
+        [`fulfillment.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: {
+          filterToEventTypes: true,
+          buildHandlers: () => buildAgentWebhookHandlers(services),
+        },
+        [`payments.${AGENT_ORDER_WEBHOOK_PROJECTION}`]: {
+          filterToEventTypes: true,
+          buildHandlers: () => buildAgentWebhookHandlers(services),
+        },
         "identity.auth-identity-account-projection": () => buildAuthIdentityAccountProjectionHandlers(services.db),
         "identity.auth-identity-user-projection": () => buildAuthIdentityUserProjectionHandlers(services.db),
         "identity.auth-identity-membership-projection": () =>
@@ -36,3 +53,12 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
     }),
   seed: seedAuthDatabase,
 });
+
+function buildAgentWebhookHandlers(services: AuthServices) {
+  return buildAgentOrderWebhookProjectionHandlers({
+    outbox: services.agentWebhookOutbox,
+    resolveWebhookTargets: (accountId) => resolveAgentWebhookTargets(services.db, accountId),
+    resolveOrderRecipient: services.agentWebhookOrderResolvers.resolveOrderRecipient,
+    resolveShipmentOrderId: services.agentWebhookOrderResolvers.resolveShipmentOrderId,
+  });
+}

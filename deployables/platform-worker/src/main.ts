@@ -88,6 +88,7 @@ import {
   type PlatformWorkerCatalogAssetStorageConfig,
   type PlatformWorkerGoogleMerchantConfig,
 } from "./config";
+import { createAgentWebhookDispatchRunners, createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
@@ -223,6 +224,7 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     sourceObservationTelemetry,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+    agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers(pools.ordering),
     draftListingCreator,
   },
 });
@@ -293,6 +295,9 @@ const bulkJobRunners = [
 const notificationDispatchRunners = platformWorkerGroupsEnabled
   ? createNotificationDispatchRunners(runtime, config.workerId, emailNotificationAdapter)
   : [];
+const agentWebhookDispatchRunners = platformWorkerGroupsEnabled
+  ? createAgentWebhookDispatchRunners(runtime, { workerId: config.workerId })
+  : [];
 const scheduledJobRunners = platformWorkerGroupsEnabled
   ? [
       ...createScheduledJobRunners(runtime.services, config, controlPlane),
@@ -352,7 +357,11 @@ const runnerGroups = [
   createRunnerGroup("operations", projectionOperationRunners, config.projectionOperations.runnerCount),
   createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
   createRunnerGroup("inventory-jobs", inventoryImportJobRunners, config.inventoryImportBatchJobMaxConcurrentRunners),
-  createRunnerGroup("dispatch", notificationDispatchRunners, config.dispatchMaxConcurrentRunners),
+  createRunnerGroup(
+    "dispatch",
+    [...notificationDispatchRunners, ...agentWebhookDispatchRunners],
+    config.dispatchMaxConcurrentRunners,
+  ),
   createRunnerGroup("scheduled", scheduledJobRunners, config.scheduledMaxConcurrentRunners),
   createRunnerGroup(
     "wakes",
