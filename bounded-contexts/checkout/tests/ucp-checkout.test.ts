@@ -366,6 +366,7 @@ describe("checkout UCP handlers", () => {
     const spendPolicy = {
       authorize: vi.fn(async () => ({
         allowed: false as const,
+        limitKind: "daily-cap" as const,
         reason: "This agent grant exceeded its platform spend cap.",
         remainingCents: 1_000,
         capCents: 2_000,
@@ -402,12 +403,13 @@ describe("checkout UCP handlers", () => {
     expect(response.ucp.status).toBe("requires_action");
     expect(response.messages).toEqual([
       expect.objectContaining({
-        code: "agent_grant_spend_cap_exceeded",
+        code: "agent_grant_spending_mandate_blocked",
         message: "This agent grant exceeded its platform spend cap.",
       }),
     ]);
     expect(response.guardrail).toEqual({
-      type: "agent_grant_spend_cap",
+      type: "agent_grant_spending_mandate",
+      limit_kind: "daily-cap",
       cap_cents: 2_000,
       remaining_cents: 1_000,
     });

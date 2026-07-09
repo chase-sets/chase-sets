@@ -1,6 +1,10 @@
 import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
-import { agentGrantIdFromActor, type AgentGrantSpendPolicy } from "@chase-sets/platform-runtime/agent-guardrails";
+import {
+  agentGrantIdFromActor,
+  type AgentGrantRail,
+  type AgentGrantSpendPolicy,
+} from "@chase-sets/platform-runtime/agent-guardrails";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   createCheckoutOrdersThroughOrdering,
@@ -108,7 +112,7 @@ export function createCheckoutUcpHandlers(
                 access.context,
               )
             : sourceType === "offer-intent"
-              ? await createOfferIntent(checkout, source, body, access, input, options.agentGrantSpendPolicy)
+              ? await createOfferIntent(checkout, source, body, access)
               : await createBuyNow(checkout, source, body, access);
 
         const session = await checkout.sessions.getSession(result.sessionId, access.actor.accountId);
@@ -229,6 +233,7 @@ export function createCheckoutUcpHandlers(
             operation: "complete_checkout",
             operationId: `complete_checkout:${sessionId}:${readNullableString(body.idempotencyKey) ?? input.request.headers.get("Idempotency-Key") ?? "unknown"}`,
             amountCents: readKnownCheckoutPaymentAmountCents(body, session),
+            ...readCheckoutSpendContext(body, guardedPaymentResponse.agenticPayment),
           });
           if (spendGuard) {
             return spendGuard;
@@ -473,8 +478,6 @@ async function createOfferIntent(
   source: Readonly<Record<string, unknown>>,
   body: CheckoutIntentBody,
   access: CheckoutAccess,
-  input: UcpOperationHandlerInput,
-  spendPolicy: AgentGrantSpendPolicy | undefined,
 ) {
   if (access.actor.roleKey === "guest-buyer") {
     throw new Error("Register or sign in before placing purchase intent.");
@@ -485,15 +488,9 @@ async function createOfferIntent(
     readNullableString(source.offerPriceAmount ?? source.offer_price_amount) ??
     readMoneyMajorUnits(readObject(source.offerPrice ?? source.offer_price)) ??
     "";
-  const spendGuard = await authorizeAgentGrantSpend(spendPolicy, input, {
-    operation: "create_offer_intent",
-    operationId: `create_offer_intent:${access.actor.sessionId}:${readString(item.catalogItemId ?? item.catalog_item_id ?? item.id) ?? "unknown"}:${offerPriceAmount}`,
-    amountCents: moneyToCents(offerPriceAmount),
-  });
-  if (spendGuard) {
-    throw new Error(spendGuard.messages?.[0]?.message ?? "This agent grant exceeded its platform spend cap.");
-  }
 
+  // Purchase-intent offers are non-binding bids that move no money on their own; the spending
+  // mandate is enforced at the payment completion path where a PaymentIntent is created.
   return checkout.sessions.createOfferIntent(
     {
       accountId: access.actor.accountId as AccountId,
@@ -758,10 +755,19 @@ function readMoneyMajorUnits(value: Readonly<Record<string, unknown>> | null) {
 async function authorizeAgentGrantSpend(
   spendPolicy: AgentGrantSpendPolicy | undefined,
   input: UcpOperationHandlerInput,
-  params: Readonly<{ operation: string; operationId: string; amountCents: number }>,
+  params: Readonly<{
+    operation: string;
+    operationId: string;
+    amountCents: number;
+    rail?: AgentGrantRail | null;
+    humanPresent?: boolean;
+    humanNotPresentAuthorized?: boolean;
+  }>,
 ): Promise<UcpEnvelope | null> {
   const grantId = agentGrantIdFromActor(input.actor);
-  if (!spendPolicy || !grantId || params.amountCents <= 0) {
+  // Enforce even when the amount is unknown: the rail and human-presence gates do not depend
+  // on the amount, so an agent cannot bypass the conservative default by omitting the total.
+  if (!spendPolicy || !grantId) {
     return null;
   }
 
@@ -771,11 +777,16 @@ async function authorizeAgentGrantSpend(
     operation: params.operation,
     operationId: params.operationId,
     amountCents: params.amountCents,
+    rail: params.rail,
+    humanPresent: params.humanPresent,
+    humanNotPresentAuthorized: params.humanNotPresentAuthorized,
   });
   if (decision.allowed) {
     return null;
   }
 
+  // Elicitation-style response the agent surfaces to the human: it names the mandate limit
+  // that was hit and hands off to a trusted checkout so a person can approve the purchase.
   return createUcpEnvelope(
     "requires_action",
     {
@@ -784,7 +795,8 @@ async function authorizeAgentGrantSpend(
         reason: decision.reason,
       },
       guardrail: {
-        type: "agent_grant_spend_cap",
+        type: "agent_grant_spending_mandate",
+        limit_kind: decision.limitKind,
         cap_cents: decision.capCents,
         remaining_cents: decision.remainingCents,
       },
@@ -792,11 +804,27 @@ async function authorizeAgentGrantSpend(
     [
       {
         severity: "error",
-        code: "agent_grant_spend_cap_exceeded",
+        code: "agent_grant_spending_mandate_blocked",
         message: decision.reason,
       },
     ],
   );
+}
+
+// Derives the payment-rail and human-presence signals a completion carries so the mandate
+// policy can decide whether an autonomous, human-not-present purchase is permitted.
+function readCheckoutSpendContext(
+  body: Readonly<Record<string, unknown>>,
+  agenticPayment: unknown,
+): Readonly<{ rail: AgentGrantRail; humanPresent: boolean; humanNotPresentAuthorized: boolean }> {
+  const ap2 = readObject(body.ap2);
+  const payment = readObject(agenticPayment);
+  const kind = readString(payment?.kind);
+  const rail: AgentGrantRail = kind === "stored-payment-method" ? "stored-pm" : "ap2";
+  const humanPresent = ap2?.human_present === true || body.human_present === true;
+  const humanNotPresentAuthorized =
+    readString(payment?.ap2PaymentMandateId) !== undefined || ap2?.human_not_present === true;
+  return { rail, humanPresent, humanNotPresentAuthorized };
 }
 
 function readKnownCheckoutPaymentAmountCents(body: Readonly<Record<string, unknown>>, session: CheckoutSessionRow) {

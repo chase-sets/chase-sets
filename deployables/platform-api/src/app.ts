@@ -53,7 +53,7 @@ import {
   addUcpAp2MerchantAuthorization,
   type CreateUcpRoutesOptions,
 } from "@chase-sets/platform-runtime/ucp";
-import type { AgentGrantSpendPolicy } from "@chase-sets/platform-runtime/agent-guardrails";
+import type { AgentGrantConsentDirectory, AgentGrantSpendPolicy } from "@chase-sets/platform-runtime/agent-guardrails";
 import {
   createRealtimeStatusSnapshot,
   createRealtimeRoutes,
@@ -97,6 +97,7 @@ export type BuildPlatformApiOptions = Readonly<{
   mcp?: CreateMcpRoutesOptions;
   ucp?: CreateUcpRoutesOptions;
   agentGrantSpendPolicy?: AgentGrantSpendPolicy;
+  agentGrantConsent?: AgentGrantConsentDirectory;
   ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
@@ -329,6 +330,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
         auth: identityServices.auth,
         linkedPlatformAuthorizations: identityServices.identity.linkedPlatformAuthorizations,
         resolveActor,
+        agentGrantConsent: options.agentGrantConsent,
       }),
     );
     app.use("/ucp/v1/*", platformActorMiddleware);

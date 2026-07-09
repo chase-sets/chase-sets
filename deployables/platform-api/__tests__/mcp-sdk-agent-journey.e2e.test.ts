@@ -458,6 +458,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         agentGrantSpendPolicy: {
           authorize: vi.fn(async () => ({
             allowed: false,
+            limitKind: "daily-cap" as const,
             reason: "This agent grant exceeded its platform spend cap.",
             remainingCents: 0,
             capCents: 100,
@@ -565,7 +566,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       },
       messages: [
         {
-          code: "agent_grant_spend_cap_exceeded",
+          code: "agent_grant_spending_mandate_blocked",
           message: "This agent grant exceeded its platform spend cap.",
         },
       ],

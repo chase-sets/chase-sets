@@ -726,16 +726,17 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /authorizations/:id/revoke",
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:PUT /authorizations/:id/mandate",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /introspect",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /register",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /revoke",
         "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /token"
       ],
       "visibleDestination": {
-        "description": "UCP OAuth dynamic client registration, token, introspection, and revoke mutations return protocol snapshots from the client registration and authorization/token stores in the request that performs the write, without a user-visible projected read path."
+        "description": "UCP OAuth dynamic client registration, token, introspection, revoke, and spending-mandate mutations return protocol snapshots from the client registration, authorization/token, and agent-grant consent stores in the request that performs the write, without a user-visible projected read path."
       },
       "proof": {
-        "authoritativeResponse": "Dynamic client registration returns the newly persisted client_id and registered metadata, token responses contain the newly issued or refreshed token snapshot, introspection returns the current active/token metadata snapshot, and revoke routes return immediate revocation status from the Auth-owned OAuth service.",
+        "authoritativeResponse": "Dynamic client registration returns the newly persisted client_id and registered metadata, token responses contain the newly issued or refreshed token snapshot, introspection returns the current active/token metadata snapshot, the spending-mandate route returns the just-written mandate re-read from the agent-grant consent directory, and revoke routes return immediate revocation status from the Auth-owned OAuth service.",
         "tests": ["bounded-contexts/auth/support/ucp-support/oauth.test.ts"]
       }
     }
