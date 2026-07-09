@@ -152,6 +152,32 @@ export async function loadSubscriptionApplicationStatuses(
   );
 }
 
+/**
+ * Elapsed time since a subscription application row was first claimed. `started_at`
+ * is written once on the initial claim and preserved across re-claims, so it is a
+ * durable "stuck since" marker for an event that keeps failing. Uses the database
+ * clock to avoid app/DB clock skew. Returns `null` when the row does not exist.
+ */
+export async function loadSubscriptionApplicationAgeMs(
+  db: PgQueryable,
+  projectionKey: string,
+  eventId: string,
+): Promise<number | null> {
+  const result = await db.query<Readonly<{ age_ms: string | number | null }>>(
+    `SELECT EXTRACT(EPOCH FROM (now() - started_at)) * 1000 AS age_ms
+     FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND event_id = $2`,
+    [projectionKey, eventId],
+  );
+  const ageMs = result.rows[0]?.age_ms;
+  if (ageMs === null || ageMs === undefined) {
+    return null;
+  }
+  const parsed = typeof ageMs === "number" ? ageMs : Number(ageMs);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+}
+
 export async function claimSubscriptionApplication(
   db: PgQueryable,
   projectionKey: string,

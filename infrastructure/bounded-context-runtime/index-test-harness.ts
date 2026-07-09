@@ -29,6 +29,9 @@ export const truncatedTablesByPool = new Map<object, string[][]>();
 export const blockedStreamsByPool = new Map<object, Map<string, MockBlockedStream>>();
 export const poisonEventsByPool = new Map<object, Set<string>>();
 export const applicationStatusByPool = new Map<object, Map<string, string>>();
+// Test override for `loadSubscriptionApplicationAgeMs` (ms an application row has
+// been stuck since first claim). Keyed by `${projectionKey}:${eventId}`; unset = 0.
+export const applicationAgeMsByPool = new Map<object, Map<string, number>>();
 export const readAllCallsByPool = new Map<object, Record<string, unknown>[]>();
 export const sourceHeadByPool = new Map<object, string>();
 export const generationRetentionByPool = new Map<object, Set<string>>();
@@ -108,6 +111,16 @@ export function getApplicationStatusStore(pool: object) {
   if (!store) {
     store = new Map();
     applicationStatusByPool.set(pool, store);
+  }
+
+  return store;
+}
+
+export function getApplicationAgeStore(pool: object) {
+  let store = applicationAgeMsByPool.get(pool);
+  if (!store) {
+    store = new Map();
+    applicationAgeMsByPool.set(pool, store);
   }
 
   return store;
@@ -280,6 +293,14 @@ export function createMockPool(): MockPool {
             return status ? [{ event_id: eventId, status }] : [];
           }),
         };
+      }
+
+      if (sql.includes("age_ms") && sql.includes("FROM event_subscription_applications")) {
+        const key = `${String(params[0])}:${String(params[1])}`;
+        if (!getApplicationStatusStore(pool).has(key)) {
+          return { rows: [] };
+        }
+        return { rows: [{ age_ms: getApplicationAgeStore(pool).get(key) ?? 0 }] };
       }
 
       if (sql.includes("SELECT") && sql.includes("FROM event_subscription_applications")) {
@@ -475,6 +496,21 @@ export function createEventCoreMock() {
         typeof error === "object" &&
         (error as { projectionFailureKind?: unknown }).projectionFailureKind === "transient",
       ),
+    createProjectionTransactionBudgetExceededError: (message: string, options?: ErrorOptions) => {
+      const error = new Error(message, options) as Error & {
+        projectionFailureKind: string;
+        projectionTransactionBudgetExceeded: boolean;
+      };
+      error.projectionFailureKind = "transient";
+      error.projectionTransactionBudgetExceeded = true;
+      return error;
+    },
+    isProjectionTransactionBudgetExceededError: (error: unknown) =>
+      Boolean(
+        error &&
+        typeof error === "object" &&
+        (error as { projectionTransactionBudgetExceeded?: unknown }).projectionTransactionBudgetExceeded === true,
+      ),
     toTransportEvent: (storedEvent: MockStoredEvent) => ({
       id: storedEvent.eventId,
       type: storedEvent.eventType,
@@ -579,6 +615,7 @@ export function resetMockPoolState() {
   blockedStreamsByPool.clear();
   poisonEventsByPool.clear();
   applicationStatusByPool.clear();
+  applicationAgeMsByPool.clear();
   readAllCallsByPool.clear();
   sourceHeadByPool.clear();
   generationRetentionByPool.clear();

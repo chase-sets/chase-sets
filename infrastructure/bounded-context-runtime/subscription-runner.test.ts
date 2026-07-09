@@ -5,6 +5,7 @@ import {
   createEventCorePostgresMock,
   createMockPool,
   createStoredEvent,
+  getApplicationAgeStore,
   getApplicationStatusStore,
   getBlockedStreamStore,
   getCheckpointStore,
@@ -686,6 +687,90 @@ describe("bounded context subscription runner", () => {
     expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("poison");
     expect(getBlockedStreamStore(targetPool).get(`${projectionKey}:catalog.item-cat_bad`)).toBeDefined();
     expect(getPoisonEventStore(targetPool).has(`${projectionKey}:evt_1`)).toBe(true);
+  });
+
+  it("quarantines a single event that can never fit its transaction budget so the checkpoint advances", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_heavy" }, "catalog.item-cat_heavy"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_heavy" }, "catalog.item-cat_heavy"),
+    ]);
+
+    let attempts = 0;
+    const runner = createSubscriptionRunner("discovery", targetPool as never, sourcePool as never, {
+      subscriptionName: "discovery.catalog-detail-projection",
+      sourceContextName: "catalog",
+      projectionName: "discovery-item-detail-projection",
+      subscriptionVersion: 1,
+      // One-event transaction chunks (the discovery cascade projections) route
+      // through the individual-apply path where the watchdog lives.
+      checkpointBatchSize: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          attempts += 1;
+          throw Object.assign(new Error("Projection transaction exceeded 120000ms."), {
+            projectionFailureKind: "transient",
+            projectionTransactionBudgetExceeded: true,
+          });
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const projectionKey = "discovery-item-detail-projection:catalog:v1";
+    // The event has been stuck (first-claimed) well beyond the escalation budget.
+    getApplicationAgeStore(targetPool).set(`${projectionKey}:evt_1`, 600_000);
+
+    await expect(runner.runOnce()).resolves.toMatchObject({
+      processed: 2,
+      lastGlobalPosition: "2",
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+    // The stuck event is quarantined and its stream blocked; the second event on
+    // that stream is deferred. Only the first event ran a handler attempt.
+    expect(attempts).toBe(1);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("poison");
+    expect(getBlockedStreamStore(targetPool).get(`${projectionKey}:catalog.item-cat_heavy`)).toBeDefined();
+    expect(getPoisonEventStore(targetPool).has(`${projectionKey}:evt_1`)).toBe(true);
+    // Forward progress: the checkpoint advanced past the whole batch.
+    expect(getCheckpointStore(targetPool).get(projectionKey)).toBe("2");
+  });
+
+  it("does not quarantine a budget overrun that has not been stuck beyond the escalation budget", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_slow" }, "catalog.item-cat_slow"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_other" }, "catalog.item-cat_other"),
+    ]);
+
+    const runner = createSubscriptionRunner("discovery", targetPool as never, sourcePool as never, {
+      subscriptionName: "discovery.catalog-detail-projection",
+      sourceContextName: "catalog",
+      projectionName: "discovery-item-detail-projection",
+      subscriptionVersion: 1,
+      checkpointBatchSize: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw Object.assign(new Error("Projection transaction exceeded 120000ms."), {
+            projectionFailureKind: "transient",
+            projectionTransactionBudgetExceeded: true,
+          });
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+    const projectionKey = "discovery-item-detail-projection:catalog:v1";
+    // Fresh event (age 0, default) — a one-off overrun must retry, not be parked.
+
+    await expect(runner.runOnce()).rejects.toThrow(/Projection transaction exceeded/);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("transient");
+    expect(getBlockedStreamStore(targetPool).size).toBe(0);
+    expect(getPoisonEventStore(targetPool).size).toBe(0);
   });
 
   it("blocks only the poisoned stream while continuing unrelated subscription streams", async () => {

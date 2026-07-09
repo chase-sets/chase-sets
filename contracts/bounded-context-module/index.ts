@@ -170,6 +170,13 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly checkpointBatchSize?: number;
   readonly projectionTransactionTimeoutMs?: number;
   readonly projectionStatementTimeoutMs?: number;
+  /**
+   * How long a single event may stay stuck (failing to apply) before the runtime
+   * quarantines it as poison so the checkpoint can advance. Guards against an
+   * event whose projection work can never fit its transaction budget silently
+   * stalling the whole projection forever. `0`/omitted uses the runtime default.
+   */
+  readonly projectionTransactionBudgetEscalationMs?: number;
   readonly order?: number;
 }>;
 
@@ -253,6 +260,7 @@ export type BcEventSubscription = Readonly<{
   readonly checkpointBatchSize?: number;
   readonly projectionTransactionTimeoutMs?: number;
   readonly projectionStatementTimeoutMs?: number;
+  readonly projectionTransactionBudgetEscalationMs?: number;
   readonly order?: number;
 }>;
 
@@ -362,6 +370,7 @@ export function buildEventSubscriptionsFromManifest<TEventPayloads extends Event
       checkpointBatchSize: normalizedDeclaration.checkpointBatchSize,
       projectionTransactionTimeoutMs: normalizedDeclaration.projectionTransactionTimeoutMs,
       projectionStatementTimeoutMs: normalizedDeclaration.projectionStatementTimeoutMs,
+      projectionTransactionBudgetEscalationMs: normalizedDeclaration.projectionTransactionBudgetEscalationMs,
       order: normalizedDeclaration.order,
     };
   });
