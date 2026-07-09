@@ -1050,503 +1050,511 @@ resource "digitalocean_app" "platform" {
       }
     }
 
-    worker {
-      name               = "platform-worker"
-      run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
-      instance_size_slug = local.worker_instance_size_slug
-      instance_count     = local.app_platform_worker_instances
+    # DigitalOcean App Platform clamps a worker instance_count of 0 back to 1
+    # (#4738), so the only way to actually stop the App Platform worker when
+    # DOKS owns the platform runtime is to omit the component entirely. The
+    # for_each list is empty when platform_bootstrap_owner == "doks" and a
+    # single-element list ([local.worker_instances]) otherwise.
+    dynamic "worker" {
+      for_each = local.app_platform_worker_instances
+      content {
+        name               = "platform-worker"
+        run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
+        instance_size_slug = local.worker_instance_size_slug
+        instance_count     = worker.value
 
-      image {
-        registry_type = "DOCR"
-        repository    = var.platform_image_repository
-        tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
-        digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
+        image {
+          registry_type = "DOCR"
+          repository    = var.platform_image_repository
+          tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+          digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
-        deploy_on_push {
-          enabled = false
+          deploy_on_push {
+            enabled = false
+          }
         }
-      }
 
-      env {
-        key   = "NODE_ENV"
-        value = "production"
-        scope = "RUN_AND_BUILD_TIME"
-      }
+        env {
+          key   = "NODE_ENV"
+          value = "production"
+          scope = "RUN_AND_BUILD_TIME"
+        }
 
-      dynamic "env" {
-        for_each = local.observability_runtime_env
-        content {
-          key   = env.key
-          value = env.value.value
-          type  = env.value.secret ? "SECRET" : "GENERAL"
+        dynamic "env" {
+          for_each = local.observability_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
+        }
+
+        env {
+          key   = "CHASE_SETS_RUNTIME_PROFILE"
+          value = local.runtime_profile
           scope = "RUN_TIME"
         }
-      }
 
-      env {
-        key   = "CHASE_SETS_RUNTIME_PROFILE"
-        value = local.runtime_profile
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "CHASE_SETS_MARKETPLACE_INDEXING"
+          value = local.is_production && local.marketplace_public_enabled ? "true" : "false"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "CHASE_SETS_MARKETPLACE_INDEXING"
-        value = local.is_production && local.marketplace_public_enabled ? "true" : "false"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "DATABASE_POOL_MAX"
+          value = local.worker_database_pool_max
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "DATABASE_POOL_MAX"
-        value = local.worker_database_pool_max
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "DATABASE_POOL_IDLE_TIMEOUT_MS"
+          value = local.database_pool_idle_timeout_ms
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "DATABASE_POOL_IDLE_TIMEOUT_MS"
-        value = local.database_pool_idle_timeout_ms
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
+          value = local.database_pool_connection_timeout_ms
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
-        value = local.database_pool_connection_timeout_ms
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "WORKER_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_max_concurrent_runners
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "WORKER_MAX_CONCURRENT_RUNNERS"
-        value = local.worker_max_concurrent_runners
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_projection_concurrency
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"
-        value = local.worker_projection_concurrency
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "WORKER_PROJECTION_OPERATION_RUNNER_COUNT"
+          value = local.worker_operations_concurrency
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "WORKER_PROJECTION_OPERATION_RUNNER_COUNT"
-        value = local.worker_operations_concurrency
-        scope = "RUN_TIME"
-      }
+        # The worker runs an in-process HTTP health server (/health/live +
+        # /health/ready) used by the DOKS liveness/readiness probes so a
+        # boot-crashing worker fails the rollout. App Platform workers ignore the
+        # port; keeping it explicit keeps the Helm health wiring self-describing.
+        env {
+          key   = "PORT"
+          value = "8080"
+          scope = "RUN_TIME"
+        }
 
-      # The worker runs an in-process HTTP health server (/health/live +
-      # /health/ready) used by the DOKS liveness/readiness probes so a
-      # boot-crashing worker fails the rollout. App Platform workers ignore the
-      # port; keeping it explicit keeps the Helm health wiring self-describing.
-      env {
-        key   = "PORT"
-        value = "8080"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "WORKER_JOB_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_job_concurrency
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "WORKER_JOB_MAX_CONCURRENT_RUNNERS"
-        value = local.worker_job_concurrency
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_wake_concurrency
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_WAKE_HOT_LANE_RUNNER_COUNT"
+          value = local.worker_wake_hot_lane_runners
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT"
+          value = local.worker_wake_standard_lane_runners
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_WAKE_BULK_LANE_RUNNER_COUNT"
+          value = local.worker_wake_bulk_lane_runners
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_WAKE_STATEMENT_TIMEOUT_MS"
+          value = local.worker_wake_statement_timeout_ms
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"
+          value = local.worker_projection_wake_relay_enabled
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"
-        value = local.worker_wake_concurrency
-        scope = "RUN_TIME"
-      }
-      env {
-        key   = "WORKER_WAKE_HOT_LANE_RUNNER_COUNT"
-        value = local.worker_wake_hot_lane_runners
-        scope = "RUN_TIME"
-      }
-      env {
-        key   = "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT"
-        value = local.worker_wake_standard_lane_runners
-        scope = "RUN_TIME"
-      }
-      env {
-        key   = "WORKER_WAKE_BULK_LANE_RUNNER_COUNT"
-        value = local.worker_wake_bulk_lane_runners
-        scope = "RUN_TIME"
-      }
-      env {
-        key   = "WORKER_WAKE_STATEMENT_TIMEOUT_MS"
-        value = local.worker_wake_statement_timeout_ms
-        scope = "RUN_TIME"
-      }
-      env {
-        key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"
-        value = local.worker_projection_wake_relay_enabled
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"
+          value = local.projection_wake_source_contexts
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
-        value = local.event_store_wake_notifications_enabled
-        scope = "RUN_TIME"
-      }
-      env {
-        key   = "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"
-        value = local.projection_wake_source_contexts
-        scope = "RUN_TIME"
-      }
+        dynamic "env" {
+          for_each = local.worker_listener_database_urls
+          content {
+            key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"
+            value = env.value
+            type  = "SECRET"
+            scope = "RUN_TIME"
+          }
+        }
 
-      dynamic "env" {
-        for_each = local.worker_listener_database_urls
-        content {
-          key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"
-          value = env.value
+        env {
+          key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"
+          value = local.source_observation_bulk_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.source_observation_bulk_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.source_observation_bulk_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT"
+          value = local.catalog_authoring_bulk_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.catalog_authoring_bulk_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.catalog_authoring_bulk_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT"
+          value = local.source_observation_integration_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.source_observation_integration_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.source_observation_integration_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT"
+          value = local.inventory_import_batch_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_inventory_import_concurrency
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.inventory_import_batch_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.inventory_import_batch_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PRICING_RECOMMENDATION_JOB_LANE_COUNT"
+          value = local.pricing_recommendation_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.pricing_recommendation_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.pricing_recommendation_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT"
+          value = local.settlement_payout_reconciliation_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.settlement_payout_reconciliation_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.settlement_payout_reconciliation_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_dispatch_concurrency
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_scheduled_concurrency
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PLATFORM_CONTROL_DATABASE_URL"
+          value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"
         }
-      }
 
-      env {
-        key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"
-        value = local.source_observation_bulk_job_lanes
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
-        value = local.source_observation_bulk_workflow_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
-        value = local.source_observation_bulk_job_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT"
-        value = local.catalog_authoring_bulk_job_lanes
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
-        value = local.catalog_authoring_bulk_workflow_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
-        value = local.catalog_authoring_bulk_job_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT"
-        value = local.source_observation_integration_job_lanes
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
-        value = local.source_observation_integration_workflow_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
-        value = local.source_observation_integration_job_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT"
-        value = local.inventory_import_batch_job_lanes
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS"
-        value = local.worker_inventory_import_concurrency
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
-        value = local.inventory_import_batch_workflow_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
-        value = local.inventory_import_batch_job_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "PRICING_RECOMMENDATION_JOB_LANE_COUNT"
-        value = local.pricing_recommendation_job_lanes
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
-        value = local.pricing_recommendation_workflow_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
-        value = local.pricing_recommendation_job_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT"
-        value = local.settlement_payout_reconciliation_job_lanes
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
-        value = local.settlement_payout_reconciliation_workflow_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
-        value = local.settlement_payout_reconciliation_job_cap
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS"
-        value = local.worker_dispatch_concurrency
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS"
-        value = local.worker_scheduled_concurrency
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "PLATFORM_CONTROL_DATABASE_URL"
-        value = local.context_database_urls["control"]
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"
-        value = local.context_database_urls["control"]
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
-
-      dynamic "env" {
-        for_each = local.context_database_env
-        content {
-          key   = env.value
-          value = local.context_database_urls[env.key]
+        env {
+          key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"
+          value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"
         }
-      }
 
-      env {
-        key   = "CATALOG_ASSET_STORAGE_KIND"
-        value = "s3"
-        scope = "RUN_TIME"
-      }
+        dynamic "env" {
+          for_each = local.context_database_env
+          content {
+            key   = env.value
+            value = local.context_database_urls[env.key]
+            type  = "SECRET"
+            scope = "RUN_TIME"
+          }
+        }
 
-      env {
-        key   = "CATALOG_ASSET_S3_BUCKET"
-        value = local.catalog_asset_s3_bucket
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "CATALOG_ASSET_S3_REGION"
-        value = var.data_region
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "CATALOG_ASSET_S3_ENDPOINT"
-        value = local.catalog_asset_s3_endpoint
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "CATALOG_ASSET_PUBLIC_BASE_URL"
-        value = local.catalog_asset_public_base_url
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "CATALOG_ASSET_S3_ACCESS_KEY_ID"
-        value = var.spaces_access_id
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
-
-      env {
-        key   = "CATALOG_ASSET_S3_SECRET_ACCESS_KEY"
-        value = var.spaces_secret_key
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
-
-      dynamic "env" {
-        for_each = local.catalog_provider_runtime_env
-        content {
-          key   = env.key
-          value = env.value.value
-          type  = env.value.secret ? "SECRET" : "GENERAL"
+        env {
+          key   = "CATALOG_ASSET_STORAGE_KIND"
+          value = "s3"
           scope = "RUN_TIME"
         }
-      }
 
-      env {
-        key   = "STRIPE_SECRET_KEY"
-        value = var.stripe_secret_key
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "CATALOG_ASSET_S3_BUCKET"
+          value = local.catalog_asset_s3_bucket
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "STRIPE_PUBLISHABLE_KEY"
-        value = var.stripe_publishable_key
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "CATALOG_ASSET_S3_REGION"
+          value = var.data_region
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "STRIPE_WEBHOOK_SECRET"
-        value = var.stripe_webhook_secret
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "CATALOG_ASSET_S3_ENDPOINT"
+          value = local.catalog_asset_s3_endpoint
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "STRIPE_CONNECT_WEBHOOK_SECRET"
-        value = var.stripe_connect_webhook_secret
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "CATALOG_ASSET_PUBLIC_BASE_URL"
+          value = local.catalog_asset_public_base_url
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "STRIPE_CONNECT_ACCOUNTS_API"
-        value = var.stripe_connect_accounts_api
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "CATALOG_ASSET_S3_ACCESS_KEY_ID"
+          value = var.spaces_access_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "STRIPE_API_BASE_URL"
-        value = var.stripe_api_base_url
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "CATALOG_ASSET_S3_SECRET_ACCESS_KEY"
+          value = var.spaces_secret_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "EASYPOST_API_KEY"
-        value = var.easypost_api_key
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        dynamic "env" {
+          for_each = local.catalog_provider_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
+        }
 
-      env {
-        key   = "EASYPOST_API_BASE_URL"
-        value = var.easypost_api_base_url
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "STRIPE_SECRET_KEY"
+          value = var.stripe_secret_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "EASYPOST_MODE"
-        value = var.easypost_mode
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "STRIPE_PUBLISHABLE_KEY"
+          value = var.stripe_publishable_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
-        value = var.google_social_login_client_id
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "STRIPE_WEBHOOK_SECRET"
+          value = var.stripe_webhook_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
-        value = var.google_social_login_client_secret
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "STRIPE_CONNECT_WEBHOOK_SECRET"
+          value = var.stripe_connect_webhook_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
-        value = var.admin_google_workspace_hosted_domains
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "STRIPE_CONNECT_ACCOUNTS_API"
+          value = var.stripe_connect_accounts_api
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
-        value = var.facebook_social_login_client_id
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "STRIPE_API_BASE_URL"
+          value = var.stripe_api_base_url
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET"
-        value = var.facebook_social_login_client_secret
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "EASYPOST_API_KEY"
+          value = var.easypost_api_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "NOTIFICATION_EMAIL_PROVIDER"
-        value = var.notification_email_provider
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "EASYPOST_API_BASE_URL"
+          value = var.easypost_api_base_url
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "SES_AWS_REGION"
-        value = var.ses_aws_region
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "EASYPOST_MODE"
+          value = var.easypost_mode
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "SES_AWS_ACCESS_KEY_ID"
-        value = var.ses_aws_access_key_id
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.google_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "SES_AWS_SECRET_ACCESS_KEY"
-        value = var.ses_aws_secret_access_key
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.google_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "SES_FROM_EMAIL"
-        value = var.ses_from_email
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
+          value = var.admin_google_workspace_hosted_domains
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "SES_CONFIGURATION_SET_NAME"
-        value = var.ses_configuration_set_name
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.facebook_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "SES_SOURCE_ARN"
-        value = var.ses_source_arn
-        type  = "SECRET"
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.facebook_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
 
-      env {
-        key   = "DEPLOYMENT_ENVIRONMENT"
-        value = var.environment
-        scope = "RUN_TIME"
-      }
+        env {
+          key   = "NOTIFICATION_EMAIL_PROVIDER"
+          value = var.notification_email_provider
+          scope = "RUN_TIME"
+        }
 
+        env {
+          key   = "SES_AWS_REGION"
+          value = var.ses_aws_region
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_AWS_ACCESS_KEY_ID"
+          value = var.ses_aws_access_key_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_AWS_SECRET_ACCESS_KEY"
+          value = var.ses_aws_secret_access_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_FROM_EMAIL"
+          value = var.ses_from_email
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_CONFIGURATION_SET_NAME"
+          value = var.ses_configuration_set_name
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_SOURCE_ARN"
+          value = var.ses_source_arn
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DEPLOYMENT_ENVIRONMENT"
+          value = var.environment
+          scope = "RUN_TIME"
+        }
+
+      }
     }
 
     job {

@@ -706,7 +706,10 @@ function collectTopLevelComponents(spec) {
   let index = 0;
 
   while (index < spec.length) {
-    const match = /(dynamic\s+"service"\s*\{|service\s*\{|worker\s*\{|job\s*\{|ingress\s*\{)/g.exec(spec.slice(index));
+    const match =
+      /(dynamic\s+"service"\s*\{|dynamic\s+"worker"\s*\{|service\s*\{|worker\s*\{|job\s*\{|ingress\s*\{)/g.exec(
+        spec.slice(index),
+      );
     if (!match) {
       break;
     }
@@ -721,7 +724,11 @@ function collectTopLevelComponents(spec) {
       break;
     }
 
-    const kind = match[0].startsWith("worker") ? "worker" : match[0].startsWith("job") ? "job" : "service";
+    // #4738: the platform-worker is rendered through a conditional
+    // dynamic "worker" block (absent when DOKS owns the runtime), so the DOKS
+    // helm renderer must resolve it the same as a static worker block.
+    const isWorker = match[0].startsWith("worker") || /dynamic\s+"worker"/.test(match[0]);
+    const kind = isWorker ? "worker" : match[0].startsWith("job") ? "job" : "service";
     const block = extractBlockAt(spec, absoluteIndex + match[0].lastIndexOf("{"));
     const componentBlock = match[0].startsWith("dynamic") ? extractNamedBlock(block.content, "content") : block.content;
     const name = requiredStringAttribute(componentBlock, "name", kind);
