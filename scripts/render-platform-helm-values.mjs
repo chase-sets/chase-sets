@@ -177,6 +177,18 @@ export const doksStagingWorkerEnvOverrides = {
   DATABASE_POOL_MAX: "9",
   WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3",
   WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2",
+  // The staging DOKS worker owns the projection wake relay (issue #4743).
+  // #4739 omits the App Platform worker component entirely when DOKS owns the
+  // estate, and that worker was the only relay-enabled process: after its
+  // removal the `projection-wake-relay:active` lease sat expired under the
+  // dead owner and relay fan-out ceased fleet-wide (empty wake ledger;
+  // authenticated login/session read-after-write timed out while guest flows
+  // passed). The Helm base keeps the relay off for previews (no listener URLs
+  // there by design), but the estate's ONLY worker must run the relay. The
+  // seven direct LISTEN connections simply transfer from the removed App
+  // Platform worker, so the cluster connection budget is unchanged, and the
+  // relay lease stays single-flight if estates ever coexist again.
+  WORKER_PROJECTION_WAKE_RELAY_ENABLED: "true",
 };
 
 const rolloutEligibleComponents = new Set(["public-web", "marketplace"]);
