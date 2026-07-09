@@ -11,6 +11,7 @@ import {
   deployPlatformToKubernetes,
   helmReleaseExists,
   parsePlatformImageRef,
+  parseArgs,
   platformValuesPathForEnvironment,
   platformKubernetesWorkloads,
   rollbackPlatformOnKubernetes,
@@ -168,6 +169,59 @@ describe("platform Kubernetes deployment", () => {
         },
       }),
     ).not.toContain("--values");
+  });
+
+  it("drives the exact workflow staging argv end-to-end and executes helm with the staging overlay", async () => {
+    // End-to-end guard for issue #4743: this is the verbatim argv the
+    // platform-production.yml "Deploy staging Kubernetes release" step passes
+    // to `pnpm run platform:kubernetes-deployment -- deploy` (captured from
+    // the live run log of 29016902701). The full path - CLI parse ->
+    // buildHelmUpgradeArgs -> the spawned helm command - must include the
+    // staging overlay `--values`; superseded or atomically rolled-back
+    // deploys are the only sanctioned reasons the overlay does not reach the
+    // cluster.
+    const workflowArgv = [
+      "--",
+      "deploy",
+      "--image",
+      "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha@sha256:4db059aed0e208b2ab1ebe0e8cbb562070d3962fc21d0f088af85a9942e76d86",
+      "--image-pull-secret",
+      "registry-chase-sets",
+      "--runtime-env",
+      "DEPLOYMENT_ENVIRONMENT=staging",
+      "--runtime-env",
+      "CHASE_SETS_RUNTIME_PROFILE=public",
+      "--runtime-env",
+      "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap",
+      "--runtime-env",
+      "CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.staging.chasesets.com",
+      "--namespace",
+      "chase-sets-platform",
+      "--release",
+      "chase-sets-platform",
+      "--timeout",
+      "15m",
+    ];
+    const parsed = parseArgs(workflowArgv, {});
+    expect(parsed.command).toBe("deploy");
+    expect(parsed.envOverrides.DEPLOYMENT_ENVIRONMENT).toBe("staging");
+
+    const calls = [];
+    await deployPlatformToKubernetes({
+      ...parsed,
+      values: sampleValues,
+      spawn: successfulSpawn(calls),
+    });
+
+    const helmCall = calls.find((call) => call.command === "helm");
+    expect(helmCall).toBeDefined();
+    const valuesFlagIndex = helmCall.args.indexOf("--values");
+    expect(valuesFlagIndex).toBeGreaterThan(-1);
+    expect(helmCall.args[valuesFlagIndex + 1]).toBe("infrastructure/helm/platform/values.staging.yaml");
+    // The runtime env rides global.envOverrides set-strings and must never
+    // smuggle a conflicting relay value past the overlay.
+    expect(helmCall.args.filter((arg) => String(arg).includes("WORKER_PROJECTION_WAKE_RELAY_ENABLED"))).toEqual([]);
+    expect(helmCall.args.join(" ")).toContain("global.envOverrides.DEPLOYMENT_ENVIRONMENT=staging");
   });
 
   it("guards the deploy-applied staging artifacts so the DOKS worker relay flag can never render false", () => {
