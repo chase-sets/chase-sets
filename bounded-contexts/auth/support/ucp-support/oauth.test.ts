@@ -88,6 +88,67 @@ describe("UCP OAuth routes", () => {
     expect(untrustedRedirect.status).toBe(400);
   });
 
+  it("registers a webhook callback and returns a signing secret exactly once", async () => {
+    const options = createOAuthOptions();
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const registration = await app.request("/ucp/oauth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: "Agent Platform",
+        client_uri: "https://agent.example/.well-known/ucp",
+        redirect_uris: ["https://agent.example/callback"],
+        scope: "order:read",
+        webhook_callback_url: "https://agent.example/hooks",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(registration.status).toBe(201);
+    const body = (await registration.json()) as {
+      webhook?: { callback_url: string; signing_secret: string; signing_secret_preview: string };
+    };
+    expect(body.webhook?.callback_url).toBe("https://agent.example/hooks");
+    expect(body.webhook?.signing_secret).toMatch(/^whsec_/);
+    expect(body.webhook?.signing_secret_preview).toContain("…");
+    expect(body.webhook?.signing_secret_preview).not.toBe(body.webhook?.signing_secret);
+  });
+
+  it("rejects an untrusted webhook callback URL", async () => {
+    const options = createOAuthOptions();
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const registration = await app.request("/ucp/oauth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        redirect_uris: ["https://agent.example/callback"],
+        client_uri: "https://agent.example/.well-known/ucp",
+        webhook_callback_url: "http://agent.example/hooks",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(registration.status).toBe(400);
+  });
+
+  it("omits the webhook block when no callback is registered", async () => {
+    const options = createOAuthOptions();
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const registration = await app.request("/ucp/oauth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        redirect_uris: ["https://agent.example/callback"],
+        client_uri: "https://agent.example/.well-known/ucp",
+        scope: "order:read",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const body = (await registration.json()) as { webhook?: unknown };
+    expect(body.webhook).toBeUndefined();
+  });
+
   it("registers public OAuth clients without secrets and enforces registered redirect URIs and scopes", async () => {
     const options = createOAuthOptions();
     const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));

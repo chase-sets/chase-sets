@@ -2,6 +2,8 @@ import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
 import { authUcpOAuthSchemaSql } from "../ucp-support/oauth";
+import { agentWebhookOutboxSchemaSql } from "../ucp-support/agent-webhooks/agent-webhook-outbox";
+import { agentWebhookRegistrationSchemaSql } from "../ucp-support/agent-webhooks/agent-webhook-registration";
 
 const authSessionSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_sessions (
@@ -172,6 +174,8 @@ export const authSchemaSql = [
   notificationOutboxSchemaSql,
   authIdentityProjectionSchemaSql,
   authUcpOAuthSchemaSql,
+  agentWebhookRegistrationSchemaSql,
+  agentWebhookOutboxSchemaSql,
   authSessionSchemaSql,
   authCredentialSchemaSql,
 ].join("\n\n");
