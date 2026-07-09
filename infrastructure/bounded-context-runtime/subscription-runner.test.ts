@@ -512,6 +512,53 @@ describe("bounded context subscription runner", () => {
     expect(resumedPositions).toEqual(["2"]);
   });
 
+  it("re-executes a whole batch individually after a transient mid-batch failure instead of replaying the recorded error", async () => {
+    // Regression for issue #4751: a fan-out heavy event tripped the projection
+    // transaction cap mid-batch. The batch fallback replayed the recorded
+    // (transient) error against that event WITHOUT re-executing it, so every
+    // pass ended in a runner failure and the projection never advanced. A
+    // transient batch failure says nothing about the event it tripped on —
+    // the batch's cumulative work blew the budget — so the fallback must
+    // re-run each event in its own fresh transaction.
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.blueprint.published", { blueprintId: "bp_1" }),
+      createStoredEvent("2", "catalog.blueprint.published", { blueprintId: "bp_heavy" }),
+      createStoredEvent("3", "catalog.blueprint.published", { blueprintId: "bp_3" }),
+    ]);
+
+    const invocationsByPosition = new Map<string, number>();
+    const runner = createSubscriptionRunner("discovery", targetPool as never, sourcePool as never, {
+      subscriptionName: "discovery.item-detail-projection",
+      sourceContextName: "catalog",
+      projectionName: "discovery-item-detail-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.blueprint.published": async (event) => {
+          const invocations = (invocationsByPosition.get(event.globalPosition) ?? 0) + 1;
+          invocationsByPosition.set(event.globalPosition, invocations);
+          if (event.globalPosition === "2" && invocations === 1) {
+            // The first (batch) attempt exceeds the projection transaction budget.
+            throw Object.assign(new Error("Projection transaction exceeded 120000ms."), {
+              projectionFailureKind: "transient",
+            });
+          }
+        },
+      },
+      eventTypes: ["catalog.blueprint.published"],
+    });
+    const projectionKey = "discovery-item-detail-projection:catalog:v1";
+
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 3, lastGlobalPosition: "3" });
+    // The tripping event was re-executed with a fresh budget, not error-replayed.
+    expect(invocationsByPosition.get("2")).toBe(2);
+    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_2`)).toBe("applied");
+    expect(getCheckpointStore(targetPool).get(projectionKey)).toBe("3");
+    expect(getBlockedStreamStore(targetPool).size).toBe(0);
+    expect(getPoisonEventStore(targetPool).size).toBe(0);
+  });
+
   it("treats retryable Postgres handler failures as transient without blocking the stream", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
@@ -540,11 +587,9 @@ describe("bounded context subscription runner", () => {
     });
     const projectionKey = "inventory-catalog-item-projection:catalog:v1";
 
-    await expect(runner.runOnce()).rejects.toThrow("deadlock detected");
-    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("transient");
-    expect(getBlockedStreamStore(targetPool).size).toBe(0);
-    expect(getPoisonEventStore(targetPool).size).toBe(0);
-
+    // A retryable failure during the batch attempt re-executes the event
+    // individually in the same pass with a fresh transaction (issue #4751), so
+    // one transient hiccup no longer costs a runner failure plus backoff.
     await expect(runner.runOnce()).resolves.toMatchObject({
       processed: 1,
       lastGlobalPosition: "1",
@@ -552,6 +597,9 @@ describe("bounded context subscription runner", () => {
       blockedStreams: 0,
       poisonEvents: 0,
     });
+    expect(attempts).toBe(2);
+    expect(getBlockedStreamStore(targetPool).size).toBe(0);
+    expect(getPoisonEventStore(targetPool).size).toBe(0);
     expect(appliedPositions).toEqual(["1"]);
     expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("applied");
     expect(getCheckpointStore(targetPool).get(projectionKey)).toBe("1");
@@ -587,11 +635,10 @@ describe("bounded context subscription runner", () => {
     });
     const projectionKey = "inventory-catalog-item-projection:catalog:v1";
 
-    await expect(runner.runOnce()).rejects.toThrow("Projection transaction exceeded 50ms.");
-    expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("transient");
-    expect(getBlockedStreamStore(targetPool).size).toBe(0);
-    expect(getPoisonEventStore(targetPool).size).toBe(0);
-
+    // A transient projection failure (e.g. the transaction budget guard) in
+    // the batch attempt re-executes the event individually with a fresh
+    // budget in the same pass (issue #4751) instead of replaying the recorded
+    // error and failing the runner.
     await expect(runner.runOnce()).resolves.toMatchObject({
       processed: 1,
       lastGlobalPosition: "1",
@@ -599,6 +646,9 @@ describe("bounded context subscription runner", () => {
       blockedStreams: 0,
       poisonEvents: 0,
     });
+    expect(attempts).toBe(2);
+    expect(getBlockedStreamStore(targetPool).size).toBe(0);
+    expect(getPoisonEventStore(targetPool).size).toBe(0);
     expect(appliedPositions).toEqual(["1"]);
     expect(getApplicationStatusStore(targetPool).get(`${projectionKey}:evt_1`)).toBe("applied");
     expect(getCheckpointStore(targetPool).get(projectionKey)).toBe("1");
