@@ -387,6 +387,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     runners: group.runners,
     maxConcurrentRunners: group.maxConcurrentRunners,
     reservedRunnerSlots: group.reservedRunnerSlots,
+    priorityRefreshIntervalMs: config.projectionPriorityRefreshIntervalMs,
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
