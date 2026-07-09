@@ -223,6 +223,60 @@ describe("projection operations routes", () => {
     expect((await operatorApp.request("/operations/op_1/cancel", { method: "POST" })).status).toBe(200);
   });
 
+  it("coalesces concurrent projection status refreshes and briefly reuses the successful result", async () => {
+    const status = {
+      targetContextName: "auth",
+      projectionName: "auth-identity-invitation-projection",
+      projectionRevision: 1,
+      storedProjectionRevision: 1,
+      revisionStale: false,
+      sourceContextNames: ["identity"],
+      ownedTables: ["auth_identity_invitations"],
+      requiredDuringBootstrap: true,
+      initialized: true,
+      caughtUp: true,
+      state: "caught-up",
+      lastError: null,
+      outstandingEventCount: "0",
+      blockedStreamCount: 0,
+      poisonEventCount: 0,
+      updatedAt: "2026-07-09T00:00:00.000Z",
+      subscriptions: [],
+    } as const;
+    const refreshStatus = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return status;
+    });
+    const runtime = createRuntime([
+      {
+        targetContextName: status.targetContextName,
+        projectionName: status.projectionName,
+        requiredDuringBootstrap: true,
+        subscriptionRunners: [],
+        refreshStatus,
+        getStatus: () => status,
+      },
+    ] as unknown as ApiHostRuntime["projectionGroups"]);
+    const app = createRouteApp(platformActor, runtime);
+
+    const responses = await Promise.all(Array.from({ length: 12 }, () => app.request("/refresh", { method: "POST" })));
+    const cachedResponse = await app.request("/refresh", { method: "POST" });
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(cachedResponse.status).toBe(200);
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+    await expect(cachedResponse.json()).resolves.toMatchObject({
+      summary: { totalGroups: 1 },
+      projectionGroups: [
+        {
+          targetContextName: "auth",
+          projectionName: "auth-identity-invitation-projection",
+        },
+      ],
+      projectionStatusSource: "live-refresh",
+    });
+  });
+
   it("preserves dotted projection names when enqueueing blocked-stream retries", async () => {
     const enqueueProjectionOperation = vi.fn(async () => projectionOperation("op_retry"));
     const app = createRouteApp(platformActor, createRuntime(), {

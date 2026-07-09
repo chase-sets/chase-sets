@@ -404,6 +404,12 @@ components:
       type: "ClusterIP"
       port: 8080
     healthPath: "/health/ready"
+    startupPath: "/health/live"
+    livenessPath: "/health/live"
+    livenessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
   platform-worker:
     enabled: true
     kind: "worker"
@@ -686,6 +692,11 @@ components:
     port: 8080
     healthPath: "/health/ready"
     startupPath: "/health/live"
+    livenessPath: "/health/live"
+    livenessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
   platform-bootstrap:
     enabled: true
     kind: "job"

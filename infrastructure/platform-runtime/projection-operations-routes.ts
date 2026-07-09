@@ -27,6 +27,9 @@ const PROJECTION_OPERATIONS_REBUILD_PERMISSION = "projection-operations.rebuild"
 const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
 const EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS = 10 * 60_000;
 const PROJECTION_STATUS_SNAPSHOT_FRESH_MAX_AGE_MS = 2 * 60_000;
+// Authenticated setup polls once per second. Share the database fan-out within
+// that interval so concurrent callers observe the same live status snapshot.
+const PROJECTION_STATUS_REFRESH_CACHE_TTL_MS = 1_000;
 
 type ProjectionOperationsRouteEnv = {
   Variables: {
@@ -49,6 +52,7 @@ export function createProjectionOperationsRoutes(
   options: ProjectionOperationsRouteOptions = {},
 ) {
   const app = new Hono<ProjectionOperationsRouteEnv>();
+  const refreshProjectionStatuses = createProjectionStatusRefresher(runtime);
 
   app.get("/", async (c) => {
     const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_VIEW_PERMISSION);
@@ -80,7 +84,7 @@ export function createProjectionOperationsRoutes(
       return actorResponse;
     }
 
-    const projectionGroups = await refreshProjectionGroupStatuses(runtime);
+    const projectionGroups = await refreshProjectionStatuses();
 
     return c.json({
       summary: summarizeProjectionReplayStatuses(projectionGroups),
@@ -320,6 +324,42 @@ export function createProjectionOperationsRoutes(
   });
 
   return app;
+}
+
+function createProjectionStatusRefresher(runtime: ApiHostRuntime) {
+  let cached:
+    | Readonly<{
+        projectionGroups: readonly ContextProjectionGroupStatus[];
+        refreshedAtMs: number;
+      }>
+    | undefined;
+  let inFlight: Promise<readonly ContextProjectionGroupStatus[]> | undefined;
+
+  return async (): Promise<readonly ContextProjectionGroupStatus[]> => {
+    if (cached && Date.now() - cached.refreshedAtMs < PROJECTION_STATUS_REFRESH_CACHE_TTL_MS) {
+      return cached.projectionGroups;
+    }
+
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const refresh = refreshProjectionGroupStatuses(runtime)
+      .then((projectionGroups) => {
+        cached = {
+          projectionGroups,
+          refreshedAtMs: Date.now(),
+        };
+        return projectionGroups;
+      })
+      .finally(() => {
+        if (inFlight === refresh) {
+          inFlight = undefined;
+        }
+      });
+    inFlight = refresh;
+    return refresh;
+  };
 }
 
 async function readWakeStoreStatus(workSignalStore: ProjectionWakeStatusWorkSignalStore | undefined) {

@@ -58,19 +58,19 @@ App Platform staging worker `DATABASE_POOL_MAX` is `14` (2 projection + 2 operat
 
 Client-side PgBouncer connections (not cluster backends, listed for completeness): platform-api 6 × 1 component × 1 instance = 6; platform-worker 14 × 1 component × 2 instances = 28.
 
-DOKS staging uses the generated Helm baseline plus `infrastructure/helm/platform/values.staging.yaml`. That overlay keeps operations and job runner counts at the compact DOKS baseline, adds representative wake headroom for the staging drill target, and widens the projection runner group to drain the accumulated backlog (#4762): worker `DATABASE_POOL_MAX` `8→12`, `WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS` `1→4`, `WORKER_WAKE_MAX_CONCURRENT_RUNNERS` `2→3`, and `WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT` `1→2` (`4 projection + 1 operations + 1 job + 1 inventory-import + 1 dispatch + 1 scheduled + 3 wake = 12`). The projection widening (#4762) lets the ~26 small starved projection groups drain alongside the 2 large discovery cascade groups instead of waiting pass-after-pass behind them for the single default slot; the groups are independent (own lease + checkpoint), so concurrent runners are safe by design. Because the current DOKS staging Secret exporter is direct, the standalone DOKS staging release envelope counts those pools against the cluster:
+DOKS staging uses the generated Helm baseline plus `infrastructure/helm/platform/values.staging.yaml`. That overlay runs two explicitly resourced API replicas (#4765), keeps operations and job runner counts at the compact DOKS baseline, adds representative wake headroom for the staging drill target, and widens the projection runner group to drain the accumulated backlog (#4762): worker `DATABASE_POOL_MAX` `8→12`, `WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS` `1→4`, `WORKER_WAKE_MAX_CONCURRENT_RUNNERS` `2→3`, and `WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT` `1→2` (`4 projection + 1 operations + 1 job + 1 inventory-import + 1 dispatch + 1 scheduled + 3 wake = 12`). The projection widening (#4762) lets the ~26 small starved projection groups drain alongside the 2 large discovery cascade groups instead of waiting pass-after-pass behind them for the single default slot; the groups are independent (own lease + checkpoint), so concurrent runners are safe by design. Because the current DOKS staging Secret exporter is direct, the standalone DOKS staging release envelope counts those pools against the cluster:
 
 | Demand | Math | Backends |
 | --- | --- | --- |
-| API pools | 6 pool max × 1 component × 1 replica | 6 |
+| API pools | 6 pool max × 1 component × 2 replicas | 12 |
 | Worker pools | 12 pool max × 1 component × 1 replica | 12 |
 | Relay listeners | 7 direct-listened source contexts × 1 active relay | 7 |
-| API waiter listeners | 4 waiter contexts × 1 API component × 1 replica | 4 |
+| API waiter listeners | 4 waiter contexts × 1 API component × 2 replicas | 8 |
 | Bootstrap (transient hook) | one bootstrap pool | 4 |
-| **Steady-state total** | 6 + 12 + 7 + 4 + 4 | **33 ≤ 94** (headroom 61) |
-| **Deploy overlap** | 2 × (6 + 12) + 2 × 7 + 2 × 4 + 4 | **62 ≤ 94** (headroom 32; below the 75 backend tier-upgrade trigger) |
+| **Steady-state total** | 12 + 12 + 7 + 8 + 4 | **43 ≤ 94** (headroom 51) |
+| **Deploy overlap** | (3 API replicas × 6) + (2 worker replicas × 12) + (2 relays × 7) + (3 API replicas × 4 waiters) + 4 | **72 ≤ 94** (headroom 22; below the 75 backend tier-upgrade trigger) |
 
-The #4762 DOKS staging change is an incremental direct-worker bump of +3 steady-state backends and +6 rolling-overlap backends (each new projection runner holds ~1 connection during its transaction) over the previous pool-9 DOKS worker, added one-for-one to `DATABASE_POOL_MAX`. Do not treat simultaneous App Platform and DOKS rolling deploys as proven by this standalone envelope; if both orchestration lanes are intentionally rolled at once, record a combined migration budget first.
+The #4762 DOKS staging change is an incremental direct-worker bump of +3 steady-state backends and +6 rolling-overlap backends (each new projection runner holds ~1 connection during its transaction) over the previous pool-9 DOKS worker, added one-for-one to `DATABASE_POOL_MAX`. #4765 then scales the DOKS API from one to two replicas without changing its per-replica `DATABASE_POOL_MAX=6`: steady state adds one API pool allowance plus four waiter listeners (`+6 + 4 = +10`, `33→43`). Kubernetes Deployment defaults allow one surge pod at two desired replicas, so the API rolling peak is three replicas, not four; relative to the previous one-replica/two-pod rolling peak that adds another `+6 + 4 = +10` (`62→72`). The 72-backend peak remains 3 below the 75 upgrade trigger and 22 below the 94 tier limit, so reducing the API pool would trade route concurrency away without a budget need. Do not treat simultaneous App Platform and DOKS rolling deploys as proven by this standalone envelope; if both orchestration lanes are intentionally rolled at once, record a combined migration budget first.
 
 ### Production (`database_size` = `db-s-2vcpu-4gb`, budgeted limit 94)
 

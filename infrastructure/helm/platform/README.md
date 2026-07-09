@@ -11,7 +11,7 @@ It mirrors the current DigitalOcean App Platform component topology:
 - `platform-worker`
 - `platform-bootstrap`
 
-`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` is generated alongside it for DOKS staging-only component overrides, including representative platform-worker wake capacity.
+`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` is generated alongside it for DOKS staging-only component overrides, including representative platform-worker wake capacity and the horizontally scaled, explicitly resourced platform API.
 
 ```bash
 node ./scripts/render-platform-helm-values.mjs
@@ -87,6 +87,30 @@ doksIngress:
 ```
 
 When `STAGING_APP_SERVING=app-platform`, hosts are the `doks.<zone>` shadow validation names. When it flips to `doks`, hosts become the live staging apex plus `www`, `marketplace`, and `admin`. The chart renders one `Ingress` and one SAN `Certificate` for the active host set. Provider webhook, MCP, UCP, well-known, and `/api` paths stay routed to `platform-api` before the web catch-all. The matching DNS records live in `infrastructure/digitalocean/environment-dns` and remain disabled until a DOKS load balancer target is known.
+
+## Health Probes
+
+Readiness and liveness are deliberately different checks with a single source of truth each in `templates/_helpers.tpl`:
+
+- **Readiness always probes `healthPath`** (`/health/ready` for `platform-api`, `platform-worker`, `admin-web`, and `marketplace`; `/` for `public-web`), which is DB-aware. This gates traffic and rollout progress and is unchanged by #4765.
+- **Liveness probes `livenessPath` when a component sets one, else falls back to `healthPath`.** `livenessPath` is independent of `startupPath` (which only controls whether a `startupProbe` exists, i.e. a boot-grace window — it no longer implies a liveness path).
+
+`platform-api` and `platform-worker` are the only components verified (by reading their server source — `infrastructure/platform-runtime/health.ts` mounted at `/health` for the API, `deployables/platform-worker/src/main.ts` for the worker) to serve a DB-free `/health/live` endpoint. Both get, **in the base chart** (`values.yaml`, so this applies to every environment — preview, staging, and production):
+
+```yaml
+startupPath: "/health/live"
+livenessPath: "/health/live"
+livenessProbe:
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+```
+
+`admin-web`, `marketplace`, and `public-web` each register only a `health/ready` route today (no `/health/live`), so their liveness intentionally keeps falling back to `healthPath` unchanged.
+
+**Production behavior change (#4765):** before this fix, `platform-api`'s liveness silently defaulted to the DB-aware `/health/ready` check with Kubernetes' default timing (`timeout=1s period=10s failureThreshold=3`) in every environment including production, so a slow database or a briefly-busy event loop could kill a healthy pod (`Exit Code 137`, `kubelet: Container platform-api failed liveness probe`). This was proven live in preview namespace `chase-sets-pr-4766` and broke that PR's own "Stripe money smoke" step with 502/503s. With this change, production pods stop being killed by DB slowness: liveness now probes the DB-free `/health/live` endpoint with a tolerant ~60-second failure window, and only a genuinely hung process (not a slow database) triggers a restart. Traffic gating is unaffected because readiness is untouched.
+
+The staging-only overlay (`values.staging.yaml`, via `doksStagingApiOverrides`) no longer duplicates this — it now only carries `replicas: 2` and the explicit CPU/memory envelope for `platform-api`; the tolerant liveness config is inherited from the base chart through the Helm `-f values.yaml -f values.staging.yaml` merge.
 
 ## Rollouts
 
