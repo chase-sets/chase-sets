@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 import { renderToString } from "react-dom/server";
-import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { DetailPanel, Inset, KeyValueList, MarketplaceDashboardPanel, SpecificationList, Stat } from "../index";
 

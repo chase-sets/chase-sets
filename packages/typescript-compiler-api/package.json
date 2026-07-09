@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.mjs"
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.mjs"
+    }
   },
   "dependencies": {
-    "typescript": "5.9.3"
+    "typescript-api": "npm:@typescript/typescript6@^6.0.0"
   }
 }

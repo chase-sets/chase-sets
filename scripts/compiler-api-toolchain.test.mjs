@@ -26,7 +26,8 @@ describe("compiler API script toolchain", () => {
     );
 
     expect(packageJson.dependencies).toMatchObject({
-      typescript: "5.9.3",
+      "typescript-api": "npm:@typescript/typescript6@^6.0.0",
     });
+    expect(packageJson.dependencies).not.toHaveProperty("typescript");
   });
 });

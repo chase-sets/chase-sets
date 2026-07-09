@@ -15,7 +15,7 @@
     "test:watch": "vitest --config vitest.config.ts"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.0",
     "vitest": "^4.1.4"
   }
 }

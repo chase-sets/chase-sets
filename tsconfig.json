@@ -1,8 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "incremental": true,
-    "tsBuildInfoFile": "./node_modules/.cache/tsconfig.tsbuildinfo"
+    "types": ["node"]
   },
   "include": [
     "bounded-contexts/**/*.ts",
@@ -15,6 +14,7 @@
     "infrastructure/**/*.tsx",
     "packages/**/*.ts",
     "packages/**/*.tsx",
+    "asset-env.d.ts",
     "tailwind.config.ts"
   ],
   "exclude": [
