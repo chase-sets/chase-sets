@@ -8,6 +8,7 @@ import {
   buildPlatformHelmStagingValues,
   buildPreviewDoksIngressValues,
   chartValuesRelativePath,
+  doksStagingApiOverrides,
   doksStagingWorkerEnvOverrides,
   extractDigitalOceanPlatformComponents,
   platformHelmComponentName,
@@ -209,6 +210,34 @@ describe("render platform Helm values", () => {
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(Number(envValue("DATABASE_POOL_MAX")));
   });
 
+  it("scales and resources only the staging DOKS API with tolerant process liveness", () => {
+    const baselineValues = buildPlatformHelmValues({ repoRoot });
+    const stagingValues = buildPlatformHelmStagingValues();
+
+    expect(stagingValues.components["platform-api"]).toEqual(doksStagingApiOverrides);
+    expect(stagingValues.components["platform-api"]).toEqual({
+      replicas: 2,
+      resources: {
+        requests: { cpu: "250m", memory: "512Mi" },
+        limits: { cpu: "1", memory: "1Gi" },
+      },
+      startupPath: "/health/live",
+      livenessProbe: {
+        periodSeconds: 10,
+        timeoutSeconds: 5,
+        failureThreshold: 6,
+      },
+    });
+
+    // Production and previews render the generated base without this overlay.
+    const baselineApi = baselineValues.components["platform-api"];
+    expect(baselineApi.replicas).toBe(1);
+    expect(baselineApi.resources).toEqual({});
+    expect(baselineApi.healthPath).toBe("/health/ready");
+    expect(baselineApi.startupPath).toBeUndefined();
+    expect(baselineApi.livenessProbe).toBeUndefined();
+  });
+
   it("gives the staging DOKS worker relay ownership now that the App Platform worker is omitted", () => {
     // Invariant for issue #4743: #4739 removes the App Platform worker
     // component when DOKS owns the estate, and that worker was the only
@@ -339,6 +368,7 @@ describe("render platform Helm values", () => {
     expect(helperTemplate).toContain("livenessProbe:");
     expect(helperTemplate).toContain("if $component.startupPath");
     expect(helperTemplate).toContain("failureThreshold: 30");
+    expect(helperTemplate).toContain("with $component.livenessProbe");
     expect(helperTemplate).toContain("$componentEnvOverrides");
     expect(helperTemplate).toContain("hasKey $componentEnvOverrides .name");
   });

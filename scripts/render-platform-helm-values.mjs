@@ -209,6 +209,34 @@ export const doksStagingWorkerEnvOverrides = {
   WORKER_PROJECTION_WAKE_RELAY_ENABLED: "true",
 };
 
+export const doksStagingApiOverrides = {
+  // #4765: the cutover-evidence battery fans authenticated setup across many
+  // clients. Keep one API available while another is briefly busy or rolling,
+  // and give the scheduler enough information to avoid memory-pressure churn.
+  // This mirrors the existing 1 vCPU / 1 GiB App Platform API envelope while
+  // reserving a conservative baseline that lets the scheduler place both.
+  replicas: 2,
+  resources: {
+    requests: {
+      cpu: "250m",
+      memory: "512Mi",
+    },
+    limits: {
+      cpu: "1",
+      memory: "1Gi",
+    },
+  },
+  // Readiness remains the strict /health/ready check from values.yaml. Liveness
+  // must test process life instead of database readiness: tolerate a one-minute
+  // busy window, then restart a process whose event loop is genuinely hung.
+  startupPath: "/health/live",
+  livenessProbe: {
+    periodSeconds: 10,
+    timeoutSeconds: 5,
+    failureThreshold: 6,
+  },
+};
+
 const rolloutEligibleComponents = new Set(["public-web", "marketplace"]);
 
 export function platformHelmFullname(options = {}) {
@@ -371,6 +399,7 @@ export function buildPlatformHelmStagingValues(options = {}) {
     generatedBy,
     doksIngress: buildDoksIngressValues({ env: options.env }),
     components: {
+      "platform-api": doksStagingApiOverrides,
       "platform-worker": {
         envOverrides: doksStagingWorkerEnvOverrides,
       },

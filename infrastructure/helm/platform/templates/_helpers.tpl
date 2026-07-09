@@ -184,11 +184,17 @@ containers:
       httpGet:
         path: {{ $component.startupPath | quote }}
         port: http
+      {{- with $component.livenessProbe }}
+{{ toYaml . | nindent 6 }}
+      {{- end }}
     {{- else }}
     livenessProbe:
       httpGet:
         path: {{ $component.healthPath | quote }}
         port: http
+      {{- with $component.livenessProbe }}
+{{ toYaml . | nindent 6 }}
+      {{- end }}
     {{- end }}
     {{- end }}
     {{- with $component.resources }}

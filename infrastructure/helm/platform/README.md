@@ -11,7 +11,7 @@ It mirrors the current DigitalOcean App Platform component topology:
 - `platform-worker`
 - `platform-bootstrap`
 
-`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` is generated alongside it for DOKS staging-only component overrides, including representative platform-worker wake capacity.
+`values.yaml` is generated from the existing App Platform Terraform shape and stays the preview-safe baseline. `values.staging.yaml` is generated alongside it for DOKS staging-only component overrides, including representative platform-worker wake capacity and the horizontally scaled, explicitly resourced platform API.
 
 ```bash
 node ./scripts/render-platform-helm-values.mjs
