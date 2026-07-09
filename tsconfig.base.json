@@ -741,12 +741,10 @@
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"
       ],
-      "@chase-sets/typescript-compiler-api": [
-        "./packages/typescript-compiler-api/index.d.ts"
-      ],
       "@chase-sets/web-notifications": [
         "./infrastructure/web-notifications/index.ts"
       ]
-    }
+    },
+    "baseUrl": "."
   }
 }
