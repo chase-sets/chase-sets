@@ -206,10 +206,29 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       },
     );
 
+    expect(record.result).toBe("warning");
     expect(record.clusters).toEqual([
-      expect.objectContaining({ clusterName: "chase-sets-pr-20-postgres", pullRequestState: "open", leaked: false }),
-      expect.objectContaining({ clusterName: "chase-sets-pr-21-postgres", pullRequestState: "merged", leaked: true }),
-      expect.objectContaining({ clusterName: "preview-pr-22-postgres", pullRequestState: "closed", leaked: true }),
+      expect.objectContaining({
+        clusterName: "chase-sets-pr-20-postgres",
+        pullRequestState: "open",
+        leaked: false,
+        previewManagedClusterViolation: true,
+        conclusion: "preview-managed-cluster-violation",
+      }),
+      expect.objectContaining({
+        clusterName: "chase-sets-pr-21-postgres",
+        pullRequestState: "merged",
+        leaked: true,
+        previewManagedClusterViolation: true,
+        conclusion: "leaked-preview-managed-cluster-violation",
+      }),
+      expect.objectContaining({
+        clusterName: "preview-pr-22-postgres",
+        pullRequestState: "closed",
+        leaked: true,
+        previewManagedClusterViolation: true,
+        conclusion: "leaked-preview-managed-cluster-violation",
+      }),
       expect.objectContaining({ clusterName: "chase-sets-postgres", classification: "production", leaked: false }),
     ]);
   });
@@ -272,7 +291,10 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       },
     );
 
-    expect(record.result).toBe("success");
+    // Any surviving preview managed cluster (here the still-open PR 31) is a
+    // policy violation because previews must use in-cluster Postgres, so the
+    // sweep surfaces a warning even when it successfully deletes the leaked one.
+    expect(record.result).toBe("warning");
     expect(deleted).toEqual(["leaked"]);
     expect(record.deletedClusters).toEqual([expect.objectContaining({ clusterId: "leaked" })]);
   });

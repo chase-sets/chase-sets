@@ -43,6 +43,10 @@ imagePullSecrets:
 {{- printf "%s-%s" (include "chase-sets-platform.fullname" .root) .name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "chase-sets-platform.previewPostgresName" -}}
+{{- printf "%s-preview-postgres" (include "chase-sets-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "chase-sets-platform.canaryServiceName" -}}
 {{- $component := index .root.Values.components .name -}}
 {{- $suffix := default "canary" $component.rollout.canary.canaryServiceSuffix -}}

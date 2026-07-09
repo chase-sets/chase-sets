@@ -2,7 +2,11 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import process from "node:process";
-import { buildDoksIngressValues, buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
+import {
+  buildDoksIngressValues,
+  buildPlatformHelmValues,
+  buildPreviewDoksIngressValues,
+} from "./render-platform-helm-values.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
@@ -47,7 +51,16 @@ export function buildHelmUpgradeArgs(options = {}) {
   const doksIngressSetArgs =
     envOverrides.DEPLOYMENT_ENVIRONMENT === "staging"
       ? buildDoksIngressHelmSetArgs(buildDoksIngressValues({ env: options.env ?? {} }))
-      : [];
+      : envOverrides.DEPLOYMENT_ENVIRONMENT === "preview"
+        ? buildDoksIngressHelmSetArgs(
+            buildPreviewDoksIngressValues({
+              env: options.env ?? {},
+              previewIdentifier: envOverrides.PREVIEW_IDENTIFIER ?? options.env?.PREVIEW_IDENTIFIER,
+            }),
+          )
+        : [];
+  const previewPostgresSetArgs =
+    envOverrides.DEPLOYMENT_ENVIRONMENT === "preview" ? ["--set", "previewPostgres.enabled=true"] : [];
 
   return [
     "upgrade",
@@ -63,6 +76,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     "--atomic",
     ...(environmentValuesPath ? ["--values", environmentValuesPath] : []),
     ...doksIngressSetArgs,
+    ...previewPostgresSetArgs,
     "--set-string",
     `global.image.registry=${image.registry}`,
     "--set-string",

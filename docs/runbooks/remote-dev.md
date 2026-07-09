@@ -2,7 +2,7 @@
 
 Remote dev sessions are disposable DigitalOcean Droplets for branch-level Codex work and real HTTPS preview URLs. They are dev/preview infrastructure only; staging and production deployment are intentionally separate.
 
-GitHub Actions creates App Platform PR preview environments for repository pull requests. Remote dev sessions are an additional branch-level path for human review over HTTPS or remote Codex work when a disposable Droplet is more useful than the automatic PR preview. Keep them bounded with explicit TTLs and cleanup.
+GitHub Actions creates Kubernetes PR preview environments for repository pull requests. Remote dev sessions are an additional branch-level path for human review over HTTPS or remote Codex work when a disposable Droplet is more useful than the automatic PR preview. Keep them bounded with explicit TTLs and cleanup.
 
 ## Prerequisites
 
@@ -88,14 +88,14 @@ pnpm run remote-dev -- prune-expired --force
 
 The session name is generated from branch, short SHA, and a random suffix. Pass `--name <slug>` to choose one.
 
-GitHub Actions creates App Platform PR previews through
+GitHub Actions creates Kubernetes PR previews through
 `.github/workflows/platform-pr.yml` for same-repository deploy-scoped PRs. Add
 the `preview` label to create or refresh one same-repository PR preview for
-non-deploy-scoped review; closing the PR destroys the App Platform preview
+non-deploy-scoped review; closing the PR destroys the preview namespace
 through `.github/workflows/platform-preview-cleanup.yml`.
 Forked PRs do not receive DigitalOcean credentials. Remote dev sessions remain
 manual operator-owned Droplets for branch-level HTTPS review or remote Codex
-work when a disposable VM is more useful than App Platform.
+work when a disposable VM is more useful than the shared preview cluster.
 
 PR previews use Stripe test-mode keys and run the Stripe money smoke with
 synthetic signed webhook probes plus authenticated payout setup checks. They do

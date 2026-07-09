@@ -7,7 +7,7 @@ output "live_url" {
 }
 
 output "postgres_cluster_id" {
-  value = digitalocean_database_cluster.postgres.id
+  value = try(digitalocean_database_cluster.postgres[0].id, null)
 }
 
 output "database_users" {

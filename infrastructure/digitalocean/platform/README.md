@@ -1,12 +1,12 @@
 # DigitalOcean Platform Infrastructure
 
-This Terraform root manages preview, staging, and production platform infrastructure. The operational deployment workflow lives in [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md). [ADR 0018](../../../docs/adr/0018-doks-compute-runtime.md) records the accepted pre-launch decision to move compute/runtime orchestration from App Platform to DOKS after #101 deploy stabilization and #97 beta-clock start.
+This Terraform root manages staging and production platform infrastructure plus legacy preview validation state. Live PR previews deploy to Kubernetes namespaces through the platform Helm chart. The operational deployment workflow lives in [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md). [ADR 0018](../../../docs/adr/0018-doks-compute-runtime.md) records the accepted pre-launch decision to move compute/runtime orchestration from App Platform to DOKS after #101 deploy stabilization and #97 beta-clock start.
 
 This root owns:
 
-- DigitalOcean App Platform composition for landing, admin, and marketplace web surfaces.
-- Preview, staging, and production profiled `platform-api`, private `platform-worker`, and platform bootstrap job.
-- DigitalOcean managed PostgreSQL with per-context databases plus a control database. Preview and staging also create managed PgBouncer transaction pools for those databases so the full-system app can fit on the smallest database tier.
+- DigitalOcean App Platform composition for staging and production landing, admin, and marketplace web surfaces.
+- Staging and production profiled `platform-api`, private `platform-worker`, and platform bootstrap job.
+- DigitalOcean managed PostgreSQL with per-context databases plus a control database for staging and production. PR previews use disposable in-cluster Postgres in their Kubernetes namespace and must not create per-PR DigitalOcean managed database clusters.
 - DigitalOcean App Platform domain attachments for App Platform hosts plus temporary redirects from legacy dash-based staging hosts to their nested replacements. Stable staging mail, delegation, and asset DNS live in the sibling `environment-dns` Terraform root; staging nested alias CNAMEs live here because they depend on the app ingress. App Platform owns the apex A/AAAA records created for its primary domains.
 - App Platform environment wiring for the Catalog asset buckets and CDN domains owned by the sibling `catalog-assets` Terraform root.
 

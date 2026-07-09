@@ -1377,9 +1377,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("local.production_additional_provisioned_context_names");
     // Provisioning locals (name tokens, databases, users) iterate the full
     // provisioned set. #4655 moved context_database_urls to iterate the active
-    // local.context_names (only active contexts get a query pool), so the
-    // provisioned-set iteration count drops from 4 to 3.
-    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(3);
+    // local.context_names (only active contexts get a query pool), and the
+    // per-preview in-cluster Postgres change (#4656) adds one provisioned-set
+    // comprehension for the synthesized preview URLs, so the provisioned-set
+    // iteration count is 4. Production provisioning semantics are unchanged.
+    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(4);
   });
 
   it("keeps production context database names within DigitalOcean limits", () => {
@@ -2281,11 +2283,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewJob).toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
     expect(previewJob).toContain("id: preview_domains");
     expect(previewJob).toContain('echo "landing_domain_ready=${landing_domain_ready}" >> "$GITHUB_OUTPUT"');
-    expect(previewJob).toContain("SMOKE_REQUIRE_LANDING: ${{ steps.preview_domains.outputs.landing_domain_ready");
+    // Landing-only smoke is gated on landing-domain readiness through
+    // SMOKE_REQUIRE_LANDING rather than a shell skip message: the smoke runner
+    // is told not to require landing when its ingress is not yet reachable.
     expect(previewJob).toContain(
-      "Preview landing domain ${landing_domain} is not active yet; landing-only smoke will be skipped.",
+      "SMOKE_REQUIRE_LANDING: ${{ steps.preview_domains.outputs.landing_domain_ready == 'true' && 'true' || 'false' }}",
     );
-    expect(previewJob).toContain('pnpm run smoke:platform -- "https://${landing_domain}"');
+    expect(previewJob).toContain('"https://${{ steps.preview_domains.outputs.landing_domain }}"');
+    expect(previewJob).toContain("pnpm run smoke:platform --");
 
     expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(requiredJob).toContain("needs['change-scope'].outputs.deploy == 'true'");
@@ -2840,7 +2845,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPreviewCleanupWorkflow).not.toContain("Wait for active App Platform deployment");
     expect(platformPreviewCleanupWorkflow).not.toContain("digitalocean-app-deployment.mjs");
     expect(digitaloceanPlatformRunbook).toContain(
-      "Terraform destroy should converge the remaining state; inspect the uploaded cleanup logs before removing the state key by hand.",
+      "Inspect the uploaded cleanup logs before removing a legacy state key by hand.",
     );
     expect(digitaloceanPlatformRunbook).not.toContain("waits for any active App Platform deployment to finish");
     expect(digitaloceanPlatformRunbook).not.toContain(
@@ -2997,7 +3002,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("read_traffic_to_standbys = false");
     expect(platformMain).toContain('check "production_database_standby_approval"');
     expect(platformMain).toContain('resource "digitalocean_monitor_alert" "managed_postgres"');
-    expect(platformMain).toContain("entities    = [digitalocean_database_cluster.postgres.id]");
+    expect(platformMain).toContain("entities    = [digitalocean_database_cluster.postgres[0].id]");
     expect(platformLocals).toContain('"v1/dbaas/alerts/disk_utilization_alerts"');
     expect(platformLocals).toContain('"v1/dbaas/alerts/memory_utilization_alerts"');
     expect(platformLocals).toContain('"v1/dbaas/alerts/cpu_alerts"');
@@ -3347,12 +3352,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID");
     expect(platformPrWorkflow).toContain("Preview deployments require Stripe test-mode keys.");
     expect(previewMoneySmokeStep).toContain("SMOKE_REGISTER_SELLER");
-    expect(previewMoneySmokeStep).toContain(
-      "PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}",
-    );
-    expect(previewMoneySmokeStep).toContain(
-      "PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}",
-    );
+    // The Kubernetes preview job no longer exports TF_VAR_platform_admin_* at
+    // job scope, so the money smoke reads admin credentials straight from
+    // repository secrets instead of falling back through Terraform variables.
+    expect(previewMoneySmokeStep).toContain("PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
+    expect(previewMoneySmokeStep).toContain("PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
     expect(previewMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: preview");
     expect(previewMoneySmokeStep).toContain(
       "SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.PREVIEW_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}",

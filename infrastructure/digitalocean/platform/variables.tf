@@ -331,7 +331,7 @@ variable "database_size" {
 variable "non_production_database_size" {
   type        = string
   default     = "db-s-1vcpu-1gb"
-  description = "Preview database cluster size. Staging uses staging_database_size because it runs the shared full-platform environment."
+  description = "Deprecated compatibility variable. PR previews use disposable in-cluster Postgres, and staging uses staging_database_size."
 }
 
 variable "staging_database_size" {

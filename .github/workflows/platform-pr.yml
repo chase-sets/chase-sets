@@ -876,8 +876,20 @@ jobs:
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
+      TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
+      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+      TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+      TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+      TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+      TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      PREVIEW_IDENTIFIER: pr-${{ github.event.pull_request.number }}
+      CHASE_SETS_HELM_RELEASE: chase-sets-pr-${{ github.event.pull_request.number }}
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-pr-${{ github.event.pull_request.number }}
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -981,7 +993,7 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: steps.buildx.outcome == 'failure'
 
-      - name: Build and push App Platform image
+      - name: Build and push platform image
         id: image
         run: |
           set -euo pipefail
@@ -1006,15 +1018,17 @@ jobs:
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
           echo "Pushed ${image}@${digest}"
 
-      - name: Terraform init
-        working-directory: infrastructure/digitalocean/platform
+      - name: Configure preview Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
-          terraform init \
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
             -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=platform/previews/pr-${{ github.event.pull_request.number }}.tfstate \
+            -backend-config=key=doks/staging.tfstate \
             -backend-config=region=us-east-1 \
             -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
             -backend-config=skip_credentials_validation=true \
@@ -1024,156 +1038,183 @@ jobs:
             -backend-config=use_path_style=true \
             -backend-config=use_lockfile=true
 
-      - name: Terraform format
-        working-directory: infrastructure/digitalocean/platform
-        run: terraform fmt -check -recursive
+          kubeconfig="${RUNNER_TEMP}/chase-sets-preview.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
 
-      - name: Terraform plan
-        id: terraform_plan
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
-          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
-          TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
-          TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
-          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
-          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
-          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-        run: |
-          set -euo pipefail
-          terraform plan -out=tfplan
-          app_changed="$(node ../../../scripts/terraform-plan-inspection.mjs plan-app-changed tfplan)"
-          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for previous App Platform deployment
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "No existing App Platform app was found in Terraform state; skipping deployment wait."
-            exit 0
+          if ! KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure preview Kubernetes context." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
           fi
 
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
-
-      - name: Terraform apply
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}
-          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
-          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
-          TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
-          TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
-          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
-          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
-          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
-        run: terraform apply -auto-approve tfplan
-
-      - name: Wait for Terraform App Platform deployment
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
-
-      - name: Deploy App Platform image
-        if: steps.terraform_plan.outputs.app_changed != 'true'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
-
-      - name: Wait for preview domains
-        id: preview_domains
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          app_id="$(terraform output -raw app_id)"
-          landing_domain="$(terraform output -raw landing_domain)"
-          admin_domain="$(terraform output -raw admin_domain)"
-          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
-            echo "Required preview domains were not present in Terraform outputs." >&2
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Preview Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
             exit 1
           fi
 
-          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
-            "$app_id" \
-            "$admin_domain" \
-            "$marketplace_domain" \
-            --timeout-seconds=1800 \
-            --poll-seconds=30
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured preview Kubernetes context: ${current_context}"
 
-          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
-            "$app_id" \
-            "$landing_domain" \
-            --timeout-seconds=60 \
-            --poll-seconds=15 && landing_domain_ready=true || landing_domain_ready=false
+      - name: Reset preview namespace
+        run: |
+          set -euo pipefail
+          kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found --wait=true --timeout=5m
+          kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
-          echo "landing_domain_ready=${landing_domain_ready}" >> "$GITHUB_OUTPUT"
-          if [ "$landing_domain_ready" != "true" ]; then
-            echo "Preview landing domain ${landing_domain} is not active yet; landing-only smoke will be skipped."
-          fi
-
-      - name: Smoke check
-        working-directory: infrastructure/digitalocean/platform
+      - name: Apply preview Kubernetes runtime secrets
         env:
+          DEPLOYMENT_ENVIRONMENT: preview
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
+          TF_VAR_ses_aws_secret_access_key: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+          TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
+          TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
+          TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
+        run: |
+          set -euo pipefail
+          export CATALOG_ASSET_S3_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
+          export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
+          export CHASE_SETS_DISCORD_INVITE_URL="${TF_VAR_discord_invite_url:-}"
+          export EASYPOST_API_KEY="${TF_VAR_easypost_api_key:-}"
+          export EASYPOST_WEBHOOK_SECRET="${TF_VAR_easypost_webhook_secret:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_facebook_social_login_client_id:-}"
+          export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_facebook_social_login_client_secret:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_google_social_login_client_id:-}"
+          export GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_google_social_login_client_secret:-}"
+          export OTEL_EXPORTER_OTLP_HEADERS=""
+          export PLATFORM_ADMIN_EMAIL="${TF_VAR_platform_admin_email:-}"
+          export PLATFORM_ADMIN_PASSWORD="${TF_VAR_platform_admin_password:-}"
+          export PLATFORM_INTERNAL_AUTH_SECRET="${TF_VAR_platform_internal_auth_secret:-}"
+          export SCRYDEX_API_KEY="${TF_VAR_scrydex_api_key:-}"
+          export SCRYDEX_TEAM_ID="${TF_VAR_scrydex_team_id:-}"
+          export SES_AWS_ACCESS_KEY_ID="${TF_VAR_ses_aws_access_key_id:-}"
+          export SES_AWS_SECRET_ACCESS_KEY="${TF_VAR_ses_aws_secret_access_key:-}"
+          export SES_SOURCE_ARN="${TF_VAR_ses_source_arn:-}"
+          export STRIPE_CONNECT_WEBHOOK_SECRET="${TF_VAR_stripe_connect_webhook_secret:-}"
+          export STRIPE_PUBLISHABLE_KEY="${TF_VAR_stripe_publishable_key:-}"
+          export STRIPE_SECRET_KEY="${TF_VAR_stripe_secret_key:-}"
+          export STRIPE_WEBHOOK_SECRET="${TF_VAR_stripe_webhook_secret:-}"
+          export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
+
+          node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
+
+      - name: Apply preview Kubernetes registry pull secret
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry is required before preview Kubernetes deploys can pull images." >&2
+            exit 1
+          fi
+
+          registry_pull_secret_name="registry-${registry_name}"
+          docker_config="$(mktemp)"
+          trap 'rm -f "$docker_config"' EXIT
+          doctl registry docker-config --expiry-seconds 3600 > "$docker_config"
+          kubectl create secret generic "$registry_pull_secret_name" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --from-file=.dockerconfigjson="$docker_config" \
+            --type=kubernetes.io/dockerconfigjson \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+          echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
+
+      - name: Deploy preview Kubernetes release
+        env:
+          PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          landing_domain="${PREVIEW_IDENTIFIER}.preview.chasesets.com"
+          marketplace_domain="marketplace.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
+          admin_domain="admin.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
+
+          pnpm run platform:kubernetes-deployment -- deploy \
+            --image "$PLATFORM_IMAGE_REF" \
+            --image-pull-secret "$CHASE_SETS_IMAGE_PULL_SECRET_NAME" \
+            --runtime-env "DEPLOYMENT_ENVIRONMENT=preview" \
+            --runtime-env "PREVIEW_IDENTIFIER=${PREVIEW_IDENTIFIER}" \
+            --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
+            --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
+            --runtime-env "CHASE_SETS_PUBLIC_ORIGIN=https://${landing_domain}" \
+            --runtime-env "CHASE_SETS_MARKETPLACE_ORIGIN=https://${marketplace_domain}" \
+            --runtime-env "CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.preview.chasesets.com" \
+            --runtime-env "CATALOG_ASSET_S3_BUCKET=chase-sets-preview-catalog-assets" \
+            --runtime-env "CATALOG_ASSET_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com" \
+            --runtime-env "CATALOG_ASSET_S3_REGION=nyc3" \
+            --runtime-env "NOTIFICATION_EMAIL_PROVIDER=${TF_VAR_notification_email_provider:-noop}" \
+            --runtime-env "SES_AWS_REGION=${TF_VAR_ses_aws_region:-}" \
+            --runtime-env "SES_FROM_EMAIL=${TF_VAR_ses_from_email:-}" \
+            --runtime-env "SES_CONFIGURATION_SET_NAME=${TF_VAR_ses_configuration_set_name:-}" \
+            --runtime-env "STRIPE_CONNECT_ACCOUNTS_API=${TF_VAR_stripe_connect_accounts_api:-v2}" \
+            --runtime-env "STRIPE_API_BASE_URL=${TF_VAR_stripe_api_base_url:-}" \
+            --runtime-env "EASYPOST_API_BASE_URL=${TF_VAR_easypost_api_base_url:-}" \
+            --runtime-env "EASYPOST_MODE=${TF_VAR_easypost_mode:-test}" \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Capture preview Kubernetes deploy diagnostics
+        if: failure()
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" || true
+
+      - name: Wait for preview ingress URLs
+        id: preview_domains
+        run: |
+          set -euo pipefail
+          landing_domain="${PREVIEW_IDENTIFIER}.preview.chasesets.com"
+          marketplace_domain="marketplace.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
+          admin_domain="admin.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
+
+          node ./scripts/platform-ingress-wait.mjs \
+            --url "https://${admin_domain}/health/ready" \
+            --url "https://${marketplace_domain}/health/ready" \
+            --attempts 24 \
+            --delay-ms 5000
+
+          node ./scripts/platform-ingress-wait.mjs \
+            --url "https://${landing_domain}/" \
+            --attempts 6 \
+            --delay-ms 5000 && landing_domain_ready=true || landing_domain_ready=false
+
+          echo "landing_domain=${landing_domain}" >> "$GITHUB_OUTPUT"
+          echo "marketplace_domain=${marketplace_domain}" >> "$GITHUB_OUTPUT"
+          echo "admin_domain=${admin_domain}" >> "$GITHUB_OUTPUT"
+          echo "landing_domain_ready=${landing_domain_ready}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke check
+        env:
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
@@ -1186,46 +1227,29 @@ jobs:
           SMOKE_FETCH_RETRY_DELAY_MS: "5000"
         run: |
           set -euo pipefail
-          landing_domain="$(terraform output -raw landing_domain)"
-          admin_domain="$(terraform output -raw admin_domain)"
-          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
-            echo "Required preview smoke domains were not present in Terraform outputs." >&2
-            exit 1
-          fi
-          cd ../../..
-          pnpm run smoke:platform -- "https://${landing_domain}" "https://${admin_domain}" "https://${marketplace_domain}"
+          pnpm run smoke:platform -- \
+            "https://${{ steps.preview_domains.outputs.landing_domain }}" \
+            "https://${{ steps.preview_domains.outputs.admin_domain }}" \
+            "https://${{ steps.preview_domains.outputs.marketplace_domain }}"
 
       - name: Stripe money smoke
-        working-directory: infrastructure/digitalocean/platform
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           SMOKE_REGISTER_SELLER: "true"
           SMOKE_SELLER_EMAIL: stripe-preview+pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
           SMOKE_SELLER_PASSWORD: preview-stripe-${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_SELLER_DISPLAY_NAME: Stripe Preview Smoke PR ${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.PREVIEW_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}
-          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL || env.TF_VAR_platform_admin_email || '' }}
-          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD || env.TF_VAR_platform_admin_password || '' }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_MONEY_SMOKE_ENVIRONMENT: preview
           STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"
-        run: |
-          set -euo pipefail
-          admin_domain="$(terraform output -raw admin_domain)"
-          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
-            echo "Required preview Stripe smoke domains were not present in Terraform outputs." >&2
-            exit 1
-          fi
-          cd ../../..
-          PLATFORM_API_BASE_URL="https://${marketplace_domain}" \
-            PLATFORM_AUTH_BASE_URL="https://${marketplace_domain}" \
-            pnpm run stripe:money-smoke -- --edge-check --seller-flow
+          PLATFORM_API_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
+          PLATFORM_AUTH_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
+        run: pnpm run stripe:money-smoke -- --edge-check --seller-flow
 
   pr-required:
     name: PR Required

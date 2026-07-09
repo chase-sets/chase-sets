@@ -1,6 +1,6 @@
 # Environment Domain Names
 
-This document owns Chase Sets application domain naming across production, staging, dev, and future preview environments.
+This document owns Chase Sets application domain naming across production, staging, dev, and preview environments.
 
 ## Convention
 
@@ -23,7 +23,7 @@ Non-production environments carry the environment label directly under `chaseset
 
 - Staging: `*.staging.chasesets.com`
 - Remote dev sessions: `*.dev.chasesets.com`
-- Future PR previews, if created: `*.preview.chasesets.com` plus any deeper wildcard or provider-managed hostnames needed by the preview platform
+- PR previews: `*.preview.chasesets.com`
 
 This keeps routing, logs, WAF rules, DNS records, certificate ownership, and monitoring grouped by environment.
 
@@ -76,13 +76,13 @@ Remote dev sessions currently use `dev.chasesets.com` and create hosts such as:
 - `admin.<slug>.dev.chasesets.com`
 - `api.<slug>.dev.chasesets.com`
 
-Future PR preview environments should prefer product language that groups all apps for one preview instance under the preview environment, such as:
+PR preview environments group all apps for one preview instance under the preview environment:
 
 - `pr-123.preview.chasesets.com`
 - `marketplace.pr-123.preview.chasesets.com`
 - `admin.pr-123.preview.chasesets.com`
 
-If a hosting platform requires app-specific wildcard routing, an adapter may use names such as `pr-123.marketplace.preview.chasesets.com`, but the docs and operator language should still describe the preview as `pr-123` in the `preview` environment.
+If a hosting platform requires app-specific wildcard routing later, an adapter may use names such as `pr-123.marketplace.preview.chasesets.com`, but the docs and operator language should still describe the preview as `pr-123` in the `preview` environment.
 
 ## Implementation Notes
 

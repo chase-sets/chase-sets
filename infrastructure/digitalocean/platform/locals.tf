@@ -1,7 +1,9 @@
 locals {
-  is_production     = var.environment == "production"
-  is_staging        = var.environment == "staging"
-  is_non_production = !local.is_production
+  is_production            = var.environment == "production"
+  is_staging               = var.environment == "staging"
+  is_preview               = var.environment == "preview"
+  is_non_production        = !local.is_production
+  managed_postgres_enabled = !local.is_preview
   placeholder_evidence_references = [
     "tbd",
     "todo",
@@ -61,7 +63,7 @@ locals {
   api_private_url               = "$${platform-api.PRIVATE_URL}"
   admin_web_internal_api_origin = local.api_private_url
   marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
-  database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
+  database_size                 = local.is_staging ? var.staging_database_size : var.database_size
   database_storage_size_mib     = local.is_staging ? var.staging_database_storage_size_mib : null
 
   production_database_standby_desired_node_count = 2
@@ -238,8 +240,8 @@ locals {
       "postgresql://%s:%s@%s:%d/%s?sslmode=require",
       urlencode(digitalocean_database_user.wake_listeners[context_name].name),
       urlencode(digitalocean_database_user.wake_listeners[context_name].password),
-      digitalocean_database_cluster.postgres.host,
-      digitalocean_database_cluster.postgres.port,
+      digitalocean_database_cluster.postgres[0].host,
+      digitalocean_database_cluster.postgres[0].port,
       urlencode(local.wake_listener_database_names[context_name]),
     )
   } : {}
@@ -249,8 +251,8 @@ locals {
       "postgresql://%s:%s@%s:%d/%s?sslmode=require",
       urlencode(digitalocean_database_user.wake_listeners[context_name].name),
       urlencode(digitalocean_database_user.wake_listeners[context_name].password),
-      digitalocean_database_cluster.postgres.host,
-      digitalocean_database_cluster.postgres.port,
+      digitalocean_database_cluster.postgres[0].host,
+      digitalocean_database_cluster.postgres[0].port,
       urlencode(local.wake_listener_database_names[context_name]),
     )
   } : {}
@@ -287,6 +289,9 @@ locals {
   #   connections; the cluster backends they can occupy are capped by the
   #   server-side pool sizes in context_database_connection_pool_sizes, not by
   #   app pool maxima, so KEDA burst worker scaling (#4057) stays budget-safe.
+  # - Previews do not create DigitalOcean managed Postgres resources. Their
+  #   disposable databases live in-cluster in the per-preview namespace, outside
+  #   this managed-cluster budget.
   # - Relay listener URLs and context-owned API waiters stay direct in every
   #   environment that defines them, because LISTEN is incompatible with
   #   transaction pooling; #4655 preserves that direct parity.
@@ -340,7 +345,9 @@ locals {
   # "size" is the number of cluster backends that pool may hold, so the sum of
   # configured pool sizes is the worst-case backend footprint of all pooled
   # app query traffic. #4655 attaches production query pools too, so this is now
-  # the whole app-query cluster footprint in every environment.
+  # the whole app-query cluster footprint in every managed-postgres
+  # environment; previews have no DigitalOcean managed cluster in this root
+  # and sum zero.
   pgbouncer_server_backend_allocation = (
     length(local.context_database_connection_pool_sizes) > 0
     ? sum(values(local.context_database_connection_pool_sizes))
@@ -423,6 +430,8 @@ locals {
   # the PgBouncer server-side allocation, the direct relay listeners, the direct
   # API waiters, and the bootstrap/maintenance reservation reach the cluster.
   # App pool maxima are client-side only and never count as cluster backends.
+  # Previews provision no pools or listeners, so only the nominal bootstrap
+  # reservation appears in their (unused) budget.
   cluster_backend_demand = (
     local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand
   )
@@ -606,6 +615,9 @@ locals {
     context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}"
   }
 
+  managed_context_databases      = local.managed_postgres_enabled ? local.context_databases : {}
+  managed_context_database_users = local.managed_postgres_enabled ? local.context_database_users : {}
+
   default_context_database_connection_pool_sizes = {
     for context_name in local.context_names :
     context_name => 1
@@ -647,8 +659,12 @@ locals {
     context_name => lookup(local.production_context_database_connection_pool_size_overrides, context_name, 1)
   }
 
+  # Previews provision no managed transaction pools: they have no DigitalOcean
+  # managed cluster in this root (#4656), so the size map is empty outside the
+  # managed-postgres environments and connection_pool_contexts below is empty
+  # for preview plans.
   context_database_connection_pool_sizes = local.is_staging ? local.staging_context_database_connection_pool_sizes : (
-    local.is_production ? local.production_context_database_connection_pool_sizes : local.default_context_database_connection_pool_sizes
+    local.is_production ? local.production_context_database_connection_pool_sizes : {}
   )
 
   # Every environment now provisions managed transaction pools for its active
@@ -656,11 +672,23 @@ locals {
   # contexts exactly so a pool always has a budgeted size.
   connection_pool_contexts = toset(keys(local.context_database_connection_pool_sizes))
 
+  preview_postgres_host = "chase-sets-preview-postgres"
+  preview_context_database_urls = {
+    for context_name in local.context_database_names :
+    context_name => format(
+      "postgresql://%s:preview-app@%s:5432/%s",
+      urlencode(local.context_database_users[context_name]),
+      local.preview_postgres_host,
+      urlencode(local.context_databases[context_name]),
+    )
+  }
+
   # Query traffic runs through the managed transaction pools in every
-  # environment (#4655). Waiter and relay listener URLs stay direct (built from
-  # the wake-listener users on the cluster host) because LISTEN is incompatible
-  # with transaction pooling.
-  context_database_urls = {
+  # managed-postgres environment (#4655); previews synthesize namespace-local
+  # in-cluster Postgres URLs instead (#4656). Waiter and relay listener URLs
+  # stay direct (built from the wake-listener users on the cluster host)
+  # because LISTEN is incompatible with transaction pooling.
+  context_database_urls = local.is_preview ? local.preview_context_database_urls : {
     for context_name in local.context_names :
     context_name => format(
       "postgresql://%s:%s@%s:%d/%s?sslmode=require",

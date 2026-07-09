@@ -358,7 +358,8 @@ export async function buildPreviewDatabaseClusterInventory(options, dependencies
       prNumber: classification.prNumber,
       pullRequestState: classification.prNumber ? "unknown" : "",
       leaked: false,
-      conclusion: classification.classification === "preview-*" ? "preview-pr-state-unresolved" : "retained",
+      previewManagedClusterViolation: classification.classification === "preview-*",
+      conclusion: classification.classification === "preview-*" ? "preview-managed-cluster-violation" : "retained",
     };
 
     if (
@@ -370,7 +371,7 @@ export async function buildPreviewDatabaseClusterInventory(options, dependencies
         const pullRequest = await fetchPullRequest(classification.prNumber);
         row.pullRequestState = pullRequestStateLabel(pullRequest);
         row.leaked = row.pullRequestState === "closed" || row.pullRequestState === "merged";
-        row.conclusion = row.leaked ? "leaked-preview-cluster" : "active-preview-cluster";
+        row.conclusion = row.leaked ? "leaked-preview-managed-cluster-violation" : "preview-managed-cluster-violation";
       } catch (error) {
         record.warnings.push(`PR #${classification.prNumber} lookup failed: ${describeError(error)}`);
       }
@@ -383,6 +384,11 @@ export async function buildPreviewDatabaseClusterInventory(options, dependencies
     (left, right) =>
       left.classification.localeCompare(right.classification) || left.clusterName.localeCompare(right.clusterName),
   );
+  if (record.clusters.some((cluster) => cluster.previewManagedClusterViolation)) {
+    record.warnings.push(
+      "Preview managed database clusters are forbidden; PR previews must use in-cluster Postgres in their Kubernetes namespace.",
+    );
+  }
   record.result = record.errors.length > 0 ? "failure" : record.warnings.length > 0 ? "warning" : "success";
   return record;
 }

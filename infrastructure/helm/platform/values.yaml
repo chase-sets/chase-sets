@@ -31,6 +31,20 @@ doksIngress:
     enabled: true
     secretName: "chase-sets-platform-tls"
   hosts: []
+previewPostgres:
+  enabled: false
+  image:
+    repository: "postgres"
+    tag: "16-alpine"
+    pullPolicy: "IfNotPresent"
+  service:
+    port: 5432
+  secretName: "chase-sets-preview-postgres"
+  superuserSecretKey: "POSTGRES_PASSWORD"
+  applicationSecretKey: "APP_DATABASE_PASSWORD"
+  storage:
+    emptyDir: {}
+  resources: {}
 components:
   public-web:
     enabled: true
@@ -787,6 +801,9 @@ components:
       - name: "PLATFORM_INTERNAL_AUTH_SECRET"
         secret: true
         secretKey: "PLATFORM_INTERNAL_AUTH_SECRET"
+      - name: "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL"
+        secret: true
+        secretKey: "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL"
       - name: "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS"
         value: "*"
       - name: "SCRYDEX_API_KEY"

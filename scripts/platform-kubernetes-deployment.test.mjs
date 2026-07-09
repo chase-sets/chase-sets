@@ -328,6 +328,33 @@ describe("platform Kubernetes deployment", () => {
     expect(productionArgs).not.toContain("doksIngress.enabled=true");
   });
 
+  it("enables preview Postgres and PR-specific ingress only for preview deployments", () => {
+    const previewArgs = buildHelmUpgradeArgs({
+      release: "chase-sets-pr-123",
+      namespace: "chase-sets-pr-123",
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:pr-123",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: "preview",
+        PREVIEW_IDENTIFIER: "pr-123",
+      },
+    });
+
+    expect(previewArgs).toEqual(expect.arrayContaining(["--set", "previewPostgres.enabled=true"]));
+    expect(previewArgs).toEqual(
+      expect.arrayContaining([
+        "--set",
+        "doksIngress.enabled=true",
+        "--set-string",
+        "doksIngress.hosts[0].host=pr-123.preview.chasesets.com",
+        "--set-string",
+        "doksIngress.hosts[1].host=marketplace.pr-123.preview.chasesets.com",
+        "--set-string",
+        "doksIngress.hosts[2].host=admin.pr-123.preview.chasesets.com",
+      ]),
+    );
+  });
+
   it("escapes comma-separated runtime environment override values for Helm", () => {
     expect(
       buildHelmUpgradeArgs({

@@ -1,0 +1,77 @@
+{{- if .Values.previewPostgres.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "chase-sets-platform.previewPostgresName" . }}
+  labels:
+{{ include "chase-sets-platform.labels" (dict "root" . "name" "preview-postgres") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-40"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+{{ include "chase-sets-platform.selectorLabels" (dict "root" . "name" "preview-postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+{{ include "chase-sets-platform.selectorLabels" (dict "root" . "name" "preview-postgres") | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ printf "%s:%s" .Values.previewPostgres.image.repository .Values.previewPostgres.image.tag | quote }}
+          imagePullPolicy: {{ .Values.previewPostgres.image.pullPolicy | quote }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.previewPostgres.service.port }}
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.previewPostgres.secretName | quote }}
+                  key: {{ .Values.previewPostgres.superuserSecretKey | quote }}
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            periodSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          {{- with .Values.previewPostgres.resources }}
+          resources:
+{{ toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: postgres-data
+          emptyDir:
+{{ toYaml .Values.previewPostgres.storage.emptyDir | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "chase-sets-platform.previewPostgresName" . }}
+  labels:
+{{ include "chase-sets-platform.labels" (dict "root" . "name" "preview-postgres") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-40"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: {{ .Values.previewPostgres.service.port }}
+      targetPort: postgres
+      protocol: TCP
+  selector:
+{{ include "chase-sets-platform.selectorLabels" (dict "root" . "name" "preview-postgres") | nindent 4 }}
+{{- end }}

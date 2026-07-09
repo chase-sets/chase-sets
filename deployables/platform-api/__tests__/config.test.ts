@@ -161,6 +161,7 @@ function resetConfigEnv() {
   delete process.env.NODE_ENV;
   delete process.env.DEPLOYMENT_ENVIRONMENT;
   delete process.env.PLATFORM_DATA_PROFILES;
+  delete process.env.PLATFORM_PREVIEW_POSTGRES_ADMIN_URL;
   delete process.env.TAX_PROVIDER_BACKED_QUOTES_REQUIRED;
   delete process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV];
   delete process.env.PLATFORM_ADMIN_EMAIL;
@@ -377,6 +378,24 @@ describe("platform api config", () => {
     process.env.DEPLOYMENT_ENVIRONMENT = "prod";
     expect(() => loadBootstrapConfig()).toThrow(
       "DEPLOYMENT_ENVIRONMENT must be one of: production, staging, preview, test, dev, local, remote-dev.",
+    );
+  });
+
+  it("loads the preview Postgres admin URL only for preview bootstrap", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.PLATFORM_PREVIEW_POSTGRES_ADMIN_URL = "postgresql://postgres:secret@preview-postgres:5432/postgres";
+    process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
+
+    expect(loadBootstrapConfig().previewPostgresAdminUrl).toBe(
+      "postgresql://postgres:secret@preview-postgres:5432/postgres",
+    );
+
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    expect(() => loadBootstrapConfig()).toThrow(
+      "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL may only be configured for preview deployments.",
     );
   });
 
