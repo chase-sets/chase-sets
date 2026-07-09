@@ -17,7 +17,6 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "noEmit": true,
-    "baseUrl": ".",
     "paths": {
       "@chase-sets/auth": [
         "./bounded-contexts/auth/index.ts"
@@ -741,9 +740,6 @@
       ],
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"
-      ],
-      "@chase-sets/typescript-compiler-api": [
-        "./packages/typescript-compiler-api/index.mjs"
       ],
       "@chase-sets/web-notifications": [
         "./infrastructure/web-notifications/index.ts"

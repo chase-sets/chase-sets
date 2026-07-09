@@ -1,9 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node", "vitest/globals"],
-    "incremental": true,
-    "tsBuildInfoFile": "./node_modules/.cache/tsconfig.tests.tsbuildinfo"
+    "types": ["node", "vitest/globals"]
   },
   "include": [
     "bounded-contexts/**/*.test.ts",
@@ -26,6 +24,7 @@
     "packages/**/*.test.tsx",
     "packages/**/*.spec.ts",
     "packages/**/*.spec.tsx",
+    "asset-env.d.ts",
     "test-env.d.ts"
   ],
   "exclude": ["**/*.tmp.*", "**/build/**", "**/coverage/**", "**/dist/**", "**/node_modules/**"]

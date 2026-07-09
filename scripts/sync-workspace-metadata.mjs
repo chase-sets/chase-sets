@@ -10,6 +10,7 @@ const generatedSchemaComment =
 const tsconfigBaseComment =
   "// Workspace tsconfigs extend this file or tsconfig.vitest.json; root tsconfig.json is only the editor/solution entry.\n";
 const legacyTsconfigCompilerOptions = [
+  "baseUrl",
   "charset",
   "importsNotUsedAsValues",
   "keyofStringsOnly",
@@ -33,7 +34,6 @@ const ts7CompatibleCompilerOptions = {
   resolveJsonModule: true,
   allowSyntheticDefaultImports: true,
   noEmit: true,
-  baseUrl: ".",
 };
 const appBuildSemanticCompilerOptions = ["verbatimModuleSyntax"];
 

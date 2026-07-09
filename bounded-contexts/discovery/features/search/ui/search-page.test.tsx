@@ -563,6 +563,7 @@ describe("SearchPage", () => {
     class TestIntersectionObserver implements IntersectionObserver {
       readonly root = null;
       readonly rootMargin = "";
+      readonly scrollMargin = "";
       readonly thresholds: readonly number[] = [];
       disconnect = vi.fn();
       observe = vi.fn();
