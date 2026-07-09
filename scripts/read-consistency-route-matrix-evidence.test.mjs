@@ -151,6 +151,175 @@ describe("read consistency route matrix evidence", () => {
     });
   });
 
+  it("reports sampler-blocked routes with zero samples as blocked coverage gaps, never failures", () => {
+    // Issue #4721: routes the sampler cannot drive (support-safe blocker
+    // recorded — private/representative commerce state, unconfigured
+    // observation inputs) must not read identically to a wake regression.
+    const blocked = routeMatrixRouteEvidence(
+      DEFAULT_ROUTE_MATRIX_ROUTES[3],
+      {
+        sampleCount: 0,
+        p95Ms: null,
+        p99Ms: null,
+        timeoutRate: 0,
+        workSignalErrorRate: 0,
+        missingReceiptCount: 0,
+        missingTargetContextCount: 0,
+        exactDependencyFallbackCount: 0,
+      },
+      {
+        status: "blocked",
+        outcomeCategory: "payout-ready-private-state-required",
+        blockerCategory: "private-payout-state-required",
+      },
+    );
+
+    expect(blocked.wakeBeforeWait).toMatchObject({
+      status: "blocked",
+      sampleCount: 0,
+      sampler: {
+        status: "blocked",
+        outcomeCategory: "payout-ready-private-state-required",
+        blockerCategory: "private-payout-state-required",
+      },
+    });
+  });
+
+  it("keeps the strict metric verdict when a sampler-blocked route still has in-window samples", () => {
+    const route = routeMatrixRouteEvidence(
+      DEFAULT_ROUTE_MATRIX_ROUTES[0],
+      {
+        sampleCount: 12,
+        p95Ms: null,
+        p99Ms: null,
+        timeoutRate: 1,
+        workSignalErrorRate: 0,
+        missingReceiptCount: 0,
+        missingTargetContextCount: 0,
+        exactDependencyFallbackCount: 0,
+      },
+      { status: "blocked", outcomeCategory: "irrelevant", blockerCategory: "irrelevant" },
+    );
+
+    // Real in-window traffic always wins: samples present and timing out is a
+    // genuine failure regardless of what the sampler reported.
+    expect(route.wakeBeforeWait.status).toBe("fail");
+  });
+
+  it("keeps the metric verdict for sampled routes and parses the sampler file option", () => {
+    const sampled = routeMatrixRouteEvidence(
+      DEFAULT_ROUTE_MATRIX_ROUTES[0],
+      {
+        sampleCount: 12,
+        p95Ms: 420,
+        p99Ms: 710,
+        timeoutRate: 0,
+        workSignalErrorRate: 0,
+        missingReceiptCount: 0,
+        missingTargetContextCount: 0,
+        exactDependencyFallbackCount: 0,
+      },
+      { status: "sampled", outcomeCategory: "sampled", blockerCategory: null },
+    );
+    expect(sampled.wakeBeforeWait.status).toBe("pass");
+    expect(sampled.wakeBeforeWait.sampler).toMatchObject({ status: "sampled" });
+
+    expect(
+      parseReadConsistencyRouteMatrixEvidenceArgs(["--sampler-file", "artifacts/wake-drills/sampler.json"], {}),
+    ).toMatchObject({ samplerFile: "artifacts/wake-drills/sampler.json" });
+  });
+
+  it("joins the sampler report per route and summarizes partial coverage", async () => {
+    const samplerReport = {
+      schemaVersion: "read-consistency-route-matrix-sampler/v1",
+      routes: [
+        { routeTemplate: "/checkout/buy/session/:sessionId", status: "sampled", outcomeCategory: "sampled" },
+        {
+          routeTemplate: "/account/cart",
+          status: "blocked",
+          outcomeCategory: "account-cart-probe-missing",
+          blockerCategory: "redacted-account-cart-observation-required",
+        },
+        {
+          routeTemplate: "/account/sell-list",
+          status: "blocked",
+          outcomeCategory: "sell-list-source-unavailable",
+          blockerCategory: "representative-state-required",
+        },
+        {
+          routeTemplate: "/account/payouts/:payoutId",
+          status: "blocked",
+          outcomeCategory: "payout-ready-private-state-required",
+          blockerCategory: "private-payout-state-required",
+        },
+        {
+          routeTemplate: "/account/payments/:paymentId",
+          status: "blocked",
+          outcomeCategory: "payment-target-private-state-required",
+          blockerCategory: "private-payment-state-required",
+        },
+        {
+          routeTemplate: "/account/listings/:listingId",
+          status: "blocked",
+          outcomeCategory: "owned-listing-private-state-required",
+          blockerCategory: "private-listing-state-required",
+        },
+      ],
+    };
+    const evidence = await runReadConsistencyRouteMatrixEvidence(
+      {
+        prometheusUrl: "https://prometheus.staging.chasesets.com",
+        environment: "staging",
+        window: "30m",
+        checkedAt,
+      },
+      async (query) => {
+        // Only the checkout route has in-window traffic, and it is green.
+        const checkoutRoute = query.includes('route_path="/account/checkout-sessions/:sessionId"');
+        if (query.includes("work_signal_errors")) {
+          return 0;
+        }
+        if (query.includes("histogram_quantile(0.95")) {
+          return checkoutRoute ? 420 : null;
+        }
+        if (query.includes("histogram_quantile(0.99")) {
+          return checkoutRoute ? 710 : null;
+        }
+        if (
+          query.includes('outcome="timeout"') ||
+          query.includes('receipt="missing"') ||
+          query.includes("target_context_header") ||
+          query.includes('wait_mode!="exact-dependency"')
+        ) {
+          return 0;
+        }
+        return checkoutRoute ? 12 : 0;
+      },
+      samplerReport,
+    );
+
+    expect(evidence.summary).toMatchObject({
+      routeCount: 6,
+      passingRouteCount: 1,
+      failingRouteCount: 0,
+      blockedRouteCount: 5,
+      coverage: "partial",
+    });
+    const byTemplate = new Map(evidence.routes.map((route) => [route.routeTemplate, route.wakeBeforeWait]));
+    expect(byTemplate.get("/checkout/buy/session/:sessionId")).toMatchObject({
+      status: "pass",
+      sampler: { status: "sampled" },
+    });
+    expect(byTemplate.get("/account/cart")).toMatchObject({
+      status: "blocked",
+      sampler: { blockerCategory: "redacted-account-cart-observation-required" },
+    });
+    // Blocked routes are a reported coverage gap; a run with zero failing
+    // sampled routes is not a wake regression (exit semantics fail only on
+    // routes with status "fail").
+    expect(evidence.routes.some((route) => route.wakeBeforeWait.status === "fail")).toBe(false);
+  });
+
   it("builds bounded Prometheus queries for each route", () => {
     const checkout = DEFAULT_ROUTE_MATRIX_ROUTES[0];
     const queries = routeMatrixPrometheusQueries(checkout, "30m");
