@@ -1041,6 +1041,21 @@ export function createSubscriptionRunner(
                   throw error;
                 }
 
+                // A transient batch failure (projection transaction cap, lease
+                // loss, retryable Postgres error) says nothing about the event
+                // it happened to trip on — the batch's CUMULATIVE work blew the
+                // budget. Replaying the recorded error against that event would
+                // mark it failed without ever re-executing it and fail the
+                // whole pass (issue #4751: a fan-out heavy event repeatedly
+                // burned the full transaction budget, rolled back, and the
+                // replayed timeout guaranteed a runner failure every pass).
+                // Re-run individually WITHOUT the known failure so each event
+                // gets its own fresh transaction and full budget; only
+                // deterministic (poison-shaped) failures skip re-execution.
+                if (isTransientSubscriptionApplyError(error.originalError, errorPolicy)) {
+                  return applyStoredEventsIndividually(events);
+                }
+
                 return applyStoredEventsIndividually(events, {
                   eventId: error.eventId,
                   error: error.originalError,

@@ -432,98 +432,178 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
 }
 
 async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): Promise<void> {
-  const result = await db.query<ItemDetailCatalogItemRow>(
-    `SELECT * FROM discovery_item_detail_catalog_items WHERE catalog_item_id = $1`,
-    [itemId],
-  );
+  await refreshDiscoveryItemDetailPages(db, [itemId]);
+}
 
-  const item = result.rows[0];
+// Cascade refreshes used to rebuild pages one item at a time (~10 queries per
+// item: item select, four lookup maps, a three-query product schema, page
+// upsert). A single catalog blueprint/dimension/category/field/reference event
+// cascading over an imported staging catalog therefore ran minutes of
+// sequential round trips inside ONE projection transaction and aborted at the
+// transaction cap, rolling back all progress and never catching up
+// (issue #4751). The batched refresher processes affected items in bounded
+// chunks with set-based lookups and memoizes product schemas per blueprint for
+// the whole cascade — cascades share a handful of blueprints — collapsing the
+// per-item cost to roughly one page upsert.
+const ITEM_DETAIL_REFRESH_CHUNK_SIZE = 200;
 
-  if (!item) {
-    await db.query(`DELETE FROM discovery_item_detail_pages WHERE catalog_item_id = $1`, [itemId]);
+async function refreshDiscoveryItemDetailPages(
+  db: PgQueryable,
+  itemIds: readonly string[],
+  throwIfCancelled?: () => void,
+): Promise<void> {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
     return;
   }
 
-  const fieldValues = asArray<FieldValue>(item.field_values);
-  const rawCategoryIds = asStringArray(item.category_ids);
-  const categoryIds = uniqueStrings(rawCategoryIds);
-  const tags = asStringArray(item.tags);
-  const imageUrls = asStringArray(item.image_urls);
-  const productAssetSets = asArray(item.product_asset_sets);
-  const fieldIds = fieldValues.map((entry) => entry.fieldId);
-  const referenceIds = fieldValues
-    .map((entry) => referenceIdFromValue(entry.value))
-    .filter((referenceId): referenceId is string => referenceId !== null);
+  const productSchemaByBlueprintId = new Map<string, unknown | null>();
+  for (let offset = 0; offset < uniqueItemIds.length; offset += ITEM_DETAIL_REFRESH_CHUNK_SIZE) {
+    throwIfCancelled?.();
+    await refreshDiscoveryItemDetailPageChunk(
+      db,
+      uniqueItemIds.slice(offset, offset + ITEM_DETAIL_REFRESH_CHUNK_SIZE),
+      productSchemaByBlueprintId,
+      throwIfCancelled,
+    );
+  }
+  throwIfCancelled?.();
+}
 
-  if (categoryIds.length !== rawCategoryIds.length) {
-    await updateRow(db, {
-      table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
-      setColumns: ["category_ids"],
-      values: { category_ids: categoryIds },
-      casts: { category_ids: "jsonb" },
-      where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
-    });
+async function refreshDiscoveryItemDetailPageChunk(
+  db: PgQueryable,
+  chunkItemIds: readonly string[],
+  productSchemaByBlueprintId: Map<string, unknown | null>,
+  throwIfCancelled?: () => void,
+): Promise<void> {
+  const result = await db.query<ItemDetailCatalogItemRow>(
+    `SELECT * FROM discovery_item_detail_catalog_items WHERE catalog_item_id = ANY($1)`,
+    [chunkItemIds],
+  );
+  const itemsById = new Map(result.rows.map((row) => [row.catalog_item_id, row]));
+
+  const missingItemIds = chunkItemIds.filter((itemId) => !itemsById.has(itemId));
+  if (missingItemIds.length > 0) {
+    await db.query(`DELETE FROM discovery_item_detail_pages WHERE catalog_item_id = ANY($1)`, [missingItemIds]);
   }
 
-  const fieldNames = await loadNameMap(db, "discovery_item_detail_catalog_fields", "field_id", "name", fieldIds);
-  const categoryRefs = await loadCategoryMap(db, categoryIds);
-  const blueprintNames = item.blueprint_id
-    ? await loadNameMap(db, "discovery_item_detail_catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
-    : new Map<string, string>();
-  const references = await loadReferenceRecordMap(db, ITEM_DETAIL_REFERENCE_RECORDS_TABLE, referenceIds);
+  const items = chunkItemIds
+    .map((itemId) => itemsById.get(itemId))
+    .filter((item): item is ItemDetailCatalogItemRow => item !== undefined);
+  if (items.length === 0) {
+    return;
+  }
 
-  const productSchema = item.blueprint_id ? await buildProductSchema(db, item.blueprint_id) : null;
+  const chunkFieldIds = new Set<string>();
+  const chunkCategoryIds = new Set<string>();
+  const chunkReferenceIds = new Set<string>();
+  const chunkBlueprintIds = new Set<string>();
+  const parsedItems = items.map((item) => {
+    const fieldValues = asArray<FieldValue>(item.field_values);
+    const rawCategoryIds = asStringArray(item.category_ids);
+    const categoryIds = uniqueStrings(rawCategoryIds);
+    const referenceIds = fieldValues
+      .map((entry) => referenceIdFromValue(entry.value))
+      .filter((referenceId): referenceId is string => referenceId !== null);
 
-  await upsertRow(db, {
-    table: ITEM_DETAIL_PAGE_TABLE,
-    insertColumns: ITEM_DETAIL_PAGE_COLUMNS,
-    conflictColumns: ["catalog_item_id"],
-    values: {
-      catalog_item_id: item.catalog_item_id,
-      slug: item.slug,
-      language_code: item.language_code,
-      title_i18n: item.title_i18n ?? localizedTextMap(item.title),
-      title: item.title,
-      subtitle_i18n: item.subtitle_i18n,
-      subtitle: item.subtitle,
-      description_i18n: item.description_i18n ?? localizedTextMap(item.description),
-      description: item.description,
-      blueprint_id: item.blueprint_id,
-      blueprint: item.blueprint_id
-        ? {
-            blueprintId: item.blueprint_id,
-            name: blueprintNames.get(item.blueprint_id) ?? item.blueprint_id,
-          }
-        : null,
-      status: item.status,
-      field_values: fieldValues.map((entry) => ({
-        fieldId: entry.fieldId,
-        fieldName: fieldNames.get(entry.fieldId) ?? entry.fieldId,
-        value: entry.value,
-        reference: references.get(referenceIdFromValue(entry.value) ?? "") ?? null,
-      })),
-      categories: categoryIds.map((categoryId) => ({
-        categoryId,
-        slug: categoryRefs.get(categoryId)?.slug ?? categoryId,
-        name: categoryRefs.get(categoryId)?.name ?? categoryId,
-      })),
-      tags,
-      image_urls: imageUrls,
-      product_asset_sets: productAssetSets,
-      image_fallback: item.image_fallback,
-      product_schema: productSchema,
-      updated_at: item.updated_at,
-    },
-    casts: {
-      title_i18n: "jsonb",
-      description_i18n: "jsonb",
-      field_values: "jsonb",
-      categories: "jsonb",
-      tags: "jsonb",
-      image_urls: "jsonb",
-      product_asset_sets: "jsonb",
-    },
+    for (const fieldValue of fieldValues) {
+      chunkFieldIds.add(fieldValue.fieldId);
+    }
+    for (const categoryId of categoryIds) {
+      chunkCategoryIds.add(categoryId);
+    }
+    for (const referenceId of referenceIds) {
+      chunkReferenceIds.add(referenceId);
+    }
+    if (item.blueprint_id) {
+      chunkBlueprintIds.add(item.blueprint_id);
+    }
+
+    return { item, fieldValues, rawCategoryIds, categoryIds };
   });
+
+  for (const { item, rawCategoryIds, categoryIds } of parsedItems) {
+    if (categoryIds.length !== rawCategoryIds.length) {
+      throwIfCancelled?.();
+      await updateRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        setColumns: ["category_ids"],
+        values: { category_ids: categoryIds },
+        casts: { category_ids: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: item.catalog_item_id } },
+      });
+    }
+  }
+
+  const fieldNames = await loadNameMap(db, "discovery_item_detail_catalog_fields", "field_id", "name", [
+    ...chunkFieldIds,
+  ]);
+  const categoryRefs = await loadCategoryMap(db, [...chunkCategoryIds]);
+  const blueprintNames = await loadNameMap(db, "discovery_item_detail_catalog_blueprints", "blueprint_id", "name", [
+    ...chunkBlueprintIds,
+  ]);
+  const references = await loadReferenceRecordMap(db, ITEM_DETAIL_REFERENCE_RECORDS_TABLE, [...chunkReferenceIds]);
+
+  for (const blueprintId of chunkBlueprintIds) {
+    if (!productSchemaByBlueprintId.has(blueprintId)) {
+      throwIfCancelled?.();
+      productSchemaByBlueprintId.set(blueprintId, await buildProductSchema(db, blueprintId));
+    }
+  }
+
+  for (const { item, fieldValues, categoryIds } of parsedItems) {
+    throwIfCancelled?.();
+    await upsertRow(db, {
+      table: ITEM_DETAIL_PAGE_TABLE,
+      insertColumns: ITEM_DETAIL_PAGE_COLUMNS,
+      conflictColumns: ["catalog_item_id"],
+      values: {
+        catalog_item_id: item.catalog_item_id,
+        slug: item.slug,
+        language_code: item.language_code,
+        title_i18n: item.title_i18n ?? localizedTextMap(item.title),
+        title: item.title,
+        subtitle_i18n: item.subtitle_i18n,
+        subtitle: item.subtitle,
+        description_i18n: item.description_i18n ?? localizedTextMap(item.description),
+        description: item.description,
+        blueprint_id: item.blueprint_id,
+        blueprint: item.blueprint_id
+          ? {
+              blueprintId: item.blueprint_id,
+              name: blueprintNames.get(item.blueprint_id) ?? item.blueprint_id,
+            }
+          : null,
+        status: item.status,
+        field_values: fieldValues.map((entry) => ({
+          fieldId: entry.fieldId,
+          fieldName: fieldNames.get(entry.fieldId) ?? entry.fieldId,
+          value: entry.value,
+          reference: references.get(referenceIdFromValue(entry.value) ?? "") ?? null,
+        })),
+        categories: categoryIds.map((categoryId) => ({
+          categoryId,
+          slug: categoryRefs.get(categoryId)?.slug ?? categoryId,
+          name: categoryRefs.get(categoryId)?.name ?? categoryId,
+        })),
+        tags: asStringArray(item.tags),
+        image_urls: asStringArray(item.image_urls),
+        product_asset_sets: asArray(item.product_asset_sets),
+        image_fallback: item.image_fallback,
+        product_schema: item.blueprint_id ? (productSchemaByBlueprintId.get(item.blueprint_id) ?? null) : null,
+        updated_at: item.updated_at,
+      },
+      casts: {
+        title_i18n: "jsonb",
+        description_i18n: "jsonb",
+        field_values: "jsonb",
+        categories: "jsonb",
+        tags: "jsonb",
+        image_urls: "jsonb",
+        product_asset_sets: "jsonb",
+      },
+    });
+  }
 }
 
 async function refreshItemsByBlueprint(
@@ -531,13 +611,17 @@ async function refreshItemsByBlueprint(
   blueprintId: string,
   throwIfCancelled?: () => void,
 ): Promise<void> {
-  await refreshAffectedRows(db, {
+  // Collect the affected ids first, then rebuild pages through the batched
+  // chunk refresher (issue #4751): the per-id refresh callback would pay the
+  // full per-item lookup cost again.
+  const itemIds = await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: ITEM_DETAIL_CATALOG_ITEMS_TABLE },
     where: [{ column: "blueprint_id", value: blueprintId }],
     throwIfCancelled,
-    refresh: (itemId) => refreshDiscoveryItemDetailPage(db, itemId),
+    refresh: () => Promise.resolve(),
   });
+  await refreshDiscoveryItemDetailPages(db, itemIds, throwIfCancelled);
 }
 
 async function refreshItemsByCategory(
@@ -545,23 +629,25 @@ async function refreshItemsByCategory(
   categoryId: string,
   throwIfCancelled?: () => void,
 ): Promise<void> {
-  await refreshAffectedRows(db, {
+  const itemIds = await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: ITEM_DETAIL_CATALOG_ITEMS_TABLE },
     where: [{ column: "category_ids", operator: "@>", cast: "jsonb", value: [categoryId] }],
     throwIfCancelled,
-    refresh: (itemId) => refreshDiscoveryItemDetailPage(db, itemId),
+    refresh: () => Promise.resolve(),
   });
+  await refreshDiscoveryItemDetailPages(db, itemIds, throwIfCancelled);
 }
 
 async function refreshItemsByField(db: PgQueryable, fieldId: string, throwIfCancelled?: () => void): Promise<void> {
-  await refreshAffectedRows(db, {
+  const itemIds = await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: ITEM_DETAIL_CATALOG_ITEMS_TABLE },
     where: [{ column: "field_values", operator: "@>", cast: "jsonb", value: [{ fieldId }] }],
     throwIfCancelled,
-    refresh: (itemId) => refreshDiscoveryItemDetailPage(db, itemId),
+    refresh: () => Promise.resolve(),
   });
+  await refreshDiscoveryItemDetailPages(db, itemIds, throwIfCancelled);
 }
 
 async function refreshItemsByDimension(
@@ -590,21 +676,22 @@ async function refreshItemsByDimension(
     [JSON.stringify([dimensionId]), dimensionId],
   );
 
-  for (const row of result.rows) {
-    throwIfCancelled?.();
-    await refreshDiscoveryItemDetailPage(db, row.catalog_item_id);
-  }
-  throwIfCancelled?.();
+  await refreshDiscoveryItemDetailPages(
+    db,
+    result.rows.map((row) => row.catalog_item_id),
+    throwIfCancelled,
+  );
 }
 
 async function refreshAllItems(db: PgQueryable, throwIfCancelled?: () => void): Promise<void> {
-  await refreshAffectedRows(db, {
+  const itemIds = await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
     from: { table: ITEM_DETAIL_CATALOG_ITEMS_TABLE },
     orderBy: [{ column: "catalog_item_id" }],
     throwIfCancelled,
-    refresh: (itemId) => refreshDiscoveryItemDetailPage(db, itemId),
+    refresh: () => Promise.resolve(),
   });
+  await refreshDiscoveryItemDetailPages(db, itemIds, throwIfCancelled);
 }
 
 async function refreshItemsByReferenceRecord(
@@ -627,11 +714,7 @@ async function refreshItemsByReferenceRecord(
     itemIds.push(...(await findCatalogItemIdsByReferenceRecord(db, ITEM_DETAIL_CATALOG_ITEMS_TABLE, recordId)));
   }
 
-  for (const itemId of new Set(itemIds)) {
-    throwIfCancelled?.();
-    await refreshDiscoveryItemDetailPage(db, itemId);
-  }
-  throwIfCancelled?.();
+  await refreshDiscoveryItemDetailPages(db, itemIds, throwIfCancelled);
 }
 
 async function applyCatalogItemDisplayIdentity(

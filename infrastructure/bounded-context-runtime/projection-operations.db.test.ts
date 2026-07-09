@@ -666,16 +666,11 @@ describeDb("projection operations Postgres integration", () => {
       ],
     });
 
-    await expect(runner.runOnce(createProjectionRunContext())).rejects.toThrow(
-      "reaction failed after command dispatch",
-    );
-    await expect(readReactionOrderEvents()).resolves.toEqual([]);
-    await expect(readReactionOrders()).resolves.toEqual([]);
-    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
-    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
-      { event_id: expect.any(String), status: "transient" },
-    ]);
-
+    // The first (batch) attempt dispatches ord_1 and fails after dispatch; its
+    // transaction rolls back and the pass re-executes the event individually
+    // with a fresh transaction (issue #4751), dispatching ord_2. Atomicity is
+    // proven by what is durably visible: ONLY ord_2 exists — the rolled-back
+    // ord_1 dispatch never leaked a row or an event.
     await expect(runner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
       processed: 1,
       lastGlobalPosition: "1",
