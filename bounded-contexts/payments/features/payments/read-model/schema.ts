@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS payments_provider_customers (
 CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
   instrument_id text PRIMARY KEY,
   account_id text NOT NULL,
+  agent_grant_id text NULL,
   payment_method_category text NOT NULL CHECK (payment_method_category IN ('card', 'bank-account', 'platform-credit')),
   provider text NOT NULL,
   provider_customer_reference text NULL,
@@ -149,6 +150,10 @@ CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
 CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_account_idx
   ON payments_saved_checkout_instruments (account_id, is_default DESC, updated_at DESC, instrument_id);
 
+CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_agent_grant_idx
+  ON payments_saved_checkout_instruments (account_id, agent_grant_id, readiness, updated_at DESC, instrument_id)
+  WHERE agent_grant_id IS NOT NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS payments_saved_checkout_instruments_provider_ref_idx
   ON payments_saved_checkout_instruments (provider, provider_reference);
 
@@ -165,9 +170,17 @@ CREATE TABLE IF NOT EXISTS payments_saved_checkout_instrument_audit (
 CREATE INDEX IF NOT EXISTS payments_saved_checkout_instrument_audit_account_idx
   ON payments_saved_checkout_instrument_audit (account_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS payments_revoked_agent_grants (
+  account_id text NOT NULL,
+  agent_grant_id text NOT NULL,
+  revoked_at timestamptz NOT NULL,
+  PRIMARY KEY (account_id, agent_grant_id)
+);
+
 CREATE TABLE IF NOT EXISTS payments_saved_checkout_setup_sessions (
   setup_reference_id text PRIMARY KEY,
   account_id text NOT NULL,
+  agent_grant_id text NULL,
   provider text NOT NULL,
   provider_customer_reference text NOT NULL,
   processor_setup_reference text NOT NULL UNIQUE,
@@ -226,47 +239,23 @@ export const paymentsPaymentSchemaMigrations = [
     description: "Add checkout handoff, payout, refund, and dispute columns to existing payment page read models.",
     statements: [
       `SET lock_timeout = '5s'`,
-      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS balance_credit_amount numeric(12, 2) NULL`,
-      `UPDATE payments_payment_pages SET balance_credit_amount = 0 WHERE balance_credit_amount IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN balance_credit_amount SET DEFAULT 0`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN balance_credit_amount SET NOT NULL`,
-      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_amount numeric(12, 2) NULL`,
-      `UPDATE payments_payment_pages SET processor_amount = 0 WHERE processor_amount IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN processor_amount SET DEFAULT 0`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN processor_amount SET NOT NULL`,
-      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_amount numeric(12, 2) NULL`,
-      `UPDATE payments_payment_pages SET marketplace_checkout_fee_amount = 0 WHERE marketplace_checkout_fee_amount IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN marketplace_checkout_fee_amount SET DEFAULT 0`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN marketplace_checkout_fee_amount SET NOT NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS balance_credit_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_amount numeric(12, 2) NOT NULL DEFAULT 0`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_policy_version text NULL`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_quote_fingerprint text NULL`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS payment_method_category text NULL`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS saved_checkout_instrument_id text NULL`,
-      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12, 2) NULL`,
-      `UPDATE payments_payment_pages SET seller_payout_amount = 0 WHERE seller_payout_amount IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN seller_payout_amount SET DEFAULT 0`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN seller_payout_amount SET NOT NULL`,
-      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payouts jsonb NULL`,
-      `UPDATE payments_payment_pages SET seller_payouts = '[]'::jsonb WHERE seller_payouts IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN seller_payouts SET DEFAULT '[]'::jsonb`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN seller_payouts SET NOT NULL`,
-      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_payment_kind text NULL`,
-      `UPDATE payments_payment_pages SET processor_payment_kind = 'payment-intent' WHERE processor_payment_kind IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN processor_payment_kind SET DEFAULT 'payment-intent'`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN processor_payment_kind SET NOT NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS seller_payouts jsonb NOT NULL DEFAULT '[]'::jsonb`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_payment_kind text NOT NULL DEFAULT 'payment-intent'`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS processor_redirect_url text NULL`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS source_context text NULL`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS source_reference_id text NULL`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS refunded_at timestamptz NULL`,
-      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS refunded_amount numeric(12, 2) NULL`,
-      `UPDATE payments_payment_pages SET refunded_amount = 0 WHERE refunded_amount IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN refunded_amount SET DEFAULT 0`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN refunded_amount SET NOT NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS refunded_amount numeric(12, 2) NOT NULL DEFAULT 0`,
       `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS disputed_at timestamptz NULL`,
-      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS last_stream_version bigint NULL`,
-      `UPDATE payments_payment_pages SET last_stream_version = 0 WHERE last_stream_version IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN last_stream_version SET DEFAULT 0`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN last_stream_version SET NOT NULL`,
+      `ALTER TABLE payments_payment_pages ADD COLUMN IF NOT EXISTS last_stream_version bigint NOT NULL DEFAULT 0`,
       `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_pages_source_idx
   ON payments_payment_pages (source_context, source_reference_id)
   WHERE source_context IS NOT NULL AND source_reference_id IS NOT NULL`,
@@ -296,15 +285,9 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
     statements: [
       `SET lock_timeout = '5s'`,
       `ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS order_refund_caps jsonb NULL`,
-      `UPDATE payments_payment_pages SET order_refund_caps = '[]'::jsonb WHERE order_refund_caps IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN order_refund_caps SET DEFAULT '[]'::jsonb`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN order_refund_caps SET NOT NULL`,
+  ADD COLUMN IF NOT EXISTS order_refund_caps jsonb NOT NULL DEFAULT '[]'::jsonb`,
       `ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS order_refunded_amounts jsonb NULL`,
-      `UPDATE payments_payment_pages SET order_refunded_amounts = '[]'::jsonb WHERE order_refunded_amounts IS NULL`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN order_refunded_amounts SET DEFAULT '[]'::jsonb`,
-      `ALTER TABLE payments_payment_pages ALTER COLUMN order_refunded_amounts SET NOT NULL`,
+  ADD COLUMN IF NOT EXISTS order_refunded_amounts jsonb NOT NULL DEFAULT '[]'::jsonb`,
     ],
   },
   {
@@ -360,6 +343,23 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_saved_checkout_instruments_provider_fingerprint_idx
   ON payments_saved_checkout_instruments (provider, provider_fingerprint)
   WHERE provider_fingerprint IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260709_payments_saved_checkout_instrument_agent_grant",
+    description: "Track agent grant ownership for saved checkout instruments so grant revocation can detach them.",
+    statements: [
+      `ALTER TABLE payments_saved_checkout_instruments ADD COLUMN IF NOT EXISTS agent_grant_id text NULL`,
+      `ALTER TABLE payments_saved_checkout_setup_sessions ADD COLUMN IF NOT EXISTS agent_grant_id text NULL`,
+      `CREATE TABLE IF NOT EXISTS payments_revoked_agent_grants (
+  account_id text NOT NULL,
+  agent_grant_id text NOT NULL,
+  revoked_at timestamptz NOT NULL,
+  PRIMARY KEY (account_id, agent_grant_id)
+)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_saved_checkout_instruments_agent_grant_idx
+  ON payments_saved_checkout_instruments (account_id, agent_grant_id, readiness, updated_at DESC, instrument_id)
+  WHERE agent_grant_id IS NOT NULL`,
     ],
   },
 ] as const;

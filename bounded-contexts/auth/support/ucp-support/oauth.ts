@@ -139,6 +139,9 @@ export type UcpOAuthRoutesOptions = Readonly<{
   // Per-grant spending mandates (agent consent state). Surfaced in introspection and the
   // connected-agents listing, and configured through the mandate endpoint.
   agentGrantConsent?: AgentGrantConsentDirectory;
+  revokeStoredPaymentMethodsForAgentGrant?: (
+    params: Readonly<{ accountId: string; agentGrantId: string; revokedAt: string }>,
+  ) => Promise<unknown>;
 }>;
 
 const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
@@ -577,12 +580,21 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "login_required" }, 401);
     }
 
+    const revokedAt = new Date().toISOString();
+    const agentGrantId = c.req.param("id");
     const revoked = await options.linkedPlatformAuthorizations.revokeAuthorization({
-      authorizationId: c.req.param("id"),
+      authorizationId: agentGrantId,
       accountId: actor.accountId,
-      revokedAt: new Date().toISOString(),
+      revokedAt,
       reason: "account_consent_revoked",
     });
+    if (revoked) {
+      await options.revokeStoredPaymentMethodsForAgentGrant?.({
+        accountId: actor.accountId,
+        agentGrantId,
+        revokedAt,
+      });
+    }
     return c.json({ revoked });
   });
 

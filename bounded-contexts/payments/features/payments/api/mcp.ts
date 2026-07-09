@@ -135,6 +135,7 @@ export function createPaymentMcpHandlers(
       accountId: scopedActor.accountId as AccountId,
       returnUrlBase: `${returnUrl.protocol}//${returnUrl.host}`,
       returnUrlPath: `${returnUrl.pathname}${returnUrl.search}`,
+      agentGrantId: scopedActor.agentGrant?.grantId ?? null,
     });
 
     // Return only the hosted page URL. The processor client secret stays server-side and is never
