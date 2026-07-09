@@ -45,6 +45,7 @@ Product-to-product containment is documented in [Product Contents Contract](./do
 - Provider Source Observations before review and promotion into canonical Catalog Items
 - Catalog Sync Scopes and provider participation previews that decide which provider units may pull Source Observations
 - Catalog Scope Records that make product-line, series, expansion, and set sync identity canonical before provider mappings are applied
+- Provider Scope Mappings that review and persist provider execution coordinates for canonical Catalog Scope Records
 - External Catalog Item References that map third-party product identifiers to Catalog Item truth
 - External Product References that map third-party SKU identifiers to Product selection truth
 - Reference Types and Reference Records that provide rich reusable facts for item fields
@@ -154,6 +155,12 @@ Owns provider-neutral sync intent before Source Observation provider jobs run.
 Owns one canonical sync identity record derived from a Catalog Reference Record, such as a product line, series, Pokemon Expansion, or set-style scope for Magic, Yu-Gi-Oh!, One Piece, and Lorcana.
 
 Catalog Scope Records are provider-independent. They carry product domain, scope kind, Reference Record id/key, lifecycle status, hierarchy links, release date, official set code, and language editions before any Provider Scope Mapping chooses provider ids or names for sync execution.
+
+### Provider Scope Mapping
+
+Owns the reviewed bridge from one provider unit to one Catalog Scope Record.
+
+Provider Scope Mappings are keyed by `scope_record_id`, `provider_key`, and `unit_key`. They persist provider execution coordinates such as product line id, series id, set id, set name, and language coordinates with confidence, provenance, and review status. Only `accepted` and `auto-accepted` mappings are queryable as execution-ready scope mappings; `rejected` and `revoked` mappings remain as audit evidence.
 
 ### External Catalog Item Reference
 

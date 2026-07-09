@@ -11,6 +11,7 @@
     "display-template",
     "product-contents",
     "product-measure-profile",
+    "provider-scope-mapping",
     "reference-type",
     "reference-record",
     "scope-record"
@@ -28,6 +29,7 @@
     "fields",
     "product-contents",
     "product-measures",
+    "provider-scope-mapping",
     "reference-data",
     "scope-registry",
     "source-observations"
@@ -103,6 +105,13 @@
       "projectionName": "catalog-scope-registry-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": ["catalog_scope_records"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "catalog-provider-scope-mapping-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_provider_scope_mappings"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -513,6 +522,11 @@
       "purpose": "Own canonical Catalog Scope Records derived from Reference Records for product-line, series, expansion, and set sync identity.",
       "expectedConsumers": ["source-observations", "Internal catalog module composition"]
     },
+    "provider-scope-mapping": {
+      "classification": "slice",
+      "purpose": "Own reviewed provider execution coordinates that map one provider unit to one canonical Catalog Scope Record.",
+      "expectedConsumers": ["source-observations", "Internal catalog module composition"]
+    },
     "source-observations": {
       "classification": "slice",
       "purpose": "Own provider source observations, review workflow, and promotion of candidate provider facts into canonical Catalog Items.",
@@ -537,6 +551,7 @@
         "fields",
         "product-contents",
         "product-measures",
+        "provider-scope-mapping",
         "reference-data",
         "source-observations"
       ]
@@ -602,6 +617,7 @@
         "display-templates",
         "fields",
         "product-contents",
+        "provider-scope-mapping",
         "reference-data",
         "scope-registry",
         "source-observations"
