@@ -44,6 +44,33 @@ ALTER TABLE event_store_events
   DROP COLUMN IF EXISTS causation_id,
   DROP COLUMN IF EXISTS command_id;
 
+CREATE INDEX IF NOT EXISTS event_store_events_stream_idx
+  ON event_store_events (stream_id, stream_version ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_global_idx
+  ON event_store_events (global_position ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_tenant_global_idx
+  ON event_store_events (tenant_id, global_position ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_type_idx
+  ON event_store_events (event_type);
+
+CREATE INDEX IF NOT EXISTS event_store_events_type_global_idx
+  ON event_store_events (event_type, global_position ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_tenant_type_global_idx
+  ON event_store_events (tenant_id, event_type, global_position ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_stream_prefix_global_idx
+  ON event_store_events (stream_id text_pattern_ops, global_position ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_context_category_type_global_idx
+  ON event_store_events (stream_context_name, stream_category, event_type, global_position ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_context_category_global_idx
+  ON event_store_events (stream_context_name, stream_category, global_position ASC);
+
 CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   projector_name text PRIMARY KEY,
   last_global_position bigint NOT NULL CHECK (last_global_position >= 0),

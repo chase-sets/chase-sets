@@ -566,6 +566,7 @@ export function createEventCorePostgresMock() {
       listPoisonEvents: async () => [],
     }),
     eventCorePostgresSchemaSql: "",
+    eventStoreEventsReadIndexStatements: [],
   };
 }
 
