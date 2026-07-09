@@ -152,7 +152,7 @@ export interface WorkbenchFormProps extends Omit<FormProps, "className" | "style
 }
 
 const workbenchFormClasses: Record<NonNullable<WorkbenchFormProps["variant"]>, string> = {
-  surface: "grid min-w-0 gap-3 rounded-tokenMd border border-border-subtle p-4",
+  surface: "grid min-w-0 gap-3 rounded-tokenMd border border-muted p-4",
   inline: "grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end",
   plain: "grid min-w-0 gap-3",
   button: "inline-flex",
@@ -454,7 +454,7 @@ export interface EvidencePanelProps extends TitledFrameProps<HTMLElement> {
 
 export function EvidencePanel({ eyebrow, title, description, status, children, ...rest }: EvidencePanelProps) {
   return (
-    <section {...rest} className="grid gap-3 border-t border-border-subtle pt-4">
+    <section {...rest} className="grid gap-3 border-t border-muted pt-4">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           {eyebrow ? (
@@ -504,7 +504,7 @@ export function EvidenceList({
             <div
               key={item.key}
               className={cx(
-                "grid gap-1 rounded-tokenMd border border-border-subtle",
+                "grid gap-1 rounded-tokenMd border border-muted",
                 resolvedDensity === "compact" ? "p-2" : "p-3",
               )}
             >

@@ -162,9 +162,6 @@
       "@chase-sets/design-system/commerce/cart-line-item": [
         "./packages/design-system/src/components/commerce/cart-line-item.tsx"
       ],
-      "@chase-sets/design-system/commerce/checkout": [
-        "./packages/design-system/src/components/commerce/checkout.tsx"
-      ],
       "@chase-sets/design-system/commerce/detail": [
         "./packages/design-system/src/components/commerce/detail.tsx"
       ],

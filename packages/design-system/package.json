@@ -21,7 +21,6 @@
     "./commerce": "./src/components/commerce/index.tsx",
     "./commerce/account": "./src/components/commerce/account.tsx",
     "./commerce/cart-line-item": "./src/components/commerce/cart-line-item.tsx",
-    "./commerce/checkout": "./src/components/commerce/checkout.tsx",
     "./commerce/detail": "./src/components/commerce/detail.tsx",
     "./commerce/listings": "./src/components/commerce/listings.tsx",
     "./commerce/panels": "./src/components/commerce/panels.tsx",

@@ -77,7 +77,7 @@ import {
   TokenSwatch,
   Wizard,
 } from "../patterns/app-shells";
-import { Box, SkipLink, Stack, Surface } from "../primitives/layout";
+import { Box, Container, SkipLink, Stack, Surface } from "../primitives/layout";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { ThemePreferenceControl, ThemeToggle } from "../theme/theme-toggle";
 import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
@@ -1292,6 +1292,20 @@ describe("design system components", () => {
     expect(markup).toContain("p-4");
     expect(markup).toContain("md:p-8");
     expect(markup).toContain("lg:gap-6");
+  });
+
+  it("maps Container system props to classes without leaking DOM attributes", () => {
+    const markup = renderToString(
+      <Container gap={3} textAlign="center" data-testid="container">
+        Container content
+      </Container>,
+    );
+
+    expect(markup).toContain("gap-3");
+    expect(markup).toContain("text-center");
+    expect(markup).toContain('data-testid="container"');
+    expect(markup).not.toContain('gap="3"');
+    expect(markup).not.toContain("textAlign");
   });
 
   it("keeps Tailwind spacing keys aligned to SpaceToken CSS variables", () => {
