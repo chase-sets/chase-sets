@@ -9,6 +9,8 @@ export const chartStagingValuesRelativePath = "infrastructure/helm/platform/valu
 const platformMainRelativePath = "infrastructure/digitalocean/platform/main.tf";
 const platformLocalsRelativePath = "infrastructure/digitalocean/platform/locals.tf";
 const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
+const platformHelmChartName = "chase-sets-platform";
+const platformHelmReleaseName = "chase-sets-platform";
 const platformBootstrapCommand = "pnpm --filter @chase-sets/app-platform-api run bootstrap:production";
 const bootstrapQuiesceTimeoutSeconds = 45;
 const bootstrapCommandTimeoutSeconds = 780;
@@ -113,7 +115,7 @@ const envValueDefaults = {
   PLATFORM_ADMIN_DISPLAY_NAME: "Platform Admin",
   CHASE_SETS_PUBLIC_ORIGIN: "",
   CHASE_SETS_MARKETPLACE_ORIGIN: "",
-  CHASE_SETS_INTERNAL_API_ORIGIN: "http://platform-api:8080",
+  CHASE_SETS_INTERNAL_API_ORIGIN: platformApiInternalOrigin(),
   WORKER_MAX_CONCURRENT_RUNNERS: "5",
   WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "1",
   WORKER_PROJECTION_OPERATION_RUNNER_COUNT: "1",
@@ -178,6 +180,28 @@ export const doksStagingWorkerEnvOverrides = {
 };
 
 const rolloutEligibleComponents = new Set(["public-web", "marketplace"]);
+
+export function platformHelmFullname(options = {}) {
+  const fullnameOverride = options.fullnameOverride ?? "";
+  if (fullnameOverride) {
+    return helmDnsName(fullnameOverride);
+  }
+
+  const chartName = helmDnsName(options.nameOverride || options.chartName || platformHelmChartName);
+  return helmDnsName(`${options.releaseName || platformHelmReleaseName}-${chartName}`);
+}
+
+export function platformHelmComponentName(componentName, options = {}) {
+  return helmDnsName(`${platformHelmFullname(options)}-${componentName}`);
+}
+
+function platformApiInternalOrigin() {
+  return `http://${platformHelmComponentName("platform-api")}:8080`;
+}
+
+function helmDnsName(value) {
+  return String(value).slice(0, 63).replace(/-+$/u, "");
+}
 
 // DOKS-only health wiring. App Platform workers expose no HTTP port, but the
 // worker runs an in-process health server (/health/live + /health/ready) that

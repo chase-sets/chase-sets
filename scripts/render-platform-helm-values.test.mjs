@@ -9,6 +9,8 @@ import {
   chartValuesRelativePath,
   doksStagingWorkerEnvOverrides,
   extractDigitalOceanPlatformComponents,
+  platformHelmComponentName,
+  platformHelmFullname,
   readPlatformSources,
   syncPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
@@ -24,6 +26,10 @@ function componentNames(collections) {
 
 function componentEnvKeys(component) {
   return component.env.map((entry) => entry.name).sort();
+}
+
+function componentEnvValue(component, name) {
+  return component.env.find((entry) => entry.name === name)?.value;
 }
 
 function expectedHelmEnvKeys(terraformComponent) {
@@ -100,6 +106,22 @@ describe("render platform Helm values", () => {
     expect(values.components["platform-bootstrap"].source.instanceCountExpression).toBe("1");
     expect(values.components["platform-bootstrap"].command).toBe(
       "pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
+    );
+  });
+
+  it("derives the in-cluster platform-api origin from the Helm service name", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+
+    expect(platformHelmFullname()).toBe("chase-sets-platform-chase-sets-platform");
+    expect(platformHelmComponentName("platform-api")).toBe("chase-sets-platform-chase-sets-platform-platform-api");
+    expect(componentEnvValue(values.components["admin-web"], "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
+      "http://chase-sets-platform-chase-sets-platform-platform-api:8080",
+    );
+    expect(componentEnvValue(values.components.marketplace, "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
+      "http://chase-sets-platform-chase-sets-platform-platform-api:8080",
+    );
+    expect(componentEnvValue(values.components["public-web"], "CHASE_SETS_INTERNAL_API_ORIGIN")).toBe(
+      "http://chase-sets-platform-chase-sets-platform-platform-api:8080",
     );
   });
 
