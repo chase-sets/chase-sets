@@ -701,20 +701,28 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           activeSharedSlotCount -= 1;
         }
         if (leaseAcquired) {
-          // A projection-group runner that finished with nothing to process but
-          // still has parked blocked streams must not keep holding the shared
-          // `projection-group:<name>` lease. Blocked-stream retry and rebuild
-          // projection operations acquire that exact lease; while an idle group
-          // runner (frequently on another worker) holds it, every such operation
-          // fails with "Projection runner lease ... is already active" and the
-          // parked poison can never be re-applied — no projection-handler,
-          // config, or migration fix can bite because the retry apply path never
-          // runs. Yielding the idle-but-degraded lease lets the queued operation
-          // acquire it and execute the (fixed) retry-apply path.
-          if (acquiredLease && shouldYieldRunnerLeaseForPendingOperation(runner, completedResult)) {
+          // A projection-group runner that finished an idle pass (processed
+          // nothing) must not keep holding the shared `projection-group:<name>`
+          // lease. Two consumer classes acquire that exact lease, frequently
+          // from another worker:
+          // - blocked-stream retry / rebuild projection operations (#4496):
+          //   while an idle holder keeps the lease, every retry fails with
+          //   "Projection runner lease ... is already active" and parked poison
+          //   can never be re-applied;
+          // - projection WAKE runners (#4730): the hot/standard wake lanes run
+          //   the group under this lease for read-after-write freshness. A
+          //   hoarded idle lease forces every wake into claim/defer loops
+          //   (observed live: a checkout hot intent deferred
+          //   "lease was busy" every second for 3+ minutes, then completed
+          //   already-satisfied) — the push-wake fast path degrades to the
+          //   polling loop's rotation latency, which stretches to minutes
+          //   during post-rollout replay.
+          // Busy passes (processed > 0) keep the lease and reschedule
+          // immediately, so backlog draining never churns its lease.
+          if (acquiredLease && shouldYieldIdleProjectionGroupLease(runner, completedResult)) {
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
-            // freed lease stays available for the queued retry/rebuild operation.
+            // freed lease stays available for queued wakes and operations.
             void releaseHeldRunnerLease(acquiredLease, false).catch((error: unknown) => {
               options.onError?.(error, runner);
             });
@@ -833,21 +841,21 @@ function shouldRescheduleAfterCompletion(runner: WorkerRunner, result?: Projecto
   return result.processed > 0 || runner.rescheduleOnCompletion?.(result) === true;
 }
 
-// Blocked-stream retry and rebuild projection operations acquire the same
-// `projection-group:<name>` lease that the continuously scheduled
-// projection-group runner holds. A caught-up group runner (processed nothing)
-// that still has parked blocked streams has no work of its own to do, so it
-// must release that lease instead of hoarding it — otherwise the queued
-// recovery operation can never acquire it and the parked poison is stuck. A
-// group that actually advanced (processed > 0) keeps its lease so healthy
-// replay is never churned.
-function shouldYieldRunnerLeaseForPendingOperation(runner: WorkerRunner, result?: ProjectorRunResult): boolean {
-  return (
-    runner.kind === "projection-group" &&
-    result !== undefined &&
-    result.processed === 0 &&
-    (result.blockedStreams ?? 0) > 0
-  );
+// Projection wake runners (#4730) and blocked-stream retry / rebuild
+// projection operations (#4496) acquire the same `projection-group:<name>`
+// lease that the continuously scheduled projection-group runner holds. A group
+// runner whose pass processed nothing has no work of its own, so it must
+// release that lease instead of hoarding it: a hoarded idle lease starves
+// every wake into claim/defer loops (read-after-write freshness degrades to
+// the polling loop's rotation latency, which stretches to minutes during
+// post-rollout replay) and blocks queued recovery operations. This
+// deliberately reverses the earlier hold-when-idle-and-healthy behavior —
+// holding N idle leases costs a renewal per lease every renew interval while
+// denying the wake fast path entirely, so releasing is cheaper AND correct. A
+// group that actually advanced (processed > 0) keeps its lease and reschedules
+// immediately, so active backlog draining is never churned.
+function shouldYieldIdleProjectionGroupLease(runner: WorkerRunner, result?: ProjectorRunResult): boolean {
+  return runner.kind === "projection-group" && result !== undefined && result.processed === 0;
 }
 
 function clampReservedRunnerSlots(
