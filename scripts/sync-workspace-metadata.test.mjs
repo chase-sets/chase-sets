@@ -94,10 +94,10 @@ describe("sync-workspace-metadata --check", () => {
     expect(tsconfigBase.compilerOptions).toMatchObject({
       module: "Preserve",
       moduleResolution: "Bundler",
-      verbatimModuleSyntax: true,
     });
     expect(tsconfigBase.compilerOptions).not.toHaveProperty("importsNotUsedAsValues");
     expect(tsconfigBase.compilerOptions).not.toHaveProperty("preserveValueImports");
+    expect(tsconfigBase.compilerOptions).not.toHaveProperty("verbatimModuleSyntax");
     expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).not.toThrow();
   });
 

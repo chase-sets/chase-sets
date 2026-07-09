@@ -745,7 +745,6 @@
       "@chase-sets/web-notifications": [
         "./infrastructure/web-notifications/index.ts"
       ]
-    },
-    "verbatimModuleSyntax": true
+    }
   }
 }

@@ -32,10 +32,10 @@ const ts7CompatibleCompilerOptions = {
   forceConsistentCasingInFileNames: true,
   resolveJsonModule: true,
   allowSyntheticDefaultImports: true,
-  verbatimModuleSyntax: true,
   noEmit: true,
   baseUrl: ".",
 };
+const appBuildSemanticCompilerOptions = ["verbatimModuleSyntax"];
 
 function buildLegacyPlatformRuntimeRegistryPaths(rootDir) {
   return [
@@ -281,6 +281,9 @@ function syncTsconfigBase(workspaces, options) {
     ...ts7CompatibleCompilerOptions,
   };
   for (const option of legacyTsconfigCompilerOptions) {
+    delete current.compilerOptions[option];
+  }
+  for (const option of appBuildSemanticCompilerOptions) {
     delete current.compilerOptions[option];
   }
   current.compilerOptions.paths = buildTsconfigPaths(workspaces, rootDir);
