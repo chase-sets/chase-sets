@@ -47,6 +47,7 @@ const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.y
 const platformCoverageWorkflow = readFileSync(resolve(".github/workflows/platform-coverage.yml"), "utf8");
 const platformDoksFoundationWorkflow = readFileSync(resolve(".github/workflows/platform-doks-foundation.yml"), "utf8");
 const platformKubernetesDeploymentScript = readFileSync(resolve("scripts/platform-kubernetes-deployment.mjs"), "utf8");
+const renderPlatformHelmValuesScript = readFileSync(resolve("scripts/render-platform-helm-values.mjs"), "utf8");
 const previewPostgresTemplate = readFileSync(
   resolve("infrastructure/helm/platform/templates/preview-postgres.yaml"),
   "utf8",
@@ -2632,6 +2633,38 @@ describe("DigitalOcean platform configuration", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "publishes this preview's own `pr-<number>.preview.chasesets.com` apex A record and a `*.pr-<number>.preview.chasesets.com` wildcard",
     );
+  });
+
+  it("blocks on the preview ACME certificate before probing https ingress URLs", () => {
+    const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const certStep = workflowStep(deployJob, "Wait for preview TLS certificate");
+
+    // cert-manager's ingress-shim names the Certificate after the preview TLS
+    // secret, which the preview Helm values set to "<preview>-platform-tls".
+    expect(certStep).toContain('certificate_name="${PREVIEW_IDENTIFIER}-platform-tls"');
+    expect(certStep).toContain('namespace="$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(certStep).toContain('kubectl wait --for=condition=Ready "certificate/${certificate_name}"');
+    expect(certStep).toContain("--timeout=600s");
+    // Timeout surfaces a clear message and dumps cert-manager diagnostics.
+    expect(certStep).toContain('kubectl describe "certificate/${certificate_name}"');
+    expect(certStep).toContain("kubectl get certificaterequests,orders,challenges");
+    expect(certStep).toContain("kubectl describe challenges");
+
+    // The cert wait sits after the Helm deploy issues the Ingress and before the
+    // https ingress-URL readiness probes, which then pass quickly.
+    const deployIndex = deployJob.indexOf("- name: Deploy preview Kubernetes release");
+    const certIndex = deployJob.indexOf("- name: Wait for preview TLS certificate");
+    const waitIndex = deployJob.indexOf("- name: Wait for preview ingress URLs");
+    expect(certIndex).toBeGreaterThan(deployIndex);
+    expect(certIndex).toBeLessThan(waitIndex);
+
+    // The app-host https /health/ready probes remain the final end-to-end gate.
+    const waitStep = workflowStep(deployJob, "Wait for preview ingress URLs");
+    expect(waitStep).toContain('"https://${admin_domain}/health/ready"');
+    expect(waitStep).toContain('"https://${marketplace_domain}/health/ready"');
+
+    // The preview TLS certificate secret name matches the derived resource name.
+    expect(renderPlatformHelmValuesScript).toContain("secretName: `${previewIdentifier}-platform-tls`");
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {

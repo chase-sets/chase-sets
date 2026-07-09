@@ -1228,6 +1228,30 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" || true
 
+      # The ingress-URL wait probes https, so it can only pass once cert-manager
+      # has issued the ACME certificate. Issuance for a cold preview only starts
+      # after DNS is live (this deploy) and HTTP-01 validation across all three
+      # hosts takes several minutes — longer than the ingress-wait window. Block
+      # on the Certificate becoming Ready first so the https probes then pass
+      # fast. cert-manager's ingress-shim names the Certificate after the TLS
+      # secret, which the preview Helm values set to "${PREVIEW_IDENTIFIER}-platform-tls".
+      - name: Wait for preview TLS certificate
+        run: |
+          set -euo pipefail
+          certificate_name="${PREVIEW_IDENTIFIER}-platform-tls"
+          namespace="$CHASE_SETS_KUBERNETES_NAMESPACE"
+          echo "Waiting up to 10m for cert-manager Certificate ${certificate_name} in ${namespace} to become Ready (cold-preview ACME HTTP-01 issuance across all hosts takes several minutes)."
+          if ! kubectl wait --for=condition=Ready "certificate/${certificate_name}" \
+            --namespace "$namespace" \
+            --timeout=600s; then
+            echo "::error::Preview TLS certificate ${certificate_name} did not become Ready within 10m; dumping cert-manager diagnostics." >&2
+            kubectl describe "certificate/${certificate_name}" --namespace "$namespace" || true
+            kubectl get certificaterequests,orders,challenges --namespace "$namespace" -o wide || true
+            kubectl describe challenges --namespace "$namespace" || true
+            exit 1
+          fi
+          echo "Preview TLS certificate ${certificate_name} is Ready."
+
       - name: Wait for preview ingress URLs
         id: preview_domains
         run: |
