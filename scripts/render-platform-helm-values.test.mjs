@@ -74,7 +74,10 @@ describe("render platform Helm values", () => {
     });
     expect(values.previewPostgres).toMatchObject({
       enabled: false,
-      image: { repository: "postgres", tag: "16-alpine" },
+      // Must match local dev and CI DB-test containers: the discovery schema
+      // bootstrap requires the pgvector extension, which postgres:*-alpine
+      // images do not ship.
+      image: { repository: "pgvector/pgvector", tag: "pg16" },
       service: { port: 5432 },
       secretName: "chase-sets-preview-postgres",
       storage: { emptyDir: {} },

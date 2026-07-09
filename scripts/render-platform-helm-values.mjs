@@ -310,8 +310,12 @@ export function buildPlatformHelmValues(options = {}) {
     previewPostgres: {
       enabled: false,
       image: {
-        repository: "postgres",
-        tag: "16-alpine",
+        // Same image as local dev (docker-compose.dev.yml) and CI DB-test
+        // service containers: Debian-based Postgres 16 with pgvector baked in.
+        // The discovery context's schema bootstrap runs CREATE EXTENSION
+        // vector, which plain postgres:16-alpine does not ship.
+        repository: "pgvector/pgvector",
+        tag: "pg16",
         pullPolicy: "IfNotPresent",
       },
       service: {
