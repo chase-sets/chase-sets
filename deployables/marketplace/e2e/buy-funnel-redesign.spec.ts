@@ -5,8 +5,8 @@ import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/
 // Charter scope: this spec owns the buy-funnel redesign verification (milestone
 // #33, issue #1858). It exercises the REDESIGNED surfaces — cart, checkout
 // session, and confirmation — and asserts the original cart-review defects are
-// CLOSED per the acceptance signals in
-// bounded-contexts/checkout/docs/buy-funnel-redesign.md.
+// CLOSED per the acceptance signals in the closed buy-funnel epic:
+// https://github.com/chase-sets/chase-sets/issues/1850.
 //
 // Defects asserted:
 //   1. The literal string "Price at checkout" appears ZERO times across the

@@ -42,7 +42,7 @@ Identity owns users and the accounts they act for in Chase Sets.
 
 Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossary as the canonical style guide for new context glossaries.
 
-User preference ownership and milestone #55 proof expectations are documented in [User Preferences Proof Plan](./docs/user-preferences-proof-plan.md).
+User preference ownership is governed by [Settings Ownership](../../docs/architecture/settings-ownership.md). The completed milestone #55 proof is retained in [issue #2704](https://github.com/chase-sets/chase-sets/issues/2704).
 
 ## Core Aggregates and Process Managers
 

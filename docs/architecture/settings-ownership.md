@@ -30,4 +30,4 @@ Ownership is proven by code shape and tests:
 - end-to-end tests prove cross-device convergence for signed-in users;
 - SSR or pre-hydration tests prove first-paint behavior when a persisted presentation preference affects the initial shell.
 
-The user preferences proof checklist lives in [Identity User Preferences Proof Plan](../../bounded-contexts/identity/docs/user-preferences-proof-plan.md).
+The completed user-preferences proof record is retained in [issue #2704](https://github.com/chase-sets/chase-sets/issues/2704); ongoing behavior is guarded by the context, shell, design-system, and end-to-end tests described above.
