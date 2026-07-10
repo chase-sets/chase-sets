@@ -31,6 +31,7 @@ export default [
   route("favicon.svg", "routes/favicon-svg.ts"),
   route("favicon.ico", "routes/favicon.ts"),
   route("health/ready", "routes/health-ready.ts"),
+  route("health/live", "routes/health-live.ts"),
   route("offline", "routes/offline.tsx"),
   route("/", "routes/index.tsx"),
   ...adminSections.flatMap((section) => sectionRoutes(section, "root")),

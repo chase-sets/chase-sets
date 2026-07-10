@@ -21,6 +21,7 @@ export default [
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
   route("health/ready", "routes/health-ready.ts"),
+  route("health/live", "routes/health-live.ts"),
   route(protectionRedirectPath, "routes/order-protection-redirect.ts"),
   route(feesRedirectPath, "routes/sales-fees-redirect.ts"),
   route("*", "routes/not-found.tsx"),

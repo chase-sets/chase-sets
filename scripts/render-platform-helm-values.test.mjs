@@ -305,27 +305,41 @@ describe("render platform Helm values", () => {
     expect(previewAndProductionApi.resources).toEqual({});
   });
 
-  it("leaves liveness untouched for components that do not serve /health/live", () => {
-    // Verified against source: admin-web, marketplace, and public-web each
-    // register only a `health/ready` route (deployables/<name>/app/routes.ts
-    // -> routes/health-ready.ts using createWebReadyLoader) and expose no
-    // /health/live route, unlike platform-api (createHealthRoutes in
+  it("gives the web deployables tolerant liveness now that each serves /health/live", () => {
+    // #4767: admin-web, marketplace, and public-web each register a
+    // `health/live` route (deployables/<name>/app/routes.ts ->
+    // routes/health-live.ts using createWebLiveLoader) that returns
+    // { status: "ok" } with no database or upstream call, alongside their
+    // existing `health/ready` route (-> routes/health-ready.ts using
+    // createWebReadyLoader). They now opt into the same tolerant
+    // livenessPath/livenessProbe as platform-api (createHealthRoutes in
     // infrastructure/platform-runtime/health.ts, mounted at /health) and
-    // platform-worker (deployables/platform-worker/src/main.ts). Their
-    // liveness must keep falling back to healthPath unchanged.
+    // platform-worker (deployables/platform-worker/src/main.ts) got in #4765.
     const values = buildPlatformHelmValues({ repoRoot });
+    const tolerantLivenessProbe = {
+      periodSeconds: 10,
+      timeoutSeconds: 5,
+      failureThreshold: 6,
+    };
 
     for (const name of ["admin-web", "marketplace", "public-web"]) {
       const component = values.components[name];
-      expect(component.livenessPath, `${name} should not get a livenessPath override`).toBeUndefined();
-      expect(component.livenessProbe, `${name} should not get a livenessProbe override`).toBeUndefined();
+      expect(component.livenessPath, `${name} should get the tolerant /health/live livenessPath`).toBe("/health/live");
+      expect(component.livenessProbe, `${name} should get the tolerant livenessProbe timings`).toEqual(
+        tolerantLivenessProbe,
+      );
+      // startupPath stays scoped to platform-api/platform-worker's heavier
+      // boot sequence; the web deployables never get a startup grace probe.
+      expect(component.startupPath, `${name} should not get a startupPath`).toBeUndefined();
     }
 
+    // Readiness stays strict and unchanged: traffic gating and rollout
+    // behavior are not touched by the liveness fix (public-web's DigitalOcean
+    // health_check http_path is "/" today, predating this change; the other
+    // two use their own `health/ready` route).
     expect(values.components["public-web"].healthPath).toBe("/");
     expect(values.components.marketplace.healthPath).toBe("/health/ready");
-    expect(values.components.marketplace.startupPath).toBeUndefined();
     expect(values.components["admin-web"].healthPath).toBe("/health/ready");
-    expect(values.components["admin-web"].startupPath).toBeUndefined();
   });
 
   it("gives the staging DOKS worker relay ownership now that the App Platform worker is omitted", () => {

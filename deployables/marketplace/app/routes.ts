@@ -30,6 +30,7 @@ export default [
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
   route("health/ready", "routes/health-ready.ts"),
+  route("health/live", "routes/health-live.ts"),
   route("analytics/item-detail-rail", "routes/item-detail-rail-analytics.ts"),
   route("offline", "routes/offline.tsx"),
   layout("routes/layout.tsx", [index("routes/index.tsx"), ...layoutContextRoutes, route("*", "routes/not-found.tsx")]),
