@@ -41,6 +41,26 @@ const fulfillmentPostageLabelOperationsActiveKindIndexSql = `CREATE UNIQUE INDEX
   ON fulfillment_postage_label_operations (shipment_id, operation_kind)
   WHERE status IN ('pending', 'provider-succeeded');`;
 
+const fulfillmentShipmentPostageLabelDuplicateBackfillSql = `WITH duplicate_postage_labels AS (
+  SELECT
+    shipment_id,
+    ROW_NUMBER() OVER (
+      PARTITION BY postage_provider_name, postage_provider_label_id
+      ORDER BY updated_at DESC, shipment_id DESC
+    ) AS duplicate_rank
+  FROM fulfillment_shipment_pages
+  WHERE postage_provider_label_id IS NOT NULL
+)
+UPDATE fulfillment_shipment_pages AS shipment
+SET postage_provider_label_id = NULL
+FROM duplicate_postage_labels AS duplicate
+WHERE shipment.shipment_id = duplicate.shipment_id
+  AND duplicate.duplicate_rank > 1;`;
+
+const fulfillmentShipmentPostageLabelProviderUniqueIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_shipment_pages_postage_label_idx
+  ON fulfillment_shipment_pages (postage_provider_name, postage_provider_label_id)
+  WHERE postage_provider_label_id IS NOT NULL;`;
+
 export const fulfillmentShipmentSchemaSql = `
 CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   shipment_id text PRIMARY KEY,
@@ -214,9 +234,19 @@ export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] =
     migrationId: "20260703_fulfillment_postage_label_operation_active_fence",
     description: "Normalize postage label operation status checks and active-operation uniqueness.",
     statements: [
+      `SET lock_timeout = '5s'`,
       fulfillmentPostageLabelOperationsStatusConstraintSql,
       fulfillmentPostageLabelOperationsDuplicateActiveBackfillSql,
       fulfillmentPostageLabelOperationsActiveKindIndexSql,
+    ],
+  },
+  {
+    migrationId: "20260710_fulfillment_shipment_postage_label_provider_uniqueness",
+    description:
+      "Clear duplicate provider label ids and enforce provider-scoped uniqueness for purchased postage labels.",
+    statements: [
+      fulfillmentShipmentPostageLabelDuplicateBackfillSql,
+      fulfillmentShipmentPostageLabelProviderUniqueIndexSql,
     ],
   },
 ];

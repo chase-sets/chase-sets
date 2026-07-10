@@ -417,6 +417,57 @@ describe("fulfillment shipment domain", () => {
     expect(rejectedState.labelStatus).toBe("void-rejected");
   });
 
+  it("supersedes the voided provider label id when a shipment is reissued a new label", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+    expect(labeledState.postageProviderLabelId).toBe("plbl_123");
+
+    const voidRequestedState = decideFulfillmentShipment(labeledState, {
+      type: "VoidShipmentLabel",
+      refundStatus: "submitted",
+      refundReference: "rfnd_1",
+      voidedAt: "2026-04-02T00:15:00.000Z",
+    }).reduce(evolveFulfillmentShipment, labeledState);
+    const voidedState = decideFulfillmentShipment(voidRequestedState, {
+      type: "RecordShipmentLabelRefundStatus",
+      refundStatus: "refunded",
+      refundReference: "rfnd_1",
+      resolvedAt: "2026-04-02T00:20:00.000Z",
+    }).reduce(evolveFulfillmentShipment, voidRequestedState);
+
+    // The voided label id is still visible on the read model until a new label
+    // is attached: the constraint that protects against cross-shipment
+    // collisions only ever sees the shipment's *current* label id, so a
+    // reissue for the same shipment cannot self-collide with its own void.
+    expect(voidedState.postageProviderLabelId).toBe("plbl_123");
+    expect(voidedState.status).toBe("awaiting-label");
+    expect(voidedState.labelStatus).toBe("voided");
+
+    const reissuedState = decideFulfillmentShipment(voidedState, {
+      type: "AttachShipmentLabel",
+      shippingMethod: "priority",
+      carrierName: "USPS",
+      labelReference: "lbl_456",
+      labelDocumentUrl: "https://labels.test/lbl_456.pdf",
+      trackingIdentifier: "trk_456",
+      postageProviderName: "sandbox-usps",
+      postageProviderMode: "test",
+      postageProviderShipmentId: "pshp_456",
+      postageProviderLabelId: "plbl_456",
+      postageRateId: "rate_456",
+      postageServiceLevel: "USPS_GROUND_ADVANTAGE",
+      postageAmountCents: 599,
+      postageCurrency: "USD",
+      attachedAt: "2026-04-02T00:25:00.000Z",
+    }).reduce(evolveFulfillmentShipment, voidedState);
+
+    // The reissued label id fully replaces the voided one on this shipment's
+    // row, so the provider-scoped uniqueness index never sees both ids
+    // persisted for the same shipment at once.
+    expect(reissuedState.postageProviderLabelId).toBe("plbl_456");
+    expect(reissuedState.status).toBe("label-attached");
+    expect(reissuedState.labelStatus).toBe("purchased");
+  });
+
   it("cancels a shipment before package preparation starts", () => {
     const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
       type: "CreateShipment",
