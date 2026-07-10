@@ -11,6 +11,7 @@ import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import { orderingRetentionSchemaMigrations, orderingRetentionSweeps } from "./support/runtime-support/retention-policy";
 import type { OrderingServiceOptions, OrderingServices } from "./support/runtime-support/services";
 import { buildOrderingAccountProjectionHandlers } from "./support/account-support/projection";
 import { buildOrderingApi } from "./api";
@@ -80,7 +81,8 @@ async function filterCancelledOrderIds(
 export const module = defineBoundedContextModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions>({
   manifest: orderingContextManifest,
   schemaSql: orderingSchemaSql,
-  schemaMigrations: orderingSchemaMigrations,
+  retentionSweeps: orderingRetentionSweeps,
+  schemaMigrations: [...orderingSchemaMigrations, ...orderingRetentionSchemaMigrations],
   createServices: (pool, options) => createOrderingServices(pool, options),
   buildApis: (services) => [buildOrderingApi(services)],
   buildMcpHandlers: (services) => createOrderingOrderMcpHandlers(services.orders),

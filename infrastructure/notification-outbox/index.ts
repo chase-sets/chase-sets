@@ -59,7 +59,11 @@ CREATE INDEX IF NOT EXISTS ${DEFAULT_TABLE_NAME}_source_idx
   ON ${DEFAULT_TABLE_NAME} (projection_name, source_global_position);
 
 CREATE INDEX IF NOT EXISTS ${DEFAULT_TABLE_NAME}_message_idx
-  ON ${DEFAULT_TABLE_NAME} (idempotency_key, channel);`;
+  ON ${DEFAULT_TABLE_NAME} (idempotency_key, channel);
+
+CREATE INDEX IF NOT EXISTS ${DEFAULT_TABLE_NAME}_terminal_retention_idx
+  ON ${DEFAULT_TABLE_NAME} (updated_at, outbox_id)
+  WHERE status IN ('sent', 'failed');`;
 
 export type PostgresNotificationOutboxOptions = Readonly<{
   db: PgQueryable;

@@ -189,6 +189,10 @@ CREATE INDEX IF NOT EXISTS platform_projection_operations_target_idx
 CREATE INDEX IF NOT EXISTS platform_projection_operations_actor_requested_idx
   ON platform_projection_operations (requested_by_user_id, requested_at DESC);
 
+CREATE INDEX IF NOT EXISTS platform_projection_operations_retention_idx
+  ON platform_projection_operations (completed_at)
+  WHERE state IN ('succeeded', 'failed', 'cancelled');
+
 CREATE TABLE IF NOT EXISTS platform_projection_operation_events (
   operation_id text NOT NULL REFERENCES platform_projection_operations(operation_id) ON DELETE CASCADE,
   sequence integer NOT NULL CHECK (sequence >= 1),
@@ -200,6 +204,9 @@ CREATE TABLE IF NOT EXISTS platform_projection_operation_events (
 
 CREATE INDEX IF NOT EXISTS platform_projection_operation_events_lookup_idx
   ON platform_projection_operation_events (operation_id, sequence);
+
+CREATE INDEX IF NOT EXISTS platform_projection_operation_events_retention_idx
+  ON platform_projection_operation_events (created_at);
 
 CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases (
   lease_id text PRIMARY KEY,

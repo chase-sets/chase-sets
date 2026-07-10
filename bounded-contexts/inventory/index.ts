@@ -12,6 +12,11 @@ import type {
   OrderingOrderCreatedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import contextManifest from "./context.json";
+import {
+  inventoryRetentionExemptions,
+  inventoryRetentionSchemaMigrations,
+  inventoryRetentionSweeps,
+} from "./support/runtime-support/retention-policy";
 import type { InventoryHostPorts, InventoryServices } from "./support/runtime-support/services";
 import { buildInventoryApi } from "./api";
 import { reserveOrderInventoryRequest } from "./features/reservations/api/order-reservation-workflow";
@@ -30,7 +35,9 @@ const inventoryContextManifest = contextManifest as BcContextManifest;
 export const module = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
   manifest: inventoryContextManifest,
   schemaSql: inventorySchemaSql,
-  schemaMigrations: inventorySchemaMigrations,
+  retentionSweeps: inventoryRetentionSweeps,
+  retentionExemptions: inventoryRetentionExemptions,
+  schemaMigrations: [...inventorySchemaMigrations, ...inventoryRetentionSchemaMigrations],
   createServices: (pool, ports, options) => createInventoryServices(pool, ports, options),
   buildApis: (services) => [buildInventoryApi(services)],
   buildMcpHandlers: (services) => {

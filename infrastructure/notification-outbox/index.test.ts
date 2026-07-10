@@ -94,6 +94,7 @@ describe("notification outbox", () => {
     expect(queries[3]?.[0]).toBe("notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_1:web:4");
     expect(queries[4]?.[0]).toBe("notification-delivery:v1:ordering%3Aorder_confirmed%3Aord_1:push:5");
     expect(notificationOutboxSchemaSql).toContain("notification_outbox");
+    expect(notificationOutboxSchemaSql).toContain("notification_outbox_terminal_retention_idx");
     expect(notificationOutboxSchemaSql).not.toContain("channel IN ('email', 'web')");
   });
 

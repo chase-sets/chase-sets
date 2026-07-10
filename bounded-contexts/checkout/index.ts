@@ -3,6 +3,7 @@ export { default as contextManifest } from "./context.json";
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import { checkoutRetentionSchemaMigrations, checkoutRetentionSweeps } from "./support/runtime-support/retention-policy";
 import { buildCheckoutApi } from "./api";
 import { createCheckoutCartMcpHandlers } from "./features/cart/api/mcp";
 import { buildCheckoutCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
@@ -24,7 +25,8 @@ import { seedCheckoutDatabase } from "./support/runtime-support/seed";
 export const module = defineBoundedContextModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts>({
   manifest: contextManifest,
   schemaSql: checkoutSchemaSql,
-  schemaMigrations: checkoutSchemaMigrations,
+  schemaMigrations: [...checkoutSchemaMigrations, ...checkoutRetentionSchemaMigrations],
+  retentionSweeps: checkoutRetentionSweeps,
   createServices: (pool, options) => createCheckoutServices(pool, options),
   buildApis: (services) => [buildCheckoutApi(services)],
   buildMcpHandlers: (services) => {

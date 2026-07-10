@@ -3,6 +3,7 @@ export { default as contextManifest } from "./context.json";
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import { fulfillmentRetentionExemptions, fulfillmentRetentionSweeps } from "./support/runtime-support/retention-policy";
 import type { FulfillmentHostPorts, FulfillmentServices } from "./support/runtime-support/services";
 import { buildFulfillmentApi, buildFulfillmentProviderWebhookApi } from "./api";
 import { createFulfillmentServices } from "./support/runtime-support/services";
@@ -17,6 +18,8 @@ import { createFulfillmentShipmentMcpHandlers } from "./features/shipments/api/m
 export const module = defineBoundedContextModule<FulfillmentServices, PgTransactionalPool, FulfillmentHostPorts>({
   manifest: contextManifest,
   schemaSql: fulfillmentSchemaSql,
+  retentionSweeps: fulfillmentRetentionSweeps,
+  retentionExemptions: fulfillmentRetentionExemptions,
   schemaMigrations: fulfillmentSchemaMigrations,
   createServices: (pool, ports) => createFulfillmentServices(pool, ports),
   buildApis: (services) => [buildFulfillmentApi(services), buildFulfillmentProviderWebhookApi(services)],

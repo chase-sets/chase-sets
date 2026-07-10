@@ -3,6 +3,7 @@ export { default as contextManifest } from "./context.json";
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import { discoveryRetentionSweeps } from "./support/runtime-support/retention-policy";
 import type { DiscoveryServices } from "./support/runtime-support/services";
 import { buildDiscoveryApi } from "./api";
 import { buildDiscoveryCategoryProjectionHandlers } from "./features/categories/read-model/projection";
@@ -19,6 +20,7 @@ import { createDiscoveryItemMcpHandlers } from "./support/item-support/mcp";
 export const module = defineBoundedContextModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts>({
   manifest: contextManifest,
   schemaSql: discoverySchemaSql,
+  retentionSweeps: discoveryRetentionSweeps,
   schemaMigrations: discoverySchemaMigrations,
   createServices: (pool, ports) => createDiscoveryServices(pool, ports),
   buildApis: (services) => [buildDiscoveryApi(services)],

@@ -9,6 +9,11 @@ import {
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import {
+  paymentsRetentionExemptions,
+  paymentsRetentionSchemaMigrations,
+  paymentsRetentionSweeps,
+} from "./support/runtime-support/retention-policy";
 import type { PaymentsServices, PaymentsServiceOptions } from "./support/runtime-support/services";
 import { buildPaymentsApi } from "./api";
 import { createPaymentMcpHandlers } from "./features/payments/api/mcp";
@@ -50,7 +55,9 @@ function subscriptionEventContext(event: SubscriptionContextEvent): EventStoreCo
 export const module = defineBoundedContextModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>({
   manifest: paymentsContextManifest,
   schemaSql: paymentsSchemaSql,
-  schemaMigrations: paymentsSchemaMigrations,
+  retentionSweeps: paymentsRetentionSweeps,
+  retentionExemptions: paymentsRetentionExemptions,
+  schemaMigrations: [...paymentsSchemaMigrations, ...paymentsRetentionSchemaMigrations],
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [buildPaymentsApi(services), createPaymentProcessorWebhookRoutes(services.payments)],
   buildMcpHandlers: (services) => createPaymentMcpHandlers(services.payments),

@@ -50,6 +50,7 @@ import {
 import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/platform-runtime/projection-push-migration";
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
+import { collectRetentionSweepTargets, createRetentionSweepRunner } from "@chase-sets/platform-runtime/retention-sweep";
 import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   assertRunnerCapacity,
@@ -310,6 +311,28 @@ const scheduledJobRunners = platformWorkerGroupsEnabled
         workSignalStore,
         intervalMs: config.projectionWakeScheduler.cleanupIntervalMs,
         observer: createProjectionWakeSchedulerLogObserver(),
+      }),
+      createRetentionSweepRunner({
+        controlPlane,
+        targets: collectRetentionSweepTargets(runtime, pools.control),
+        observer: {
+          sweepCompleted: (event) => {
+            if (event.deleted > 0) {
+              logger.info("Retention sweep completed.", {
+                type: "retention.sweep.completed",
+                ...event,
+              });
+            }
+          },
+          sweepFailed: (event) =>
+            logger.error("Retention sweep failed; it will retry on its next interval.", {
+              type: "retention.sweep.failed",
+              contextName: event.contextName,
+              sweepName: event.sweepName,
+              tableName: event.tableName,
+              error: event.error instanceof Error ? event.error.message : String(event.error),
+            }),
+        },
       }),
     ]
   : [];

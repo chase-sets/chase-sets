@@ -633,6 +633,9 @@
       "@chase-sets/platform-runtime/realtime-web": [
         "./infrastructure/platform-runtime/realtime-web.ts"
       ],
+      "@chase-sets/platform-runtime/retention-sweep": [
+        "./infrastructure/platform-runtime/retention-sweep.ts"
+      ],
       "@chase-sets/platform-runtime/runtime-lifecycle": [
         "./infrastructure/platform-runtime/runtime-lifecycle.ts"
       ],
