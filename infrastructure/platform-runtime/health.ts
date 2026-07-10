@@ -51,7 +51,7 @@ export type ReadinessStatus = Readonly<{
 // hot path: concurrent callers (both /health and /api/health aliases, kubelet
 // retries, manual curls) collapse onto one round-trip, and a ≤1s stale window
 // cannot meaningfully mask an outage against a 10s probe period. Mirrors the
-// coalescing the #4766 refresh route already applies.
+// coalescing the refresh route already applies.
 const READINESS_CHECK_CACHE_TTL_MS = 1_000;
 
 export type HealthStatus = Readonly<{

@@ -1,9 +1,7 @@
 // Canonical commerce surface. These marketplace components live here, decomposed by
 // concern into sibling modules (trust, listings, detail, search, account, panels,
-// cart-line-item, shared). Dead exports (unconsumed by any context, deployable, or
-// test) were removed in the 2026-06 decomposition; product-option re-exports now flow
-// from data-display directly. Checkout surfaces were consolidated into the canonical
-// `components/checkout` module (#1643).
+// cart-line-item, shared). Product-option re-exports flow from data-display
+// directly. Checkout surfaces live in the canonical `components/checkout` module.
 
 export {
   type MarketplaceDensity,

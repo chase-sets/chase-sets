@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// No-secret evaluator for captured push-wake load evidence (#1363).
+// No-secret evaluator for captured push-wake load evidence.
 //
 // This script reads an already-captured staging wake drill artifact and checks
 // it against explicit load/convergence/wake-store budgets. It does not contact

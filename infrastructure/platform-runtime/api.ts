@@ -316,7 +316,7 @@ export type ApiHostSeedOptions = BcSeedOptions &
     /**
      * Upper bound for any single seed substep (schema bootstrap or module seed for one
      * context). When a substep exceeds it, seeding fails with a descriptive error instead of
-     * hanging silently until the deploy quiesce kills the bootstrap job. See #4638.
+     * hanging silently until the deploy quiesce kills the bootstrap job.
      */
     substepTimeoutMs?: number;
   }>;

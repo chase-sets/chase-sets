@@ -7,20 +7,20 @@ import type { CatalogAliasReviewFilter, CatalogAliasReviewReadModel } from "./al
 import type { CatalogAliasServices } from "./runtime";
 
 // ---------------------------------------------------------------------------
-// Catalog Alias review HTTP API (#1908 surface + #1905 commands)
+// Catalog Alias review HTTP API
 //
 // The composition seam that makes the alias-review admin workspace reachable
 // from the deployable. The deployable web routes talk to this context only over
-// HTTP, so the read model (#1908) and the accept/reject/revoke aggregate
-// commands (#1905) are exposed here:
+// HTTP, so the read model and the accept/reject/revoke aggregate commands are
+// exposed here:
 //
 //   GET  /alias-review            → the operator review read model for a scope.
 //   POST /alias-review/commands   → accept / reject / revoke an alias candidate.
 //
 // Reads require catalog.view; writes require catalog.manage. Commands dispatch
-// the #1905 aggregate keyed by alias hash with the operator as actor, and return
-// the committed aggregate snapshot so the workbench never reads a stale
-// projection after a review action.
+// the Catalog Alias aggregate keyed by alias hash with the operator as actor,
+// and return the committed aggregate snapshot so the workbench never reads a
+// stale projection after a review action.
 // ---------------------------------------------------------------------------
 
 export type CatalogAliasRouteServices = Pick<

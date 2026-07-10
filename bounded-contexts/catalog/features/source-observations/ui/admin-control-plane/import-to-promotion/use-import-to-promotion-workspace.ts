@@ -12,8 +12,7 @@ const OBSERVATION_KEY_SEPARATOR = String.fromCharCode(0x1f);
 
 // The three ordered stages of the daily flow. Only one stage is expanded at a
 // time; the rest render a collapsed summary. Stage selection is the single piece
-// of view state besides observation selection (the old split step-selection state
-// is removed).
+// of view state besides observation selection.
 export type ImportToPromotionStageKey = "run-sync" | "review-changes" | "create-items";
 
 export type ImportToPromotionWorkspaceState = Readonly<{
@@ -30,7 +29,7 @@ export type ImportToPromotionWorkspaceState = Readonly<{
 // or a blocker, so "where do I run a sync / create items?" is answerable at a
 // glance without hunting through collapsed sections. This is SERVER TRUTH — it is
 // recomputed from the latest read model on every render, so an in-place command
-// revalidation (a returned-data command, #1968's live poll, or #1969's fetcher
+// revalidation (a returned-data command, a live poll, or a fetcher
 // submit) re-derives it and moves the stepper to where work actually moved.
 function serverDerivedActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): ImportToPromotionStageKey {
   if (readModel.promotionResult || readModel.promotionPreview.previewId) {
@@ -102,13 +101,13 @@ export function useImportToPromotionWorkspace(
 // Reconcile the open stage with server truth and route-section handoffs while
 // letting an explicit operator stage click win until the next command.
 //
-// The stage is NO LONGER a frozen `useState(useMemo(...))` initial value (which
-// ignored every recomputed default after mount). Instead the server-derived stage
-// is recomputed each render and a thin, ephemeral manual override is layered on
-// top:
+// The stage is a recomputed derivation rather than a frozen `useState(useMemo(...))`
+// initial value (freezing it would ignore every recomputed default after mount).
+// Instead the server-derived stage is recomputed each render and a thin, ephemeral
+// manual override is layered on top:
 //   - The override is remembered alongside the server stage that was in effect
-//     when the operator clicked. While the server stage is unchanged (a #1968 poll
-//     or #1969 fetcher submit refreshes the read model but does not move where work
+//     when the operator clicked. While the server stage is unchanged (a poll
+//     or fetcher submit refreshes the read model but does not move where work
 //     is), the override holds — so an explicit click survives an in-place
 //     revalidation.
 //   - When the server stage CHANGES (a command — preview/promote/defer/reject —
@@ -157,18 +156,15 @@ function useReconciledActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): 
 
 // Collapse observation selection to ONE durable source of truth: the URL-backed
 // `selectedObservationIds` (the pager and deep links already round-trip it through
-// the loader). The client `Set` is now purely an ephemeral mirror of that truth —
+// the loader). The client `Set` is purely an ephemeral mirror of that truth —
 // it gives the checkboxes instant feedback and is what selected-record commands
 // read live — and every selection change is written straight to the URL via the
-// #1969 client-navigation idiom, so the durable selection never drifts from the
-// `Set` and the old heavyweight "Save context" GET round-trip is gone.
+// client-navigation idiom, so the durable selection never drifts from the
+// `Set`.
 //
-// Removing the drift: the previous effect blindly reseeded the `Set` from the URL
-// on any route-key change, silently discarding checkbox selections that had never
-// been persisted (e.g. a pager navigation loaded the stale URL selection and wiped
-// the unsaved one). Now the change handler persists to the URL itself, so the only
-// time the URL selection changes WITHOUT a checkbox edit is a navigation that is
-// the new truth — which the reconcile below adopts. A change handler's own URL
+// The change handler persists every selection change to the URL itself, so the
+// only time the URL selection changes WITHOUT a checkbox edit is a navigation that
+// is the new truth — which the reconcile below adopts. A change handler's own URL
 // write resolves to the same value the `Set` already holds, so it is a no-op.
 function useUrlBackedObservationSelection(readModel: CatalogPrimaryWorkbenchReadModel): {
   selectedObservationKeys: Set<string>;

@@ -10,16 +10,17 @@ import {
 } from "../../../features/source-observations/ui/primary-workbench-source-observation-review";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 
-// The shape the evidence SideSheet fetcher consumes (#1971). Re-exported from the
+// The shape the evidence SideSheet fetcher consumes. Re-exported from the
 // feature contract so the route module's data type is the canonical one.
 export type CatalogSourceObservationEvidenceRouteData = CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData;
 
-// Lazy evidence endpoint for the Source Observation review SideSheet (#1971). The
+// Lazy evidence endpoint for the Source Observation review SideSheet. The
 // review list ships slim rows; when an operator opens a row's evidence sheet, the
 // sheet's useFetcher hits this resource route keyed by observationId. It fetches
-// the single Source Observation and composes the exact deep evidence detail the
-// row used to carry inline — so the sheet shows the same facts/duplicates/
-// conflicts/audit and provenance, only fetched on demand instead of for every row.
+// the single Source Observation and composes the exact deep evidence detail
+// matching the review row's inline evidence shape — so the sheet shows the same
+// facts/duplicates/conflicts/audit and provenance, only fetched on demand instead
+// of for every row.
 //
 // canManage gates promotion readiness identically to the review composer; we read
 // it from the same auth API the daily loader uses. A missing observation (404) or

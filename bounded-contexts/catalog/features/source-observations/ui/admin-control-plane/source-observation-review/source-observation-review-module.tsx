@@ -56,7 +56,7 @@ export function CatalogIntegrationSourceObservationReviewModule({
   onSelectedObservationKeysChange: (keys: Set<string>) => void;
   selectedEligibleObservationCount: number;
   selectedReviewableObservationCount: number;
-  // Optional alias-review visibility (#1908): alias coverage/candidates surfaced
+  // Optional alias-review visibility: alias coverage/candidates surfaced
   // before promotion so operators see proposed equivalents while reviewing
   // Source Observations. Decoupled as a slot so this module stays agnostic of the
   // alias read model.
@@ -533,8 +533,8 @@ function RowCommandAction({
   );
 }
 
-// Lazy evidence endpoint URL for one observation. The review list ships slim rows
-// (#1971); the deep evidence is fetched from this resource route only when the
+// Lazy evidence endpoint URL for one observation. The review list ships slim rows;
+// the deep evidence is fetched from this resource route only when the
 // sheet opens, keyed by observationId. Built as an absolute path so the fetcher
 // hits the catalog-mounted route regardless of the current import surface URL.
 function observationEvidenceHref(observationId: string): string {
@@ -545,7 +545,7 @@ function observationEvidenceHref(observationId: string): string {
 // the row actions, and this sheet's footer/blockers need inline; the deep facts /
 // duplicates / conflicts / audit trail and the full provenance KeyValueList are
 // lazy-loaded via a react-router fetcher to the evidence endpoint when the sheet
-// opens (#1971). A DS skeleton shows while loading and a DS Banner shows if the
+// opens. A DS skeleton shows while loading and a DS Banner shows if the
 // fetch fails or the observation is gone, so the operator still sees the same
 // evidence — only WHEN it is fetched changed. The fetch fires once per open and is
 // not re-issued while the sheet stays open.

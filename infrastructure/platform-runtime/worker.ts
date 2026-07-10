@@ -94,7 +94,7 @@ export type WorkerRunner = Readonly<{
    * priority and re-enters the fair rotation instead of starving behind an
    * always-positive high-backlog group (the discovery cascade). Read-only: it
    * must never process events, acquire the run lease, or advance a checkpoint,
-   * so exactly-once and the #4730 idle-lease yield stay intact.
+   * so exactly-once and the idle-lease yield stay intact.
    */
   refreshPriority?: () => Promise<void>;
   projectionStatusSnapshot?: () => ContextProjectionGroupStatus;
@@ -431,7 +431,7 @@ export function collectWorkerRunners(
 /**
  * Projection operation executors run in their own runner group so queued
  * recovery operations are never starved by projection-group backlog priority
- * (issue #4496: a single shared-loop consumer left retry operations queued for
+ * (a single shared-loop consumer would leave retry operations queued for
  * hours). Each runner claims one operation at a time; `runnerCount` scales
  * cluster-wide concurrency, and per-projection-group leases still serialize
  * operations that target the same group.
@@ -729,11 +729,11 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           // nothing) must not keep holding the shared `projection-group:<name>`
           // lease. Two consumer classes acquire that exact lease, frequently
           // from another worker:
-          // - blocked-stream retry / rebuild projection operations (#4496):
+          // - blocked-stream retry / rebuild projection operations:
           //   while an idle holder keeps the lease, every retry fails with
           //   "Projection runner lease ... is already active" and parked poison
           //   can never be re-applied;
-          // - projection WAKE runners (#4730): the hot/standard wake lanes run
+          // - projection WAKE runners: the hot/standard wake lanes run
           //   the group under this lease for read-after-write freshness. A
           //   hoarded idle lease forces every wake into claim/defer loops
           //   (observed live: a checkout hot intent deferred
@@ -778,7 +778,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   // head for such idle runners surfaces their real backlog as a positive
   // priority, so they re-enter the fair rotation and drain. This is read-only
   // (no lease, no event processing, no checkpoint advance), so exactly-once,
-  // the #4730 idle-lease yield, and the #4643 wake-cohort anti-starvation are
+  // the idle-lease yield, and the wake-cohort anti-starvation are
   // all preserved.
   const refreshIdleRunnerPriorities = async (): Promise<void> => {
     if (stopped || priorityRefreshing || refreshableRunners.length === 0) {
@@ -937,8 +937,8 @@ function shouldRescheduleAfterCompletion(runner: WorkerRunner, result?: Projecto
   return result.processed > 0 || runner.rescheduleOnCompletion?.(result) === true;
 }
 
-// Projection wake runners (#4730) and blocked-stream retry / rebuild
-// projection operations (#4496) acquire the same `projection-group:<name>`
+// Projection wake runners and blocked-stream retry / rebuild
+// projection operations acquire the same `projection-group:<name>`
 // lease that the continuously scheduled projection-group runner holds. A group
 // runner whose pass processed nothing has no work of its own, so it must
 // release that lease instead of hoarding it: a hoarded idle lease starves
@@ -1525,8 +1525,8 @@ function createProjectionOperationWorkerRunner(
         // exhausted. Making a timeout retryable is what actually unpins the
         // executor in flight — a hung operation aborts at its deadline, frees
         // its claim + the shared projection-group lease, and lets younger
-        // operations and the scheduled group runner proceed while it backs off
-        // (issue #4611). Every other failure is terminal.
+        // operations and the scheduled group runner proceed while it backs off.
+        // Every other failure is terminal.
         const retryable =
           (error instanceof ProjectionRunnerLeaseUnavailableError ||
             error instanceof ProjectionOperationTimedOutError) &&
@@ -1535,9 +1535,9 @@ function createProjectionOperationWorkerRunner(
         // (expired TTL, fencing race, worker restart) the write returns false
         // and the operation stays reclaimable — its attempt was charged at
         // claim time, so the backoff horizon and attempt cap still bound it.
-        // Never let a lost failure write mask the original error (issue
-        // #4496: masked claim-loss failures left operations pinned in
-        // `running` with no recorded error).
+        // Never let a lost failure write mask the original error (a masked
+        // claim-loss failure leaves the operation pinned in `running` with no
+        // recorded error).
         const recorded = await options.controlPlane
           .failProjectionOperation({
             operationId: operation.operationId,
@@ -1633,9 +1633,9 @@ async function runProjectionOperationWithRenewedClaim(
   };
 
   // Execution deadline: without one, a hung operation renews its claim
-  // forever and pins its executor runner — the exact single-consumer jam from
-  // issue #4496 (one operation `running` for hours while the queue backed
-  // up). On timeout the claim stops renewing, the run context aborts, and the
+  // forever and pins its executor runner — the single-consumer jam class
+  // where one operation stays `running` for hours while the queue backs
+  // up. On timeout the claim stops renewing, the run context aborts, and the
   // still-valid claim records the timeout as the operation's failure.
   const operationTimeoutMs =
     operation.operationKind === "rebuild-projection-group" || operation.operationKind === "rebuild-context"
@@ -1866,7 +1866,7 @@ export type RunWithRenewedLeaseInput = Readonly<{
    * Upstream abort signal (e.g. the operation execution deadline). When it
    * fires the held lease stops renewing immediately instead of waiting for the
    * next `shouldAbort` poll, so a timed-out operation cannot keep the shared
-   * projection-group lease alive against the scheduled runner (issue #4611).
+   * projection-group lease alive against the scheduled runner.
    */
   signal?: AbortSignal;
   shouldAbort?: () => Promise<boolean>;
@@ -1903,7 +1903,7 @@ export async function tryRunWithRenewedLease<T>(
   // deadline) so an in-flight abort stops lease renewal at once rather than up
   // to one `shouldAbort` poll interval later. Without this a timed-out
   // operation keeps renewing the shared `projection-group:<name>` lease while
-  // its leaked work settles, starving the scheduled group runner (issue #4611).
+  // its leaked work settles, starving the scheduled group runner.
   const abortFromUpstreamSignal = () => {
     leaseActive = false;
     abortController.abort();

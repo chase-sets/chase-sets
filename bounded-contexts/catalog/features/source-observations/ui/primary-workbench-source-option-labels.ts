@@ -28,7 +28,7 @@ const languageLabelsByCode: Readonly<Record<string, string>> = {
  *     `English alias (native name)`, then the native provider label, then the id.
  *
  * The semantic "English equivalent" signal comes from typed option aliases
- * (#1907) using the shared Catalog Alias vocabulary, never untyped metadata.
+ * using the shared Catalog Alias vocabulary, never untyped metadata.
  */
 export function sourceOptionDisplayLabel(input: {
   queryKind: string;

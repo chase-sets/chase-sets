@@ -1157,9 +1157,9 @@ export type SourceObservationServices = SourceObservationCommandServices &
 
 /**
  * Persistence sink for alias candidates produced during Source Observation
- * intake (#1905/#1906). Injected from the composition root so the source
+ * intake. Injected from the composition root so the source
  * observation runtime stays decoupled from the alias-equivalence runtime;
- * defaults to the #1905 read-model upsert keyed off the shared `deps.db`.
+ * defaults to the read-model upsert keyed off the shared `deps.db`.
  */
 export type SourceObservationAliasCandidateSink = (
   candidates: readonly CatalogAliasCandidate[],
@@ -1167,10 +1167,10 @@ export type SourceObservationAliasCandidateSink = (
 ) => Promise<void>;
 
 /**
- * Drives accepted-alias writes and retractions during promotion/reapply
- * (#1909). Injected from the composition root so the source observation runtime
+ * Drives accepted-alias writes and retractions during promotion/reapply.
+ * Injected from the composition root so the source observation runtime
  * stays decoupled from the alias-equivalence aggregate. The reader defaults to
- * the #1905 read-model over the shared `deps.db`; only the alias command handler
+ * the read-model over the shared `deps.db`; only the alias command handler
  * (owned by the alias runtime) must be supplied. When omitted, promotion writes
  * no alias facts so minimal/legacy callers are unaffected.
  */
@@ -1463,8 +1463,8 @@ export function createSourceObservationRuntime(
 
   /**
    * Write the accepted-alias facts and retractions for a promoted/reapplied
-   * observation (#1909). The Catalog Item id and Reference Record ids are
-   * already resolved here, satisfying the #1905 rule that an item-level alias
+   * observation. The Catalog Item id and Reference Record ids are
+   * already resolved here, satisfying the rule that an item-level alias
    * resolves its `catalog_item_id` before a row is written. No-op when alias
    * promotion was not wired (minimal/legacy callers).
    */
@@ -2404,8 +2404,8 @@ export function createSourceObservationRuntime(
       currentName: null,
     });
 
-    // Alias intake (#1906): recording an observation produces and persists typed
-    // alias candidates via the #1905 sink. Indonesian (`id`) names are emitted as
+    // Alias intake: recording an observation produces and persists typed
+    // alias candidates via the sink. Indonesian (`id`) names are emitted as
     // Indonesian provider-localized names, never as English official equivalents.
     await ingestTcgdexAliasCandidates({
       profile,
@@ -6531,7 +6531,7 @@ function notEvaluatedDuplicatePreventionPreview(
 
 /**
  * Promotion evidence plus the resolved reference-record ids keyed by reference
- * type key, so promotion alias planning (#1909) can resolve set/series-equivalent
+ * type key, so promotion alias planning can resolve set/series-equivalent
  * Reference Record targets before writing alias facts.
  */
 type CatalogItemPromotionResult = SourceObservationPromotionProfileEvidence &
@@ -6697,7 +6697,7 @@ async function refreshCatalogItemFromObservation(input: {
 /**
  * Build the full promotion alias services from whatever the composition root
  * injected. Only the alias command handler is required; the read side defaults
- * to the #1905 read-model over the shared `deps.db`. Returns null when alias
+ * to the read-model over the shared `deps.db`. Returns null when alias
  * promotion was not wired so promotion writes no alias facts.
  */
 function resolveAliasPromotionServices(
@@ -6935,7 +6935,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
 /**
  * Provision the Pokemon Reference Type/Record hierarchy and return the resolved
  * target (expansion) record id plus a map of every reference type key to its
- * resolved record id. Promotion alias planning (#1909) needs the per-type-key
+ * resolved record id. Promotion alias planning needs the per-type-key
  * map so set-equivalent / series-equivalent aliases can resolve their Reference
  * Record id before they become Catalog facts.
  */

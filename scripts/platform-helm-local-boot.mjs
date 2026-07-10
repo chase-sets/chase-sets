@@ -14,7 +14,7 @@ const defaultTimeout = "180s";
 
 const serviceCommand =
   "node -e \"const http=require('node:http');const port=Number(process.env.PORT||8080);http.createServer((_request,response)=>{response.writeHead(200);response.end('ok')}).listen(port,'0.0.0.0',()=>console.log('local boot http ready '+port))\"";
-// The worker now carries DOKS liveness/readiness/startup probes (#4620), so its
+// The worker carries DOKS liveness/readiness/startup probes, so its
 // local-boot proof must answer them; a 200-to-everything HTTP server on PORT
 // keeps the boot proof green and exercises the probe wiring end to end.
 const workerCommand =

@@ -29,7 +29,7 @@ const reviewFactSummaryPreviewSize = 3;
 // composers (which read full fact/duplicate/conflict/audit evidence) and is the
 // source the lazy evidence endpoint serves one row at a time. Splitting it here is
 // what keeps the per-row review payload slim while preserving evidence parity
-// everywhere the deep arrays were previously read.
+// everywhere the deep arrays are read.
 export type CatalogPrimaryWorkbenchSourceObservationReviewComposition = Readonly<{
   review: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
   evidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
@@ -65,7 +65,7 @@ export function buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
 // Compose the Source Observation review wave: the slim serialized review plus the
 // in-process deep-evidence index. The slim review is what ships to the browser;
 // the evidence index stays server-side for the conflict/audit composers and the
-// lazy evidence endpoint (#1971).
+// lazy evidence endpoint.
 export function sourceObservationReviewCompositionFor(input: {
   canManage: boolean;
   changed: number;
@@ -210,7 +210,7 @@ export function sourceObservationReviewFor(
 // facts, duplicate and conflict evidence, audit trail, and every provenance field
 // the evidence SideSheet's KeyValueList renders. This is the value the lazy
 // evidence endpoint serves and the server composers read — kept byte-identical to
-// what the row used to carry inline so evidence parity is preserved (#1971).
+// the review row's inline evidence shape so evidence parity is preserved.
 export function sourceObservationEvidenceDetailFor(
   observation: SourceObservationListItem,
   input: {
@@ -427,10 +427,10 @@ export function promotionPreviewFor(input: {
   readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
-  // Deep-evidence index keyed by observationId. The slim review row no longer
-  // carries conflict evidence or the source profile version, so the preview reads
+  // Deep-evidence index keyed by observationId. The slim review row does not
+  // carry conflict evidence or the source profile version, so the preview reads
   // those (conflicting-disposition count + the replay profile semantics) from the
-  // composed evidence index instead (#1971).
+  // composed evidence index instead.
   reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
 }): CatalogPrimaryWorkbenchReadModel["promotionPreview"] {
   const selectedObservationIds = input.routeContext.selectedObservationIds;

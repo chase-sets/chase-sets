@@ -32,7 +32,7 @@ export type ProviderOptionQueryInput = Readonly<{
 
 /**
  * A typed equivalence-name alias for a provider option, using the shared Catalog
- * Alias vocabulary (#1903) rather than untyped label metadata. Scope selection
+ * Alias vocabulary rather than untyped label metadata. Scope selection
  * is pre-import, so these aliases come from provider option queries / provider
  * English endpoints rather than durable Catalog Alias candidates; they share the
  * vocabulary and extraction logic but are a distinct, pre-import data path.
@@ -51,7 +51,7 @@ export type ProviderOptionAlias = Readonly<{
   confidence: CatalogAliasConfidenceKey;
   /** Governed review status; pre-import aliases are evidence held for review. */
   reviewStatus: CatalogAliasReviewStateKey;
-  /** Source category that produced the alias, per the governance policy (#1912). */
+  /** Source category that produced the alias, per the governance policy. */
   sourceCategory: CatalogAliasSourceCategoryKey;
   /** Supporting evidence (e.g. shared provider id) backing the alias. */
   evidence?: JsonObject;

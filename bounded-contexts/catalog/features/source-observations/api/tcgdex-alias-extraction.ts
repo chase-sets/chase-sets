@@ -17,12 +17,12 @@ import {
 } from "./catalog-integration-data-governance";
 
 // ---------------------------------------------------------------------------
-// TCGdex alias extraction (#1906)
+// TCGdex alias extraction
 //
 // The first provider proof of the alias model. Turns a governed TCGdex Source
 // Observation (series / expansion / card, in a chosen source language) into
 // typed `CatalogAliasCandidate` value objects, honoring the alias
-// source-governance policy (#1912) and the ADR (#1903) verbatim.
+// source-governance policy and the ADR (#1903) verbatim.
 //
 // Three hard rules from the ADR / governance, encoded here once:
 //
@@ -41,7 +41,7 @@ import {
 //
 // This module never makes live provider calls. The English-endpoint match logic
 // is exposed as a reusable pure function (`matchTcgdexEnglishEndpointEntity`) so
-// source-option labels (#1907) reuse the exact same alignment rule rather than
+// source-option labels reuse the exact same alignment rule rather than
 // duplicating it.
 // ---------------------------------------------------------------------------
 
@@ -122,7 +122,7 @@ export type TcgdexAliasExtractionInput = Readonly<{
 export const TCGDEX_ENGLISH_LANGUAGE_CODE = "en";
 
 /**
- * Reusable, pure English-endpoint alignment rule (exposed for #1907).
+ * Reusable, pure English-endpoint alignment rule (exposed for reuse by source-option labels).
  *
  * A same-id English match exists only when:
  *   - the source entity has a non-empty provider id,

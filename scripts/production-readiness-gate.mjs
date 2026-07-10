@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Post-deploy production readiness gate (#1237, Milestone #19).
+// Post-deploy production readiness gate.
 //
 // Polls until the wave source contexts' projection checkpoints reach the
 // event-store head (steady state) or a bounded budget expires, so the

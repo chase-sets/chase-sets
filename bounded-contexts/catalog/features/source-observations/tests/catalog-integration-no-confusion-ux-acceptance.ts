@@ -439,15 +439,15 @@ const catalogNoConfusionUxNewIaProofTests = [
   "ui/workbench-shell.test.tsx",
   // The daily happy-path E2E walked first across the new routes (tag @catalog-admin-integrations).
   "deployables/admin-web/e2e/catalog-integrations.spec.ts",
-  // The alias-review workspace (#1908): candidate display, bulk accept/reject/revoke,
+  // The alias-review workspace: candidate display, bulk accept/reject/revoke,
   // empty states, and generated/low-confidence warnings under the anti-confusion gate.
   "ui/admin-control-plane/alias-review/alias-review-workspace.test.tsx",
-  // The milestone end-to-end alias-equivalence proof (#1913): TCGdex Japanese
+  // The milestone end-to-end alias-equivalence proof: TCGdex Japanese
   // scope -> import -> candidates -> review -> promotion -> published fact ->
   // English search + display, with stage counts and the revocation scenario.
   "features/source-observations/api/catalog-integration-alias-equivalence-e2e-proof.test.ts",
   // The DB-backed alias persistence acceptance suite that proves the same hops
-  // against Postgres, including the #1913 full-milestone-flow test.
+  // against Postgres, including the full-milestone-flow test.
   "tests/catalog-authoring/acceptance/alias-persistence.test.ts",
 ] as const;
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Redacted evaluator for #1365 mixed-version wake envelope proof.
+// Redacted evaluator for the mixed-version wake envelope proof.
 //
 // This script intentionally composes existing evidence instead of deploying
 // anything itself: Platform Deploy owns staging rollout, Platform Staging Wake

@@ -7,7 +7,7 @@ import {
 } from "../../alias-equivalence/read-model/queries";
 
 // ---------------------------------------------------------------------------
-// English-locale display policy (#1914)
+// English-locale display policy
 //
 // Resolved Display Identity owns product-facing display copy. Accepted Catalog
 // Aliases are reviewed Catalog facts, so display identity is allowed to surface
@@ -15,7 +15,7 @@ import {
 // viewer — but only an accepted, locale-appropriate, non-generated alias.
 //
 // This module is the single place the display policy lives. It reads only the
-// publishable (accepted / auto-accepted) aliases for a target (#1905) and
+// publishable (accepted / auto-accepted) aliases for a target and
 // selects at most one alias to surface as the English primary display name. The
 // native provider name stays as the secondary display (e.g. `Cacnea (サボネア)`)
 // so card identity is never erased.

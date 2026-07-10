@@ -9,19 +9,18 @@ import {
 import type { WorkSignalPriorityLane } from "./work-signal-store";
 
 /**
- * Push-first migration inventory (#1224).
+ * Push-first migration inventory.
  *
  * Sunset condition for deleting this module: every projection group derived
  * from the source-context wake registry must classify as `push-enabled`, with
- * zero `disabled` and zero `opted-out` groups. As of the 2026-06-27 #2744
- * Identity wake enablement, wave 2 `fulfillment` and the remaining wave 3
- * contexts (`discovery`, `public-presence`) still have
+ * zero `disabled` and zero `opted-out` groups. Wave 2 `fulfillment` and the
+ * remaining wave 3 contexts (`discovery`, `public-presence`) still have
  * registry `eligible` rows with relay fan-out disabled, leaving 14 projection
  * groups `push-eligible`.
  *
  * Derives a push-first disposition for every projection group and every
  * read-after-write route inventory entry from the source-context wake
- * registry (#1245), which is itself test-pinned to the bounded-context
+ * registry, which is itself test-pinned to the bounded-context
  * `context.json` inventories. This module is the machine-readable side of
  * `docs/architecture/push-first-projection-migration.md`; tests keep both in
  * lockstep with the bounded-context metadata so no projection group or route
@@ -237,8 +236,8 @@ export function summarizeProjectionPushMigration(
 }
 
 /**
- * Feeds real rollout/owner/opt-out data from the wake registry (#1245) and
- * the migration inventory (#1224) into the projection interest index (#1220):
+ * Feeds real rollout/owner/opt-out data from the wake registry and
+ * the migration inventory into the projection interest index:
  *
  * - Explicit projection opt-outs disable the index entry with the opt-out
  *   reason, so the relay enqueues no wake intents for it.

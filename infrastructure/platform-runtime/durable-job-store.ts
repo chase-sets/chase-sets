@@ -1098,8 +1098,8 @@ async function runDurableJobWrite<T>(db: PgQueryable, work: (queryable: PgQuerya
   }
 }
 
-// Durable job event notifications ride the platform work-signal composite
-// (#1248/#1238): versioned envelopes on the store's notify channel, dedicated
+// Durable job event notifications ride the platform work-signal composite:
+// versioned envelopes on the store's notify channel, dedicated
 // composite waiters with bounded-timeout fallback, and circuit-broken
 // listener retries. Context-owned job/event tables stay the source of truth;
 // a missed notification only means waiting out the poll timeout.

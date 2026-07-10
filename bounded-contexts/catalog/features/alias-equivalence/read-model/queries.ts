@@ -4,11 +4,11 @@ import type { CatalogAliasReviewStateKey, CatalogAliasTargetKind, CatalogAliasTy
 import { CATALOG_ALIAS_PUBLISHABLE_REVIEW_STATES } from "../domain/alias";
 
 // ---------------------------------------------------------------------------
-// Catalog Alias read-model queries (#1905)
+// Catalog Alias read-model queries
 //
 // Read APIs needed by:
-//   - admin review (#1908): list candidates and accepted aliases by review state.
-//   - promotion (#1909): list pending candidates to act on, and accepted aliases
+//   - admin review: list candidates and accepted aliases by review state.
+//   - promotion: list pending candidates to act on, and accepted aliases
 //     for a target.
 //   - reapply / backfill: list candidates by provider profile version.
 //   - removal: look up an alias by hash and list publishable aliases for a
@@ -218,7 +218,7 @@ export async function listCatalogItemAliases(
 }
 
 /**
- * Downstream publication (#1910) / display: only accepted/auto-accepted aliases
+ * Downstream publication / display: only accepted/auto-accepted aliases
  * for a Catalog Item. Never returns pending, rejected, revoked, or generated.
  */
 export async function listPublishableCatalogItemAliases(
@@ -236,7 +236,7 @@ export async function listPublishableCatalogItemAliases(
 }
 
 /**
- * Cardinality signal for search weighting (#1911): how many distinct Catalog
+ * Cardinality signal for search weighting: how many distinct Catalog
  * Items a normalized alias text resolves to through publishable aliases. High
  * fan-out (e.g. species names) is the broad-alias case the ADR documents.
  */

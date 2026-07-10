@@ -11,7 +11,7 @@ import {
 } from "./queries";
 
 // ---------------------------------------------------------------------------
-// Resolved Alias facts (#1910)
+// Resolved Alias facts
 //
 // The canonical resolver for the published alias fact, shared by live recompute,
 // backfill, rebuild, replay, and tests. It reads only publishable
@@ -21,8 +21,8 @@ import {
 // Removal is explicit: when a target has no publishable aliases for a language
 // (because every alias was revoked or rejected), the resolved fact is an empty
 // alias list. That is still a fact change versus a prior non-empty fact, so the
-// publish-on-change path emits a retraction that downstream search (#1911) and
-// display (#1914) act on, instead of an alias silently disappearing.
+// publish-on-change path emits a retraction that downstream search and
+// display act on, instead of an alias silently disappearing.
 //
 // Downstream consumers read this fact and never inspect alias candidates,
 // provider profiles, or the review state machine, mirroring the Resolved Display

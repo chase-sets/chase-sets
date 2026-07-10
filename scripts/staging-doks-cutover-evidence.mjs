@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Support-safe cutover evidence capture for the App Platform -> DOKS staging
-// cutover (#4050, milestone #103, epic #4059).
+// cutover.
 //
 // For each staging host it records three facts the operator signs off in the
 // issue: which platform served the check (resolved address vs the DOKS ingress
@@ -9,7 +9,7 @@
 // token are available — the load balancer health. The output is a redacted JSON
 // artifact: no tokens, no kubeconfig, no certificate private keys, no cookies.
 //
-// The host set follows the #4604 environment-dns model: shadow hosts
+// The host set follows the environment-dns model: shadow hosts
 // (doks.<zone>, www.doks.<zone>, marketplace.doks.<zone>, admin.doks.<zone>)
 // prove DOKS while App Platform still serves the live hosts during rehearse;
 // live hosts (<zone>, www.<zone>, marketplace.<zone>, admin.<zone>) prove the

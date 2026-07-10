@@ -15,15 +15,15 @@ import {
 } from "./catalog-integration-data-governance";
 
 // ---------------------------------------------------------------------------
-// Promotion alias planning (#1909)
+// Promotion alias planning
 //
 // Turns the reviewed alias candidates an observation produced into the durable
 // alias facts a promotion must write, plus the retractions a promotion must
 // drive when previously-accepted aliases are no longer supported.
 //
 // Promotion runs after the Catalog Item id and Reference Record ids are
-// resolved (per the #1905 design note: the Catalog Item alias projection throws
-// unless `catalog_item_id` is resolved before a row is written). This planner
+// resolved (the Catalog Item alias projection throws unless `catalog_item_id`
+// is resolved before a row is written). This planner
 // therefore takes the resolved ids, re-resolves every candidate's target, and
 // re-builds it through the single `buildCatalogAliasCandidate` constructor so
 // the durable `alias_hash` carries the resolved id. The same evidence yields the
@@ -33,11 +33,11 @@ import {
 // Catalog Alias aggregate command handler with those actions. Pending, rejected,
 // generated, and revoked candidates never become Catalog truth — only
 // accepted/auto-accepted candidates produce a publishable alias, and conflicting
-// official equivalents are resolved through the #1912 source-precedence order.
+// official equivalents are resolved through the source-precedence order.
 // ---------------------------------------------------------------------------
 
 /**
- * A reviewed alias candidate persisted by intake (#1906), with its target id
+ * A reviewed alias candidate persisted by intake, with its target id
  * still unresolved at the candidate stage. The fields are the durable candidate
  * row shape promotion reads back from
  * `catalog_source_observation_alias_candidates`.
@@ -111,7 +111,7 @@ export type PromotionAliasProposeAction = Readonly<{
 /**
  * Retract a previously-published alias by revoking it. Driven for rejected /
  * revoked candidates and for accepted facts the current evidence no longer
- * supports, so #1910/#1911/#1914 can drop the downstream alias.
+ * supports, so downstream consumers can drop the alias.
  */
 export type PromotionAliasRetractAction = Readonly<{
   kind: "retract";
@@ -143,7 +143,7 @@ export type PlanPromotionAliasesInput = Readonly<{
  *   2. Decide publishability: only `accepted`/`auto-accepted` candidates publish;
  *      everything else proposes evidence-only (so the candidate is queryable) but
  *      never accepts.
- *   3. Resolve official-equivalent conflicts via the #1912 precedence order: when
+ *   3. Resolve official-equivalent conflicts via the precedence order: when
  *      several accepted official equivalents share normalized text and disagree,
  *      the strongest source wins and the rest are demoted to evidence-only.
  *   4. Compute retractions: rejected/revoked candidates that match a published
@@ -286,7 +286,7 @@ function decidePublishableHashes(resolved: readonly ResolvedPromotionAliasCandid
 /**
  * Among eligible accepted official-equivalent candidates that share normalized
  * alias text + language for the same target, find the ones outranked by the
- * #1912 source precedence so they are demoted to evidence-only instead of
+ * source precedence so they are demoted to evidence-only instead of
  * silently competing as Catalog truth.
  */
 function officialEquivalentConflictLosers(eligible: readonly ResolvedPromotionAliasCandidate[]): ReadonlySet<string> {
@@ -369,7 +369,7 @@ function planRetractions(input: {
 
   // Explicit rejected/revoked candidates whose resolved hash matches a still
   // publishable fact are retracted through a revoke, not left as silent Catalog
-  // truth, so #1910/#1911/#1914 can drop them downstream. This is the reliable
+  // truth, so downstream consumers can drop them. This is the reliable
   // retraction signal: an operator's reject/revoke review decision. Changed
   // provider evidence is handled review-first by intake re-proposing affected
   // candidates as `pending`, so promotion never silently auto-revokes an alias

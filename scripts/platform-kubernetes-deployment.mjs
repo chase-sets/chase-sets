@@ -62,7 +62,7 @@ export function buildHelmUpgradeArgs(options = {}) {
   const previewPostgresSetArgs =
     envOverrides.DEPLOYMENT_ENVIRONMENT === "preview" ? ["--set", "previewPostgres.enabled=true"] : [];
   // Preview workloads (including the in-cluster preview Postgres) schedule
-  // exclusively onto the dedicated staging preview node pool (#4745): the
+  // exclusively onto the dedicated staging preview node pool: the
   // nodeSelector targets the pool label and the toleration matches its
   // preview-only NoSchedule taint. Staging and production releases never set
   // these, so their pods cannot land on preview nodes and previews cannot
@@ -480,7 +480,7 @@ function isHelmReleaseNotFound(error) {
 }
 
 // Exported so the deploy-artifact guard can drive the EXACT workflow argv
-// end-to-end (CLI parse -> helm arg construction) - see issue #4743.
+// end-to-end (CLI parse -> helm arg construction).
 export function parseArgs(argv, env = process.env) {
   const command = argv.find((arg) => arg !== "--");
   if (!command || !["deploy", "rollback", "diagnostics", "plan", "capture-rollback-target"].includes(command)) {

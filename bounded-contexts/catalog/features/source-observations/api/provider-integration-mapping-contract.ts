@@ -258,7 +258,7 @@ export type CatalogProviderReferenceHierarchyContract = Readonly<{
 }>;
 
 // ---------------------------------------------------------------------------
-// Alias candidate extraction (#1904)
+// Alias candidate extraction
 //
 // Declares, as data, how a provider mapping produces an `Alias Candidate`: a
 // reviewable claim that a piece of provider text is an equivalent name for a

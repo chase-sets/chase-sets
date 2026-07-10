@@ -8,12 +8,12 @@ import type {
 import { assert } from "../../../support/runtime-support/common";
 
 // ---------------------------------------------------------------------------
-// Catalog Alias value objects (#1905)
+// Catalog Alias value objects
 //
 // A Catalog Alias is reviewable evidence that a piece of text refers to a
 // Catalog Item or Reference Record. The vocabulary (alias type, source
-// category, review state) is locked by the ADR (#1903) and the alias
-// source-governance policy (#1912); this file imports those terms rather than
+// category, review state) is locked by the ADR and the alias
+// source-governance policy; this file imports those terms rather than
 // re-declaring them so there is one source of truth.
 //
 // Two durable shapes live here:
@@ -95,7 +95,7 @@ export type CatalogAliasCandidate = Readonly<{
   aliasHash: string;
 }>;
 
-/** Alias confidence, locked by the ADR (#1903). Orthogonal to alias type. */
+/** Alias confidence, locked by the ADR. Orthogonal to alias type. */
 export type CatalogAliasConfidenceKey = "exact" | "high" | "candidate" | "generated" | "manual";
 
 const CATALOG_ALIAS_CONFIDENCE_KEYS: readonly CatalogAliasConfidenceKey[] = [

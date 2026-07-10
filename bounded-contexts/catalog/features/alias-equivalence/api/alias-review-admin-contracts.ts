@@ -20,15 +20,16 @@ import type {
 } from "../read-model/queries";
 
 // ---------------------------------------------------------------------------
-// Admin alias review read-model contracts (#1908)
+// Admin alias review read-model contracts
 //
 // Operators review alias candidates as part of integration review. This module
-// turns the #1905 DB-backed candidate/accepted-alias rows into an operator-facing
+// turns DB-backed candidate/accepted-alias rows into an operator-facing
 // read model that answers, without opening raw JSON:
 //   - what each candidate is (native printed name, proposed alias, alias type,
 //     confidence, source, evidence, review status);
-//   - whether a candidate is auto-accept eligible (via the #1912 governance
-//     `decideCatalogAliasAcceptance`), so the UI can offer auto-accept;
+//   - whether a candidate is auto-accept eligible (via the
+//     `decideCatalogAliasAcceptance` governance decision), so the UI can offer
+//     auto-accept;
 //   - whether a candidate carries a generated/low-confidence warning;
 //   - alias coverage by provider setup / import scope: which cards have an
 //     accepted English alias, which have only species aliases, which need
@@ -37,8 +38,8 @@ import type {
 // Everything here is a pure transform over rows the alias-equivalence queries
 // return, so it is unit-testable without a database and is the single place the
 // UI and tests agree on alias-review vocabulary. Acceptance/rejection/revocation
-// are dispatched through the #1905 event-sourced aggregate; this read model only
-// reads.
+// are dispatched through the Catalog Alias event-sourced aggregate; this read
+// model only reads.
 // ---------------------------------------------------------------------------
 
 export const catalogAliasReviewContractVersion = "catalog-alias-review-v1" as const;
@@ -80,16 +81,17 @@ export type CatalogAliasReviewWarningKey =
   | "indonesian-id-not-english";
 
 /**
- * The bulk review actions the operator UI dispatches against the #1905 aggregate.
+ * The bulk review actions the operator UI dispatches against the Catalog Alias aggregate.
  * `defer` keeps a candidate pending; `auto-accept` is only offered when the
  * governance decision yields an `auto-accepted` review state.
  */
 export type CatalogAliasReviewActionKey = "accept" | "reject" | "defer" | "revoke" | "auto-accept";
 
 /**
- * Auto-accept eligibility for a candidate, derived from the #1912 governance
- * decision. `reasons` explains the decision in operator language so the UI never
- * shows an unexplained disabled action.
+ * Auto-accept eligibility for a candidate, derived from the
+ * `decideCatalogAliasAcceptance` governance decision. `reasons` explains the
+ * decision in operator language so the UI never shows an unexplained disabled
+ * action.
  */
 export type CatalogAliasReviewAutoAcceptEligibility = Readonly<{
   eligible: boolean;

@@ -75,7 +75,7 @@ type CatalogPrimaryWorkbenchCore = Readonly<{
   // Deep-evidence index keyed by observationId. NOT serialized into the read model
   // — it stays in-process to feed the conflict-resolution and audit-evidence
   // composers (which read full fact/duplicate/conflict/audit evidence) without
-  // shipping that evidence on every review row (#1971).
+  // shipping that evidence on every review row.
   reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
   promotionPreview: CatalogPrimaryWorkbenchReadModel["promotionPreview"];
   securityPrivacy: CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
@@ -361,7 +361,7 @@ function buildCatalogPrimaryWorkbenchCore(
   };
 }
 
-// Provider profiles + readiness surface slices (#1739 providers route). Built
+// Provider profiles + readiness surface slices for the providers route. Built
 // only from profile reviews, the optional authoring model, and the control plane
 // overview — never from conflict, governance, release, or audit inputs.
 function providersSurfaceSlices(
@@ -513,8 +513,9 @@ function healthSurfaceSlices(
 }
 
 // Assemble a fully-validated read model from the shared core and every surface
-// slice. Used by the legacy single-page workbench (#1749) and the view-only
-// re-derivation, both of which render the complete workspace registry.
+// slice, rendering the complete workspace registry. Re-exported from
+// primary-workbench-read-model.ts; as of this writing its only callers are
+// tests, not a live surface route — confirm before deleting.
 export function buildCatalogPrimaryWorkbenchReadModel(
   input: CatalogPrimaryWorkbenchInput,
 ): CatalogPrimaryWorkbenchReadModel {
@@ -628,7 +629,7 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
 // read model derives from, plus the (now resolved) source-option fan-out pages.
 // The daily loader streams this slice behind a Suspense boundary so the shell,
 // metric strip, and 3-stage flow paint before the ~150–250 KB option fan-out
-// resolves (#1970). It reuses the shared core derivation so the populated slice
+// resolves. It reuses the shared core derivation so the populated slice
 // is byte-identical to what the synchronous builder would have produced from the
 // same pages, and it never re-derives or re-emits the rest of the read model —
 // keeping the deferred value small and the browser free of the raw baseline

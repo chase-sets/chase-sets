@@ -436,16 +436,15 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
   await refreshDiscoveryItemDetailPages(db, [itemId]);
 }
 
-// Cascade refreshes used to rebuild pages one item at a time (~10 queries per
-// item: item select, four lookup maps, a three-query product schema, page
-// upsert). A single catalog blueprint/dimension/category/field/reference event
-// cascading over an imported staging catalog therefore ran minutes of
-// sequential round trips inside ONE projection transaction and aborted at the
-// transaction cap, rolling back all progress and never catching up
-// (issue #4751). The batched refresher processes affected items in bounded
-// chunks with set-based lookups and memoizes product schemas per blueprint for
-// the whole cascade — cascades share a handful of blueprints — collapsing the
-// per-item cost to roughly one page upsert.
+// Rebuilding pages one item at a time (~10 queries per item: item select, four
+// lookup maps, a three-query product schema, page upsert) makes a single
+// catalog blueprint/dimension/category/field/reference event cascading over an
+// imported staging catalog run minutes of sequential round trips inside ONE
+// projection transaction, aborting at the transaction cap and rolling back all
+// progress without ever catching up. The batched refresher processes affected
+// items in bounded chunks with set-based lookups and memoizes product schemas
+// per blueprint for the whole cascade — cascades share a handful of
+// blueprints — collapsing the per-item cost to roughly one page upsert.
 const ITEM_DETAIL_REFRESH_CHUNK_SIZE = 200;
 
 async function refreshDiscoveryItemDetailPages(
@@ -614,7 +613,7 @@ async function refreshItemsByBlueprint(
   throwIfCancelled?: () => void,
 ): Promise<void> {
   // Collect the affected ids first, then rebuild pages through the batched
-  // chunk refresher (issue #4751): the per-id refresh callback would pay the
+  // chunk refresher: the per-id refresh callback would pay the
   // full per-item lookup cost again.
   const itemIds = await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },

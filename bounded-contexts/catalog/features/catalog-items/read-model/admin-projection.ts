@@ -914,7 +914,7 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       await db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`, [itemId]);
     },
 
-    // An accepted Catalog Item alias set changed (#1914): the resolved English
+    // An accepted Catalog Item alias set changed: the resolved English
     // display name may change, so re-resolve display identity for this item. The
     // resolver reads the publishable aliases and republishes only on hash change.
     "catalog.catalog-item.aliases-resolved": async (event) => {
@@ -926,7 +926,7 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       );
     },
 
-    // An accepted set/series (Reference Record) alias set changed (#1914): every
+    // An accepted set/series (Reference Record) alias set changed: every
     // Catalog Item whose display copy references that record may change its
     // resolved set/series display, so re-resolve those items' display identity.
     "catalog.reference-record.aliases-resolved": async (event) => {

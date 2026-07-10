@@ -18,7 +18,7 @@ export type CatalogIntegrationsRouteData = Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   requestUrl: string;
-  // Streamed supplementary values (#1970). The daily surface loader returns these
+  // Streamed supplementary values. The daily surface loader returns these
   // as promises so the shell, metric strip, and 3-stage flow paint before the
   // ~150–250 KB source-option fan-out and the supplementary alias-review resolve;
   // the other surfaces leave them absent. The server builds the full
@@ -50,7 +50,7 @@ export function CatalogIntegrationsSurfaceRouteView({
 }>) {
   // The alias-review workspace POSTs its accept/reject/revoke forms to the daily
   // integrations route action (the composition root supplies this href), which
-  // dispatches the #1905 aggregate commands. Only the daily loader streams the
+  // dispatches the aggregate commands. Only the daily loader streams the
   // alias read model, so the slot renders behind a Suspense boundary that shows a
   // skeleton while the supplementary load streams in and resolves to nothing when
   // the (fail-soft) promise yields null.

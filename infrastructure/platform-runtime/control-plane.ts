@@ -533,8 +533,7 @@ const STALE_PROJECTION_OPERATION_REAP_BATCH_LIMIT = 100;
  * and progress writes always set `claimed_until`), yet legacy rows carrying it
  * are invisible to the executor's reclaim and dead-letter sweeps — both
  * compare `claimed_until <= now()`, which is NULL for them — so they sit
- * `running` forever while the queue behind them ages (issue #4496 ghost
- * operations).
+ * `running` forever while the queue behind them ages (ghost operations).
  *
  * Runs on every control-plane bootstrap (platform-api and platform-worker
  * boot), so existing ghost rows converge on the next deploy without manual
@@ -961,7 +960,7 @@ export function createPostgresPlatformControlPlane(
         // ghost (claim and progress writes always set claimed_until): a
         // `claimed_until <= now()` comparison is NULL for it, so without the
         // explicit NULL arm the row is invisible to both this reclaim and the
-        // dead-letter sweep forever (issue #4496 ghost operations). Once the
+        // dead-letter sweep forever (ghost operations). Once the
         // row is older than one claim TTL it is reclaimable like any other
         // expired claim.
         const result = await queryable.query<ProjectionOperationRow>(

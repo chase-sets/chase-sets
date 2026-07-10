@@ -46,9 +46,9 @@ import {
 // (provider · unit · scope · profile), with an edit affordance that re-expands it.
 // Open/close is pure CLIENT state (`useState`) — it never navigates, so it never
 // full-reloads. Editing the context (provider/unit/scope/profile selects, the
-// source-option refresh controls) rides on the shared fetcher submit (#1969): a
+// source-option refresh controls) rides on the shared fetcher submit: a
 // client GET navigation that revalidates the loader and re-resolves the deferred
-// source-options slice (#1970) in place, keeping the page mounted.
+// source-options slice in place, keeping the page mounted.
 export function CatalogImportContextBar({
   readModel,
   deferredSourceOptions = null,
@@ -139,7 +139,7 @@ function importContextScopeLabel(
 // (`useSubmit`, method="get") rather than a full-document GET. The page stays
 // mounted, so the operator's open stage / scroll / selection survive, and the
 // loader revalidates IN PLACE — refreshing `useLoaderData` and the deferred
-// source-options promise (#1970) — instead of remounting the whole route. Every
+// source-options promise — instead of remounting the whole route. Every
 // submit replaces the history entry (`replace`) so live-on-change selects do not
 // stack a history frame per change, and preserves scroll (`preventScrollReset`).
 const importContextSubmitOptions = {
@@ -186,7 +186,7 @@ function ProviderImportContextForm({
   // immediately (they derive from the active profile + route context, not the
   // fan-out), so the raw-importScope-vs-guided gate is decided at first paint and
   // each guided select renders preselected. The full per-group option lists stream
-  // in behind the same deferred slice the status panel awaits (#1970).
+  // in behind the same deferred slice the status panel awaits.
   const skeletonScopeFields = guidedSourceScopeFields(readModel);
 
   return (
@@ -332,7 +332,7 @@ function clearStaleImportContextHiddenState(form: HTMLFormElement): void {
   }
 }
 
-// Stream the guided scope selects' full option lists (#1970). The fields render
+// Stream the guided scope selects' full option lists. The fields render
 // immediately from the skeleton slice — gated, labelled, and preselected to the
 // route's current scope — and the resolved deferred slice repopulates each select
 // with its full per-group option list once the fan-out streams in. When no promise
@@ -528,7 +528,7 @@ function forceRefreshAllSourceOptions(form: HTMLFormElement): void {
   form.appendChild(action);
 }
 
-// Stream the source-options status panel (#1970). The option fan-out only feeds
+// Stream the source-options status panel. The option fan-out only feeds
 // this secondary panel, so the daily loader defers it: the shell paints first and
 // the populated panel streams in behind a Suspense/Await boundary. The skeleton
 // read model still carries the declared `optionKinds` (derived from the active
@@ -580,7 +580,7 @@ function DeferredSourceOptionsStatusPanel({
 // href; submitting it as a client GET navigation (rather than following it as a
 // document link) revalidates the loader, which re-fetches the option pages with
 // the requested freshness and re-resolves the deferred source-options slice
-// (#1970) WITHOUT reloading the whole page or resetting scroll/stage.
+// WITHOUT reloading the whole page or resetting scroll/stage.
 function SourceOptionRefreshButton({
   href,
   size,

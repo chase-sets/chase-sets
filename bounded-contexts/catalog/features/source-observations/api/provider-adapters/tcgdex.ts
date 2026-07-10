@@ -274,7 +274,7 @@ async function listTcgdexAdapterOptions(
 
 /**
  * Resolve typed English option aliases for a single non-English option by
- * fetching the same-id English mirror entity and aligning it with the #1906
+ * fetching the same-id English mirror entity and aligning it with the
  * reusable matcher (`matchTcgdexEnglishEndpointEntity`). English-language
  * selections have no localized name to translate, so they carry no alias. A
  * missing English mirror (404 or id mismatch) yields no alias: providers/options

@@ -1,6 +1,6 @@
 // Shared CLI-option and environment helpers for the operational scripts in
-// scripts/. These were previously duplicated verbatim across ~38 evidence,
-// readiness, and canary generators (issue #1331).
+// scripts/, used by the evidence, readiness, and canary generators so the
+// parsing logic lives in one place.
 
 export function readOption(argv, name) {
   const index = argv.indexOf(name);

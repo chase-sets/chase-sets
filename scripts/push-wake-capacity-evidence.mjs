@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CI-safe push-wake capacity evidence for #1363/#1364/#4633.
+// CI-safe push-wake capacity evidence.
 //
 // Reads checked-in Terraform and registry sources only. It does not contact
 // DigitalOcean, databases, staging, production, or secret-backed services.
