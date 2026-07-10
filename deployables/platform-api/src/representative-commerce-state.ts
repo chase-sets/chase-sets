@@ -10,11 +10,15 @@ import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/cont
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
+import { reconcileRepresentativeProductContentsScenario } from "@chase-sets/catalog/server";
 import {
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,
   filterUntouchedMarketplaceCatalogUsageCandidates,
   prepareRepresentativeCatalogUsageCandidates,
+  prepareRepresentativeCatalogUsageCandidatesByIds,
+  prioritizeRepresentativeCatalogUsageCandidates,
+  representativeProductContentsScenario,
   publishRepresentativeListings,
   reconcileRepresentativeMarketplaceCatalogItems,
   submitRepresentativeOffers,
@@ -50,6 +54,26 @@ const REPRESENTATIVE_EVIDENCE_LISTING_PATTERN = /\blst_[A-Za-z0-9_-]+\b/g;
 const REPRESENTATIVE_EVIDENCE_INVENTORY_PATTERN = /\binv_[A-Za-z0-9_-]+\b/g;
 const REPRESENTATIVE_EVIDENCE_ORDER_PATTERN = /\bord_[A-Za-z0-9_-]+\b/g;
 const REPRESENTATIVE_EVIDENCE_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+type RepresentativeCatalogServices = CatalogRepresentativeServices &
+  Parameters<typeof reconcileRepresentativeProductContentsScenario>[0];
+
+export const representativeProductContentsProjectionPlan = {
+  beforeContents: { contextName: "catalog", projectionName: "catalog-item-projection" },
+  afterContents: [
+    { contextName: "catalog", projectionName: "catalog-product-contents-projection" },
+    { contextName: "discovery", projectionName: "discovery-item-detail-projection" },
+    { contextName: "discovery", projectionName: "discovery-search-item-projection" },
+  ],
+} as const;
+
+export function assertRepresentativeProductContentsReconciled(reconciled: boolean): void {
+  if (!reconciled) {
+    throw new Error(
+      "Representative Product Contents reconciliation requires both fixture Catalog Items to be projected.",
+    );
+  }
+}
 
 type ChromeUatPersonaAlias = "card-vault" | "sealed-stockroom";
 type ChromeUatReadinessStatus = "ready" | "operator-action-required";
@@ -242,18 +266,47 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         runtimeProfile: config.runtimeProfile,
       }),
     );
+    const catalogServices = getCatalogServices(runtime.services);
+    await syncRepresentativeProjection(
+      runtime,
+      representativeProductContentsProjectionPlan.beforeContents.contextName,
+      representativeProductContentsProjectionPlan.beforeContents.projectionName,
+    );
+    await runRepresentativeStep("reconcile representative Product Contents scenario", async () => {
+      const reconciled = await reconcileRepresentativeProductContentsScenario(catalogServices, {
+        provenanceSource: "representative-commerce-state",
+      });
+      assertRepresentativeProductContentsReconciled(reconciled);
+    });
+    for (const projection of representativeProductContentsProjectionPlan.afterContents) {
+      await syncRepresentativeProjection(runtime, projection.contextName, projection.projectionName);
+    }
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");
+    const requiredProductContentsCandidates = await runRepresentativeStep(
+      "prepare required Product Contents catalog usage candidates",
+      () =>
+        prepareRepresentativeCatalogUsageCandidatesByIds(
+          catalogServices,
+          representativeProductContentsScenario.requiredCatalogItemIds,
+        ),
+      { timeoutMs: MAX_STEP_TIMEOUT_MS },
+    );
     const sourceCandidates = await runRepresentativeStep(
       "prepare current catalog usage candidates",
       () =>
-        prepareRepresentativeCatalogUsageCandidates(getCatalogServices(runtime.services), {
+        prepareRepresentativeCatalogUsageCandidates(catalogServices, {
           limit: readCandidateSourceLimit(),
         }),
       { timeoutMs: MAX_STEP_TIMEOUT_MS },
     );
+    const plannedCandidates = prioritizeRepresentativeCatalogUsageCandidates(
+      requiredProductContentsCandidates,
+      sourceCandidates,
+    );
     const candidates = await runRepresentativeStep("filter untouched marketplace catalog candidates", () =>
-      filterUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), sourceCandidates, {
+      filterUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), plannedCandidates, {
         limit: readCandidateLimit(),
+        priorityCatalogItemIds: representativeProductContentsScenario.requiredCatalogItemIds,
       }),
     );
     const marketplaceReconciledCount = await runRepresentativeStep("reconcile selected marketplace catalog items", () =>
@@ -565,13 +618,14 @@ function getInventoryDb(services: Readonly<Record<string, unknown>>): Pick<PgQue
   return inventory.db as Pick<PgQueryable, "query">;
 }
 
-function getCatalogServices(services: Readonly<Record<string, unknown>>): CatalogRepresentativeServices {
+function getCatalogServices(services: Readonly<Record<string, unknown>>): RepresentativeCatalogServices {
   const catalog = services.catalog;
   if (
     !catalog ||
     typeof catalog !== "object" ||
     !("db" in catalog) ||
     !("productMeasures" in catalog) ||
+    !("productContents" in catalog) ||
     !catalog.db ||
     typeof catalog.db !== "object" ||
     !("query" in catalog.db) ||
@@ -579,14 +633,22 @@ function getCatalogServices(services: Readonly<Record<string, unknown>>): Catalo
     !catalog.productMeasures ||
     typeof catalog.productMeasures !== "object" ||
     !("resolveCatalogItemMeasures" in catalog.productMeasures) ||
-    typeof catalog.productMeasures.resolveCatalogItemMeasures !== "function"
+    typeof catalog.productMeasures.resolveCatalogItemMeasures !== "function" ||
+    !catalog.productContents ||
+    typeof catalog.productContents !== "object" ||
+    !("upsertContentType" in catalog.productContents) ||
+    typeof catalog.productContents.upsertContentType !== "function" ||
+    !("upsertInclusionPolicy" in catalog.productContents) ||
+    typeof catalog.productContents.upsertInclusionPolicy !== "function" ||
+    !("replaceProductContents" in catalog.productContents) ||
+    typeof catalog.productContents.replaceProductContents !== "function"
   ) {
     throw new Error(
-      "Representative commerce state requires mounted Catalog services with product measures and a queryable db.",
+      "Representative commerce state requires mounted Catalog services with Product Contents, product measures, and a queryable db.",
     );
   }
 
-  return catalog as CatalogRepresentativeServices;
+  return catalog as RepresentativeCatalogServices;
 }
 
 function getMarketplaceServices(services: Readonly<Record<string, unknown>>): RepresentativeMarketplaceServices {

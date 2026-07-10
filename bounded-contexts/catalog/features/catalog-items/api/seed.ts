@@ -15,6 +15,7 @@ export async function seedCatalogItems(
   fields: FieldIds,
   categories: CategoryIds,
   references: CatalogReferenceIds,
+  options: Readonly<{ catalogItemIds?: readonly CatalogItemId[] }> = {},
 ): Promise<void> {
   console.log("Seeding catalog items...");
 
@@ -440,7 +441,9 @@ export async function seedCatalogItems(
     },
   ];
 
-  for (const item of items) {
+  const selectedCatalogItemIds = options.catalogItemIds ? new Set(options.catalogItemIds) : null;
+
+  for (const item of items.filter((candidate) => selectedCatalogItemIds?.has(candidate.itemId) ?? true)) {
     const streamId = `catalog.item-${item.itemId}`;
 
     await sendSeedCommand(services.items.commandHandler, streamId, {

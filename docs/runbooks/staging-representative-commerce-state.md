@@ -52,7 +52,7 @@ If `chromeUatSelector.status=operator-action-required`, do not treat sandbox pro
 
 ## Expected Data
 
-The representative profile keeps real Catalog integration output in place. It first resolves product measurements for a bounded active Catalog Item window, finds active Catalog Items with product measurement snapshots, filters to items with no listings or offers, reconciles those selected item facts into Marketplace and Inventory, then layers representative usage over those current items.
+The representative profile keeps real Catalog integration output in place and adds only the explicitly owned Prismatic Evolutions Product Contents acceptance fixture. It projects that fixture's container and contained Catalog Items, reconciles the Product Contents relationship, and synchronizes Catalog Product Contents plus Discovery detail/search before selecting commerce candidates. The fixture is prioritized outside the bounded untouched-item budget so `catalog_item_limit` cannot drop it. The refresh then resolves product measurements for the required fixture and a bounded active Catalog Item window, filters ordinary items with no listings or offers, reconciles those selected item facts into Marketplace and Inventory, and layers representative usage over them.
 
 Representative Inventory stock prefers raw/non-graded product options when a current Catalog Item exposes raw-vs-graded form choices. Graded stock scenarios should include graded-card certification details before being enabled for staging-visible usage.
 
@@ -77,7 +77,7 @@ The representative usage layer should reconcile:
 - Use staging/test provider rails such as Stripe test mode and EasyPost test mode.
 - Do not copy production PII, payment details, payout destination details, raw provider payloads, or production account data.
 - Keep scenario ids stable and idempotent.
-- Do not create fake Catalog Items in staging representative runs. Import/promote Catalog Items through Catalog integration workflows first.
+- Do not add broad fake Catalog datasets to staging representative runs. New fixed acceptance fixtures require an explicitly named behavior that provider data cannot prove deterministically; otherwise import/promote Catalog Items through Catalog integration workflows first.
 - Prefer Catalog Items with no existing listings or offers so refreshes can add coverage after every integration pull.
 - Skip Catalog Items without product measurement snapshots because accepted offers flow into Ordering and order creation requires product measurements.
 - Keep Chrome UAT listing mutations fixture-owned: use the `selectedPersonaAlias`, mutate only representative staging inventory/listings owned by that alias, and restore the previous listing state or withdraw any temporary listing in the same UAT window. If cleanup cannot happen immediately, record a private cleanup owner and a 24-hour TTL outside public evidence.
