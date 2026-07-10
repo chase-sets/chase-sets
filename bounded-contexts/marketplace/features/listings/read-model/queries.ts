@@ -611,6 +611,9 @@ export async function getSellerListingAvailability(
   );
 }
 
+// High-dollar listing publication trust is gated on the account's OWN
+// reliability as a SELLER, so this reads the as-seller reputation dimension
+// (m108) — an account's history as a buyer must not unlock seller trust.
 export async function getMarketplaceAccountRisk(
   db: PgQueryable,
   accountId: string,
@@ -624,8 +627,8 @@ export async function getMarketplaceAccountRisk(
     `SELECT
        account_id,
        badges,
-       review_count,
-       average_rating::text AS average_rating
+       review_count_as_seller AS review_count,
+       average_rating_as_seller::text AS average_rating
      FROM marketplace_account_pages
      WHERE account_id = $1`,
     [accountId],

@@ -95,8 +95,8 @@ export async function getDiscoveryPublicListingBySlug(
          account.seller_listing_availability_status,
          account.seller_listing_availability_reason_category,
          account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
-         account.average_rating::text AS seller_average_rating,
-         COALESCE(account.review_count, 0)::integer AS seller_review_count,
+         account.average_rating_as_seller::text AS seller_average_rating,
+         COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
          google_feed.payload AS google_shopping_structured_data_payload,
        ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
@@ -146,8 +146,8 @@ export async function getDiscoveryPublicAccountBySlug(
        account.seller_slug AS account_slug,
        account.seller_display_name AS account_display_name,
        account.status,
-       account.average_rating::text AS average_rating,
-       COALESCE(account.review_count, 0)::integer AS review_count,
+       account.average_rating_as_seller::text AS average_rating,
+       COALESCE(account.review_count_as_seller, 0)::integer AS review_count,
        account.updated_at::text AS updated_at
      FROM discovery_market_accounts AS account
      LEFT JOIN discovery_slug_redirects AS redirect
@@ -180,8 +180,8 @@ export async function getDiscoveryPublicAccountBySlug(
            account.seller_listing_availability_status,
            account.seller_listing_availability_reason_category,
            account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
-           account.average_rating::text AS seller_average_rating,
-           COALESCE(account.review_count, 0)::integer AS seller_review_count,
+           account.average_rating_as_seller::text AS seller_average_rating,
+           COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
            NULL::jsonb AS google_shopping_structured_data_payload,
            ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
          FROM discovery_market_listings AS listing

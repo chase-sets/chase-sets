@@ -153,6 +153,44 @@ describe("marketplace account projection", () => {
       "2026-05-09T00:00:00.000Z",
     ]);
   });
+
+  it("splits reputation counters into as-seller and as-buyer dimensions on review.submitted (m108)", async () => {
+    const db = {
+      query: vi.fn(async (sql: string, values?: readonly unknown[]) => ({
+        rows: [] as unknown[],
+        rowCount: 0,
+        params: values,
+      })),
+    };
+    const handlers = buildMarketplaceAccountProjectionHandlers(db as never);
+
+    await handlers["marketplace.review.submitted"]!(
+      event(
+        "marketplace.review.submitted",
+        {
+          reviewId: "rev_1",
+          subjectAccountId: "acc_seller",
+          authorRole: "buyer",
+          rating: 5,
+          submittedAt: "2026-05-09T00:00:00.000Z",
+        },
+        "marketplace.review-rev_1",
+      ),
+    );
+
+    const reputationRefresh = vi
+      .mocked(db.query)
+      .mock.calls.find(([sql]) => sql.includes("INSERT INTO marketplace_account_pages"));
+    expect(reputationRefresh?.[0]).toContain("COUNT(*) FILTER (WHERE author_role = 'buyer')");
+    expect(reputationRefresh?.[0]).toContain("COUNT(*) FILTER (WHERE author_role = 'seller')");
+    expect(reputationRefresh?.[0]).toContain("average_rating_as_seller");
+    expect(reputationRefresh?.[0]).toContain("average_rating_as_buyer");
+
+    const reviewInsert = vi
+      .mocked(db.query)
+      .mock.calls.find(([sql]) => sql.includes("INSERT INTO marketplace_account_reviews"));
+    expect(reviewInsert?.[1]).toEqual(["rev_1", "acc_seller", "buyer", 5, "2026-05-09T00:00:00.000Z"]);
+  });
 });
 
 describe("marketplace inventory supply projection", () => {

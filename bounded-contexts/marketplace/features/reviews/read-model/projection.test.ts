@@ -44,6 +44,8 @@ describe("marketplace review projection", () => {
     for (const refresh of summaryRefreshes) {
       expect(refresh.sql).toContain("WHERE subject_account_id = $1");
       expect(refresh.sql).toContain("AND status = 'active'");
+      expect(refresh.sql).toContain("COUNT(*) FILTER (WHERE author_role = 'buyer')");
+      expect(refresh.sql).toContain("COUNT(*) FILTER (WHERE author_role = 'seller')");
     }
   });
 });

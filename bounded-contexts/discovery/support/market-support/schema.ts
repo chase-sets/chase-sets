@@ -16,14 +16,26 @@ ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS seller_listing_availability_reason_category text NULL,
   ADD COLUMN IF NOT EXISTS seller_listing_available_again_on date NULL;
 
+-- Reputation columns are role-split (m108): as-seller counters reflect
+-- reviews authored by buyers about this account, as-buyer counters reflect
+-- reviews authored by sellers. seller_average_rating output columns must
+-- read the as-seller columns and buyer_average_rating output columns must
+-- read the as-buyer columns.
 ALTER TABLE discovery_market_accounts
-  ADD COLUMN IF NOT EXISTS average_rating numeric(4, 2) NULL,
-  ADD COLUMN IF NOT EXISTS review_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_1_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_2_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_3_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_4_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_5_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS average_rating_as_seller numeric(4, 2) NULL,
+  ADD COLUMN IF NOT EXISTS review_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_1_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_2_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_3_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_4_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_5_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS average_rating_as_buyer numeric(4, 2) NULL,
+  ADD COLUMN IF NOT EXISTS review_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_1_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_2_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_3_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_4_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_5_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS reputation_updated_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
@@ -228,6 +240,22 @@ export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
   ON discovery_market_supply_items (account_id, catalog_catalog_item_id);`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_market_supply_items_storage_location_idx
   ON discovery_market_supply_items (storage_location_id);`,
+    ],
+  },
+  {
+    migrationId: "20260710_discovery_market_accounts_role_split_drop_legacy_columns",
+    description:
+      "Drop the pre-role-split blended reputation columns from discovery_market_accounts now that as-seller/as-buyer columns are populated (m108).",
+    statements: [
+      `SET lock_timeout = '2s'`,
+      `ALTER TABLE discovery_market_accounts
+  DROP COLUMN IF EXISTS average_rating,
+  DROP COLUMN IF EXISTS review_count,
+  DROP COLUMN IF EXISTS rating_1_count,
+  DROP COLUMN IF EXISTS rating_2_count,
+  DROP COLUMN IF EXISTS rating_3_count,
+  DROP COLUMN IF EXISTS rating_4_count,
+  DROP COLUMN IF EXISTS rating_5_count`,
     ],
   },
 ];

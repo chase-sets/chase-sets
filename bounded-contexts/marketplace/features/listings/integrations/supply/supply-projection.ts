@@ -8,6 +8,9 @@ import type {
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildCatalogMirrorProjectionHandlers } from "@chase-sets/event-core-postgres/catalog-mirror";
 
+// Splits reputation into as-seller (reviews authored by buyers) and as-buyer
+// (reviews authored by sellers) dimensions (m108): a review's `author_role`
+// records the AUTHOR's role, so the SUBJECT played the opposite role.
 async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO marketplace_account_pages (
@@ -15,13 +18,20 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
        display_name,
        status,
        badges,
-       average_rating,
-       review_count,
-       rating_1_count,
-       rating_2_count,
-       rating_3_count,
-       rating_4_count,
-       rating_5_count,
+       average_rating_as_seller,
+       review_count_as_seller,
+       rating_1_count_as_seller,
+       rating_2_count_as_seller,
+       rating_3_count_as_seller,
+       rating_4_count_as_seller,
+       rating_5_count_as_seller,
+       average_rating_as_buyer,
+       review_count_as_buyer,
+       rating_1_count_as_buyer,
+       rating_2_count_as_buyer,
+       rating_3_count_as_buyer,
+       rating_4_count_as_buyer,
+       rating_5_count_as_buyer,
        reputation_updated_at,
        updated_at
      )
@@ -30,26 +40,46 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
        COALESCE((SELECT display_name FROM marketplace_account_pages WHERE account_id = $1), $1),
        COALESCE((SELECT status FROM marketplace_account_pages WHERE account_id = $1), 'active'),
        COALESCE((SELECT badges FROM marketplace_account_pages WHERE account_id = $1), '[]'::jsonb),
-       CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
-       COUNT(*)::integer,
-       COUNT(*) FILTER (WHERE rating = 1)::integer,
-       COUNT(*) FILTER (WHERE rating = 2)::integer,
-       COUNT(*) FILTER (WHERE rating = 3)::integer,
-       COUNT(*) FILTER (WHERE rating = 4)::integer,
-       COUNT(*) FILTER (WHERE rating = 5)::integer,
+       CASE
+         WHEN COUNT(*) FILTER (WHERE author_role = 'buyer') = 0 THEN NULL
+         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'buyer')::numeric, 2)
+       END,
+       COUNT(*) FILTER (WHERE author_role = 'buyer')::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 1)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 2)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 3)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 4)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 5)::integer,
+       CASE
+         WHEN COUNT(*) FILTER (WHERE author_role = 'seller') = 0 THEN NULL
+         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'seller')::numeric, 2)
+       END,
+       COUNT(*) FILTER (WHERE author_role = 'seller')::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 1)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 2)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 3)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 4)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 5)::integer,
        $2,
        $2
      FROM marketplace_account_reviews
      WHERE subject_account_id = $1
        AND status = 'active'
      ON CONFLICT (account_id) DO UPDATE SET
-       average_rating = EXCLUDED.average_rating,
-       review_count = EXCLUDED.review_count,
-       rating_1_count = EXCLUDED.rating_1_count,
-       rating_2_count = EXCLUDED.rating_2_count,
-       rating_3_count = EXCLUDED.rating_3_count,
-       rating_4_count = EXCLUDED.rating_4_count,
-       rating_5_count = EXCLUDED.rating_5_count,
+       average_rating_as_seller = EXCLUDED.average_rating_as_seller,
+       review_count_as_seller = EXCLUDED.review_count_as_seller,
+       rating_1_count_as_seller = EXCLUDED.rating_1_count_as_seller,
+       rating_2_count_as_seller = EXCLUDED.rating_2_count_as_seller,
+       rating_3_count_as_seller = EXCLUDED.rating_3_count_as_seller,
+       rating_4_count_as_seller = EXCLUDED.rating_4_count_as_seller,
+       rating_5_count_as_seller = EXCLUDED.rating_5_count_as_seller,
+       average_rating_as_buyer = EXCLUDED.average_rating_as_buyer,
+       review_count_as_buyer = EXCLUDED.review_count_as_buyer,
+       rating_1_count_as_buyer = EXCLUDED.rating_1_count_as_buyer,
+       rating_2_count_as_buyer = EXCLUDED.rating_2_count_as_buyer,
+       rating_3_count_as_buyer = EXCLUDED.rating_3_count_as_buyer,
+       rating_4_count_as_buyer = EXCLUDED.rating_4_count_as_buyer,
+       rating_5_count_as_buyer = EXCLUDED.rating_5_count_as_buyer,
        reputation_updated_at = EXCLUDED.reputation_updated_at,
        updated_at = EXCLUDED.updated_at`,
     [accountId, updatedAt],
@@ -193,6 +223,7 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
       const data = event.data as {
         reviewId: string;
         subjectAccountId: string;
+        authorRole: string;
         rating: number;
         submittedAt: string;
       };
@@ -201,16 +232,18 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
         `INSERT INTO marketplace_account_reviews (
            review_id,
            subject_account_id,
+           author_role,
            rating,
            status,
            updated_at
-         ) VALUES ($1, $2, $3, 'active', $4)
+         ) VALUES ($1, $2, $3, $4, 'active', $5)
          ON CONFLICT (review_id) DO UPDATE SET
            subject_account_id = EXCLUDED.subject_account_id,
+           author_role = EXCLUDED.author_role,
            rating = EXCLUDED.rating,
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at`,
-        [data.reviewId, data.subjectAccountId, data.rating, data.submittedAt],
+        [data.reviewId, data.subjectAccountId, data.authorRole, data.rating, data.submittedAt],
       );
       await refreshMarketplaceAccountReputation(db, data.subjectAccountId, data.submittedAt);
     },

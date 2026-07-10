@@ -55,13 +55,20 @@ function services(): ReviewServices {
     getPublicAccountSummary: vi.fn(async (accountId) => ({
       account_id: accountId,
       account_display_name: "Seller",
-      average_rating: "5.00",
-      review_count: 1,
-      rating_1_count: 0,
-      rating_2_count: 0,
-      rating_3_count: 0,
-      rating_4_count: 0,
-      rating_5_count: 1,
+      average_rating_as_seller: "5.00",
+      review_count_as_seller: 1,
+      rating_1_count_as_seller: 0,
+      rating_2_count_as_seller: 0,
+      rating_3_count_as_seller: 0,
+      rating_4_count_as_seller: 0,
+      rating_5_count_as_seller: 1,
+      average_rating_as_buyer: null,
+      review_count_as_buyer: 0,
+      rating_1_count_as_buyer: 0,
+      rating_2_count_as_buyer: 0,
+      rating_3_count_as_buyer: 0,
+      rating_4_count_as_buyer: 0,
+      rating_5_count_as_buyer: 0,
       updated_at: "2026-07-08T00:00:00.000Z",
     })),
     listWrittenReviews: vi.fn(async () => ({ items: [reviewRow({ author_account_id: "acc_1" })], total: 1 })),
@@ -85,8 +92,7 @@ describe("marketplace review MCP handlers", () => {
     expect(result).toMatchObject({
       accountId: "acc_1",
       subjectAccountId: "acc_seller",
-      summary: { account_id: "acc_seller", average_rating: "5.00", review_count: 1 },
-      gaps: { roleSplitReputation: "not-available" },
+      summary: { account_id: "acc_seller", average_rating_as_seller: "5.00", review_count_as_seller: 1 },
     });
     expect(fakeServices.getPublicAccountSummary).toHaveBeenCalledWith("acc_seller");
   });
@@ -137,7 +143,7 @@ describe("marketplace review MCP handlers", () => {
         request: new Request("https://api.test/mcp"),
         protocol: legacyMcpProtocol,
       }),
-    ).resolves.toMatchObject({ account_id: "acc_seller", review_count: 1 });
+    ).resolves.toMatchObject({ account_id: "acc_seller", review_count_as_seller: 1 });
     await expect(
       handlers.resourceHandlers["chase-sets://marketplace/{accountId}/reviews/{reviewId}"]?.({
         actor,

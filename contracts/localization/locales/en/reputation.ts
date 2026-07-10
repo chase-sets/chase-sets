@@ -13,6 +13,8 @@ export const reputationEnglishTranslations = {
     "\n  SELECT\n    page.review_id,\n    page.order_id,\n    page.author_account_id,\n    author.display_name AS author_display_name,\n    page.subject_account_id,\n    subject.display_name AS subject_display_name,\n    page.author_role,\n    page.rating,\n    page.feedback,\n    page.status,\n    page.submitted_at,\n    page.updated_at,\n    page.withdrawn_at\n  FROM marketplace_review_pages AS page\n  LEFT JOIN marketplace_review_account_sources AS author\n    ON author.account_id = page.author_account_id\n  LEFT JOIN marketplace_review_account_sources AS subject\n    ON subject.account_id = page.subject_account_id\n",
   "reputation.features.reviews.readModel.schema.create.table.if.not.exists.reputation":
     "\nCREATE TABLE IF NOT EXISTS marketplace_review_pages (\n  review_id text PRIMARY KEY,\n  order_id text NOT NULL,\n  author_account_id text NOT NULL,\n  subject_account_id text NOT NULL,\n  author_role text NOT NULL,\n  rating integer NOT NULL,\n  feedback text NULL,\n  status text NOT NULL,\n  submitted_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL,\n  withdrawn_at timestamptz NULL\n);\n\nCREATE UNIQUE INDEX IF NOT EXISTS marketplace_active_review_direction_idx\n  ON marketplace_review_pages (order_id, author_account_id, subject_account_id)\n  WHERE status = 'active';\n\nCREATE INDEX IF NOT EXISTS marketplace_review_pages_author_idx\n  ON marketplace_review_pages (author_account_id, updated_at DESC, review_id DESC);\n\nCREATE INDEX IF NOT EXISTS marketplace_review_pages_subject_idx\n  ON marketplace_review_pages (subject_account_id, updated_at DESC, review_id DESC)\n  WHERE status = 'active';\n\nCREATE TABLE IF NOT EXISTS marketplace_review_summary_pages (\n  account_id text PRIMARY KEY,\n  average_rating numeric(4, 2) NULL,\n  review_count integer NOT NULL DEFAULT 0,\n  rating_1_count integer NOT NULL DEFAULT 0,\n  rating_2_count integer NOT NULL DEFAULT 0,\n  rating_3_count integer NOT NULL DEFAULT 0,\n  rating_4_count integer NOT NULL DEFAULT 0,\n  rating_5_count integer NOT NULL DEFAULT 0,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE TABLE IF NOT EXISTS marketplace_review_eligibility_pages (\n  order_id text NOT NULL,\n  author_account_id text NOT NULL,\n  subject_account_id text NOT NULL,\n  author_role text NOT NULL,\n  eligible_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL,\n  PRIMARY KEY (order_id, author_account_id, subject_account_id)\n);\n\nCREATE INDEX IF NOT EXISTS marketplace_review_eligibility_author_idx\n  ON marketplace_review_eligibility_pages (author_account_id, eligible_at DESC, order_id DESC);\n",
+  "reputation.features.reviews.ui.accountReviewSummaryPage.as.seller": "As seller",
+  "reputation.features.reviews.ui.accountReviewSummaryPage.as.buyer": "As buyer",
   "reputation.features.reviews.ui.accountReviewSummaryPage.1.star": "| 1-star:",
   "reputation.features.reviews.ui.accountReviewSummaryPage.2.star": "| 2-star: ",
   "reputation.features.reviews.ui.accountReviewSummaryPage.3.star": "| 3-star:",
@@ -46,6 +48,7 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewDetailRecoveryPage.refresh.review": "Refresh review",
   "reputation.features.reviews.ui.reviewDetailRecoveryPage.review.submission.saved":
     "Your review submission was saved.",
+  "reputation.features.reviews.ui.reviewListPage.filter.by.role": "Filter by role",
   "reputation.features.reviews.ui.reviewListPage.no.written.feedback": "No written feedback.",
   "reputation.features.reviews.ui.reviewListPage.open.review": "Open review",
   "reputation.features.reviews.ui.reviewListPage.order": "Order ",
@@ -72,6 +75,9 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewSubmissionPage.your.review": "Your review",
   "reputation.routes.marketplace.accountPurchaseReview.verified.purchase.not.found": "Verified purchase not found.",
   "reputation.routes.marketplace.accountPurchaseReview.write.review.marketplace": "Write Review | Marketplace",
+  "reputation.routes.marketplace.accountReceivedReviews.all.roles": "All",
+  "reputation.routes.marketplace.accountReceivedReviews.as.buyer": "As buyer",
+  "reputation.routes.marketplace.accountReceivedReviews.as.seller": "As seller",
   "reputation.routes.marketplace.accountReceivedReviews.counterparty.feedback.about.your.completed.transactions":
     "Counterparty feedback about your completed transactions appears here.",
   "reputation.routes.marketplace.accountReceivedReviews.no.received.reviews.yet": "No received reviews yet",
@@ -91,6 +97,9 @@ export const reputationEnglishTranslations = {
   "reputation.routes.marketplace.accountReviewSummary.your.reviews": "Your reviews",
   "reputation.routes.marketplace.accountSaleReview.verified.order.not.found": "Verified order not found.",
   "reputation.routes.marketplace.accountSaleReview.write.review.marketplace": "Write Review | Marketplace",
+  "reputation.routes.marketplace.accountWrittenReviews.all.roles": "All",
+  "reputation.routes.marketplace.accountWrittenReviews.as.buyer": "As buyer",
+  "reputation.routes.marketplace.accountWrittenReviews.as.seller": "As seller",
   "reputation.routes.marketplace.accountWrittenReviews.no.written.reviews.yet": "No written reviews yet",
   "reputation.routes.marketplace.accountWrittenReviews.received.reviews": "Received reviews",
   "reputation.routes.marketplace.accountWrittenReviews.reviews": "Reviews",

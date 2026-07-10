@@ -25,6 +25,7 @@ export function ReviewListPage({
   reviewDetailBasePath,
   reviews,
   actions,
+  roleFilterActions,
 }: {
   title: string;
   eyebrow: string;
@@ -33,6 +34,7 @@ export function ReviewListPage({
   reviewDetailBasePath: string;
   reviews: readonly ReviewListItem[];
   actions?: ReactNode;
+  roleFilterActions?: ReactNode;
 }) {
   return (
     <Page>
@@ -42,6 +44,12 @@ export function ReviewListPage({
         description={t("reputation.features.reviews.ui.reviewListPage.track.written.feedback.current.visibility.and")}
         actions={actions}
       />
+
+      {roleFilterActions ? (
+        <PageSection title={t("reputation.features.reviews.ui.reviewListPage.filter.by.role")}>
+          {roleFilterActions}
+        </PageSection>
+      ) : null}
 
       <PageSection title={t("reputation.features.reviews.ui.reviewListPage.reviews")}>
         <Stack gap={3}>

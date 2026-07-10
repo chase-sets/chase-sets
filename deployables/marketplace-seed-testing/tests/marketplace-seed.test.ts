@@ -73,13 +73,19 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     expect(new Set(reviewStatuses.rows.map((row) => row.status))).toEqual(new Set(["active", "withdrawn"]));
 
+    // The seed's active review is authored by the buyer about the demo
+    // account acting as a seller, so it lands in the as-seller dimension
+    // (m108 role split); the seller-to-buyer review is withdrawn and
+    // contributes to neither dimension's count.
     const summary = await pools.marketplace.query<{
-      review_count: number;
-      average_rating: string | null;
-    }>("SELECT review_count, average_rating::text AS average_rating FROM marketplace_review_summary_pages");
+      review_count_as_seller: number;
+      average_rating_as_seller: string | null;
+    }>(
+      "SELECT review_count_as_seller, average_rating_as_seller::text AS average_rating_as_seller FROM marketplace_review_summary_pages WHERE review_count_as_seller > 0",
+    );
     expect(summary.rows[0]).toMatchObject({
-      review_count: 1,
-      average_rating: "5.00",
+      review_count_as_seller: 1,
+      average_rating_as_seller: "5.00",
     });
 
     const wallet = await pools.settlement.query<{

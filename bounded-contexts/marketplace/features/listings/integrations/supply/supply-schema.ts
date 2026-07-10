@@ -1,38 +1,63 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const marketplaceSupplyProjectionSchemaSql = `
+-- Reputation columns are role-split (m108): as-seller counters reflect
+-- reviews authored by buyers about this account, as-buyer counters reflect
+-- reviews authored by sellers. A "seller.average_rating" join must read the
+-- as-seller columns and a "buyer.average_rating" join must read the as-buyer
+-- columns; blending the two misrepresents the account's per-role reliability.
 CREATE TABLE IF NOT EXISTS marketplace_account_pages (
   account_id text PRIMARY KEY,
   display_name text NOT NULL,
   status text NOT NULL,
   badges jsonb NOT NULL DEFAULT '[]'::jsonb,
-  average_rating numeric(4, 2) NULL,
-  review_count integer NOT NULL DEFAULT 0,
-  rating_1_count integer NOT NULL DEFAULT 0,
-  rating_2_count integer NOT NULL DEFAULT 0,
-  rating_3_count integer NOT NULL DEFAULT 0,
-  rating_4_count integer NOT NULL DEFAULT 0,
-  rating_5_count integer NOT NULL DEFAULT 0,
+  average_rating_as_seller numeric(4, 2) NULL,
+  review_count_as_seller integer NOT NULL DEFAULT 0,
+  rating_1_count_as_seller integer NOT NULL DEFAULT 0,
+  rating_2_count_as_seller integer NOT NULL DEFAULT 0,
+  rating_3_count_as_seller integer NOT NULL DEFAULT 0,
+  rating_4_count_as_seller integer NOT NULL DEFAULT 0,
+  rating_5_count_as_seller integer NOT NULL DEFAULT 0,
+  average_rating_as_buyer numeric(4, 2) NULL,
+  review_count_as_buyer integer NOT NULL DEFAULT 0,
+  rating_1_count_as_buyer integer NOT NULL DEFAULT 0,
+  rating_2_count_as_buyer integer NOT NULL DEFAULT 0,
+  rating_3_count_as_buyer integer NOT NULL DEFAULT 0,
+  rating_4_count_as_buyer integer NOT NULL DEFAULT 0,
+  rating_5_count_as_buyer integer NOT NULL DEFAULT 0,
   reputation_updated_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE marketplace_account_pages
   ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS average_rating numeric(4, 2) NULL,
-  ADD COLUMN IF NOT EXISTS review_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_1_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_2_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_3_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_4_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_5_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS average_rating_as_seller numeric(4, 2) NULL,
+  ADD COLUMN IF NOT EXISTS review_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_1_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_2_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_3_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_4_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_5_count_as_seller integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS average_rating_as_buyer numeric(4, 2) NULL,
+  ADD COLUMN IF NOT EXISTS review_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_1_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_2_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_3_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_4_count_as_buyer integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_5_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS reputation_updated_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS marketplace_account_reviews (
   review_id text PRIMARY KEY,
   subject_account_id text NOT NULL,
+  author_role text NOT NULL DEFAULT '',
   rating integer NOT NULL,
   status text NOT NULL,
   updated_at timestamptz NOT NULL
 );
+
+ALTER TABLE marketplace_account_reviews
+  ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS marketplace_account_reviews_subject_idx
   ON marketplace_account_reviews (subject_account_id, status);
@@ -159,3 +184,22 @@ ALTER TABLE marketplace_supply_holds
   ADD COLUMN IF NOT EXISTS expires_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS release_reason text NULL;
 `;
+
+export const marketplaceSupplyProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260710_marketplace_account_pages_role_split_drop_legacy_columns",
+    description:
+      "Drop the pre-role-split blended reputation columns from marketplace_account_pages now that as-seller/as-buyer columns are populated (m108).",
+    statements: [
+      `SET lock_timeout = '2s'`,
+      `ALTER TABLE marketplace_account_pages
+  DROP COLUMN IF EXISTS average_rating,
+  DROP COLUMN IF EXISTS review_count,
+  DROP COLUMN IF EXISTS rating_1_count,
+  DROP COLUMN IF EXISTS rating_2_count,
+  DROP COLUMN IF EXISTS rating_3_count,
+  DROP COLUMN IF EXISTS rating_4_count,
+  DROP COLUMN IF EXISTS rating_5_count`,
+    ],
+  },
+];

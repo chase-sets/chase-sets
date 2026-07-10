@@ -6,15 +6,22 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
  * `review_count`) onto the `checkout_seller_accounts` join row for the given
  * account from the auxiliary `checkout_seller_account_reviews` table.
  *
- * `average_rating = ROUND(AVG(rating), 2)` over the account's `active` reviews
- * (NULL when there are none) and `review_count = COUNT(*)`, mirroring
- * discovery's `refreshAccountReputation`. Recomputing from the auxiliary review
- * rows (rather than applying deltas in place) keeps the projection replay-safe
- * and event-ordering independent: the counters are derived state, so re-running
- * any review event converges to the same values. The reputation row is upserted
- * onto a possibly-not-yet-projected account so a review observed before the
- * `identity.account.created` event still records counters once the identity
- * handler backfills `display_name` / `slug`.
+ * Checkout only ever surfaces a seller's reputation to buyers (cart line,
+ * savings notice), so the counters are scoped to the account's AS-SELLER
+ * reviews only: a review's `author_role` records the role the AUTHOR played,
+ * so a review authored by a buyer (`author_role = 'buyer'`) is about the
+ * subject acting as a seller. Blending in reviews the account earned as a
+ * buyer would misrepresent its seller reliability (m108).
+ *
+ * `average_rating = ROUND(AVG(rating), 2)` over the account's `active`,
+ * as-seller reviews (NULL when there are none) and `review_count = COUNT(*)`,
+ * mirroring discovery's `refreshAccountReputation`. Recomputing from the
+ * auxiliary review rows (rather than applying deltas in place) keeps the
+ * projection replay-safe and event-ordering independent: the counters are
+ * derived state, so re-running any review event converges to the same values.
+ * The reputation row is upserted onto a possibly-not-yet-projected account so
+ * a review observed before the `identity.account.created` event still records
+ * counters once the identity handler backfills `display_name` / `slug`.
  */
 async function refreshCheckoutSellerAccountReputation(
   db: PgQueryable,
@@ -40,6 +47,7 @@ async function refreshCheckoutSellerAccountReputation(
      FROM checkout_seller_account_reviews
      WHERE subject_account_id = $1
        AND status = 'active'
+       AND author_role = 'buyer'
      ON CONFLICT (account_id) DO UPDATE SET
        average_rating = EXCLUDED.average_rating,
        review_count = EXCLUDED.review_count,
@@ -68,6 +76,7 @@ export function buildCheckoutReputationSellerReviewsProjectionHandlers(db: PgQue
       const data = event.data as {
         reviewId: string;
         subjectAccountId: string;
+        authorRole: string;
         rating: number;
         submittedAt: string;
       };
@@ -76,21 +85,23 @@ export function buildCheckoutReputationSellerReviewsProjectionHandlers(db: PgQue
         `INSERT INTO checkout_seller_account_reviews (
            review_id,
            subject_account_id,
+           author_role,
            rating,
            status,
            last_stream_version,
            submitted_at,
            updated_at
-         ) VALUES ($1, $2, $3, 'active', $4, $5, $5)
+         ) VALUES ($1, $2, $3, $4, 'active', $5, $6, $6)
          ON CONFLICT (review_id) DO UPDATE SET
            subject_account_id = EXCLUDED.subject_account_id,
+           author_role = EXCLUDED.author_role,
            rating = EXCLUDED.rating,
            status = EXCLUDED.status,
            last_stream_version = EXCLUDED.last_stream_version,
            submitted_at = COALESCE(checkout_seller_account_reviews.submitted_at, EXCLUDED.submitted_at),
            updated_at = EXCLUDED.updated_at
          WHERE checkout_seller_account_reviews.last_stream_version < EXCLUDED.last_stream_version`,
-        [data.reviewId, data.subjectAccountId, data.rating, event.streamVersion, data.submittedAt],
+        [data.reviewId, data.subjectAccountId, data.authorRole, data.rating, event.streamVersion, data.submittedAt],
       );
 
       await refreshCheckoutSellerAccountReputation(db, data.subjectAccountId, data.submittedAt);

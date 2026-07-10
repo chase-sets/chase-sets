@@ -234,8 +234,8 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
        account.seller_listing_availability_status,
        account.seller_listing_availability_reason_category,
        account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
-       account.average_rating::text AS seller_average_rating,
-       account.review_count AS seller_review_count,
+       account.average_rating_as_seller::text AS seller_average_rating,
+       account.review_count_as_seller AS seller_review_count,
        LEAST(
          listing.quantity_cap,
          GREATEST(
@@ -287,8 +287,8 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
        offer.*,
        account.seller_slug AS buyer_slug,
        account.seller_display_name AS buyer_display_name,
-       account.average_rating::text AS buyer_average_rating,
-       account.review_count AS buyer_review_count
+       account.average_rating_as_buyer::text AS buyer_average_rating,
+       account.review_count_as_buyer AS buyer_review_count
      FROM discovery_offer_demand_matches AS offer
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
@@ -1445,42 +1445,73 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
   };
 }
 
+// Splits reputation into as-seller (reviews authored by buyers) and as-buyer
+// (reviews authored by sellers) dimensions (m108): `discovery_market_account_reviews`
+// already stores `author_role` on every row; the fix is aggregating WITH it
+// instead of blending both roles into one counter.
 async function refreshAccountReputation(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO discovery_market_accounts (
        account_id,
-       average_rating,
-       review_count,
-       rating_1_count,
-       rating_2_count,
-       rating_3_count,
-       rating_4_count,
-       rating_5_count,
+       average_rating_as_seller,
+       review_count_as_seller,
+       rating_1_count_as_seller,
+       rating_2_count_as_seller,
+       rating_3_count_as_seller,
+       rating_4_count_as_seller,
+       rating_5_count_as_seller,
+       average_rating_as_buyer,
+       review_count_as_buyer,
+       rating_1_count_as_buyer,
+       rating_2_count_as_buyer,
+       rating_3_count_as_buyer,
+       rating_4_count_as_buyer,
+       rating_5_count_as_buyer,
        reputation_updated_at,
        updated_at
      )
      SELECT
        $1,
-       CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
-       COUNT(*)::integer,
-       COUNT(*) FILTER (WHERE rating = 1)::integer,
-       COUNT(*) FILTER (WHERE rating = 2)::integer,
-       COUNT(*) FILTER (WHERE rating = 3)::integer,
-       COUNT(*) FILTER (WHERE rating = 4)::integer,
-       COUNT(*) FILTER (WHERE rating = 5)::integer,
+       CASE
+         WHEN COUNT(*) FILTER (WHERE author_role = 'buyer') = 0 THEN NULL
+         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'buyer')::numeric, 2)
+       END,
+       COUNT(*) FILTER (WHERE author_role = 'buyer')::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 1)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 2)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 3)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 4)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 5)::integer,
+       CASE
+         WHEN COUNT(*) FILTER (WHERE author_role = 'seller') = 0 THEN NULL
+         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'seller')::numeric, 2)
+       END,
+       COUNT(*) FILTER (WHERE author_role = 'seller')::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 1)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 2)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 3)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 4)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 5)::integer,
        $2,
        $2
      FROM discovery_market_account_reviews
      WHERE subject_account_id = $1
        AND status = 'active'
      ON CONFLICT (account_id) DO UPDATE SET
-       average_rating = EXCLUDED.average_rating,
-       review_count = EXCLUDED.review_count,
-       rating_1_count = EXCLUDED.rating_1_count,
-       rating_2_count = EXCLUDED.rating_2_count,
-       rating_3_count = EXCLUDED.rating_3_count,
-       rating_4_count = EXCLUDED.rating_4_count,
-       rating_5_count = EXCLUDED.rating_5_count,
+       average_rating_as_seller = EXCLUDED.average_rating_as_seller,
+       review_count_as_seller = EXCLUDED.review_count_as_seller,
+       rating_1_count_as_seller = EXCLUDED.rating_1_count_as_seller,
+       rating_2_count_as_seller = EXCLUDED.rating_2_count_as_seller,
+       rating_3_count_as_seller = EXCLUDED.rating_3_count_as_seller,
+       rating_4_count_as_seller = EXCLUDED.rating_4_count_as_seller,
+       rating_5_count_as_seller = EXCLUDED.rating_5_count_as_seller,
+       average_rating_as_buyer = EXCLUDED.average_rating_as_buyer,
+       review_count_as_buyer = EXCLUDED.review_count_as_buyer,
+       rating_1_count_as_buyer = EXCLUDED.rating_1_count_as_buyer,
+       rating_2_count_as_buyer = EXCLUDED.rating_2_count_as_buyer,
+       rating_3_count_as_buyer = EXCLUDED.rating_3_count_as_buyer,
+       rating_4_count_as_buyer = EXCLUDED.rating_4_count_as_buyer,
+       rating_5_count_as_buyer = EXCLUDED.rating_5_count_as_buyer,
        reputation_updated_at = EXCLUDED.reputation_updated_at,
        updated_at = EXCLUDED.updated_at`,
     [accountId, updatedAt],
