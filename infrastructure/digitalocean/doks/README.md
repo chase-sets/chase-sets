@@ -6,6 +6,7 @@ It owns only DOKS compute foundation:
 
 - A staging or production DigitalOcean Kubernetes cluster.
 - The primary `runtime` node pool.
+- A dedicated, staging-only `runtime-xl` node pool for rolling-deploy peak capacity.
 - Optional additional node pools for later measured isolation needs.
 - DOKS-to-DOCR registry integration through `digitalocean_kubernetes_cluster.registry_integration`.
 - Optional ownership of the account-level DigitalOcean Container Registry when `manage_container_registry=true`.
@@ -16,7 +17,7 @@ It does not own App Platform, managed Postgres, context databases, PgBouncer poo
 
 Production starts with the issue-requested conservative runtime pool: 2 nodes of `s-2vcpu-4gb`.
 
-Staging defaults to the same `s-2vcpu-4gb` size class but starts with 1 node to keep rehearsal cost lower before workloads land. Staging is intentionally configurable through `runtime_node_pool_node_count`, `runtime_node_pool_size`, or autoscaling variables so live rehearsals can match production without changing Terraform code.
+Staging keeps the same 1-node `s-2vcpu-4gb` primary pool so Terraform does not replace the cluster, and adds a 1-node `s-4vcpu-8gb` `runtime-xl` pool for platform workloads. The dedicated pool is enabled only when `environment=staging` and `runtime_xl_node_pool_enabled=true`. It has no taints, so existing platform workloads can migrate to it without chart changes.
 
 `kubernetes_version` is required instead of defaulted. Pick a currently supported DOKS version at live apply time and record it in the operator evidence; offline validation can use any well-formed DigitalOcean version slug.
 

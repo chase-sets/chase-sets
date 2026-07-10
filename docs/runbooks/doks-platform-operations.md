@@ -25,6 +25,16 @@ The chart renders these runtime Deployments when their component is enabled:
 
 `platform-bootstrap` is a Helm pre-install/pre-upgrade Job. It quiesces worker Deployments before bootstrap and restores them when bootstrap fails. Keep the release-time timeout budget ordered as: bootstrap command timeout `780s` < hook active deadline `890s` < Helm rollout timeout `15m` < app schema-lock retry budget `30m`. The worker drain/restore wait is capped at `45s` so a timed-out bootstrap command can still restore replicas and fail the Job before Helm's 900-second rollout window expires.
 
+## Runtime XL Node Pool
+
+Staging carries a dedicated `runtime-xl` node pool for rolling-deploy peak capacity. It is a separate `digitalocean_kubernetes_node_pool` resource because changing the default `node_pool` block on `digitalocean_kubernetes_cluster.platform` would replace the whole cluster.
+
+- Staging-only: `runtime_xl_node_pool_enabled` is forced off outside `environment=staging`.
+- Capacity: one `s-4vcpu-8gb` node, labeled `chase-sets.com/pool=runtime-xl`.
+- Scheduling: the pool has no taints, so platform workloads can schedule there without tolerations or a node selector.
+- Migration: after Terraform creates the pool, wait for the new node to become Ready, then cordon and drain the old `chase-sets.com/pool=runtime` node during an owner-approved idle release window. Verify all platform workloads are Ready on the new pool before optionally shrinking the default pool. Terraform intentionally does not automate this drain.
+- Evidence: the `runtime_xl_node_pool` Terraform output records the name, size, node count, and pool label.
+
 ## Preview Node Pool
 
 The staging cluster carries a dedicated `preview` node pool for PR preview environments so previews and the staging estate never contend for the same node. The pool is defined in `infrastructure/digitalocean/doks` and applies through the Platform DOKS Foundation Apply workflow like the rest of the root:

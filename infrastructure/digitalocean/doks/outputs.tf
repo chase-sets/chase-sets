@@ -27,6 +27,16 @@ output "registry_integration_enabled" {
   value = digitalocean_kubernetes_cluster.platform.registry_integration
 }
 
+output "runtime_xl_node_pool" {
+  description = "Dedicated staging runtime capacity (#4756); null when the pool is disabled or outside staging."
+  value = local.runtime_xl_node_pool_enabled ? {
+    name       = digitalocean_kubernetes_node_pool.runtime_xl[0].name
+    size       = digitalocean_kubernetes_node_pool.runtime_xl[0].size
+    node_count = digitalocean_kubernetes_node_pool.runtime_xl[0].node_count
+    pool_label = "chase-sets.com/pool=runtime-xl"
+  } : null
+}
+
 output "preview_node_pool" {
   description = "Dedicated PR-preview node pool posture (#4745); null when the pool is disabled or outside staging."
   value = local.preview_node_pool_enabled ? {

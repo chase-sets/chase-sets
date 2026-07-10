@@ -192,6 +192,18 @@ variable "tags" {
   description = "Extra DigitalOcean tags applied to DOKS resources."
 }
 
+variable "runtime_xl_node_pool_enabled" {
+  type        = bool
+  default     = true
+  description = "Provision the dedicated larger runtime pool. Applies only to the staging cluster until its capacity posture is proven."
+}
+
+variable "runtime_xl_node_pool_size" {
+  type        = string
+  default     = "s-4vcpu-8gb"
+  description = "Droplet size slug for the dedicated staging runtime pool, sized for rolling-deploy peak capacity."
+}
+
 variable "preview_node_pool_enabled" {
   type        = bool
   default     = true

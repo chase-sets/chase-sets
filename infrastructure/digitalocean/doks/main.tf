@@ -48,6 +48,25 @@ resource "digitalocean_kubernetes_cluster" "platform" {
   ]
 }
 
+# Dedicated staging runtime capacity (#4756). This must remain a separate node
+# pool resource: changing the default node_pool size above forces replacement
+# of the entire DOKS cluster. No taint is applied so platform workloads can
+# migrate here without a toleration.
+resource "digitalocean_kubernetes_node_pool" "runtime_xl" {
+  count = local.runtime_xl_node_pool_enabled ? 1 : 0
+
+  cluster_id = digitalocean_kubernetes_cluster.platform.id
+  name       = "runtime-xl"
+  size       = var.runtime_xl_node_pool_size
+  auto_scale = false
+  node_count = 1
+  labels = {
+    "chase-sets.com/pool"        = "runtime-xl"
+    "chase-sets.com/environment" = var.environment
+  }
+  tags = distinct(concat(local.tags, ["runtime-xl"]))
+}
+
 # Dedicated PR-preview node pool (#4745). Preview workloads schedule here
 # exclusively: the preview-only NoSchedule taint keeps staging pods off the
 # pool, and the preview Helm deploy path adds the matching toleration plus a
