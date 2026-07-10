@@ -13,6 +13,7 @@ import {
   buildPricingOrderingInputProjectionHandlers,
 } from "./features/recommendations/integrations/source/source-projection";
 import { pricingSchemaSql } from "./support/runtime-support/schema";
+import { pricingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedPricingDatabase } from "./support/runtime-support/seed";
 import type { PricingServices } from "./support/runtime-support/services";
 import { createPricingServices } from "./support/runtime-support/services";
@@ -21,6 +22,7 @@ import { createPricingRecommendationMcpHandlers } from "./features/recommendatio
 export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, void>({
   manifest: contextManifest,
   schemaSql: pricingSchemaSql,
+  schemaMigrations: pricingUnloggedProjectionSchemaMigrations,
   createServices: (pool) => createPricingServices(pool),
   buildApis: (services) => [buildPricingApi(services)],
   buildMcpHandlers: (services) => createPricingRecommendationMcpHandlers(services.recommendations),

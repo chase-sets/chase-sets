@@ -29,6 +29,7 @@ import { buildPaymentsSupportRefundEffectHandlers } from "./features/refunds/int
 import { createPaymentProcessorWebhookRoutes } from "./features/payments/api/route";
 import { createPaymentsServices } from "./support/runtime-support/services";
 import { paymentsSchemaMigrations, paymentsSchemaSql } from "./support/runtime-support/schema";
+import { paymentsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedPaymentsDatabase } from "./support/runtime-support/seed";
 
 const paymentsContextManifest = contextManifest as BcContextManifest;
@@ -57,7 +58,11 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
   schemaSql: paymentsSchemaSql,
   retentionSweeps: paymentsRetentionSweeps,
   retentionExemptions: paymentsRetentionExemptions,
-  schemaMigrations: [...paymentsSchemaMigrations, ...paymentsRetentionSchemaMigrations],
+  schemaMigrations: [
+    ...paymentsUnloggedProjectionSchemaMigrations,
+    ...paymentsSchemaMigrations,
+    ...paymentsRetentionSchemaMigrations,
+  ],
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [buildPaymentsApi(services), createPaymentProcessorWebhookRoutes(services.payments)],
   buildMcpHandlers: (services) => createPaymentMcpHandlers(services.payments),

@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   updated_at timestamptz NOT NULL
 );
 
+CREATE UNLOGGED TABLE IF NOT EXISTS event_projection_recovery_markers (
+  projection_kind text NOT NULL CHECK (projection_kind IN ('projector', 'subscription')),
+  projection_key text NOT NULL,
+  last_global_position bigint NOT NULL CHECK (last_global_position >= 0),
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (projection_kind, projection_key)
+);
+
 CREATE TABLE IF NOT EXISTS event_projection_poison_events (
   projection_key text NOT NULL,
   event_id text NOT NULL,

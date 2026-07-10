@@ -1338,11 +1338,12 @@ export function createProjectionGroupWorkerRunner(
       };
       try {
         runContext.throwIfLeaseLost?.();
-        const status = await group.refreshStatus();
+        const refreshedStatus = await group.refreshStatus();
+        const status = { ...refreshedStatus, recoveryRequired: group.getStatus().recoveryRequired };
         if (status.revisionStale && revisionStaleBehavior === "reject") {
           throw new ProjectionGroupRevisionStaleError(group);
         }
-        if (status.revisionStale && rebuildingRevision !== group.projectionRevision) {
+        if (status.recoveryRequired || (status.revisionStale && rebuildingRevision !== group.projectionRevision)) {
           runContext.throwIfLeaseLost?.();
           await resetProjectionGroup(group, runContext);
           rebuildingRevision = group.projectionRevision;

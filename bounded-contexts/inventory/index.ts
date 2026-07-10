@@ -26,6 +26,7 @@ import { buildInventoryFulfillmentSourceProjectionHandlers } from "./features/re
 import { InventoryDomainError } from "./support/runtime-support/common";
 import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaMigrations, inventorySchemaSql } from "./support/runtime-support/schema";
+import { inventoryUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedInventoryDatabase } from "./support/runtime-support/seed";
 import { createInventoryImportBatchMcpHandlers } from "./features/import-batches/api/mcp";
 import { createInventoryItemMcpHandlers } from "./features/inventory-items/api/mcp";
@@ -37,7 +38,11 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
   schemaSql: inventorySchemaSql,
   retentionSweeps: inventoryRetentionSweeps,
   retentionExemptions: inventoryRetentionExemptions,
-  schemaMigrations: [...inventorySchemaMigrations, ...inventoryRetentionSchemaMigrations],
+  schemaMigrations: [
+    ...inventoryUnloggedProjectionSchemaMigrations,
+    ...inventorySchemaMigrations,
+    ...inventoryRetentionSchemaMigrations,
+  ],
   createServices: (pool, ports, options) => createInventoryServices(pool, ports, options),
   buildApis: (services) => [buildInventoryApi(services)],
   buildMcpHandlers: (services) => {

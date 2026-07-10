@@ -263,6 +263,7 @@ describe("platform api bootstrap", () => {
       "20260628_event_store_context_columns_backfill",
       "20260628_event_store_events_concurrent_indexes",
       "20260710_event_store_write_hot_fillfactor",
+      "20260710_projection_recovery_marker_backfill",
       ...(catalogContext.module.schemaMigrations ?? []).map((migration) => migration.migrationId),
     ].sort();
 

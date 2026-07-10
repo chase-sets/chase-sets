@@ -36,6 +36,7 @@ export type ContextProjectionGroupStatus = Readonly<{
   projectionRevision: number;
   storedProjectionRevision: number | null;
   revisionStale: boolean;
+  recoveryRequired?: boolean;
   targetContextName: string;
   sourceContextNames: readonly string[];
   ownedTables: readonly string[];
@@ -427,6 +428,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
         projectionRevision,
         storedProjectionRevision: revisionState.storedProjectionRevision,
         revisionStale: revisionStale(),
+        recoveryRequired: false,
         targetContextName: entry.contextName,
         sourceContextNames,
         ownedTables,
@@ -454,6 +456,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           projectionRevision,
           storedProjectionRevision: revisionState.storedProjectionRevision,
           revisionStale: revisionStale(),
+          recoveryRequired: false,
           targetContextName: entry.contextName,
           sourceContextNames,
           ownedTables,
@@ -609,6 +612,7 @@ export function resolveModuleProjectionGroups(
                 subscription.lastGlobalPosition === subscription.sourceHeadGlobalPosition &&
                 subscription.blockedStreamCount === 0,
             );
+          const recoveryRequired = subscriptions.some((subscription) => subscription.recoveryRequired);
           const blockedStreamCount = subscriptions.reduce(
             (total, subscription) => total + subscription.blockedStreamCount,
             0,
@@ -646,6 +650,7 @@ export function resolveModuleProjectionGroups(
             projectionRevision: group.projectionRevision,
             storedProjectionRevision: baseStatus.storedProjectionRevision,
             revisionStale: baseStatus.revisionStale,
+            recoveryRequired,
             targetContextName: entry.contextName,
             sourceContextNames: group.sourceContextNames,
             ownedTables: group.ownedTables,
@@ -684,9 +689,15 @@ export async function syncProjectionGroup(
   group: ContextProjectionGroup,
   context?: ProjectionRunContext,
 ): Promise<void> {
-  const status = await group.refreshStatus();
+  await group.refreshStatus();
+  await mapWithConcurrency(
+    sortSubscriptionRunners(group.subscriptionRunners),
+    PROJECTION_STATUS_REFRESH_CONCURRENCY,
+    (runner) => runner.refreshStatus(),
+  );
+  const status = group.getStatus();
 
-  if (status.revisionStale) {
+  if (status.revisionStale || status.recoveryRequired) {
     await rebuildProjectionGroup(group, context);
     return;
   }

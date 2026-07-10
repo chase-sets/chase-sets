@@ -12,6 +12,7 @@ import type { SettlementHostPorts, SettlementServices } from "./support/runtime-
 import { buildSettlementApi, buildSettlementMoneyMovementWebhookApi } from "./api";
 import { createSettlementServices } from "./support/runtime-support/services";
 import { settlementSchemaMigrations, settlementSchemaSql } from "./support/runtime-support/schema";
+import { settlementUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedSettlementDatabase } from "./support/runtime-support/seed";
 import { buildSettlementPaymentInputProjectionHandlers } from "./features/wallets/integrations/payment-source/payment-source-projection";
 import { buildSettlementSupportHoldProjectionHandlers } from "./features/wallets/integrations/support-source/support-source-projection";
@@ -30,7 +31,11 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
   schemaSql: settlementSchemaSql,
   retentionSweeps: settlementRetentionSweeps,
   retentionExemptions: settlementRetentionExemptions,
-  schemaMigrations: [...settlementSchemaMigrations, ...settlementRetentionSchemaMigrations],
+  schemaMigrations: [
+    ...settlementUnloggedProjectionSchemaMigrations,
+    ...settlementSchemaMigrations,
+    ...settlementRetentionSchemaMigrations,
+  ],
   createServices: (pool, ports) => createSettlementServices(pool, ports),
   buildApis: (services) => [buildSettlementApi(services), buildSettlementMoneyMovementWebhookApi(services)],
   buildMcpHandlers: (services) => {

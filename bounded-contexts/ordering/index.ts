@@ -26,6 +26,7 @@ import { buildOrderingReputationProjectionHandlers } from "./features/orders/int
 import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaMigrations, orderingSchemaSql } from "./support/runtime-support/schema";
+import { orderingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedOrderingDatabase } from "./support/runtime-support/seed";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
@@ -82,7 +83,11 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
   manifest: orderingContextManifest,
   schemaSql: orderingSchemaSql,
   retentionSweeps: orderingRetentionSweeps,
-  schemaMigrations: [...orderingSchemaMigrations, ...orderingRetentionSchemaMigrations],
+  schemaMigrations: [
+    ...orderingUnloggedProjectionSchemaMigrations,
+    ...orderingSchemaMigrations,
+    ...orderingRetentionSchemaMigrations,
+  ],
   createServices: (pool, options) => createOrderingServices(pool, options),
   buildApis: (services) => [buildOrderingApi(services)],
   buildMcpHandlers: (services) => createOrderingOrderMcpHandlers(services.orders),

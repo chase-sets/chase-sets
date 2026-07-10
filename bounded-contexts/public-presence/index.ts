@@ -10,6 +10,7 @@ import { buildWaitlistProjectionHandlers } from "./features/waitlist/read-model/
 import type { PublicPresenceServices } from "./support/runtime-support/services";
 import { createPublicPresenceServices } from "./support/runtime-support/services";
 import { publicPresenceSchemaSql } from "./support/runtime-support/schema";
+import { publicPresenceUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 
 export const module = defineBoundedContextModule<
   PublicPresenceServices,
@@ -18,6 +19,7 @@ export const module = defineBoundedContextModule<
 >({
   manifest: contextManifest,
   schemaSql: publicPresenceSchemaSql,
+  schemaMigrations: publicPresenceUnloggedProjectionSchemaMigrations,
   createServices: (pool, ports) => createPublicPresenceServices(pool, ports),
   buildApis: (services) => [buildPublicPresencePublicApi(services), buildPublicPresenceAdminApi(services)],
   projectionHandlerSets: (services) => services.projectors,

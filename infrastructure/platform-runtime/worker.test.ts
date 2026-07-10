@@ -1547,6 +1547,41 @@ describe("worker runner loop", () => {
     expect(markedRevision).toBe(true);
   });
 
+  it("resets crash-truncated projection groups to checkpoint zero before replay", async () => {
+    const resets: string[] = [];
+    let recoveryRequired = true;
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      refreshStatus: async () => undefined,
+      reset: async () => {
+        resets.push("subscription");
+        recoveryRequired = false;
+      },
+      runOnce: async () => ({ processed: 1, lastGlobalPosition: "1" as never }),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      recoveryRequired: () => recoveryRequired,
+      refreshStatus: async () => ({ revisionStale: false }),
+      reset: async () => {
+        resets.push("group");
+      },
+    });
+    const [runner] = collectWorkerRunners({
+      mountedContexts: [],
+      services: {},
+      projectors: [],
+      projectionGroups: [group],
+      subscriptionRunners: [subscriptionRunner],
+    } as never);
+
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 1, lastGlobalPosition: "1" });
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 1, lastGlobalPosition: "1" });
+
+    expect(resets).toEqual(["group", "subscription"]);
+  });
+
   it("runs same-order projection group subscriptions concurrently while preserving order barriers", async () => {
     const calls: string[] = [];
     let releaseSlowRunner: (() => void) | null = null;
@@ -2203,6 +2238,7 @@ function createProjectionGroup(
   overrides: Readonly<{
     subscriptionRunners?: readonly unknown[];
     refreshStatus?: () => Promise<Readonly<{ revisionStale: boolean }>>;
+    recoveryRequired?: () => boolean;
     markRevisionSynced?: () => Promise<void>;
     reset?: () => Promise<void>;
   }> = {},
@@ -2224,6 +2260,7 @@ function createProjectionGroup(
       projectionRevision: 2,
       storedProjectionRevision: 1,
       revisionStale: true,
+      recoveryRequired: overrides.recoveryRequired?.() ?? false,
       targetContextName: "inventory",
       sourceContextNames: ["catalog"],
       ownedTables: ["inventory_catalog_items"],

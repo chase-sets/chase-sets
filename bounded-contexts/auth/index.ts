@@ -16,6 +16,7 @@ import {
   buildAuthIdentityUserProjectionHandlers,
 } from "./support/auth-support/identity-projection";
 import { authSchemaSql } from "./support/runtime-support/schema";
+import { authUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedAuthDatabase } from "./support/runtime-support/seed";
 import type { AuthHostPorts, AuthServices } from "./support/runtime-support/services";
 import { createAuthServices } from "./support/runtime-support/services";
@@ -29,7 +30,7 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
   schemaSql: authSchemaSql,
   retentionSweeps: authRetentionSweeps,
   retentionExemptions: authRetentionExemptions,
-  schemaMigrations: authRetentionSchemaMigrations,
+  schemaMigrations: [...authUnloggedProjectionSchemaMigrations, ...authRetentionSchemaMigrations],
   createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [buildAuthApi(services)],
   projectionHandlerSets: (services) => services.projectors,

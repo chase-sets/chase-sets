@@ -7,7 +7,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { orderingSchemaSql } from "../../../support/runtime-support/schema";
+import { module as orderingModule } from "../../../index";
 import { releasePurchaseLimitClaimsForOrder } from "./purchase-limits";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -25,7 +25,7 @@ describeDb("ordering purchase limits db", () => {
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.ordering.query(orderingSchemaSql);
+    await pools.ordering.query(orderingModule.schemaSql);
   });
 
   afterAll(async () => {

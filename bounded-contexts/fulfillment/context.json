@@ -84,7 +84,7 @@
         "fulfillment_postage_provider_events"
       ],
       "requiredDuringBootstrap": false,
-      "resetStrategy": "truncate-owned-tables"
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [

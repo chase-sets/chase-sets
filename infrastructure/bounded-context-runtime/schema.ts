@@ -22,6 +22,7 @@ const SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_JITTER_MS = 500;
 const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
 const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
 export const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
+const PROJECTION_RECOVERY_MARKERS_TABLE = "event_projection_recovery_markers";
 export const PROJECTION_GROUP_REVISIONS_TABLE = "event_projection_group_revisions";
 export const PROJECTION_GROUP_GENERATIONS_TABLE = "event_projection_group_generations";
 export const SCHEMA_MIGRATIONS_TABLE = "bounded_context_schema_migrations";
@@ -84,10 +85,40 @@ const eventStoreWriteHotFillfactorMigration = {
   ],
 };
 
+const projectionRecoveryMarkerBackfillMigration = {
+  migrationId: "20260710_projection_recovery_marker_backfill",
+  description: "Seed unlogged recovery markers from durable projector and subscription checkpoints.",
+  statements: [
+    `INSERT INTO ${PROJECTION_RECOVERY_MARKERS_TABLE} (
+       projection_kind,
+       projection_key,
+       last_global_position,
+       updated_at
+     )
+     SELECT 'projector', projector_name, last_global_position, updated_at
+     FROM event_projection_checkpoints
+     ON CONFLICT (projection_kind, projection_key) DO UPDATE SET
+       last_global_position = EXCLUDED.last_global_position,
+       updated_at = EXCLUDED.updated_at`,
+    `INSERT INTO ${PROJECTION_RECOVERY_MARKERS_TABLE} (
+       projection_kind,
+       projection_key,
+       last_global_position,
+       updated_at
+     )
+     SELECT 'subscription', checkpoint_key, last_global_position, updated_at
+     FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
+     ON CONFLICT (projection_kind, projection_key) DO UPDATE SET
+       last_global_position = EXCLUDED.last_global_position,
+       updated_at = EXCLUDED.updated_at`,
+  ],
+};
+
 const contextSchemaMigrations = [
   contextBackfillMigration,
   concurrentEventStoreIndexesMigration,
   eventStoreWriteHotFillfactorMigration,
+  projectionRecoveryMarkerBackfillMigration,
 ] as const;
 const eventCoreBootstrapSchemaSql = removeEventCoreMigrationStatements(eventCorePostgresSchemaSql.trim());
 
