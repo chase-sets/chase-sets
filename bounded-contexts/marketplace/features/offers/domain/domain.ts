@@ -1,6 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId, OfferId } from "@chase-sets/primitives/typed-ids";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -68,8 +69,8 @@ export type OfferStatus = "draft" | "submitted" | "accepted";
 export type MarketplaceOfferState = Readonly<{
   offerId: OfferId | null;
   buyerAccountId: AccountId | null;
-  catalogItemId: string | null;
-  productId: string | null;
+  catalogItemId: CatalogItemId | null;
+  productId: ProductKey | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
@@ -122,8 +123,8 @@ export type SubmitOfferCommand = Readonly<{
   offerId: OfferId;
   buyerAccountId: AccountId;
   sellerAccountId?: AccountId | null;
-  catalogItemId: string;
-  productId: string;
+  catalogItemId: CatalogItemId;
+  productId: ProductKey;
   itemTitle: string;
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
@@ -155,8 +156,8 @@ export type OfferSubmittedEvent = DomainEvent<
   Readonly<{
     offerId: OfferId;
     buyerAccountId: AccountId;
-    catalogItemId: string;
-    productId: string;
+    catalogItemId: CatalogItemId;
+    productId: ProductKey;
     itemTitle: string;
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
@@ -173,8 +174,8 @@ export type OfferAcceptedEvent = DomainEvent<
     offerId: OfferId;
     buyerAccountId: AccountId;
     sellerAccountId: AccountId;
-    catalogItemId: string;
-    productId: string;
+    catalogItemId: CatalogItemId;
+    productId: ProductKey;
     itemTitle: string;
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
@@ -215,7 +216,10 @@ export const decideMarketplaceOffer: AggregateDecider<
           data: {
             offerId: command.offerId,
             buyerAccountId: command.buyerAccountId,
-            catalogItemId: normalizeRequiredText(command.catalogItemId, "Offer must reference a catalog item."),
+            catalogItemId: normalizeRequiredText(
+              command.catalogItemId,
+              "Offer must reference a catalog item.",
+            ) as CatalogItemId,
             productId: command.productId,
             itemTitle: normalizeRequiredText(command.itemTitle, "Offer must include an item title snapshot."),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),

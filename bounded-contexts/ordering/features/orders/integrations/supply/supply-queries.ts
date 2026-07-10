@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { MarketplaceDemand, MarketplaceSupplyCandidate } from "../../domain/policies";
 
@@ -129,8 +130,8 @@ export async function listOrderingSupplyCandidates(
       sellerAccountId: row.seller_account_id as AccountId,
       sellerDisplayName: normalizeOptionalText(row.seller_display_name),
       inventoryItemId: row.inventory_item_id,
-      catalogItemId: row.catalog_catalog_item_id,
-      productId: row.product_id,
+      catalogItemId: row.catalog_catalog_item_id as CatalogItemId,
+      productId: row.product_id as ProductKey,
       itemTitle: row.item_title ?? demand.itemTitle,
       itemSubtitle: normalizeOptionalText(row.item_subtitle ?? demand.itemSubtitle),
       selectedOptions: Array.isArray(row.selected_options)
@@ -236,8 +237,8 @@ export async function getOrderingSupplyCandidateByListingId(
     sellerAccountId: row.seller_account_id as AccountId,
     sellerDisplayName: normalizeOptionalText(row.seller_display_name),
     inventoryItemId: row.inventory_item_id,
-    catalogItemId: row.catalog_catalog_item_id,
-    productId: row.product_id,
+    catalogItemId: row.catalog_catalog_item_id as CatalogItemId,
+    productId: row.product_id as ProductKey,
     itemTitle: row.item_title ?? "Item",
     itemSubtitle: normalizeOptionalText(row.item_subtitle),
     selectedOptions: Array.isArray(row.selected_options)

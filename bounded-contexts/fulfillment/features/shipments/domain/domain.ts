@@ -1,6 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   assert,
@@ -23,8 +24,8 @@ import {
 export type FulfillmentShipmentLine = Readonly<{
   lineId: ShipmentLineId;
   orderLineId: string;
-  catalogItemId: string;
-  productId: string;
+  catalogItemId: CatalogItemId;
+  productId: ProductKey;
   itemTitle: string;
   itemSubtitle: string | null;
   productSummary: string | null;
@@ -505,8 +506,11 @@ function normalizeShipmentLines(lines: readonly FulfillmentShipmentLineInput[]) 
     return {
       lineId: line.lineId,
       orderLineId: normalizeRequiredText(line.orderLineId, "Shipment lines must reference an order line."),
-      catalogItemId: normalizeRequiredText(line.catalogItemId, "Shipment lines must reference a catalog item."),
-      productId: normalizeRequiredText(line.productId, "Shipment lines must reference a product id."),
+      catalogItemId: normalizeRequiredText(
+        line.catalogItemId,
+        "Shipment lines must reference a catalog item.",
+      ) as CatalogItemId,
+      productId: normalizeRequiredText(line.productId, "Shipment lines must reference a product id.") as ProductKey,
       itemTitle: normalizeRequiredText(line.itemTitle, "Shipment lines must include an item title."),
       itemSubtitle: normalizeOptionalText(line.itemSubtitle),
       productSummary: normalizeOptionalText(line.productSummary),

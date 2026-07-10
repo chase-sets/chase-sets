@@ -3,7 +3,9 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { createId, type AccountId, type ListingId, type TenantId, type UserId } from "@chase-sets/primitives/typed-ids";
+import type { CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
@@ -874,8 +876,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         listingId,
         accountId: params.accountId,
         inventoryItemId: supply.item_id,
-        catalogItemId: supply.catalog_catalog_item_id,
-        productId: supply.product_id,
+        catalogItemId: supply.catalog_catalog_item_id as CatalogItemId,
+        productId: supply.product_id as ProductKey,
         itemLanguageCode: supply.item_language_code,
         itemTitle: supply.item_title,
         itemSubtitle: supply.item_subtitle,

@@ -1,6 +1,7 @@
-import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
+import type { CatalogItemId, TypedUlid } from "@chase-sets/primitives/typed-ids";
 
-export type CatalogItemId = TypedUlid<"cat">;
+export type { CatalogItemId } from "@chase-sets/primitives/typed-ids";
+export type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 
 export type DimensionId = TypedUlid<"dim">;
 

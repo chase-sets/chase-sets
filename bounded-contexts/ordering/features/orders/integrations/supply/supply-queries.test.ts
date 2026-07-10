@@ -20,7 +20,7 @@ describe("ordering supply queries", () => {
 
     const candidates = await listOrderingSupplyCandidates(db, {
       catalogItemId: "cat_1",
-      productId: "prd_1",
+      productId: "cat_1::",
       itemTitle: "Test card",
       itemSubtitle: null,
       selectedOptions: [],
