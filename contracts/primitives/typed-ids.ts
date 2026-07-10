@@ -4,8 +4,37 @@ export type Ulid = string;
 
 export type TypedUlid<Prefix extends string> = `${Prefix}_${Ulid}`;
 
+export type InternalId<Prefix extends string> = `${Prefix}_${string}`;
+
 export function createId<Prefix extends string>(prefix: Prefix): TypedUlid<Prefix> {
   return `${prefix}_${ulid()}` as TypedUlid<Prefix>;
+}
+
+export function createInternalId<Prefix extends string>(prefix: Prefix): InternalId<Prefix> {
+  const crypto = globalThis.crypto;
+  const value =
+    typeof crypto?.randomUUID === "function"
+      ? crypto.randomUUID()
+      : createUuidFromRandomValues(crypto?.getRandomValues.bind(crypto));
+
+  return `${prefix}_${value}` as InternalId<Prefix>;
+}
+
+function createUuidFromRandomValues(getRandomValues: Crypto["getRandomValues"] | undefined): string {
+  if (!getRandomValues) {
+    throw new Error("Crypto-backed internal ID generation is unavailable.");
+  }
+
+  const bytes = getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  return [...bytes]
+    .map((byte, index) => {
+      const value = byte.toString(16).padStart(2, "0");
+      return [4, 6, 8, 10].includes(index) ? `-${value}` : value;
+    })
+    .join("");
 }
 
 export function parseTypedId<Prefix extends string>(value: string, prefix: Prefix): TypedUlid<Prefix> {
