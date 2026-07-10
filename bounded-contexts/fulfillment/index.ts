@@ -8,6 +8,7 @@ import type { FulfillmentHostPorts, FulfillmentServices } from "./support/runtim
 import { buildFulfillmentApi, buildFulfillmentProviderWebhookApi } from "./api";
 import { createFulfillmentServices } from "./support/runtime-support/services";
 import { fulfillmentSchemaMigrations, fulfillmentSchemaSql } from "./support/runtime-support/schema";
+import { fulfillmentUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedFulfillmentDatabase } from "./support/runtime-support/seed";
 import {
   buildFulfillmentAccountProjectionHandlers,
@@ -20,7 +21,7 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
   schemaSql: fulfillmentSchemaSql,
   retentionSweeps: fulfillmentRetentionSweeps,
   retentionExemptions: fulfillmentRetentionExemptions,
-  schemaMigrations: fulfillmentSchemaMigrations,
+  schemaMigrations: [...fulfillmentUnloggedProjectionSchemaMigrations, ...fulfillmentSchemaMigrations],
   createServices: (pool, ports) => createFulfillmentServices(pool, ports),
   buildApis: (services) => [buildFulfillmentApi(services), buildFulfillmentProviderWebhookApi(services)],
   buildMcpHandlers: (services) => createFulfillmentShipmentMcpHandlers(services.shipments),

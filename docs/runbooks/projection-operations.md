@@ -97,6 +97,10 @@ Blocked-stream operations use those tiers:
 - A failed rebuild should leave the currently visible read model intact unless the projection has explicitly declared a safe generation or shadow-table cutover.
 - `generation-cutover` projections must write/read generation-scoped rows and should cut over only after replay catches up. Without a projection-specific adapter, generation cutover fails closed.
 
+Replayable read-model tables use PostgreSQL `UNLOGGED` storage. The source event tables, `event_projection_checkpoints`, and `event_subscription_checkpoints` remain logged. Each checkpoint advance also writes the unlogged `event_projection_recovery_markers` table. PostgreSQL crash recovery truncates that marker together with the unlogged read models while preserving the logged checkpoint, so the next status refresh detects a checkpoint whose recovery marker is missing or behind. The projection-group runner then applies the group's existing reset contract, deletes its durable subscription checkpoint, and replays from checkpoint zero before reporting the group caught up. A legitimately empty projection keeps its marker and does not rebuild merely because its read-model table has no rows.
+
+Do not convert outboxes, webhook inboxes/provider event ledgers, idempotency or reaction-effect tables, durable jobs/work queues, authentication tokens, provider operations, or other non-event-rebuildable state to unlogged storage. Their rows participate in delivery, deduplication, reconciliation, or authorization and must survive a database crash.
+
 ## Rebuild RTO Benchmark
 
 Full projection rebuild wall time is the recovery-time objective for disposable or unlogged projection storage. Measure it against staging-scale representative commerce state before choosing cheaper projection storage, splitting projection stores, or accepting rebuild-on-crash recovery.

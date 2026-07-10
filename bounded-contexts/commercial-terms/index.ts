@@ -6,6 +6,7 @@ import contextManifest from "./context.json";
 import { buildCommercialTermsApi } from "./api";
 import { buildCommercialTermsAccountProjectionHandlers } from "./features/resolutions/integrations/account-source/account-projection";
 import { commercialTermsSchemaSql } from "./support/runtime-support/schema";
+import { commercialTermsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedCommercialTermsDatabase } from "./support/runtime-support/seed";
 import type { CommercialTermsServices } from "./support/runtime-support/services";
 import { createCommercialTermsServices } from "./support/runtime-support/services";
@@ -13,6 +14,7 @@ import { createCommercialTermsServices } from "./support/runtime-support/service
 export const module = defineBoundedContextModule<CommercialTermsServices, PgTransactionalPool, void>({
   manifest: contextManifest,
   schemaSql: commercialTermsSchemaSql,
+  schemaMigrations: commercialTermsUnloggedProjectionSchemaMigrations,
   createServices: (pool) => createCommercialTermsServices(pool),
   buildApis: (services) => [buildCommercialTermsApi(services)],
   projectionHandlerSets: (services) => services.projectors,

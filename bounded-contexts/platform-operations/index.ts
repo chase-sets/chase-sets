@@ -27,6 +27,7 @@ import {
   buildSupportShipmentSourceProjectionHandlers,
 } from "./features/support-requests/integrations/source/source-projection";
 import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
+import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
   createPlatformOperationsServices,
@@ -43,6 +44,7 @@ export const module = defineBoundedContextModule<
 >({
   manifest: platformOperationsContextManifest,
   schemaSql: platformOperationsSchemaSql,
+  schemaMigrations: platformOperationsUnloggedProjectionSchemaMigrations,
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
     buildPlatformOperationsApi(services),

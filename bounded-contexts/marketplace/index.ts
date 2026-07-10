@@ -25,11 +25,13 @@ import { buildMarketplaceApi } from "./api";
 import { buildReviewApi } from "./features/reviews/api/http";
 import { createMarketplaceServices } from "./support/runtime-support/services";
 import { marketplaceSchemaSql } from "./support/runtime-support/schema";
+import { marketplaceUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 
 export const module = defineBoundedContextModule<MarketplaceServices, PgTransactionalPool, MarketplaceServiceOptions>({
   manifest: contextManifest,
   schemaSql: marketplaceSchemaSql,
+  schemaMigrations: marketplaceUnloggedProjectionSchemaMigrations,
   retentionSweeps: marketplaceRetentionSweeps,
   retentionExemptions: marketplaceRetentionExemptions,
   createServices: (pool, options) => createMarketplaceServices(pool, options),

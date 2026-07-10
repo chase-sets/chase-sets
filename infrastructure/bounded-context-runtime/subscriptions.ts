@@ -44,6 +44,7 @@ import {
   loadSubscriptionApplicationAgeMs,
   loadSubscriptionApplicationStatuses,
   loadSubscriptionCheckpoint,
+  loadSubscriptionCheckpointRecoveryState,
   markProjectionBlockedStreamBlocked,
   markProjectionBlockedStreamRetrying,
   readSourceHeadGlobalPosition,
@@ -67,6 +68,7 @@ export type ContextSubscriptionStatus = Readonly<{
   targetContextName: string;
   subscriptionVersion: number;
   initialized: boolean;
+  recoveryRequired?: boolean;
   lastGlobalPosition: GlobalPosition;
   sourceHeadGlobalPosition: GlobalPosition;
   sourceLagEventCount?: string;
@@ -507,6 +509,7 @@ export function createSubscriptionRunner(
     targetContextName: string;
     subscriptionVersion: number;
     initialized: boolean;
+    recoveryRequired: boolean;
     lastGlobalPosition: GlobalPosition;
     sourceHeadGlobalPosition: GlobalPosition;
     outstandingEventCount: string;
@@ -525,6 +528,7 @@ export function createSubscriptionRunner(
     targetContextName,
     subscriptionVersion: subscription.subscriptionVersion,
     initialized: false,
+    recoveryRequired: false,
     lastGlobalPosition: ZERO_GLOBAL_POSITION,
     sourceHeadGlobalPosition: ZERO_GLOBAL_POSITION,
     outstandingEventCount: "0",
@@ -604,10 +608,12 @@ export function createSubscriptionRunner(
     order: subscription.order ?? 0,
     getStatus: () => ({ ...status }),
     refreshStatus: async () => {
-      const storedCheckpoint = await loadSubscriptionCheckpoint(targetPool, checkpointKey);
+      const recoveryState = await loadSubscriptionCheckpointRecoveryState(targetPool, checkpointKey);
+      const storedCheckpoint = recoveryState.recoveryRequired ? null : recoveryState.checkpoint;
       const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
       const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
       status.initialized = storedCheckpoint !== null;
+      status.recoveryRequired = recoveryState.recoveryRequired;
       status.lastGlobalPosition = checkpoint;
       status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
       status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
@@ -623,6 +629,7 @@ export function createSubscriptionRunner(
     reset: async (context, options) => {
       await deleteSubscriptionCheckpoint(options?.db ?? targetPool, checkpointKey, context);
       status.initialized = false;
+      status.recoveryRequired = false;
       status.lastGlobalPosition = ZERO_GLOBAL_POSITION;
       status.sourceHeadGlobalPosition = ZERO_GLOBAL_POSITION;
       status.outstandingEventCount = "0";
@@ -818,9 +825,11 @@ export function createSubscriptionRunner(
       };
 
       try {
-        const storedCheckpoint = await loadSubscriptionCheckpoint(targetPool, checkpointKey);
+        const recoveryState = await loadSubscriptionCheckpointRecoveryState(targetPool, checkpointKey);
+        const storedCheckpoint = recoveryState.recoveryRequired ? null : recoveryState.checkpoint;
         const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
         status.initialized = storedCheckpoint !== null;
+        status.recoveryRequired = recoveryState.recoveryRequired;
         status.lastGlobalPosition = checkpoint;
         status.sourceHeadGlobalPosition = await readSourceHeadForRun(context);
         status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);

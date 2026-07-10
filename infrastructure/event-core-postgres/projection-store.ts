@@ -62,6 +62,7 @@ export type PostgresProjectionStoreConfig = Readonly<{
 }>;
 
 const DEFAULT_CHECKPOINTS_TABLE = "event_projection_checkpoints";
+export const PROJECTION_RECOVERY_MARKERS_TABLE = "event_projection_recovery_markers";
 const POISON_EVENTS_TABLE = "event_projection_poison_events";
 const BLOCKED_STREAMS_TABLE = "event_projection_blocked_streams";
 
@@ -72,18 +73,46 @@ export function createPostgresProjectionStore(config: PostgresProjectionStoreCon
   const now = config.now ?? nowIsoUtcTimestamp;
 
   const readCheckpointSql = `
-    SELECT last_global_position
-    FROM ${tableName}
-    WHERE projector_name = $1
+    SELECT checkpoint.last_global_position
+    FROM ${tableName} AS checkpoint
+    INNER JOIN ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
+      ON recovery.projection_kind = 'projector'
+     AND recovery.projection_key = checkpoint.projector_name
+     AND recovery.last_global_position >= checkpoint.last_global_position
+    WHERE checkpoint.projector_name = $1
   `;
 
   const upsertCheckpointSql = `
-    INSERT INTO ${tableName} (projector_name, last_global_position, updated_at)
-    VALUES ($1, $2::bigint, $3)
-    ON CONFLICT (projector_name)
+    WITH saved_checkpoint AS (
+      INSERT INTO ${tableName} (projector_name, last_global_position, updated_at)
+      VALUES ($1, $2::bigint, $3)
+      ON CONFLICT (projector_name)
+      DO UPDATE SET
+        last_global_position = CASE
+          WHEN NOT EXISTS (
+            SELECT 1
+            FROM ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
+            WHERE recovery.projection_kind = 'projector'
+              AND recovery.projection_key = ${tableName}.projector_name
+              AND recovery.last_global_position >= ${tableName}.last_global_position
+          ) THEN EXCLUDED.last_global_position
+          ELSE GREATEST(${tableName}.last_global_position, EXCLUDED.last_global_position)
+        END,
+        updated_at = EXCLUDED.updated_at
+      RETURNING projector_name, last_global_position, updated_at
+    )
+    INSERT INTO ${PROJECTION_RECOVERY_MARKERS_TABLE} (
+      projection_kind,
+      projection_key,
+      last_global_position,
+      updated_at
+    )
+    SELECT 'projector', projector_name, last_global_position, updated_at
+    FROM saved_checkpoint
+    ON CONFLICT (projection_kind, projection_key)
     DO UPDATE SET
       last_global_position = GREATEST(
-        ${tableName}.last_global_position,
+        ${PROJECTION_RECOVERY_MARKERS_TABLE}.last_global_position,
         EXCLUDED.last_global_position
       ),
       updated_at = EXCLUDED.updated_at

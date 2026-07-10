@@ -7,7 +7,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { settlementSchemaSql } from "../../../support/runtime-support/schema";
+import { module as settlementModule } from "../../../index";
 import { listPendingCreditEntriesMaturedBy } from "./queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -28,7 +28,7 @@ describeDb("settlement money maturity query persistence boundary", () => {
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ settlement: pool });
-    await pool.query(settlementSchemaSql);
+    await pool.query(settlementModule.schemaSql);
   });
 
   afterAll(async () => {

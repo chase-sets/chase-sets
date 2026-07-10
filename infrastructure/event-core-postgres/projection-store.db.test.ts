@@ -36,6 +36,46 @@ describeDb("postgres projection store real database integration", () => {
     await expect(store.loadCheckpoint("catalog.item-projection")).resolves.toBe("10");
   });
 
+  it("replays from zero when crash recovery truncates the unlogged marker", async () => {
+    const store = createPostgresProjectionStore({
+      db: schema.pool,
+      now: () => "2026-07-10T12:00:00.000Z" as never,
+    });
+
+    await store.saveCheckpoint("catalog.item-projection", "10" as never);
+    await schema.pool.query("TRUNCATE TABLE event_projection_recovery_markers");
+
+    await expect(store.loadCheckpoint("catalog.item-projection")).resolves.toBe("0");
+    await store.saveCheckpoint("catalog.item-projection", "1" as never);
+    await expect(store.loadCheckpoint("catalog.item-projection")).resolves.toBe("1");
+    await store.saveCheckpoint("catalog.item-projection", "3" as never);
+    await expect(store.loadCheckpoint("catalog.item-projection")).resolves.toBe("3");
+  });
+
+  it("keeps event stores and checkpoints logged while the recovery marker is unlogged", async () => {
+    const result = await schema.pool.query<{ relname: string; relpersistence: string }>(
+      `SELECT relname, relpersistence
+       FROM pg_class
+       WHERE relname = ANY($1::text[])
+       ORDER BY relname`,
+      [
+        [
+          "event_projection_checkpoints",
+          "event_projection_recovery_markers",
+          "event_store_events",
+          "event_store_streams",
+        ],
+      ],
+    );
+
+    expect(Object.fromEntries(result.rows.map((row) => [row.relname, row.relpersistence]))).toEqual({
+      event_projection_checkpoints: "p",
+      event_projection_recovery_markers: "u",
+      event_store_events: "p",
+      event_store_streams: "p",
+    });
+  });
+
   it("tracks poison events through blocked, retrying, and resolved stream lifecycle", async () => {
     const store = createPostgresProjectionStore({
       db: schema.pool,

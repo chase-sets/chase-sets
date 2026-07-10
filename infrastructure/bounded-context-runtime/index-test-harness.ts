@@ -212,6 +212,14 @@ export function createMockPool(): MockPool {
         };
       }
 
+      if (sql.includes("recovery_global_position") && sql.includes("event_projection_recovery_markers")) {
+        const checkpointKey = String(params[0]);
+        const value = getCheckpointStore(pool).get(checkpointKey);
+        return {
+          rows: value ? [{ last_global_position: value, recovery_global_position: value }] : [],
+        };
+      }
+
       if (sql.includes("SELECT last_global_position")) {
         const checkpointKey = String(params[0]);
         const value = getCheckpointStore(pool).get(checkpointKey);
@@ -423,6 +431,10 @@ export function createMockPool(): MockPool {
 
       if (sql.includes("DELETE FROM event_subscription_checkpoints")) {
         getCheckpointStore(pool).delete(String(params[0]));
+        return { rows: [] };
+      }
+
+      if (sql.includes("DELETE FROM event_projection_recovery_markers")) {
         return { rows: [] };
       }
 

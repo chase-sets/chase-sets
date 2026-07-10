@@ -7,7 +7,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { catalogAuthoringSchemaSql } from "../../../support/authoring-support/schema";
+import { module as catalogModule } from "../../../index";
 import {
   catalogProviderIntegrationProfileVersions,
   catalogProviderProfileVersionIngestionUnitKey,
@@ -34,7 +34,7 @@ describeDb("catalog provider integration profile version store db", () => {
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.catalog.query(catalogAuthoringSchemaSql);
+    await pools.catalog.query(catalogModule.schemaSql);
   });
 
   afterAll(async () => {

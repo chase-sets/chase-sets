@@ -17,6 +17,7 @@ import { SUBSCRIPTION_CHECKPOINTS_TABLE } from "./schema";
 import { withProjectionTransaction } from "./projection-transactions";
 
 const CASCADE_PROGRESS_TABLE = "event_projection_cascade_progress";
+const PROJECTION_RECOVERY_MARKERS_TABLE = "event_projection_recovery_markers";
 
 export async function loadCascadeCursor(
   db: PgQueryable,
@@ -101,6 +102,11 @@ type SubscriptionCheckpointRow = Readonly<{
   last_global_position: string | number | bigint;
 }>;
 
+export type SubscriptionCheckpointRecoveryState = Readonly<{
+  checkpoint: GlobalPosition | null;
+  recoveryRequired: boolean;
+}>;
+
 type ProjectionGroupRevisionRow = Readonly<{
   projection_revision: string | number | bigint;
 }>;
@@ -140,6 +146,39 @@ export async function loadSubscriptionCheckpoint(
   return row ? parseGlobalPosition(String(row.last_global_position)) : null;
 }
 
+export async function loadSubscriptionCheckpointRecoveryState(
+  db: PgQueryable,
+  checkpointKey: string,
+): Promise<SubscriptionCheckpointRecoveryState> {
+  const result = await db.query<
+    Readonly<{
+      last_global_position: string | number | bigint;
+      recovery_global_position: string | number | bigint | null;
+    }>
+  >(
+    `SELECT checkpoint.last_global_position,
+            recovery.last_global_position AS recovery_global_position
+     FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE} AS checkpoint
+     LEFT JOIN ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
+       ON recovery.projection_kind = 'subscription'
+      AND recovery.projection_key = checkpoint.checkpoint_key
+     WHERE checkpoint.checkpoint_key = $1`,
+    [checkpointKey],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return { checkpoint: null, recoveryRequired: false };
+  }
+
+  const checkpoint = parseGlobalPosition(String(row.last_global_position));
+  const recoveryPosition =
+    row.recovery_global_position === null ? null : parseGlobalPosition(String(row.recovery_global_position));
+  return {
+    checkpoint,
+    recoveryRequired: recoveryPosition === null || BigInt(recoveryPosition) < BigInt(checkpoint),
+  };
+}
+
 export async function saveSubscriptionCheckpoint(
   db: PgTransactionalPool,
   subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
@@ -148,7 +187,8 @@ export async function saveSubscriptionCheckpoint(
 ): Promise<void> {
   const fencingToken = leaseFencingToken(context);
   const result = await db.query(
-    `INSERT INTO ${SUBSCRIPTION_CHECKPOINTS_TABLE} (
+    `WITH saved_checkpoint AS (
+     INSERT INTO ${SUBSCRIPTION_CHECKPOINTS_TABLE} (
        checkpoint_key,
        projection_name,
        source_context_name,
@@ -160,19 +200,42 @@ export async function saveSubscriptionCheckpoint(
      ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7::bigint, now())
      ON CONFLICT (checkpoint_key)
      DO UPDATE SET
-       last_global_position = GREATEST(
-         ${SUBSCRIPTION_CHECKPOINTS_TABLE}.last_global_position,
-         EXCLUDED.last_global_position
-       ),
+        last_global_position = CASE
+          WHEN NOT EXISTS (
+            SELECT 1
+            FROM ${PROJECTION_RECOVERY_MARKERS_TABLE} AS recovery
+            WHERE recovery.projection_kind = 'subscription'
+              AND recovery.projection_key = ${SUBSCRIPTION_CHECKPOINTS_TABLE}.checkpoint_key
+              AND recovery.last_global_position >= ${SUBSCRIPTION_CHECKPOINTS_TABLE}.last_global_position
+          ) THEN EXCLUDED.last_global_position
+          ELSE GREATEST(${SUBSCRIPTION_CHECKPOINTS_TABLE}.last_global_position, EXCLUDED.last_global_position)
+        END,
        lease_owner_id = EXCLUDED.lease_owner_id,
        lease_fencing_token = GREATEST(
          COALESCE(${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token, 0),
          COALESCE(EXCLUDED.lease_fencing_token, 0)
        ),
        updated_at = EXCLUDED.updated_at
-     WHERE EXCLUDED.lease_fencing_token IS NULL
-        OR ${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token IS NULL
-        OR EXCLUDED.lease_fencing_token >= ${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token`,
+      WHERE EXCLUDED.lease_fencing_token IS NULL
+         OR ${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token IS NULL
+         OR EXCLUDED.lease_fencing_token >= ${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token
+      RETURNING checkpoint_key, last_global_position, updated_at
+     )
+     INSERT INTO ${PROJECTION_RECOVERY_MARKERS_TABLE} (
+       projection_kind,
+       projection_key,
+       last_global_position,
+       updated_at
+     )
+     SELECT 'subscription', checkpoint_key, last_global_position, updated_at
+     FROM saved_checkpoint
+     ON CONFLICT (projection_kind, projection_key)
+     DO UPDATE SET
+       last_global_position = GREATEST(
+         ${PROJECTION_RECOVERY_MARKERS_TABLE}.last_global_position,
+         EXCLUDED.last_global_position
+       ),
+       updated_at = EXCLUDED.updated_at`,
     [
       createCheckpointKey(subscription),
       subscription.projectionName,
@@ -437,6 +500,12 @@ export async function deleteSubscriptionCheckpoint(
          OR $2::bigint >= lease_fencing_token
        )`,
     [checkpointKey, fencingToken],
+  );
+  await db.query(
+    `DELETE FROM ${PROJECTION_RECOVERY_MARKERS_TABLE}
+     WHERE projection_kind = 'subscription'
+       AND projection_key = $1`,
+    [checkpointKey],
   );
   context?.throwIfLeaseLost?.();
   await clearCascadeProgress(db, checkpointKey);
