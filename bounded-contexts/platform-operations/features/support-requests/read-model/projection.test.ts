@@ -75,4 +75,28 @@ describe("support request projection", () => {
       JSON.stringify(acceptedOffer),
     ]);
   });
+
+  it("records the escalator and reason when a support request is escalated", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildSupportRequestProjectionHandlers(db);
+
+    await handlers["support.support-request.escalated"]?.({
+      type: "support.support-request.escalated",
+      data: {
+        supportRequestId: "sup_01",
+        escalatedAt: "2026-05-09T14:00:00.000Z",
+        reason: "I still believe the item was misrepresented.",
+        escalatedByAccountId: "acc_buyer",
+        escalatedByRole: "buyer",
+      },
+    } as never);
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("escalation_reason = $5"), [
+      "sup_01",
+      "2026-05-09T14:00:00.000Z",
+      "acc_buyer",
+      "buyer",
+      "I still believe the item was misrepresented.",
+    ]);
+  });
 });

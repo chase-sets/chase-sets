@@ -55,6 +55,10 @@ function supportRequestDetail() {
     resolution: null,
     closed_at: null,
     cancellation_reason: null,
+    escalated_at: null,
+    escalated_by_account_id: null,
+    escalated_by_role: null,
+    escalation_reason: null,
   };
 }
 

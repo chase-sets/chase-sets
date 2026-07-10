@@ -281,4 +281,75 @@ describe("support request runtime", () => {
       ),
     ).rejects.toThrow("Only the buyer can open this buyer support flow.");
   });
+
+  it("escalates a support request from the marketplace API and records the account-scoped escalator", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "ready-for-fulfillment",
+                total_amount: "24.00",
+                return_context: [],
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("FROM support_request_pages") && sql.includes("WHERE order_id")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("FROM support_request_pages")) {
+          return {
+            rows: [
+              {
+                support_request_id: "sup_placeholder",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+              },
+            ],
+          };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    const opened = await runtime.openSupportRequest(
+      {
+        orderId: "ord_1",
+        accountId: "acc_buyer",
+        flowType: "product-not-received",
+        openedByRole: "buyer",
+      },
+      context,
+    );
+
+    await runtime.escalateSupportRequest(
+      {
+        supportRequestId: opened.supportRequestId,
+        accountId: "acc_buyer",
+        reason: "We can't agree on next steps.",
+      },
+      context,
+    );
+
+    const escalatedEvent = allEvents.find((event) => event.eventType === "support.support-request.escalated");
+    expect(escalatedEvent?.payload).toMatchObject({
+      reason: "We can't agree on next steps.",
+      escalatedByAccountId: "acc_buyer",
+      escalatedByRole: "buyer",
+    });
+  });
 });

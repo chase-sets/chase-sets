@@ -58,6 +58,10 @@ export type SupportRequestState = Readonly<{
   resolution: SupportResolution | null;
   closedAt: string | null;
   cancellationReason: string | null;
+  escalatedAt: string | null;
+  escalatedByAccountId: AccountId | null;
+  escalatedByRole: SupportRequesterRole | null;
+  escalationReason: string | null;
 }>;
 
 export const initialSupportRequestState: SupportRequestState = {
@@ -86,6 +90,10 @@ export const initialSupportRequestState: SupportRequestState = {
   resolution: null,
   closedAt: null,
   cancellationReason: null,
+  escalatedAt: null,
+  escalatedByAccountId: null,
+  escalatedByRole: null,
+  escalationReason: null,
 };
 
 export type OpenSupportRequestCommand = Readonly<{
@@ -148,6 +156,8 @@ export type EscalateSupportRequestCommand = Readonly<{
   type: "EscalateSupportRequest";
   escalatedAt: string;
   reason: string;
+  escalatedByAccountId?: AccountId | null;
+  escalatedByRole?: SupportRequesterRole | null;
 }>;
 
 export type ResolveSupportRequestCommand = Readonly<{
@@ -252,6 +262,8 @@ export type SupportRequestEscalatedEvent = DomainEvent<
     supportRequestId: SupportRequestId;
     escalatedAt: string;
     reason: string;
+    escalatedByAccountId: AccountId | null;
+    escalatedByRole: SupportRequesterRole | null;
   }>
 >;
 
@@ -674,17 +686,32 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         "Support responses must come from the seller or support.",
       );
       assert(
+        state.escalatedAt === null || response.submittedByRole !== "seller",
+        "This support request has been escalated; only support can act on it now.",
+      );
+      assert(
         state.pendingOffer === null,
         "Pending support offers must be accepted or declined before another response.",
       );
+      if (response.responseType === "challenge-with-evidence") {
+        assert(
+          !state.responses.some((existing) => existing.responseType === "challenge-with-evidence"),
+          "This support request already has a seller challenge; further disagreement must be escalated.",
+        );
+      }
       const offer = buildOffer(state, command, response);
+      const status = offer
+        ? statusForPendingOffer(offer)
+        : response.responseType === "challenge-with-evidence"
+          ? "waiting-on-buyer"
+          : "ready-for-support";
       const responseRecorded: SupportResponseRecordedEvent = {
         type: "support.support-request.response-recorded",
         data: {
           supportRequestId: state.supportRequestId,
           response,
           offer,
-          status: offer ? statusForPendingOffer(offer) : "ready-for-support",
+          status,
         },
       };
 
@@ -816,6 +843,11 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             supportRequestId: state.supportRequestId,
             escalatedAt: normalizeIsoTimestamp(command.escalatedAt, "Support escalation must record a timestamp."),
             reason: normalizeRequiredText(command.reason, "Support escalation must include a reason."),
+            escalatedByAccountId: command.escalatedByAccountId ?? null,
+            escalatedByRole:
+              command.escalatedByRole === null || command.escalatedByRole === undefined
+                ? null
+                : normalizeRequesterRole(command.escalatedByRole),
           },
         },
       ];
@@ -837,6 +869,10 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         command.resolvedByRole === null || command.resolvedByRole === undefined
           ? null
           : normalizeRequesterRole(command.resolvedByRole);
+      assert(
+        state.escalatedAt === null || resolvedByRole === "support",
+        "Escalated support requests can only be resolved by support.",
+      );
       assertReturnRefundReleaseAllowed(state, resolutionType, resolvedByRole);
       const resolution: SupportResolution = {
         resolutionType,
@@ -932,6 +968,10 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         resolution: null,
         closedAt: null,
         cancellationReason: null,
+        escalatedAt: null,
+        escalatedByAccountId: null,
+        escalatedByRole: null,
+        escalationReason: null,
       };
     case "support.support-request.evidence-submitted":
       return {
@@ -974,6 +1014,10 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         ...state,
         status: "ready-for-support",
         updatedAt: event.data.escalatedAt,
+        escalatedAt: event.data.escalatedAt,
+        escalatedByAccountId: event.data.escalatedByAccountId,
+        escalatedByRole: event.data.escalatedByRole,
+        escalationReason: event.data.reason,
       };
     case "support.support-request.resolved":
       return {

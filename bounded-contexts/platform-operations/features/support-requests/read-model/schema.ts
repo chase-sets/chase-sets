@@ -37,6 +37,12 @@ ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS order_return_context jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS return_investigation jsonb NULL;
 
+ALTER TABLE support_request_pages
+  ADD COLUMN IF NOT EXISTS escalated_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS escalated_by_account_id text NULL,
+  ADD COLUMN IF NOT EXISTS escalated_by_role text NULL,
+  ADD COLUMN IF NOT EXISTS escalation_reason text NULL;
+
 CREATE INDEX IF NOT EXISTS support_request_pages_buyer_idx
   ON support_request_pages (buyer_account_id, updated_at DESC, support_request_id DESC);
 
