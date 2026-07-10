@@ -26,7 +26,7 @@ export const eventStoreEventsReadIndexStatements = [
     concurrent: `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_tenant_global_idx
   ON event_store_events (tenant_id, global_position ASC);`,
   },
-  // Retained in this ownership slice. #3607 owns redundant event-store index cleanup.
+  // Retained in this ownership slice; a companion cleanup issue owns removing this redundant index.
   {
     name: "event_store_events_type_idx",
     boot: `CREATE INDEX IF NOT EXISTS event_store_events_type_idx

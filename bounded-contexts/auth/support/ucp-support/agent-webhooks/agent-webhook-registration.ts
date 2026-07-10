@@ -1,8 +1,8 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 /**
- * Webhook callback registration is carried on the OAuth client record itself
- * (the DCR/CIMD slice, issue #3755): each registered agent-platform client may
+ * Webhook callback registration is carried on the OAuth client record itself:
+ * each registered agent-platform client may
  * register a single callback URL and is issued one signing secret. The secret
  * is stored so the marketplace can compute delivery signatures; it is returned
  * to the integrator exactly once at registration and never surfaced again in any

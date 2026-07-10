@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./primary-workbench-read-model";
 import { CatalogSourceScopeWorksetModule } from "./admin-control-plane/import-to-promotion/source-scope-workset-module";
 import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
 import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
@@ -12,7 +12,7 @@ describe("Catalog source-scope workset", () => {
 
   it("ties one selected MTG source scope to configured provider-unit sync actions without a Magic-only area", () => {
     const profiles = magicProfiles();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=mtgjson&unitKey=mtgjson:mtg:set:reference-data&languageCode=en&productLineId=magic&productLineName=Magic%3A%20The%20Gathering&expansionId=5DN&expansionName=Fifth%20Dawn&profileVersion=2026.06.19",
       scopes: { items: magicSetScopes(), total: 3, count: 3 },
@@ -82,7 +82,7 @@ describe("Catalog source-scope workset", () => {
         ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
       }),
     ];
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&seriesId=base&seriesName=Base&expansionId=base1&expansionName=Base%20Set&profileVersion=2026.06.04",
       scopes: { items: [pokemonScope()], total: 1, count: 1 },
@@ -120,7 +120,7 @@ describe("Catalog source-scope workset", () => {
 
   it("uses the same source-scope workset for a Lorcana set without a Lorcana-only area", () => {
     const profiles = lorcanaProfiles();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=lorcanajson:lorcana:single-card:reference-data&languageCode=en&productLineId=lorcana&productLineName=Disney%20Lorcana&expansionId=TFC&expansionName=The%20First%20Chapter&profileVersion=2026.06.23",
       scopes: { items: lorcanaSetScopes(), total: 3, count: 3 },
@@ -177,7 +177,7 @@ describe("Catalog source-scope workset", () => {
   it("keeps compact Lorcast set selections named before a provider scope row exists", () => {
     const unitKey = "lorcast:lorcana:single-card:reference-data";
     const profiles = lorcanaProfiles();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=lorcast&unitKey=lorcast:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&expansionId=1&profileVersion=2026.06.23",
       scopes: {
@@ -291,7 +291,7 @@ describe("Catalog source-scope workset", () => {
   it("uses sibling Lorcana scope rows when Lorcast set option cache is absent", () => {
     const unitKey = "lorcast:lorcana:single-card:reference-data";
     const profiles = lorcanaProfiles();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=lorcast&unitKey=lorcast:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&expansionId=1&profileVersion=2026.06.23",
       scopes: {
@@ -357,7 +357,7 @@ describe("Catalog source-scope workset", () => {
         "2026.06.20",
       ),
     ];
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:mtg:single-card:source-observation-import&languageCode=en&productLineId=1&productLineName=Magic&expansionName=Classic%20Sixth%20Edition&profileVersion=2026.06.19",
       scopes: {
@@ -408,7 +408,7 @@ describe("Catalog source-scope workset", () => {
         "2026.06.20",
       ),
     ];
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:yugioh:single-card:source-observation-import&importScope=en:1:Classic%20Sixth%20Edition&languageCode=en&productLineId=1&productLineName=Magic&expansionName=Classic%20Sixth%20Edition&profileVersion=2026.06.20",
       scopes: {
@@ -453,7 +453,7 @@ describe("Catalog source-scope workset", () => {
       "YGOPRODeck Yu-Gi-Oh card prints",
       "ygoprodeck:yugioh:single-card:reference-data",
     );
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=ygoprodeck&unitKey=ygoprodeck:yugioh:single-card:reference-data&importScope=ja:SV:SV8&profileVersion=2026.06.21",
       scopes: {
@@ -501,7 +501,7 @@ describe("Catalog source-scope workset", () => {
   it("uses an explicit YGOJSON set-name selection instead of stale legacy Pokemon scope params", () => {
     const profile = yugiohSetNameProfile("ygojson", "YGOJSON Yu-Gi-Oh sets", "ygojson:yugioh:set:reference-data");
     const selectedSetId = "9baa1b43-8a60-44dd-a144-dbef99c8c7a4";
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: `https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:set:reference-data&importScope=ja:SV:SV8&expansionName=${selectedSetId}&profileVersion=2026.06.21&filter.importScope=ja%3ASV%3ASV8`,
       scopes: { items: [], total: 0, count: 0 },
       profileReviews: { items: [profile], total: 1, count: 1 },
@@ -536,7 +536,7 @@ describe("Catalog source-scope workset", () => {
 
   it("uses a Scrydex One Piece set-name selection as the primary import context", () => {
     const profile = scrydexOnePieceSetNameProfile();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:one-piece:single-card:source-observation-import&expansionName=OP16&profileVersion=2026.06.22&sourceOptionAction=force-refresh-all",
       scopes: { items: [], total: 0, count: 0 },
@@ -584,7 +584,7 @@ describe("Catalog source-scope workset", () => {
   it("does not project stale One Piece set fields into a Scrydex Lorcana command", () => {
     const unitKey = "scrydex:lorcana:single-card:source-observation-import";
     const profile = scrydexLorcanaSetNameProfile();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:lorcana:single-card:source-observation-import&importScope=en%3ATFC&languageCode=en&productLineName=One%20Piece%20Card%20Game&expansionName=The%20Time%20Of%20Battle&profileVersion=2026.06.23",
       scopes: { items: [lorcanaScope("scrydex", { observed_observations: 1 })], total: 1, count: 1 },
@@ -618,7 +618,7 @@ describe("Catalog source-scope workset", () => {
   it("uses provider scope labels when Scrydex Lorcana route state carries compact set ids", () => {
     const unitKey = "scrydex:lorcana:single-card:source-observation-import";
     const profile = scrydexLorcanaSetNameProfile();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:lorcana:single-card:source-observation-import&importScope=en%3ATFC&languageCode=en&productLineName=Disney%20Lorcana&expansionName=TFC&profileVersion=2026.06.23",
       scopes: { items: [lorcanaScope("scrydex", { observed_observations: 1 })], total: 1, count: 1 },
@@ -649,7 +649,7 @@ describe("Catalog source-scope workset", () => {
   it("uses provider scope labels when Lorcast route state carries numeric set ids", () => {
     const unitKey = "lorcast:lorcana:single-card:reference-data";
     const profiles = lorcanaProfiles();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=lorcast&unitKey=lorcast:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&expansionName=1&profileVersion=2026.06.23",
       scopes: {
@@ -690,7 +690,7 @@ describe("Catalog source-scope workset", () => {
   it("keeps a selected Lorcast set importable before provider scope rows exist", () => {
     const unitKey = "lorcast:lorcana:single-card:reference-data";
     const profiles = lorcanaProfiles();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=lorcast&unitKey=lorcast:lorcana:single-card:reference-data&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&profileVersion=2026.06.23",
       scopes: { items: [], total: 0, count: 0 },
@@ -722,7 +722,7 @@ describe("Catalog source-scope workset", () => {
 
   it("keeps LorcanaJSON compact set scopes promotable after preview redirects", () => {
     const unitKey = "lorcanajson:lorcana:single-card:reference-data";
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=lorcanajson:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&expansionName=The%20First%20Chapter&profileVersion=2026.06.23&promotionPreviewId=preview-lorcanajson_lorcanajson_lorcana_single-card_reference-data_en_1_2026.06.23_en_1_all_none_filtered-242-242",
       scopes: {
@@ -802,7 +802,7 @@ describe("Catalog source-scope workset", () => {
   it("keeps LorcanaJSON aggregate-backed previews promotable when row review falls back", () => {
     const unitKey = "lorcanajson:lorcana:single-card:reference-data";
     const profiles = lorcanaProfiles();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=lorcanajson:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&expansionName=The%20First%20Chapter&profileVersion=2026.06.23&promotionPreviewId=preview-lorcanajson_lorcanajson_lorcana_single-card_reference-data_en_1_2026.06.23_en_1_all_none_filtered-242-242&filter.importScope=en%3A1&filter.providerKey=lorcanajson&commandStatus=success&commandIntent=preview-promotion&commandResult=preview-ready",
       scopes: {
@@ -861,7 +861,7 @@ describe("Catalog source-scope workset", () => {
         ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
       }),
     ];
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
       scopes: {
         items: [
@@ -887,7 +887,7 @@ describe("Catalog source-scope workset", () => {
     expect(href.searchParams.get("seriesName")).toBe("Pokemon Card Game Scarlet & Violet");
     expect(unit.commandContext.importScope).toBe("ja:SV:SV8");
     expect(() =>
-      buildCatalogPrimaryWorkbenchReadModel({
+      buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
         requestUrl: href.toString(),
         scopes: {
           items: [
@@ -917,7 +917,7 @@ describe("Catalog source-scope workset", () => {
       "tcgplayer:mtg:single-card:source-observation-import",
       "provider-product",
     );
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgplayer&productLineId=1&productLineName=Magic%3A%20The%20Gathering&expansionName=Classic%20Sixth%20Edition&profileVersion=2026.06.19",
       scopes: { items: [], total: 0, count: 0 },
@@ -968,7 +968,7 @@ describe("Catalog source-scope workset", () => {
       "tcgplayer:mtg:single-card:source-observation-import",
       "provider-product",
     );
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:mtg:single-card:source-observation-import&importScope=en%3AFifth%20Dawn&productLineId=1&expansionName=Classic%20Sixth%20Edition&profileVersion=2026.06.19&filter.importScope=en%3AFifth%20Dawn&filter.status=changed&selectedObservationIds=obs_old&jobId=job_old&reviewOffset=25&reviewLimit=50&promotionPreviewId=preview_old",
       scopes: { items: [magicScope("tcgplayer", { expansion_name: "Fifth Dawn" })], total: 1, count: 1 },
@@ -1009,7 +1009,7 @@ describe("Catalog source-scope workset", () => {
 
   it("fails closed until a concrete source scope is selected", () => {
     const profiles = magicProfiles();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/integrations?providerKey=scryfall",
       scopes: { items: [], total: 0, count: 0 },
       profileReviews: { items: profiles, total: profiles.length, count: profiles.length },

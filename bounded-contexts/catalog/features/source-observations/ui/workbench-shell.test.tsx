@@ -2,7 +2,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceOptionRequests,
   type CatalogPrimaryWorkbenchSourceOptionRequest,
@@ -70,7 +69,7 @@ function dailyReadModelWithSourceOptions(
     cacheOnly: true,
   });
 
-  return buildCatalogPrimaryWorkbenchReadModel({
+  return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl: guidedRequestUrl,
     scopes: { items: [scope], total: 1, count: 1 },
     profileReviews: { items: [profile], total: 1, count: 1 },
@@ -100,7 +99,7 @@ function dailyReadModelWithJapaneseExpansionOnly() {
     cacheOnly: true,
   });
 
-  return buildCatalogPrimaryWorkbenchReadModel({
+  return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl,
     scopes: { items: [scope], total: 1, count: 1 },
     profileReviews: { items: [profile], total: 1, count: 1 },
@@ -134,7 +133,7 @@ function dailyReadModelWithExplicitJapaneseImportScope() {
     cacheOnly: true,
   });
 
-  return buildCatalogPrimaryWorkbenchReadModel({
+  return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl,
     scopes: { items: [scope], total: 1, count: 1 },
     profileReviews: { items: [profile], total: 1, count: 1 },
@@ -188,7 +187,7 @@ function dailyTcgplayerYugiohModelsAfterStalePokemonScope() {
   const profiles = [mtgProfile, yugiohProfile];
   const requestUrl =
     "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:yugioh:single-card:source-observation-import&importScope=ja:SV:SV8&profileVersion=2026.06.20&filter.importScope=ja:SV:SV8&filter.providerKey=tcgplayer&sourceOptionAction=force-refresh&sourceOptionQueryKind=product-lines";
-  const shellReadModel = buildCatalogPrimaryWorkbenchReadModel({
+  const shellReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl,
     scopes: { items: [stalePokemonScope], total: 1, count: 1 },
     profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
@@ -202,7 +201,7 @@ function dailyTcgplayerYugiohModelsAfterStalePokemonScope() {
     profiles,
     cacheOnly: true,
   });
-  const streamedReadModel = buildCatalogPrimaryWorkbenchReadModel({
+  const streamedReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl,
     scopes: { items: [stalePokemonScope], total: 1, count: 1 },
     profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
@@ -363,7 +362,7 @@ function dailyReadModelWithProviders(requestUrl: string) {
     providerProfile("tcgdex", "TCGdex", "pokemon/card"),
   ];
 
-  return buildCatalogPrimaryWorkbenchReadModel({
+  return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl,
     scopes: { items: [], total: 0, count: 0 },
     profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
@@ -690,7 +689,7 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
       ...yugiohProviderUnitProfiles.map(providerUnitProfileReview),
       ...tcgplayerProviderUnitProfiles.map(providerUnitProfileReview),
     ];
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgplayer",
       scopes: { items: [], total: 0, count: 0 },
       profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
@@ -882,7 +881,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
   it("does not hard-code TCGdex scope levels for a generic provider", () => {
     const profile = profileReview({ providerKey: "tcgplayer", active: true, lifecycle: "active" });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgplayer&productLineId=3",
       scopes: { items: [], total: 0, count: 0 },
       profileReviews: { items: [profile], total: 1, count: 1 },
@@ -915,7 +914,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
       },
       supportedScopes: ["product/card"],
     });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/integrations?providerKey=scrydex",
       scopes: { items: [], total: 0, count: 0 },
       profileReviews: { items: [tcgdexProfile, scrydexProfile], total: 2, count: 2 },
@@ -936,7 +935,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
   it("labels a selected language code when the option page has not loaded that value yet", () => {
     const profile = profileReview({ active: true, lifecycle: "active", languageOptions: ["en", "ja"] });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=ja",
       scopes: { items: [], total: 0, count: 0 },
@@ -1186,7 +1185,7 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
 
   it("flags a group whose required parent scope is not selected yet", () => {
     const profile = profileReview({ providerKey: "tcgplayer", active: true, lifecycle: "active" });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       // No product line is chosen, so TCGplayer's set-name group cannot request its
       // required productLineId parent and must surface a missing-parent state.
       requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgplayer",

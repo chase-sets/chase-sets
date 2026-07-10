@@ -7,7 +7,7 @@ import IntegrationsRoute, { action, loader } from "../routes/admin/integrations"
 import { loader as providersLoader, action as providerSetupAction } from "../routes/admin/integrations-providers";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
-import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../features/source-observations/ui/primary-workbench-route-context";
 import { catalogPrimaryWorkbenchSourceOptionHref } from "../features/source-observations/ui/primary-workbench-source-option-refresh";
 import {
@@ -90,7 +90,7 @@ describe("Catalog integrations route", () => {
       profileReviews,
       controlPlaneOverview: null,
       requestUrl,
-      readModel: buildCatalogPrimaryWorkbenchReadModel({
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
         requestUrl,
         scopes,
         profileReviews,
@@ -124,7 +124,7 @@ describe("Catalog integrations route", () => {
       profileReviews,
       controlPlaneOverview: controlPlaneOverview(),
       requestUrl,
-      readModel: buildCatalogPrimaryWorkbenchReadModel({
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
         requestUrl,
         scopes,
         profileReviews,
@@ -160,7 +160,7 @@ describe("Catalog integrations route", () => {
       controlPlaneOverview: null,
       requestUrl,
       commandFeedback: null,
-      readModel: buildCatalogPrimaryWorkbenchReadModel({
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
         requestUrl,
         scopes,
         profileReviews,
@@ -195,7 +195,7 @@ describe("Catalog integrations route", () => {
       controlPlaneOverview: null,
       requestUrl,
       commandFeedback: null,
-      readModel: buildCatalogPrimaryWorkbenchReadModel({
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
         requestUrl,
         scopes,
         profileReviews,
@@ -230,7 +230,7 @@ describe("Catalog integrations route", () => {
       controlPlaneOverview: null,
       requestUrl,
       commandFeedback: null,
-      readModel: buildCatalogPrimaryWorkbenchReadModel({
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
         requestUrl,
         scopes,
         profileReviews,
@@ -305,7 +305,7 @@ describe("Catalog integrations route", () => {
       },
     });
 
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl,
       scopes,
       profileReviews,
@@ -374,7 +374,7 @@ describe("Catalog integrations route", () => {
       },
     });
 
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl,
       scopes,
       profileReviews,
@@ -5105,7 +5105,7 @@ describe("Catalog integrations route", () => {
       requestUrl,
       commandFeedback: null,
       deferredAliasReview: Promise.resolve(aliasReviewReadModel()),
-      readModel: buildCatalogPrimaryWorkbenchReadModel({
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
         requestUrl,
         scopes,
         profileReviews,

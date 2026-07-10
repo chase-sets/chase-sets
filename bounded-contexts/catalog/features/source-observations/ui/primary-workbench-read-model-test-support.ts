@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../api/admin-control-plane-read-model-contracts";
 import type { CatalogIntegrationDataVerificationReport } from "../api/catalog-integration-data-migration-reset";
-import { validateCatalogPrimaryWorkbenchReadModelContract } from "../api/primary-workbench-admin-contracts";
+import {
+  validateCatalogPrimaryWorkbenchReadModelContract,
+  type CatalogPrimaryWorkbenchReadModel,
+} from "../api/primary-workbench-admin-contracts";
 import {
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
@@ -10,9 +13,9 @@ import {
 } from "../api/provider-integration-profiles";
 import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import {
-  buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
+  type CatalogPrimaryWorkbenchInput,
 } from "./primary-workbench-read-model";
 import {
   controlPlaneOverview,
@@ -23,8 +26,18 @@ import {
   sourceObservationScope,
 } from "./primary-workbench-test-fixtures";
 
+// Test-only convenience: the health surface renders every supporting slice
+// (see buildCatalogPrimaryWorkbenchReadModelForSurface), so building it is the
+// complete read model. No production route needs the unconditional build, but
+// fixture setup across this feature's tests reads more clearly asking for "the
+// read model" than pinning every call site to a specific surface.
+export function buildCatalogPrimaryWorkbenchReadModel(
+  input: CatalogPrimaryWorkbenchInput,
+): CatalogPrimaryWorkbenchReadModel {
+  return buildCatalogPrimaryWorkbenchReadModelForSurface("health", input);
+}
+
 export {
-  buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
   catalogProviderProfileEditableSectionKeys,

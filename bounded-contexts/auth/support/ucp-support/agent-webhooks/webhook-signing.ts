@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 /**
- * Signed webhook callbacks for agent platforms (issue #3755).
+ * Signed webhook callbacks for agent platforms.
  *
  * The marketplace is the *sender*: it computes an HMAC-SHA256 over a canonical
  * signing base and ships the digest in a structured signature header. This is

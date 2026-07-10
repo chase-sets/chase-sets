@@ -5,8 +5,8 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 export const authRetentionSweeps: readonly BcRetentionSweep[] = [
   expired("sessions", "identity_sessions"),
   expired("session-lookup", "identity_session_lookup"),
-  // Deleting expired magic-link rows is the retention half of the PII policy
-  // from #3471; no separate plaintext-nulling pass is needed before row death.
+  // Deleting expired magic-link rows is the retention half of the PII policy;
+  // no separate plaintext-nulling pass is needed before row death.
   expired("magic-link-tokens", "identity_magic_link_tokens"),
   // The same row-death rule removes unconsumed delivery_code plaintext.
   expired("phone-code-tokens", "identity_phone_code_tokens"),

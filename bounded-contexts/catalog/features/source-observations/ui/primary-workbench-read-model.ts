@@ -1,5 +1,4 @@
 export {
-  buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchDeferredSourceOptions,
 } from "./primary-workbench-read-model-composition";

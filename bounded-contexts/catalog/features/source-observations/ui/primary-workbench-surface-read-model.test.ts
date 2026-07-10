@@ -1,5 +1,4 @@
 import {
-  buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   controlPlaneOverview,
   describe,
@@ -168,7 +167,9 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
 
   it("keeps the daily core slices and rendered action states identical to the full read model", () => {
     const input = fullSurfaceInput("workbench");
-    const full = buildCatalogPrimaryWorkbenchReadModel(input);
+    // The health surface renders every supporting slice, so it computes the
+    // complete read model — the reference the other surfaces are compared against.
+    const full = buildCatalogPrimaryWorkbenchReadModelForSurface("health", input);
     const daily = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", input);
 
     for (const slice of [
@@ -195,7 +196,9 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
 
   it("computes the providers surface slices identically to the full read model", () => {
     const input = fullSurfaceInput("profile-work");
-    const full = buildCatalogPrimaryWorkbenchReadModel(input);
+    // The health surface renders every supporting slice, so it computes the
+    // complete read model — the reference the other surfaces are compared against.
+    const full = buildCatalogPrimaryWorkbenchReadModelForSurface("health", input);
     const providers = buildCatalogPrimaryWorkbenchReadModelForSurface("providers", input);
 
     expect(providers.profileAuthoring).toEqual(full.profileAuthoring);
@@ -205,20 +208,11 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
 
   it("computes the governance surface slices identically to the full read model", () => {
     const input = fullSurfaceInput("conflicts");
-    const full = buildCatalogPrimaryWorkbenchReadModel(input);
+    const full = buildCatalogPrimaryWorkbenchReadModelForSurface("health", input);
     const governance = buildCatalogPrimaryWorkbenchReadModelForSurface("governance", input);
 
     expect(governance.conflictResolution).toEqual(full.conflictResolution);
     expect(governance.lifecycleRecovery).toEqual(full.lifecycleRecovery);
     expect(governance.governanceControls).toEqual(full.governanceControls);
-  });
-
-  it("computes the health surface slices identically to the full read model", () => {
-    const input = fullSurfaceInput("evidence");
-    const full = buildCatalogPrimaryWorkbenchReadModel(input);
-    const health = buildCatalogPrimaryWorkbenchReadModelForSurface("health", input);
-
-    expect(health.auditEvidence).toEqual(full.auditEvidence);
-    expect(health.healthTriage).toEqual(full.healthTriage);
   });
 });
