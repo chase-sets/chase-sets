@@ -18,8 +18,11 @@ export type {
   DiscoveryPublicListing,
   DiscoveryPublicAccount,
   DiscoverySitemapUrl,
+  DiscoverySitemapEntityKind,
+  DiscoverySitemapEntityCounts,
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
+export { DISCOVERY_SITEMAP_ENTITY_KINDS, DISCOVERY_SITEMAP_PAGE_SIZE } from "./support/market-support/queries";
 export type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
 export type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
 export type {
@@ -37,6 +40,8 @@ import type {
   DiscoveryPublicListing,
   DiscoveryPublicAccount,
   DiscoverySitemapUrl,
+  DiscoverySitemapEntityKind,
+  DiscoverySitemapEntityCounts,
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
 import type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
@@ -246,8 +251,18 @@ export function createDiscoveryApiClient({
         }),
       );
     },
-    async listSitemapUrls(): Promise<{ items: DiscoverySitemapUrl[]; total: number; count: number }> {
-      return parseJsonResponse(await client["sitemap-urls"].$get({ header: headers }));
+    async getSitemapEntityCounts(): Promise<DiscoverySitemapEntityCounts> {
+      return parseJsonResponse(await client["sitemap-entity-counts"].$get({ header: headers }));
+    },
+    async listSitemapEntityPage(
+      kind: DiscoverySitemapEntityKind,
+      page: number,
+    ): Promise<{ items: DiscoverySitemapUrl[]; count: number }> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/sitemap-entities/${kind}/${page}`), {
+          headers,
+        }),
+      );
     },
   };
 }

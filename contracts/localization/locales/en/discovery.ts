@@ -50,6 +50,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.itemDetail.ui.itemDetailPage.error.2": "Error",
   "discovery.features.itemDetail.ui.itemDetailPage.filtered.active.listings": "Filtered active listings",
   "discovery.features.itemDetail.ui.itemDetailPage.filtered.offers": "Filtered offers",
+  "discovery.features.itemDetail.ui.itemDetailPage.home": "Home",
   "discovery.features.itemDetail.ui.itemDetailPage.image.coming.soon": "Image coming soon",
   "discovery.features.itemDetail.ui.itemDetailPage.in.sell.list": "In Sell List",
   "discovery.features.itemDetail.ui.itemDetailPage.included.in": "Included in",

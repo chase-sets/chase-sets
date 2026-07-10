@@ -43,6 +43,34 @@ export function buildSitemapXml(origin: string, entries: readonly SitemapEntry[]
   ].join("");
 }
 
+export type SitemapIndexEntry = Readonly<{
+  path: string;
+  lastmod?: string | Date | null;
+}>;
+
+/**
+ * Builds a sitemap index document referencing child sitemaps, keeping any single
+ * sitemap under the protocol's per-file URL ceiling by paginating large entity kinds
+ * across multiple child sitemaps instead of truncating them.
+ */
+export function buildSitemapIndexXml(origin: string, entries: readonly SitemapIndexEntry[]) {
+  const sitemaps = entries
+    .map((entry) => {
+      const loc = escapeXml(new URL(entry.path, origin).toString());
+      const lastmod = entry.lastmod ? `<lastmod>${escapeXml(new Date(entry.lastmod).toISOString())}</lastmod>` : "";
+
+      return `<sitemap><loc>${loc}</loc>${lastmod}</sitemap>`;
+    })
+    .join("");
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    sitemaps,
+    "</sitemapindex>",
+  ].join("");
+}
+
 function escapeXml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

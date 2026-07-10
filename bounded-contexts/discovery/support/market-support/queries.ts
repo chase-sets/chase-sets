@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { DiscoverySitemapEntityCounts, DiscoverySitemapEntityKind } from "../client-support/contracts";
 import { buyerVisibleListingPredicateSql, buyerVisibleListingQuantitySql } from "./listing-visibility";
 
 export type DiscoveryPublicListingRow = Readonly<{
@@ -226,26 +227,35 @@ export async function getDiscoveryPublicAccountBySlug(
   };
 }
 
-export async function listDiscoveryPublicSitemapUrls(
-  db: PgQueryable,
-): Promise<Array<{ path: string; updated_at: string }>> {
+/** Kept well under the sitemap protocol's 50,000-URL-per-file ceiling. */
+export const DISCOVERY_SITEMAP_PAGE_SIZE = 5000;
+
+export const DISCOVERY_SITEMAP_ENTITY_KINDS: readonly DiscoverySitemapEntityKind[] = [
+  "items",
+  "categories",
+  "sellers",
+  "listings",
+];
+
+/**
+ * Counts every crawlable public URL per sitemap entity kind so the marketplace
+ * sitemap index can compute how many paginated child sitemaps each kind needs,
+ * instead of silently truncating past a fixed row cap.
+ */
+export async function countDiscoveryPublicSitemapEntities(db: PgQueryable): Promise<DiscoverySitemapEntityCounts> {
   const [items, categories, sellers, listings] = await Promise.all([
-    db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at
+    db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
        FROM discovery_item_detail_pages
-       WHERE slug <> '' AND status = 'active'
-       ORDER BY updated_at DESC
-       LIMIT 5000`,
+       WHERE slug <> '' AND status = 'active'`,
     ),
-    db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at
+    db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
        FROM discovery_categories
-       WHERE slug <> '' AND status = 'active' AND item_count > 0
-       ORDER BY display_order ASC, updated_at DESC
-       LIMIT 5000`,
+       WHERE slug <> '' AND status = 'active' AND item_count > 0`,
     ),
-    db.query<{ seller_slug: string; updated_at: string }>(
-      `SELECT account.seller_slug, account.updated_at
+    db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
        FROM discovery_market_accounts AS account
        WHERE account.seller_slug <> ''
          AND account.status = 'active'
@@ -254,28 +264,100 @@ export async function listDiscoveryPublicSitemapUrls(
              FROM discovery_market_listings AS listing
              WHERE listing.account_id = account.account_id
                AND ${buyerVisibleListingPredicateSql("listing", "account")}
-         )
-       ORDER BY account.updated_at DESC
-       LIMIT 5000`,
+         )`,
     ),
-    db.query<{ listing_slug: string; updated_at: string }>(
-      `SELECT listing.listing_slug, listing.updated_at
+    db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
        WHERE listing.listing_slug <> ''
-         AND ${buyerVisibleListingPredicateSql("listing", "account")}
-       ORDER BY listing.updated_at DESC
-       LIMIT 5000`,
+         AND ${buyerVisibleListingPredicateSql("listing", "account")}`,
     ),
   ]);
 
-  return [
-    ...items.rows.map((row) => ({ path: `/items/${row.slug}`, updated_at: row.updated_at })),
-    ...categories.rows.map((row) => ({ path: `/categories/${row.slug}`, updated_at: row.updated_at })),
-    ...sellers.rows.map((row) => ({ path: `/accounts/${row.seller_slug}`, updated_at: row.updated_at })),
-    ...listings.rows.map((row) => ({ path: `/listings/${row.listing_slug}`, updated_at: row.updated_at })),
-  ];
+  return {
+    items: Number(items.rows[0]?.count ?? 0),
+    categories: Number(categories.rows[0]?.count ?? 0),
+    sellers: Number(sellers.rows[0]?.count ?? 0),
+    listings: Number(listings.rows[0]?.count ?? 0),
+  };
+}
+
+/**
+ * Returns one 1-indexed page of crawlable public URLs for a sitemap entity kind,
+ * ordered by a stable slug so pages stay consistent as `updated_at` changes between
+ * requests. Callers use {@link countDiscoveryPublicSitemapEntities} to know how many
+ * pages exist per kind.
+ */
+export async function listDiscoveryPublicSitemapEntityPage(
+  db: PgQueryable,
+  kind: DiscoverySitemapEntityKind,
+  page: number,
+): Promise<Array<{ path: string; updated_at: string }>> {
+  const limit = DISCOVERY_SITEMAP_PAGE_SIZE;
+  const offset = Math.max(page - 1, 0) * DISCOVERY_SITEMAP_PAGE_SIZE;
+
+  switch (kind) {
+    case "items": {
+      const result = await db.query<{ slug: string; updated_at: string }>(
+        `SELECT slug, updated_at
+         FROM discovery_item_detail_pages
+         WHERE slug <> '' AND status = 'active'
+         ORDER BY slug ASC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      );
+      return result.rows.map((row) => ({ path: `/items/${row.slug}`, updated_at: row.updated_at }));
+    }
+    case "categories": {
+      const result = await db.query<{ slug: string; updated_at: string }>(
+        `SELECT slug, updated_at
+         FROM discovery_categories
+         WHERE slug <> '' AND status = 'active' AND item_count > 0
+         ORDER BY slug ASC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      );
+      return result.rows.map((row) => ({ path: `/categories/${row.slug}`, updated_at: row.updated_at }));
+    }
+    case "sellers": {
+      const result = await db.query<{ seller_slug: string; updated_at: string }>(
+        `SELECT account.seller_slug, account.updated_at
+         FROM discovery_market_accounts AS account
+         WHERE account.seller_slug <> ''
+           AND account.status = 'active'
+           AND EXISTS (
+             SELECT 1
+               FROM discovery_market_listings AS listing
+               WHERE listing.account_id = account.account_id
+                 AND ${buyerVisibleListingPredicateSql("listing", "account")}
+           )
+         ORDER BY account.seller_slug ASC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      );
+      return result.rows.map((row) => ({ path: `/accounts/${row.seller_slug}`, updated_at: row.updated_at }));
+    }
+    case "listings": {
+      const result = await db.query<{ listing_slug: string; updated_at: string }>(
+        `SELECT listing.listing_slug, listing.updated_at
+         FROM discovery_market_listings AS listing
+         INNER JOIN discovery_market_accounts AS account
+           ON account.account_id = listing.account_id
+         WHERE listing.listing_slug <> ''
+           AND ${buyerVisibleListingPredicateSql("listing", "account")}
+         ORDER BY listing.listing_slug ASC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      );
+      return result.rows.map((row) => ({ path: `/listings/${row.listing_slug}`, updated_at: row.updated_at }));
+    }
+    default: {
+      const exhaustive: never = kind;
+      throw new Error(`Unsupported sitemap entity kind: ${String(exhaustive)}`);
+    }
+  }
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {

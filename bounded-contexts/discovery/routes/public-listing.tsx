@@ -32,6 +32,7 @@ import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/r
 import type { DiscoveryPublicListing } from "../support/client-support/contracts";
 import { applyDiscoveryPublicListingPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+import { isProductionMarketplaceUrl, serializeJsonLd } from "../support/route-support/seo";
 
 function formatMoney(value: string): string {
   return `$${value}`;
@@ -192,7 +193,7 @@ export function buildPublicListingProductJsonLd(input: {
 }
 
 export function serializePublicListingProductJsonLd(jsonLd: ProductJsonLd) {
-  return JSON.stringify(jsonLd).replace(/</g, "\\u003c");
+  return serializeJsonLd(jsonLd);
 }
 
 function isValidGoogleShoppingPayloadForJsonLd(
@@ -209,15 +210,6 @@ function isValidGoogleShoppingPayloadForJsonLd(
     (payload.availability === "in stock" || payload.availability === "out of stock") &&
     (payload.condition === "new" || payload.condition === "used"),
   );
-}
-
-function isProductionMarketplaceUrl(value: string) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "marketplace.chasesets.com";
-  } catch {
-    return false;
-  }
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {

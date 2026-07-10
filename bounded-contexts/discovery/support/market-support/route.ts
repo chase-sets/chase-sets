@@ -1,5 +1,11 @@
 import { Hono } from "hono";
+import type { DiscoverySitemapEntityKind } from "../client-support/contracts";
+import { DISCOVERY_SITEMAP_ENTITY_KINDS } from "./queries";
 import type { DiscoveryMarketServices } from "./runtime";
+
+function isDiscoverySitemapEntityKind(value: string): value is DiscoverySitemapEntityKind {
+  return (DISCOVERY_SITEMAP_ENTITY_KINDS as readonly string[]).includes(value);
+}
 
 export function discoveryMarketRoutes(services: DiscoveryMarketServices) {
   const app = new Hono();
@@ -24,10 +30,23 @@ export function discoveryMarketRoutes(services: DiscoveryMarketServices) {
     return c.json(account);
   });
 
-  app.get("/sitemap-urls", async (c) => {
-    const items = await services.listPublicSitemapUrls();
+  app.get("/sitemap-entity-counts", async (c) => {
+    const counts = await services.countPublicSitemapEntities();
 
-    return c.json({ items, total: items.length, count: items.length });
+    return c.json(counts);
+  });
+
+  app.get("/sitemap-entities/:kind/:page", async (c) => {
+    const kind = c.req.param("kind");
+    const page = Number(c.req.param("page"));
+
+    if (!isDiscoverySitemapEntityKind(kind) || !Number.isInteger(page) || page < 1) {
+      return c.json({ error: { code: "invalid_request", message: "Invalid sitemap entity kind or page." } }, 400);
+    }
+
+    const items = await services.listPublicSitemapEntityPage(kind, page);
+
+    return c.json({ items, count: items.length });
   });
 
   return app;
