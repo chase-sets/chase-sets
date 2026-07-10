@@ -105,6 +105,16 @@ Notes:
 - Latin text uses the stock Postgres `english`/`simple` configurations.
 - Native CJK scripts (e.g. Japanese kana) have no word boundaries, so Discovery indexes overlapping character bigrams per CJK run and queries those bigrams, making native-script substring search work under the `simple` config without a database extension.
 
+### Search Embedding
+
+A **Search Embedding** is the normalized semantic vector asynchronously enriched onto one Search Index row from deterministic multilingual Catalog display and classification facts.
+
+Notes:
+
+- Search Embeddings are Discovery-owned derived data, not Catalog truth.
+- Projection handlers only mark a Search Embedding dirty by deterministic text hash; they never call an external embedding provider.
+- Missing, disabled, or failed enrichment leaves lexical Discovery Query behavior unchanged.
+
 ### Product Contents
 
 **Product Contents** is the Catalog-owned resolved fact that lets Discovery present what a container Product includes and find container Products from contained items.

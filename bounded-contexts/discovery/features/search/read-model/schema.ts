@@ -42,8 +42,6 @@ ALTER TABLE discovery_search_catalog_items
 ALTER TABLE discovery_search_catalog_items
   ADD COLUMN IF NOT EXISTS resolved_aliases jsonb NOT NULL DEFAULT '{}'::jsonb;
 
-CREATE UNIQUE INDEX IF NOT EXISTS discovery_search_catalog_items_slug_idx ON discovery_search_catalog_items (slug) WHERE slug <> '';
-CREATE INDEX IF NOT EXISTS discovery_search_catalog_items_language_idx ON discovery_search_catalog_items (language_code);
 CREATE INDEX IF NOT EXISTS discovery_search_catalog_items_blueprint_idx ON discovery_search_catalog_items (blueprint_id);
 CREATE INDEX IF NOT EXISTS discovery_search_catalog_items_status_idx ON discovery_search_catalog_items (status);
 CREATE INDEX IF NOT EXISTS discovery_search_catalog_items_category_ids_idx ON discovery_search_catalog_items USING gin (category_ids);
@@ -78,7 +76,6 @@ CREATE TABLE IF NOT EXISTS discovery_search_catalog_categories (
 ALTER TABLE discovery_search_catalog_categories
   ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
 
-CREATE UNIQUE INDEX IF NOT EXISTS discovery_search_catalog_categories_slug_idx ON discovery_search_catalog_categories (slug) WHERE slug <> '';
 
 CREATE TABLE IF NOT EXISTS discovery_search_catalog_fields (
   field_id text PRIMARY KEY,
@@ -152,7 +149,10 @@ CREATE TABLE IF NOT EXISTS discovery_search_items (
   image_fallback jsonb NULL,
   search_text tsvector,
   search_text_simple tsvector,
-  search_embedding vector(1536),
+  search_embedding halfvec(1024),
+  embedding_model text NULL,
+  embedded_text_hash text NULL,
+  embedding_updated_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -173,10 +173,11 @@ ALTER TABLE discovery_search_items
   ADD COLUMN IF NOT EXISTS field_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS reference_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS dimension_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
+  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL,
+  ADD COLUMN IF NOT EXISTS embedding_model text NULL,
+  ADD COLUMN IF NOT EXISTS embedded_text_hash text NULL,
+  ADD COLUMN IF NOT EXISTS embedding_updated_at timestamptz NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS discovery_search_items_slug_idx ON discovery_search_items (slug) WHERE slug <> '';
-CREATE INDEX IF NOT EXISTS discovery_search_items_language_idx ON discovery_search_items (language_code);
 CREATE INDEX IF NOT EXISTS discovery_search_items_search_text_idx ON discovery_search_items USING gin (search_text);
 CREATE INDEX IF NOT EXISTS discovery_search_items_search_text_simple_idx ON discovery_search_items USING gin (search_text_simple);
 CREATE INDEX IF NOT EXISTS discovery_search_items_status_idx ON discovery_search_items (status);
@@ -231,6 +232,37 @@ export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
   ON discovery_search_items (status, title, catalog_item_id);`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_status_updated_catalog_item_idx
   ON discovery_search_items (status, updated_at DESC, catalog_item_id DESC);`,
+    ],
+  },
+  {
+    migrationId: "20260710_discovery_search_slug_language_indexes",
+    description:
+      "Move slug/language indexes on migration-added Discovery search columns into the ledger (pre-existing structure debt surfaced by the gate).",
+    statements: [
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_catalog_items_slug_idx
+  ON discovery_search_catalog_items (slug) WHERE slug <> ''`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_catalog_items_language_idx
+  ON discovery_search_catalog_items (language_code)`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_catalog_categories_slug_idx
+  ON discovery_search_catalog_categories (slug) WHERE slug <> ''`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_slug_idx
+  ON discovery_search_items (slug) WHERE slug <> ''`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_language_idx
+  ON discovery_search_items (language_code)`,
+    ],
+  },
+  {
+    migrationId: "20260710_discovery_search_voyage_embeddings",
+    description:
+      "Move Discovery search embeddings to Voyage 4 dimensions and create the filtered HNSW inner-product index.",
+    statements: [
+      `SET lock_timeout = '5s';`,
+      `ALTER TABLE discovery_search_items
+  ALTER COLUMN search_embedding TYPE halfvec(1024)
+  USING NULL::halfvec(1024);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_embedding_hnsw_idx
+  ON discovery_search_items USING hnsw (search_embedding halfvec_ip_ops)
+  WHERE search_embedding IS NOT NULL;`,
     ],
   },
 ];

@@ -660,6 +660,9 @@ components:
       - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
         secret: true
         secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
+      - name: "VOYAGE_API_KEY"
+        secret: true
+        secretKey: "VOYAGE_API_KEY"
       - name: "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS"
         value: "1"
       - name: "WORKER_JOB_MAX_CONCURRENT_RUNNERS"

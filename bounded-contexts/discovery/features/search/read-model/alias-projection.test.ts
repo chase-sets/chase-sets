@@ -12,6 +12,8 @@ class AliasProjectionDb implements PgQueryable {
   public row: Record<string, unknown>;
   public lastEnglishWeights: string[] = [];
   public lastSimpleWeights: string[] = [];
+  public lastEmbeddedTextHash: string | null = null;
+  public lastDerivedWriteSql = "";
   public derivedWrites = 0;
 
   constructor(initial: Record<string, unknown> = {}) {
@@ -42,6 +44,8 @@ class AliasProjectionDb implements PgQueryable {
       // VALUES placeholders: english weights are $23..$26, simple are $27..$30.
       this.lastEnglishWeights = values.slice(22, 26).map(String);
       this.lastSimpleWeights = values.slice(26, 30).map(String);
+      this.lastEmbeddedTextHash = String(values[30]);
+      this.lastDerivedWriteSql = sql;
       this.derivedWrites += 1;
       return { rows: [], rowCount: 1 };
     }
@@ -155,6 +159,26 @@ describe("Discovery search alias projection", () => {
 
     expect(db.lastEnglishWeights.join(" ")).not.toContain("Dracaufeu");
     expect(db.row.resolved_aliases).toEqual({});
+  });
+
+  it("marks embedding enrichment dirty by hash while preserving unchanged rebuild metadata", async () => {
+    const db = new AliasProjectionDb();
+    const handlers = buildDiscoverySearchItemProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.aliases-resolved"]?.(aliasesResolvedEvent([]));
+    const unchangedHash = db.lastEmbeddedTextHash;
+    await handlers["catalog.catalog-item.aliases-resolved"]?.(aliasesResolvedEvent([]));
+
+    expect(db.lastEmbeddedTextHash).toBe(unchangedHash);
+    expect(db.lastDerivedWriteSql).toContain(
+      "discovery_search_items.embedded_text_hash IS NOT DISTINCT FROM EXCLUDED.embedded_text_hash",
+    );
+    expect(db.lastDerivedWriteSql).toContain("ELSE NULL");
+
+    await handlers["catalog.catalog-item.aliases-resolved"]?.(
+      aliasesResolvedEvent([alias({ aliasText: "Dracaufeu", aliasType: "official-equivalent" })]),
+    );
+    expect(db.lastEmbeddedTextHash).not.toBe(unchangedHash);
   });
 
   it("removes the alias on rebuild after retraction (negative projection on rebuild)", async () => {

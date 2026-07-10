@@ -41,7 +41,10 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 
 describe("searchDiscoveryItems cursor paging", () => {
   it("keeps keyset sort queries aligned with ledgered composite indexes", async () => {
-    const statements = discoverySearchSchemaMigrations.flatMap((migration) => migration.statements);
+    const statements =
+      discoverySearchSchemaMigrations.find(
+        (migration) => migration.migrationId === "20260703_discovery_search_keyset_indexes",
+      )?.statements ?? [];
     const { db, calls } = createCapturingDb();
 
     await searchDiscoveryItems(db, {
@@ -69,6 +72,20 @@ describe("searchDiscoveryItems cursor paging", () => {
     ]);
     expect(statements[0]).toContain("ON discovery_search_items (status, title, catalog_item_id)");
     expect(statements[1]).toContain("ON discovery_search_items (status, updated_at DESC, catalog_item_id DESC)");
+  });
+
+  it("uses a ledgered halfvec reshape and concurrent HNSW index", () => {
+    const migration = discoverySearchSchemaMigrations.find(
+      (candidate) => candidate.migrationId === "20260710_discovery_search_voyage_embeddings",
+    );
+
+    expect(discoverySearchSchemaSql).toContain("search_embedding halfvec(1024)");
+    expect(discoverySearchSchemaSql).toContain("embedding_model text NULL");
+    expect(discoverySearchSchemaSql).not.toContain("discovery_search_items_embedding_hnsw_idx");
+    expect(migration?.statements[0]).toBe("SET lock_timeout = '5s';");
+    expect(migration?.statements[1]).toContain("ALTER COLUMN search_embedding TYPE halfvec(1024)");
+    expect(migration?.statements[2]).toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS");
+    expect(migration?.statements[2]).toContain("halfvec_ip_ops");
   });
 
   it.each([

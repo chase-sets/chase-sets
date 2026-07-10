@@ -602,7 +602,7 @@ describe("render platform Helm values", () => {
       marketplace: 13,
       "platform-api": 82,
       "platform-bootstrap": 52,
-      "platform-worker": 112,
+      "platform-worker": 113,
       "public-web": 12,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
