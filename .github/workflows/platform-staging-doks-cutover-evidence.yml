@@ -157,7 +157,9 @@ jobs:
           # Capture evidence but do not abort the battery on a soft miss; the
           # summary step surfaces the verdict and the artifact is uploaded.
           set +e
-          pnpm run cutover:doks-evidence -- "${args[@]}"
+          # pnpm forwards a literal "--" into the script's argv, which the strict
+          # arg parser rejects with a usage error — invoke node directly instead.
+          node ./scripts/staging-doks-cutover-evidence.mjs "${args[@]}"
           echo "cutover_evidence_exit=$?" >> "$GITHUB_ENV"
           set -e
 
