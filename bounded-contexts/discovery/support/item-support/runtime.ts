@@ -8,6 +8,7 @@ import { createDiscoveryMarketRuntime, type DiscoveryMarketServices } from "../m
 import { createDiscoveryItemSearchRuntime, type DiscoveryItemSearchServices } from "../../features/search/api/runtime";
 import type { QueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../../features/search/integrations/voyage-embedding-provider";
+import type { DiscoveryRetrievalMode } from "../../features/search/read-model/hybrid-retrieval";
 
 export type DiscoveryItemsServices = Readonly<{
   market: DiscoveryMarketServices;
@@ -23,7 +24,7 @@ export function createDiscoveryItemRuntime(
     cache?: QueryEmbeddingCache;
     rescueEnabled?: boolean;
     hybridEnabled?: boolean;
-    recordRetrievalMode?: (mode: "lexical" | "rescue" | "hybrid") => void;
+    recordRetrievalMode?: (mode: DiscoveryRetrievalMode) => void;
   }> = {},
 ): DiscoveryItemsServices {
   const market = createDiscoveryMarketRuntime(deps);

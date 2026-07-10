@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { searchDiscoveryItems, searchDiscoverySemanticItems } from "./queries";
+import { searchDiscoveryItems, searchDiscoveryItemsByNaturalKey, searchDiscoverySemanticItems } from "./queries";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
 
 function encodeCursor(input: { id: string; title: string; updatedAt: string; rank?: number; baseMatch?: boolean }) {
@@ -605,5 +605,71 @@ describe("searchDiscoveryItems facets", () => {
     expect(facetIds).toContain("series");
     expect(facetIds).toContain("manufacturer");
     expect(facetIds).not.toContain("fld_seed_source");
+  });
+});
+
+describe("searchDiscoveryItemsByNaturalKey", () => {
+  it("keeps the structured natural-key indexes aligned with the ledger", () => {
+    const migration = discoverySearchSchemaMigrations.find(
+      (candidate) => candidate.migrationId === "20260710_discovery_search_natural_key_indexes",
+    );
+
+    expect(discoverySearchSchemaSql).toContain("set_code text NULL");
+    expect(discoverySearchSchemaSql).toContain("card_number text NULL");
+    expect(discoverySearchSchemaSql).not.toContain("discovery_search_items_set_code_card_number_idx");
+    expect(migration?.statements).toEqual([
+      expect.stringContaining(
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_set_code_card_number_idx",
+      ),
+      expect.stringContaining(
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_blueprint_set_code_card_number_idx",
+      ),
+    ]);
+    expect(migration?.statements[0]).toContain("ON discovery_search_items (set_code, card_number)");
+    expect(migration?.statements[1]).toContain("ON discovery_search_items (blueprint_id, set_code, card_number)");
+  });
+
+  it("matches on the exact normalized tuple without ANDing the raw structured query text", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItemsByNaturalKey(db, { setCode: "sv04", cardNumber: "123" }, { search: "SV04 123/182" });
+
+    const listCall = calls.find((call) => call.sql.includes("FROM discovery_search_items"));
+    expect(listCall?.sql).toContain("WHERE status = $1 AND set_code = $2 AND card_number = $3");
+    expect(listCall?.sql).not.toContain("plainto_tsquery");
+    expect(listCall?.values).toEqual(["active", "sv04", "123", 50]);
+  });
+
+  it("composes with ordinary filters (category, language, blueprint)", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItemsByNaturalKey(
+      db,
+      { setCode: "op01", cardNumber: "1" },
+      { category: "one-piece", language: "en", blueprintId: "bpr_one_piece_card_print", limit: 10 },
+    );
+
+    const listCall = calls.find((call) => call.sql.includes("FROM discovery_search_items"));
+    expect(listCall?.sql).toContain("category_names");
+    expect(listCall?.sql).toContain("language_code");
+    expect(listCall?.sql).toContain("blueprint_id");
+    expect(listCall?.sql).toContain("ORDER BY title ASC, catalog_item_id ASC");
+    expect(listCall?.values).toEqual([
+      "active",
+      JSON.stringify(["one-piece"]),
+      "bpr_one_piece_card_print",
+      "en",
+      "op01",
+      "1",
+      10,
+    ]);
+  });
+
+  it("returns an empty result with no facets and no market lookup when nothing matches", async () => {
+    const { db } = createCapturingDb();
+
+    const result = await searchDiscoveryItemsByNaturalKey(db, { setCode: "zzz", cardNumber: "999" });
+
+    expect(result).toEqual({ items: [], facets: [], total: 0, nextCursor: null });
   });
 });

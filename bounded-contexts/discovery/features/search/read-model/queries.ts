@@ -619,6 +619,59 @@ export async function searchDiscoveryItems(
   };
 }
 
+/**
+ * Structured set-code + collector-number resolution: a precise btree point
+ * lookup against the denormalized `set_code`/`card_number` columns,
+ * composed with the caller's ordinary filters (category, language, blueprint,
+ * facets, market activity) but never with `params.search` — the raw structured
+ * query text ("SV04 123/182") is not indexed lexeme-for-lexeme, so ANDing it in
+ * would spuriously suppress an exact natural-key match. Callers try this first
+ * and fall back to `searchDiscoveryItems` when it returns no rows (see
+ * read-model/hybrid-retrieval.ts).
+ */
+export async function searchDiscoveryItemsByNaturalKey(
+  db: PgQueryable,
+  naturalKey: Readonly<{ setCode: string; cardNumber: string }>,
+  params: DiscoverySearchParams = {},
+  options: Readonly<{ loadMarketSummaries?: boolean }> = {},
+): Promise<ListResult<DiscoverySearchItemRow>> {
+  const filter = buildSearchFilter({ ...params, search: undefined });
+  const setCodeParamIndex = filter.nextParamIndex;
+  const cardNumberParamIndex = setCodeParamIndex + 1;
+  const conditions = [
+    ...filter.conditions,
+    `set_code = $${setCodeParamIndex}`,
+    `card_number = $${cardNumberParamIndex}`,
+  ];
+  const values = [...filter.values, naturalKey.setCode, naturalKey.cardNumber];
+  const limit = clampLimit(params.limit);
+  const listValues = [...values, limit];
+
+  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at
+    FROM discovery_search_items
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY title ASC, catalog_item_id ASC
+    LIMIT $${listValues.length}`;
+  const listResult = await db.query<BaseDiscoverySearchItemRow>(listSql, listValues);
+  const marketSummaries =
+    options.loadMarketSummaries === false
+      ? new Map<string, DiscoverySearchItemRow["market_summary"]>()
+      : await getMarketSummariesForItems(
+          db,
+          listResult.rows.map((row) => row.catalog_item_id),
+        );
+
+  return {
+    items: listResult.rows.map((row) => ({
+      ...row,
+      market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
+    })),
+    facets: [],
+    total: listResult.rows.length,
+    nextCursor: null,
+  };
+}
+
 export async function searchDiscoverySemanticItems(
   db: PgQueryable,
   params: DiscoverySearchParams,

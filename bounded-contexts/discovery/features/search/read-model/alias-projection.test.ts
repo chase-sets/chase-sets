@@ -41,10 +41,11 @@ class AliasProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("INSERT INTO discovery_search_items")) {
-      // VALUES placeholders: english weights are $23..$26, simple are $27..$30.
-      this.lastEnglishWeights = values.slice(22, 26).map(String);
-      this.lastSimpleWeights = values.slice(26, 30).map(String);
-      this.lastEmbeddedTextHash = String(values[30]);
+      // VALUES placeholders: set_code/card_number are $23/$24, english weights
+      // are $25..$28, simple are $29..$32.
+      this.lastEnglishWeights = values.slice(24, 28).map(String);
+      this.lastSimpleWeights = values.slice(28, 32).map(String);
+      this.lastEmbeddedTextHash = String(values[32]);
       this.lastDerivedWriteSql = sql;
       this.derivedWrites += 1;
       return { rows: [], rowCount: 1 };

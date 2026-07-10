@@ -98,6 +98,94 @@ describe("Discovery hybrid retrieval", () => {
     expect(actual).toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 1 });
   });
 
+  it("resolves a structured set-code + collector-number query ahead of lexical/semantic retrieval", async () => {
+    const searchNaturalKey = vi.fn(async () => result([row("sv04-123", "Charizard ex")]));
+    const searchLexical = vi.fn();
+    const searchSemantic = vi.fn();
+
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchNaturalKey,
+        searchLexical,
+        searchSemantic,
+      },
+      { search: "SV04 123/182", category: "pokemon" },
+    );
+
+    expect(actual.retrievalMode).toBe("structured");
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["sv04-123"]);
+    expect(searchNaturalKey).toHaveBeenCalledWith(
+      expect.anything(),
+      { setCode: "sv04", cardNumber: "123" },
+      expect.objectContaining({ search: "SV04 123/182", category: "pokemon" }),
+    );
+    expect(searchLexical).not.toHaveBeenCalled();
+    expect(searchSemantic).not.toHaveBeenCalled();
+  });
+
+  it("falls back to lexical search when the structured query resolves no rows", async () => {
+    const searchNaturalKey = vi.fn(async () => result([]));
+    const lexical = result([row("fallback", "Charizard promo")]);
+    const searchLexical = vi.fn(async () => lexical);
+
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchNaturalKey,
+        searchLexical,
+        searchSemantic: vi.fn(),
+      },
+      { search: "sv04 123" },
+    );
+
+    expect(searchNaturalKey).toHaveBeenCalled();
+    expect(actual.retrievalMode).toBe("lexical");
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["fallback"]);
+  });
+
+  it("does not attempt structured resolution for an ordinary text query", async () => {
+    const searchNaturalKey = vi.fn();
+    const searchLexical = vi.fn(async () => result([row("dragon")]));
+
+    await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchNaturalKey,
+        searchLexical,
+        searchSemantic: vi.fn(),
+      },
+      { search: "blue dragon" },
+    );
+
+    expect(searchNaturalKey).not.toHaveBeenCalled();
+  });
+
+  it("skips structured resolution when paging (a cursor is present)", async () => {
+    const searchNaturalKey = vi.fn();
+    const searchLexical = vi.fn(async () => result([row("page-2")]));
+
+    await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchNaturalKey,
+        searchLexical,
+        searchSemantic: vi.fn(),
+      },
+      { search: "sv04 123", cursor: "some-cursor" },
+    );
+
+    expect(searchNaturalKey).not.toHaveBeenCalled();
+  });
+
   it("keeps lexical matches ahead of semantic-only candidates in hybrid mode", async () => {
     const actual = await retrieveDiscoveryItems(
       {
