@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryApiEnv } from "../../../api";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
 import { withInventorySystemHoldReleaseAuthority, type InventoryHoldServices } from "./runtime";
@@ -34,7 +36,7 @@ function checkoutReservationHoldId(
     )
     .digest("hex")
     .slice(0, 32);
-  return `hld_checkout_${digest}` as InventoryHoldId;
+  return parseTypedId(`hld_checkout_${digest}`, "hld");
 }
 
 function checkoutReservationExpiresAt(now = new Date()) {
@@ -85,7 +87,7 @@ export function inventoryHoldRoutes(services: InventoryHoldServices) {
       result = await services.releaseHold(
         {
           accountId: actor.accountId,
-          holdId: c.req.param("id"),
+          holdId: parseTypedIdBoundary(c.req.param("id"), "hld", "holdId"),
           releaseReason: "manual",
         },
         c.get("context"),
@@ -122,10 +124,10 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
 
   app.post("/", async (c) => {
     const body = await c.req.json();
-    const checkoutSessionId = String(body.checkoutSessionId ?? "").trim();
+    const checkoutSessionId = parseTypedIdBoundary(body.checkoutSessionId, "chk", "checkoutSessionId");
     const lineKey = String(body.lineKey ?? "").trim();
-    const inventoryItemId = String(body.inventoryItemId ?? "").trim();
-    const sellerAccountId = String(body.sellerAccountId ?? "").trim();
+    const inventoryItemId = parseTypedIdBoundary(body.inventoryItemId, "inv", "inventoryItemId");
+    const sellerAccountId = parseTypedIdBoundary(body.sellerAccountId, "acc", "sellerAccountId");
     const quantity = Number(body.quantity ?? 0);
     const reservationAttempt = normalizeCheckoutReservationAttempt(body.reservationAttempt);
     const now = new Date();
@@ -147,7 +149,7 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
           inventoryItemId,
           reservationAttempt: attempt,
         });
-        const existing = await services.getHold(candidateHoldId, sellerAccountId as AccountId);
+        const existing = await services.getHold(candidateHoldId, sellerAccountId);
         if (!existing) {
           holdId = candidateHoldId;
           break;
@@ -180,14 +182,14 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
       const result = await services.createHold(
         {
           holdId,
-          accountId: sellerAccountId as AccountId,
+          accountId: sellerAccountId,
           itemId: inventoryItemId,
           quantity,
           reason: "Checkout reservation",
           notes: null,
           purpose: "checkout",
           sourceRef: {
-            checkoutSessionId: checkoutSessionId as CheckoutSessionId,
+            checkoutSessionId,
             lineKey,
           },
           expiresAt,

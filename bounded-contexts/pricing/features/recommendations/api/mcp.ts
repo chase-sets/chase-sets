@@ -1,6 +1,7 @@
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -65,7 +66,7 @@ export function createPricingRecommendationMcpHandlers(
   const recommendPrice: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const catalogItemId = readRequiredString(args, "catalogItemId");
+    const catalogItemId = readMcpTypedIdArgument(args, "catalogItemId", "cat");
     const result = await services.recommendAccountPrice({
       accountId: scopedActor.accountId,
       catalogItemId,
@@ -91,7 +92,7 @@ export function createPricingRecommendationMcpHandlers(
 
     return services.explainAccountPricingSignals({
       accountId: scopedActor.accountId,
-      catalogItemId: readRequiredString(args, "catalogItemId"),
+      catalogItemId: readMcpTypedIdArgument(args, "catalogItemId", "cat"),
       productId: readMcpStringArgument(args, "productId"),
     });
   };

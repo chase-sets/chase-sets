@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { ApiKeyId, UserId } from "@chase-sets/primitives/typed-ids";
-import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { Hono } from "hono";
 import type { IdentityApiEnv } from "../../../api";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
@@ -44,12 +44,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
   app.post("/", async (c) => {
     const body = await c.req.json();
     const actor = c.var.actor;
-    let userId: UserId;
-    try {
-      userId = parseTypedId(String(body.userId ?? "").trim(), "usr");
-    } catch {
-      return c.json(badRequest(t("identity.features.apiKeys.api.route.user.id.invalid")), 400);
-    }
+    const userId = parseTypedIdBoundary(body.userId, "usr", "userId");
     if (actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY && actor.userId !== userId) {
       return c.json(forbidden(), 403);
     }
@@ -61,7 +56,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
       );
     }
 
-    const apiKeyId = createId("key") as ApiKeyId;
+    const apiKeyId = createId("key");
     const secret = services.auth.issueOpaqueToken("key");
     const keyPrefix = secret.slice(0, 12);
     const result = await services.commandHandler({
@@ -95,7 +90,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
   });
 
   app.post("/:id/rotate", async (c) => {
-    const apiKeyId = c.req.param("id");
+    const apiKeyId = parseTypedIdBoundary(c.req.param("id"), "key", "apiKeyId");
     const apiKey = await services.getApiKey(apiKeyId);
     if (!apiKey) {
       return c.json(
@@ -118,7 +113,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
       context: c.get("context"),
     });
     await upsertApiKeySecret(services.db, {
-      apiKeyId: apiKeyId as ApiKeyId,
+      apiKeyId,
       userId: apiKey.user_id,
       keyPrefix,
       secretHash: services.auth.hashSecret(secret),
@@ -134,7 +129,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
   });
 
   app.post("/:id/revoke", async (c) => {
-    const apiKeyId = c.req.param("id");
+    const apiKeyId = parseTypedIdBoundary(c.req.param("id"), "key", "apiKeyId");
     const apiKey = await services.getApiKey(apiKeyId);
     if (!apiKey) {
       return c.json(

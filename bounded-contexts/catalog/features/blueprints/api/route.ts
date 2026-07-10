@@ -1,10 +1,10 @@
 import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { BlueprintServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
-import type { BlueprintId, ComponentId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: CatalogAuthoringBulkJobServices) {
@@ -13,7 +13,7 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   app.post("/", async (c) => {
     const body = await c.req.json();
     const context = c.get("context");
-    const blueprintId = body.blueprintId as BlueprintId;
+    const blueprintId = parseTypedIdBoundary(body.blueprintId, "bpr", "blueprintId");
 
     const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
@@ -54,7 +54,7 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.put("/:id", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -73,14 +73,14 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.post("/:id/components/:componentId", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "AttachComponentToBlueprint",
-        componentId: c.req.param("componentId") as ComponentId,
+        componentId: parseTypedIdBoundary(c.req.param("componentId"), "cmp", "componentId"),
       },
       context,
     });
@@ -89,14 +89,14 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.delete("/:id/components/:componentId", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "DetachComponentFromBlueprint",
-        componentId: c.req.param("componentId") as ComponentId,
+        componentId: parseTypedIdBoundary(c.req.param("componentId"), "cmp", "componentId"),
       },
       context,
     });
@@ -105,7 +105,7 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.put("/:id/fields", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -122,7 +122,7 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.put("/:id/dimensions", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -139,7 +139,7 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.put("/:id/product-resolution-rules", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -156,7 +156,7 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.post("/:id/publish", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -169,7 +169,7 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.post("/:id/deprecate", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -182,7 +182,7 @@ export function blueprintRoutes(services: BlueprintServices, authoringBulkJobs: 
   });
 
   app.post("/:id/archive", async (c) => {
-    const blueprintId = c.req.param("id");
+    const blueprintId = parseTypedIdBoundary(c.req.param("id"), "bpr", "blueprintId");
     const context = c.get("context");
 
     const result = await services.commandHandler({

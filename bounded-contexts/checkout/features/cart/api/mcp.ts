@@ -1,7 +1,10 @@
 import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
+  readOptionalMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -86,7 +89,7 @@ function readSelectedOptions(args: Readonly<Record<string, unknown>>) {
 }
 
 function readFulfillmentMode(args: Readonly<Record<string, unknown>>) {
-  const lockedListingId = readOptionalString(args, "lockedListingId");
+  const lockedListingId = readOptionalMcpTypedIdArgument(args, "lockedListingId", "lst");
   const rawMode = readOptionalString(args, "fulfillmentMode");
   if (rawMode && rawMode !== "optimize" && rawMode !== "locked-listing") {
     throw new Error("fulfillmentMode must be optimize or locked-listing.");
@@ -126,10 +129,11 @@ function readSelectedListingSnapshot(
   }
 
   const source = raw as Record<string, unknown>;
-  const listingId = String(source.listingId ?? "").trim();
-  if (!listingId) {
+  const listingIdText = String(source.listingId ?? "").trim();
+  if (!listingIdText) {
     return null;
   }
+  const listingId = parseTypedIdBoundary(listingIdText, "lst", "selectedListingSnapshot.listingId");
 
   return {
     listingId,
@@ -212,7 +216,7 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
     const result = await services.cart.addLine(
       {
         accountId: scopedActor.accountId as AccountId,
-        catalogItemId: readRequiredString(args, "catalogItemId"),
+        catalogItemId: readMcpTypedIdArgument(args, "catalogItemId", "cat"),
         productId: readRequiredString(args, "productId"),
         itemTitle: readRequiredString(args, "itemTitle"),
         itemSubtitle: readOptionalString(args, "itemSubtitle"),
@@ -237,7 +241,7 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const lineId = readRequiredString(args, "cartLineId") as CartLineId;
+    const lineId = readMcpTypedIdArgument(args, "cartLineId", "cli");
     const quantity = readOptionalPositiveInteger(args, "quantity");
     const updatesFulfillment =
       readOptionalString(args, "fulfillmentMode") !== null ||
@@ -287,7 +291,7 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
     const result = await services.cart.removeLine(
       {
         accountId: scopedActor.accountId as AccountId,
-        lineId: readRequiredString(args, "cartLineId") as CartLineId,
+        lineId: readMcpTypedIdArgument(args, "cartLineId", "cli"),
       },
       createActorEventStoreContext(scopedActor),
     );
@@ -299,8 +303,8 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const sessionId = readRequiredString(args, "sessionId");
-    const shippingAddressId = readRequiredString(args, "shippingAddressId");
+    const sessionId = readMcpTypedIdArgument(args, "sessionId", "chk");
+    const shippingAddressId = readMcpTypedIdArgument(args, "shippingAddressId", "adr");
     const savedAddress = (await services.listSavedShippingAddresses(scopedActor.accountId)).find(
       (address) => address.shipping_address_id === shippingAddressId,
     );
@@ -336,7 +340,7 @@ export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices)
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const sessionId = readRequiredString(args, "sessionId");
+    const sessionId = readMcpTypedIdArgument(args, "sessionId", "chk");
     const session = await services.sessions.getSession(sessionId, scopedActor.accountId);
     if (!session) {
       throw new Error("Checkout session not found.");

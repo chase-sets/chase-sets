@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { UserId } from "@chase-sets/primitives/typed-ids";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import type { UserServices } from "./runtime";
 import { PLATFORM_ADMIN_ROLE_KEY, type AuthMethodKey } from "../../../support/runtime-support/common";
@@ -42,7 +42,7 @@ export function userRoutes(services: UserServices) {
 
   app.post("/", async (c) => {
     const body = await c.req.json();
-    const userId = body.userId as UserId;
+    const userId = parseTypedIdBoundary(body.userId, "usr", "userId");
     const result = await services.commandHandler({
       streamId: `identity.user-${userId}`,
       command: {
@@ -59,7 +59,7 @@ export function userRoutes(services: UserServices) {
   });
 
   app.put("/:id", async (c) => {
-    const userId = c.req.param("id");
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
     if (!canManageUser(c.var.actor, userId)) {
       return c.json(forbidden(), 403);
     }
@@ -78,7 +78,7 @@ export function userRoutes(services: UserServices) {
   });
 
   app.post("/:id/contact-methods", async (c) => {
-    const userId = c.req.param("id");
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
     if (!canManageUser(c.var.actor, userId)) {
       return c.json(forbidden(), 403);
     }
@@ -87,7 +87,7 @@ export function userRoutes(services: UserServices) {
       streamId: `identity.user-${userId}`,
       command: {
         type: "AddContactMethod",
-        contactMethodId: body.contactMethodId,
+        contactMethodId: parseTypedIdBoundary(body.contactMethodId, "ctm", "contactMethodId"),
         contactMethodType: body.contactMethodType,
         value: body.value,
       },
@@ -97,7 +97,8 @@ export function userRoutes(services: UserServices) {
   });
 
   app.post("/:id/contact-methods/:contactMethodId/verify", async (c) => {
-    const userId = c.req.param("id");
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
+    const contactMethodId = parseTypedIdBoundary(c.req.param("contactMethodId"), "ctm", "contactMethodId");
     if (!canManageUser(c.var.actor, userId)) {
       return c.json(forbidden(), 403);
     }
@@ -105,7 +106,7 @@ export function userRoutes(services: UserServices) {
       streamId: `identity.user-${userId}`,
       command: {
         type: "VerifyContactMethod",
-        contactMethodId: c.req.param("contactMethodId"),
+        contactMethodId,
         verifiedAt: new Date().toISOString(),
       },
       context: c.get("context"),
@@ -114,7 +115,7 @@ export function userRoutes(services: UserServices) {
   });
 
   app.post("/:id/auth-methods", async (c) => {
-    const userId = c.req.param("id");
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
     if (!canManageUser(c.var.actor, userId)) {
       return c.json(forbidden(), 403);
     }
@@ -128,7 +129,7 @@ export function userRoutes(services: UserServices) {
   });
 
   app.delete("/:id/auth-methods/:authMethod", async (c) => {
-    const userId = c.req.param("id");
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
     if (!canManageUser(c.var.actor, userId)) {
       return c.json(forbidden(), 403);
     }
@@ -145,7 +146,7 @@ export function userRoutes(services: UserServices) {
   });
 
   app.post("/:id/suspend", async (c) => {
-    const userId = c.req.param("id");
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
     if (!canManageUser(c.var.actor, userId)) {
       return c.json(forbidden(), 403);
     }
@@ -158,7 +159,7 @@ export function userRoutes(services: UserServices) {
   });
 
   app.post("/:id/reactivate", async (c) => {
-    const userId = c.req.param("id");
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
     if (!canManageUser(c.var.actor, userId)) {
       return c.json(forbidden(), 403);
     }
@@ -190,7 +191,7 @@ export function userRoutes(services: UserServices) {
 
   app.get("/:id", async (c) => {
     const actor = c.var.actor;
-    const userId = c.req.param("id");
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
     if (actor && !canManageUser(actor, userId)) {
       return c.json(forbidden(), 403);
     }

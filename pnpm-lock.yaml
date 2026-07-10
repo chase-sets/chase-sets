@@ -1002,7 +1002,11 @@ importers:
 
   contracts/event-core: {}
 
-  contracts/http: {}
+  contracts/http:
+    dependencies:
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../primitives
 
   contracts/localization:
     devDependencies:

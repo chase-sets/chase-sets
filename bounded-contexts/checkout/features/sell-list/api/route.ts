@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
 import {
@@ -496,7 +497,7 @@ export function createAccountSellListRoutes(
       const result = await services.removeLine(
         {
           sellerAccountId: access.actor.accountId as AccountId,
-          lineId: c.req.param("lineId") as SellListLineId,
+          lineId: parseTypedIdBoundary(c.req.param("lineId"), "sll", "lineId"),
         },
         context,
       );
@@ -730,7 +731,7 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
       const result = await services.removeLine(
         {
           sellerAccountId: ownerId as AccountId,
-          lineId: c.req.param("lineId") as SellListLineId,
+          lineId: parseTypedIdBoundary(c.req.param("lineId"), "sll", "lineId"),
         },
         context,
       );

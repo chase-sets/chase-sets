@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type {
   ProductContentLineInput,
@@ -7,7 +8,6 @@ import type {
   ProductContentServices,
   ReplaceProductContentsInput,
 } from "./runtime";
-import type { CatalogItemId } from "../../../ids";
 
 export function productContentRoutes(services: ProductContentServices) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -45,7 +45,7 @@ export function productContentRoutes(services: ProductContentServices) {
     const body = await c.req.json().catch(() => ({}));
     const result = await services.removeProductContents(
       {
-        containerCatalogItemId: c.req.param("id") as CatalogItemId,
+        containerCatalogItemId: parseTypedIdBoundary(c.req.param("id"), "cat", "containerCatalogItemId"),
         containerSelectedOptions: toSelectedOptions(
           (body as { containerSelectedOptions?: unknown }).containerSelectedOptions,
         ),
@@ -62,7 +62,7 @@ function toReplaceProductContentsInput(containerCatalogItemId: string, value: un
   const body = isRecord(value) ? value : {};
 
   return {
-    containerCatalogItemId: containerCatalogItemId as CatalogItemId,
+    containerCatalogItemId: parseTypedIdBoundary(containerCatalogItemId, "cat", "containerCatalogItemId"),
     containerSelectedOptions: toSelectedOptions(body.containerSelectedOptions),
     lines: Array.isArray(body.lines) ? body.lines.map(toLineInput) : [],
   };
@@ -73,7 +73,7 @@ function toLineInput(value: unknown): ProductContentLineInput {
 
   return {
     containedCatalogItemId:
-      typeof line.containedCatalogItemId === "string" ? (line.containedCatalogItemId as CatalogItemId) : null,
+      parseOptionalTypedIdBoundary(line.containedCatalogItemId, "cat", "containedCatalogItemId") ?? null,
     containedSelectedOptions: toSelectedOptions(line.containedSelectedOptions),
     quantity: line.quantity === null ? null : Number(line.quantity ?? 1),
     contentTypeId: String(line.contentTypeId ?? ""),

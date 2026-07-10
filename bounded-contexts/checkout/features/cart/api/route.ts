@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { CheckoutApiEnv } from "../../../api";
 import {
   anonymousRequestRateLimitedResponse,
@@ -309,7 +310,7 @@ export function createAccountCartRoutes(
       const result = await services.setLineQuantity(
         {
           accountId: access.actor.accountId as AccountId,
-          lineId: c.req.param("lineId") as CartLineId,
+          lineId: parseTypedIdBoundary(c.req.param("lineId"), "cli", "lineId"),
           quantity: Number(body.quantity ?? 0),
         },
         context,
@@ -351,7 +352,7 @@ export function createAccountCartRoutes(
       const result = await services.setLineFulfillment(
         {
           accountId: access.actor.accountId as AccountId,
-          lineId: c.req.param("lineId") as CartLineId,
+          lineId: parseTypedIdBoundary(c.req.param("lineId"), "cli", "lineId"),
           availabilityState:
             body.availabilityState === "unavailable" ||
             body.availabilityState === "changed" ||
@@ -393,7 +394,7 @@ export function createAccountCartRoutes(
       const result = await services.removeLine(
         {
           accountId: access.actor.accountId as AccountId,
-          lineId: c.req.param("lineId") as CartLineId,
+          lineId: parseTypedIdBoundary(c.req.param("lineId"), "cli", "lineId"),
         },
         context,
       );
@@ -581,7 +582,7 @@ export function createGuestCartRoutes(
       const result = await services.setLineQuantity(
         {
           accountId: ownerId as AccountId,
-          lineId: c.req.param("lineId") as CartLineId,
+          lineId: parseTypedIdBoundary(c.req.param("lineId"), "cli", "lineId"),
           quantity: Number(body.quantity ?? 0),
         },
         context,
@@ -619,7 +620,7 @@ export function createGuestCartRoutes(
       const result = await services.setLineFulfillment(
         {
           accountId: ownerId as AccountId,
-          lineId: c.req.param("lineId") as CartLineId,
+          lineId: parseTypedIdBoundary(c.req.param("lineId"), "cli", "lineId"),
           availabilityState:
             body.availabilityState === "unavailable" ||
             body.availabilityState === "changed" ||
@@ -658,7 +659,7 @@ export function createGuestCartRoutes(
       const result = await services.removeLine(
         {
           accountId: ownerId as AccountId,
-          lineId: c.req.param("lineId") as CartLineId,
+          lineId: parseTypedIdBoundary(c.req.param("lineId"), "cli", "lineId"),
         },
         context,
       );

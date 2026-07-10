@@ -2,6 +2,8 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
+  readOptionalMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -150,9 +152,9 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const result = await services.submitOffer(
       {
-        offerId: readMcpStringArgument(args, "offerIdOverride") as OfferId,
+        offerId: readOptionalMcpTypedIdArgument(args, "offerIdOverride", "off") ?? undefined,
         buyerAccountId: scopedActor.accountId as AccountId,
-        catalogItemId: readRequiredString(args, "catalogItemId"),
+        catalogItemId: readMcpTypedIdArgument(args, "catalogItemId", "cat"),
         productId: readRequiredString(args, "productId"),
         itemTitle: readRequiredString(args, "itemTitle"),
         itemSubtitle: readMcpStringArgument(args, "itemSubtitle"),
@@ -166,7 +168,7 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
     );
 
     return offerReceipt(scopedActor.accountId, result, "submitted", {
-      catalogItemId: readRequiredString(args, "catalogItemId"),
+      catalogItemId: readMcpTypedIdArgument(args, "catalogItemId", "cat"),
       productId: readRequiredString(args, "productId"),
     });
   };
@@ -174,7 +176,7 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
   const submitOffer: McpToolHandler = async ({ actor, arguments: args }) => writeSubmittedOffer(actor, args);
 
   const counterOffer: McpToolHandler = async ({ actor, arguments: args }) => {
-    const counteredOfferId = readRequiredString(args, "counteredOfferId");
+    const counteredOfferId = readMcpTypedIdArgument(args, "counteredOfferId", "off");
     const result = await writeSubmittedOffer(actor, args);
 
     return {
@@ -191,7 +193,7 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
     requirePermission(scopedActor, "listings.view");
     const result = await services.acceptOffer(
       {
-        offerId: readRequiredString(args, "offerId") as OfferId,
+        offerId: readMcpTypedIdArgument(args, "offerId", "off"),
         sellerAccountId: scopedActor.accountId as AccountId,
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
         sourceActionKey: readMcpStringArgument(args, "sourceActionKey"),
@@ -209,7 +211,7 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
     requirePermission(scopedActor, "listings.view");
     const result = await services.declineOfferMatch(
       {
-        offerId: readRequiredString(args, "offerId") as OfferId,
+        offerId: readMcpTypedIdArgument(args, "offerId", "off"),
         sellerAccountId: scopedActor.accountId as AccountId,
       },
       createActorEventStoreContext(scopedActor),

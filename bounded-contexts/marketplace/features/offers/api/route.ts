@@ -5,6 +5,7 @@ import {
 } from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
   MarketplaceOfferAbuseControlError,
@@ -245,7 +246,10 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       return access.response;
     }
 
-    const offer = await services.getSubmittedOffer(c.req.param("id"), access.actor.accountId);
+    const offer = await services.getSubmittedOffer(
+      parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
+      access.actor.accountId,
+    );
 
     if (!offer) {
       return c.json(
@@ -290,7 +294,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     try {
       const result = await services.submitOffer(
         {
-          offerId: typeof body.offerId === "string" && body.offerId.trim() ? (body.offerId as OfferId) : undefined,
+          offerId: parseOptionalTypedIdBoundary(body.offerId, "off", "offerId"),
           buyerAccountId: access.actor.accountId as AccountId,
           catalogItemId: String(body.catalogItemId ?? ""),
           productId: String(body.productId ?? ""),
@@ -325,7 +329,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       return access.response;
     }
 
-    const offer = await services.getPublicOffer(c.req.param("id"));
+    const offer = await services.getPublicOffer(parseTypedIdBoundary(c.req.param("id"), "off", "offerId"));
 
     if (!offer) {
       return c.json(
@@ -393,7 +397,10 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       return access.response;
     }
 
-    const offer = await services.getOfferMatch(c.req.param("id"), access.actor.accountId);
+    const offer = await services.getOfferMatch(
+      parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
+      access.actor.accountId,
+    );
 
     if (!offer) {
       return c.json(
@@ -420,7 +427,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
 
     try {
       const quote = await services.previewOfferAcceptanceTerms({
-        offerId: c.req.param("id") as OfferId,
+        offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
         sellerAccountId: access.actor.accountId as AccountId,
       });
 
@@ -469,7 +476,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       const body = await c.req.json().catch(() => ({}));
       const result = await services.acceptOffer(
         {
-          offerId: c.req.param("id") as OfferId,
+          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
           sellerAccountId: access.actor.accountId as AccountId,
           feeQuoteFingerprint:
             body && typeof body === "object" && "feeQuoteFingerprint" in body
@@ -516,7 +523,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     try {
       const result = await services.declineOfferMatch(
         {
-          offerId: c.req.param("id") as OfferId,
+          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
           sellerAccountId: access.actor.accountId as AccountId,
         },
         context,
@@ -557,7 +564,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     try {
       const result = await services.muteBuyerOffers(
         {
-          offerId: c.req.param("id") as OfferId,
+          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
           sellerAccountId: access.actor.accountId as AccountId,
         },
         context,
@@ -599,7 +606,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       const result = await services.unmuteBuyerOffers(
         {
           listingId: c.req.param("listingId"),
-          buyerAccountId: c.req.param("buyerAccountId") as AccountId,
+          buyerAccountId: parseTypedIdBoundary(c.req.param("buyerAccountId"), "acc", "buyerAccountId"),
           sellerAccountId: access.actor.accountId as AccountId,
         },
         context,

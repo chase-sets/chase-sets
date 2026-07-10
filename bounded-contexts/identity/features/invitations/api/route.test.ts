@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import type { IdentityApiEnv } from "../../../api";
 import type { InvitationServices } from "./runtime";
 import { invitationRoutes } from "./route";
@@ -35,6 +36,7 @@ function buildAccounts(overrides: Partial<InvitationAccountReader> = {}): Invita
 
 function buildApp(services: InvitationServices, accounts = buildAccounts(), requestActor = actor) {
   const app = new Hono<IdentityApiEnv>();
+  app.onError(errorHandler);
   app.use("*", async (c, next) => {
     c.set("actor", requestActor);
     c.set("context", {
@@ -90,7 +92,7 @@ describe("invitation API route", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         invitationId: "ivt_1",
-        accountId: "acct_1",
+        accountId: "usr_1",
         email: "invitee@example.com",
         roleKey: "viewer",
         expiresAt: "2026-07-08T00:00:00.000Z",
@@ -101,7 +103,34 @@ describe("invitation API route", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "validation_failed",
-        message: expect.stringContaining("Account must be selected"),
+        message: "accountId must start with acc_.",
+      },
+    });
+    expect(accounts.getAccountForRead).not.toHaveBeenCalled();
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a wrong-kind invitation ID before issuing create commands", async () => {
+    const services = buildServices();
+    const accounts = buildAccounts();
+
+    const response = await buildApp(services, accounts).request("/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        invitationId: "usr_1",
+        accountId: "acc_1",
+        email: "invitee@example.com",
+        roleKey: "viewer",
+        expiresAt: "2026-07-08T00:00:00.000Z",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "invitationId must start with ivt_.",
       },
     });
     expect(accounts.getAccountForRead).not.toHaveBeenCalled();

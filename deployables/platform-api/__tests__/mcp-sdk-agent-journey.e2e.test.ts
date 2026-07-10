@@ -16,7 +16,7 @@ function agentActor(permissions: readonly string[]) {
     sessionId: "ucp:grant_full_journey",
     tenantId: "tenant_1",
     userId: "agent_user_1",
-    accountId: "account_1",
+    accountId: "acc_1",
     membershipId: "member_1",
     roleKey: "agent",
     permissions,
@@ -106,7 +106,7 @@ function stubPaymentsCheckoutStatusFetch(
     if (request.method === "GET" && url.pathname === "/api/marketplace/account/checkout/status") {
       return Response.json(
         await getCheckoutStatus({
-          accountId: "account_1",
+          accountId: "acc_1",
           orderIds: url.searchParams.get("orderIds")?.split(",").filter(Boolean) ?? [],
           currencyCode: url.searchParams.get("currencyCode") ?? "usd",
           requestedBalanceCreditAmount: url.searchParams.get("requestedBalanceCreditAmount"),
@@ -143,9 +143,9 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
   it("drives /mcp with the official SDK through browse, offer, fulfillment, and settlement reads", async () => {
     const listing = {
       listing_id: "listing_1",
-      account_id: "account_1",
+      account_id: "acc_1",
       inventory_item_id: "inventory_1",
-      catalog_item_id: "catalog_1",
+      catalog_item_id: "cat_1",
       product_id: "product_1",
       title: "Charizard ex",
       status: "published",
@@ -154,10 +154,10 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       fee_quote_fingerprint: "fee_quote_1",
     };
     const offer = {
-      offer_id: "offer_1",
-      buyer_account_id: "account_1",
-      seller_account_id: "account_1",
-      catalog_item_id: "catalog_1",
+      offer_id: "off_1",
+      buyer_account_id: "acc_1",
+      seller_account_id: "acc_1",
+      catalog_item_id: "cat_1",
       product_id: "product_1",
       status: "accepted",
       price_amount: "24.00",
@@ -168,8 +168,8 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     const shipment = {
       shipment_id: "shipment_1",
       order_id: "order_1",
-      buyer_account_id: "account_1",
-      seller_account_id: "account_1",
+      buyer_account_id: "acc_1",
+      seller_account_id: "acc_1",
       status: "label_purchased",
       tracking_number: "9400111899223857463029",
       created_at: "2026-07-08T00:00:00.000Z",
@@ -177,7 +177,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     };
     const payout = {
       payout_id: "payout_1",
-      account_id: "account_1",
+      account_id: "acc_1",
       amount: "24.00",
       currency_code: "USD",
       status: "requested",
@@ -185,7 +185,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       updated_at: "2026-07-08T00:00:00.000Z",
     };
     const wallet = {
-      account_id: "account_1",
+      account_id: "acc_1",
       currency_code: "USD",
       pending_balance_amount: "0.00",
       available_balance_amount: "24.00",
@@ -202,8 +202,8 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       pauseListing: vi.fn(),
     };
     const offerServices = {
-      submitOffer: vi.fn(async () => ({ offerId: "offer_1", version: 1 })),
-      acceptOffer: vi.fn(async () => ({ offerId: "offer_1", version: 2 })),
+      submitOffer: vi.fn(async () => ({ offerId: "off_1", version: 1 })),
+      acceptOffer: vi.fn(async () => ({ offerId: "off_1", version: 2 })),
       declineOfferMatch: vi.fn(),
       listSubmittedOffers: vi.fn(async () => ({ items: [offer], total: 1 })),
       listSellerOfferMatches: vi.fn(async () => ({ items: [offer], total: 1 })),
@@ -216,7 +216,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         listCartLines: vi.fn(async () => [
           {
             line_id: "cart_line_1",
-            buyer_account_id: "account_1",
+            buyer_account_id: "acc_1",
             listing_id: "listing_1",
             product_id: "product_1",
             quantity: 1,
@@ -243,7 +243,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
           items: [
             {
               ledger_entry_id: "ledger_1",
-              account_id: "account_1",
+              account_id: "acc_1",
               amount: "24.00",
               currency_code: "USD",
               direction: "credit",
@@ -312,15 +312,15 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
 
       const browse = await client.callTool({
         name: "marketplace.list-listings",
-        arguments: { accountId: "account_1", limit: 10 },
+        arguments: { accountId: "acc_1", limit: 10 },
       });
       expect(browse.structuredContent).toMatchObject({ count: 1, items: [expect.objectContaining(listing)] });
 
       const submitted = await callConfirmedTool(client, {
         name: "marketplace.submit-offer",
         arguments: {
-          accountId: "account_1",
-          catalogItemId: "catalog_1",
+          accountId: "acc_1",
+          catalogItemId: "cat_1",
           productId: "product_1",
           itemTitle: "Charizard ex",
           priceAmount: "24.00",
@@ -332,17 +332,17 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         confirmation: { confirmed: true, text: "Submit Offer." },
       });
       expect(expectStructured(submitted)).toMatchObject({
-        accountId: "account_1",
-        offerId: "offer_1",
+        accountId: "acc_1",
+        offerId: "off_1",
         status: "submitted",
-        resourceUri: "chase-sets://marketplace/account_1/offers/offer_1",
+        resourceUri: "chase-sets://marketplace/acc_1/offers/off_1",
       });
 
       const accepted = await callConfirmedTool(client, {
         name: "marketplace.accept-offer",
         arguments: {
-          accountId: "account_1",
-          offerId: "offer_1",
+          accountId: "acc_1",
+          offerId: "off_1",
           feeQuoteFingerprint: "fee_quote_1",
           sourceActionKey: "uat-agent:accept-offer-1",
           idempotencyKey: "offer-accept-1",
@@ -351,50 +351,46 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         confirmation: { confirmed: true, text: "Accept Offer." },
       });
       expect(expectStructured(accepted)).toMatchObject({
-        accountId: "account_1",
-        offerId: "offer_1",
+        accountId: "acc_1",
+        offerId: "off_1",
         version: 2,
         status: "accepted",
       });
 
-      await expect(
-        client.readResource({ uri: "chase-sets://marketplace/account_1/offers/offer_1" }),
-      ).resolves.toMatchObject({
+      await expect(client.readResource({ uri: "chase-sets://marketplace/acc_1/offers/off_1" })).resolves.toMatchObject({
         contents: [
           {
-            uri: "chase-sets://marketplace/account_1/offers/offer_1",
-            text: expect.stringContaining("offer_1"),
+            uri: "chase-sets://marketplace/acc_1/offers/off_1",
+            text: expect.stringContaining("off_1"),
           },
         ],
       });
 
       expect(
-        expectStructured(await client.callTool({ name: "checkout.get-cart", arguments: { accountId: "account_1" } })),
-      ).toMatchObject({ accountId: "account_1", total: 1 });
+        expectStructured(await client.callTool({ name: "checkout.get-cart", arguments: { accountId: "acc_1" } })),
+      ).toMatchObject({ accountId: "acc_1", total: 1 });
       expect(
         expectStructured(
           await client.callTool({
             name: "fulfillment.list-shipments",
-            arguments: { accountId: "account_1", side: "sale" },
+            arguments: { accountId: "acc_1", side: "sale" },
           }),
         ),
-      ).toMatchObject({ accountId: "account_1", side: "sale", count: 1 });
+      ).toMatchObject({ accountId: "acc_1", side: "sale", count: 1 });
       await expect(
-        client.readResource({ uri: "chase-sets://fulfillment/account_1/shipments/shipment_1" }),
+        client.readResource({ uri: "chase-sets://fulfillment/acc_1/shipments/shipment_1" }),
       ).resolves.toMatchObject({
         contents: [{ text: expect.stringContaining("shipment_1") }],
       });
       expect(
-        expectStructured(
-          await client.callTool({ name: "settlement.get-wallet", arguments: { accountId: "account_1" } }),
-        ),
-      ).toMatchObject({ accountId: "account_1", wallet });
+        expectStructured(await client.callTool({ name: "settlement.get-wallet", arguments: { accountId: "acc_1" } })),
+      ).toMatchObject({ accountId: "acc_1", wallet });
       expect(
         expectStructured(
           await callConfirmedTool(client, {
             name: "settlement.request-payout",
             arguments: {
-              accountId: "account_1",
+              accountId: "acc_1",
               amount: "24.00",
               reason: "UAT settlement read after accepted offer",
               idempotencyKey: "payout-request-1",
@@ -404,13 +400,13 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
           }),
         ),
       ).toMatchObject({
-        accountId: "account_1",
+        accountId: "acc_1",
         payoutId: "payout_1",
         status: "requested",
-        resourceUri: "chase-sets://settlement/account_1/payouts/payout_1",
+        resourceUri: "chase-sets://settlement/acc_1/payouts/payout_1",
       });
       await expect(
-        client.readResource({ uri: "chase-sets://settlement/account_1/payouts/payout_1" }),
+        client.readResource({ uri: "chase-sets://settlement/acc_1/payouts/payout_1" }),
       ).resolves.toMatchObject({
         contents: [{ text: expect.stringContaining("payout_1") }],
       });
@@ -542,8 +538,8 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         await callConfirmedTool(client, {
           name: "marketplace.submit-offer",
           arguments: {
-            accountId: "account_1",
-            catalogItemId: "catalog_1",
+            accountId: "acc_1",
+            catalogItemId: "cat_1",
             productId: "product_1",
             itemTitle: "Charizard ex",
             priceAmount: "24.00",
@@ -559,8 +555,8 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       const rejected = await callConfirmedTool(client, {
         name: "marketplace.submit-offer",
         arguments: {
-          accountId: "account_1",
-          catalogItemId: "catalog_1",
+          accountId: "acc_1",
+          catalogItemId: "cat_1",
           productId: "product_1",
           itemTitle: "Charizard ex",
           priceAmount: "24.00",
@@ -588,14 +584,14 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       shipping_address: null,
       lines: [
         {
-          catalogItemId: "catalog_1",
+          catalogItemId: "cat_1",
           productId: "product_1",
           listingId: "listing_1",
           title: "Charizard ex",
           quantity: 1,
           unitPriceAmount: "25.00",
           offerPriceAmount: null,
-          sellerAccountId: "account_1",
+          sellerAccountId: "acc_1",
           fulfillmentMode: "seller-managed",
           availabilityState: "available",
         },

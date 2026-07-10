@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { SettlementApiEnv } from "../../../api";
 import type { WalletServices } from "./runtime";
@@ -59,7 +61,7 @@ function normalizeRequiredBodyText(body: Record<string, unknown>, fieldName: str
 
 function deterministicLedgerEntryId(idempotencyKey: string): LedgerEntryId {
   const digest = createHash("sha256").update(idempotencyKey, "utf8").digest("hex").slice(0, 26);
-  return `led_${digest}` as LedgerEntryId;
+  return parseTypedId(`led_${digest}`, "led");
 }
 
 function duplicateLedgerEntryResponse() {
@@ -79,11 +81,11 @@ async function postOperatorWalletEntry(
     context: NonNullable<SettlementApiEnv["Variables"]["context"]>;
   }>,
 ) {
-  const accountId = normalizeRequiredBodyText(
-    params.body,
+  const accountId = parseTypedIdBoundary(
+    normalizeRequiredBodyText(params.body, "accountId", "Target account is required for operator wallet commands."),
+    "acc",
     "accountId",
-    "Target account is required for operator wallet commands.",
-  ) as AccountId;
+  );
   const idempotencyKey = normalizeRequiredBodyText(
     params.body,
     "idempotencyKey",
@@ -105,7 +107,7 @@ async function postOperatorWalletEntry(
       amount: String(params.body.amount ?? ""),
       currencyCode: normalizeCurrencyCode(String(params.body.currencyCode ?? "usd")),
       fundsStatus: "available",
-      paymentId: params.body.paymentId ? (String(params.body.paymentId) as PaymentId) : null,
+      paymentId: parseOptionalTypedIdBoundary(params.body.paymentId, "pay", "paymentId") ?? null,
       description: t("settlement.features.wallets.api.route.ledger.description.with.reason", {
         description,
         reason: auditReason,

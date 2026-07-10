@@ -291,7 +291,7 @@ describe("catalog admin model mutation consistency", () => {
           status: "active",
           options: [
             {
-              id: "opt_foil",
+              id: "chc_foil",
               code: "foil",
               label: englishName,
               displayOrder: 0,
@@ -319,7 +319,7 @@ describe("catalog admin model mutation consistency", () => {
       ),
     );
 
-    const response = await app.fetch(jsonRequest("/dimensions/dim_finish/options/opt_foil/deprecate", {}, "POST"));
+    const response = await app.fetch(jsonRequest("/dimensions/dim_finish/options/chc_foil/deprecate", {}, "POST"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -327,7 +327,7 @@ describe("catalog admin model mutation consistency", () => {
       version: 5,
       snapshot: {
         id: "dim_finish",
-        options: [{ id: "opt_foil", status: "deprecated" }],
+        options: [{ id: "chc_foil", status: "deprecated" }],
       },
     });
   });
@@ -420,13 +420,13 @@ describe("catalog admin model mutation consistency", () => {
     );
     const referenceRecordCommandHandler = vi.fn(async () =>
       commandResult({
-        id: "rfr_ascended_heroes",
+        id: "ref_ascended_heroes",
         typeKey: "expansion",
         key: "ascended-heroes",
         name: englishName,
         description: englishName,
         attributes: { "release-date": "2026-06-15" },
-        relationships: [{ relationshipType: "series", referenceId: "rfr_mega-evolution" }],
+        relationships: [{ relationshipType: "series", referenceId: "ref_mega-evolution" }],
         status: "draft",
       }),
     );
@@ -453,13 +453,13 @@ describe("catalog admin model mutation consistency", () => {
     const typeResponse = await app.fetch(jsonRequest("/reference-types/rft_expansion/publish", {}, "POST"));
     const recordResponse = await app.fetch(
       jsonRequest(
-        "/reference-records/rfr_ascended_heroes",
+        "/reference-records/ref_ascended_heroes",
         {
           typeKey: "expansion",
           key: "ascended-heroes",
           name: englishName,
           attributes: { "release-date": "2026-06-15" },
-          relationships: [{ relationshipType: "series", referenceId: "rfr_mega-evolution" }],
+          relationships: [{ relationshipType: "series", referenceId: "ref_mega-evolution" }],
         },
         "PUT",
       ),
@@ -474,12 +474,12 @@ describe("catalog admin model mutation consistency", () => {
 
     expect(recordResponse.status).toBe(200);
     await expect(recordResponse.json()).resolves.toMatchObject({
-      id: "rfr_ascended_heroes",
+      id: "ref_ascended_heroes",
       status: "draft",
       snapshot: {
-        id: "rfr_ascended_heroes",
+        id: "ref_ascended_heroes",
         attributes: { "release-date": "2026-06-15" },
-        relationships: [{ relationshipType: "series", referenceId: "rfr_mega-evolution" }],
+        relationships: [{ relationshipType: "series", referenceId: "ref_mega-evolution" }],
       },
     });
   });

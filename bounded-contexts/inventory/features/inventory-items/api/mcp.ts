@@ -2,6 +2,8 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
+  readOptionalMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -113,9 +115,9 @@ export function createInventoryItemMcpHandlers(services: InventoryItemServices):
       accountId: scopedActor.accountId,
       limit: readOptionalPositiveInteger(args, "limit", 50),
       offset: readOptionalNonNegativeInteger(args, "offset", 0),
-      catalogItemId: readMcpStringArgument(args, "catalogItemId"),
+      catalogItemId: readOptionalMcpTypedIdArgument(args, "catalogItemId", "cat"),
       productId: readMcpStringArgument(args, "productId"),
-      storageLocationId: readMcpStringArgument(args, "storageLocationId"),
+      storageLocationId: readOptionalMcpTypedIdArgument(args, "storageLocationId", "loc"),
       availability: readAvailability(args),
     });
 
@@ -134,7 +136,7 @@ export function createInventoryItemMcpHandlers(services: InventoryItemServices):
     const result = await services.adjustItem(
       {
         accountId: scopedActor.accountId,
-        itemId: readRequiredString(args, "inventoryItemId"),
+        itemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
         quantityDelta: readQuantityDelta(args),
         reason: readRequiredString(args, "reason"),
         idempotencyKey: readMcpStringArgument(args, "idempotencyKey"),

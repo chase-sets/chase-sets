@@ -2,6 +2,8 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
+  readOptionalMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -161,7 +163,7 @@ export function createMarketplaceListingMcpHandlers(
       services.listSellerListingFeeLockReport({ accountId: scopedActor.accountId, limit, offset }),
       services.listSellerInventoryItemSupply({
         accountId: scopedActor.accountId,
-        catalogItemId: readMcpStringArgument(args, "catalogItemId") ?? undefined,
+        catalogItemId: readOptionalMcpTypedIdArgument(args, "catalogItemId", "cat") ?? undefined,
         limit,
         offset,
       }),
@@ -195,17 +197,17 @@ export function createMarketplaceListingMcpHandlers(
     const result = await services.createListing(
       {
         accountId: scopedActor.accountId as AccountId,
-        inventoryItemId: readRequiredString(args, "inventoryItemId"),
+        inventoryItemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
         priceAmount: readRequiredString(args, "priceAmount"),
         quantityCap: readPositiveInteger(args, "quantityCap"),
         purchaseLimits: readPurchaseLimits(args),
-        listingIdOverride: readMcpStringArgument(args, "listingIdOverride") as ListingId,
+        listingIdOverride: readOptionalMcpTypedIdArgument(args, "listingIdOverride", "lst") ?? undefined,
       },
       createActorEventStoreContext(scopedActor),
     );
 
     return listingReceipt(scopedActor.accountId, result, "draft", {
-      inventoryItemId: readRequiredString(args, "inventoryItemId"),
+      inventoryItemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
       feeQuoteFingerprint: result.feeQuoteFingerprint,
     });
   };
@@ -217,7 +219,7 @@ export function createMarketplaceListingMcpHandlers(
     const result = await services.updateListingPrice(
       {
         accountId: scopedActor.accountId,
-        listingId: readRequiredString(args, "listingId"),
+        listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
         priceAmount: readRequiredString(args, "priceAmount"),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
       },
@@ -234,7 +236,7 @@ export function createMarketplaceListingMcpHandlers(
     const result = await services.publishListing(
       {
         accountId: scopedActor.accountId,
-        listingId: readRequiredString(args, "listingId"),
+        listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
       },
       createActorEventStoreContext(scopedActor),
@@ -250,7 +252,7 @@ export function createMarketplaceListingMcpHandlers(
     const result = await services.pauseListing(
       {
         accountId: scopedActor.accountId,
-        listingId: readRequiredString(args, "listingId"),
+        listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
       },
       createActorEventStoreContext(scopedActor),
     );

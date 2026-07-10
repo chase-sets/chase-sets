@@ -1,6 +1,7 @@
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readOptionalMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -76,7 +77,7 @@ export function createMarketplaceReviewMcpHandlers(services: ReviewServices): Ma
   const getReputationSummary: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
     ensureMcpActorAccount(actor, accountId);
-    const subjectAccountId = readMcpStringArgument(args, "subjectAccountId") ?? accountId;
+    const subjectAccountId = readOptionalMcpTypedIdArgument(args, "subjectAccountId", "acc") ?? accountId;
     const summary = await services.getPublicAccountSummary(subjectAccountId);
 
     return {
@@ -108,7 +109,7 @@ export function createMarketplaceReviewMcpHandlers(services: ReviewServices): Ma
     }
 
     if (side === "public") {
-      const subjectAccountId = readMcpStringArgument(args, "subjectAccountId") ?? accountId;
+      const subjectAccountId = readOptionalMcpTypedIdArgument(args, "subjectAccountId", "acc") ?? accountId;
       const response = await services.listPublicAccountReviews({ accountId: subjectAccountId, limit, offset });
       return { accountId, subjectAccountId, side, ...response, count: response.items.length };
     }

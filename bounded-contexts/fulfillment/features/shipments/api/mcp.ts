@@ -2,6 +2,7 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -190,7 +191,7 @@ export function createFulfillmentShipmentMcpHandlers(
     requirePermission(scopedActor, "fulfillment.manage");
     const result = await services.purchaseUspsLabel(
       {
-        shipmentId: readRequiredString(args, "shipmentId"),
+        shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
         sellerAccountId: scopedActor.accountId,
         serviceLevel: readMcpStringArgument(args, "serviceLevel") ?? "USPS_GROUND_ADVANTAGE",
         sender: readAddress(args.sender, "sender"),
@@ -213,7 +214,7 @@ export function createFulfillmentShipmentMcpHandlers(
     requirePermission(scopedActor, "fulfillment.manage");
     const result = await services.voidLabel(
       {
-        shipmentId: readRequiredString(args, "shipmentId"),
+        shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
         sellerAccountId: scopedActor.accountId,
       },
       createActorEventStoreContext(scopedActor),
@@ -226,7 +227,7 @@ export function createFulfillmentShipmentMcpHandlers(
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     requirePermission(scopedActor, "fulfillment.view");
-    const shipmentId = readRequiredString(args, "shipmentId");
+    const shipmentId = readMcpTypedIdArgument(args, "shipmentId", "shp");
     const buyerShipment = await services.getBuyerShipment(shipmentId, scopedActor.accountId);
     const shipment = buyerShipment ?? (await services.getSellerShipment(shipmentId, scopedActor.accountId));
     if (!shipment) {

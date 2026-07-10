@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import { createId, type AccountId, type ShippingAddressId } from "@chase-sets/primitives/typed-ids";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import { hasPermission } from "../../../support/request-support/permissions";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
@@ -105,7 +106,7 @@ function forbidden() {
 }
 
 function accountIdParam(c: { req: { param(name: string): string | undefined } }) {
-  return String(c.req.param("accountId") ?? "");
+  return parseTypedIdBoundary(c.req.param("accountId"), "acc", "accountId");
 }
 
 export function shippingAddressRoutes(services: ShippingAddressServices) {
@@ -139,7 +140,7 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
       );
     }
     const body = await c.req.json<AddressBody>();
-    const shippingAddressId = createId("adr") as ShippingAddressId;
+    const shippingAddressId = createId("adr");
     let result: Awaited<ReturnType<ShippingAddressServices["commandHandler"]>>;
     try {
       const verification = await services.verifyShippingAddress(
@@ -153,7 +154,7 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
         streamId: `identity.shipping-address-book-${accountId}`,
         command: {
           type: "AddShippingAddress",
-          accountId: accountId as AccountId,
+          accountId,
           shippingAddressId,
           label: optionalText(body.label),
           address: verification.address,
@@ -193,7 +194,7 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
       );
     }
     const body = await c.req.json<AddressBody>();
-    const shippingAddressId = c.req.param("shippingAddressId") as ShippingAddressId;
+    const shippingAddressId = parseTypedIdBoundary(c.req.param("shippingAddressId"), "adr", "shippingAddressId");
     let result: Awaited<ReturnType<ShippingAddressServices["commandHandler"]>>;
     try {
       const verification = await services.verifyShippingAddress(
@@ -242,7 +243,7 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
         401,
       );
     }
-    const shippingAddressId = c.req.param("shippingAddressId") as ShippingAddressId;
+    const shippingAddressId = parseTypedIdBoundary(c.req.param("shippingAddressId"), "adr", "shippingAddressId");
     const result = await services.commandHandler({
       streamId: `identity.shipping-address-book-${accountId}`,
       command: {
@@ -276,7 +277,7 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
         401,
       );
     }
-    const shippingAddressId = c.req.param("shippingAddressId") as ShippingAddressId;
+    const shippingAddressId = parseTypedIdBoundary(c.req.param("shippingAddressId"), "adr", "shippingAddressId");
     const result = await services.commandHandler({
       streamId: `identity.shipping-address-book-${accountId}`,
       command: {

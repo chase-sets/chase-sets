@@ -1,6 +1,6 @@
 import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { DisplayTemplateId } from "../../../ids";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import { CatalogDomainError } from "../../../support/runtime-support/common";
@@ -12,7 +12,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
 
   app.post("/", async (c) => {
     const body = await c.req.json();
-    const displayTemplateId = body.displayTemplateId as DisplayTemplateId;
+    const displayTemplateId = parseTypedIdBoundary(body.displayTemplateId, "dtp", "displayTemplateId");
     const result = await services.commandHandler({
       streamId: `catalog.display-template-${displayTemplateId}`,
       command: {
@@ -34,7 +34,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
   });
 
   app.put("/:id", async (c) => {
-    const displayTemplateId = c.req.param("id");
+    const displayTemplateId = parseTypedIdBoundary(c.req.param("id"), "dtp", "displayTemplateId");
     const body = await c.req.json();
     const result = await services.commandHandler({
       streamId: `catalog.display-template-${displayTemplateId}`,
@@ -56,7 +56,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
   });
 
   app.post("/:id/publish", async (c) => {
-    const displayTemplateId = c.req.param("id");
+    const displayTemplateId = parseTypedIdBoundary(c.req.param("id"), "dtp", "displayTemplateId");
     const result = await services.commandHandler({
       streamId: `catalog.display-template-${displayTemplateId}`,
       command: { type: "PublishDisplayTemplate" },
@@ -67,7 +67,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
   });
 
   app.post("/:id/deprecate", async (c) => {
-    const displayTemplateId = c.req.param("id");
+    const displayTemplateId = parseTypedIdBoundary(c.req.param("id"), "dtp", "displayTemplateId");
     const result = await services.commandHandler({
       streamId: `catalog.display-template-${displayTemplateId}`,
       command: { type: "DeprecateDisplayTemplate" },
@@ -78,7 +78,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
   });
 
   app.post("/:id/archive", async (c) => {
-    const displayTemplateId = c.req.param("id");
+    const displayTemplateId = parseTypedIdBoundary(c.req.param("id"), "dtp", "displayTemplateId");
     const result = await services.commandHandler({
       streamId: `catalog.display-template-${displayTemplateId}`,
       command: { type: "ArchiveDisplayTemplate" },
