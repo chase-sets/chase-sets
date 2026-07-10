@@ -52,6 +52,8 @@ const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
   total: 0,
   count: 0,
   nextCursor: null,
+  retrievalMode: "lexical",
+  lexicalCount: 0,
 };
 const EMPTY_EXTRA_PAGES: readonly DiscoverySearchResponse[] = [];
 

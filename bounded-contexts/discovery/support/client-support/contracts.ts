@@ -74,6 +74,8 @@ export interface DiscoverySearchResponse {
   total: number | null;
   count: number;
   nextCursor: string | null;
+  retrievalMode: "lexical" | "rescue" | "hybrid";
+  lexicalCount: number | null;
 }
 
 export interface DiscoveryFacetValue {

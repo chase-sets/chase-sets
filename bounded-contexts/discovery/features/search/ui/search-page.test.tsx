@@ -95,6 +95,8 @@ const searchResponse: DiscoverySearchResponse = {
   total: 1,
   count: 1,
   nextCursor: null,
+  retrievalMode: "lexical",
+  lexicalCount: 1,
 };
 
 function createCategory(overrides: Partial<DiscoveryCategoryItem>): DiscoveryCategoryItem {
@@ -245,12 +247,34 @@ describe("SearchPage", () => {
     renderSearchPage({
       search: "bulbasaur",
       committedSearch: "bulbasaur",
-      data: { items: [japaneseSearchResult], facets: [], total: 1, count: 1, nextCursor: null },
+      data: {
+        items: [japaneseSearchResult],
+        facets: [],
+        total: 1,
+        count: 1,
+        nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: 1,
+      },
       categories: [],
     });
 
     expect(screen.getAllByText("Japanese").length).toBeGreaterThan(0);
     expect(screen.queryByText("Language: ja")).toBeNull();
+  });
+
+  it("labels semantic zero-result recovery as closest matches", () => {
+    renderSearchPage({
+      search: "electric mascot",
+      committedSearch: "electric mascot",
+      data: { ...searchResponse, retrievalMode: "rescue", lexicalCount: 0 },
+    });
+
+    expect(screen.getByRole("heading", { name: "Closest matches" })).toBeTruthy();
+    expect(
+      screen.getByText("No text matches were found. These related items are ranked by semantic similarity."),
+    ).toBeTruthy();
+    expect(screen.queryByText("No items found")).toBeNull();
   });
 
   it("surfaces catalog subtitles on search cards so visually identical variants can be distinguished", () => {
@@ -262,6 +286,8 @@ describe("SearchPage", () => {
         total: 2,
         count: 2,
         nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: 2,
       },
       categories: [],
     });
@@ -282,6 +308,8 @@ describe("SearchPage", () => {
         total: 1,
         count: 1,
         nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: 1,
       },
       categories: [],
     });
@@ -389,6 +417,8 @@ describe("SearchPage", () => {
         total: 1,
         count: 1,
         nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: 1,
       },
     });
 
@@ -454,6 +484,8 @@ describe("SearchPage", () => {
         total: 1,
         count: 1,
         nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: 1,
       },
     });
 
@@ -491,6 +523,8 @@ describe("SearchPage", () => {
         total: 1,
         count: 1,
         nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: 1,
       },
     });
 
@@ -534,6 +568,8 @@ describe("SearchPage", () => {
         total: 1,
         count: 1,
         nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: 1,
       },
     });
 

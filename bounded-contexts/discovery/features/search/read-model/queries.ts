@@ -52,6 +52,11 @@ export type ListResult<T> = {
   nextCursor: string | null;
 };
 
+export type DiscoverySemanticSearchItem = Readonly<{
+  item: DiscoverySearchItemRow;
+  similarity: number;
+}>;
+
 export type DiscoveryBulkCartPreviewLine = Readonly<{
   catalog_item_id: string;
   slug: string;
@@ -487,6 +492,7 @@ function normalizeFilterParamValue(value: string): string {
 export async function searchDiscoveryItems(
   db: PgQueryable,
   params: DiscoverySearchParams = {},
+  options: Readonly<{ loadFacets?: boolean; loadMarketSummaries?: boolean }> = {},
 ): Promise<ListResult<DiscoverySearchItemRow>> {
   const baseFilter = buildSearchFilter(params);
   const conditions = [...baseFilter.conditions];
@@ -593,11 +599,14 @@ export async function searchDiscoveryItems(
   const lastRow = rows.at(-1);
   const hasNextPage = !useLegacyOffset && listResult.rows.length > limit;
 
-  const marketSummaries = await getMarketSummariesForItems(
-    db,
-    rows.map((row) => row.catalog_item_id),
-  );
-  const facets = await loadSearchFacets(db, params);
+  const marketSummaries =
+    options.loadMarketSummaries === false
+      ? new Map<string, DiscoverySearchItemRow["market_summary"]>()
+      : await getMarketSummariesForItems(
+          db,
+          rows.map((row) => row.catalog_item_id),
+        );
+  const facets = options.loadFacets === false ? [] : await loadSearchFacets(db, params);
 
   return {
     items: rows.map((row) => ({
@@ -608,6 +617,78 @@ export async function searchDiscoveryItems(
     total: countResult.rows[0]?.count ? Number.parseInt(countResult.rows[0].count, 10) : null,
     nextCursor: hasNextPage && lastRow ? encodeSearchCursor(lastRow) : null,
   };
+}
+
+export async function searchDiscoverySemanticItems(
+  db: PgQueryable,
+  params: DiscoverySearchParams,
+  queryEmbedding: readonly number[],
+  options: Readonly<{ limit?: number; minimumSimilarity?: number; loadMarketSummaries?: boolean }> = {},
+): Promise<DiscoverySemanticSearchItem[]> {
+  if (queryEmbedding.length !== 1_024 || queryEmbedding.some((value) => !Number.isFinite(value))) {
+    throw new Error("Discovery semantic query embedding must contain 1024 finite values.");
+  }
+
+  const filter = buildSearchFilter(
+    { ...params, search: undefined, cursor: undefined, offset: undefined, includeTotal: false },
+    { itemAlias: "item" },
+  );
+  const vectorParamIndex = filter.nextParamIndex;
+  const minimumSimilarityParamIndex = vectorParamIndex + 1;
+  const limitParamIndex = vectorParamIndex + 2;
+  const distanceExpression = `item.search_embedding <#> $${vectorParamIndex}::halfvec(1024)`;
+  const conditions = [
+    ...filter.conditions,
+    "item.search_embedding IS NOT NULL",
+    `-(${distanceExpression}) >= $${minimumSimilarityParamIndex}`,
+  ];
+  const values = [
+    ...filter.values,
+    halfVectorLiteral(queryEmbedding),
+    options.minimumSimilarity ?? 0.52,
+    Math.min(200, Math.max(1, Math.trunc(options.limit ?? 24))),
+  ];
+  const result = await db.query<BaseDiscoverySearchItemRow & { semantic_similarity: string | number }>(
+    `SELECT item.catalog_item_id, item.slug, item.language_code, item.title_i18n, item.title,
+            item.subtitle_i18n, item.subtitle, item.description_i18n, item.description,
+            item.blueprint_id, item.blueprint_name, item.status, item.category_names,
+            item.category_slugs, item.tags, item.image_urls, item.product_asset_sets,
+            item.image_fallback, item.updated_at, -(${distanceExpression}) AS semantic_similarity
+     FROM discovery_search_items AS item
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY ${distanceExpression} ASC, item.title ASC, item.catalog_item_id ASC
+     LIMIT $${limitParamIndex}`,
+    values,
+  );
+  const marketSummaries =
+    options.loadMarketSummaries === false
+      ? new Map<string, DiscoverySearchItemRow["market_summary"]>()
+      : await getMarketSummariesForItems(
+          db,
+          result.rows.map((row) => row.catalog_item_id),
+        );
+
+  return result.rows.map((row) => ({
+    item: {
+      ...row,
+      market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
+    },
+    similarity: Number(row.semantic_similarity),
+  }));
+}
+
+export async function hydrateDiscoverySearchItemMarketSummaries(
+  db: PgQueryable,
+  items: readonly DiscoverySearchItemRow[],
+): Promise<DiscoverySearchItemRow[]> {
+  const marketSummaries = await getMarketSummariesForItems(
+    db,
+    items.map((item) => item.catalog_item_id),
+  );
+  return items.map((item) => ({
+    ...item,
+    market_summary: marketSummaries.get(item.catalog_item_id) ?? null,
+  }));
 }
 
 type ProductSchemaRow = Readonly<{
@@ -1294,7 +1375,7 @@ function clampLimit(limit: number | undefined): number {
     return 50;
   }
 
-  return Math.min(100, Math.max(1, Math.trunc(limit as number)));
+  return Math.min(200, Math.max(1, Math.trunc(limit as number)));
 }
 
 function clampOffset(offset: number | undefined): number {
@@ -1344,4 +1425,8 @@ function decodeSearchCursor(cursor: string | undefined) {
   } catch {
     return null;
   }
+}
+
+function halfVectorLiteral(vector: readonly number[]): string {
+  return `[${vector.join(",")}]`;
 }

@@ -121,5 +121,7 @@ describe("typed ID trust-boundary guard", () => {
     }
 
     expect(violations, violations.join("\n")).toEqual([]);
-  });
+    // The AST sweep across three roots grows with the codebase and already
+    // brushes the 5s default on developer machines.
+  }, 30_000);
 });

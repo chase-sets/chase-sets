@@ -65,6 +65,8 @@ The Search Index owns a Discovery-local semantic embedding populated by an async
 
 Semantic retrieval candidates are evaluated before rollout with the checked-in golden-query harness documented in the same note. The DB-lane command compares lexical-only, semantic-fallback, and hybrid modes without Voyage or staging access and hard-fails exact/lexical regressions.
 
+Runtime semantic retrieval is filter-respecting and fail-open: rescue is independently kill-switchable and hybrid fusion is an explicit opt-in. Query embeddings use the Voyage `query` input type and a bounded process-local cache; provider or vector-index failures preserve the lexical Result Set.
+
 ## Item Detail Rail Analytics
 
 The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.

@@ -43,7 +43,14 @@ function searchData(search = "", language = "") {
     language,
     sort: "relevance",
     page: 1,
-    data: { items: [], total: 0, count: 0, nextCursor: null },
+    data: {
+      items: [],
+      total: 0,
+      count: 0,
+      nextCursor: null,
+      retrievalMode: "lexical" as const,
+      lexicalCount: 0,
+    },
     categories: [
       {
         category_id: "ctg_cards",
@@ -348,6 +355,8 @@ describe("marketplace search route", () => {
             total: null,
             count: 1,
             nextCursor: null,
+            retrievalMode: "lexical",
+            lexicalCount: 1,
           }),
           {
             status: 200,
@@ -392,6 +401,8 @@ describe("marketplace search route", () => {
             total: null,
             count: 1,
             nextCursor: null,
+            retrievalMode: "lexical",
+            lexicalCount: 1,
           }),
           {
             status: 200,
@@ -430,6 +441,8 @@ describe("marketplace search route", () => {
             total: null,
             count: 1,
             nextCursor: null,
+            retrievalMode: "lexical",
+            lexicalCount: 1,
           }),
           {
             status: 200,

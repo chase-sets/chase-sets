@@ -18,8 +18,10 @@ describe("Discovery search relevance runner", () => {
       jsonOut: "artifacts/discovery-search-relevance/report.json",
       markdownOut: "artifacts/discovery-search-relevance/report.md",
       enforceGate: true,
+      inMemory: false,
     });
     expect(parseDiscoverySearchRelevanceOptions(["--report-only"]).enforceGate).toBe(false);
+    expect(parseDiscoverySearchRelevanceOptions(["--in-memory"]).inMemory).toBe(true);
   });
 
   it("keeps deterministic embeddings finite, normalized, and 1024-dimensional", () => {

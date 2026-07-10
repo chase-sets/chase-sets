@@ -773,6 +773,43 @@ resource "digitalocean_app" "platform" {
       }
 
       env {
+        key   = "DISCOVERY_SEARCH_EMBEDDINGS"
+        value = "enabled"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "DISCOVERY_SEARCH_RESCUE"
+        value = "enabled"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "DISCOVERY_SEARCH_HYBRID"
+        value = "off"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES"
+        value = "1000"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS"
+        value = "900000"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "VOYAGE_API_KEY"
+        value = var.voyage_api_key
+        type  = "SECRET"
+        scope = "RUN_TIME"
+      }
+
+      env {
         key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"
         value = local.read_consistency_wake_before_wait_enabled
         scope = "RUN_TIME"
@@ -1470,6 +1507,24 @@ resource "digitalocean_app" "platform" {
           key   = "VOYAGE_API_KEY"
           value = var.voyage_api_key
           type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DISCOVERY_SEARCH_EMBEDDINGS"
+          value = "enabled"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DISCOVERY_SEARCH_RESCUE"
+          value = "enabled"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DISCOVERY_SEARCH_HYBRID"
+          value = "off"
           scope = "RUN_TIME"
         }
 

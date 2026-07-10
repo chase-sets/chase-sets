@@ -391,8 +391,13 @@
     },
     {
       "portName": "searchEmbeddingConfig",
-      "providedBy": "platform-worker",
-      "purpose": "Config-gated Voyage credentials and bounded retry settings for asynchronous Search Index enrichment."
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Config-gated Voyage credentials, bounded query-cache settings, retrieval flags, and retry settings for Search Index enrichment and semantic retrieval."
+    },
+    {
+      "portName": "searchTelemetry",
+      "providedBy": "platform-api",
+      "purpose": "Records the redaction-safe lexical, rescue, or hybrid mode used by each Discovery Search Query."
     }
   ],
   "apiDeployables": ["platform-api"],

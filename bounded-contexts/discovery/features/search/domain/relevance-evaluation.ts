@@ -66,6 +66,24 @@ export type RelevanceReport = Readonly<{
   }>;
 }>;
 
+export type InMemoryRelevanceCatalogItem = Readonly<{
+  catalogItemId: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  aliases: readonly string[];
+  categories: readonly string[];
+  tags: readonly string[];
+}>;
+
+export type InMemoryRelevanceEmbeddingFixture = Readonly<{
+  model: string;
+  dimensions: number;
+  sourceHash: string;
+  documents: Readonly<Record<string, readonly (readonly [number, number])[]>>;
+  queries: Readonly<Record<string, readonly (readonly [number, number])[]>>;
+}>;
+
 export function composeRelevanceCandidates(
   mode: RelevanceMode,
   lexicalCandidates: readonly RelevanceCandidate[],
@@ -103,6 +121,78 @@ export function composeRelevanceCandidates(
       );
     })
     .slice(0, limit);
+}
+
+export function runInMemoryDiscoveryRelevanceEvaluation(
+  input: Readonly<{
+    catalogItems: readonly InMemoryRelevanceCatalogItem[];
+    goldenQueries: readonly GoldenQuery[];
+    embeddingFixture: InMemoryRelevanceEmbeddingFixture;
+    generatedAt: string;
+  }>,
+): RelevanceReport {
+  const cases = Object.fromEntries(RELEVANCE_MODES.map((mode) => [mode, [] as GoldenQueryResult[]])) as Record<
+    RelevanceMode,
+    GoldenQueryResult[]
+  >;
+
+  for (const goldenQuery of input.goldenQueries) {
+    const queryEmbedding = input.embeddingFixture.queries[goldenQuery.id];
+    if (!queryEmbedding) throw new Error(`Missing query embedding for '${goldenQuery.id}'.`);
+    const lexical = input.catalogItems
+      .filter((item) => inMemoryLexicalMatch(goldenQuery.query, item))
+      .sort((left, right) => {
+        const leftExact = exactTitle(left.title, goldenQuery.query);
+        const rightExact = exactTitle(right.title, goldenQuery.query);
+        return Number(rightExact) - Number(leftExact) || left.title.localeCompare(right.title, "en");
+      })
+      .map(
+        (item, index): RelevanceCandidate => ({
+          catalogItemId: item.catalogItemId,
+          title: item.title,
+          exactTitleMatch: exactTitle(item.title, goldenQuery.query),
+          lexicalRank: index + 1,
+          semanticRank: null,
+          semanticSimilarity: null,
+        }),
+      );
+    const semantic = input.catalogItems
+      .map((item) => ({
+        item,
+        similarity: sparseDotProduct(input.embeddingFixture.documents[item.catalogItemId] ?? [], queryEmbedding),
+      }))
+      .filter((candidate) => candidate.similarity >= 0.52)
+      .sort(
+        (left, right) => right.similarity - left.similarity || left.item.title.localeCompare(right.item.title, "en"),
+      )
+      .map(
+        (candidate, index): RelevanceCandidate => ({
+          catalogItemId: candidate.item.catalogItemId,
+          title: candidate.item.title,
+          exactTitleMatch: exactTitle(candidate.item.title, goldenQuery.query),
+          lexicalRank: null,
+          semanticRank: index + 1,
+          semanticSimilarity: candidate.similarity,
+        }),
+      );
+
+    for (const mode of RELEVANCE_MODES) {
+      cases[mode].push(evaluateGoldenQuery(goldenQuery, composeRelevanceCandidates(mode, lexical, semantic)));
+    }
+  }
+
+  const modes = Object.fromEntries(
+    RELEVANCE_MODES.map((mode) => [mode, summarizeRelevanceMode(mode, cases[mode])]),
+  ) as Record<RelevanceMode, RelevanceModeReport>;
+  return buildRelevanceReport({
+    generatedAt: input.generatedAt,
+    sourceHash: input.embeddingFixture.sourceHash,
+    embeddingModel: input.embeddingFixture.model,
+    dimensions: input.embeddingFixture.dimensions,
+    catalogItemCount: input.catalogItems.length,
+    goldenQueries: input.goldenQueries,
+    modes,
+  });
 }
 
 export function evaluateGoldenQuery(
@@ -262,6 +352,38 @@ function reciprocalRankFusionScore(candidate: RelevanceCandidate): number {
     (candidate.lexicalRank === null ? 0 : 0.7 / (60 + candidate.lexicalRank)) +
     (candidate.semanticRank === null ? 0 : 0.3 / (60 + candidate.semanticRank))
   );
+}
+
+function inMemoryLexicalMatch(query: string, item: InMemoryRelevanceCatalogItem): boolean {
+  const normalizedQuery = normalizeLexicalText(query);
+  const searchable = normalizeLexicalText(
+    [item.title, item.subtitle, ...item.aliases, ...item.categories, ...item.tags, item.description].join(" "),
+  );
+  const tokens = normalizedQuery.split(" ").filter(Boolean);
+  return (
+    Boolean(normalizedQuery) &&
+    (searchable.includes(normalizedQuery) || tokens.every((token) => searchable.includes(token)))
+  );
+}
+
+function normalizeLexicalText(value: string): string {
+  return value
+    .toLocaleLowerCase("en-US")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function exactTitle(title: string, query: string): boolean {
+  return title.trim().toLocaleLowerCase("en-US") === query.trim().toLocaleLowerCase("en-US");
+}
+
+function sparseDotProduct(
+  left: readonly (readonly [number, number])[],
+  right: readonly (readonly [number, number])[],
+): number {
+  const leftValues = new Map(left);
+  return right.reduce((sum, [index, value]) => sum + (leftValues.get(index) ?? 0) * value, 0);
 }
 
 function calculateMetrics(cases: readonly GoldenQueryResult[]): RelevanceMetrics {

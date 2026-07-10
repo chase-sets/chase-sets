@@ -1,5 +1,6 @@
 import path from "node:path";
 import process from "node:process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { loadTestEnvironment } from "./run-workspaces.mjs";
@@ -12,9 +13,11 @@ export function parseDiscoverySearchRelevanceOptions(argv) {
     jsonOut: "artifacts/discovery-search-relevance/report.json",
     markdownOut: "artifacts/discovery-search-relevance/report.md",
     enforceGate: true,
+    inMemory: false,
   };
   for (const argument of argv) {
     if (argument === "--report-only") options.enforceGate = false;
+    else if (argument === "--in-memory") options.inMemory = true;
     else if (argument.startsWith("--json-out="))
       options.jsonOut = nonEmpty(argument.slice("--json-out=".length), "--json-out");
     else if (argument.startsWith("--markdown-out=")) {
@@ -61,6 +64,10 @@ export function validateFixtures(catalogItems, goldenQueries, embeddingFixture) 
 
 async function main() {
   const options = parseDiscoverySearchRelevanceOptions(process.argv.slice(2));
+  if (options.inMemory) {
+    await runInMemoryEvaluation(options);
+    return;
+  }
   loadTestEnvironment({ includeTestDatabaseUrl: true });
   if (!process.env.TEST_DATABASE_URL) {
     throw new Error("TEST_DATABASE_URL is required. Start the worktree database with pnpm run dev:bootstrap.");
@@ -77,6 +84,37 @@ async function main() {
       DISCOVERY_RELEVANCE_ENFORCE_GATE: options.enforceGate ? "true" : "false",
     },
   });
+}
+
+export async function runInMemoryEvaluation(options) {
+  const fixtureDirectory = path.join(root, "bounded-contexts/discovery/tests/fixtures/search-relevance");
+  const [catalogItems, goldenQueries, embeddingFixture] = await Promise.all(
+    ["catalog-items.json", "golden-queries.json", "fixture-embeddings.json"].map(async (fileName) =>
+      JSON.parse(await readFile(path.join(fixtureDirectory, fileName), "utf8")),
+    ),
+  );
+  validateFixtures(catalogItems, goldenQueries, embeddingFixture);
+  const { register } = await import("node:module");
+  register("./typescript-source-loader.mjs", import.meta.url);
+  const relevance = await import("../bounded-contexts/discovery/features/search/domain/relevance-evaluation.ts");
+  const report = relevance.runInMemoryDiscoveryRelevanceEvaluation({
+    catalogItems,
+    goldenQueries,
+    embeddingFixture,
+    generatedAt: new Date().toISOString(),
+  });
+  if (options.enforceGate) relevance.assertRelevanceGate(report);
+  const markdown = relevance.renderRelevanceMarkdown(report);
+  const jsonPath = path.resolve(root, options.jsonOut);
+  const markdownPath = path.resolve(root, options.markdownOut);
+  await mkdir(path.dirname(jsonPath), { recursive: true });
+  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await mkdir(path.dirname(markdownPath), { recursive: true });
+  await writeFile(markdownPath, markdown, "utf8");
+  process.stdout.write(
+    `${markdown}JSON: ${path.relative(root, jsonPath)}\nMarkdown: ${path.relative(root, markdownPath)}\n`,
+  );
+  return report;
 }
 
 function nonEmpty(value, label) {

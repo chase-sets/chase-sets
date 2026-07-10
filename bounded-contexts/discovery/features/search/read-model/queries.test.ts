@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { searchDiscoveryItems } from "./queries";
+import { searchDiscoveryItems, searchDiscoverySemanticItems } from "./queries";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
 
 function encodeCursor(input: { id: string; title: string; updatedAt: string; rank?: number; baseMatch?: boolean }) {
@@ -86,6 +86,50 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(migration?.statements[1]).toContain("ALTER COLUMN search_embedding TYPE halfvec(1024)");
     expect(migration?.statements[2]).toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS");
     expect(migration?.statements[2]).toContain("halfvec_ip_ops");
+    const activeIndexMigration = discoverySearchSchemaMigrations.find(
+      (candidate) => candidate.migrationId === "20260710_discovery_search_active_embedding_hnsw",
+    );
+    expect(activeIndexMigration?.statements[0]).toBe("SET lock_timeout = '5s';");
+    expect(activeIndexMigration?.statements[1]).toContain("DROP INDEX CONCURRENTLY IF EXISTS");
+    expect(activeIndexMigration?.statements[2]).toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS");
+    expect(activeIndexMigration?.statements[2]).toContain("halfvec_ip_ops");
+    expect(activeIndexMigration?.statements[2]).toContain("WHERE status = 'active' AND search_embedding IS NOT NULL");
+  });
+
+  it("uses the inner-product HNSW order and preserves every active filter for semantic candidates", async () => {
+    const { db, calls } = createCapturingDb();
+    const embedding = Array.from({ length: 1_024 }, (_, index) => (index === 0 ? 1 : 0));
+
+    await searchDiscoverySemanticItems(
+      db,
+      {
+        search: "ignored by vector filter",
+        category: "pokemon",
+        tag: "vintage",
+        fieldFilters: [{ fieldId: "rarity", value: "Rare" }],
+        status: "active",
+      },
+      embedding,
+      { limit: 24 },
+    );
+
+    const semanticCall = calls.find((call) => call.sql.includes("semantic_similarity"));
+    expect(semanticCall?.sql).toContain("item.status = $1");
+    expect(semanticCall?.sql).toContain("item.category_names");
+    expect(semanticCall?.sql).toContain("item.tags @>");
+    expect(semanticCall?.sql).toContain("jsonb_array_elements(item.field_filter_values)");
+    expect(semanticCall?.sql).toContain("item.search_embedding <#> $6::halfvec(1024)");
+    expect(semanticCall?.sql).toContain("ORDER BY item.search_embedding <#> $6::halfvec(1024) ASC");
+    expect(semanticCall?.sql).not.toContain("plainto_tsquery");
+    expect(semanticCall?.values.slice(0, 5)).toEqual([
+      "active",
+      JSON.stringify(["pokemon"]),
+      JSON.stringify(["vintage"]),
+      "rarity",
+      ["rare"],
+    ]);
+    expect(semanticCall?.values.at(-2)).toBe(0.52);
+    expect(semanticCall?.values.at(-1)).toBe(24);
   });
 
   it.each([

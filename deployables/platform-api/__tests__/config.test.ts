@@ -120,6 +120,18 @@ function resetConfigEnv() {
   delete process.env.EASYPOST_WEBHOOK_SECRET;
   delete process.env.EASYPOST_API_BASE_URL;
   delete process.env.EASYPOST_MODE;
+  delete process.env.DISCOVERY_SEARCH_EMBEDDINGS;
+  delete process.env.DISCOVERY_SEARCH_RESCUE;
+  delete process.env.DISCOVERY_SEARCH_HYBRID;
+  delete process.env.DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES;
+  delete process.env.DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS;
+  delete process.env.VOYAGE_API_KEY;
+  delete process.env.VOYAGE_EMBEDDING_MODEL;
+  delete process.env.VOYAGE_EMBEDDING_BATCH_SIZE;
+  delete process.env.VOYAGE_EMBEDDING_TIMEOUT_MS;
+  delete process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS;
+  delete process.env.VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS;
+  delete process.env.VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS;
   delete process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_ID;
   delete process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET;
   delete process.env.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS;

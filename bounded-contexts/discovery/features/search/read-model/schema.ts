@@ -262,7 +262,19 @@ export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
   USING NULL::halfvec(1024);`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_embedding_hnsw_idx
   ON discovery_search_items USING hnsw (search_embedding halfvec_ip_ops)
-  WHERE search_embedding IS NOT NULL;`,
+      WHERE search_embedding IS NOT NULL;`,
+    ],
+  },
+  {
+    migrationId: "20260710_discovery_search_active_embedding_hnsw",
+    description:
+      "Restrict the Discovery inner-product HNSW index to active embedded Search Index rows used by semantic retrieval.",
+    statements: [
+      `SET lock_timeout = '5s';`,
+      `DROP INDEX CONCURRENTLY IF EXISTS discovery_search_items_embedding_hnsw_idx;`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_embedding_hnsw_idx
+  ON discovery_search_items USING hnsw (search_embedding halfvec_ip_ops)
+  WHERE status = 'active' AND search_embedding IS NOT NULL;`,
     ],
   },
 ];

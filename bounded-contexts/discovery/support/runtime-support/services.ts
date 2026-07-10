@@ -18,8 +18,13 @@ import {
 import { createDiscoveryItemRuntime, type DiscoveryItemsServices } from "../item-support/runtime";
 import {
   DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR,
+  DISCOVERY_SEARCH_HYBRID_ENV_VAR,
+  DISCOVERY_SEARCH_RESCUE_ENV_VAR,
   discoverySearchEmbeddingEnrichmentEnabled,
+  discoverySearchHybridEnabled,
+  discoverySearchRescueEnabled,
 } from "../../features/search/domain/embedding-rollout";
+import { createQueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
 import {
   createVoyageEmbeddingProvider,
   type DiscoveryEmbeddingProvider,
@@ -40,8 +45,15 @@ export type DiscoveryHostPorts = Readonly<{
     retryBackoffBaseMs?: number;
     retryBackoffMaxMs?: number;
     rolloutValue?: string | null;
+    rescueValue?: string | null;
+    hybridValue?: string | null;
+    queryCacheMaxEntries?: number;
+    queryCacheTtlMs?: number;
   }>;
   searchEmbeddingProvider?: DiscoveryEmbeddingProvider;
+  searchTelemetry?: Readonly<{
+    recordRetrievalMode: (mode: "lexical" | "rescue" | "hybrid") => void;
+  }>;
 }>;
 
 export type DiscoveryServices = Readonly<{
@@ -66,7 +78,6 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
   const deps = { eventStore, checkpointStore, db } as const;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const categories = createDiscoveryCategoryRuntime(deps);
-  const items = createDiscoveryItemRuntime(deps);
   const googleShoppingSync = createGoogleShoppingSyncRuntime({ db });
   const googleShoppingProjectors = [
     createProjectionHandlerSet({
@@ -96,6 +107,27 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
     embeddingRolloutEnabled && embeddingProvider
       ? createDiscoverySearchEmbeddingEnrichment({ db, provider: embeddingProvider })
       : undefined;
+  const retrievalProvider = embeddingRolloutEnabled ? embeddingProvider : undefined;
+  const items = createDiscoveryItemRuntime(deps, {
+    provider: retrievalProvider,
+    cache: retrievalProvider
+      ? createQueryEmbeddingCache({
+          maxEntries: embeddingConfig?.queryCacheMaxEntries,
+          ttlMs: embeddingConfig?.queryCacheTtlMs,
+        })
+      : undefined,
+    rescueEnabled:
+      embeddingRolloutEnabled &&
+      discoverySearchRescueEnabled({
+        [DISCOVERY_SEARCH_RESCUE_ENV_VAR]: embeddingConfig?.rescueValue ?? undefined,
+      }),
+    hybridEnabled:
+      embeddingRolloutEnabled &&
+      discoverySearchHybridEnabled({
+        [DISCOVERY_SEARCH_HYBRID_ENV_VAR]: embeddingConfig?.hybridValue ?? undefined,
+      }),
+    recordRetrievalMode: ports.searchTelemetry?.recordRetrievalMode,
+  });
 
   return {
     categories,
