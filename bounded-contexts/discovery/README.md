@@ -24,6 +24,8 @@ Discovery owns the browse, search, and detail experience for catalog items.
 ## Ubiquitous Language
 
 Discovery terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+Dynamic search filter eligibility, priority, and URL contract are documented in [Dynamic Search Filters](./docs/dynamic-search-filters.md).
+Google Shopping feed row mapping is documented in [Google Shopping Feed Mapping](./docs/google-shopping-feed-mapping.md).
 
 ## Core Models
 

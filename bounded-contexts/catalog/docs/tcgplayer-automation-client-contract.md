@@ -134,6 +134,9 @@ available in that flow.
 
 These endpoints are not Catalog truth. They belong to a Pricing-owned Price
 Signal path once Catalog can resolve TCGplayer SKUs to Chase Sets Products.
+Pricing's ingestion boundary, signal shape, and algorithm decisions for these
+endpoints are documented in
+[TCGplayer Price Signals](../../pricing/docs/tcgplayer-price-signals.md).
 
 | Client | Method and path | Pricing use |
 | --- | --- | --- |

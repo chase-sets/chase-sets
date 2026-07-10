@@ -29,6 +29,7 @@ Fulfillment owns the physical execution of shipping and delivery.
 ## Ubiquitous Language
 
 Fulfillment terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+Buyer self-service purchase cancellation cutoff policy is documented in [Purchase Cancellation Cutoff](./docs/purchase-cancellation-cutoff.md).
 
 ## Core Aggregates and Process Managers
 

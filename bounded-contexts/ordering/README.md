@@ -38,6 +38,8 @@ If an item uses a `condition` dimension, that condition is represented inside th
 ## Ubiquitous Language
 
 Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+Postage policy evaluation and package-plan snapshots are documented in [Postage Policy](./docs/postage-policy.md).
+Buyer self-service purchase cancellation is documented in [Self-Service Purchase Cancellation](./docs/self-service-purchase-cancellation.md).
 
 ## Core Aggregates and Process Managers
 
