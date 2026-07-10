@@ -217,9 +217,10 @@ export const doksStagingApiOverrides = {
   // reserving a conservative baseline that lets the scheduler place both.
   //
   // Tolerant process liveness (startupPath/livenessPath/livenessProbe) is now
-  // a base-chart default for platform-api (see componentsWithProcessLiveness
-  // below), inherited here through the values.yaml + values.staging.yaml Helm
-  // merge, so it is intentionally NOT duplicated in this staging-only overlay.
+  // a base-chart default for platform-api (see componentsWithStartupProbe /
+  // componentsWithTolerantLiveness below), inherited here through the
+  // values.yaml + values.staging.yaml Helm merge, so it is intentionally NOT
+  // duplicated in this staging-only overlay.
   replicas: 2,
   resources: {
     requests: {
@@ -288,20 +289,39 @@ const doksHealthProbeByComponent = {
 // failure window, so only a genuinely hung process gets restarted.
 //
 // Only components verified (by reading their server source) to actually
-// serve /health/live get this: platform-api (createHealthRoutes in
-// infrastructure/platform-runtime/health.ts, mounted at /health) and
-// platform-worker (deployables/platform-worker/src/main.ts). The React
-// Router web deployables (admin-web, marketplace, public-web) each register
-// only a `health/ready` route (deployables/<name>/app/routes.ts +
-// routes/health-ready.ts) and have no /health/live route today, so their
-// liveness is deliberately left on the existing healthPath default.
+// serve /health/live get tolerant liveness: platform-api (createHealthRoutes
+// in infrastructure/platform-runtime/health.ts, mounted at /health) and
+// platform-worker (deployables/platform-worker/src/main.ts).
+//
+// #4767 widened scope again: the React Router web deployables (admin-web,
+// marketplace, public-web) were still probed on the DB-free-in-name-only
+// `health/ready` route with Kubernetes' tight defaults, and a live preview
+// run (chase-sets-pr-4736) showed the kubelet killing admin-web on the same
+// pattern. Each now also registers a `health/live` route
+// (deployables/<name>/app/routes.ts + routes/health-live.ts, built on
+// createWebLiveLoader in infrastructure/platform-runtime/web-assets.ts) that
+// returns { status: "ok" } with no database or upstream call, so they opt
+// into the same tolerant livenessPath/livenessProbe as platform-api/worker.
+//
+// startupPath stays scoped to platform-api/platform-worker only: it exists to
+// hold liveness off during their heavier event-store-catch-up boot, a
+// concern the React Router web servers do not share, and (per the
+// decoupling in _helpers.tpl) is intentionally independent of which
+// components opt into tolerant liveness.
 const tolerantLivenessPath = "/health/live";
 const tolerantLivenessProbe = {
   periodSeconds: 10,
   timeoutSeconds: 5,
   failureThreshold: 6,
 };
-const componentsWithProcessLiveness = new Set(["platform-api", "platform-worker"]);
+const componentsWithStartupProbe = new Set(["platform-api", "platform-worker"]);
+const componentsWithTolerantLiveness = new Set([
+  "platform-api",
+  "platform-worker",
+  "admin-web",
+  "marketplace",
+  "public-web",
+]);
 
 // #4768: platform-api readiness probes the DB-aware /health/ready (SELECT 1 on
 // the control pool). Kubernetes' default 1s probe timeout is too tight for a
@@ -622,13 +642,18 @@ function toHelmComponent(component) {
     result.healthPath = healthProbe.readinessPath;
   }
 
-  // Tolerant process liveness (#4765): only for components verified to serve
-  // /health/live. startupPath holds liveness off until boot completes;
-  // livenessPath is the single explicit source of truth for which path
-  // liveness probes (see _helpers.tpl) and is intentionally independent of
-  // startupPath so a startup grace period never implies a liveness path.
-  if (componentsWithProcessLiveness.has(component.name)) {
+  // Tolerant process liveness (#4765, widened to the web deployables by
+  // #4767): only for components verified to serve /health/live. startupPath
+  // holds liveness off until boot completes for the components with a
+  // heavier boot sequence; livenessPath is the single explicit source of
+  // truth for which path liveness probes (see _helpers.tpl) and is
+  // intentionally independent of startupPath so a startup grace period never
+  // implies a liveness path, nor does opting into tolerant liveness imply a
+  // startup grace period.
+  if (componentsWithStartupProbe.has(component.name)) {
     result.startupPath = tolerantLivenessPath;
+  }
+  if (componentsWithTolerantLiveness.has(component.name)) {
     result.livenessPath = tolerantLivenessPath;
     result.livenessProbe = { ...tolerantLivenessProbe };
   }

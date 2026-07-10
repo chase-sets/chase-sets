@@ -89,6 +89,11 @@ components:
       type: "ClusterIP"
       port: 8080
     healthPath: "/"
+    livenessPath: "/health/live"
+    livenessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
     rollout:
       enabled: false
       canary:
@@ -146,6 +151,11 @@ components:
       type: "ClusterIP"
       port: 8080
     healthPath: "/health/ready"
+    livenessPath: "/health/live"
+    livenessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
     rollout:
       enabled: false
       canary:
@@ -184,6 +194,11 @@ components:
       type: "ClusterIP"
       port: 8080
     healthPath: "/health/ready"
+    livenessPath: "/health/live"
+    livenessProbe:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
   platform-api:
     enabled: true
     kind: "service"

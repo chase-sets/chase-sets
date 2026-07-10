@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { createChromeDevtoolsLoader, createFaviconLoader, createWebReadyLoader } from "./web-assets";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createChromeDevtoolsLoader,
+  createFaviconLoader,
+  createWebLiveLoader,
+  createWebReadyLoader,
+} from "./web-assets";
 
 describe("web asset loaders", () => {
   it("serves the shared favicon response", async () => {
@@ -31,5 +36,17 @@ describe("web asset loaders", () => {
       service: "public-web",
       origin: "https://public.example",
     });
+  });
+
+  it("serves a DB-free liveness payload with no upstream call", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const loader = createWebLiveLoader();
+    const response = loader({ request: new Request("https://public.example/health/live") });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "ok" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    fetchSpy.mockRestore();
   });
 });
