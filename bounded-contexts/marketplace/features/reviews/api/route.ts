@@ -3,6 +3,10 @@ import { Hono } from "hono";
 import type { ReputationApiEnv } from "./http";
 import type { ReviewServices } from "./runtime";
 
+function readRoleFilter(value: string | undefined): "seller" | "buyer" | undefined {
+  return value === "seller" || value === "buyer" ? value : undefined;
+}
+
 function requireReviewAccess(
   c: {
     get(key: "actor"): ReputationApiEnv["Variables"]["actor"];
@@ -63,6 +67,7 @@ export function createPublicReputationRoutes(services: ReviewServices) {
     const offset = Number(c.req.query("offset") ?? 0);
     const result = await services.listPublicAccountReviews({
       accountId: c.req.param("accountId"),
+      role: readRoleFilter(c.req.query("role")),
       limit,
       offset,
     });
@@ -90,6 +95,7 @@ export function createAccountReviewRoutes(services: ReviewServices) {
     const offset = Number(c.req.query("offset") ?? 0);
     const result = await services.listWrittenReviews({
       authorAccountId: access.actor.accountId,
+      role: readRoleFilter(c.req.query("role")),
       limit,
       offset,
     });
@@ -111,6 +117,7 @@ export function createAccountReviewRoutes(services: ReviewServices) {
     const offset = Number(c.req.query("offset") ?? 0);
     const result = await services.listReceivedReviews({
       subjectAccountId: access.actor.accountId,
+      role: readRoleFilter(c.req.query("role")),
       limit,
       offset,
     });

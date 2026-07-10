@@ -78,39 +78,43 @@ export function createMarketplaceReviewMcpHandlers(services: ReviewServices): Ma
     const accountId = readRequiredString(args, "accountId");
     ensureMcpActorAccount(actor, accountId);
     const subjectAccountId = readOptionalMcpTypedIdArgument(args, "subjectAccountId", "acc") ?? accountId;
+    // `summary` carries both the as-seller and as-buyer dimensions (m108
+    // role-split) in one payload; callers pick the role-appropriate fields.
     const summary = await services.getPublicAccountSummary(subjectAccountId);
 
     return {
       accountId,
       subjectAccountId,
       summary,
-      gaps: {
-        roleSplitReputation: "not-available",
-        note: "m108 role-split buyer/seller reputation aggregates are not built yet.",
-      },
     };
+  };
+
+  const readRoleArgument = (args: Readonly<Record<string, unknown>>) => {
+    const role = readMcpStringArgument(args, "role");
+    return role === "seller" || role === "buyer" ? role : undefined;
   };
 
   const listReviews: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
     ensureMcpActorAccount(actor, accountId);
     const side = readMcpStringArgument(args, "side") ?? "received";
+    const role = readRoleArgument(args);
     const limit = readOptionalPositiveInteger(args, "limit", 50);
     const offset = readOptionalNonNegativeInteger(args, "offset", 0);
 
     if (side === "written") {
-      const response = await services.listWrittenReviews({ authorAccountId: accountId, limit, offset });
+      const response = await services.listWrittenReviews({ authorAccountId: accountId, role, limit, offset });
       return { accountId, side, ...response, count: response.items.length };
     }
 
     if (side === "received") {
-      const response = await services.listReceivedReviews({ subjectAccountId: accountId, limit, offset });
+      const response = await services.listReceivedReviews({ subjectAccountId: accountId, role, limit, offset });
       return { accountId, side, ...response, count: response.items.length };
     }
 
     if (side === "public") {
       const subjectAccountId = readOptionalMcpTypedIdArgument(args, "subjectAccountId", "acc") ?? accountId;
-      const response = await services.listPublicAccountReviews({ accountId: subjectAccountId, limit, offset });
+      const response = await services.listPublicAccountReviews({ accountId: subjectAccountId, role, limit, offset });
       return { accountId, subjectAccountId, side, ...response, count: response.items.length };
     }
 

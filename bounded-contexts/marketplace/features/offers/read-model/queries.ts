@@ -179,8 +179,8 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
   return `
   offer.*,
   buyer.display_name AS buyer_display_name,
-  buyer.average_rating::text AS buyer_average_rating,
-  COALESCE(buyer.review_count, 0)::integer AS buyer_review_count,
+  buyer.average_rating_as_buyer::text AS buyer_average_rating,
+  COALESCE(buyer.review_count_as_buyer, 0)::integer AS buyer_review_count,
   matched_listing.listing_id,
   matched_listing.listing_price_amount::text AS listing_price_amount,
   matched_listing.listing_quantity_cap,
@@ -264,8 +264,8 @@ export async function listSubmittedOffers(
     db.query<MarketplaceOfferPageRow>(
       `SELECT
          offer.*,
-         seller.average_rating::text AS accepted_seller_average_rating,
-         COALESCE(seller.review_count, 0)::integer AS accepted_seller_review_count
+         seller.average_rating_as_seller::text AS accepted_seller_average_rating,
+         COALESCE(seller.review_count_as_seller, 0)::integer AS accepted_seller_review_count
        FROM marketplace_offer_pages AS offer
        LEFT JOIN marketplace_account_pages AS seller
          ON seller.account_id = offer.accepted_seller_account_id
@@ -290,8 +290,8 @@ export async function getSubmittedOffer(
   const result = await db.query<MarketplaceOfferPageRow>(
     `SELECT
        offer.*,
-       seller.average_rating::text AS accepted_seller_average_rating,
-       COALESCE(seller.review_count, 0)::integer AS accepted_seller_review_count
+       seller.average_rating_as_seller::text AS accepted_seller_average_rating,
+       COALESCE(seller.review_count_as_seller, 0)::integer AS accepted_seller_review_count
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS seller
        ON seller.account_id = offer.accepted_seller_account_id
@@ -308,8 +308,8 @@ export async function getPublicOffer(db: PgQueryable, offerId: string): Promise<
   const result = await db.query<MarketplaceOfferPageRow>(
     `SELECT
        offer.*,
-       seller.average_rating::text AS accepted_seller_average_rating,
-       COALESCE(seller.review_count, 0)::integer AS accepted_seller_review_count
+       seller.average_rating_as_seller::text AS accepted_seller_average_rating,
+       COALESCE(seller.review_count_as_seller, 0)::integer AS accepted_seller_review_count
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS seller
        ON seller.account_id = offer.accepted_seller_account_id

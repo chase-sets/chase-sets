@@ -21,15 +21,32 @@ export type ReviewDetailRow = ReviewListRow;
 export type ReviewSummaryRow = Readonly<{
   account_id: string;
   account_display_name: string | null;
-  average_rating: string | null;
-  review_count: number;
-  rating_1_count: number;
-  rating_2_count: number;
-  rating_3_count: number;
-  rating_4_count: number;
-  rating_5_count: number;
+  average_rating_as_seller: string | null;
+  review_count_as_seller: number;
+  rating_1_count_as_seller: number;
+  rating_2_count_as_seller: number;
+  rating_3_count_as_seller: number;
+  rating_4_count_as_seller: number;
+  rating_5_count_as_seller: number;
+  average_rating_as_buyer: string | null;
+  review_count_as_buyer: number;
+  rating_1_count_as_buyer: number;
+  rating_2_count_as_buyer: number;
+  rating_3_count_as_buyer: number;
+  rating_4_count_as_buyer: number;
+  rating_5_count_as_buyer: number;
   updated_at: string | null;
 }>;
+
+// The account's own role (buyer|seller) in the underlying order — the
+// opposite of the stored `author_role`, since a review's author reviews the
+// counterparty. `roleToAuthorRoleFilter` translates a "which of my roles"
+// filter into the `author_role` value that produced it.
+export type ReviewRoleFilter = "seller" | "buyer";
+
+function roleToAuthorRoleFilter(role: ReviewRoleFilter): "buyer" | "seller" {
+  return role === "seller" ? "buyer" : "seller";
+}
 
 export type ReviewEligibilityRow = Readonly<{
   order_id: string;
@@ -79,25 +96,33 @@ function normalizePageParams(params: Readonly<{ limit?: number; offset?: number 
 
 export async function listPublicAccountReviews(
   db: PgQueryable,
-  params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
+  params: Readonly<{ accountId: string; role?: ReviewRoleFilter; limit?: number; offset?: number }>,
 ): Promise<{ items: ReviewListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
+  const values: unknown[] = [params.accountId];
+  let countRoleClause = "";
+  let itemsRoleClause = "";
+  if (params.role) {
+    values.push(roleToAuthorRoleFilter(params.role));
+    countRoleClause = `\n         AND author_role = $${values.length}`;
+    itemsRoleClause = `\n         AND page.author_role = $${values.length}`;
+  }
 
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM marketplace_review_pages
        WHERE subject_account_id = $1
-         AND status = 'active'`,
-      [params.accountId],
+         AND status = 'active'${countRoleClause}`,
+      values,
     ),
     db.query<ReviewListRow>(
       `${baseReviewSelect}
        WHERE page.subject_account_id = $1
-         AND page.status = 'active'
+         AND page.status = 'active'${itemsRoleClause}
        ORDER BY page.updated_at DESC, page.review_id DESC
-       LIMIT $2 OFFSET $3`,
-      [params.accountId, limit, offset],
+       LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      [...values, limit, offset],
     ),
   ]);
 
@@ -109,23 +134,31 @@ export async function listPublicAccountReviews(
 
 export async function listWrittenReviews(
   db: PgQueryable,
-  params: Readonly<{ authorAccountId: string; limit?: number; offset?: number }>,
+  params: Readonly<{ authorAccountId: string; role?: ReviewRoleFilter; limit?: number; offset?: number }>,
 ): Promise<{ items: ReviewListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
+  // A written review's own `author_role` already records the account's role
+  // when it wrote the review, so the filter applies directly (no inversion).
+  const values: unknown[] = [params.authorAccountId];
+  let roleClause = "";
+  if (params.role) {
+    values.push(params.role);
+    roleClause = `\n         AND author_role = $${values.length}`;
+  }
 
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM marketplace_review_pages
-       WHERE author_account_id = $1`,
-      [params.authorAccountId],
+       WHERE author_account_id = $1${roleClause}`,
+      values,
     ),
     db.query<ReviewListRow>(
       `${baseReviewSelect}
-       WHERE page.author_account_id = $1
+       WHERE page.author_account_id = $1${roleClause.replace("author_role", "page.author_role")}
        ORDER BY page.updated_at DESC, page.review_id DESC
-       LIMIT $2 OFFSET $3`,
-      [params.authorAccountId, limit, offset],
+       LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      [...values, limit, offset],
     ),
   ]);
 
@@ -137,23 +170,29 @@ export async function listWrittenReviews(
 
 export async function listReceivedReviews(
   db: PgQueryable,
-  params: Readonly<{ subjectAccountId: string; limit?: number; offset?: number }>,
+  params: Readonly<{ subjectAccountId: string; role?: ReviewRoleFilter; limit?: number; offset?: number }>,
 ): Promise<{ items: ReviewListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
+  const values: unknown[] = [params.subjectAccountId];
+  let roleClause = "";
+  if (params.role) {
+    values.push(roleToAuthorRoleFilter(params.role));
+    roleClause = `\n         AND author_role = $${values.length}`;
+  }
 
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM marketplace_review_pages
-       WHERE subject_account_id = $1`,
-      [params.subjectAccountId],
+       WHERE subject_account_id = $1${roleClause}`,
+      values,
     ),
     db.query<ReviewListRow>(
       `${baseReviewSelect}
-       WHERE page.subject_account_id = $1
+       WHERE page.subject_account_id = $1${roleClause.replace("author_role", "page.author_role")}
        ORDER BY page.updated_at DESC, page.review_id DESC
-       LIMIT $2 OFFSET $3`,
-      [params.subjectAccountId, limit, offset],
+       LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      [...values, limit, offset],
     ),
   ]);
 
@@ -178,19 +217,29 @@ export async function getAccountReview(
   return result.rows[0] ?? null;
 }
 
+// Returns both the as-seller and as-buyer dimensions in one payload so a
+// public profile (or the account's own summary page) can render "As seller" /
+// "As buyer" sections from a single round trip.
 export async function getPublicAccountSummary(db: PgQueryable, accountId: string): Promise<ReviewSummaryRow> {
   const result = await db.query<ReviewSummaryRow>(
     `SELECT
        summary.account_id,
        account.display_name AS account_display_name,
-       summary.average_rating::text AS average_rating,
-       summary.review_count,
-       summary.rating_1_count,
-       summary.rating_2_count,
-       summary.rating_3_count,
-       summary.rating_4_count,
-     summary.rating_5_count,
-     summary.updated_at::text AS updated_at
+       summary.average_rating_as_seller::text AS average_rating_as_seller,
+       summary.review_count_as_seller,
+       summary.rating_1_count_as_seller,
+       summary.rating_2_count_as_seller,
+       summary.rating_3_count_as_seller,
+       summary.rating_4_count_as_seller,
+       summary.rating_5_count_as_seller,
+       summary.average_rating_as_buyer::text AS average_rating_as_buyer,
+       summary.review_count_as_buyer,
+       summary.rating_1_count_as_buyer,
+       summary.rating_2_count_as_buyer,
+       summary.rating_3_count_as_buyer,
+       summary.rating_4_count_as_buyer,
+       summary.rating_5_count_as_buyer,
+       summary.updated_at::text AS updated_at
      FROM marketplace_review_summary_pages AS summary
      LEFT JOIN marketplace_review_account_sources AS account
        ON account.account_id = summary.account_id
@@ -202,13 +251,20 @@ export async function getPublicAccountSummary(db: PgQueryable, accountId: string
     result.rows[0] ?? {
       account_id: accountId,
       account_display_name: null,
-      average_rating: null,
-      review_count: 0,
-      rating_1_count: 0,
-      rating_2_count: 0,
-      rating_3_count: 0,
-      rating_4_count: 0,
-      rating_5_count: 0,
+      average_rating_as_seller: null,
+      review_count_as_seller: 0,
+      rating_1_count_as_seller: 0,
+      rating_2_count_as_seller: 0,
+      rating_3_count_as_seller: 0,
+      rating_4_count_as_seller: 0,
+      rating_5_count_as_seller: 0,
+      average_rating_as_buyer: null,
+      review_count_as_buyer: 0,
+      rating_1_count_as_buyer: 0,
+      rating_2_count_as_buyer: 0,
+      rating_3_count_as_buyer: 0,
+      rating_4_count_as_buyer: 0,
+      rating_5_count_as_buyer: 0,
       updated_at: null,
     }
   );

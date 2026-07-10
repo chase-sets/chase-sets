@@ -1,43 +1,74 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
+// A review's `author_role` records the role the AUTHOR played in the
+// underlying order, so the SUBJECT played the opposite role: a review authored
+// by a buyer (author_role = 'buyer') was written about the subject acting AS A
+// SELLER, and a review authored by a seller was written about the subject
+// acting AS A BUYER. Both dimensions are recomputed from the same pass over
+// `marketplace_review_pages` so the summary stays replay-safe: re-running any
+// review event converges to the same split counters.
 async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO marketplace_review_summary_pages (
        account_id,
-       average_rating,
-       review_count,
-       rating_1_count,
-       rating_2_count,
-       rating_3_count,
-       rating_4_count,
-       rating_5_count,
+       average_rating_as_seller,
+       review_count_as_seller,
+       rating_1_count_as_seller,
+       rating_2_count_as_seller,
+       rating_3_count_as_seller,
+       rating_4_count_as_seller,
+       rating_5_count_as_seller,
+       average_rating_as_buyer,
+       review_count_as_buyer,
+       rating_1_count_as_buyer,
+       rating_2_count_as_buyer,
+       rating_3_count_as_buyer,
+       rating_4_count_as_buyer,
+       rating_5_count_as_buyer,
        updated_at
      )
      SELECT
        $1,
        CASE
-         WHEN COUNT(*) = 0 THEN NULL
-         ELSE ROUND(AVG(rating)::numeric, 2)
+         WHEN COUNT(*) FILTER (WHERE author_role = 'buyer') = 0 THEN NULL
+         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'buyer')::numeric, 2)
        END,
-       COUNT(*)::integer,
-       COUNT(*) FILTER (WHERE rating = 1)::integer,
-       COUNT(*) FILTER (WHERE rating = 2)::integer,
-       COUNT(*) FILTER (WHERE rating = 3)::integer,
-       COUNT(*) FILTER (WHERE rating = 4)::integer,
-       COUNT(*) FILTER (WHERE rating = 5)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer')::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 1)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 2)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 3)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 4)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'buyer' AND rating = 5)::integer,
+       CASE
+         WHEN COUNT(*) FILTER (WHERE author_role = 'seller') = 0 THEN NULL
+         ELSE ROUND(AVG(rating) FILTER (WHERE author_role = 'seller')::numeric, 2)
+       END,
+       COUNT(*) FILTER (WHERE author_role = 'seller')::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 1)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 2)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 3)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 4)::integer,
+       COUNT(*) FILTER (WHERE author_role = 'seller' AND rating = 5)::integer,
        $2
      FROM marketplace_review_pages
      WHERE subject_account_id = $1
        AND status = 'active'
      ON CONFLICT (account_id) DO UPDATE
-     SET average_rating = EXCLUDED.average_rating,
-         review_count = EXCLUDED.review_count,
-         rating_1_count = EXCLUDED.rating_1_count,
-         rating_2_count = EXCLUDED.rating_2_count,
-         rating_3_count = EXCLUDED.rating_3_count,
-         rating_4_count = EXCLUDED.rating_4_count,
-         rating_5_count = EXCLUDED.rating_5_count,
+     SET average_rating_as_seller = EXCLUDED.average_rating_as_seller,
+         review_count_as_seller = EXCLUDED.review_count_as_seller,
+         rating_1_count_as_seller = EXCLUDED.rating_1_count_as_seller,
+         rating_2_count_as_seller = EXCLUDED.rating_2_count_as_seller,
+         rating_3_count_as_seller = EXCLUDED.rating_3_count_as_seller,
+         rating_4_count_as_seller = EXCLUDED.rating_4_count_as_seller,
+         rating_5_count_as_seller = EXCLUDED.rating_5_count_as_seller,
+         average_rating_as_buyer = EXCLUDED.average_rating_as_buyer,
+         review_count_as_buyer = EXCLUDED.review_count_as_buyer,
+         rating_1_count_as_buyer = EXCLUDED.rating_1_count_as_buyer,
+         rating_2_count_as_buyer = EXCLUDED.rating_2_count_as_buyer,
+         rating_3_count_as_buyer = EXCLUDED.rating_3_count_as_buyer,
+         rating_4_count_as_buyer = EXCLUDED.rating_4_count_as_buyer,
+         rating_5_count_as_buyer = EXCLUDED.rating_5_count_as_buyer,
          updated_at = EXCLUDED.updated_at`,
     [subjectAccountId, updatedAt],
   );

@@ -278,13 +278,20 @@ type MarketplaceAccountRow = Readonly<{
   account_id: string;
   display_name: string;
   status: string;
-  average_rating: string | null;
-  review_count: number;
-  rating_1_count: number;
-  rating_2_count: number;
-  rating_3_count: number;
-  rating_4_count: number;
-  rating_5_count: number;
+  average_rating_as_seller: string | null;
+  review_count_as_seller: number;
+  rating_1_count_as_seller: number;
+  rating_2_count_as_seller: number;
+  rating_3_count_as_seller: number;
+  rating_4_count_as_seller: number;
+  rating_5_count_as_seller: number;
+  average_rating_as_buyer: string | null;
+  review_count_as_buyer: number;
+  rating_1_count_as_buyer: number;
+  rating_2_count_as_buyer: number;
+  rating_3_count_as_buyer: number;
+  rating_4_count_as_buyer: number;
+  rating_5_count_as_buyer: number;
   reputation_updated_at: string | Date | null;
   seller_listing_availability_status: "available" | "unavailable";
   seller_listing_availability_reason_category: string | null;
@@ -1950,13 +1957,20 @@ async function reconcileAccounts(
        account.account_id,
        account.display_name,
        account.status,
-       account.average_rating::text AS average_rating,
-       account.review_count,
-       account.rating_1_count,
-       account.rating_2_count,
-       account.rating_3_count,
-       account.rating_4_count,
-       account.rating_5_count,
+       account.average_rating_as_seller::text AS average_rating_as_seller,
+       account.review_count_as_seller,
+       account.rating_1_count_as_seller,
+       account.rating_2_count_as_seller,
+       account.rating_3_count_as_seller,
+       account.rating_4_count_as_seller,
+       account.rating_5_count_as_seller,
+       account.average_rating_as_buyer::text AS average_rating_as_buyer,
+       account.review_count_as_buyer,
+       account.rating_1_count_as_buyer,
+       account.rating_2_count_as_buyer,
+       account.rating_3_count_as_buyer,
+       account.rating_4_count_as_buyer,
+       account.rating_5_count_as_buyer,
        account.reputation_updated_at::text AS reputation_updated_at,
        COALESCE(availability.status, 'available') AS seller_listing_availability_status,
        availability.disabled_reason_category AS seller_listing_availability_reason_category,
@@ -1989,16 +2003,23 @@ async function reconcileAccounts(
          seller_listing_availability_reason_category,
          seller_listing_available_again_on,
          status,
-         average_rating,
-         review_count,
-         rating_1_count,
-         rating_2_count,
-         rating_3_count,
-         rating_4_count,
-         rating_5_count,
+         average_rating_as_seller,
+         review_count_as_seller,
+         rating_1_count_as_seller,
+         rating_2_count_as_seller,
+         rating_3_count_as_seller,
+         rating_4_count_as_seller,
+         rating_5_count_as_seller,
+         average_rating_as_buyer,
+         review_count_as_buyer,
+         rating_1_count_as_buyer,
+         rating_2_count_as_buyer,
+         rating_3_count_as_buyer,
+         rating_4_count_as_buyer,
+         rating_5_count_as_buyer,
          reputation_updated_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::numeric, $9, $10, $11, $12, $13, $14, $15::timestamptz, $16)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::numeric, $9, $10, $11, $12, $13, $14, $15::numeric, $16, $17, $18, $19, $20, $21, $22::timestamptz, $23)
        ON CONFLICT (account_id) DO UPDATE SET
          seller_slug = EXCLUDED.seller_slug,
          seller_display_name = EXCLUDED.seller_display_name,
@@ -2006,13 +2027,20 @@ async function reconcileAccounts(
          seller_listing_availability_reason_category = EXCLUDED.seller_listing_availability_reason_category,
          seller_listing_available_again_on = EXCLUDED.seller_listing_available_again_on,
          status = EXCLUDED.status,
-         average_rating = EXCLUDED.average_rating,
-         review_count = EXCLUDED.review_count,
-         rating_1_count = EXCLUDED.rating_1_count,
-         rating_2_count = EXCLUDED.rating_2_count,
-         rating_3_count = EXCLUDED.rating_3_count,
-         rating_4_count = EXCLUDED.rating_4_count,
-         rating_5_count = EXCLUDED.rating_5_count,
+         average_rating_as_seller = EXCLUDED.average_rating_as_seller,
+         review_count_as_seller = EXCLUDED.review_count_as_seller,
+         rating_1_count_as_seller = EXCLUDED.rating_1_count_as_seller,
+         rating_2_count_as_seller = EXCLUDED.rating_2_count_as_seller,
+         rating_3_count_as_seller = EXCLUDED.rating_3_count_as_seller,
+         rating_4_count_as_seller = EXCLUDED.rating_4_count_as_seller,
+         rating_5_count_as_seller = EXCLUDED.rating_5_count_as_seller,
+         average_rating_as_buyer = EXCLUDED.average_rating_as_buyer,
+         review_count_as_buyer = EXCLUDED.review_count_as_buyer,
+         rating_1_count_as_buyer = EXCLUDED.rating_1_count_as_buyer,
+         rating_2_count_as_buyer = EXCLUDED.rating_2_count_as_buyer,
+         rating_3_count_as_buyer = EXCLUDED.rating_3_count_as_buyer,
+         rating_4_count_as_buyer = EXCLUDED.rating_4_count_as_buyer,
+         rating_5_count_as_buyer = EXCLUDED.rating_5_count_as_buyer,
          reputation_updated_at = EXCLUDED.reputation_updated_at,
          updated_at = EXCLUDED.updated_at`,
       [
@@ -2023,13 +2051,20 @@ async function reconcileAccounts(
         marketplace?.seller_listing_availability_reason_category ?? null,
         toNullableIsoText(marketplace?.seller_listing_available_again_on ?? null),
         marketplace?.status ?? "active",
-        marketplace?.average_rating ?? null,
-        marketplace?.review_count ?? 0,
-        marketplace?.rating_1_count ?? 0,
-        marketplace?.rating_2_count ?? 0,
-        marketplace?.rating_3_count ?? 0,
-        marketplace?.rating_4_count ?? 0,
-        marketplace?.rating_5_count ?? 0,
+        marketplace?.average_rating_as_seller ?? null,
+        marketplace?.review_count_as_seller ?? 0,
+        marketplace?.rating_1_count_as_seller ?? 0,
+        marketplace?.rating_2_count_as_seller ?? 0,
+        marketplace?.rating_3_count_as_seller ?? 0,
+        marketplace?.rating_4_count_as_seller ?? 0,
+        marketplace?.rating_5_count_as_seller ?? 0,
+        marketplace?.average_rating_as_buyer ?? null,
+        marketplace?.review_count_as_buyer ?? 0,
+        marketplace?.rating_1_count_as_buyer ?? 0,
+        marketplace?.rating_2_count_as_buyer ?? 0,
+        marketplace?.rating_3_count_as_buyer ?? 0,
+        marketplace?.rating_4_count_as_buyer ?? 0,
+        marketplace?.rating_5_count_as_buyer ?? 0,
         toNullableIsoText(marketplace?.reputation_updated_at ?? null),
         updatedAt,
       ],

@@ -11,17 +11,68 @@ import {
 } from "@chase-sets/design-system";
 import type { ReviewSummary, ReviewListItem } from "./contracts";
 
-function formatAverage(summary: ReviewSummary) {
-  return summary.average_rating ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.not.yet.rated");
+type ReviewRoleDimension = Readonly<{
+  averageRating: string | null;
+  reviewCount: number;
+  rating1Count: number;
+  rating2Count: number;
+  rating3Count: number;
+  rating4Count: number;
+  rating5Count: number;
+}>;
+
+function sellerDimension(summary: ReviewSummary): ReviewRoleDimension {
+  return {
+    averageRating: summary.average_rating_as_seller,
+    reviewCount: summary.review_count_as_seller,
+    rating1Count: summary.rating_1_count_as_seller,
+    rating2Count: summary.rating_2_count_as_seller,
+    rating3Count: summary.rating_3_count_as_seller,
+    rating4Count: summary.rating_4_count_as_seller,
+    rating5Count: summary.rating_5_count_as_seller,
+  };
 }
 
-function numericAverage(summary: ReviewSummary) {
-  const average = Number.parseFloat(summary.average_rating ?? "0");
+function buyerDimension(summary: ReviewSummary): ReviewRoleDimension {
+  return {
+    averageRating: summary.average_rating_as_buyer,
+    reviewCount: summary.review_count_as_buyer,
+    rating1Count: summary.rating_1_count_as_buyer,
+    rating2Count: summary.rating_2_count_as_buyer,
+    rating3Count: summary.rating_3_count_as_buyer,
+    rating4Count: summary.rating_4_count_as_buyer,
+    rating5Count: summary.rating_5_count_as_buyer,
+  };
+}
+
+function formatAverage(dimension: ReviewRoleDimension) {
+  return dimension.averageRating ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.not.yet.rated");
+}
+
+function numericAverage(dimension: ReviewRoleDimension) {
+  const average = Number.parseFloat(dimension.averageRating ?? "0");
   return Number.isFinite(average) ? average : 0;
 }
 
 function ratingPercent(count: number, total: number) {
   return total > 0 ? Math.round((count / total) * 100) : 0;
+}
+
+function RoleReputationDistribution({ title, dimension }: { title: string; dimension: ReviewRoleDimension }) {
+  return (
+    <RatingDistribution
+      title={title}
+      average={numericAverage(dimension)}
+      count={dimension.reviewCount || formatAverage(dimension)}
+      rows={[
+        { stars: 5, value: ratingPercent(dimension.rating5Count, dimension.reviewCount) },
+        { stars: 4, value: ratingPercent(dimension.rating4Count, dimension.reviewCount) },
+        { stars: 3, value: ratingPercent(dimension.rating3Count, dimension.reviewCount) },
+        { stars: 2, value: ratingPercent(dimension.rating2Count, dimension.reviewCount) },
+        { stars: 1, value: ratingPercent(dimension.rating1Count, dimension.reviewCount) },
+      ]}
+    />
+  );
 }
 
 export function ReviewSummaryPage({
@@ -47,17 +98,16 @@ export function ReviewSummaryPage({
       />
 
       <PageSection title={t("reputation.features.reviews.ui.accountReviewSummaryPage.summary")}>
-        <RatingDistribution
-          average={numericAverage(summary)}
-          count={summary.review_count || formatAverage(summary)}
-          rows={[
-            { stars: 5, value: ratingPercent(summary.rating_5_count, summary.review_count) },
-            { stars: 4, value: ratingPercent(summary.rating_4_count, summary.review_count) },
-            { stars: 3, value: ratingPercent(summary.rating_3_count, summary.review_count) },
-            { stars: 2, value: ratingPercent(summary.rating_2_count, summary.review_count) },
-            { stars: 1, value: ratingPercent(summary.rating_1_count, summary.review_count) },
-          ]}
-        />
+        <Stack gap={3}>
+          <RoleReputationDistribution
+            title={t("reputation.features.reviews.ui.accountReviewSummaryPage.as.seller")}
+            dimension={sellerDimension(summary)}
+          />
+          <RoleReputationDistribution
+            title={t("reputation.features.reviews.ui.accountReviewSummaryPage.as.buyer")}
+            dimension={buyerDimension(summary)}
+          />
+        </Stack>
       </PageSection>
 
       <PageSection title={t("reputation.features.reviews.ui.accountReviewSummaryPage.recent.reviews")}>

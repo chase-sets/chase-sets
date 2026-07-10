@@ -10,6 +10,12 @@ import { createReputationRequestApiClient } from "../../support/request-support/
 import { ReviewListPage } from "../../features/reviews/ui/review-list-page";
 
 const DEFAULT_REVIEW_QUERY = "limit=100&offset=0";
+const REVIEW_ROLES = new Set(["seller", "buyer"]);
+
+function roleFromRequest(request: Request): "seller" | "buyer" | null {
+  const role = new URL(request.url).searchParams.get("role");
+  return role && REVIEW_ROLES.has(role) ? (role as "seller" | "buyer") : null;
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
@@ -17,9 +23,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "reputation.view",
   });
   const api = createReputationRequestApiClient(request);
+  const role = roleFromRequest(request);
+  const query = role ? `${DEFAULT_REVIEW_QUERY}&role=${role}` : DEFAULT_REVIEW_QUERY;
 
   return {
-    reviews: await api.listWrittenReviews(DEFAULT_REVIEW_QUERY),
+    role,
+    reviews: await api.listWrittenReviews(query),
   };
 }
 
@@ -46,6 +55,22 @@ export default function MarketplaceAccountWrittenReviewsRoute() {
           </LinkButton>
           <LinkButton href="/account/reviews/received" tone="secondary">
             {t("reputation.routes.marketplace.accountWrittenReviews.received.reviews")}
+          </LinkButton>
+        </Stack>
+      }
+      roleFilterActions={
+        <Stack direction="row" gap={2}>
+          <LinkButton href="/account/reviews/written" tone={data.role === null ? "primary" : "secondary"}>
+            {t("reputation.routes.marketplace.accountWrittenReviews.all.roles")}
+          </LinkButton>
+          <LinkButton
+            href="/account/reviews/written?role=seller"
+            tone={data.role === "seller" ? "primary" : "secondary"}
+          >
+            {t("reputation.routes.marketplace.accountWrittenReviews.as.seller")}
+          </LinkButton>
+          <LinkButton href="/account/reviews/written?role=buyer" tone={data.role === "buyer" ? "primary" : "secondary"}>
+            {t("reputation.routes.marketplace.accountWrittenReviews.as.buyer")}
           </LinkButton>
         </Stack>
       }

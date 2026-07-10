@@ -6,6 +6,7 @@ import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./reputa
 type ReviewRow = {
   review_id: string;
   subject_account_id: string;
+  author_role: string;
   rating: number;
   status: string;
   last_stream_version: number;
@@ -41,8 +42,11 @@ class ReputationProjectionDb implements PgQueryable {
   }
 
   private recompute(accountId: string): void {
+    // Checkout only ever surfaces as-seller reputation: a review authored by a
+    // buyer (author_role = 'buyer') is about the subject acting as a seller.
     const active = [...this.reviews.values()].filter(
-      (review) => review.subject_account_id === accountId && review.status === "active",
+      (review) =>
+        review.subject_account_id === accountId && review.status === "active" && review.author_role === "buyer",
     );
     const count = active.length;
     const average =
@@ -69,13 +73,15 @@ class ReputationProjectionDb implements PgQueryable {
     if (sql.includes("INSERT INTO checkout_seller_account_reviews")) {
       const reviewId = String(values[0]);
       const subjectAccountId = String(values[1]);
-      const rating = Number(values[2]);
-      const streamVersion = Number(values[3]);
+      const authorRole = String(values[2]);
+      const rating = Number(values[3]);
+      const streamVersion = Number(values[4]);
       const existing = this.reviews.get(reviewId);
       if (!existing || existing.last_stream_version < streamVersion) {
         this.reviews.set(reviewId, {
           review_id: reviewId,
           subject_account_id: subjectAccountId,
+          author_role: authorRole,
           rating,
           status: "active",
           last_stream_version: streamVersion,
@@ -151,6 +157,7 @@ describe("checkout reputation seller-reviews projection", () => {
       event("marketplace.review.submitted", 1, {
         reviewId: "rev_1",
         subjectAccountId: "acc_seller",
+        authorRole: "buyer",
         rating: 5,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
@@ -159,6 +166,7 @@ describe("checkout reputation seller-reviews projection", () => {
       event("marketplace.review.submitted", 1, {
         reviewId: "rev_2",
         subjectAccountId: "acc_seller",
+        authorRole: "buyer",
         rating: 4,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
@@ -166,6 +174,47 @@ describe("checkout reputation seller-reviews projection", () => {
 
     // ROUND(AVG(5, 4), 2) = 4.5, COUNT = 2.
     expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 4.5, review_count: 2 });
+  });
+
+  it("counts only as-seller reviews (author_role = 'buyer'), excluding reviews earned as a buyer", async () => {
+    const db = new ReputationProjectionDb();
+    db.seedAccount({ account_id: "acc_dual_role" });
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
+
+    // 2 reviews earned as a seller (authored by buyers).
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
+        reviewId: "rev_seller_1",
+        subjectAccountId: "acc_dual_role",
+        authorRole: "buyer",
+        rating: 5,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
+        reviewId: "rev_seller_2",
+        subjectAccountId: "acc_dual_role",
+        authorRole: "buyer",
+        rating: 3,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+    // 10 reviews earned as a buyer (authored by sellers) must NOT blend in.
+    for (let index = 0; index < 10; index += 1) {
+      await handlers["marketplace.review.submitted"]!(
+        event("marketplace.review.submitted", 1, {
+          reviewId: `rev_buyer_${index}`,
+          subjectAccountId: "acc_dual_role",
+          authorRole: "seller",
+          rating: 1,
+          submittedAt: "2026-06-17T00:00:00.000Z",
+        }),
+      );
+    }
+
+    // Buyer-facing checkout only ever shows the 2-review seller rating.
+    expect(db.accounts.get("acc_dual_role")).toMatchObject({ average_rating: 4, review_count: 2 });
   });
 
   it("recomputes the rounded average when a review rating is updated", async () => {
@@ -177,6 +226,7 @@ describe("checkout reputation seller-reviews projection", () => {
       event("marketplace.review.submitted", 1, {
         reviewId: "rev_1",
         subjectAccountId: "acc_seller",
+        authorRole: "buyer",
         rating: 5,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
@@ -185,6 +235,7 @@ describe("checkout reputation seller-reviews projection", () => {
       event("marketplace.review.submitted", 1, {
         reviewId: "rev_2",
         subjectAccountId: "acc_seller",
+        authorRole: "buyer",
         rating: 2,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
@@ -210,6 +261,7 @@ describe("checkout reputation seller-reviews projection", () => {
       event("marketplace.review.submitted", 1, {
         reviewId: "rev_1",
         subjectAccountId: "acc_seller",
+        authorRole: "buyer",
         rating: 5,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
@@ -233,6 +285,7 @@ describe("checkout reputation seller-reviews projection", () => {
     const submit = event("marketplace.review.submitted", 1, {
       reviewId: "rev_1",
       subjectAccountId: "acc_seller",
+      authorRole: "buyer",
       rating: 3,
       submittedAt: "2026-06-17T00:00:00.000Z",
     });
@@ -262,6 +315,7 @@ describe("checkout reputation seller-reviews projection", () => {
       event("marketplace.review.submitted", 1, {
         reviewId: "rev_1",
         subjectAccountId: "acc_late",
+        authorRole: "buyer",
         rating: 4,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),

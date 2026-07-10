@@ -28,12 +28,19 @@ export interface ReviewOpportunity {
 export interface ReviewSummary {
   account_id: string;
   account_display_name: string | null;
-  average_rating: string | null;
-  review_count: number;
-  rating_1_count: number;
-  rating_2_count: number;
-  rating_3_count: number;
-  rating_4_count: number;
-  rating_5_count: number;
+  average_rating_as_seller: string | null;
+  review_count_as_seller: number;
+  rating_1_count_as_seller: number;
+  rating_2_count_as_seller: number;
+  rating_3_count_as_seller: number;
+  rating_4_count_as_seller: number;
+  rating_5_count_as_seller: number;
+  average_rating_as_buyer: string | null;
+  review_count_as_buyer: number;
+  rating_1_count_as_buyer: number;
+  rating_2_count_as_buyer: number;
+  rating_3_count_as_buyer: number;
+  rating_4_count_as_buyer: number;
+  rating_5_count_as_buyer: number;
   updated_at: string | null;
 }
