@@ -477,6 +477,63 @@ describe("render platform Helm values", () => {
     expect(pathExpressionLines).toHaveLength(3);
   });
 
+  it("relaxes the platform-api readiness probe timeout while keeping it strict enough to eject a broken pod (#4768)", () => {
+    const baselineApi = buildPlatformHelmValues({ repoRoot }).components["platform-api"];
+    const stagingApi = buildPlatformHelmStagingValues().components["platform-api"];
+
+    // Readiness stays on the DB-aware /health/ready path (traffic gating
+    // unchanged) but gets a realistic per-probe budget: 3s timeout so pool
+    // contention under battery load no longer flaps the pod out of endpoints,
+    // with period 10s x failureThreshold 3 = a genuinely-down DB still goes
+    // NotReady within ~30s.
+    expect(baselineApi.healthPath).toBe("/health/ready");
+    expect(baselineApi.readinessProbe).toEqual({
+      timeoutSeconds: 3,
+      periodSeconds: 10,
+      failureThreshold: 3,
+    });
+
+    // Base-chart default (like the #4766 liveness fix), so preview and
+    // production inherit it too; the staging overlay stays scoped to replicas
+    // and resources and never re-specifies the probe.
+    expect(stagingApi.readinessProbe).toBeUndefined();
+    const merged = { ...baselineApi, ...stagingApi };
+    expect(merged.readinessProbe).toEqual({
+      timeoutSeconds: 3,
+      periodSeconds: 10,
+      failureThreshold: 3,
+    });
+
+    // Liveness is deliberately untouched (correct on /health/live per #4766).
+    expect(baselineApi.livenessPath).toBe("/health/live");
+    expect(baselineApi.livenessProbe).toEqual({
+      periodSeconds: 10,
+      timeoutSeconds: 5,
+      failureThreshold: 6,
+    });
+
+    // Scoped to platform-api: the worker's readiness only gates its rollout,
+    // and other components keep the Kubernetes default readiness timing.
+    const values = buildPlatformHelmValues({ repoRoot });
+    for (const name of ["platform-worker", "admin-web", "marketplace", "public-web", "platform-bootstrap"]) {
+      expect(
+        values.components[name].readinessProbe,
+        `${name} should not get a readinessProbe override`,
+      ).toBeUndefined();
+    }
+  });
+
+  it("renders the platform-api readiness probe timing override in the deployment template (#4768)", () => {
+    const [helperTemplate] = readChartFiles(["templates/_helpers.tpl"]);
+
+    // The readinessProbe timing override is merged in under httpGet via
+    // `with $component.readinessProbe`, mirroring the livenessProbe wiring.
+    expect(helperTemplate).toContain("with $component.readinessProbe");
+    // Still exactly one path expression per probe (readiness/startup/liveness).
+    const pathExpressionLines = helperTemplate.split("\n").filter((line) => line.includes("path: {{"));
+    expect(pathExpressionLines).toHaveLength(3);
+  });
+
   it("scaffolds Rollouts only for public buyer web components and keeps them disabled by default", () => {
     const values = buildPlatformHelmValues({ repoRoot });
 

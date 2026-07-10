@@ -303,6 +303,22 @@ const tolerantLivenessProbe = {
 };
 const componentsWithProcessLiveness = new Set(["platform-api", "platform-worker"]);
 
+// #4768: platform-api readiness probes the DB-aware /health/ready (SELECT 1 on
+// the control pool). Kubernetes' default 1s probe timeout is too tight for a
+// DB-touching check: under battery load the readiness query cannot acquire a
+// pooled connection within 1s, both replicas flap to 503, and the whole API is
+// ejected from its Service endpoints. Relax the timeout to 3s while keeping the
+// period (10s) and failure threshold (3) unchanged, so a genuinely unreachable
+// DB still goes NotReady within ~30s (3 failures x 10s period) — readiness
+// stays strict and traffic-gating is preserved. Liveness is deliberately
+// untouched (it correctly probes the DB-free /health/live per #4766).
+const readinessProbeTuning = {
+  timeoutSeconds: 3,
+  periodSeconds: 10,
+  failureThreshold: 3,
+};
+const componentsWithReadinessTuning = new Set(["platform-api"]);
+
 export function readPlatformSources(rootDir = repoRoot) {
   return {
     main: readFileSync(path.join(rootDir, platformMainRelativePath), "utf8"),
@@ -615,6 +631,13 @@ function toHelmComponent(component) {
     result.startupPath = tolerantLivenessPath;
     result.livenessPath = tolerantLivenessPath;
     result.livenessProbe = { ...tolerantLivenessProbe };
+  }
+
+  // Readiness timing override (#4768): give the DB-aware readiness probe a
+  // realistic per-probe budget so pool contention under load can no longer
+  // flap the pod out of its Service endpoints.
+  if (componentsWithReadinessTuning.has(component.name)) {
+    result.readinessProbe = { ...readinessProbeTuning };
   }
 
   if (rolloutEligibleComponents.has(component.name)) {

@@ -190,6 +190,9 @@ containers:
       httpGet:
         path: {{ $component.healthPath | quote }}
         port: http
+      {{- with $component.readinessProbe }}
+{{ toYaml . | nindent 6 }}
+      {{- end }}
     {{- if $component.startupPath }}
     startupProbe:
       httpGet:
