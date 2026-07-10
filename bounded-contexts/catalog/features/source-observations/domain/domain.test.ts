@@ -89,10 +89,10 @@ describe("source observation domain", () => {
     const magicNormalized: SourceObservationNormalized = {
       kind: "magic-card-print",
       tcg: "magic",
-      languageCode: "en",
+      languageCode: "EN-us",
       name: "Fury Sliver",
-      cardNumber: "157",
-      setCode: "tsp",
+      cardNumber: " 0157 ",
+      setCode: " TSP ",
       setName: "Time Spiral",
       expansionName: "Time Spiral",
       setId: null,
@@ -109,8 +109,8 @@ describe("source observation domain", () => {
         productLineName: "Magic: The Gathering",
         setName: "Time Spiral",
         printedProductName: "Fury Sliver",
-        collectorNumber: "157",
-        languageCode: "en",
+        collectorNumber: " 0157 ",
+        languageCode: "EN-us",
         productForm: "magic-card-print",
       },
     };
@@ -118,6 +118,7 @@ describe("source observation domain", () => {
     const recorded = decideSourceObservation(initialSourceObservationState, {
       ...recordCommand,
       observationId: "scrydex_en_0000579f",
+      languageCode: "EN-us",
       providerKey: "scrydex",
       externalKey: "scryfall:0000579f",
       sourceUrl: "https://scryfall.com/card/tsp/157/fury-sliver",
@@ -131,6 +132,12 @@ describe("source observation domain", () => {
       kind: "magic-card-print",
       setName: "Time Spiral",
       cardNumber: "157",
+      setCode: "tsp",
+      languageCode: "en-US",
+      mergeIdentity: {
+        collectorNumber: "157",
+        languageCode: "en-US",
+      },
     });
   });
 

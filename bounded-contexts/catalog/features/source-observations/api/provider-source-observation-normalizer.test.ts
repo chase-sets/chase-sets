@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
+import { normalizeSourceObservationNaturalKeys, type SourceObservationPokemonCardNormalized } from "../domain/domain";
 import type {
   CatalogProviderExecutableMappingContract,
   CatalogProviderMappingEvidenceOwner,
@@ -11,6 +12,8 @@ import {
   normalizeCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+import tcgdexNormalFixture from "./__fixtures__/tcgdex/normal.json";
+import { tcgdexPokemonCardSourceObservationMappingContract } from "./tcgdex-executable-mapping-contract";
 import { scrydexScryfallCardSourceObservationMappingContract } from "./scrydex-executable-mapping-contract";
 import {
   scryfallMtgCardPrintSourceObservationMappingContract,
@@ -148,7 +151,11 @@ describe("provider Source Observation normalizer", () => {
   it("builds a Scrydex magic-card-print observation with Scryfall card print identity", () => {
     const result = normalizeCatalogProviderSourceObservation({
       contract: scrydexScryfallCardSourceObservationMappingContract,
-      payload: scrydexScryfallCardPayload(),
+      payload: {
+        ...scrydexScryfallCardPayload(),
+        set: "TSP",
+        collector_number: "0136",
+      },
       observedAt: "2026-06-03T00:00:00.000Z",
     });
 
@@ -166,7 +173,7 @@ describe("provider Source Observation normalizer", () => {
         name: "Fury Sliver",
         setCode: "tsp",
         setName: "Time Spiral",
-        cardNumber: "157",
+        cardNumber: "136",
         oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
         releaseDate: "2006-10-06",
         cardVariantKey: "standard",
@@ -181,13 +188,83 @@ describe("provider Source Observation normalizer", () => {
           productLineName: "Magic: The Gathering",
           setName: "Time Spiral",
           printedProductName: "Fury Sliver",
-          collectorNumber: "157",
+          collectorNumber: "136",
           languageCode: "en",
           productForm: "magic-card-print",
         },
       },
     });
     expect(result.observation?.sourceRecordHash).toHaveLength(64);
+  });
+
+  it("normalizes natural keys from a TCGdex Pokemon payload", () => {
+    const result = normalizeCatalogProviderSourceObservation({
+      contract: tcgdexPokemonCardSourceObservationMappingContract,
+      payload: {
+        ...tcgdexNormalFixture,
+        languageCode: "EN-us",
+        card: {
+          ...tcgdexNormalFixture.card,
+          localId: 136,
+        },
+        mergeIdentity: {
+          ...tcgdexNormalFixture.mergeIdentity,
+          cardNumber: "0136",
+        },
+      },
+      observedAt: "2026-07-09T00:00:00.000Z",
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.observation?.normalized).toMatchObject({
+      kind: "pokemon-card",
+      languageCode: "en-US",
+      cardNumber: "136",
+      mergeIdentity: {
+        cardNumber: "136",
+      },
+    });
+  });
+
+  it("normalizes the number and locale shape used by Pokemon TCG API payloads", () => {
+    const pokemonTcgPayload = {
+      name: "Furret",
+      number: "0136",
+      set: { id: "swsh3", name: "Darkness Ablaze" },
+    };
+    const normalized = normalizeSourceObservationNaturalKeys({
+      kind: "pokemon-card",
+      tcg: "pokemon",
+      languageCode: "EN-us",
+      name: pokemonTcgPayload.name,
+      cardNumber: pokemonTcgPayload.number,
+      setId: pokemonTcgPayload.set.id,
+      setName: pokemonTcgPayload.set.name,
+      expansionId: pokemonTcgPayload.set.id,
+      expansionName: pokemonTcgPayload.set.name,
+      expansionAbbreviation: "DAA",
+      expansionCardCount: 189,
+      expansionParallelSetCardCount: null,
+      seriesId: "swsh",
+      seriesName: "Sword & Shield",
+      rarity: "Uncommon",
+      illustrator: "tetsuya koizumi",
+      releaseDate: "2020-08-14",
+      releaseYear: 2020,
+      category: "Pokemon",
+      imageBaseUrl: null,
+      imageUrls: [],
+      productAssetSet: null,
+      parallelSet: false,
+      cardVariantKey: "standard",
+      cardVariantLabel: "Standard",
+      cardVariantSourceKey: null,
+      cardVariantIsPrimaryImage: true,
+      imageDisclaimer: null,
+      variants: {},
+    } satisfies SourceObservationPokemonCardNormalized);
+
+    expect(normalized).toMatchObject({ languageCode: "en-US", cardNumber: "136" });
   });
 
   it("builds production Scryfall observations from wrapped adapter payloads", () => {
@@ -275,7 +352,7 @@ describe("provider Source Observation normalizer", () => {
         kind: "magic-set-reference",
         tcg: "magic",
         name: "Time Spiral",
-        setCode: "TSP",
+        setCode: "tsp",
         setName: "Time Spiral",
         cardCount: 301,
         productLineName: "Magic: The Gathering",
@@ -292,7 +369,7 @@ describe("provider Source Observation normalizer", () => {
         kind: "magic-card-print",
         tcg: "magic",
         name: "Fury Sliver",
-        setCode: "TSP",
+        setCode: "tsp",
         setName: "Time Spiral",
         cardNumber: "157",
         oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",

@@ -20,6 +20,7 @@ import type {
   SourceObservationProductContentsPromotion,
   SourceObservationProductContentsPromotionLine,
 } from "../domain/domain";
+import { sourceObservationLinkExternalKey } from "../domain/domain";
 import type { CatalogProviderIntegrationProfile } from "./provider-integration-profiles";
 
 export type CatalogProviderPromotionMode = "create" | "refresh";
@@ -750,7 +751,7 @@ function pokemonCardCommands(input: {
   commands.push({
     type: "LinkExternalProductReference",
     providerKey: input.providerKey,
-    externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+    externalKey: sourceObservationLinkExternalKey(input.normalized.languageCode, input.externalKey),
   });
 
   for (const reference of uniqueExternalCatalogItemReferences(input.normalized.externalCatalogItemReferences ?? [])) {
@@ -947,7 +948,7 @@ function commonLorcanaCatalogItemCommands(
   commands.push({
     type: "LinkExternalProductReference",
     providerKey: input.providerKey,
-    externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+    externalKey: sourceObservationLinkExternalKey(input.normalized.languageCode, input.externalKey),
   });
 
   for (const reference of uniqueExternalCatalogItemReferences(input.normalized.externalCatalogItemReferences ?? [])) {
@@ -1027,7 +1028,7 @@ function commonOnePieceCatalogItemCommands(
   commands.push({
     type: "LinkExternalProductReference",
     providerKey: input.providerKey,
-    externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+    externalKey: sourceObservationLinkExternalKey(input.normalized.languageCode, input.externalKey),
   });
 
   for (const reference of uniqueExternalCatalogItemReferences(input.normalized.externalCatalogItemReferences ?? [])) {
@@ -1107,7 +1108,7 @@ function commonMagicCatalogItemCommands(
   commands.push({
     type: "LinkExternalProductReference",
     providerKey: input.providerKey,
-    externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+    externalKey: sourceObservationLinkExternalKey(input.normalized.languageCode, input.externalKey),
   });
 
   for (const reference of uniqueExternalCatalogItemReferences(input.normalized.externalCatalogItemReferences ?? [])) {

@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
-import type { SourceObservationNormalized } from "../domain/domain";
+import {
+  catalogNaturalKeyNormalizationContract,
+  normalizeSourceObservationExternalKey,
+  normalizeSourceObservationNaturalKeyJson,
+  normalizeSourceObservationNaturalKeys,
+  type SourceObservationNormalized,
+} from "../domain/domain";
 import type {
   CatalogProviderExecutableMappingContract,
   CatalogProviderMappingValueExpression,
@@ -99,11 +105,23 @@ export function normalizeCatalogProviderSourceObservation(input: {
     return { observation: null, diagnostics };
   }
 
-  const normalized = {
+  const mappedNormalized = {
     kind: input.contract.normalizedObservation.outputKind,
     languageCode,
     ...normalizedFields,
   } as SourceObservationNormalized;
+  let normalized: SourceObservationNormalized;
+  try {
+    normalized = normalizeSourceObservationNaturalKeys(mappedNormalized);
+  } catch (error) {
+    diagnostics.push({
+      code: "transform-type-mismatch",
+      path: "normalizedObservation.languageCode",
+      redaction: "none",
+      diagnosticText: error instanceof Error ? error.message : "Natural-key normalization failed.",
+    });
+    return { observation: null, diagnostics };
+  }
   const validationDiagnostics: CatalogProviderMappingInterpreterDiagnostic[] = [];
   validateNormalizedObservationContract(normalized, validationDiagnostics);
   diagnostics.push(...validationDiagnostics);
@@ -115,10 +133,14 @@ export function normalizeCatalogProviderSourceObservation(input: {
     observation: {
       observationId,
       providerKey: input.contract.providerKey,
-      externalKey,
+      externalKey: normalizeSourceObservationExternalKey(externalKey),
       sourceUrl,
-      languageCode,
-      sourceRecordHash: hashJson(hashMaterial.length === 1 ? hashMaterial[0] : hashMaterial),
+      languageCode: normalized.languageCode,
+      sourceRecordHash: hashJson(
+        hashMaterial.length === 1
+          ? normalizeSourceObservationNaturalKeyJson(hashMaterial[0])
+          : normalizeSourceObservationNaturalKeyJson(hashMaterial),
+      ),
       sourceUpdatedAt,
       observedAt: input.observedAt,
       sourceProfileKey: input.contract.profileKey,
@@ -367,6 +389,7 @@ export function catalogProviderSourceMappingFingerprint(
     profileVersion: contract.profileVersion,
     sourceObservation: contract.sourceObservation,
     normalizedObservation: contract.normalizedObservation,
+    naturalKeyNormalization: catalogNaturalKeyNormalizationContract,
     externalReferences: contract.externalReferences,
     duplicatePrevention: contract.duplicatePrevention,
   });

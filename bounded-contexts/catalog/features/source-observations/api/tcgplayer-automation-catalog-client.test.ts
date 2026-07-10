@@ -378,7 +378,7 @@ describe("TCGplayer automation Catalog client", () => {
       kind: "magic-sealed-product",
       tcg: "magic",
       name: "Time Spiral Booster Pack",
-      setCode: "TSP",
+      setCode: "tsp",
       setName: "Time Spiral",
       setId: "1001",
       sealedProductForm: "booster-pack",

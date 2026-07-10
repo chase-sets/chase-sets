@@ -180,6 +180,21 @@ Use these identifiers in APIs and schemas:
 - `reference_record_id`
 - `scope_record_id`
 
+## Natural-Key Normalization
+
+Natural keys are normalized once at Source Observation ingest before they are persisted or used for Catalog identity and duplicate prevention. Existing stored external keys remain append-only history; this contract governs new observations and replayed mapping output.
+
+| Field | Normal form | Scope |
+| --- | --- | --- |
+| `setCode` | Trimmed lowercase | Set codes are case-insensitive, including Magic `TSP` → `tsp`. |
+| `cardNumber` | Trimmed; numeric-only values use their unpadded form | `0136` → `136`; alphanumeric or composite game-significant numbers retain their formatting. |
+| `collectorNumber` | Trimmed; numeric-only values use their unpadded form | `0136` → `136`; alphanumeric or composite game-significant numbers retain their formatting. |
+| `languageCode` | Canonical BCP-47 language tag | Uses the shared locale contract, such as `EN-us` → `en-US`. |
+| `providerKey` | Trimmed lowercase | Provider identity is case-insensitive. |
+| `externalKey` | Trimmed and otherwise preserved exactly as provider-issued | External identifiers are provider-owned and may be case/format significant. |
+
+The promotion command planner and duplicate-prevention resolver use the same `languageCode:externalKey` composition after this normalization. Natural-key normalization does not rewrite historical event or reference keys.
+
 Notes:
 
 - `product_id` identifies a catalog-defined Product, not a listing, inventory item, or physical item.

@@ -51,6 +51,26 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
     expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
   });
 
+  it("uses the normalized language-prefixed source-observation key", async () => {
+    const db = duplicatePreventionDb({ sourceProductCatalogItemId: "cat_source_link" });
+
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db,
+      profile: tcgdexPokemonTcgProviderProfile,
+      providerKey: "TCGDEX",
+      externalKey: "  provider:CaseSensitive  ",
+      normalized: pokemonCardObservation({ languageCode: "EN-us", externalCatalogItemReferences: [] }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_source_link",
+      ruleKey: "source-observation-link",
+    });
+    expect(db.values).toContainEqual(["tcgdex", "en-US:provider:CaseSensitive"]);
+  });
+
   it("blocks automatic promotion when reusable external references are ambiguous", async () => {
     const result = await resolveCatalogProviderDuplicatePrevention({
       db: duplicatePreventionDb({ externalCatalogItemIds: ["cat_a", "cat_b"] }),
