@@ -49,7 +49,7 @@ export type UcpPaymentCompletionDecision =
     }>
   | Readonly<{
       // Off-session completion against a payment method the buyer saved through the hosted
-      // setup rail (#4713). No AP2 mandate is required: the buyer's off-session consent was
+      // setup rail. No AP2 mandate is required: the buyer's off-session consent was
       // captured during setup, and the agent grant's spending mandate governs the money movement.
       // Payments still validates the instrument's readiness at charge time, so a removed or
       // not-ready instrument can never be charged.

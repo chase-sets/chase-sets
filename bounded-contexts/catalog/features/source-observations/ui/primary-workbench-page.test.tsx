@@ -6,7 +6,6 @@ import { tcgdexPokemonTcgProviderProfile } from "../api/provider-integration-pro
 import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import type { SourceObservationLorcanaCardPrintNormalized } from "../domain/domain";
 import {
-  buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceOptionRequests,
   type CatalogPrimaryWorkbenchSourceOptionRequest,
@@ -153,7 +152,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       profiles: [profile],
       cacheOnly: true,
     });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: japaneseSv8RequestUrl,
       scopes: { items: [japaneseSv8Scope], total: 1, count: 1 },
       profileReviews: { items: [profile], total: 1, count: 1 },
@@ -329,7 +328,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       blockers: [],
       explanation: "Eligible provider units are ready to pull Source Observations for this Catalog scope.",
     };
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Asingle-card%3Asource-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base+Set",
       scopes: {
@@ -402,7 +401,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("reviews merged candidates before Source Observation evidence with detail mapping and action affordances", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -494,7 +493,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("keeps scoped TCGplayer Pokemon merge candidates visible when candidate identity uses TCG wording", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Asingle-card%3Asource-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base+Set&profileVersion=2026.06.05",
       scopes: { items: [sourceObservationScope({ provider_key: "tcgplayer" })], total: 1, count: 1 },
@@ -528,7 +527,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("keeps ready TCGplayer Pokemon merge-candidate Promote enabled when Source Observation review has no changed rows", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Asingle-card%3Asource-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base+Set&profileVersion=2026.06.05",
       scopes: {
@@ -609,7 +608,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("keeps split and update merge-candidate actions blocked without typed command payload provenance", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -653,7 +652,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       },
       supportedScopes: ["one-piece/card"],
     });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl,
       scopes: {
         items: [
@@ -753,7 +752,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       },
       supportedScopes: ["set-name", "product/sealed"],
     });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl,
       scopes: {
         items: [
@@ -849,7 +848,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       supportedScopes: ["lorcana/single-card"],
       languageOptions: ["en"],
     });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl,
       scopes: {
         items: [
@@ -925,7 +924,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders dense health triage with distinct semantic, transport, rollout, job, and audit evidence", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=triage",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -970,7 +969,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     const baseOverview = controlPlaneOverview();
     const unitKey = "scrydex:one-piece:single-card:source-observation-import";
     const baseProvider = baseOverview.providerReadiness.providers[0]!;
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${unitKey}&section=triage`,
       scopes: {
         items: [
@@ -1034,7 +1033,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders governance controls with RBAC, kill switches, observability, and complete-removal evidence", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=controls",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1070,7 +1069,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
   it("renders the audit timeline with filters, timeline, and redacted links", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_001&promotionPreviewId=preview_001&section=evidence",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1121,7 +1120,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders profile authoring overview and draft creation as a focused support workspace", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1199,7 +1198,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       },
     });
     const overview = controlPlaneOverview();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&section=readiness",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1313,7 +1312,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
   it("renders lifecycle recovery with rollback, deprecation, retirement, and complete-removal evidence", () => {
     const overview = controlPlaneOverview();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&section=lifecycle",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1378,7 +1377,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       observation_id: "obs_conflict",
       promoted_catalog_item_id: "cat_001",
     });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_conflict&promotionPreviewId=preview_001&section=conflicts",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1439,7 +1438,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
   it("renders option-query, import-scope, and mapping authoring detail panels without reviving raw profile editors", () => {
     const baseOverview = controlPlaneOverview();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work&profileVersion=2026.06.04-draft",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1501,7 +1500,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders section forms as editable typed controls for draft profiles", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work&profileVersion=2026.06.04-draft",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1537,7 +1536,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("keeps profile overview inspectable but disables draft creation for view-only operators", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
       profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
@@ -1568,7 +1567,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders stale selected-profile state without falling back to another version", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work&profileVersion=missing-version",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1597,7 +1596,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders scoped durable import monitoring without hiding the primary provider pull", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1680,7 +1679,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       promoted_observations: 0,
       rejected_observations: 0,
     });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=lorcanajson:lorcana:set:reference-data&importScope=en%3A1&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&expansionName=1&profileVersion=2026.06.23",
       scopes: { items: [scope], total: 1, count: 1 },
@@ -1806,7 +1805,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       status: "active",
       connectorKind: "lorcanajson-json",
     });
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         `https://admin.example/catalog/integrations?section=source-observation-review&providerKey=lorcanajson` +
         `&unitKey=${encodeURIComponent(unitKey)}&importScope=en%3A1&languageCode=en&productLineName=Disney+Lorcana` +
@@ -1883,7 +1882,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
   it("renders provider transport blockers with operator reason and next step copy", () => {
     const baseOverview = controlPlaneOverview();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1925,7 +1924,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("deep-links daily-flow blockers into the provider-setup surface with return context to the import scope", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04-draft&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -1974,7 +1973,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("surfaces a slim governance denied indicator on the daily route that deep-links to governance controls with return context", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2015,7 +2014,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
   it("surfaces a slim governance stopped indicator on the daily route when a rollout kill switch blocks a primary command", () => {
     const baseOverview = controlPlaneOverview();
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2067,7 +2066,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders no governance indicator on the daily route when no primary command is denied or stopped", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2196,7 +2195,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders Source Observation evidence rows, drawer details, and bulk selection without raw payloads", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2258,7 +2257,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   // state — rather than a bespoke grid of <div>s. These are assertable on the live
   // CatalogIntegrationsSurfacePage daily surface, the route operators land on first.
   it("renders the daily Source Observation review with accessible table semantics and a live region", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2290,7 +2289,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("submits primary workbench commands with clean intent and selected-observation context", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2356,7 +2355,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("submits reapply and replay commands for promoted Source Observations as durable jobs", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=promoted",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2398,7 +2397,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("keeps replay available for promoted Source Observations when the current active profile is missing", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=promoted",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2438,7 +2437,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("blocks replay for promoted Source Observations with missing original profile evidence", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=promoted",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2470,7 +2469,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders explicit-row command scope and stale-preview blockers before promotion execution", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.03&filter.status=changed&selectedObservationIds=obs_missing&promotionPreviewId=preview_old",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2499,7 +2498,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders promote-all as an explicit selected-scope action with preview counts and confirmation", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&filter.status=changed&promotionPreviewId=preview_scope",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2547,7 +2546,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("clears route-provided Source Observation selections when the review context changes", async () => {
-    const selectedReadModel = buildCatalogPrimaryWorkbenchReadModel({
+    const selectedReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_001",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2557,7 +2556,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       reviewPagination: { limit: 25, offset: 0 },
       canManageCatalog: true,
     });
-    const clearedReadModel = buildCatalogPrimaryWorkbenchReadModel({
+    const clearedReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -2580,7 +2579,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
   });
 
   it("renders denied row actions without exposing provider bypass controls", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=changed",
       scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
       profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },

@@ -2,7 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AgentOrderUpdateStatus } from "./order-update-payload";
 
 /**
- * Per-client delivery state for signed order-update webhooks (issue #3755).
+ * Per-client delivery state for signed order-update webhooks.
  *
  * Reuses the outbox lessons from the notification pipeline: single-owner claims
  * via `FOR UPDATE SKIP LOCKED`, monotonic attempt accounting, crash recovery of

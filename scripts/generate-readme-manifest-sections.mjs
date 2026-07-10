@@ -206,7 +206,7 @@ function main() {
 
   if (args.check) {
     // Sibling check: bounded-contexts/README.md promises every context README
-    // follows a common shape (issue #3550). This runs alongside the root
+    // follows a common shape. This runs alongside the root
     // README manifest-section check instead of becoming its own verify:static
     // chain entry.
     const contextReadmeIssues = checkContextReadmeSections();

@@ -52,9 +52,9 @@ const MAX_ATTEMPT_LIMIT = 10;
 const MAX_FIXTURE_CANDIDATES = 20;
 const READY_POLL_INTERVAL_MS = 250;
 const SLO_MODES = ["warn", "gate"];
-// The 10s ready budget is the ratified #1237 single-write readiness SLO (see
+// The 10s ready budget is the ratified single-write readiness SLO (see
 // docs/architecture/projection-freshness-slos.md). SLO-exceeded results with
-// a user-safe final state warn instead of aborting the release (issue #1323)
+// a user-safe final state warn instead of aborting the release
 // unless --slo-mode gate is set. Unsafe states
 // (permanent not-found, missing after-write/cookies, platform errors,
 // negative-probe failures) always abort regardless of mode.

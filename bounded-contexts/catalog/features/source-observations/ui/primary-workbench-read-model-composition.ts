@@ -512,54 +512,13 @@ function healthSurfaceSlices(
   return { auditEvidence };
 }
 
-// Assemble a fully-validated read model from the shared core and every surface
-// slice, rendering the complete workspace registry. Re-exported from
-// primary-workbench-read-model.ts; as of this writing its only callers are
-// tests, not a live surface route — confirm before deleting.
-export function buildCatalogPrimaryWorkbenchReadModel(
-  input: CatalogPrimaryWorkbenchInput,
-): CatalogPrimaryWorkbenchReadModel {
-  const { core, derived } = buildCatalogPrimaryWorkbenchCore(input);
-  const { profileAuthoring, validationReadiness } = providersSurfaceSlices(input, core, derived);
-  const healthTriage = healthTriageSlice(input, core, derived);
-  const { conflictResolution, lifecycleRecovery } = conflictAndLifecycleSlices(
-    input,
-    core,
-    derived,
-    validationReadiness,
-  );
-  const actions = buildSurfaceActions(core, derived, {
-    profileAuthoring,
-    validationReadiness,
-    lifecycleRecovery,
-  });
-  const governanceControls = governanceControlsSlice(input, core, derived, conflictResolution, actions, healthTriage);
-  const { auditEvidence } = healthSurfaceSlices(input, core, derived, {
-    conflictResolution,
-    healthTriage,
-    validationReadiness,
-  });
-
-  return assembleReadModel({
-    core,
-    actions,
-    profileAuthoring,
-    validationReadiness,
-    healthTriage,
-    conflictResolution,
-    lifecycleRecovery,
-    governanceControls,
-    auditEvidence,
-  });
-}
-
 // Assemble a fully-validated read model for ONE audience surface route, computing
 // only the supporting slices that surface renders and substituting cheap default
 // slices (no provider-row iteration, no cross-surface inputs) for the rest. The
 // daily surface therefore never computes governance, lifecycle, or audit
-// sub-models; providers never computes governance/health; and so on. Behavior is
-// preserved because each non-rendered slice is identical to what the full builder
-// would produce from the same absent inputs.
+// sub-models; providers never computes governance/health; and so on. The health
+// surface renders every supporting slice, so calling this with "health" computes
+// the complete read model — the reference other surfaces are compared against.
 export function buildCatalogPrimaryWorkbenchReadModelForSurface(
   surface: CatalogControlPlaneRouteSurfaceKey,
   input: CatalogPrimaryWorkbenchInput,

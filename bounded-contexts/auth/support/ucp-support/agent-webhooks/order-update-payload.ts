@@ -2,7 +2,7 @@ import type { TransportEvent } from "@chase-sets/event-core/transport";
 
 /**
  * Maps marketplace order-lifecycle domain events onto the UCP order-update
- * payload shape pushed to agent platforms (issue #3755).
+ * payload shape pushed to agent platforms.
  *
  * UCP order-update semantics recognise a small status vocabulary; ChatGPT and
  * Gemini shopping surfaces expect shipped/delivered/refunded to arrive without
