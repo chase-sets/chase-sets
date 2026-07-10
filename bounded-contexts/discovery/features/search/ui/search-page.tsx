@@ -2,6 +2,7 @@ import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import {
   Text,
+  Heading,
   AppliedFilterChips,
   Button,
   CommerceSheet,
@@ -754,6 +755,20 @@ export function SearchPage({
           />
         ) : data ? (
           <>
+            {data.retrievalMode === "rescue" ? (
+              <Stack gap={1}>
+                <Heading level={2} visualSize={4}>
+                  {t("discovery.features.search.ui.searchPage.closest.matches")}
+                </Heading>
+                <Text size="sm" tone="secondary">
+                  {data.lexicalCount
+                    ? t("discovery.features.search.ui.searchPage.closest.matches.with.lexical", {
+                        count: data.lexicalCount,
+                      })
+                    : t("discovery.features.search.ui.searchPage.closest.matches.semantic.only")}
+                </Text>
+              </Stack>
+            ) : null}
             <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;

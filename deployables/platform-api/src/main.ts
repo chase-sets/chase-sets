@@ -62,6 +62,7 @@ import {
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
+  recordDiscoverySearchQuerySignal,
   recordCheckoutObservabilityEvent,
   recordMcpAuditRecord,
   recordPublicPresenceWaitlistAnalytics,
@@ -276,6 +277,11 @@ const runtime = createPlatformApiHost({
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
+    searchEmbeddingConfig: config.discoverySearchEmbeddings,
+    searchTelemetry: {
+      recordRetrievalMode: (retrievalMode: "lexical" | "rescue" | "hybrid") =>
+        recordDiscoverySearchQuerySignal({ retrievalMode }),
+    },
     emailWebhookGateway,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },

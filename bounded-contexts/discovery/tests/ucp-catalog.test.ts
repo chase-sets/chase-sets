@@ -38,6 +38,8 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
         facets: [],
         total: 1,
         nextCursor: null,
+        retrievalMode: "lexical" as const,
+        lexicalCount: 0,
       })),
       previewBulkAdd: vi.fn(async () => ({
         totalMatches: null,

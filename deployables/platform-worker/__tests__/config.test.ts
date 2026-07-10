@@ -24,6 +24,10 @@ const envNames = [
   "EASYPOST_API_BASE_URL",
   "EASYPOST_MODE",
   "DISCOVERY_SEARCH_EMBEDDINGS",
+  "DISCOVERY_SEARCH_RESCUE",
+  "DISCOVERY_SEARCH_HYBRID",
+  "DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES",
+  "DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS",
   "DISCOVERY_SEARCH_EMBEDDING_INTERVAL_MS",
   "VOYAGE_API_KEY",
   "VOYAGE_EMBEDDING_MODEL",
@@ -180,6 +184,10 @@ describe("platform worker config", () => {
       retryBackoffMaxMs: 10_000,
       intervalMs: 1_000,
       rolloutValue: null,
+      hybridValue: null,
+      rescueValue: null,
+      queryCacheMaxEntries: 1_000,
+      queryCacheTtlMs: 900_000,
     });
     expect(config.catalogAssetStorage).toEqual({
       kind: "filesystem",

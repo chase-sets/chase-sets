@@ -138,6 +138,8 @@ describe("marketplace SSR routes", () => {
       total: 0,
       count: 0,
       nextCursor: null,
+      lexicalCount: 0,
+      retrievalMode: "lexical",
     });
   });
 

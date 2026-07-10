@@ -93,6 +93,21 @@ export type PlatformApiCatalogAssetStorageConfig = PlatformCatalogAssetStorageCo
 
 export type PlatformApiListingPhotoStorageConfig = PlatformApiCatalogAssetStorageConfig;
 
+export type PlatformApiDiscoverySearchEmbeddingConfig = Readonly<{
+  apiKey: string | null;
+  model: string;
+  batchSize: number;
+  timeoutMs: number;
+  maxAttempts: number;
+  retryBackoffBaseMs: number;
+  retryBackoffMaxMs: number;
+  rolloutValue: string | null;
+  rescueValue: string | null;
+  hybridValue: string | null;
+  queryCacheMaxEntries: number;
+  queryCacheTtlMs: number;
+}>;
+
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
 
 const DEPLOYMENT_ENVIRONMENTS = ["production", "staging", "preview", "test", "dev", "local", "remote-dev"] as const;
@@ -281,6 +296,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
     tcgplayerAutomation: PlatformApiTcgplayerAutomationConfig | null;
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
+    discoverySearchEmbeddings: PlatformApiDiscoverySearchEmbeddingConfig;
     stripeGoLive: StripeGoLiveCheckReport;
     ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
     ucpSignatureCreatedFreshnessWindowMs: number;
@@ -755,6 +771,20 @@ export function loadConfig(): PlatformApiConfig {
     catalogAssetStorage,
     tcgplayerAutomation: loadTcgplayerAutomationConfig(),
     listingPhotoStorage,
+    discoverySearchEmbeddings: {
+      apiKey: getOptionalEnv("VOYAGE_API_KEY"),
+      model: getOptionalEnv("VOYAGE_EMBEDDING_MODEL") ?? "voyage-4-lite",
+      batchSize: getPositiveNumberEnv("VOYAGE_EMBEDDING_BATCH_SIZE", 128),
+      timeoutMs: getPositiveNumberEnv("VOYAGE_EMBEDDING_TIMEOUT_MS", 15_000),
+      maxAttempts: getPositiveNumberEnv("VOYAGE_EMBEDDING_MAX_ATTEMPTS", 4),
+      retryBackoffBaseMs: getPositiveNumberEnv("VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS", 500),
+      retryBackoffMaxMs: getPositiveNumberEnv("VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS", 10_000),
+      rolloutValue: getOptionalEnv("DISCOVERY_SEARCH_EMBEDDINGS"),
+      rescueValue: getOptionalEnv("DISCOVERY_SEARCH_RESCUE"),
+      hybridValue: getOptionalEnv("DISCOVERY_SEARCH_HYBRID"),
+      queryCacheMaxEntries: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", 1_000),
+      queryCacheTtlMs: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS", 900_000),
+    },
     socialLogin,
     adminGoogleWorkspaceSso,
     ucpBusinessSigningKeys,

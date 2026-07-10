@@ -95,6 +95,10 @@ export type PlatformWorkerConfig = Readonly<{
     retryBackoffMaxMs: number;
     intervalMs: number;
     rolloutValue: string | null;
+    rescueValue: string | null;
+    hybridValue: string | null;
+    queryCacheMaxEntries: number;
+    queryCacheTtlMs: number;
   }>;
   paymentProcessor: PlatformWorkerPaymentProcessorConfig;
   moneyMovement: PlatformWorkerMoneyMovementConfig;
@@ -443,6 +447,10 @@ export function loadConfig(): PlatformWorkerConfig {
       retryBackoffMaxMs: getPositiveNumberEnv("VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS", 10_000),
       intervalMs: getPositiveNumberEnv("DISCOVERY_SEARCH_EMBEDDING_INTERVAL_MS", 1_000),
       rolloutValue: getOptionalEnv("DISCOVERY_SEARCH_EMBEDDINGS"),
+      rescueValue: getOptionalEnv("DISCOVERY_SEARCH_RESCUE"),
+      hybridValue: getOptionalEnv("DISCOVERY_SEARCH_HYBRID"),
+      queryCacheMaxEntries: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", 1_000),
+      queryCacheTtlMs: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS", 900_000),
     },
     paymentProcessor: stripeProvider.paymentProcessor,
     moneyMovement: stripeProvider.moneyMovement,

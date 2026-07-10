@@ -75,6 +75,7 @@ const requestCounter = lazyCounter("chase_sets_http_server_requests_total");
 const requestDuration = lazyHistogram("chase_sets_http_server_request_duration_ms", {
   unit: "ms",
 });
+const discoverySearchQueryCounter = lazyCounter("chase_sets_discovery_search_queries_total");
 const eventStoreCounter = lazyCounter("chase_sets_event_store_operations_total");
 const eventStoreDuration = lazyHistogram("chase_sets_event_store_operation_duration_ms", {
   unit: "ms",
@@ -197,6 +198,10 @@ export type ItemDetailRailAnalyticsSignal = Readonly<{
   gate?: string | null;
   viewer?: string | null;
   surface?: string | null;
+}>;
+
+export type DiscoverySearchQuerySignal = Readonly<{
+  retrievalMode: "lexical" | "rescue" | "hybrid";
 }>;
 
 export type CheckoutObservabilityEventSignal = Readonly<{
@@ -992,6 +997,12 @@ export function recordSettlementOperationSignal(
     setup_surface: event.setupSurface ?? "none",
     safe_category: event.safeCategory ?? "none",
     readiness_status: event.readinessStatus ?? "unknown",
+  });
+}
+
+export function recordDiscoverySearchQuerySignal(event: DiscoverySearchQuerySignal): void {
+  discoverySearchQueryCounter.add(1, {
+    retrieval_mode: event.retrievalMode,
   });
 }
 

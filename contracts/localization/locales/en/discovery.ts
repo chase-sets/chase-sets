@@ -211,6 +211,11 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.market.activity.filter.label": "Market: {marketActivity}",
   "discovery.features.search.ui.searchPage.marketplace": "Marketplace",
   "discovery.features.search.ui.searchPage.marketplace.search": "Marketplace search",
+  "discovery.features.search.ui.searchPage.closest.matches": "Closest matches",
+  "discovery.features.search.ui.searchPage.closest.matches.semantic.only":
+    "No text matches were found. These related items are ranked by semantic similarity.",
+  "discovery.features.search.ui.searchPage.closest.matches.with.lexical":
+    "{count} text matches appear first, followed by related items ranked by semantic similarity.",
   "discovery.features.search.ui.searchPage.mobile.categories.description":
     "Pick a category without leaving the result list.",
   "discovery.features.search.ui.searchPage.mobile.filters.description":

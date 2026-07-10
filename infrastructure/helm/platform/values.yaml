@@ -318,6 +318,16 @@ components:
         secretKey: "DATABASE_URL_SETTLEMENT"
       - name: "DEPLOYMENT_ENVIRONMENT"
         value: "preview"
+      - name: "DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES"
+        value: "1000"
+      - name: "DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS"
+        value: "900000"
+      - name: "DISCOVERY_SEARCH_EMBEDDINGS"
+        value: "enabled"
+      - name: "DISCOVERY_SEARCH_HYBRID"
+        value: "off"
+      - name: "DISCOVERY_SEARCH_RESCUE"
+        value: "enabled"
       - name: "EASYPOST_API_BASE_URL"
         value: "https://api.easypost.com"
       - name: "EASYPOST_API_KEY"
@@ -411,6 +421,9 @@ components:
       - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
         secret: true
         secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
+      - name: "VOYAGE_API_KEY"
+        secret: true
+        secretKey: "VOYAGE_API_KEY"
     resources: {}
     podAnnotations: {}
     podLabels: {}
@@ -536,6 +549,12 @@ components:
         secretKey: "DATABASE_URL_SETTLEMENT"
       - name: "DEPLOYMENT_ENVIRONMENT"
         value: "preview"
+      - name: "DISCOVERY_SEARCH_EMBEDDINGS"
+        value: "enabled"
+      - name: "DISCOVERY_SEARCH_HYBRID"
+        value: "off"
+      - name: "DISCOVERY_SEARCH_RESCUE"
+        value: "enabled"
       - name: "EASYPOST_API_BASE_URL"
         value: "https://api.easypost.com"
       - name: "EASYPOST_API_KEY"

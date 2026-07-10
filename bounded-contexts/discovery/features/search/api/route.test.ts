@@ -9,6 +9,8 @@ function createServices(): DiscoveryItemSearchServices {
       facets: [],
       total: 0,
       nextCursor: null,
+      retrievalMode: "lexical" as const,
+      lexicalCount: 0,
     })),
     previewBulkAdd: vi.fn(async () => ({
       totalMatches: 0,

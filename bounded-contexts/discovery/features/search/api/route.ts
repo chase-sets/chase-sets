@@ -23,6 +23,8 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       total: result.total,
       count: result.items.length,
       nextCursor: result.nextCursor,
+      retrievalMode: result.retrievalMode,
+      lexicalCount: result.lexicalCount,
     });
   });
 

@@ -174,12 +174,12 @@ export async function retrieveDiscoveryRelevanceCandidates(
     `SELECT catalog_item_id,
             title,
             lower(title) = lower($1) AS exact_title_match,
-            1 - (search_embedding <=> $2::halfvec(1024)) AS semantic_similarity
+            -(search_embedding <#> $2::halfvec(1024)) AS semantic_similarity
      FROM discovery_search_items
      WHERE status = 'active'
        AND search_embedding IS NOT NULL
-       AND 1 - (search_embedding <=> $2::halfvec(1024)) >= $3
-     ORDER BY exact_title_match DESC, semantic_similarity DESC, title ASC, catalog_item_id ASC
+       AND -(search_embedding <#> $2::halfvec(1024)) >= $3
+     ORDER BY search_embedding <#> $2::halfvec(1024), title ASC, catalog_item_id ASC
      LIMIT $4`,
     [input.query, halfVectorLiteral(input.queryEmbedding), SEMANTIC_MINIMUM_SIMILARITY, CANDIDATE_LIMIT],
   );

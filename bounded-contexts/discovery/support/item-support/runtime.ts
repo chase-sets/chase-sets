@@ -6,6 +6,8 @@ import {
 } from "../../features/item-detail/api/runtime";
 import { createDiscoveryMarketRuntime, type DiscoveryMarketServices } from "../market-support/runtime";
 import { createDiscoveryItemSearchRuntime, type DiscoveryItemSearchServices } from "../../features/search/api/runtime";
+import type { QueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
+import type { DiscoveryEmbeddingProvider } from "../../features/search/integrations/voyage-embedding-provider";
 
 export type DiscoveryItemsServices = Readonly<{
   market: DiscoveryMarketServices;
@@ -14,9 +16,18 @@ export type DiscoveryItemsServices = Readonly<{
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
-export function createDiscoveryItemRuntime(deps: DiscoveryRuntimeDeps): DiscoveryItemsServices {
+export function createDiscoveryItemRuntime(
+  deps: DiscoveryRuntimeDeps,
+  searchRetrieval: Readonly<{
+    provider?: DiscoveryEmbeddingProvider;
+    cache?: QueryEmbeddingCache;
+    rescueEnabled?: boolean;
+    hybridEnabled?: boolean;
+    recordRetrievalMode?: (mode: "lexical" | "rescue" | "hybrid") => void;
+  }> = {},
+): DiscoveryItemsServices {
   const market = createDiscoveryMarketRuntime(deps);
-  const search = createDiscoveryItemSearchRuntime(deps);
+  const search = createDiscoveryItemSearchRuntime(deps, searchRetrieval);
   const detail = createDiscoveryItemDetailRuntime(deps);
 
   return {

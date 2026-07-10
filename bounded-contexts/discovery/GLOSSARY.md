@@ -115,6 +115,16 @@ Notes:
 - Projection handlers only mark a Search Embedding dirty by deterministic text hash; they never call an external embedding provider.
 - Missing, disabled, or failed enrichment leaves lexical Discovery Query behavior unchanged.
 
+### Hybrid Retrieval
+
+**Hybrid Retrieval** is the Discovery relevance policy that combines lexical and semantic Search Result candidates while preserving exact-title and lexical/base-match precedence.
+
+Notes:
+
+- **Rescue** appends clearly labeled Closest Matches when a lexical Result Set contains fewer than three Search Results.
+- **Hybrid** uses reciprocal-rank fusion over a bounded candidate window and is independently rollout-controlled.
+- Both modes respect the complete Filter State and fail open to lexical retrieval.
+
 ### Product Contents
 
 **Product Contents** is the Catalog-owned resolved fact that lets Discovery present what a container Product includes and find container Products from contained items.
