@@ -6,6 +6,7 @@ import {
   readApiErrorCode,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
+import { parseOptionalTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
@@ -360,10 +361,7 @@ function parseSelectedOptions(value: unknown) {
 function parseShippingAddress(value: unknown) {
   const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return {
-    shippingAddressId:
-      source.shippingAddressId === null || source.shippingAddressId === undefined
-        ? null
-        : (String(source.shippingAddressId) as ShippingAddressId),
+    shippingAddressId: parseOptionalTypedIdBoundary(source.shippingAddressId, "adr", "shippingAddressId") ?? null,
     name: source.name === null || source.name === undefined ? "" : String(source.name),
     company: source.company === null || source.company === undefined ? null : String(source.company),
     line1: String(source.line1 ?? ""),

@@ -1,10 +1,10 @@
 import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { CategoryServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
-import type { CategoryId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 export function categoryRoutes(services: CategoryServices, authoringBulkJobs: CatalogAuthoringBulkJobServices) {
@@ -13,7 +13,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
   app.post("/", async (c) => {
     const body = await c.req.json();
     const context = c.get("context");
-    const categoryId = body.categoryId as CategoryId;
+    const categoryId = parseTypedIdBoundary(body.categoryId, "ctg", "categoryId");
 
     const result = await services.commandHandler({
       streamId: `catalog.category-${categoryId}`,
@@ -23,7 +23,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
         key: body.key,
         name: coerceLocalizedTextMap(body.name),
         description: coerceLocalizedTextMap(body.description ?? ""),
-        parentCategoryId: body.parentCategoryId as CategoryId | undefined,
+        parentCategoryId: parseOptionalTypedIdBoundary(body.parentCategoryId, "ctg", "parentCategoryId"),
         displayOrder: body.displayOrder,
       },
       context,
@@ -56,7 +56,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
   });
 
   app.put("/:id", async (c) => {
-    const categoryId = c.req.param("id");
+    const categoryId = parseTypedIdBoundary(c.req.param("id"), "ctg", "categoryId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -67,7 +67,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
         key: body.key,
         name: coerceLocalizedTextMap(body.name),
         description: coerceLocalizedTextMap(body.description ?? ""),
-        parentCategoryId: body.parentCategoryId as CategoryId | undefined,
+        parentCategoryId: parseOptionalTypedIdBoundary(body.parentCategoryId, "ctg", "parentCategoryId"),
         displayOrder: body.displayOrder,
       },
       context,
@@ -77,7 +77,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
   });
 
   app.post("/:id/publish", async (c) => {
-    const categoryId = c.req.param("id");
+    const categoryId = parseTypedIdBoundary(c.req.param("id"), "ctg", "categoryId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -90,7 +90,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
   });
 
   app.post("/:id/deprecate", async (c) => {
-    const categoryId = c.req.param("id");
+    const categoryId = parseTypedIdBoundary(c.req.param("id"), "ctg", "categoryId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -103,7 +103,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
   });
 
   app.post("/:id/archive", async (c) => {
-    const categoryId = c.req.param("id");
+    const categoryId = parseTypedIdBoundary(c.req.param("id"), "ctg", "categoryId");
     const context = c.get("context");
 
     const result = await services.commandHandler({

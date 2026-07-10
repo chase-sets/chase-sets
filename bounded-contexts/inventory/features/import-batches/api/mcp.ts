@@ -2,6 +2,8 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
+  readOptionalMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -101,7 +103,7 @@ export function createInventoryImportBatchMcpHandlers(
         parsedRows: parseParsedRows(args.parsedRows),
         sourceKey: readMcpStringArgument(args, "sourceKey") as InventoryImportSourceKey | undefined,
         quantityMode: parseQuantityMode(readMcpStringArgument(args, "quantityMode")),
-        defaultStorageLocationId: readMcpStringArgument(args, "defaultStorageLocationId"),
+        defaultStorageLocationId: readOptionalMcpTypedIdArgument(args, "defaultStorageLocationId", "loc"),
         sourceFilename: readMcpStringArgument(args, "sourceFilename"),
       },
       createActorEventStoreContext(scopedActor),
@@ -113,10 +115,7 @@ export function createInventoryImportBatchMcpHandlers(
   const getImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readMcpStringArgument(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const batchId = readMcpStringArgument(args, "batchId");
-    if (!batchId) {
-      throw new Error("batchId is required.");
-    }
+    const batchId = readMcpTypedIdArgument(args, "batchId", "imb");
 
     const detail = await services.getBatch(batchId, scopedActor.accountId);
     if (!detail) {
@@ -130,10 +129,7 @@ export function createInventoryImportBatchMcpHandlers(
     rejectDryRun(args);
     const accountId = readMcpStringArgument(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const batchId = readMcpStringArgument(args, "batchId");
-    if (!batchId) {
-      throw new Error("batchId is required.");
-    }
+    const batchId = readMcpTypedIdArgument(args, "batchId", "imb");
 
     return services.commitBatch(
       {

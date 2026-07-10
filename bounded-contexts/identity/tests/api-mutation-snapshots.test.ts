@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { buildIdentityApi, type IdentityApiEnv } from "../api";
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
@@ -27,6 +28,7 @@ function commandResult(version: number, status: string, state: Record<string, un
 
 function buildApp(services: IdentityServices, requestActor: ResolvedActor = actor) {
   const app = new Hono<IdentityApiEnv>();
+  app.onError(errorHandler);
   app.use("*", async (c, next) => {
     c.set("actor", requestActor);
     c.set("context", {
@@ -147,8 +149,8 @@ function createServices(
         ]);
         return commandResult(41, statusByCommand.get(input.command.type) ?? "pending");
       }),
-      getInvitation: vi.fn(async () => ({ invitation_id: "inv_existing", account_id: actor.accountId })),
-      getInvitationForRead: vi.fn(async () => ({ invitation_id: "inv_existing", account_id: actor.accountId })),
+      getInvitation: vi.fn(async () => ({ invitation_id: "ivt_existing", account_id: actor.accountId })),
+      getInvitationForRead: vi.fn(async () => ({ invitation_id: "ivt_existing", account_id: actor.accountId })),
       getInvitationState: vi.fn(async (invitationId: string) => ({
         id: invitationId,
         accountId: actor.accountId,
@@ -309,7 +311,7 @@ describe("Identity API mutation snapshots", () => {
       );
     }
 
-    const acceptedInvitation = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
+    const acceptedInvitation = await requestJson(app, "/internal/auth/invitations/ivt_1/accept", {
       method: "POST",
       body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
     });
@@ -317,7 +319,7 @@ describe("Identity API mutation snapshots", () => {
     expect(acceptedInvitation.body.snapshots).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ aggregate: "membership", version: 31, status: "active" }),
-        expect.objectContaining({ aggregate: "invitation", id: "inv_1", version: 41, status: "accepted" }),
+        expect.objectContaining({ aggregate: "invitation", id: "ivt_1", version: 41, status: "accepted" }),
       ]),
     );
   });
@@ -486,33 +488,33 @@ describe("Identity API mutation snapshots", () => {
         method: "POST",
         path: "/invitations",
         body: {
-          invitationId: "inv_2",
+          invitationId: "ivt_2",
           accountId: "acc_1",
           email: "invitee@example.com",
           roleKey: "viewer",
           expiresAt: "2026-07-01T00:00:00.000Z",
         },
         status: 201,
-        expected: { id: "inv_2", version: 41, status: "pending" },
+        expected: { id: "ivt_2", version: 41, status: "pending" },
       },
       {
         method: "POST",
-        path: "/invitations/inv_existing/resend",
+        path: "/invitations/ivt_existing/resend",
         body: { expiresAt: "2026-07-02T00:00:00.000Z" },
         status: 200,
-        expected: { id: "inv_existing", version: 41, status: "pending" },
+        expected: { id: "ivt_existing", version: 41, status: "pending" },
       },
       {
         method: "POST",
-        path: "/invitations/inv_existing/cancel",
+        path: "/invitations/ivt_existing/cancel",
         status: 200,
-        expected: { id: "inv_existing", version: 41, status: "cancelled" },
+        expected: { id: "ivt_existing", version: 41, status: "cancelled" },
       },
       {
         method: "POST",
-        path: "/invitations/inv_existing/decline",
+        path: "/invitations/ivt_existing/decline",
         status: 200,
-        expected: { id: "inv_existing", version: 41, status: "declined" },
+        expected: { id: "ivt_existing", version: 41, status: "declined" },
       },
     ] as const;
     for (const testCase of invitationCases) {
@@ -597,7 +599,7 @@ describe("Identity API mutation snapshots", () => {
     const invitationCreate = await requestJson(app, "/invitations", {
       method: "POST",
       body: JSON.stringify({
-        invitationId: "inv_bad",
+        invitationId: "ivt_bad",
         accountId: "acc_1",
         email: "invitee@example.com",
         roleKey: "onwer",
@@ -644,7 +646,7 @@ describe("Identity API mutation snapshots", () => {
     const invitationCreate = await requestJson(app, "/invitations", {
       method: "POST",
       body: JSON.stringify({
-        invitationId: "inv_platform",
+        invitationId: "ivt_platform",
         accountId: "acc_1",
         email: "invitee@example.com",
         roleKey: "platform-admin",
@@ -679,7 +681,7 @@ describe("Identity API mutation snapshots", () => {
     const invitationCreate = await requestJson(app, "/invitations", {
       method: "POST",
       body: JSON.stringify({
-        invitationId: "inv_owner",
+        invitationId: "ivt_owner",
         accountId: "acc_1",
         email: "invitee@example.com",
         roleKey: "owner",
@@ -697,7 +699,7 @@ describe("Identity API mutation snapshots", () => {
     const services = createServices();
     const app = buildApp(services);
 
-    const invitationAccept = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
+    const invitationAccept = await requestJson(app, "/internal/auth/invitations/ivt_1/accept", {
       method: "POST",
       body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
     });
@@ -741,7 +743,7 @@ describe("Identity API mutation snapshots", () => {
     });
 
     const app = buildApp(services);
-    const invitationAccept = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
+    const invitationAccept = await requestJson(app, "/internal/auth/invitations/ivt_1/accept", {
       method: "POST",
       body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
     });
@@ -944,8 +946,8 @@ describe("Identity API mutation snapshots", () => {
     expect(created.response.status).toBe(400);
     expect(created.body).toMatchObject({
       error: {
-        code: "validation_error",
-        message: "Expected a user ID starting with usr_.",
+        code: "validation_failed",
+        message: "userId must start with usr_.",
       },
     });
     expect(services.auth.issueOpaqueToken).not.toHaveBeenCalled();

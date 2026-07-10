@@ -43,7 +43,7 @@ function platformActor(permissions: readonly string[]) {
     sessionId: "sess_1",
     tenantId: "tenant_1",
     userId: "user_1",
-    accountId: "account_1",
+    accountId: "acc_1",
     membershipId: "member_1",
     roleKey: "platform-user",
     permissions,
@@ -325,7 +325,7 @@ describe("platform api app wiring", () => {
       projectionKey: "checkout.checkout.session-projection",
       streamId: "checkout.session-1",
       requestedByUserId: "user_1",
-      requestedByAccountId: "account_1",
+      requestedByAccountId: "acc_1",
       claimOwnerId: null,
       claimFencingToken: null,
       claimedUntil: null,
@@ -744,7 +744,7 @@ describe("platform api app wiring", () => {
   it("registers Inventory import MCP handlers from the context module contract", async () => {
     const importBatchDetail = {
       batchId: "batch_1",
-      accountId: "account_1",
+      accountId: "acc_1",
       rows: [],
     };
     const inventoryServices = {
@@ -796,7 +796,7 @@ describe("platform api app wiring", () => {
         params: {
           name: "inventory.list-import-sources",
           arguments: {
-            accountId: "account_1",
+            accountId: "acc_1",
           },
         },
       }),
@@ -823,7 +823,7 @@ describe("platform api app wiring", () => {
       {
         name: "inventory.create-import-batch",
         arguments: {
-          accountId: "account_1",
+          accountId: "acc_1",
           sourceKey: "tcgplayer-csv",
           quantityMode: "add",
           csvText: "title,quantity\nCharizard,1",
@@ -838,14 +838,14 @@ describe("platform api app wiring", () => {
       {
         name: "inventory.get-import-batch",
         arguments: {
-          accountId: "account_1",
+          accountId: "acc_1",
           batchId: "batch_1",
         },
       },
       {
         name: "inventory.commit-import-batch",
         arguments: {
-          accountId: "account_1",
+          accountId: "acc_1",
           batchId: "batch_1",
           reason: "Commit reviewed rows.",
           idempotencyKey: "idem_commit_batch",
@@ -899,7 +899,7 @@ describe("platform api app wiring", () => {
         id: "resource_read_1",
         method: "resources/read",
         params: {
-          uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+          uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
         },
       }),
     });
@@ -917,7 +917,7 @@ describe("platform api app wiring", () => {
         params: {
           name: "inventory.commit-import-batch",
           arguments: {
-            accountId: "account_1",
+            accountId: "acc_1",
             batchId: "batch_1",
             reason: "Commit reviewed rows.",
             idempotencyKey: "commit_mismatched_confirmation",
@@ -939,16 +939,16 @@ describe("platform api app wiring", () => {
           method: "tools/call",
           toolName: "inventory.list-import-sources",
           actorId: "user_1",
-          accountId: "account_1",
+          accountId: "acc_1",
           auditEventName: "mcp.inventory.list-import-sources",
           targetType: "import-source-profile",
         }),
         expect.objectContaining({
           outcome: "allowed",
           method: "resources/read",
-          resourceUri: "chase-sets://inventory/account_1/import-batches/batch_1",
+          resourceUri: "chase-sets://inventory/acc_1/import-batches/batch_1",
           actorId: "user_1",
-          accountId: "account_1",
+          accountId: "acc_1",
           auditEventName: "mcp.inventory.resources.read",
           targetType: "Inventory Import Batch",
         }),
@@ -965,7 +965,7 @@ describe("platform api app wiring", () => {
   it("serves stateless native MCP requests across composed platform API instances without session affinity", async () => {
     const importBatchDetail = {
       batchId: "batch_1",
-      accountId: "account_1",
+      accountId: "acc_1",
       rows: [],
     };
     const inventoryServices = {
@@ -1001,7 +1001,7 @@ describe("platform api app wiring", () => {
           {
             name: "inventory.list-import-sources",
             arguments: {
-              accountId: "account_1",
+              accountId: "acc_1",
             },
           },
           "tool_call_20260728",
@@ -1015,12 +1015,12 @@ describe("platform api app wiring", () => {
         statelessMcpRequest(
           "resources/read",
           {
-            uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+            uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
           },
           "resource_read_20260728",
         ),
       ),
-      headers: statelessMcpHeaders("resources/read", "chase-sets://inventory/account_1/import-batches/batch_1"),
+      headers: statelessMcpHeaders("resources/read", "chase-sets://inventory/acc_1/import-batches/batch_1"),
     });
 
     expect(toolsResponse.status).toBe(200);
@@ -1045,7 +1045,7 @@ describe("platform api app wiring", () => {
       result: {
         contents: [
           expect.objectContaining({
-            uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+            uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
           }),
         ],
       },
@@ -1084,7 +1084,7 @@ describe("platform api app wiring", () => {
         params: {
           name: "checkout.get-cart",
           arguments: {
-            accountId: "account_1",
+            accountId: "acc_1",
           },
         },
       }),
@@ -1094,13 +1094,13 @@ describe("platform api app wiring", () => {
     await expect(response.json()).resolves.toMatchObject({
       result: {
         structuredContent: {
-          accountId: "account_1",
+          accountId: "acc_1",
           total: 1,
           items: [expect.objectContaining({ line_id: "cli_1", item_title: "Charizard" })],
         },
       },
     });
-    expect(checkoutServices.cart.listCartLines).toHaveBeenCalledWith("account_1");
+    expect(checkoutServices.cart.listCartLines).toHaveBeenCalledWith("acc_1");
   });
 
   it("lists only public Discovery capabilities for anonymous native MCP discovery through the composed platform API", async () => {

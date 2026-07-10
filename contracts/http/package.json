@@ -9,5 +9,8 @@
   },
   "exports": {
     "./*": "./*.ts"
+  },
+  "dependencies": {
+    "@chase-sets/primitives": "workspace:*"
   }
 }

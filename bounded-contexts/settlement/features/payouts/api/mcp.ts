@@ -2,6 +2,7 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -115,7 +116,7 @@ export function createSettlementPayoutMcpHandlers(services: PayoutServices): Set
   const getPayout: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));
     requirePermission(scopedActor, "payouts.view");
-    const payout = await services.getPayout(readRequiredString(args, "payoutId"), scopedActor.accountId);
+    const payout = await services.getPayout(readMcpTypedIdArgument(args, "payoutId", "pyo"), scopedActor.accountId);
     if (!payout) {
       throw new Error("Payout not found.");
     }

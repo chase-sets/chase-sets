@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { MembershipId } from "@chase-sets/primitives/typed-ids";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import {
   canAssignRole,
@@ -60,11 +60,13 @@ export function membershipRoutes(services: MembershipServices) {
 
   app.post("/", async (c) => {
     const body = await c.req.json();
-    const membershipId = body.membershipId as MembershipId;
+    const membershipId = parseTypedIdBoundary(body.membershipId, "mbr", "membershipId");
+    const userId = parseTypedIdBoundary(body.userId, "usr", "userId");
+    const accountId = parseTypedIdBoundary(body.accountId, "acc", "accountId");
     if (
       !canManageMembership(c.var.actor, {
-        user_id: String(body.userId ?? ""),
-        account_id: String(body.accountId ?? ""),
+        user_id: userId,
+        account_id: accountId,
       })
     ) {
       return c.json(forbidden(), 403);
@@ -81,8 +83,8 @@ export function membershipRoutes(services: MembershipServices) {
       command: {
         type: "GrantMembership",
         membershipId,
-        userId: body.userId,
-        accountId: body.accountId,
+        userId,
+        accountId,
         roleKey,
         assignmentAuthority: assignmentAuthority(c.var.actor),
       },
@@ -92,7 +94,7 @@ export function membershipRoutes(services: MembershipServices) {
   });
 
   app.put("/:id/role", async (c) => {
-    const membershipId = c.req.param("id");
+    const membershipId = parseTypedIdBoundary(c.req.param("id"), "mbr", "membershipId");
     const membership = await services.getMembership(membershipId);
     if (!membership) {
       return c.json(
@@ -120,7 +122,7 @@ export function membershipRoutes(services: MembershipServices) {
   });
 
   app.post("/:id/revoke", async (c) => {
-    const membershipId = c.req.param("id");
+    const membershipId = parseTypedIdBoundary(c.req.param("id"), "mbr", "membershipId");
     const membership = await services.getMembership(membershipId);
     if (!membership) {
       return c.json(
@@ -140,7 +142,7 @@ export function membershipRoutes(services: MembershipServices) {
   });
 
   app.post("/:id/reinstate", async (c) => {
-    const membershipId = c.req.param("id");
+    const membershipId = parseTypedIdBoundary(c.req.param("id"), "mbr", "membershipId");
     const membership = await services.getMembership(membershipId);
     if (!membership) {
       return c.json(

@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { AccountId, InvitationId } from "@chase-sets/primitives/typed-ids";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import {
   canAssignRole,
@@ -53,15 +53,6 @@ function assignmentAuthority(actor: IdentityApiEnv["Variables"]["actor"]): RoleA
   return roleKey ? { type: "actor", roleKey } : { type: "system" };
 }
 
-function invalidAccountId() {
-  return {
-    error: {
-      code: "validation_failed",
-      message: t("identity.features.invitations.api.route.account.id.invalid"),
-    },
-  };
-}
-
 function accountNotFound() {
   return {
     error: {
@@ -76,11 +67,8 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
 
   app.post("/", async (c) => {
     const body = await c.req.json();
-    const invitationId = body.invitationId as InvitationId;
-    const accountId = String(body.accountId ?? "").trim();
-    if (!accountId.startsWith("acc_")) {
-      return c.json(invalidAccountId(), 400);
-    }
+    const invitationId = parseTypedIdBoundary(body.invitationId, "ivt", "invitationId");
+    const accountId = parseTypedIdBoundary(body.accountId, "acc", "accountId");
     if (!canManageInvitation(c.var.actor, { account_id: accountId })) {
       return c.json(forbidden(), 403);
     }
@@ -101,7 +89,7 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
       command: {
         type: "CreateInvitation",
         invitationId,
-        accountId: accountId as AccountId,
+        accountId,
         email: body.email,
         roleKey,
         expiresAt: body.expiresAt,
@@ -113,7 +101,7 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
   });
 
   app.post("/:id/resend", async (c) => {
-    const invitationId = c.req.param("id");
+    const invitationId = parseTypedIdBoundary(c.req.param("id"), "ivt", "invitationId");
     const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
@@ -134,7 +122,7 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
   });
 
   app.post("/:id/cancel", async (c) => {
-    const invitationId = c.req.param("id");
+    const invitationId = parseTypedIdBoundary(c.req.param("id"), "ivt", "invitationId");
     const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
@@ -154,7 +142,7 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
   });
 
   app.post("/:id/decline", async (c) => {
-    const invitationId = c.req.param("id");
+    const invitationId = parseTypedIdBoundary(c.req.param("id"), "ivt", "invitationId");
     const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
@@ -186,7 +174,8 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
   });
 
   app.get("/:id", async (c) => {
-    const invitation = await services.getInvitationForRead(c.req.param("id"));
+    const invitationId = parseTypedIdBoundary(c.req.param("id"), "ivt", "invitationId");
+    const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
         { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },

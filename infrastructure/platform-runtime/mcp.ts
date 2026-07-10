@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { AGENT_OAUTH_SUPPORTED_SCOPES, type AgentOAuthScope } from "@chase-sets/auth-context";
 import type { BcApiModule, BcMcpCapabilities, BcMcpHandlers } from "@chase-sets/bounded-context-module";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
+import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
 import {
   authorizeMcpToolInvocation,
   flattenAvailableMcpResources,
@@ -187,6 +189,27 @@ export function readMcpStringArgument(args: Readonly<Record<string, unknown>>, k
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+export function readMcpTypedIdArgument<Prefix extends string>(
+  args: Readonly<Record<string, unknown>>,
+  key: string,
+  prefix: Prefix,
+): TypedUlid<Prefix> {
+  return parseTypedIdBoundary(readMcpStringArgument(args, key), prefix, key);
+}
+
+export function readOptionalMcpTypedIdArgument<Prefix extends string>(
+  args: Readonly<Record<string, unknown>>,
+  key: string,
+  prefix: Prefix,
+): TypedUlid<Prefix> | null {
+  const value = readMcpStringArgument(args, key);
+  if (value === null) {
+    return null;
+  }
+
+  return readMcpTypedIdArgument(args, key, prefix);
+}
+
 export function ensureMcpActorAccount(
   actor: ResolvedActor | null,
   accountId: string | null,
@@ -202,7 +225,9 @@ export function ensureMcpActorAccount(
     throw new Error(`${accountIdArgumentName} is required.`);
   }
 
-  if (actor.accountId !== accountId) {
+  const parsedAccountId = parseTypedIdBoundary(accountId, "acc", accountIdArgumentName);
+
+  if (actor.accountId !== parsedAccountId) {
     throw new Error(`${accountIdArgumentName} must match the authenticated actor account.`);
   }
 

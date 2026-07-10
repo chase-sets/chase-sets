@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
+import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import { Hono } from "hono";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceApiEnv } from "../../../api";
@@ -581,19 +582,19 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
-              listingIdOverride: parseOptionalString(body.listingIdOverride) as ListingId,
+              listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
             },
             context,
           )
         : await services.createListing(
             {
               accountId: access.actor.accountId as AccountId,
-              inventoryItemId: String(body.inventoryItemId ?? ""),
+              inventoryItemId: parseTypedIdBoundary(body.inventoryItemId, "inv", "inventoryItemId"),
               priceAmount: String(body.priceAmount ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
-              listingIdOverride: parseOptionalString(body.listingIdOverride) as ListingId,
+              listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
             },
             context,
           );

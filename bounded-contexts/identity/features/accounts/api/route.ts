@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
@@ -31,7 +31,7 @@ export function accountRoutes(services: AccountServices) {
   app.post("/", async (c) => {
     const body = await c.req.json();
     const context = c.get("context");
-    const accountId = body.accountId as AccountId;
+    const accountId = parseTypedIdBoundary(body.accountId, "acc", "accountId");
     const result = await services.commandHandler({
       streamId: `identity.account-${accountId}`,
       command: {
@@ -48,7 +48,7 @@ export function accountRoutes(services: AccountServices) {
 
   app.put("/:id", async (c) => {
     const body = await c.req.json();
-    const accountId = c.req.param("id");
+    const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
     if (!canManageAccount(c.var.actor, accountId)) {
       return c.json(forbidden(), 403);
     }
@@ -66,7 +66,7 @@ export function accountRoutes(services: AccountServices) {
   });
 
   app.post("/:id/suspend", async (c) => {
-    const accountId = c.req.param("id");
+    const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
     if (!canManageAccount(c.var.actor, accountId)) {
       return c.json(forbidden(), 403);
     }
@@ -79,7 +79,7 @@ export function accountRoutes(services: AccountServices) {
   });
 
   app.post("/:id/reactivate", async (c) => {
-    const accountId = c.req.param("id");
+    const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
     if (!canManageAccount(c.var.actor, accountId)) {
       return c.json(forbidden(), 403);
     }
@@ -92,7 +92,7 @@ export function accountRoutes(services: AccountServices) {
   });
 
   app.post("/:id/close", async (c) => {
-    const accountId = c.req.param("id");
+    const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
     if (!canManageAccount(c.var.actor, accountId)) {
       return c.json(forbidden(), 403);
     }
@@ -105,7 +105,7 @@ export function accountRoutes(services: AccountServices) {
   });
 
   app.post("/:id/badges", async (c) => {
-    const accountId = c.req.param("id");
+    const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
     if (!canManageAccount(c.var.actor, accountId)) {
       return c.json(forbidden(), 403);
     }
@@ -140,7 +140,7 @@ export function accountRoutes(services: AccountServices) {
   });
 
   app.delete("/:id/badges/:badgeKey", async (c) => {
-    const accountId = c.req.param("id");
+    const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
     if (!canManageAccount(c.var.actor, accountId)) {
       return c.json(forbidden(), 403);
     }
@@ -193,7 +193,7 @@ export function accountRoutes(services: AccountServices) {
 
   app.get("/:id", async (c) => {
     const actor = c.var.actor;
-    const accountId = c.req.param("id");
+    const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
     if (actor && !canManageAccount(actor, accountId)) {
       return c.json(forbidden(), 403);
     }

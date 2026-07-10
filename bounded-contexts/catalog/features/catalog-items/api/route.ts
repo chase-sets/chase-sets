@@ -1,10 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseTypedIdArrayBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { BulkEditCatalogItemOperation, BulkPublishSelection, CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
-import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
 import { CatalogDomainError, type LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { CatalogItemImageFallback } from "../domain/domain";
 import {
@@ -18,7 +18,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   app.post("/", async (c) => {
     const body = await c.req.json();
     const context = c.get("context");
-    const itemId = body.itemId as CatalogItemId;
+    const itemId = parseTypedIdBoundary(body.itemId, "cat", "itemId");
 
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
@@ -101,7 +101,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.post("/:id/blueprint", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -109,7 +109,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "AssignBlueprintToCatalogItem",
-        blueprintId: body.blueprintId as BlueprintId,
+        blueprintId: parseTypedIdBoundary(body.blueprintId, "bpr", "blueprintId"),
       },
       context,
     });
@@ -118,7 +118,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.put("/:id/fields/:fieldId", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -126,7 +126,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "SetCatalogItemFieldValue",
-        fieldId: c.req.param("fieldId") as FieldId,
+        fieldId: parseTypedIdBoundary(c.req.param("fieldId"), "fld", "fieldId"),
         value: body.value,
       },
       context,
@@ -136,7 +136,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.delete("/:id/fields/:fieldId", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json().catch(() => ({}));
     const context = c.get("context");
 
@@ -144,8 +144,11 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "ClearCatalogItemFieldValue",
-        fieldId: c.req.param("fieldId") as FieldId,
-        requiredFieldIds: body.requiredFieldIds as FieldId[] | undefined,
+        fieldId: parseTypedIdBoundary(c.req.param("fieldId"), "fld", "fieldId"),
+        requiredFieldIds:
+          body.requiredFieldIds === undefined
+            ? undefined
+            : parseTypedIdArrayBoundary(body.requiredFieldIds, "fld", "requiredFieldIds"),
       },
       context,
     });
@@ -154,14 +157,14 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.post("/:id/categories/:categoryId", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "AssignCatalogItemToCategory",
-        categoryId: c.req.param("categoryId") as CategoryId,
+        categoryId: parseTypedIdBoundary(c.req.param("categoryId"), "ctg", "categoryId"),
       },
       context,
     });
@@ -170,14 +173,14 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.delete("/:id/categories/:categoryId", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "RemoveCatalogItemFromCategory",
-        categoryId: c.req.param("categoryId") as CategoryId,
+        categoryId: parseTypedIdBoundary(c.req.param("categoryId"), "ctg", "categoryId"),
       },
       context,
     });
@@ -186,7 +189,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.post("/:id/publish", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -195,7 +198,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       command: {
         type: "PublishCatalogItem",
         blueprintIsActive: body.blueprintIsActive,
-        requiredFieldIds: body.requiredFieldIds as FieldId[],
+        requiredFieldIds: parseTypedIdArrayBoundary(body.requiredFieldIds, "fld", "requiredFieldIds"),
       },
       context,
     });
@@ -204,7 +207,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.put("/:id/metadata", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -224,7 +227,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.put("/:id/tags", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -241,7 +244,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.put("/:id/image-urls", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -258,7 +261,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.put("/:id/image-fallback", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -275,7 +278,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.delete("/:id/image-fallback", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -290,7 +293,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.put("/:id/external-product-references/:providerKey/:externalKey", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json().catch(() => ({}));
     const context = c.get("context");
 
@@ -309,7 +312,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.put("/:id/external-catalog-item-references/:providerKey/:externalKey", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -326,7 +329,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.delete("/:id/external-product-references/:providerKey/:externalKey", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -343,7 +346,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.delete("/:id/external-catalog-item-references/:providerKey/:externalKey", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -360,7 +363,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.post("/:id/archive", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -373,7 +376,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   app.delete("/:id", async (c) => {
-    const itemId = c.req.param("id");
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
 
     const result = await services.commandHandler({

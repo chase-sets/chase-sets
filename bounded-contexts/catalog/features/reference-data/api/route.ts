@@ -1,10 +1,10 @@
 import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { ReferenceDataServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
-import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 export function referenceDataRoutes(
@@ -16,7 +16,7 @@ export function referenceDataRoutes(
   app.post("/reference-types", async (c) => {
     const body = await c.req.json();
     const context = c.get("context");
-    const referenceTypeId = body.referenceTypeId as ReferenceTypeId;
+    const referenceTypeId = parseTypedIdBoundary(body.referenceTypeId, "rft", "referenceTypeId");
 
     const result = await services.referenceTypeCommandHandler({
       streamId: `catalog.reference-type-${referenceTypeId}`,
@@ -58,7 +58,7 @@ export function referenceDataRoutes(
   });
 
   app.put("/reference-types/:id", async (c) => {
-    const referenceTypeId = c.req.param("id");
+    const referenceTypeId = parseTypedIdBoundary(c.req.param("id"), "rft", "referenceTypeId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -78,7 +78,7 @@ export function referenceDataRoutes(
   });
 
   app.post("/reference-types/:id/publish", async (c) => {
-    const referenceTypeId = c.req.param("id");
+    const referenceTypeId = parseTypedIdBoundary(c.req.param("id"), "rft", "referenceTypeId");
     const context = c.get("context");
 
     const result = await services.referenceTypeCommandHandler({
@@ -91,7 +91,7 @@ export function referenceDataRoutes(
   });
 
   app.post("/reference-types/:id/deprecate", async (c) => {
-    const referenceTypeId = c.req.param("id");
+    const referenceTypeId = parseTypedIdBoundary(c.req.param("id"), "rft", "referenceTypeId");
     const context = c.get("context");
 
     const result = await services.referenceTypeCommandHandler({
@@ -104,7 +104,7 @@ export function referenceDataRoutes(
   });
 
   app.post("/reference-types/:id/archive", async (c) => {
-    const referenceTypeId = c.req.param("id");
+    const referenceTypeId = parseTypedIdBoundary(c.req.param("id"), "rft", "referenceTypeId");
     const context = c.get("context");
 
     const result = await services.referenceTypeCommandHandler({
@@ -150,7 +150,7 @@ export function referenceDataRoutes(
   app.post("/reference-records", async (c) => {
     const body = await c.req.json();
     const context = c.get("context");
-    const referenceRecordId = body.referenceRecordId as ReferenceRecordId;
+    const referenceRecordId = parseTypedIdBoundary(body.referenceRecordId, "ref", "referenceRecordId");
 
     const result = await services.referenceRecordCommandHandler({
       streamId: `catalog.reference-record-${referenceRecordId}`,
@@ -194,7 +194,7 @@ export function referenceDataRoutes(
   });
 
   app.put("/reference-records/:id", async (c) => {
-    const referenceRecordId = c.req.param("id");
+    const referenceRecordId = parseTypedIdBoundary(c.req.param("id"), "ref", "referenceRecordId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -216,7 +216,7 @@ export function referenceDataRoutes(
   });
 
   app.post("/reference-records/:id/publish", async (c) => {
-    const referenceRecordId = c.req.param("id");
+    const referenceRecordId = parseTypedIdBoundary(c.req.param("id"), "ref", "referenceRecordId");
     const context = c.get("context");
 
     const result = await services.referenceRecordCommandHandler({
@@ -229,7 +229,7 @@ export function referenceDataRoutes(
   });
 
   app.post("/reference-records/:id/deprecate", async (c) => {
-    const referenceRecordId = c.req.param("id");
+    const referenceRecordId = parseTypedIdBoundary(c.req.param("id"), "ref", "referenceRecordId");
     const context = c.get("context");
 
     const result = await services.referenceRecordCommandHandler({
@@ -242,7 +242,7 @@ export function referenceDataRoutes(
   });
 
   app.post("/reference-records/:id/archive", async (c) => {
-    const referenceRecordId = c.req.param("id");
+    const referenceRecordId = parseTypedIdBoundary(c.req.param("id"), "ref", "referenceRecordId");
     const context = c.get("context");
 
     const result = await services.referenceRecordCommandHandler({

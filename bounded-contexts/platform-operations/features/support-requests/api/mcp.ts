@@ -1,6 +1,7 @@
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -140,7 +141,7 @@ export function createSupportRequestMcpHandlers(
     readSupportRequest(
       services,
       readRequiredString(args, "accountId"),
-      readRequiredString(args, "supportRequestId"),
+      readMcpTypedIdArgument(args, "supportRequestId", "sup"),
       actor,
     );
 

@@ -1,10 +1,10 @@
 import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { FieldServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
-import type { FieldId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogAuthoringBulkJobServices) {
@@ -13,7 +13,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
   app.post("/", async (c) => {
     const body = await c.req.json();
     const context = c.get("context");
-    const fieldId = body.fieldId as FieldId;
+    const fieldId = parseTypedIdBoundary(body.fieldId, "fld", "fieldId");
 
     const result = await services.commandHandler({
       streamId: `catalog.field-${fieldId}`,
@@ -56,7 +56,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
   });
 
   app.put("/:id", async (c) => {
-    const fieldId = c.req.param("id");
+    const fieldId = parseTypedIdBoundary(c.req.param("id"), "fld", "fieldId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -77,7 +77,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
   });
 
   app.post("/:id/activate", async (c) => {
-    const fieldId = c.req.param("id");
+    const fieldId = parseTypedIdBoundary(c.req.param("id"), "fld", "fieldId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -90,7 +90,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
   });
 
   app.post("/:id/deprecate", async (c) => {
-    const fieldId = c.req.param("id");
+    const fieldId = parseTypedIdBoundary(c.req.param("id"), "fld", "fieldId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -103,7 +103,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
   });
 
   app.post("/:id/archive", async (c) => {
-    const fieldId = c.req.param("id");
+    const fieldId = parseTypedIdBoundary(c.req.param("id"), "fld", "fieldId");
     const context = c.get("context");
 
     const result = await services.commandHandler({

@@ -1,10 +1,14 @@
 import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import {
+  parseOptionalTypedIdBoundary,
+  parseTypedIdArrayBoundary,
+  parseTypedIdBoundary,
+} from "@chase-sets/http/typed-id";
 import type { ComponentServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
-import type { ComponentId, FieldId, DimensionId, OptionId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 export function componentRoutes(services: ComponentServices, authoringBulkJobs: CatalogAuthoringBulkJobServices) {
@@ -13,7 +17,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   app.post("/", async (c) => {
     const body = await c.req.json();
     const context = c.get("context");
-    const componentId = body.componentId as ComponentId;
+    const componentId = parseTypedIdBoundary(body.componentId, "cmp", "componentId");
 
     const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
@@ -54,7 +58,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   });
 
   app.post("/:id/field-rules", async (c) => {
-    const componentId = c.req.param("id");
+    const componentId = parseTypedIdBoundary(c.req.param("id"), "cmp", "componentId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -62,7 +66,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "AddFieldRuleToComponent",
-        fieldId: body.fieldId as FieldId,
+        fieldId: parseTypedIdBoundary(body.fieldId, "fld", "fieldId"),
         required: body.required,
       },
       context,
@@ -72,14 +76,14 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   });
 
   app.delete("/:id/field-rules/:fieldId", async (c) => {
-    const componentId = c.req.param("id");
+    const componentId = parseTypedIdBoundary(c.req.param("id"), "cmp", "componentId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "RemoveFieldRuleFromComponent",
-        fieldId: c.req.param("fieldId") as FieldId,
+        fieldId: parseTypedIdBoundary(c.req.param("fieldId"), "fld", "fieldId"),
       },
       context,
     });
@@ -88,7 +92,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   });
 
   app.post("/:id/dimension-rules", async (c) => {
-    const componentId = c.req.param("id");
+    const componentId = parseTypedIdBoundary(c.req.param("id"), "cmp", "componentId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -96,9 +100,12 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "AddDimensionRuleToComponent",
-        dimensionId: body.dimensionId as DimensionId,
+        dimensionId: parseTypedIdBoundary(body.dimensionId, "dim", "dimensionId"),
         required: body.required,
-        allowedOptionIds: body.allowedOptionIds as OptionId[] | undefined,
+        allowedOptionIds:
+          body.allowedOptionIds === undefined
+            ? undefined
+            : parseTypedIdArrayBoundary(body.allowedOptionIds, "chc", "allowedOptionIds"),
         appliesWhen: body.appliesWhen,
       },
       context,
@@ -108,14 +115,14 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   });
 
   app.delete("/:id/dimension-rules/:dimensionId", async (c) => {
-    const componentId = c.req.param("id");
+    const componentId = parseTypedIdBoundary(c.req.param("id"), "cmp", "componentId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "RemoveDimensionRuleFromComponent",
-        dimensionId: c.req.param("dimensionId") as DimensionId,
+        dimensionId: parseTypedIdBoundary(c.req.param("dimensionId"), "dim", "dimensionId"),
       },
       context,
     });
@@ -124,7 +131,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   });
 
   app.put("/:id", async (c) => {
-    const componentId = c.req.param("id");
+    const componentId = parseTypedIdBoundary(c.req.param("id"), "cmp", "componentId");
     const body = await c.req.json();
     const context = c.get("context");
 
@@ -145,7 +152,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   });
 
   app.post("/:id/activate", async (c) => {
-    const componentId = c.req.param("id");
+    const componentId = parseTypedIdBoundary(c.req.param("id"), "cmp", "componentId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -158,7 +165,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   });
 
   app.post("/:id/deprecate", async (c) => {
-    const componentId = c.req.param("id");
+    const componentId = parseTypedIdBoundary(c.req.param("id"), "cmp", "componentId");
     const context = c.get("context");
 
     const result = await services.commandHandler({
@@ -171,7 +178,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
   });
 
   app.post("/:id/archive", async (c) => {
-    const componentId = c.req.param("id");
+    const componentId = parseTypedIdBoundary(c.req.param("id"), "cmp", "componentId");
     const context = c.get("context");
 
     const result = await services.commandHandler({

@@ -2,6 +2,7 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -190,13 +191,18 @@ export function createPaymentMcpHandlers(
   };
 
   const getPayment: McpToolHandler = ({ actor, arguments: args }) =>
-    readPayment(services, readRequiredString(args, "accountId"), readRequiredString(args, "paymentId"), actor);
+    readPayment(
+      services,
+      readRequiredString(args, "accountId"),
+      readMcpTypedIdArgument(args, "paymentId", "pay"),
+      actor,
+    );
 
   const getRefundStatus: McpToolHandler = async ({ actor, arguments: args }) => {
     const result = await readPayment(
       services,
       readRequiredString(args, "accountId"),
-      readRequiredString(args, "paymentId"),
+      readMcpTypedIdArgument(args, "paymentId", "pay"),
       actor,
     );
 

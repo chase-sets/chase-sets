@@ -1,6 +1,7 @@
 import {
   ensureMcpActorAccount,
   readMcpStringArgument,
+  readMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
@@ -125,7 +126,7 @@ export function createOrderingOrderMcpHandlers(
   };
 
   const getOrder: McpToolHandler = ({ actor, arguments: args }) =>
-    readOrder(services, readRequiredString(args, "accountId"), readRequiredString(args, "orderId"), actor);
+    readOrder(services, readRequiredString(args, "accountId"), readMcpTypedIdArgument(args, "orderId", "ord"), actor);
 
   const readOrderResource: McpResourceHandler = ({ actor, uri }) => {
     const parts = orderUriParts(uri);
