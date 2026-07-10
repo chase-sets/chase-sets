@@ -4,27 +4,27 @@ Product Contents QA closes only after the implementation PRs for Catalog authori
 
 ## Seeded Scenario
 
-Catalog bootstrap reconciles Product Content Type and Product Content Inclusion Policy configuration during `catalog-integration-bootstrap`. After scenario Catalog Item projections are available, non-production `scenario-seed` also reconciles one representative relationship:
+Catalog bootstrap reconciles Product Content Type and Product Content Inclusion Policy configuration during `catalog-integration-bootstrap`. Non-production `scenario-seed` and the explicit staging `representative-commerce-state` refresh both reconcile one representative relationship:
 
 - container: Prismatic Evolutions Booster Pack
 - contained: Pikachu, Prismatic Evolutions
 - content type: Card
 - inclusion policy: Randomized
-- provenance: `scenario-seed`
+- provenance: the active seed profile (`scenario-seed` or `representative-commerce-state`)
 
 This scenario proves the configured-label path without repurposing seeded sealed-product identity fields such as `pack-count` or `sealed-product-form`.
 
-Use the seeded scenario only in environments that run `scenario-seed`, such as local development and PR previews. Long-lived staging deploys run only `critical-bootstrap` and `catalog-integration-bootstrap`, and the `Platform Staging Representative Commerce State` workflow runs `critical-bootstrap`, `catalog-integration-bootstrap`, and `representative-commerce-state`. Those staging paths intentionally do not create seeded Catalog Items, so public staging Marketplace should not be expected to show the Prismatic Evolutions seed scenario unless an operator deliberately ran `scenario-seed` against staging.
+Local development and PR previews receive the scenario through `scenario-seed`. Long-lived staging receives only this curated Catalog fixture through the explicitly confirmed `Platform Staging Representative Commerce State` workflow; normal staging deploy bootstrap still does not create it. The refresh creates any missing fixture item streams, projects the Catalog Items, reconciles Product Contents, synchronizes Catalog and Discovery detail/search projections, and prioritizes both items outside the ordinary untouched-item budget.
 
 When `scenario-seed` is enabled, host seed reconciliation drains projections and reruns the seed after Catalog Item projections settle. If the first pass logs that the Product Contents scenario was skipped until Catalog Item projections are available, that is not terminal by itself; the later reconciliation pass should write the relationship after `catalog.catalog-item-projection` catches up.
 
 ## Staging Scenario Selection
 
-For long-lived staging Marketplace UAT, use a support-safe provider/imported or admin-authored Catalog Item pair that is already visible in public staging search and item detail. Do not use private account IDs, provider payloads, tokens, raw Source Observation JSON, or unpublished provider IDs in public evidence.
+For long-lived staging Marketplace UAT, first run the confirmed representative commerce refresh and use the Prismatic Evolutions fixture. A support-safe provider/imported or admin-authored pair remains a valid fallback for additional coverage. Do not use private account IDs, provider payloads, tokens, raw Source Observation JSON, or unpublished provider IDs in public evidence.
 
 1. Confirm the release containing Product Contents detail/search support is deployed to staging.
-2. Confirm the container and contained Catalog Items are visible on public staging Marketplace before authoring Product Contents. Public evidence may name titles and public item slugs only.
-3. In staging Admin Catalog, open the container Catalog Item detail and add the contained Catalog Item through the Product Contents panel using configured Product Content Type and Inclusion Policy values.
+2. Confirm the container and contained Catalog Items are visible on public staging Marketplace after the representative refresh. Public evidence may name titles and public item slugs only.
+3. For the curated fixture, confirm the seeded Card/Randomized relationship. For a fallback pair, use staging Admin Catalog to author the Product Contents line.
 4. Confirm the Catalog API read model returns the relationship:
 
 ```http
@@ -46,7 +46,7 @@ discovery.discovery-search-item-projection
 - contained detail shows `Included in`
 - search for the contained item returns the container as a lower-ranked related result
 
-If public staging search returns zero results for both the chosen container and contained item while a control search succeeds, the blocker is missing Catalog/Discovery/Marketplace scenario visibility, not Product Contents projection alone. Choose a different visible staging Catalog Item pair or import/promote visible provider data before collecting Product Contents Marketplace evidence.
+If public staging search returns zero results for both fixture items while a control search succeeds after a green representative refresh, inspect the refresh evidence and its Catalog/Discovery projection steps; the fixture is no longer subject to the ordinary Catalog Item budget. A separate visible pair may still be used to continue UAT while that refresh failure is diagnosed.
 
 ## Required Evidence
 

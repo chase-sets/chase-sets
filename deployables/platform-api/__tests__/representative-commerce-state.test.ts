@@ -3,15 +3,35 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  assertRepresentativeProductContentsReconciled,
   assertRepresentativeCommerceStateRunAllowed,
   assertRepresentativeCommerceStateEvidenceIsSupportSafe,
   selectChromeUatRepresentativePersona,
   selectPendingPaymentSaleRepresentativePersona,
+  representativeProductContentsProjectionPlan,
   writeRepresentativeCommerceStateEvidence,
   type RepresentativeCommerceStateEvidence,
 } from "../src/representative-commerce-state";
 
 describe("representative commerce state refresh guardrails", () => {
+  it("fails rather than reporting a green refresh when Product Contents fixture items are not projected", () => {
+    expect(() => assertRepresentativeProductContentsReconciled(false)).toThrow(
+      "Representative Product Contents reconciliation requires both fixture Catalog Items to be projected.",
+    );
+    expect(() => assertRepresentativeProductContentsReconciled(true)).not.toThrow();
+  });
+
+  it("projects the representative Product Contents scenario into Catalog detail and Discovery search surfaces", () => {
+    expect(representativeProductContentsProjectionPlan).toEqual({
+      beforeContents: { contextName: "catalog", projectionName: "catalog-item-projection" },
+      afterContents: [
+        { contextName: "catalog", projectionName: "catalog-product-contents-projection" },
+        { contextName: "discovery", projectionName: "discovery-item-detail-projection" },
+        { contextName: "discovery", projectionName: "discovery-search-item-projection" },
+      ],
+    });
+  });
+
   it("allows confirmed staging runs", () => {
     expect(() =>
       assertRepresentativeCommerceStateRunAllowed({

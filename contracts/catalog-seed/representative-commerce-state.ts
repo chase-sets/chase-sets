@@ -431,6 +431,25 @@ export async function prepareRepresentativeCatalogUsageCandidates(
   return loadRepresentativeCatalogUsageCandidates(services.db, { limit });
 }
 
+export async function prepareRepresentativeCatalogUsageCandidatesByIds(
+  services: CatalogRepresentativeServices,
+  catalogItemIds: readonly string[],
+): Promise<readonly CatalogRepresentativeCatalogUsageCandidate[]> {
+  const requiredCatalogItemIds = uniqueTextValues(catalogItemIds);
+  for (const catalogItemId of requiredCatalogItemIds) {
+    await services.productMeasures.resolveCatalogItemMeasures(catalogItemId);
+  }
+
+  const candidates = await loadRepresentativeCatalogUsageCandidatesByIds(services.db, requiredCatalogItemIds);
+  const preparedCatalogItemIds = new Set(candidates.map((candidate) => candidate.catalogItemId));
+  if (requiredCatalogItemIds.some((catalogItemId) => !preparedCatalogItemIds.has(catalogItemId))) {
+    throw new Error(
+      "Required representative Product Contents Catalog Items are not active with resolved product measures.",
+    );
+  }
+  return candidates;
+}
+
 export async function loadRepresentativeCatalogUsageCandidates(
   db: RepresentativeQueryable,
   options: Readonly<{ limit?: number }> = {},
@@ -483,6 +502,77 @@ export async function loadRepresentativeCatalogUsageCandidates(
     productMeasureSnapshots: parseProductMeasureSnapshots(row.product_measure_snapshots),
     updatedAt: new Date(row.updated_at).toISOString(),
   }));
+}
+
+export async function loadRepresentativeCatalogUsageCandidatesByIds(
+  db: RepresentativeQueryable,
+  catalogItemIds: readonly string[],
+): Promise<readonly CatalogRepresentativeCatalogUsageCandidate[]> {
+  const requiredCatalogItemIds = uniqueTextValues(catalogItemIds);
+  if (requiredCatalogItemIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<CatalogRepresentativeCatalogItemRow>(
+    `SELECT
+       item.catalog_item_id,
+       item.language_code,
+       item.title,
+       item.subtitle,
+       item.blueprint_id,
+       item.status,
+       COALESCE(
+         jsonb_agg(measure.measure_snapshot ORDER BY measure.product_id)
+           FILTER (WHERE measure.measure_snapshot IS NOT NULL),
+         '[]'::jsonb
+       ) AS product_measure_snapshots,
+       item.updated_at
+     FROM catalog_items item
+     JOIN catalog_resolved_product_measures measure
+       ON measure.catalog_item_id = item.catalog_item_id
+      AND measure.measure_snapshot IS NOT NULL
+     WHERE item.status = 'active'
+       AND item.catalog_item_id = ANY($1::text[])
+     GROUP BY
+       item.catalog_item_id,
+       item.language_code,
+       item.title,
+       item.subtitle,
+       item.blueprint_id,
+       item.status,
+       item.updated_at
+     ORDER BY array_position($1::text[], item.catalog_item_id)`,
+    [requiredCatalogItemIds],
+  );
+
+  const productSchemaByBlueprintId = await loadProductSchemasByBlueprintId(db, [
+    ...new Set(result.rows.map((row) => row.blueprint_id).filter((id): id is string => Boolean(id))),
+  ]);
+
+  return result.rows.map((row) => ({
+    catalogItemId: row.catalog_item_id,
+    languageCode: row.language_code,
+    title: row.title,
+    subtitle: row.subtitle,
+    blueprintId: row.blueprint_id,
+    status: "active",
+    productSchema: row.blueprint_id ? (productSchemaByBlueprintId.get(row.blueprint_id) ?? null) : null,
+    productMeasureSnapshots: parseProductMeasureSnapshots(row.product_measure_snapshots),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  }));
+}
+
+export function prioritizeRepresentativeCatalogUsageCandidates(
+  requiredCandidates: readonly CatalogRepresentativeCatalogUsageCandidate[],
+  currentCandidates: readonly CatalogRepresentativeCatalogUsageCandidate[],
+): readonly CatalogRepresentativeCatalogUsageCandidate[] {
+  const candidatesById = new Map<string, CatalogRepresentativeCatalogUsageCandidate>();
+  for (const candidate of [...requiredCandidates, ...currentCandidates]) {
+    if (!candidatesById.has(candidate.catalogItemId)) {
+      candidatesById.set(candidate.catalogItemId, candidate);
+    }
+  }
+  return [...candidatesById.values()];
 }
 
 export function normalizeRepresentativeCatalogCandidateLimit(value: number | undefined): number {
@@ -631,7 +721,7 @@ export async function loadUntouchedMarketplaceCatalogUsageCandidates(
 export async function filterUntouchedMarketplaceCatalogUsageCandidates(
   db: RepresentativeQueryable,
   candidates: readonly CatalogRepresentativeCatalogUsageCandidate[],
-  options: Readonly<{ limit?: number }> = {},
+  options: Readonly<{ limit?: number; priorityCatalogItemIds?: readonly string[] }> = {},
 ): Promise<readonly CatalogRepresentativeCatalogUsageCandidate[]> {
   const limit = normalizeRepresentativeCandidateLimit(options.limit);
   const candidateIds = candidates.map((candidate) => candidate.catalogItemId);
@@ -654,8 +744,16 @@ export async function filterUntouchedMarketplaceCatalogUsageCandidates(
     [candidateIds],
   );
   const touchedCatalogItemIds = new Set(touchedResult.rows.map((row) => row.catalog_item_id));
+  const priorityCatalogItemIds = new Set(uniqueTextValues(options.priorityCatalogItemIds ?? []));
+  const priorityCandidates = candidates.filter((candidate) => priorityCatalogItemIds.has(candidate.catalogItemId));
+  const untouchedCandidates = candidates
+    .filter(
+      (candidate) =>
+        !priorityCatalogItemIds.has(candidate.catalogItemId) && !touchedCatalogItemIds.has(candidate.catalogItemId),
+    )
+    .slice(0, limit);
 
-  return candidates.filter((candidate) => !touchedCatalogItemIds.has(candidate.catalogItemId)).slice(0, limit);
+  return [...priorityCandidates, ...untouchedCandidates];
 }
 
 export async function reconcileRepresentativeMarketplaceCatalogItems(

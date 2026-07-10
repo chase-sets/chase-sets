@@ -25,7 +25,7 @@ Rules:
 - Normal staging and production deployment bootstrap continue to run only `critical-bootstrap` and `catalog-integration-bootstrap`.
 - `representative-commerce-state` is hard-blocked when `DEPLOYMENT_ENVIRONMENT=production`.
 - Running representative state requires an explicit confirmation phrase.
-- The profile does not create fake Catalog Items. It keeps real Catalog integration data in place and selects eligible active Catalog Items from projected marketplace/catalog read models.
+- The profile keeps real Catalog integration data in place and normally selects eligible active Catalog Items from projected marketplace/catalog read models. A small, explicitly named acceptance fixture may be Catalog-owned when a cross-context staging behavior cannot be proved deterministically from provider data; the Product Contents container/contained pair is the first such fixture.
 - Representative generation prioritizes current Catalog Items with no listings or offers, then adds accounts and commerce usage around them.
 - Representative business usage must be created through bounded-context commands, APIs, and published facts, not direct read-model inserts.
 - Bounded operator refreshes may use context-owned selected read-model reconciliation for already-published facts when a full live projection replay would make a post-import staging refresh unbounded. Marketplace, Inventory, and Discovery own their respective selected reconciliation helpers.
@@ -38,6 +38,7 @@ Rules:
 
 - Staging can become production-like without making every deploy create or mutate representative commerce state.
 - The old `scenario-seed` profile remains useful for dev, preview, and tests.
+- Long-lived staging has one deterministic Product Contents acceptance fixture without enabling the broader fake `scenario-seed` dataset.
 - Staging reset can rebuild a durable representative market after infrastructure recreation, and a manual refresh can add usage after new Catalog integration pulls.
 - Production remains protected from representative state even if `PLATFORM_DATA_PROFILES` is misconfigured.
 - Development seeds remain separate because many of them depend on fixed fake Catalog Item ids. Representative staging state must query current Catalog Items instead.

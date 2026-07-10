@@ -1,5 +1,6 @@
 export { createCatalogRequestApiClient } from "./support/request-support/api-client";
 export { seedCatalogDatabase as bootstrapCatalogDatabase } from "./support/authoring-support/seed";
+export { seedProductContentScenario as reconcileRepresentativeProductContentsScenario } from "./features/product-contents/api/seed";
 export {
   catalogRealtimeManifest,
   catalogRealtimeRegistration,

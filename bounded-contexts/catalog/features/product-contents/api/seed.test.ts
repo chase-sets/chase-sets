@@ -71,6 +71,23 @@ describe("product contents seed", () => {
     );
   });
 
+  it("records representative refresh provenance for the staging-owned scenario", async () => {
+    const { services, productContents } = createSeedServices();
+
+    await seedProductContentScenario(services, { provenanceSource: "representative-commerce-state" });
+
+    expect(productContents.replaceProductContents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lines: [
+          expect.objectContaining({
+            provenance: expect.objectContaining({ source: "representative-commerce-state" }),
+          }),
+        ],
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("waits for Catalog Item projections before writing the representative scenario relationship", async () => {
     const { services, productContents, db } = createSeedServices();
     db.query.mockResolvedValueOnce({

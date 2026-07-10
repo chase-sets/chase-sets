@@ -7,6 +7,8 @@ import {
   normalizeRepresentativeCandidateLimit,
   normalizeRepresentativeCatalogCandidateLimit,
   prepareRepresentativeCatalogUsageCandidates,
+  prepareRepresentativeCatalogUsageCandidatesByIds,
+  prioritizeRepresentativeCatalogUsageCandidates,
   reconcileRepresentativeDiscoveryMarketState,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeMarketplaceCatalogItems,
@@ -147,6 +149,20 @@ describe("representative commerce state seed helpers", () => {
     expect(String(queries[0]?.[0])).toContain("catalog_resolved_product_measures");
   });
 
+  it("fails when a required Product Contents candidate cannot be prepared", async () => {
+    await expect(
+      prepareRepresentativeCatalogUsageCandidatesByIds(
+        {
+          db: { query: async <Row>() => ({ rows: [] as Row[] }) },
+          productMeasures: { resolveCatalogItemMeasures: async () => undefined },
+        },
+        ["cat_required_product_contents"],
+      ),
+    ).rejects.toThrow(
+      "Required representative Product Contents Catalog Items are not active with resolved product measures.",
+    );
+  });
+
   it("selects raw default required product options from current Catalog product schema", () => {
     expect(
       selectDefaultRepresentativeOptions({
@@ -275,6 +291,27 @@ describe("representative commerce state seed helpers", () => {
     expect(String(filterQueries[0]?.[0])).toContain("FROM marketplace_listing_pages listing");
     expect(String(filterQueries[0]?.[0])).toContain("FROM marketplace_offer_pages offer");
     expect(filterQueries[0]?.[1]).toEqual([["cat_touched_1", "cat_untouched_1", "cat_untouched_2"]]);
+  });
+
+  it("keeps required Product Contents candidates ahead of and outside the untouched-item budget", async () => {
+    const container = representativeCatalogCandidate("cat_product_contents_container");
+    const contained = representativeCatalogCandidate("cat_product_contents_contained");
+    const plannedCandidates = prioritizeRepresentativeCatalogUsageCandidates(
+      [container, contained],
+      [representativeCatalogCandidate("cat_current_1"), container, representativeCatalogCandidate("cat_current_2")],
+    );
+    const db: RepresentativeQueryable = {
+      query: async <Row>() => ({
+        rows: [{ catalog_item_id: container.catalogItemId }, { catalog_item_id: contained.catalogItemId }] as Row[],
+      }),
+    };
+
+    await expect(
+      filterUntouchedMarketplaceCatalogUsageCandidates(db, plannedCandidates, {
+        limit: 1,
+        priorityCatalogItemIds: [container.catalogItemId, contained.catalogItemId],
+      }),
+    ).resolves.toEqual([container, contained, representativeCatalogCandidate("cat_current_1")]);
   });
 
   it("submits and accepts representative offers with stable current-state inputs", async () => {

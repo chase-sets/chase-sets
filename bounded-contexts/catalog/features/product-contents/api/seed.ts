@@ -7,7 +7,9 @@ const scenarioContainerCatalogItemId = catalogSeedIds.items.prismaticEvolutionsB
 const scenarioContainedCatalogItemId = catalogSeedIds.items.pikachuPrismaticEvolutions as CatalogItemId;
 const scenarioCatalogItemIds = [scenarioContainerCatalogItemId, scenarioContainedCatalogItemId] as const;
 
-export async function seedProductContentConfiguration(services: CatalogServices): Promise<void> {
+type ProductContentSeedServices = Pick<CatalogServices, "db" | "productContents">;
+
+export async function seedProductContentConfiguration(services: ProductContentSeedServices): Promise<void> {
   await services.productContents.upsertContentType({
     contentTypeId: catalogSeedIds.productContentTypes.card,
     key: "card",
@@ -69,7 +71,10 @@ export async function seedProductContentConfiguration(services: CatalogServices)
   });
 }
 
-export async function seedProductContentScenario(services: CatalogServices): Promise<boolean> {
+export async function seedProductContentScenario(
+  services: ProductContentSeedServices,
+  options: Readonly<{ provenanceSource?: "scenario-seed" | "representative-commerce-state" }> = {},
+): Promise<boolean> {
   await seedProductContentConfiguration(services);
 
   if (!(await scenarioCatalogItemsAreProjected(services))) {
@@ -87,7 +92,7 @@ export async function seedProductContentScenario(services: CatalogServices): Pro
           contentTypeId: catalogSeedIds.productContentTypes.card,
           inclusionPolicyId: catalogSeedIds.productContentInclusionPolicies.randomized,
           provenance: {
-            source: "scenario-seed",
+            source: options.provenanceSource ?? "scenario-seed",
             evidence: "representative-product-contents-rollout",
           },
         },
@@ -98,7 +103,7 @@ export async function seedProductContentScenario(services: CatalogServices): Pro
   return true;
 }
 
-async function scenarioCatalogItemsAreProjected(services: CatalogServices): Promise<boolean> {
+async function scenarioCatalogItemsAreProjected(services: ProductContentSeedServices): Promise<boolean> {
   try {
     const result = await services.db.query<{ catalog_item_id: string }>(
       `SELECT catalog_item_id FROM catalog_items WHERE catalog_item_id = ANY($1::text[])`,

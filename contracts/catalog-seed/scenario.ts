@@ -15,4 +15,13 @@ export const catalogScenarioItems = {
   onePieceRomanceDawnBoosterBox: catalogSeedIds.items.onePieceRomanceDawnBoosterBox,
 } as const;
 
+export const representativeProductContentsScenario = {
+  containerCatalogItemId: catalogScenarioItems.prismaticEvolutionsBoosterPack,
+  containedCatalogItemIds: [catalogScenarioItems.pikachuPrismaticEvolutions],
+  requiredCatalogItemIds: [
+    catalogScenarioItems.prismaticEvolutionsBoosterPack,
+    catalogScenarioItems.pikachuPrismaticEvolutions,
+  ],
+} as const;
+
 export type CatalogScenarioItemAlias = keyof typeof catalogScenarioItems;

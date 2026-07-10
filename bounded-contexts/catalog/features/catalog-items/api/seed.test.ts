@@ -3,6 +3,44 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedCatalogItems } from "./seed";
 
 describe("catalog item seed", () => {
+  it("can seed only the representative Product Contents Catalog Items", async () => {
+    const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
+    const services = {
+      items: {
+        commandHandler: async (input: { streamId: string; command: { type: string } & Record<string, unknown> }) => {
+          commands.push({ streamId: input.streamId, command: input.command });
+        },
+      },
+    };
+    const representativeCatalogItemIds = [
+      catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+      catalogSeedIds.items.pikachuPrismaticEvolutions,
+    ];
+
+    await seedCatalogItems(
+      services as never,
+      keyBackedIds("bpr") as never,
+      keyBackedIds("fld") as never,
+      keyBackedIds("ctg") as never,
+      referenceIds() as never,
+      { catalogItemIds: representativeCatalogItemIds as never },
+    );
+
+    const createdCatalogItemIds = commands
+      .filter((entry) => entry.command.type === "CreateCatalogItem")
+      .map((entry) => String(entry.command.itemId));
+    expect(createdCatalogItemIds).toHaveLength(representativeCatalogItemIds.length);
+    expect(createdCatalogItemIds).toEqual(expect.arrayContaining(representativeCatalogItemIds));
+    for (const catalogItemId of representativeCatalogItemIds) {
+      expect(commands).toContainEqual(
+        expect.objectContaining({
+          streamId: `catalog.item-${catalogItemId}`,
+          command: expect.objectContaining({ type: "PublishCatalogItem" }),
+        }),
+      );
+    }
+  });
+
   it("attaches Scrydex and TCGplayer identities to the same One Piece card Catalog Item", async () => {
     const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
     const services = {

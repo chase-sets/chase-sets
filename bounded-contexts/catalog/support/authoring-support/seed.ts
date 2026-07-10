@@ -38,15 +38,16 @@ import {
 } from "../../features/reference-data/api/seed";
 import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
 import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
-import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
 
 export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
   const services = createCatalogServices(pool);
   const shouldSeedIntegrationProfile = profileEnabled(options, "catalog-integration-bootstrap");
   const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");
+  const shouldSeedRepresentativeProductContents = profileEnabled(options, "representative-commerce-state");
 
-  if (!shouldSeedIntegrationProfile && !shouldSeedScenarioData) {
+  if (!shouldSeedIntegrationProfile && !shouldSeedScenarioData && !shouldSeedRepresentativeProductContents) {
     console.log("Catalog seed skipped for selected data profiles.");
     return;
   }
@@ -59,6 +60,10 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
 
   if (shouldSeedScenarioData) {
     await seedCatalogScenarioData(pool, authoring);
+  }
+
+  if (shouldSeedRepresentativeProductContents) {
+    await seedRepresentativeProductContentsCatalogItems(pool, authoring);
   }
 
   if (shouldSeedIntegrationProfile || shouldSeedScenarioData) {
@@ -137,6 +142,34 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
   await seedProductContentScenario(services);
 }
 
+async function seedRepresentativeProductContentsCatalogItems(
+  pool: PgTransactionalPool,
+  authoring: CatalogIntegrationIds,
+): Promise<void> {
+  const services = createCatalogServices(pool);
+  const streamIds = representativeProductContentsScenario.requiredCatalogItemIds.map(
+    (catalogItemId) => `catalog.item-${catalogItemId}`,
+  );
+  const existing = await services.db.query<{ stream_id: string }>(
+    `SELECT DISTINCT stream_id FROM event_store_events WHERE stream_id = ANY($1::text[])`,
+    [streamIds],
+  );
+  const existingStreamIds = new Set(existing.rows.map((row) => row.stream_id));
+  const missingCatalogItemIds = representativeProductContentsScenario.requiredCatalogItemIds.filter(
+    (catalogItemId) => !existingStreamIds.has(`catalog.item-${catalogItemId}`),
+  );
+
+  if (missingCatalogItemIds.length === 0) {
+    console.log("Representative Product Contents Catalog Items already exist.");
+    return;
+  }
+
+  console.log("Seeding representative Product Contents Catalog Items...");
+  await seedCatalogItems(services, authoring.blueprints, authoring.fields, authoring.categories, authoring.references, {
+    catalogItemIds: missingCatalogItemIds,
+  });
+}
+
 type CatalogIntegrationIds = Readonly<{
   dimensions: DimensionIds;
   fields: FieldIds;
@@ -148,7 +181,7 @@ type CatalogIntegrationIds = Readonly<{
 
 function profileEnabled(
   options: BcSeedOptions | undefined,
-  profile: "catalog-integration-bootstrap" | "scenario-seed",
+  profile: "catalog-integration-bootstrap" | "scenario-seed" | "representative-commerce-state",
 ) {
   const defaultProfiles: readonly EnvironmentDataProfile[] = [
     "critical-bootstrap",

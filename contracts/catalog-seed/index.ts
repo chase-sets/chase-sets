@@ -11,5 +11,5 @@ export {
   type SeedReferenceRecordId,
   type SeedReferenceTypeId,
 } from "./ids";
-export { catalogScenarioItems, type CatalogScenarioItemAlias } from "./scenario";
+export { catalogScenarioItems, representativeProductContentsScenario, type CatalogScenarioItemAlias } from "./scenario";
 export * from "./representative-commerce-state";
