@@ -61,6 +61,7 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
         hasListingStockLocation: false,
         selectedSellerListing: null,
       })),
+      findSimilarItems: vi.fn(async () => ({ items: [], count: 0, mode: "none" as const })),
       projectors: [],
     },
     projectors: [],

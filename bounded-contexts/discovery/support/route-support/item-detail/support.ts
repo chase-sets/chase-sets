@@ -15,6 +15,7 @@ export type ListingSetupLoadState = "not-applicable" | "ready" | "missing" | "fr
 
 export const EMPTY_ITEM_DETAIL_RESULT = {
   item: null,
+  similarItems: [],
   accountOfferMatches: [],
   sellerInventoryItems: [],
   sellerAccountId: null,

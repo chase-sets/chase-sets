@@ -30,6 +30,12 @@ Query embeddings use an in-process LRU with a 1,000-entry hard bound and 15-minu
 
 The API response records `lexical | rescue | hybrid` as `retrievalMode`, and the platform API emits the same redaction-safe dimension through `DiscoverySearchQuerySignal` for #3407. Raw query text is not added to telemetry, and telemetry failure is swallowed so it cannot become a search dependency.
 
+## Similar items
+
+Item detail reads the current active item's stored Search Embedding and uses the same filtered HNSW inner-product index to select at most eight active neighbors, always excluding the source item. It does not create a query embedding or call Voyage at request time. The HNSW query first collects a bounded candidate window in vector-distance order; a 0.03 same-category bonus then breaks close semantic ties without making the outer blend ineligible for the vector index.
+
+The public /items/:id/similar response is cache-friendly and reports whether the bounded results came from semantic, category, or none. DISCOVERY_SEARCH_EMBEDDINGS=off, a missing API key, a NULL source vector, or a vector-query/index failure uses active same-category peers instead. If no such peers exist, item detail omits the section. Candidate rows are active-only and the source item is excluded in both modes.
+
 ## HNSW and latency budget
 
 The ledger-owned `discovery_search_items_embedding_hnsw_idx` uses `halfvec_ip_ops` and includes only active rows with an embedding. Voyage vectors are normalized, so the negative inner-product `<#>` order is equivalent to cosine order. PostgreSQL pgvector defaults are retained deliberately at the current scale: `m=16` and `ef_construction=64`. Semantic SQL orders directly by `<#>` so the index is eligible, then applies the same category, tag, language, blueprint, field, reference, dimension, price/stock market-activity constraints as lexical retrieval. Pgvector 0.8 iterative scans improve selective post-filter recall; the query remains correct on 0.7 and the 100k-row probe measures the deployed version.

@@ -99,6 +99,7 @@ function services(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryIte
     detail: {
       getItemDetail: vi.fn(async () => detailRow()),
       getSellerOverlay: vi.fn(),
+      findSimilarItems: vi.fn(async () => ({ items: [], count: 0, mode: "none" as const })),
       projectors: [],
     },
     projectors: [],
@@ -161,6 +162,7 @@ describe("Discovery item MCP handlers", () => {
         detail: {
           getItemDetail: vi.fn(async () => detailRow({ status: "draft" })),
           getSellerOverlay: vi.fn(),
+          findSimilarItems: vi.fn(async () => ({ items: [], count: 0, mode: "none" as const })),
           projectors: [],
         },
       }),
@@ -179,6 +181,7 @@ describe("Discovery item MCP handlers", () => {
           .mockResolvedValueOnce(detailRow())
           .mockResolvedValueOnce(detailRow({ catalog_item_id: "cat_draft", status: "draft" })),
         getSellerOverlay: vi.fn(),
+        findSimilarItems: vi.fn(async () => ({ items: [], count: 0, mode: "none" as const })),
         projectors: [],
       },
       search: {

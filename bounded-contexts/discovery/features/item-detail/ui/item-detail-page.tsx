@@ -12,12 +12,17 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import type { DiscoveryItemDetail, DiscoveryAccountOfferMatch } from "../../../support/client-support/contracts";
+import type {
+  DiscoveryItemDetail,
+  DiscoveryAccountOfferMatch,
+  DiscoverySimilarItem,
+} from "../../../support/client-support/contracts";
 import { imageVariantSrcSet } from "../../../support/client-support/assets";
 import type { MarketIntent } from "../domain/item-detail-market";
 import { ReferenceDetailDialog } from "./item-detail-references";
 import { ItemDetailMarketBook } from "./item-detail-market-book";
 import { ItemDetailProductContents } from "./item-detail-product-contents";
+import { ItemDetailSimilarItems } from "./item-detail-similar-items";
 import { useItemDetailPageModel, type LoadedItemDetailPageProps } from "./use-item-detail-page-model";
 import type { ItemDetailCommerceSections, ItemDetailMarketplaceSectionContext } from "./item-detail-page-types";
 
@@ -29,6 +34,7 @@ export type {
 
 export function ItemDetailPage({
   data,
+  similarItems = [],
   notFound = false,
   error = null,
   accountOfferMatches = [],
@@ -41,6 +47,7 @@ export function ItemDetailPage({
   renderCommerce,
 }: {
   data: DiscoveryItemDetail | null;
+  similarItems?: readonly DiscoverySimilarItem[];
   notFound?: boolean;
   error?: string | null;
   accountOfferMatches?: readonly DiscoveryAccountOfferMatch[];
@@ -80,6 +87,7 @@ export function ItemDetailPage({
     <LoadedItemDetailPage
       key={data.catalog_item_id}
       data={data}
+      similarItems={similarItems}
       accountOfferMatches={accountOfferMatches}
       viewerAccountId={viewerAccountId}
       initialMarketIntent={initialMarketIntent}
@@ -92,7 +100,9 @@ export function ItemDetailPage({
   );
 }
 
-function LoadedItemDetailPage(props: LoadedItemDetailPageProps) {
+function LoadedItemDetailPage(
+  props: LoadedItemDetailPageProps & Readonly<{ similarItems: readonly DiscoverySimilarItem[] }>,
+) {
   const model = useItemDetailPageModel(props);
 
   return (
@@ -148,6 +158,7 @@ function LoadedItemDetailPage(props: LoadedItemDetailPageProps) {
               onSelectListing={model.selectMarketListing}
               onSelectOffer={model.selectMarketOffer}
             />
+            <ItemDetailSimilarItems items={props.similarItems} />
           </Stack>
         </MarketplaceProductDetailLayout>
         {model.mobileCommerceBottomSheet}

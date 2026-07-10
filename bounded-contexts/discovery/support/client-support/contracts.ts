@@ -78,6 +78,22 @@ export interface DiscoverySearchResponse {
   lexicalCount: number | null;
 }
 
+export interface DiscoverySimilarItem {
+  catalog_item_id: string;
+  slug: string;
+  title: string;
+  subtitle: string | null;
+  image_urls: string[];
+  product_asset_sets: DiscoveryProductAssetSet[];
+  image_fallback: DiscoveryImageFallback | null;
+}
+
+export interface DiscoverySimilarItemsResponse {
+  items: DiscoverySimilarItem[];
+  count: number;
+  mode: "semantic" | "category" | "none";
+}
+
 export interface DiscoveryFacetValue {
   id: string;
   label: string;

@@ -91,6 +91,7 @@ function DiscoveryItemDetailRealtimeView({
   return (
     <ItemDetailPage
       data={realtimeItem}
+      similarItems={data.similarItems}
       accountOfferMatches={data.accountOfferMatches}
       viewerAccountId={data.viewerAccountId}
       initialMarketIntent={data.initialMarketIntent}

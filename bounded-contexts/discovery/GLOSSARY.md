@@ -125,6 +125,16 @@ Notes:
 - **Hybrid** uses reciprocal-rank fusion over a bounded candidate window and is independently rollout-controlled.
 - Both modes respect the complete Filter State and fail open to lexical retrieval.
 
+### Similar Items
+
+**Similar Items** is the bounded Result Set of active catalog items shown on a Detail Page because their stored Search Embeddings are nearest to the source item's stored Search Embedding.
+
+Notes:
+
+- Similar Items excludes the source item and never creates a query embedding.
+- A small same-category bonus breaks close semantic ties after HNSW candidate selection.
+- Disabled, missing, or failed semantic retrieval falls back to active same-category peers; no peers means the section is omitted.
+
 ### Product Contents
 
 **Product Contents** is the Catalog-owned resolved fact that lets Discovery present what a container Product includes and find container Products from contained items.

@@ -5,6 +5,8 @@ export type {
   DiscoveryApiClientOptions,
   DiscoveryCategoryItem,
   DiscoveryItemDetail,
+  DiscoverySimilarItem,
+  DiscoverySimilarItemsResponse,
   DiscoveryPublicListing,
   DiscoveryPublicAccount,
   DiscoverySitemapUrl,
