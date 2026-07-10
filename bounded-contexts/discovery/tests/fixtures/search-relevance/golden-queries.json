@@ -1,0 +1,443 @@
+[
+  {
+    "id": "exact-01",
+    "query": "Charizard",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "exact-02",
+    "query": "Pikachu",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["pikachu-jungle-60"] }
+  },
+  {
+    "id": "exact-03",
+    "query": "Blastoise",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["blastoise-base-2"] }
+  },
+  {
+    "id": "exact-04",
+    "query": "Venusaur",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["venusaur-base-15"] }
+  },
+  {
+    "id": "exact-05",
+    "query": "Mewtwo",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["mewtwo-promo-14"] }
+  },
+  {
+    "id": "exact-06",
+    "query": "Umbreon VMAX",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["umbreon-vmax-215"] }
+  },
+  {
+    "id": "exact-07",
+    "query": "Gengar VMAX",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["gengar-vmax-271"] }
+  },
+  {
+    "id": "exact-08",
+    "query": "Dragonite",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["dragonite-fossil-4"] }
+  },
+  {
+    "id": "exact-09",
+    "query": "Lugia",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["lugia-neo-9"] }
+  },
+  {
+    "id": "exact-10",
+    "query": "Rayquaza VMAX",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["rayquaza-vmax-218"] }
+  },
+  {
+    "id": "exact-11",
+    "query": "Gardevoir ex",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["gardevoir-ex-245"] }
+  },
+  {
+    "id": "exact-12",
+    "query": "Snorlax",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["snorlax-jungle-11"] }
+  },
+  {
+    "id": "exact-13",
+    "query": "Magikarp",
+    "category": "exact",
+    "coverage": ["en", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["magikarp-paldea-203"] }
+  },
+  {
+    "id": "exact-14",
+    "query": "リザードンex",
+    "category": "exact",
+    "coverage": ["ja", "kana", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["charizard-ex-ja-066"] }
+  },
+  {
+    "id": "exact-15",
+    "query": "Pokémon Center Elite Trainer Box",
+    "category": "exact",
+    "coverage": ["en", "diacritic", "exact-title"],
+    "expected": { "kind": "items", "itemIds": ["pokemon-center-etb"] }
+  },
+  {
+    "id": "lexical-01",
+    "query": "Charizard Base Set",
+    "category": "lexical",
+    "coverage": ["en", "partial-title"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "lexical-02",
+    "query": "Base Set 4/102",
+    "category": "lexical",
+    "coverage": ["en", "set-code", "collector-number"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "lexical-03",
+    "query": "BS 2/102",
+    "category": "lexical",
+    "coverage": ["en", "set-code", "collector-number"],
+    "expected": { "kind": "items", "itemIds": ["blastoise-base-2"] }
+  },
+  {
+    "id": "lexical-04",
+    "query": "JU 60/64",
+    "category": "lexical",
+    "coverage": ["en", "set-code", "collector-number"],
+    "expected": { "kind": "items", "itemIds": ["pikachu-jungle-60"] }
+  },
+  {
+    "id": "lexical-05",
+    "query": "Evolving Skies 215/203",
+    "category": "lexical",
+    "coverage": ["en", "partial-title", "collector-number"],
+    "expected": { "kind": "items", "itemIds": ["umbreon-vmax-215"] }
+  },
+  {
+    "id": "lexical-06",
+    "query": "Fusion Strike 271/264",
+    "category": "lexical",
+    "coverage": ["en", "partial-title", "collector-number"],
+    "expected": { "kind": "items", "itemIds": ["gengar-vmax-271"] }
+  },
+  {
+    "id": "lexical-07",
+    "query": "Neo Genesis 9/111",
+    "category": "lexical",
+    "coverage": ["en", "set-code", "collector-number"],
+    "expected": { "kind": "items", "itemIds": ["lugia-neo-9"] }
+  },
+  {
+    "id": "lexical-08",
+    "query": "Paldea Evolved 203/193",
+    "category": "lexical",
+    "coverage": ["en", "set-code", "collector-number"],
+    "expected": { "kind": "items", "itemIds": ["magikarp-paldea-203"] }
+  },
+  {
+    "id": "lexical-09",
+    "query": "Obsidian Flames",
+    "category": "lexical",
+    "coverage": ["en", "partial-title"],
+    "expected": { "kind": "items", "itemIds": ["obsidian-flames-display"] }
+  },
+  {
+    "id": "lexical-10",
+    "query": "151 Ultra Premium",
+    "category": "lexical",
+    "coverage": ["en", "alias"],
+    "expected": { "kind": "items", "itemIds": ["pokemon-151-upc"] }
+  },
+  {
+    "id": "lexical-11",
+    "query": "Moonbreon",
+    "category": "lexical",
+    "coverage": ["en", "alias"],
+    "expected": { "kind": "items", "itemIds": ["umbreon-vmax-215"] }
+  },
+  {
+    "id": "lexical-12",
+    "query": "Lizardon",
+    "category": "lexical",
+    "coverage": ["en", "alias"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "lexical-13",
+    "query": "Kamex",
+    "category": "lexical",
+    "coverage": ["en", "alias"],
+    "expected": { "kind": "items", "itemIds": ["blastoise-base-2"] }
+  },
+  {
+    "id": "lexical-14",
+    "query": "Kairyu",
+    "category": "lexical",
+    "coverage": ["en", "alias"],
+    "expected": { "kind": "items", "itemIds": ["dragonite-fossil-4"] }
+  },
+  {
+    "id": "lexical-15",
+    "query": "ピカチュウ",
+    "category": "lexical",
+    "coverage": ["ja", "kana", "alias"],
+    "expected": { "kind": "items", "itemIds": ["pikachu-jungle-60"] }
+  },
+  {
+    "id": "lexical-16",
+    "query": "リザードン",
+    "category": "lexical",
+    "coverage": ["ja", "kana", "partial-title"],
+    "expected": { "kind": "items", "itemIds": ["charizard-ex-ja-066"] }
+  },
+  {
+    "id": "lexical-17",
+    "query": "ブラッキー",
+    "category": "lexical",
+    "coverage": ["ja", "kana", "partial-alias"],
+    "expected": { "kind": "items", "itemIds": ["umbreon-vmax-215"] }
+  },
+  {
+    "id": "lexical-18",
+    "query": "カビゴン",
+    "category": "lexical",
+    "coverage": ["ja", "kana", "alias"],
+    "expected": { "kind": "items", "itemIds": ["snorlax-jungle-11"] }
+  },
+  {
+    "id": "lexical-19",
+    "query": "Pokemon Center ETB",
+    "category": "lexical",
+    "coverage": ["en", "diacritic", "alias"],
+    "expected": { "kind": "items", "itemIds": ["pokemon-center-etb"] }
+  },
+  {
+    "id": "lexical-20",
+    "query": "Pokémon 151",
+    "category": "lexical",
+    "coverage": ["en", "diacritic", "partial-title"],
+    "expected": { "kind": "items", "itemIds": ["pokemon-151-upc"] }
+  },
+  {
+    "id": "lexical-21",
+    "query": "pikachoo",
+    "category": "lexical",
+    "coverage": ["en", "misspelling"],
+    "expected": { "kind": "items", "itemIds": ["pikachu-jungle-60"] }
+  },
+  {
+    "id": "lexical-22",
+    "query": "charzard",
+    "category": "lexical",
+    "coverage": ["en", "misspelling"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "lexical-23",
+    "query": "umbreon vmaxx",
+    "category": "lexical",
+    "coverage": ["en", "misspelling"],
+    "expected": { "kind": "items", "itemIds": ["umbreon-vmax-215"] }
+  },
+  {
+    "id": "lexical-24",
+    "query": "Rocket Pack",
+    "category": "lexical",
+    "coverage": ["en", "alias"],
+    "expected": { "kind": "items", "itemIds": ["team-rocket-pack"] }
+  },
+  {
+    "id": "lexical-25",
+    "query": "Charizard ex Box",
+    "category": "lexical",
+    "coverage": ["en", "alias"],
+    "expected": { "kind": "items", "itemIds": ["charizard-premium-collection"] }
+  },
+  {
+    "id": "semantic-01",
+    "query": "fire dragon card",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["charizard-base-4"] }
+  },
+  {
+    "id": "semantic-02",
+    "query": "sealed box with charizard",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["obsidian-flames-display", "charizard-premium-collection"] }
+  },
+  {
+    "id": "semantic-03",
+    "query": "yellow electric mouse",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["pikachu-jungle-60"] }
+  },
+  {
+    "id": "semantic-04",
+    "query": "sleeping giant pokemon",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["snorlax-jungle-11"] }
+  },
+  {
+    "id": "semantic-05",
+    "query": "moon themed dark evolution",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["umbreon-vmax-215"] }
+  },
+  {
+    "id": "semantic-06",
+    "query": "ghost alternate artwork",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["gengar-vmax-271"] }
+  },
+  {
+    "id": "semantic-07",
+    "query": "friendly mail dragon",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["dragonite-fossil-4"] }
+  },
+  {
+    "id": "semantic-08",
+    "query": "psychic laboratory legendary",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["mewtwo-promo-14"] }
+  },
+  {
+    "id": "semantic-09",
+    "query": "ocean guardian vintage holo",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["lugia-neo-9"] }
+  },
+  {
+    "id": "semantic-10",
+    "query": "green sky serpent",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["rayquaza-vmax-218"] }
+  },
+  {
+    "id": "semantic-11",
+    "query": "armored water turtle",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["blastoise-base-2"] }
+  },
+  {
+    "id": "semantic-12",
+    "query": "flower dinosaur starter",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["venusaur-base-15"] }
+  },
+  {
+    "id": "semantic-13",
+    "query": "premium trainer kit with sleeves and dice",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["pokemon-center-etb"] }
+  },
+  {
+    "id": "semantic-14",
+    "query": "unopened old rocket wrapper",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["team-rocket-pack"] }
+  },
+  {
+    "id": "semantic-15",
+    "query": "shiny red fish illustration",
+    "category": "semantic",
+    "coverage": ["en", "semantic-intent", "no-lexical-overlap"],
+    "expected": { "kind": "items", "itemIds": ["magikarp-paldea-203"] }
+  },
+  {
+    "id": "negative-01",
+    "query": "Black Lotus Alpha",
+    "category": "negative",
+    "coverage": ["en", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "negative-02",
+    "query": "Taylor Swift autograph",
+    "category": "negative",
+    "coverage": ["en", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "negative-03",
+    "query": "sealed soccer hobby case",
+    "category": "negative",
+    "coverage": ["en", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "negative-04",
+    "query": "デジモン オメガモン",
+    "category": "negative",
+    "coverage": ["ja", "kana", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "negative-05",
+    "query": "first edition shadowless alakazam",
+    "category": "negative",
+    "coverage": ["en", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "negative-06",
+    "query": "topps chrome baseball box",
+    "category": "negative",
+    "coverage": ["en", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "negative-07",
+    "query": "One Ring serialized 001",
+    "category": "negative",
+    "coverage": ["en", "zero-result"],
+    "expected": { "kind": "no-results" }
+  },
+  {
+    "id": "negative-08",
+    "query": "vintage hockey goalie rookie",
+    "category": "negative",
+    "coverage": ["en", "zero-result"],
+    "expected": { "kind": "no-results" }
+  }
+]

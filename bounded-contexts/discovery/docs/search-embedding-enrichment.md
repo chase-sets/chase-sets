@@ -38,3 +38,17 @@ The schema requires pgvector 0.7 or newer for halfvec; HNSW is available from 0.
 ## Rebuild behavior
 
 The Discovery search projection uses replay-only checkpoint reset and upserts existing Search Index rows. The upsert retains the vector and embedding_updated_at when the deterministic text hash is unchanged, and clears only embedding_updated_at when the hash changes. A rebuild therefore preserves valid embeddings while asynchronously refreshing changed documents.
+
+## Relevance evaluation harness
+
+Run the rollout gate against a dedicated, per-context test database:
+
+    pnpm run evaluate:discovery-search-relevance
+
+The command seeds the checked-in representative Search Index fixture, runs lexical-only, semantic-fallback, and hybrid retrieval, then writes JSON and Markdown reports under `artifacts/discovery-search-relevance/`. It fails when hybrid exact-title top-1 is below 100% or when hybrid pass rate, recall@10, or MRR regresses for the exact or lexical categories. Semantic-category gains and negative-query pass rates are reported but do not weaken those protections.
+
+The 63 golden queries and 24 catalog items live in `bounded-contexts/discovery/tests/fixtures/search-relevance/`. Fixture embeddings use the injected deterministic provider model `deterministic-relevance-v1`; neither evaluation nor regeneration reads `VOYAGE_API_KEY` or makes a network call. Regenerate them after editing either source fixture:
+
+    pnpm run generate:discovery-search-relevance-embeddings
+
+The embedding fixture records a source hash, and the evaluation command rejects stale vectors. Use `--report-only` only while tuning a candidate; the default command is the rollout comparison gate.

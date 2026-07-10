@@ -1,0 +1,242 @@
+[
+  {
+    "catalogItemId": "charizard-base-4",
+    "languageCode": "en",
+    "title": "Charizard",
+    "subtitle": "Base Set BS 4/102",
+    "description": "Winged Kanto final evolution famous for scorching attacks.",
+    "aliases": ["Lizardon"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["vintage", "holographic"]
+  },
+  {
+    "catalogItemId": "charizard-ex-ja-066",
+    "languageCode": "ja",
+    "title": "リザードンex",
+    "subtitle": "黒炎の支配者 SV3 066/108",
+    "description": "カントー地方の最終進化。強力な炎の攻撃で知られるポケモンカード。",
+    "aliases": ["Charizard ex", "Lizardon ex"],
+    "categories": ["ポケモンカード"],
+    "tags": ["日本語", "ダブルレア"]
+  },
+  {
+    "catalogItemId": "pikachu-jungle-60",
+    "languageCode": "en",
+    "title": "Pikachu",
+    "subtitle": "Jungle JU 60/64",
+    "description": "Beloved Kanto mascot with crackling cheeks.",
+    "aliases": ["ピカチュウ"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["vintage", "common"]
+  },
+  {
+    "catalogItemId": "blastoise-base-2",
+    "languageCode": "en",
+    "title": "Blastoise",
+    "subtitle": "Base Set BS 2/102",
+    "description": "Armored Kanto final evolution with powerful cannons.",
+    "aliases": ["Kamex", "カメックス"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["vintage", "holographic"]
+  },
+  {
+    "catalogItemId": "venusaur-base-15",
+    "languageCode": "en",
+    "title": "Venusaur",
+    "subtitle": "Base Set BS 15/102",
+    "description": "Kanto final evolution carrying a huge flowering plant.",
+    "aliases": ["Fushigibana", "フシギバナ"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["vintage", "holographic"]
+  },
+  {
+    "catalogItemId": "mewtwo-promo-14",
+    "languageCode": "en",
+    "title": "Mewtwo",
+    "subtitle": "Wizards Black Star Promo WOTC 14",
+    "description": "Engineered legendary battler using mind-powered attacks.",
+    "aliases": ["ミュウツー"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["promo", "legendary"]
+  },
+  {
+    "catalogItemId": "umbreon-vmax-215",
+    "languageCode": "en",
+    "title": "Umbreon VMAX",
+    "subtitle": "Evolving Skies SWSH07 215/203",
+    "description": "Nocturnal Eevee evolution reaching toward a glowing lunar disc.",
+    "aliases": ["Moonbreon", "ブラッキーVMAX"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["alternate art", "secret rare"]
+  },
+  {
+    "catalogItemId": "gengar-vmax-271",
+    "languageCode": "en",
+    "title": "Gengar VMAX",
+    "subtitle": "Fusion Strike SWSH08 271/264",
+    "description": "Grinning spectral giant emerging from a swirling void.",
+    "aliases": ["ゲンガーVMAX"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["alternate art", "secret rare"]
+  },
+  {
+    "catalogItemId": "dragonite-fossil-4",
+    "languageCode": "en",
+    "title": "Dragonite",
+    "subtitle": "Fossil FO 4/62",
+    "description": "Friendly orange courier soaring above the sea.",
+    "aliases": ["Kairyu", "カイリュー"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["vintage", "holographic"]
+  },
+  {
+    "catalogItemId": "lugia-neo-9",
+    "languageCode": "en",
+    "title": "Lugia",
+    "subtitle": "Neo Genesis N1 9/111",
+    "description": "Legendary guardian resting beneath ocean currents.",
+    "aliases": ["ルギア"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["vintage", "holographic", "legendary"]
+  },
+  {
+    "catalogItemId": "rayquaza-vmax-218",
+    "languageCode": "en",
+    "title": "Rayquaza VMAX",
+    "subtitle": "Evolving Skies SWSH07 218/203",
+    "description": "Emerald legendary serpent circling high above the clouds.",
+    "aliases": ["レックウザVMAX"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["alternate art", "secret rare", "legendary"]
+  },
+  {
+    "catalogItemId": "gardevoir-ex-245",
+    "languageCode": "en",
+    "title": "Gardevoir ex",
+    "subtitle": "Scarlet and Violet SVI 245/198",
+    "description": "Elegant empath surrounded by a shimmering aura.",
+    "aliases": ["サーナイトex"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["special illustration rare"]
+  },
+  {
+    "catalogItemId": "snorlax-jungle-11",
+    "languageCode": "en",
+    "title": "Snorlax",
+    "subtitle": "Jungle JU 11/64",
+    "description": "Drowsy heavyweight blocking a countryside path.",
+    "aliases": ["Kabigon", "カビゴン"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["vintage", "holographic"]
+  },
+  {
+    "catalogItemId": "magikarp-paldea-203",
+    "languageCode": "en",
+    "title": "Magikarp",
+    "subtitle": "Paldea Evolved PAL 203/193",
+    "description": "A humble red swimmer leaping through an illustrated stream.",
+    "aliases": ["Koiking", "コイキング"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["illustration rare"]
+  },
+  {
+    "catalogItemId": "pokemon-center-etb",
+    "languageCode": "en",
+    "title": "Pokémon Center Elite Trainer Box",
+    "subtitle": "Scarlet and Violet 151 MEW",
+    "description": "Factory-wrapped premium trainer kit with packs, sleeves, dice, and accessories.",
+    "aliases": ["Pokemon Center ETB", "151 PC ETB"],
+    "categories": ["Sealed Pokemon Products"],
+    "tags": ["elite trainer box", "sealed"]
+  },
+  {
+    "catalogItemId": "obsidian-flames-display",
+    "languageCode": "en",
+    "title": "Obsidian Flames Booster Display",
+    "subtitle": "Scarlet and Violet OBF 36 Packs",
+    "description": "Factory-wrapped display featuring the final Kanto flame evolution across thirty-six packs.",
+    "aliases": ["OBF Booster Box"],
+    "categories": ["Sealed Pokemon Products"],
+    "tags": ["booster display", "sealed"]
+  },
+  {
+    "catalogItemId": "pokemon-151-upc",
+    "languageCode": "en",
+    "title": "Pokémon 151 Ultra-Premium Collection",
+    "subtitle": "MEW UPC",
+    "description": "Factory-wrapped collector bundle with packs, metal pieces, and promotional cards.",
+    "aliases": ["Pokemon 151 UPC", "151 Ultra Premium"],
+    "categories": ["Sealed Pokemon Products"],
+    "tags": ["collection", "sealed"]
+  },
+  {
+    "catalogItemId": "team-rocket-pack",
+    "languageCode": "en",
+    "title": "Team Rocket Booster Pack",
+    "subtitle": "TR Unlimited",
+    "description": "Unopened vintage wrapper containing an eleven-card expansion pack.",
+    "aliases": ["Rocket Pack"],
+    "categories": ["Sealed Pokemon Products"],
+    "tags": ["booster pack", "vintage", "sealed"]
+  },
+  {
+    "catalogItemId": "basic-fire-energy-98",
+    "languageCode": "en",
+    "title": "Basic Fire Energy",
+    "subtitle": "Scarlet and Violet SVI 098/198",
+    "description": "Standard resource used to power flame-aligned attacks.",
+    "aliases": ["炎エネルギー"],
+    "categories": ["Pokemon Cards"],
+    "tags": ["energy", "common"]
+  },
+  {
+    "catalogItemId": "charizard-premium-collection",
+    "languageCode": "en",
+    "title": "Charizard ex Premium Collection",
+    "subtitle": "SVP Collection",
+    "description": "Factory-wrapped gift bundle centered on the final Kanto flame evolution with promotional cards and packs.",
+    "aliases": ["Charizard ex Box"],
+    "categories": ["Sealed Pokemon Products"],
+    "tags": ["collection", "sealed"]
+  },
+  {
+    "catalogItemId": "agumon-bt14-001",
+    "languageCode": "en",
+    "title": "Agumon",
+    "subtitle": "Blast Ace BT14-001",
+    "description": "Rookie digital monster from a different trading card game.",
+    "aliases": ["アグモン"],
+    "categories": ["Digimon Cards"],
+    "tags": ["rookie"]
+  },
+  {
+    "catalogItemId": "luffy-op05-119",
+    "languageCode": "en",
+    "title": "Monkey D. Luffy",
+    "subtitle": "Awakening of the New Era OP05-119",
+    "description": "Pirate captain manga card from a different game.",
+    "aliases": ["モンキー・D・ルフィ"],
+    "categories": ["One Piece Cards"],
+    "tags": ["manga rare"]
+  },
+  {
+    "catalogItemId": "jordan-1986-57",
+    "languageCode": "en",
+    "title": "Michael Jordan",
+    "subtitle": "1986 Fleer 57",
+    "description": "Professional basketball rookie collectible.",
+    "aliases": ["MJ Rookie"],
+    "categories": ["Sports Cards"],
+    "tags": ["basketball", "rookie"]
+  },
+  {
+    "catalogItemId": "blue-eyes-lob-001",
+    "languageCode": "en",
+    "title": "Blue-Eyes White Dragon",
+    "subtitle": "Legend of Blue Eyes LOB-001",
+    "description": "Iconic high-attack creature from a different dueling game.",
+    "aliases": ["青眼の白龍"],
+    "categories": ["Yu-Gi-Oh Cards"],
+    "tags": ["ultra rare"]
+  }
+]
