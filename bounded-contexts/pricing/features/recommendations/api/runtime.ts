@@ -6,6 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import {
   createDurableJobExecutionContext,
   createDurableJobProgressCheckpoint,
@@ -1058,8 +1059,7 @@ function listingIdForPricingRecommendation(recommendationId: string): string {
 }
 
 function createPricingRecommendationJobId(): string {
-  const cryptoLike = globalThis.crypto as { randomUUID?: () => string } | undefined;
-  return `job_${cryptoLike?.randomUUID?.() ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`}`;
+  return createInternalId("job");
 }
 
 async function listPricingRecommendationWorkUnitsForJob(

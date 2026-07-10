@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import { performance } from "node:perf_hooks";
 
 import type { ReadConsistencyWakeRequest, ReadConsistencyWorkSignalGateway } from "@chase-sets/bounded-context-runtime";
@@ -748,7 +748,7 @@ export function createPostgresWorkSignalStore(
         LEFT JOIN existing ON true
         `,
           [
-            `projection-wake-${randomUUID()}`,
+            createInternalId("projection-wake"),
             coalescingKey,
             input.sourceContextName,
             input.targetContextName,
@@ -1160,7 +1160,7 @@ export function createPostgresWorkSignalStore(
       assertSafeWorkSignalStoreMetadata(input.metadata);
       const createdAt = now();
       const expiresAt = input.expiresAt ?? addMs(createdAt, defaultWaiterTtlMs);
-      const waiterId = input.waiterId ?? `projection-checkpoint-waiter-${randomUUID()}`;
+      const waiterId = input.waiterId ?? createInternalId("projection-checkpoint-waiter");
       const requiredPosition = toPostgresInteger(input.requiredPosition);
 
       return runWorkSignalWrite(db, async (client) => {

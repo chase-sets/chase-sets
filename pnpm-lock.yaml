@@ -833,6 +833,9 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
       hono:
         specifier: ^4.12.12
         version: 4.12.18

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
@@ -334,7 +334,7 @@ export function createPostgresDurableJobWorkUnitStore<
       return Number(result.rowCount ?? 0);
     },
     claimNext: async (input) => {
-      const claimToken = randomUUID();
+      const claimToken = createInternalId("durable-job-claim");
       const workflowMaxActiveClaims = positiveInt(input.workflowMaxActiveClaims);
       const jobMaxActiveClaims = positiveInt(input.jobMaxActiveClaims);
       const jobKinds = input.jobKinds?.length ? [...new Set(input.jobKinds)] : null;

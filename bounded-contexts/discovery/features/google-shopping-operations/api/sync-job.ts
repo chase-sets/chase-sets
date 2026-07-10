@@ -1,6 +1,7 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import {
   createDurableJobExecutionContext,
   createDurableJobProgressCheckpoint,
@@ -2543,8 +2544,7 @@ function normalizeBatchSize(value: number | undefined) {
 }
 
 function createJobId(): string {
-  const cryptoLike = globalThis.crypto as { randomUUID?: () => string } | undefined;
-  return `job_${cryptoLike?.randomUUID?.() ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`}`;
+  return createInternalId("job");
 }
 
 function readJsonValue<T>(value: unknown): T {

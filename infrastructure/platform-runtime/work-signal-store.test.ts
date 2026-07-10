@@ -1358,7 +1358,7 @@ describe("work signal store read-consistency gateway", () => {
       timeoutMs: 2_500,
     });
 
-    expect(calls[0].values[0]).toMatch(/^projection-checkpoint-waiter-/);
+    expect(calls[0].values[0]).toMatch(/^projection-checkpoint-waiter_/);
     expect(calls[0].values[1]).toBe("checkout-session-pages:marketplace:v1");
     expect(calls[0].values[2]).toBe("marketplace");
     expect(calls[0].values[3]).toBe("checkout");

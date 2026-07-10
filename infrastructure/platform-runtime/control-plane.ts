@@ -1,4 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import { platformPostWriteTokenStoreSchemaSql } from "./post-write-token-store";
 import { platformUcpRuntimeSchemaSql } from "./ucp";
 import { platformWorkSignalStoreSchemaSql } from "./work-signal-store";
@@ -1441,8 +1442,7 @@ function projectionOperationColumns(alias?: string): string {
 }
 
 function createProjectionOperationId(): string {
-  const cryptoLike = globalThis.crypto as { randomUUID?: () => string } | undefined;
-  return `projection-operation-${cryptoLike?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
+  return createInternalId("projection-operation");
 }
 
 function mapLeaseRow(row: LeaseRow): PlatformLease {
