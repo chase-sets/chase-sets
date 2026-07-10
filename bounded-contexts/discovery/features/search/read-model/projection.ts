@@ -15,6 +15,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { localizedTextMapValues } from "@chase-sets/localization";
+import { buildDiscoveryEmbeddingDocument } from "../domain/embedding-document";
 import { buildSimpleSearchText } from "../domain/normalization";
 import { aliasTextByWeight, type ResolvedAlias, type SearchTextWeight } from "../domain/alias-weighting";
 import { aliasSearchContributionEnabled } from "../domain/alias-rollout";
@@ -699,6 +700,17 @@ async function refreshDiscoverySearchItem(
     C: joinSearchText(baseTextByWeight.C, aliasWeights.C),
     D: joinSearchText(baseTextByWeight.D, aliasWeights.D),
   };
+  const embeddingDocument = buildDiscoveryEmbeddingDocument({
+    title: item.title,
+    titleI18n: item.title_i18n,
+    subtitle: item.subtitle,
+    subtitleI18n: item.subtitle_i18n,
+    resolvedAliases: item.resolved_aliases,
+    categoryNames: categoryNameList,
+    keyFieldValues: fieldValuesText ? [fieldValuesText] : [],
+    description: item.description,
+    descriptionI18n: item.description_i18n,
+  });
 
   await db.query(
     `INSERT INTO discovery_search_items (
@@ -726,6 +738,7 @@ async function refreshDiscoverySearchItem(
       image_fallback,
       search_text,
       search_text_simple,
+      embedded_text_hash,
       updated_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
       setweight(to_tsvector('english', $23), 'A') ||
@@ -736,7 +749,8 @@ async function refreshDiscoverySearchItem(
         setweight(to_tsvector('simple', $28), 'B') ||
         setweight(to_tsvector('simple', $29), 'C') ||
         setweight(to_tsvector('simple', $30), 'D'),
-      $31)
+      $31,
+      $32)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -761,6 +775,12 @@ async function refreshDiscoverySearchItem(
       image_fallback = EXCLUDED.image_fallback,
       search_text = EXCLUDED.search_text,
       search_text_simple = EXCLUDED.search_text_simple,
+      embedding_updated_at = CASE
+        WHEN discovery_search_items.embedded_text_hash IS NOT DISTINCT FROM EXCLUDED.embedded_text_hash
+          THEN discovery_search_items.embedding_updated_at
+        ELSE NULL
+      END,
+      embedded_text_hash = EXCLUDED.embedded_text_hash,
       updated_at = EXCLUDED.updated_at`,
     [
       item.catalog_item_id,
@@ -793,6 +813,7 @@ async function refreshDiscoverySearchItem(
       buildSimpleSearchText(weightedText.B),
       buildSimpleSearchText(weightedText.C),
       buildSimpleSearchText(weightedText.D),
+      embeddingDocument.hash,
       item.updated_at,
     ],
   );

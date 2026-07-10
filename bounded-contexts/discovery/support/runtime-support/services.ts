@@ -16,9 +16,32 @@ import {
   type GoogleShoppingSyncServices,
 } from "../../features/google-shopping-operations/api/sync-job";
 import { createDiscoveryItemRuntime, type DiscoveryItemsServices } from "../item-support/runtime";
+import {
+  DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR,
+  discoverySearchEmbeddingEnrichmentEnabled,
+} from "../../features/search/domain/embedding-rollout";
+import {
+  createVoyageEmbeddingProvider,
+  type DiscoveryEmbeddingProvider,
+} from "../../features/search/integrations/voyage-embedding-provider";
+import {
+  createDiscoverySearchEmbeddingEnrichment,
+  type DiscoverySearchEmbeddingEnrichment,
+} from "../../features/search/read-model/embedding-enrichment";
 
 export type DiscoveryHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
+  searchEmbeddingConfig?: Readonly<{
+    apiKey?: string | null;
+    model?: string;
+    batchSize?: number;
+    timeoutMs?: number;
+    maxAttempts?: number;
+    retryBackoffBaseMs?: number;
+    retryBackoffMaxMs?: number;
+    rolloutValue?: string | null;
+  }>;
+  searchEmbeddingProvider?: DiscoveryEmbeddingProvider;
 }>;
 
 export type DiscoveryServices = Readonly<{
@@ -26,6 +49,7 @@ export type DiscoveryServices = Readonly<{
   items: DiscoveryItemsServices;
   googleShoppingSync: GoogleShoppingSyncServices;
   productAlerts: ProductAlertServices;
+  searchEmbeddings?: DiscoverySearchEmbeddingEnrichment;
   notificationOutbox: NotificationOutbox;
   projectors: readonly ProjectionHandlerSet[];
   db: PgQueryable;
@@ -51,12 +75,34 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
     }),
   ];
   const productAlerts = createProductAlertRuntime(deps);
+  const embeddingConfig = ports.searchEmbeddingConfig;
+  const embeddingRolloutEnabled = discoverySearchEmbeddingEnrichmentEnabled({
+    [DISCOVERY_SEARCH_EMBEDDINGS_ENV_VAR]: embeddingConfig?.rolloutValue ?? undefined,
+  });
+  const embeddingProvider =
+    ports.searchEmbeddingProvider ??
+    (embeddingRolloutEnabled && embeddingConfig?.apiKey
+      ? createVoyageEmbeddingProvider({
+          apiKey: embeddingConfig.apiKey,
+          model: embeddingConfig.model,
+          batchSize: embeddingConfig.batchSize,
+          timeoutMs: embeddingConfig.timeoutMs,
+          maxAttempts: embeddingConfig.maxAttempts,
+          retryBackoffBaseMs: embeddingConfig.retryBackoffBaseMs,
+          retryBackoffMaxMs: embeddingConfig.retryBackoffMaxMs,
+        })
+      : undefined);
+  const searchEmbeddings =
+    embeddingRolloutEnabled && embeddingProvider
+      ? createDiscoverySearchEmbeddingEnrichment({ db, provider: embeddingProvider })
+      : undefined;
 
   return {
     categories,
     items,
     googleShoppingSync,
     productAlerts,
+    ...(searchEmbeddings ? { searchEmbeddings } : {}),
     notificationOutbox,
     projectors: [
       ...items.projectors,

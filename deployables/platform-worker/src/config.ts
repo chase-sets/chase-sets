@@ -85,6 +85,17 @@ export type PlatformWorkerConfig = Readonly<{
   googleShoppingDiagnosticsIntervalMs: number | null;
   googleShoppingDiagnosticsBatchSize: number;
   googleShoppingDiagnosticsPreviousIssueChunkSize: number;
+  discoverySearchEmbeddings: Readonly<{
+    apiKey: string | null;
+    model: string;
+    batchSize: number;
+    timeoutMs: number;
+    maxAttempts: number;
+    retryBackoffBaseMs: number;
+    retryBackoffMaxMs: number;
+    intervalMs: number;
+    rolloutValue: string | null;
+  }>;
   paymentProcessor: PlatformWorkerPaymentProcessorConfig;
   moneyMovement: PlatformWorkerMoneyMovementConfig;
   mobileMessaging: PlatformWorkerMobileMessagingConfig;
@@ -221,6 +232,7 @@ export function loadConfig(): PlatformWorkerConfig {
   const googleMerchantContentLanguage = getOptionalEnv("GOOGLE_MERCHANT_CONTENT_LANGUAGE") ?? "en";
   const googleMerchantFeedLabel = getOptionalEnv("GOOGLE_MERCHANT_FEED_LABEL") ?? googleMerchantTargetCountry;
   const googleMerchantCredentialSecretName = getOptionalEnv("GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME");
+  const voyageApiKey = getOptionalEnv("VOYAGE_API_KEY");
   const mobileMessagingProvider = resolveMobileMessagingProvider(getOptionalEnv("MOBILE_MESSAGING_PROVIDER"));
   const twilioAccountSid = getOptionalEnv("TWILIO_ACCOUNT_SID");
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
@@ -421,6 +433,17 @@ export function loadConfig(): PlatformWorkerConfig {
       "GOOGLE_SHOPPING_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE",
       100,
     ),
+    discoverySearchEmbeddings: {
+      apiKey: voyageApiKey,
+      model: getOptionalEnv("VOYAGE_EMBEDDING_MODEL") ?? "voyage-4-lite",
+      batchSize: getPositiveNumberEnv("VOYAGE_EMBEDDING_BATCH_SIZE", 128),
+      timeoutMs: getPositiveNumberEnv("VOYAGE_EMBEDDING_TIMEOUT_MS", 15_000),
+      maxAttempts: getPositiveNumberEnv("VOYAGE_EMBEDDING_MAX_ATTEMPTS", 4),
+      retryBackoffBaseMs: getPositiveNumberEnv("VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS", 500),
+      retryBackoffMaxMs: getPositiveNumberEnv("VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS", 10_000),
+      intervalMs: getPositiveNumberEnv("DISCOVERY_SEARCH_EMBEDDING_INTERVAL_MS", 1_000),
+      rolloutValue: getOptionalEnv("DISCOVERY_SEARCH_EMBEDDINGS"),
+    },
     paymentProcessor: stripeProvider.paymentProcessor,
     moneyMovement: stripeProvider.moneyMovement,
     mobileMessaging:

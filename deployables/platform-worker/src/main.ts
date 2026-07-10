@@ -231,6 +231,7 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
       oauthClients: pools.auth,
     }),
     draftListingCreator,
+    searchEmbeddingConfig: config.discoverySearchEmbeddings,
   },
 });
 
@@ -1240,6 +1241,7 @@ function createScheduledJobRunners(
     | "googleShoppingRefreshWindowDays"
     | "googleShoppingDiagnosticsIntervalMs"
     | "googleShoppingDiagnosticsBatchSize"
+    | "discoverySearchEmbeddings"
   >,
   controlPlane: PlatformControlPlane,
 ): readonly WorkerRunner[] {
@@ -1281,6 +1283,13 @@ function createScheduledJobRunners(
             mode: GoogleShoppingSyncMode;
             batchSize?: number;
           }) => Promise<number>;
+        };
+        searchEmbeddings?: {
+          processNextBatch: (input?: { limit?: number; signal?: AbortSignal }) => Promise<{
+            processed: number;
+            embedded: number;
+            totalTokens: number;
+          }>;
         };
       }
     | undefined;
@@ -1478,6 +1487,31 @@ function createScheduledJobRunners(
             mode: input.googleMerchant.dryRun ? "dry-run" : "live",
           });
           return processed;
+        },
+      ),
+    );
+  }
+
+  if (discovery?.searchEmbeddings) {
+    runners.push(
+      createScheduledJobRunner(
+        "discovery.search-embedding-enrichment",
+        input.discoverySearchEmbeddings.intervalMs,
+        controlPlane,
+        async () => {
+          const result = await discovery.searchEmbeddings!.processNextBatch({
+            limit: input.discoverySearchEmbeddings.batchSize,
+          });
+          if (result.processed > 0) {
+            logger.info("Discovery search embedding enrichment batch completed.", {
+              type: "discovery.search-embedding-enrichment",
+              processed: result.processed,
+              embedded: result.embedded,
+              totalTokens: result.totalTokens,
+              model: input.discoverySearchEmbeddings.model,
+            });
+          }
+          return result.embedded;
         },
       ),
     );

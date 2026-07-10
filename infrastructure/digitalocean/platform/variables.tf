@@ -579,6 +579,13 @@ variable "easypost_api_key" {
   }
 }
 
+variable "voyage_api_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Optional Voyage AI key for Discovery Search Index embedding enrichment. Empty disables enrichment cleanly."
+}
+
 variable "easypost_api_base_url" {
   type    = string
   default = ""

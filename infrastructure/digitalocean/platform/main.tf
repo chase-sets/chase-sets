@@ -1467,6 +1467,13 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "VOYAGE_API_KEY"
+          value = var.voyage_api_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "EASYPOST_API_BASE_URL"
           value = var.easypost_api_base_url
           scope = "RUN_TIME"

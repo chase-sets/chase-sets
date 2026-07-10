@@ -23,6 +23,15 @@ const envNames = [
   "EASYPOST_API_KEY",
   "EASYPOST_API_BASE_URL",
   "EASYPOST_MODE",
+  "DISCOVERY_SEARCH_EMBEDDINGS",
+  "DISCOVERY_SEARCH_EMBEDDING_INTERVAL_MS",
+  "VOYAGE_API_KEY",
+  "VOYAGE_EMBEDDING_MODEL",
+  "VOYAGE_EMBEDDING_BATCH_SIZE",
+  "VOYAGE_EMBEDDING_TIMEOUT_MS",
+  "VOYAGE_EMBEDDING_MAX_ATTEMPTS",
+  "VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS",
+  "VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS",
   "GOOGLE_MERCHANT_SYNC_ENABLED",
   "GOOGLE_MERCHANT_DRY_RUN",
   "GOOGLE_MERCHANT_ACCOUNT_ID",
@@ -161,10 +170,36 @@ describe("platform worker config", () => {
     expect(config.postage).toEqual({ kind: "sandbox" });
     expect(config.tcgplayerAutomation).toBeNull();
     expect(config.googleMerchant).toEqual({ syncEnabled: false, dryRun: true });
+    expect(config.discoverySearchEmbeddings).toEqual({
+      apiKey: null,
+      model: "voyage-4-lite",
+      batchSize: 128,
+      timeoutMs: 15_000,
+      maxAttempts: 4,
+      retryBackoffBaseMs: 500,
+      retryBackoffMaxMs: 10_000,
+      intervalMs: 1_000,
+      rolloutValue: null,
+    });
     expect(config.catalogAssetStorage).toEqual({
       kind: "filesystem",
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: `http://localhost:${config.port}/catalog-assets`,
+    });
+  });
+
+  it("loads optional Voyage enrichment config without requiring a live key", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.VOYAGE_API_KEY = "voyage-test";
+    process.env.VOYAGE_EMBEDDING_MODEL = "voyage-4";
+    process.env.VOYAGE_EMBEDDING_BATCH_SIZE = "64";
+    process.env.DISCOVERY_SEARCH_EMBEDDINGS = "off";
+
+    expect(loadConfig().discoverySearchEmbeddings).toMatchObject({
+      apiKey: "voyage-test",
+      model: "voyage-4",
+      batchSize: 64,
+      rolloutValue: "off",
     });
   });
 

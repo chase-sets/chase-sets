@@ -388,6 +388,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable notification outbox consumed by Product Alert match projectors and dispatched through channel adapters."
+    },
+    {
+      "portName": "searchEmbeddingConfig",
+      "providedBy": "platform-worker",
+      "purpose": "Config-gated Voyage credentials and bounded retry settings for asynchronous Search Index enrichment."
     }
   ],
   "apiDeployables": ["platform-api"],

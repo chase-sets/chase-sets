@@ -59,6 +59,10 @@ Product Alert matching is documented in [Product Alerts](./docs/product-alerts.m
 
 Discovery consumes the published Catalog Product Contents fact (`catalog.product-contents.resolved`) for detail-page containment, "included in" reverse lookup, and content-aware search. Catalog owns the relationship, review state, Product Content Type configuration, inclusion policy configuration, and provider evidence. Discovery may weight and present the resolved lines, but it must not infer Product Contents from fields, tags, categories, Reference Record relationships, provider text, or external references.
 
+## Search Embedding Enrichment
+
+The Search Index owns a Discovery-local semantic embedding populated by an asynchronous platform-worker job. Projection handlers only build deterministic multilingual text hashes and mark changed rows dirty; external Voyage calls are prohibited from the serial projector. Provider choice, kill-switch behavior, backfill, capability checks, and rebuild preservation are documented in [Search Embedding Enrichment](./docs/search-embedding-enrichment.md).
+
 ## Item Detail Rail Analytics
 
 The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.

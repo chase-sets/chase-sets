@@ -458,6 +458,7 @@ jobs:
       TF_VAR_stripe_webhook_secret: whsec_pr_validation
       TF_VAR_stripe_connect_webhook_secret: whsec_pr_validation
       TF_VAR_easypost_api_key: EZTK_pr_validation
+      TF_VAR_voyage_api_key: ""
       TF_VAR_easypost_mode: test
       TF_VAR_google_social_login_client_id: google-pr-validation-client
       TF_VAR_google_social_login_client_secret: google-pr-validation-secret
@@ -654,6 +655,7 @@ jobs:
       TF_VAR_stripe_webhook_secret: whsec_pr_validation
       TF_VAR_stripe_connect_webhook_secret: whsec_pr_validation
       TF_VAR_easypost_api_key: EZTK_pr_validation
+      TF_VAR_voyage_api_key: ""
       TF_VAR_easypost_mode: test
       TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
       TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
@@ -911,6 +913,7 @@ jobs:
           TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
           TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
@@ -1088,6 +1091,7 @@ jobs:
           TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
           TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
           TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
@@ -1105,6 +1109,7 @@ jobs:
           export CATALOG_ASSET_S3_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
           export CHASE_SETS_DISCORD_INVITE_URL="${TF_VAR_discord_invite_url:-}"
           export EASYPOST_API_KEY="${TF_VAR_easypost_api_key:-}"
+          export VOYAGE_API_KEY="${TF_VAR_voyage_api_key:-}"
           export EASYPOST_WEBHOOK_SECRET="${TF_VAR_easypost_webhook_secret:-}"
           export FACEBOOK_SOCIAL_LOGIN_CLIENT_ID="${TF_VAR_facebook_social_login_client_id:-}"
           export FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET="${TF_VAR_facebook_social_login_client_secret:-}"

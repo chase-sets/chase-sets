@@ -24,6 +24,7 @@
     "deps:prune-store": "node ./scripts/worktree-deps.mjs prune-store",
     "setup:worktree": "node ./scripts/worktree-deps.mjs install",
     "sync:workspace-metadata": "node ./scripts/sync-workspace-metadata.mjs",
+    "backfill:discovery-search-embeddings": "node --experimental-strip-types ./scripts/discovery-search-embedding-backfill.mjs",
     "generate:readme-manifest-sections": "node ./scripts/generate-readme-manifest-sections.mjs",
     "generate:agent-connector-packaging": "node --experimental-strip-types ./scripts/generate-agent-connector-packaging.mjs",
     "generate:design-system-component-index": "node ./scripts/generate-design-system-component-index.mjs",
