@@ -83,9 +83,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ### Notifications, messaging, and integrations
 
-- [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification side sheet, settings, Product Alert placement, and Notifications bounded-context ownership.
-- [Email Delivery Strategy](./architecture/email-delivery-strategy.md): transactional vs marketing scope, provider strategy, and cost-focused integration plan.
-- [Notifications Channel And Provider Recommendation](./architecture/notifications-channel-and-provider-recommendation.md): Twilio SMS/RCS and Amazon SES provider recommendation, channel ladder, and cost controls.
+- [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification side sheet, settings, Product Alert placement, and Notifications bounded-context UI/feed/read-state ownership.
+- [Notifications Channel And Provider Recommendation](./architecture/notifications-channel-and-provider-recommendation.md): canonical provider/channel doc — transactional vs marketing scope, Twilio SMS/RCS and Amazon SES provider recommendation, channel ladder, and cost controls.
 - [UCP Agent Commerce](./architecture/ucp-agent-commerce.md): Universal Commerce Protocol facade, REST/MCP surfaces, and bounded-context ownership.
 
 ### API

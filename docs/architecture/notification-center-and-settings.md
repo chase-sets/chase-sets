@@ -1,5 +1,9 @@
 # Notification Center And Settings
 
+## Scope
+
+This doc owns the Notification Center UI, notification feed composition, read/unread state, and settings surface. Provider selection, channel strategy (email/SMS/RCS/web/push), and cost controls live in [Notifications Channel And Provider Recommendation](./notifications-channel-and-provider-recommendation.md).
+
 ## Decision
 
 Notifications should be a dedicated bounded context that owns the account notification center, notification settings, centralized feed read model, read/unread state, and delivery-policy decisions.
@@ -16,8 +20,9 @@ Notifications owns:
 - centralized notification read model
 - read and unread state
 - notification settings and channel preferences
-- delivery policy, channel eligibility, suppression, and provider decisions
 - shell notification side sheet contribution and settings surface
+
+Delivery policy, channel eligibility, suppression, and provider selection are also decided by the Notifications bounded context, but the recommendation and rationale for those decisions live in [Notifications Channel And Provider Recommendation](./notifications-channel-and-provider-recommendation.md), not here.
 
 Source contexts own the facts that may lead to notifications:
 
