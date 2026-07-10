@@ -98,6 +98,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 ## Runbooks
 
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
+- [Stripe Connect Accounts v2 Migration](./runbooks/stripe-connect-accounts-v2-migration.md): Accounts v1 compatibility selector, v2 rollout, existing-account disposition, and cleanup handoff for #3203.
 - [Fraud Operations](./runbooks/fraud-operations.md): fraud-control operator policy, including negative-balance collections thresholds and recovery behavior.
 - [Rate Limit Operations](./runbooks/rate-limit-operations.md): auth, offer, payment, and card-decline limiter defaults, env overrides, kill switches, and storage seam.
 - [Checkout Fresh-State Release](./runbooks/checkout-fresh-state-release.md): Shopify-simple checkout route activation, disablement, smoke validation, and release-note template.
