@@ -114,6 +114,8 @@ export type SubscriptionApplicationClaimResult = "claimed" | "already-applied";
 export function createCheckpointKey(
   subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
 ): string {
+  // Checkpoint rows are currently single-tenant: this key deliberately has no tenant qualifier.
+  // If the event store becomes tenant-partitioned, update checkpoint identity and migrate existing rows together.
   return [subscription.projectionName, subscription.sourceContextName, `v${subscription.subscriptionVersion}`].join(
     ":",
   );
