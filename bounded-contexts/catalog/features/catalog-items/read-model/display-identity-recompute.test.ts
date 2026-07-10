@@ -230,8 +230,8 @@ class DiscoverySearchProjectionDb implements PgQueryable {
         languageCode: values[2],
         title: values[4],
         subtitle: values[6],
-        titleSearchText: values[22],
-        subtitleSearchText: values[23],
+        titleSearchText: values[24],
+        subtitleSearchText: values[25],
       });
       return { rows: [], rowCount: 1 };
     }

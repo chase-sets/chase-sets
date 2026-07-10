@@ -31,6 +31,7 @@ import {
 } from "../../../support/item-support/reference-records";
 import { createMarketplaceSlug, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
 import { fieldFacetSortMetadata } from "./facet-ordering";
+import { extractStructuredCardNumber, extractStructuredSetCode } from "./natural-key-extraction";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -67,6 +68,7 @@ const SEARCH_CATALOG_ITEM_CREATED_UPDATE_COLUMNS = [
 ] as const;
 const SEARCH_CATALOG_FIELD_COLUMNS = [
   "field_id",
+  "key",
   "name",
   "value_type",
   "filterable",
@@ -115,6 +117,7 @@ const SEARCH_DIMENSION_OPTION_COLUMNS = [
 type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 type SearchFieldDefinition = Readonly<{
   field_id: string;
+  key: string;
   name: string;
   value_type: string;
   filterable: boolean;
@@ -210,6 +213,7 @@ async function upsertSearchCatalogField(
   db: PgQueryable,
   input: Readonly<{
     fieldId: string;
+    key: string;
     name: string;
     valueType: string;
     filterable: boolean;
@@ -224,6 +228,7 @@ async function upsertSearchCatalogField(
     conflictColumns: ["field_id"],
     values: {
       field_id: input.fieldId,
+      key: input.key,
       name: input.name,
       value_type: input.valueType,
       filterable: input.filterable,
@@ -377,7 +382,7 @@ async function loadFilterableFieldDefinitions(
   }
 
   const result = await db.query<SearchFieldDefinition>(
-    `SELECT field_id, name, value_type, filterable
+    `SELECT field_id, key, name, value_type, filterable
      FROM discovery_search_catalog_fields
      WHERE filterable = true
        AND field_id = ANY($1)`,
@@ -647,6 +652,11 @@ async function refreshDiscoverySearchItem(
     }),
   );
   const dimensionFilterValues = await loadDimensionFilterValues(db, item.blueprint_id);
+  // Structured set-code + collector-number natural key: denormalized so
+  // structured resolution can try a precise btree lookup ahead of full-text
+  // fallback. See natural-key-extraction.ts for the extraction rules.
+  const cardNumber = extractStructuredCardNumber(fieldValues, filterableFields);
+  const setCode = extractStructuredSetCode(fieldValues, references);
 
   if (categoryIds.length !== rawCategoryIds.length) {
     await db.query(
@@ -736,21 +746,23 @@ async function refreshDiscoverySearchItem(
       image_urls,
       product_asset_sets,
       image_fallback,
+      set_code,
+      card_number,
       search_text,
       search_text_simple,
       embedded_text_hash,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-      setweight(to_tsvector('english', $23), 'A') ||
-        setweight(to_tsvector('english', $24), 'B') ||
-        setweight(to_tsvector('english', $25), 'C') ||
-        setweight(to_tsvector('english', $26), 'D'),
-      setweight(to_tsvector('simple', $27), 'A') ||
-        setweight(to_tsvector('simple', $28), 'B') ||
-        setweight(to_tsvector('simple', $29), 'C') ||
-        setweight(to_tsvector('simple', $30), 'D'),
-      $31,
-      $32)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+      setweight(to_tsvector('english', $25), 'A') ||
+        setweight(to_tsvector('english', $26), 'B') ||
+        setweight(to_tsvector('english', $27), 'C') ||
+        setweight(to_tsvector('english', $28), 'D'),
+      setweight(to_tsvector('simple', $29), 'A') ||
+        setweight(to_tsvector('simple', $30), 'B') ||
+        setweight(to_tsvector('simple', $31), 'C') ||
+        setweight(to_tsvector('simple', $32), 'D'),
+      $33,
+      $34)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -773,6 +785,8 @@ async function refreshDiscoverySearchItem(
       image_urls = EXCLUDED.image_urls,
       product_asset_sets = EXCLUDED.product_asset_sets,
       image_fallback = EXCLUDED.image_fallback,
+      set_code = EXCLUDED.set_code,
+      card_number = EXCLUDED.card_number,
       search_text = EXCLUDED.search_text,
       search_text_simple = EXCLUDED.search_text_simple,
       embedding_updated_at = CASE
@@ -805,6 +819,8 @@ async function refreshDiscoverySearchItem(
       JSON.stringify(imageUrls),
       JSON.stringify(productAssetSets),
       item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
+      setCode,
+      cardNumber,
       weightedText.A,
       weightedText.B,
       weightedText.C,
@@ -1493,8 +1509,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
     },
 
     "catalog.field.created": async (event, context) => {
-      const { fieldId, name, valueType, behavior } = event.data as {
+      const { fieldId, key, name, valueType, behavior } = event.data as {
         fieldId: string;
+        key?: string;
         name: unknown;
         valueType?: string;
         behavior?: { filterable?: boolean; searchable?: boolean; sortable?: boolean };
@@ -1503,6 +1520,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
 
       await upsertSearchCatalogField(db, {
         fieldId,
+        key: key ?? "",
         name: resolvedName,
         valueType: valueType ?? "string",
         filterable: Boolean(behavior?.filterable),
@@ -1515,7 +1533,8 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
     },
     "catalog.field.configured": async (event, context) => {
       const fieldId = extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX);
-      const { name, valueType, behavior } = event.data as {
+      const { key, name, valueType, behavior } = event.data as {
+        key?: string;
         name: unknown;
         valueType?: string;
         behavior?: { filterable?: boolean; searchable?: boolean; sortable?: boolean };
@@ -1524,6 +1543,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
 
       await upsertSearchCatalogField(db, {
         fieldId,
+        key: key ?? "",
         name: resolvedName,
         valueType: valueType ?? "string",
         filterable: Boolean(behavior?.filterable),

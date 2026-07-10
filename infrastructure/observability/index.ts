@@ -201,7 +201,7 @@ export type ItemDetailRailAnalyticsSignal = Readonly<{
 }>;
 
 export type DiscoverySearchQuerySignal = Readonly<{
-  retrievalMode: "lexical" | "rescue" | "hybrid";
+  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured";
 }>;
 
 export type CheckoutObservabilityEventSignal = Readonly<{

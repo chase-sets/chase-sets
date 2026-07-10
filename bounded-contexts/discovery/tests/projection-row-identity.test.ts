@@ -590,6 +590,7 @@ describeDb("discovery projection row identity", () => {
   "searchFields": [
     {
       "field_id": "fld_character",
+      "key": "",
       "name": "Character",
       "value_type": "reference",
       "filterable": true,

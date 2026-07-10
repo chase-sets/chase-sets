@@ -279,7 +279,7 @@ const runtime = createPlatformApiHost({
     registrationAdmission: config.registrationAdmission,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
-      recordRetrievalMode: (retrievalMode: "lexical" | "rescue" | "hybrid") =>
+      recordRetrievalMode: (retrievalMode: "lexical" | "rescue" | "hybrid" | "structured") =>
         recordDiscoverySearchQuerySignal({ retrievalMode }),
     },
     emailWebhookGateway,

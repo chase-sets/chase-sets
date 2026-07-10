@@ -87,6 +87,13 @@ CREATE TABLE IF NOT EXISTS discovery_search_catalog_fields (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Catalog's authored field key (Catalog's "card-number" and similar slugs), kept
+-- alongside the display name so the search projection can identify well-known
+-- natural-key fields by ubiquitous-language key instead of a fragile label match
+-- or a typed-id import that would couple Discovery to Catalog at runtime.
+ALTER TABLE discovery_search_catalog_fields
+  ADD COLUMN IF NOT EXISTS key text NOT NULL DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS discovery_search_catalog_fields_filterable_idx ON discovery_search_catalog_fields (filterable);
 
 CREATE TABLE IF NOT EXISTS discovery_search_catalog_reference_records (
@@ -177,6 +184,16 @@ ALTER TABLE discovery_search_items
   ADD COLUMN IF NOT EXISTS embedding_model text NULL,
   ADD COLUMN IF NOT EXISTS embedded_text_hash text NULL,
   ADD COLUMN IF NOT EXISTS embedding_updated_at timestamptz NULL;
+
+-- Structured set-code + collector-number natural key, denormalized from the
+-- Catalog "card-number" field and the "set"/"expansion" reference record onto
+-- the search row. Normalized per the Catalog natural-key contract: trimmed
+-- lowercase set code, unpadded numeric card number. Nullable because not every
+-- catalog item (blueprints without a card-number field, or without a resolvable
+-- set/expansion reference) carries a natural key.
+ALTER TABLE discovery_search_items
+  ADD COLUMN IF NOT EXISTS set_code text NULL,
+  ADD COLUMN IF NOT EXISTS card_number text NULL;
 
 CREATE INDEX IF NOT EXISTS discovery_search_items_search_text_idx ON discovery_search_items USING gin (search_text);
 CREATE INDEX IF NOT EXISTS discovery_search_items_search_text_simple_idx ON discovery_search_items USING gin (search_text_simple);
@@ -275,6 +292,17 @@ export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_embedding_hnsw_idx
   ON discovery_search_items USING hnsw (search_embedding halfvec_ip_ops)
   WHERE status = 'active' AND search_embedding IS NOT NULL;`,
+    ],
+  },
+  {
+    migrationId: "20260710_discovery_search_natural_key_indexes",
+    description:
+      "Create btree indexes on the denormalized set-code + card-number natural key for structured point lookups ahead of full-text fallback.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_set_code_card_number_idx
+  ON discovery_search_items (set_code, card_number);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_blueprint_set_code_card_number_idx
+  ON discovery_search_items (blueprint_id, set_code, card_number);`,
     ],
   },
 ];

@@ -2,8 +2,10 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { composeRelevanceCandidates, type RelevanceCandidate } from "../domain/relevance-evaluation";
 import type { QueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
+import { parseStructuredNaturalKeyQuery } from "../domain/structured-natural-key-query";
 import {
   searchDiscoveryItems,
+  searchDiscoveryItemsByNaturalKey,
   searchDiscoverySemanticItems,
   hydrateDiscoverySearchItemMarketSummaries,
   type DiscoverySearchItemRow,
@@ -16,7 +18,7 @@ export const DISCOVERY_RESCUE_THRESHOLD = 3;
 export const DISCOVERY_SEMANTIC_TOP_K = 24;
 export const DISCOVERY_HYBRID_CANDIDATE_WINDOW = 200;
 
-export type DiscoveryRetrievalMode = "lexical" | "rescue" | "hybrid";
+export type DiscoveryRetrievalMode = "lexical" | "rescue" | "hybrid" | "structured";
 export type DiscoverySearchResult = ListResult<DiscoverySearchItemRow> &
   Readonly<{
     retrievalMode: DiscoveryRetrievalMode;
@@ -25,6 +27,7 @@ export type DiscoverySearchResult = ListResult<DiscoverySearchItemRow> &
 
 type SearchLexical = typeof searchDiscoveryItems;
 type SearchSemantic = typeof searchDiscoverySemanticItems;
+type SearchNaturalKey = typeof searchDiscoveryItemsByNaturalKey;
 type HydrateItems = typeof hydrateDiscoverySearchItemMarketSummaries;
 
 export type DiscoveryHybridRetrievalDependencies = Readonly<{
@@ -35,6 +38,7 @@ export type DiscoveryHybridRetrievalDependencies = Readonly<{
   hybridEnabled: boolean;
   searchLexical?: SearchLexical;
   searchSemantic?: SearchSemantic;
+  searchNaturalKey?: SearchNaturalKey;
   hydrateItems?: HydrateItems;
 }>;
 
@@ -44,7 +48,24 @@ export async function retrieveDiscoveryItems(
 ): Promise<DiscoverySearchResult> {
   const searchLexical = dependencies.searchLexical ?? searchDiscoveryItems;
   const searchSemantic = dependencies.searchSemantic ?? searchDiscoverySemanticItems;
+  const searchNaturalKey = dependencies.searchNaturalKey ?? searchDiscoveryItemsByNaturalKey;
   const query = params.search?.trim() ?? "";
+
+  // Structured set-code + collector-number resolution is tried first, on the
+  // first page only (a cursor means the caller is paging an already-chosen
+  // retrieval mode). A precise point-lookup miss falls straight through to the
+  // existing lexical/hybrid/rescue logic below, so a query that merely looks
+  // structured ("Pikachu 4") degrades to ordinary search rather than a dead end.
+  if (params.cursor === undefined) {
+    const naturalKey = parseStructuredNaturalKeyQuery(query);
+    if (naturalKey) {
+      const structured = await searchNaturalKey(dependencies.db, naturalKey, params);
+      if (structured.items.length > 0) {
+        return { ...structured, retrievalMode: "structured", lexicalCount: null };
+      }
+    }
+  }
+
   const semanticEligible =
     Boolean(dependencies.provider && dependencies.cache && query) &&
     (params.sort === undefined || params.sort === "relevance");

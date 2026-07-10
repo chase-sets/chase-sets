@@ -33,6 +33,7 @@ import {
   createDiscoverySearchEmbeddingEnrichment,
   type DiscoverySearchEmbeddingEnrichment,
 } from "../../features/search/read-model/embedding-enrichment";
+import type { DiscoveryRetrievalMode } from "../../features/search/read-model/hybrid-retrieval";
 
 export type DiscoveryHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
@@ -52,7 +53,7 @@ export type DiscoveryHostPorts = Readonly<{
   }>;
   searchEmbeddingProvider?: DiscoveryEmbeddingProvider;
   searchTelemetry?: Readonly<{
-    recordRetrievalMode: (mode: "lexical" | "rescue" | "hybrid") => void;
+    recordRetrievalMode: (mode: DiscoveryRetrievalMode) => void;
   }>;
 }>;
 
