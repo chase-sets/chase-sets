@@ -410,6 +410,10 @@ components:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
+    readinessProbe:
+      timeoutSeconds: 3
+      periodSeconds: 10
+      failureThreshold: 3
   platform-worker:
     enabled: true
     kind: "worker"

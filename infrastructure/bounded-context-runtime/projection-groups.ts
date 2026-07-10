@@ -15,7 +15,16 @@ import type {
 } from "./subscriptions";
 import { drainContextProcesses, sortSubscriptionRunners } from "./subscriptions";
 
-const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
+// Status-refresh fan-out is nested (groups x each group's subscription runners),
+// so this bound squares: at 4 it demanded up to 4 x 4 = 16 concurrent status
+// queries against the DOKS staging control pool (DATABASE_POOL_MAX=6),
+// starving the readiness SELECT 1 and auth/actor traffic and flapping both API
+// replicas to 503 under battery load (#4768). At 2 the single in-flight refresh
+// (coalesced at the route) tops out at 2 x 2 = 4 concurrent queries, reserving
+// >=2 pooled connections for readiness and auth. This throttles a read-only
+// status snapshot, not projection draining (owned by the worker), so backlog
+// throughput is unaffected.
+const PROJECTION_STATUS_REFRESH_CONCURRENCY = 2;
 
 type ProjectionGroupRevisionRow = Readonly<{
   projection_revision: string | number | bigint;
