@@ -29,7 +29,7 @@ export type MarketplaceVersionSchema = Readonly<{
 }>;
 
 export type MarketplaceProductDescriptor = Readonly<{
-  productId: string;
+  productId: ProductKey;
   selection: MarketplaceVersionSelectedOptionEntry[];
 }>;
 
@@ -89,7 +89,7 @@ export function createMarketplaceProductDescriptor(
   if (!schema || schema.dimensions.length === 0) {
     assert(selection.length === 0, "Selection is not allowed for this catalog item.");
     return {
-      productId: `${catalogItemId}::`,
+      productId: `${catalogItemId}::` as ProductKey,
       selection: [],
     };
   }
@@ -126,7 +126,7 @@ export function createMarketplaceProductDescriptor(
   return {
     productId: `${catalogItemId}::${schema.canonicalDimensionOrder
       .map((entry) => `${entry.dimensionId}:${selections[entry.dimensionId] ?? "-"}`)
-      .join("|")}`,
+      .join("|")}` as ProductKey,
     selection: schema.canonicalDimensionOrder
       .map((entry) => {
         const optionId = selections[entry.dimensionId];
@@ -142,3 +142,4 @@ export function createMarketplaceProductDescriptor(
       .filter((entry): entry is MarketplaceVersionSelectedOptionEntry => entry !== null),
   };
 }
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";

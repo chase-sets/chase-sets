@@ -1,6 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
-import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { InventorySelectedOptionEntry } from "../integrations/catalog/versioning";
 import {
   assert,
@@ -13,8 +14,8 @@ import {
 export type InventoryItemState = Readonly<{
   id: InventoryItemId | null;
   accountId: AccountId | null;
-  catalogItemId: string | null;
-  productId: string | null;
+  catalogItemId: CatalogItemId | null;
+  productId: ProductKey | null;
   selectedOptions: readonly InventorySelectedOptionEntry[];
   gradedCard: GradedCardDetails | null;
   storageLocationId: string | null;
@@ -53,8 +54,8 @@ export type CreateInventoryItemCommand = Readonly<{
   type: "CreateInventoryItem";
   itemId: InventoryItemId;
   accountId: AccountId;
-  catalogItemId: string;
-  productId: string;
+  catalogItemId: CatalogItemId;
+  productId: ProductKey;
   selectedOptions?: readonly InventorySelectedOptionEntry[];
   gradedCard?: GradedCardDetails | null;
   storageLocationId: string;
@@ -77,8 +78,8 @@ export type InventoryItemCreatedEvent = DomainEvent<
   Readonly<{
     itemId: InventoryItemId;
     accountId: AccountId;
-    catalogItemId: string;
-    productId: string;
+    catalogItemId: CatalogItemId;
+    productId: ProductKey;
     selectedOptions: InventorySelectedOptionEntry[];
     gradedCard: GradedCardDetails | null;
     storageLocationId: string;
@@ -113,7 +114,7 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
           data: {
             itemId: command.itemId,
             accountId: command.accountId,
-            catalogItemId: normalizeLabel(command.catalogItemId),
+            catalogItemId: normalizeLabel(command.catalogItemId) as CatalogItemId,
             productId: command.productId,
             selectedOptions: (command.selectedOptions ?? []).map((entry) => ({
               dimensionId: normalizeLabel(entry.dimensionId),

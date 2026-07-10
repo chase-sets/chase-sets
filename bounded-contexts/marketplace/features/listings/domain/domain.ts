@@ -1,6 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -163,8 +164,8 @@ export type MarketplaceListingState = Readonly<{
   listingId: ListingId | null;
   accountId: AccountId | null;
   inventoryItemId: string | null;
-  catalogItemId: string | null;
-  productId: string | null;
+  catalogItemId: CatalogItemId | null;
+  productId: ProductKey | null;
   itemLanguageCode: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
@@ -228,8 +229,8 @@ export type CreateListingCommand = Readonly<{
   listingId: ListingId;
   accountId: AccountId;
   inventoryItemId: string;
-  catalogItemId: string;
-  productId: string;
+  catalogItemId: CatalogItemId;
+  productId: ProductKey;
   itemLanguageCode?: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
@@ -325,8 +326,8 @@ export type ListingCreatedEvent = DomainEvent<
     listingId: ListingId;
     accountId: AccountId;
     inventoryItemId: string;
-    catalogItemId: string;
-    productId: string;
+    catalogItemId: CatalogItemId;
+    productId: ProductKey;
     itemLanguageCode: string | null;
     itemTitle: string | null;
     itemSubtitle: string | null;
@@ -439,7 +440,7 @@ export const decideMarketplaceListing: AggregateDecider<
             listingId: command.listingId,
             accountId: command.accountId,
             inventoryItemId: command.inventoryItemId.trim(),
-            catalogItemId: command.catalogItemId.trim(),
+            catalogItemId: command.catalogItemId.trim() as CatalogItemId,
             productId: command.productId,
             itemLanguageCode: command.itemLanguageCode?.trim() || null,
             itemTitle: command.itemTitle?.trim() ?? null,

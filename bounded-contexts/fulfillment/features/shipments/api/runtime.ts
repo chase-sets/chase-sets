@@ -25,7 +25,8 @@ import {
   type AddressSnapshot,
 } from "@chase-sets/primitives/address-snapshot";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   FulfillmentDomainError,
@@ -1041,8 +1042,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           lines: order.lines.map((line) => ({
             lineId: createId("spl"),
             orderLineId: line.order_line_id,
-            catalogItemId: line.catalog_catalog_item_id,
-            productId: line.product_id,
+            catalogItemId: line.catalog_catalog_item_id as CatalogItemId,
+            productId: line.product_id as ProductKey,
             itemTitle: line.item_title,
             itemSubtitle: line.item_subtitle,
             productSummary: line.product_summary,

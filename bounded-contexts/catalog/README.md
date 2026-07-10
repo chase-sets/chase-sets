@@ -10,6 +10,7 @@ Catalog truth uses these core identity concepts:
 - `Dimension`
 - `Option`
 - `Product`
+- `Product Key`
 
 Catalog authoring uses these supporting concepts:
 
@@ -188,11 +189,13 @@ Product Contents command inputs use `catalog_item_id` plus `selected_options`; r
 
 `Product` is a derived catalog concept in this implementation. There is no persisted Product aggregate or Product event stream in this pass.
 
-`product_id` is derived from:
+Product identity is the tuple `(catalog_item_id, selected_options)`. `product_id` is the existing API, storage, and event field for a deterministic `ProductKey` derived from:
 
 1. `catalog_item_id`
 2. Canonical blueprint dimension order
 3. The normalized set of selected `option_id` values
+
+`ProductKey` is a display and selection lookup key, not an independently minted `ProductId`. The `product_id` field name remains on existing wire and event payloads because those events are append-only history.
 
 Rules:
 
@@ -222,7 +225,7 @@ type SelectedOptionEntry = {
 };
 
 type ProductDescriptor = {
-  productId: ProductId;
+  productId: ProductKey;
   selectedOptions: readonly SelectedOptionEntry[];
 };
 ```
@@ -255,7 +258,7 @@ Product Contents authoring, review, provider evidence, and configuration events 
 2. A Product always belongs to exactly one Catalog Item.
 3. Options belong to exactly one Dimension.
 4. Published identity-bearing structure is append-only.
-5. Downstream contexts must reference `catalog_item_id` plus `product_id`, never labels.
+5. Downstream contexts must carry the Product identity tuple `(catalog_item_id, selected_options)`; `product_id` may carry its derived `ProductKey` for display and selection lookup, never as standalone identity.
 6. Reference Records enrich descriptive item information but do not change `product_id`.
 7. Reusable descriptive hierarchy belongs on Reference Records, not repeated Catalog Item fields. Catalog Items should keep only item-specific facts such as printed name, card number, HP, attacks, and direct reference selections.
 8. Product-facing title and subtitle copy should come from Display Templates whenever the copy can be expressed from Fields and Reference Records; repeated manual metadata is fallback and exception data.

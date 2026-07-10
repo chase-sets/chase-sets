@@ -5,7 +5,8 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createFulfillmentServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, OrderId, ShipmentId, TenantId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId, OrderId, ShipmentId, TenantId } from "@chase-sets/primitives/typed-ids";
 
 type OrderSnapshot = Readonly<{
   order_id: string;
@@ -148,8 +149,8 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
         lines: order.lines.map((line, index) => ({
           lineId: `spl_seed_${shipmentId}_${index}` as ShipmentLineId,
           orderLineId: line.line_id,
-          catalogItemId: line.catalog_catalog_item_id,
-          productId: line.product_id,
+          catalogItemId: line.catalog_catalog_item_id as CatalogItemId,
+          productId: line.product_id as ProductKey,
           itemTitle: line.item_title,
           itemSubtitle: line.item_subtitle,
           productSummary: line.product_summary,

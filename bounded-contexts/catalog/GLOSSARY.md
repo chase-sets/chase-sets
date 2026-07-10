@@ -10,6 +10,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Dimension`
 - `Option`
 - `Product`
+- `Product Key`
 - `Blueprint`
 - `Field`
 - `Component`
@@ -137,6 +138,12 @@ Ownership: Catalog owns alias facts, review, confidence, revocation, and the aut
 
 The current implementation resolves valid Product combinations through blueprint-driven rules. Catalog remains the owner of Product identity and selection validity; downstream contexts consume resolved Product data instead of deciding whether option combinations are valid.
 
+Product identity is the tuple `(catalogItemId, selectedOptions)`. A Product is not an independently persisted aggregate and does not have a minted first-class `ProductId`.
+
+### Product Key
+
+`ProductKey` is the deterministic scalar derived from a Product's `catalogItemId` and normalized `selectedOptions`. It is a display and selection lookup key, not standalone Product identity. Existing API, storage, and append-only event payloads retain the field name `productId`; at the type level that field carries `ProductKey` so its derived role is explicit without renaming historical wire data.
+
 ## Relationships
 
 - A `Catalog Item` may have one or more Products.
@@ -197,7 +204,8 @@ The promotion command planner and duplicate-prevention resolver use the same `la
 
 Notes:
 
-- `product_id` identifies a catalog-defined Product, not a listing, inventory item, or physical item.
+- `product_id` carries the derived `ProductKey` for a catalog-defined Product selection, not a first-class Product identifier, listing, inventory item, or physical item.
+- Canonical Product identity is `(catalog_item_id, selected_options)`.
 - Avoid formal `item_id` because it is ambiguous.
 
 ## Modeling Rules

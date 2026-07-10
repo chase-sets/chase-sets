@@ -5,7 +5,16 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, ListingId, OfferId, UserId, OrderId, TenantId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type {
+  AccountId,
+  CatalogItemId,
+  ListingId,
+  OfferId,
+  UserId,
+  OrderId,
+  TenantId,
+} from "@chase-sets/primitives/typed-ids";
 import {
   createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
@@ -631,7 +640,7 @@ async function getProductId(
   services: ReturnType<typeof createMarketplaceServices>,
   catalogItemId: string,
   selection: readonly { dimensionId: string; optionId: string }[],
-) {
+): Promise<ProductKey> {
   const result = await services.db.query<{ product_schema: unknown }>(
     `SELECT product_schema
      FROM marketplace_catalog_items
@@ -780,7 +789,7 @@ export async function seedMarketplaceDatabase(
         type: "SubmitOffer",
         offerId: offer.offerId,
         buyerAccountId,
-        catalogItemId: offer.catalogItemId,
+        catalogItemId: offer.catalogItemId as CatalogItemId,
         productId: await getProductId(services, offer.catalogItemId, offer.selectedOptions),
         itemTitle: offer.itemTitle,
         itemSubtitle: offer.itemSubtitle,

@@ -1,3 +1,4 @@
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { assert } from "../../../../support/runtime-support/common";
 
 export type InventorySelectedOptionEntry = Readonly<{
@@ -31,7 +32,7 @@ export type InventoryProductSchema = Readonly<{
 }>;
 
 export type InventoryProductDescriptor = Readonly<{
-  productId: string;
+  productId: ProductKey;
   selection: InventorySelectedOptionEntry[];
 }>;
 
@@ -157,7 +158,7 @@ export function createInventoryProductDescriptor(
   const selection = validateSelectedOptions(input.productSchema, input.selection);
   if (!input.productSchema || input.productSchema.dimensions.length === 0) {
     return {
-      productId: `${catalogItemId}::`,
+      productId: `${catalogItemId}::` as ProductKey,
       selection: [],
     };
   }
@@ -167,7 +168,7 @@ export function createInventoryProductDescriptor(
   return {
     productId: `${catalogItemId}::${input.productSchema.canonicalDimensionOrder
       .map((entry) => `${entry.dimensionId}:${selections[entry.dimensionId] ?? "-"}`)
-      .join("|")}`,
+      .join("|")}` as ProductKey,
     selection: recordToSelectionEntries(input.productSchema, selections),
   };
 }

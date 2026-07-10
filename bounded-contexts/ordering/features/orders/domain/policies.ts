@@ -1,5 +1,6 @@
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan, ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import {
   assert,
@@ -11,8 +12,8 @@ import {
 } from "./common";
 
 export type MarketplaceDemand = Readonly<{
-  catalogItemId: string;
-  productId: string;
+  catalogItemId: CatalogItemId;
+  productId: ProductKey;
   itemTitle: string;
   itemSubtitle: string | null;
   selectedOptions: readonly VersionSelectedOptionEntry[];
@@ -25,8 +26,8 @@ export type MarketplaceSupplyCandidate = Readonly<{
   sellerAccountId: AccountId;
   sellerDisplayName: string | null;
   inventoryItemId: string;
-  catalogItemId: string;
-  productId: string;
+  catalogItemId: CatalogItemId;
+  productId: ProductKey;
   itemTitle: string;
   itemSubtitle: string | null;
   selectedOptions: readonly VersionSelectedOptionEntry[];

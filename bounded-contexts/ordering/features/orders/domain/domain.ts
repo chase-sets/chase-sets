@@ -1,6 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId, OrderId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   assert,
@@ -23,8 +24,8 @@ export type OrderingOrderLine = Readonly<{
   lineId: OrderLineId;
   listingId: string;
   inventoryItemId: string;
-  catalogItemId: string;
-  productId: string;
+  catalogItemId: CatalogItemId;
+  productId: ProductKey;
   itemTitle: string;
   itemSubtitle: string | null;
   selectedOptions: VersionSelectedOptionEntry[];
@@ -325,8 +326,11 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
     lineId: line.lineId,
     listingId: normalizeRequiredText(line.listingId, "Order lines must reference a listing."),
     inventoryItemId: normalizeRequiredText(line.inventoryItemId, "Order lines must reference inventory."),
-    catalogItemId: normalizeRequiredText(line.catalogItemId, "Order lines must reference a catalog item."),
-    productId: normalizeRequiredText(String(line.productId), "Order lines must reference a product id."),
+    catalogItemId: normalizeRequiredText(
+      line.catalogItemId,
+      "Order lines must reference a catalog item.",
+    ) as CatalogItemId,
+    productId: normalizeRequiredText(String(line.productId), "Order lines must reference a product id.") as ProductKey,
     itemTitle: normalizeRequiredText(line.itemTitle, "Order lines must include an item title snapshot."),
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
     selectedOptions: normalizeVersionSelection(line.selectedOptions),

@@ -1,8 +1,6 @@
 import { assert } from "./common";
-import type { Branded } from "@chase-sets/primitives/brand";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { CatalogItemId, OptionId, DimensionId, SelectedOptionEntry as TypedSelectedOptionEntry } from "../../ids";
-
-export type ProductId = Branded<string, "ProductId">;
 
 export type ProductSelectionEntry = Readonly<{
   dimensionId: string;
@@ -10,7 +8,7 @@ export type ProductSelectionEntry = Readonly<{
 }>;
 
 export type ProductDescriptor = Readonly<{
-  productId: ProductId;
+  productId: ProductKey;
   selectedOptions: ProductSelectionEntry[];
 }>;
 
@@ -111,7 +109,7 @@ export function resolveProduct(input: ProductResolutionInput): ProductDescriptor
     .filter((entry): entry is TypedSelectedOptionEntry => entry !== null);
 
   return {
-    productId: createProductId(
+    productId: createProductKey(
       `${input.catalogItemId}::${input.blueprint.canonicalDimensionOrder
         .map((dimensionId) => {
           const optionId = selectionByDimension.get(dimensionId);
@@ -157,8 +155,8 @@ export function toProductSelectionEntry(selectionEntry: TypedSelectedOptionEntry
   };
 }
 
-export function createProductId(value: string): ProductId {
-  return value as ProductId;
+export function createProductKey(value: string): ProductKey {
+  return value as ProductKey;
 }
 
 function hasExactDimensionSet(left: readonly DimensionId[], right: readonly DimensionId[]): boolean {

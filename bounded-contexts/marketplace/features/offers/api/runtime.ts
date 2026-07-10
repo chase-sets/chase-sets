@@ -5,7 +5,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, CatalogItemId, OfferId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import { quoteMarketplaceTerms } from "../../../support/runtime-support/fee-quotes";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
@@ -324,7 +324,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           offerId,
           buyerAccountId: params.buyerAccountId,
           sellerAccountId: null,
-          catalogItemId: params.catalogItemId,
+          catalogItemId: params.catalogItemId as CatalogItemId,
           productId: catalogVersion.productId,
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,

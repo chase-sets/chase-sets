@@ -17,7 +17,8 @@ import {
 } from "@chase-sets/product-measures";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
+import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import type { AccountId, CatalogItemId, OrderId } from "@chase-sets/primitives/typed-ids";
 import {
   addMoneyAmounts,
   applyBasisPointsToMoneyAmount,
@@ -244,8 +245,8 @@ type SellerOrderDraft = Readonly<{
     lineId: OrderLineId;
     listingId: string;
     inventoryItemId: string;
-    catalogItemId: string;
-    productId: string;
+    catalogItemId: CatalogItemId;
+    productId: ProductKey;
     itemTitle: string;
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
@@ -531,8 +532,8 @@ function groupDemands(cartLines: readonly CheckoutOrderLineSnapshot[]) {
     }
 
     grouped.set(key, {
-      catalogItemId: line.catalogItemId,
-      productId: line.productId,
+      catalogItemId: line.catalogItemId as CatalogItemId,
+      productId: line.productId as ProductKey,
       itemTitle: line.itemTitle,
       itemSubtitle: line.itemSubtitle,
       selectedOptions: line.selectedOptions,
@@ -1344,8 +1345,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
   ) => {
     const demandGroups: MarketplaceDemand[] = [
       {
-        catalogItemId: params.catalogItemId,
-        productId: params.productId,
+        catalogItemId: params.catalogItemId as CatalogItemId,
+        productId: params.productId as ProductKey,
         itemTitle: params.itemTitle,
         itemSubtitle: params.itemSubtitle,
         selectedOptions: params.selectedOptions,
@@ -1570,8 +1571,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
             if (!candidate) {
               unavailableLines.push({
                 lineKey,
-                catalogItemId: line.catalogItemId,
-                productId: line.productId,
+                catalogItemId: line.catalogItemId as CatalogItemId,
+                productId: line.productId as ProductKey,
                 itemTitle: line.itemTitle,
                 productSummary: line.productSummary,
                 quantity: line.quantity,
@@ -1628,8 +1629,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
               deps.db,
               params.buyerAccountId,
               await listOrderingSupplyCandidates(deps.db, {
-                catalogItemId: line.catalogItemId,
-                productId: line.productId,
+                catalogItemId: line.catalogItemId as CatalogItemId,
+                productId: line.productId as ProductKey,
                 itemTitle: line.itemTitle,
                 itemSubtitle: line.itemSubtitle,
                 selectedOptions: line.selectedOptions,

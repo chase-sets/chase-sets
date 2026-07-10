@@ -5,7 +5,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryCatalogItemServices } from "../integrations/catalog/runtime";
@@ -209,7 +209,7 @@ export function createInventoryItemRuntime(
           type: "CreateInventoryItem",
           itemId,
           accountId: params.accountId,
-          catalogItemId: params.catalogItemId,
+          catalogItemId: params.catalogItemId as CatalogItemId,
           productId: catalogVersion.productId,
           selectedOptions: catalogVersion.selection,
           gradedCard: params.gradedCard ?? null,
@@ -411,7 +411,7 @@ export function createInventoryItemRuntime(
             type: "CreateInventoryItem",
             itemId,
             accountId: params.accountId,
-            catalogItemId: params.catalogItemId,
+            catalogItemId: params.catalogItemId as CatalogItemId,
             productId: catalogVersion.productId,
             selectedOptions: catalogVersion.selection,
             gradedCard,
