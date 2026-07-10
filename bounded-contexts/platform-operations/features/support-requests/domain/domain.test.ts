@@ -534,4 +534,174 @@ describe("support request domain", () => {
     expect(buyerCancel[0]).toMatchObject({ data: { status: "waiting-on-seller" } });
     expect(sellerCannotFulfill[0]).toMatchObject({ data: { status: "ready-for-support", priority: "urgent" } });
   });
+
+  describe("contested-case flow", () => {
+    function recordChallenge(state: SupportRequestState, responseId = "rsp_challenge") {
+      return decideSupportRequest(state, {
+        type: "RecordSupportResponse",
+        responseId,
+        submittedByAccountId: "acc_seller" as never,
+        submittedByRole: "seller",
+        responseType: "challenge-with-evidence",
+        summary: "Photos show the item matches the listing.",
+        submittedAt: "2026-05-09T13:05:00.000Z",
+      });
+    }
+
+    it("moves the case to waiting-on-buyer when the seller challenges with evidence", () => {
+      const opened = openProductNotAsDescribed();
+      const events = recordChallenge(fold(opened));
+
+      expect(events[0]).toMatchObject({
+        type: "support.support-request.response-recorded",
+        data: { status: "waiting-on-buyer", offer: null },
+      });
+      expect(fold([...opened, ...events]).status).toBe("waiting-on-buyer");
+    });
+
+    it("rejects a second seller challenge on the same case", () => {
+      const opened = openProductNotAsDescribed();
+      const challenge = recordChallenge(fold(opened));
+      const afterChallenge = fold([...opened, ...challenge]);
+
+      expect(() => recordChallenge(afterChallenge, "rsp_challenge_2")).toThrow(
+        "This support request already has a seller challenge; further disagreement must be escalated.",
+      );
+    });
+
+    it("cancels the case and preserves the reason when the buyer withdraws after a challenge", () => {
+      const opened = openProductNotAsDescribed();
+      const challenge = recordChallenge(fold(opened));
+      const afterChallenge = fold([...opened, ...challenge]);
+
+      const withdrawn = decideSupportRequest(afterChallenge, {
+        type: "CancelSupportRequest",
+        cancelledAt: "2026-05-09T14:00:00.000Z",
+        reason: "Buyer withdraws the dispute.",
+      });
+
+      expect(withdrawn[0]).toMatchObject({
+        type: "support.support-request.cancelled",
+        data: { reason: "Buyer withdraws the dispute." },
+      });
+      expect(fold([...opened, ...challenge, ...withdrawn]).status).toBe("cancelled");
+    });
+
+    it("escalates to support with the escalator and reason recorded when the buyer contests", () => {
+      const opened = openProductNotAsDescribed();
+      const challenge = recordChallenge(fold(opened));
+      const afterChallenge = fold([...opened, ...challenge]);
+
+      const escalated = decideSupportRequest(afterChallenge, {
+        type: "EscalateSupportRequest",
+        escalatedAt: "2026-05-09T14:00:00.000Z",
+        reason: "I still believe the item was misrepresented.",
+        escalatedByAccountId: "acc_buyer" as never,
+        escalatedByRole: "buyer",
+      });
+
+      expect(escalated[0]).toMatchObject({
+        type: "support.support-request.escalated",
+        data: {
+          reason: "I still believe the item was misrepresented.",
+          escalatedByAccountId: "acc_buyer",
+          escalatedByRole: "buyer",
+        },
+      });
+      const afterEscalation = fold([...opened, ...challenge, ...escalated]);
+      expect(afterEscalation).toMatchObject({
+        status: "ready-for-support",
+        escalatedByAccountId: "acc_buyer",
+        escalatedByRole: "buyer",
+        escalationReason: "I still believe the item was misrepresented.",
+      });
+    });
+
+    it("lets either party escalate a non-terminal case directly, capturing the escalator", () => {
+      const opened = openProductNotReceived();
+
+      const escalated = decideSupportRequest(fold(opened), {
+        type: "EscalateSupportRequest",
+        escalatedAt: "2026-05-09T13:00:00.000Z",
+        reason: "We can't agree on next steps.",
+        escalatedByAccountId: "acc_seller" as never,
+        escalatedByRole: "seller",
+      });
+
+      expect(escalated[0]).toMatchObject({
+        data: { escalatedByAccountId: "acc_seller", escalatedByRole: "seller" },
+      });
+      expect(fold([...opened, ...escalated]).status).toBe("ready-for-support");
+    });
+
+    it("blocks the seller from responding further once the case is escalated, but not support", () => {
+      const opened = openProductNotReceived();
+      const escalated = decideSupportRequest(fold(opened), {
+        type: "EscalateSupportRequest",
+        escalatedAt: "2026-05-09T13:00:00.000Z",
+        reason: "We can't agree on next steps.",
+        escalatedByAccountId: "acc_buyer" as never,
+        escalatedByRole: "buyer",
+      });
+      const afterEscalation = fold([...opened, ...escalated]);
+
+      expect(() =>
+        decideSupportRequest(afterEscalation, {
+          type: "RecordSupportResponse",
+          responseId: "rsp_after_escalation",
+          submittedByAccountId: "acc_seller" as never,
+          submittedByRole: "seller",
+          responseType: "provide-tracking",
+          summary: "Tracking shows delivery.",
+          submittedAt: "2026-05-09T13:30:00.000Z",
+        }),
+      ).toThrow("This support request has been escalated; only support can act on it now.");
+
+      expect(
+        decideSupportRequest(afterEscalation, {
+          type: "RecordSupportResponse",
+          responseId: "rsp_support_note",
+          submittedByAccountId: "acc_support" as never,
+          submittedByRole: "support",
+          responseType: "provide-tracking",
+          summary: "Support reviewing the tracking evidence.",
+          submittedAt: "2026-05-09T13:35:00.000Z",
+        }),
+      ).toHaveLength(1);
+    });
+
+    it("requires support to resolve an escalated case", () => {
+      const opened = openProductNotReceived();
+      const escalated = decideSupportRequest(fold(opened), {
+        type: "EscalateSupportRequest",
+        escalatedAt: "2026-05-09T13:00:00.000Z",
+        reason: "We can't agree on next steps.",
+        escalatedByAccountId: "acc_buyer" as never,
+        escalatedByRole: "buyer",
+      });
+      const afterEscalation = fold([...opened, ...escalated]);
+
+      expect(() =>
+        decideSupportRequest(afterEscalation, {
+          type: "ResolveSupportRequest",
+          resolutionType: "full-refund",
+          summary: "Buyer and seller agreed outside the platform.",
+          resolvedByAccountId: "acc_seller" as never,
+          resolvedByRole: "seller",
+          resolvedAt: "2026-05-09T14:00:00.000Z",
+        }),
+      ).toThrow("Escalated support requests can only be resolved by support.");
+
+      expect(
+        decideSupportRequest(afterEscalation, {
+          type: "ResolveSupportRequest",
+          resolutionType: "full-refund",
+          summary: "Support reviewed and issued a full refund.",
+          resolvedByAccountId: "acc_support" as never,
+          resolvedByRole: "support",
+          resolvedAt: "2026-05-09T14:00:00.000Z",
+        }),
+      ).toHaveLength(1);
+    });
+  });
 });

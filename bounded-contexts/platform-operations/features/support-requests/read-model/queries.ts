@@ -29,6 +29,10 @@ export type SupportRequestListRow = Readonly<{
   resolution: SupportResolution | null;
   closed_at: string | null;
   cancellation_reason: string | null;
+  escalated_at: string | null;
+  escalated_by_account_id: string | null;
+  escalated_by_role: string | null;
+  escalation_reason: string | null;
 }>;
 
 export type SupportRequestDetailRow = SupportRequestListRow &
@@ -60,7 +64,11 @@ const listSelect = `
     pending_offer,
     resolution,
     closed_at::text AS closed_at,
-    cancellation_reason
+    cancellation_reason,
+    escalated_at::text AS escalated_at,
+    escalated_by_account_id,
+    escalated_by_role,
+    escalation_reason
   FROM support_request_pages
 `;
 
@@ -89,7 +97,11 @@ const detailSelect = `
     pending_offer,
     resolution,
     closed_at::text AS closed_at,
-    cancellation_reason
+    cancellation_reason,
+    escalated_at::text AS escalated_at,
+    escalated_by_account_id,
+    escalated_by_role,
+    escalation_reason
   FROM support_request_pages
 `;
 

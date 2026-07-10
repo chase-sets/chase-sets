@@ -437,13 +437,17 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     escalateSupportRequest: async (params, context) => {
-      await requireMutableSupportRequest(deps.db, params);
+      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      const escalatedByRole =
+        params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
           type: "EscalateSupportRequest",
           escalatedAt: new Date().toISOString(),
           reason: params.reason,
+          escalatedByAccountId: params.accountId as AccountId,
+          escalatedByRole,
         },
         context,
       });

@@ -196,14 +196,21 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
       const data = event.data as {
         supportRequestId: string;
         escalatedAt: string;
+        reason: string;
+        escalatedByAccountId: string | null;
+        escalatedByRole: string | null;
       };
 
       await db.query(
         `UPDATE support_request_pages
          SET status = 'ready-for-support',
-             updated_at = $2
+             updated_at = $2,
+             escalated_at = $2,
+             escalated_by_account_id = $3,
+             escalated_by_role = $4,
+             escalation_reason = $5
          WHERE support_request_id = $1`,
-        [data.supportRequestId, data.escalatedAt],
+        [data.supportRequestId, data.escalatedAt, data.escalatedByAccountId, data.escalatedByRole, data.reason],
       );
     },
     "support.support-request.resolved": async (event) => {
