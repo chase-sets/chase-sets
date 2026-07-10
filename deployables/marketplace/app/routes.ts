@@ -29,6 +29,7 @@ export default [
   route(".well-known/appspecific/com.chrome.devtools.json", "routes/chrome-devtools.ts"),
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
+  route("sitemap/:kind/:page.xml", "routes/sitemap-entity.ts"),
   route("health/ready", "routes/health-ready.ts"),
   route("health/live", "routes/health-live.ts"),
   route("analytics/item-detail-rail", "routes/item-detail-rail-analytics.ts"),

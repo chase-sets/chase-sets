@@ -104,12 +104,16 @@ function LoadedItemDetailPage(
   props: LoadedItemDetailPageProps & Readonly<{ similarItems: readonly DiscoverySimilarItem[] }>,
 ) {
   const model = useItemDetailPageModel(props);
+  const primaryCategory = model.data.categories[0] ?? null;
 
   return (
     <>
       <Breadcrumbs
         items={[
-          { label: t("discovery.features.itemDetail.ui.itemDetailPage.search"), href: "/search" },
+          { label: t("discovery.features.itemDetail.ui.itemDetailPage.home"), href: "/" },
+          primaryCategory
+            ? { label: primaryCategory.name, href: `/categories/${primaryCategory.slug}` }
+            : { label: t("discovery.features.itemDetail.ui.itemDetailPage.search"), href: "/search" },
           { label: model.data.title },
         ]}
       />

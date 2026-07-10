@@ -1,4 +1,6 @@
 export { createDiscoveryRequestApiClient } from "./support/request-support/api-client";
+export { DISCOVERY_SITEMAP_ENTITY_KINDS, DISCOVERY_SITEMAP_PAGE_SIZE } from "./support/market-support/queries";
+export type { DiscoverySitemapEntityKind, DiscoverySitemapEntityCounts } from "./support/client-support/contracts";
 export {
   appendAnonymousProductAlertCookie,
   ensureAnonymousProductAlertOwnerId,

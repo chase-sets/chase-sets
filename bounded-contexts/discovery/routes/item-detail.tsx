@@ -6,6 +6,7 @@ import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtim
 import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { discoveryAssetUrls } from "../support/client-support/assets";
+import type { DiscoveryItemDetail } from "../support/client-support/contracts";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 import { getActionErrorMessage } from "../features/item-detail/ui/commerce-sections";
 import {
@@ -19,6 +20,91 @@ import type {
   DiscoveryItemDetailActionData,
   DiscoveryItemDetailRouteData,
 } from "../support/route-support/item-detail/types";
+import { buildBreadcrumbListJsonLd, isProductionMarketplaceUrl, serializeJsonLd } from "../support/route-support/seo";
+
+type ItemDetailProductJsonLd = Readonly<{
+  "@context": "https://schema.org";
+  "@type": "Product";
+  name: string;
+  description: string;
+  image: string;
+  sku: string;
+  category?: string;
+  offers: Readonly<{
+    "@type": "AggregateOffer";
+    url: string;
+    priceCurrency: string;
+    lowPrice: string;
+    offerCount: number;
+    availability: "https://schema.org/InStock" | "https://schema.org/OutOfStock";
+  }>;
+}>;
+
+export function buildItemDetailProductJsonLd(input: {
+  item: DiscoveryItemDetail;
+  canonicalUrl: string | null;
+}): ItemDetailProductJsonLd | null {
+  const { item, canonicalUrl } = input;
+  const description = item.description?.trim();
+  const image = selectItemImageUrl(item, "catalog-detail");
+  const lowestPrice = item.market_summary?.lowest_price_amount ?? null;
+  const offerCount = item.market_summary?.active_listing_count ?? 0;
+
+  if (
+    item.status !== "active" ||
+    !description ||
+    !image ||
+    !canonicalUrl ||
+    !isProductionMarketplaceUrl(canonicalUrl) ||
+    !lowestPrice ||
+    offerCount <= 0
+  ) {
+    return null;
+  }
+
+  const category = item.categories[0]?.name;
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: item.title,
+    description,
+    image,
+    sku: item.catalog_item_id,
+    ...(category ? { category } : {}),
+    offers: {
+      "@type": "AggregateOffer",
+      url: canonicalUrl,
+      priceCurrency: "USD",
+      lowPrice: lowestPrice,
+      offerCount,
+      availability:
+        (item.market_summary?.total_visible_quantity ?? 0) > 0
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+    },
+  };
+}
+
+export function buildItemDetailBreadcrumbListJsonLd(input: {
+  item: Pick<DiscoveryItemDetail, "title" | "categories">;
+  canonicalUrl: string | null;
+}) {
+  const { item, canonicalUrl } = input;
+
+  if (!canonicalUrl || !isProductionMarketplaceUrl(canonicalUrl)) {
+    return null;
+  }
+
+  const origin = new URL(canonicalUrl).origin;
+  const category = item.categories[0] ?? null;
+
+  return buildBreadcrumbListJsonLd([
+    { name: t("discovery.features.itemDetail.ui.itemDetailPage.home"), url: `${origin}/` },
+    ...(category ? [{ name: category.name, url: `${origin}/categories/${category.slug}` }] : []),
+    { name: item.title, url: canonicalUrl },
+  ]);
+}
 
 export {
   BuyActionCard,
@@ -87,22 +173,36 @@ function DiscoveryItemDetailRealtimeView({
     applyPatch: applyDiscoveryItemPatch,
     onSyncRequired: reloadForRealtimeSync,
   });
+  const productJsonLd = realtimeItem
+    ? buildItemDetailProductJsonLd({ item: realtimeItem, canonicalUrl: data.canonicalUrl })
+    : null;
+  const breadcrumbJsonLd = realtimeItem
+    ? buildItemDetailBreadcrumbListJsonLd({ item: realtimeItem, canonicalUrl: data.canonicalUrl })
+    : null;
 
   return (
-    <ItemDetailPage
-      data={realtimeItem}
-      similarItems={data.similarItems}
-      accountOfferMatches={data.accountOfferMatches}
-      viewerAccountId={data.viewerAccountId}
-      initialMarketIntent={data.initialMarketIntent}
-      initialSelectedListingId={data.initialSelectedListingId}
-      initialSelectedOfferId={data.initialSelectedOfferId}
-      initialSelectedOptions={data.initialSelectedOptions}
-      hasInitialSelectedOptionFilters={data.hasInitialSelectedOptionFilters}
-      notFound={data.notFound}
-      error={data.error}
-      renderCommerce={buildItemDetailCommerce(data, actionData, actionErrorMessage)}
-    />
+    <>
+      {productJsonLd ? (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(productJsonLd) }} />
+      ) : null}
+      {breadcrumbJsonLd ? (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd) }} />
+      ) : null}
+      <ItemDetailPage
+        data={realtimeItem}
+        similarItems={data.similarItems}
+        accountOfferMatches={data.accountOfferMatches}
+        viewerAccountId={data.viewerAccountId}
+        initialMarketIntent={data.initialMarketIntent}
+        initialSelectedListingId={data.initialSelectedListingId}
+        initialSelectedOfferId={data.initialSelectedOfferId}
+        initialSelectedOptions={data.initialSelectedOptions}
+        hasInitialSelectedOptionFilters={data.hasInitialSelectedOptionFilters}
+        notFound={data.notFound}
+        error={data.error}
+        renderCommerce={buildItemDetailCommerce(data, actionData, actionErrorMessage)}
+      />
+    </>
   );
 }
 

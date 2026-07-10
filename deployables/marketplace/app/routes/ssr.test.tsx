@@ -11,6 +11,7 @@ import { loader as searchLoader, meta as searchMeta } from "@chase-sets/discover
 import { action as homeAction } from "./index";
 import { meta as signInMeta } from "@chase-sets/auth/routes/marketplace/sign-in";
 import { loader as sitemapLoader } from "./sitemap";
+import { loader as sitemapEntityLoader } from "./sitemap-entity";
 import { loader as healthReadyLoader } from "./health-ready";
 
 describe("marketplace SSR routes", () => {
@@ -475,7 +476,18 @@ describe("marketplace SSR routes", () => {
     } as never);
 
     expect(sitemap.headers.get("Content-Type")).toContain("application/xml");
-    await expect(sitemap.text()).resolves.toContain("<loc>https://marketplace.example/search</loc>");
+    await expect(sitemap.text()).resolves.toContain(
+      "<sitemap><loc>https://marketplace.example/sitemap/static/1.xml</loc></sitemap>",
+    );
+
+    const staticSitemap = await sitemapEntityLoader({
+      request: new Request("https://marketplace.example/sitemap/static/1.xml"),
+      params: { kind: "static", page: "1" },
+      context: undefined,
+    } as never);
+
+    expect(staticSitemap.headers.get("Content-Type")).toContain("application/xml");
+    await expect(staticSitemap.text()).resolves.toContain("<loc>https://marketplace.example/search</loc>");
     const manifest = manifestLoader({
       request: new Request("https://marketplace.example/manifest.webmanifest"),
       params: {},
@@ -511,6 +523,116 @@ describe("marketplace SSR routes", () => {
     expect(serviceWorker.headers.get("Content-Type")).toContain("application/javascript");
     expect(serviceWorker.headers.get("Service-Worker-Allowed")).toBe("/");
     await expect(serviceWorker.text()).resolves.toContain('addEventListener("fetch"');
+  });
+
+  it("paginates the sitemap index across every entity kind without truncating past a single page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/marketplace/sitemap-entity-counts")) {
+          return Promise.resolve(Response.json({ items: 12000, categories: 3, sellers: 0, listings: 5000 }));
+        }
+
+        return Promise.resolve(new Response("Unexpected request", { status: 500 }));
+      }),
+    );
+
+    const sitemap = await sitemapLoader({
+      request: new Request("https://marketplace.example/sitemap.xml"),
+      params: {},
+      context: undefined,
+    } as never);
+    const body = await sitemap.text();
+
+    // 12,000 items at 5,000 per page span 3 pages; the boundary page is included.
+    expect(body).toContain("<loc>https://marketplace.example/sitemap/items/1.xml</loc>");
+    expect(body).toContain("<loc>https://marketplace.example/sitemap/items/2.xml</loc>");
+    expect(body).toContain("<loc>https://marketplace.example/sitemap/items/3.xml</loc>");
+    expect(body).not.toContain("https://marketplace.example/sitemap/items/4.xml");
+    // Exactly 5,000 listings still fit on a single page.
+    expect(body).toContain("<loc>https://marketplace.example/sitemap/listings/1.xml</loc>");
+    expect(body).not.toContain("https://marketplace.example/sitemap/listings/2.xml");
+    expect(body).toContain("<loc>https://marketplace.example/sitemap/categories/1.xml</loc>");
+    // An empty entity kind contributes no child sitemap pages at all.
+    expect(body).not.toContain("/sitemap/sellers/");
+    expect(body).toContain("<loc>https://marketplace.example/sitemap/static/1.xml</loc>");
+  });
+
+  it("serves a paginated child sitemap for a discovery entity kind", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/marketplace/sitemap-entities/items/2")) {
+          return Promise.resolve(
+            Response.json({
+              items: [
+                { path: "/items/charizard-cat_1", updated_at: "2026-07-03T00:00:00.000Z" },
+                { path: "/items/blastoise-cat_2", updated_at: "2026-07-04T00:00:00.000Z" },
+              ],
+              count: 2,
+            }),
+          );
+        }
+
+        return Promise.resolve(new Response("Unexpected request", { status: 500 }));
+      }),
+    );
+
+    const page = await sitemapEntityLoader({
+      request: new Request("https://marketplace.example/sitemap/items/2.xml"),
+      params: { kind: "items", page: "2" },
+      context: undefined,
+    } as never);
+    const body = await page.text();
+
+    expect(page.headers.get("Content-Type")).toContain("application/xml");
+    expect(body).toContain("<loc>https://marketplace.example/items/charizard-cat_1</loc>");
+    expect(body).toContain("<lastmod>2026-07-03T00:00:00.000Z</lastmod>");
+    expect(body).toContain("<loc>https://marketplace.example/items/blastoise-cat_2</loc>");
+  });
+
+  it("returns an empty child sitemap rather than throwing for a page beyond an entity kind's range", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(Response.json({ items: [], count: 0 }))),
+    );
+
+    const page = await sitemapEntityLoader({
+      request: new Request("https://marketplace.example/sitemap/sellers/1.xml"),
+      params: { kind: "sellers", page: "1" },
+      context: undefined,
+    } as never);
+    const body = await page.text();
+
+    expect(page.status).toBe(200);
+    expect(body).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
+  });
+
+  it("rejects malformed sitemap page requests instead of guessing", async () => {
+    const invalidPage = await sitemapEntityLoader({
+      request: new Request("https://marketplace.example/sitemap/items/not-a-number.xml"),
+      params: { kind: "items", page: "not-a-number" },
+      context: undefined,
+    } as never);
+    expect(invalidPage.status).toBe(404);
+
+    const unknownKind = await sitemapEntityLoader({
+      request: new Request("https://marketplace.example/sitemap/bogus/1.xml"),
+      params: { kind: "bogus", page: "1" },
+      context: undefined,
+    } as never);
+    expect(unknownKind.status).toBe(404);
+
+    const staticPageTwo = await sitemapEntityLoader({
+      request: new Request("https://marketplace.example/sitemap/static/2.xml"),
+      params: { kind: "static", page: "2" },
+      context: undefined,
+    } as never);
+    expect(staticPageTwo.status).toBe(404);
   });
 
   it("can noindex marketplace staging through environment configuration", async () => {

@@ -43,9 +43,9 @@ test.describe("marketplace item detail", () => {
     await expect(page).toHaveURL(/\/items\//);
 
     // SSR + hydration composition: the item-detail page renders its title heading,
-    // a breadcrumb back to search, and the lowest-ask market summary.
+    // a breadcrumb trail rooted at Home, and the lowest-ask market summary.
     await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: /^Search$/i }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /^Home$/i }).first()).toBeVisible();
     await expect(page.getByText(/Lowest ask/i).first()).toBeVisible();
 
     // Commerce panel composition: the buy action surface hydrates and stays
