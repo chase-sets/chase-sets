@@ -1,7 +1,26 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
-import { assert, assertNever } from "../../../support/runtime-support/common";
+import { assert, assertNever, normalizeLocaleCode } from "../../../support/runtime-support/common";
+
+/**
+ * The Catalog source-observation natural-key contract. Keep this value in the
+ * source-observation mapping fingerprint so a normal-form change is visible in
+ * replay and migration evidence.
+ */
+export const catalogNaturalKeyNormalizationContract = {
+  version: 1,
+  fields: {
+    setCode: "trim and lowercase",
+    collectorNumber: "trim and remove leading zeroes from numeric-only values",
+    cardNumber: "trim and remove leading zeroes from numeric-only values",
+    languageCode: "BCP-47",
+    providerKey: "trim and lowercase",
+    externalKey: "trim and preserve provider-issued casing and formatting",
+  },
+  paddingPolicy:
+    "Numeric-only card and collector numbers use their unpadded form. Alphanumeric or composite numbers remain provider/game significant.",
+} as const;
 
 export type SourceObservationStatus = "observed" | "changed" | "promoted" | "rejected";
 
@@ -1022,17 +1041,17 @@ function recordEventData(command: RecordSourceObservationCommand): SourceObserva
   return {
     observationId: command.observationId,
     syncRunId: normalizeOptionalKey(command.syncRunId),
-    providerKey: normalizeKey(command.providerKey),
-    externalKey: command.externalKey.trim(),
+    providerKey: normalizeSourceObservationProviderKey(command.providerKey),
+    externalKey: normalizeSourceObservationExternalKey(command.externalKey),
     sourceUrl: command.sourceUrl.trim(),
-    languageCode: normalizeKey(command.languageCode),
+    languageCode: normalizeSourceObservationLanguageCode(command.languageCode),
     sourceRecordHash: command.sourceRecordHash,
     sourceUpdatedAt: command.sourceUpdatedAt ?? null,
     observedAt: command.observedAt,
     sourceProfileKey: normalizeKey(command.sourceProfileKey),
     sourceProfileVersion: command.sourceProfileVersion.trim(),
     sourceMappingFingerprint: command.sourceMappingFingerprint.trim(),
-    normalized: command.normalized,
+    normalized: normalizeSourceObservationNaturalKeys(command.normalized),
     sourcePayload: command.sourcePayload,
   };
 }
@@ -1087,4 +1106,107 @@ function normalizeKey(value: string): string {
 function normalizeOptionalKey(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+export function normalizeSourceObservationNaturalKeys(
+  normalized: SourceObservationNormalized,
+): SourceObservationNormalized {
+  const record = { ...(normalized as unknown as Record<string, unknown>) };
+
+  record.languageCode = normalizeSourceObservationLanguageCode(String(record.languageCode ?? ""));
+
+  if (typeof record.setCode === "string") {
+    record.setCode = normalizeSetCode(record.setCode);
+  }
+  if (typeof record.cardNumber === "string") {
+    record.cardNumber = normalizeCardNumber(record.cardNumber);
+  }
+
+  if (normalized.mergeIdentity) {
+    record.mergeIdentity = normalizeSourceObservationNaturalKeyJson(
+      normalized.mergeIdentity as unknown as JsonObject,
+    ) as JsonObject;
+  }
+
+  if (normalized.externalCatalogItemReferences) {
+    record.externalCatalogItemReferences = normalizeExternalReferences(normalized.externalCatalogItemReferences);
+  }
+  if (normalized.externalProductReferences) {
+    record.externalProductReferences = normalizeExternalReferences(normalized.externalProductReferences);
+  }
+
+  return record as unknown as SourceObservationNormalized;
+}
+
+export function normalizeSourceObservationLanguageCode(languageCode: string): string {
+  return normalizeLocaleCode(languageCode);
+}
+
+export function normalizeSourceObservationProviderKey(providerKey: string): string {
+  return providerKey.trim().toLowerCase();
+}
+
+/** External keys are provider-issued identifiers; only surrounding whitespace is discarded. */
+export function normalizeSourceObservationExternalKey(externalKey: string): string {
+  return externalKey.trim();
+}
+
+export function sourceObservationLinkExternalKey(languageCode: string, externalKey: string): string {
+  return `${normalizeSourceObservationLanguageCode(languageCode)}:${normalizeSourceObservationExternalKey(externalKey)}`;
+}
+
+/** Apply the same natural-key rules to configured hash material without mutating source payload evidence. */
+export function normalizeSourceObservationNaturalKeyJson(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) {
+    return value.map(normalizeSourceObservationNaturalKeyJson);
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  const object = value as JsonObject;
+  return Object.fromEntries(
+    Object.entries(object).map(([key, child]) => [key, normalizeNaturalKeyJsonEntry(key, child)]),
+  );
+}
+
+function normalizeNaturalKeyJsonEntry(key: string, value: JsonValue): JsonValue {
+  if (typeof value !== "string") {
+    return normalizeSourceObservationNaturalKeyJson(value);
+  }
+
+  switch (key) {
+    case "setCode":
+      return normalizeSetCode(value);
+    case "cardNumber":
+    case "collectorNumber":
+      return normalizeCardNumber(value);
+    case "languageCode":
+      return normalizeSourceObservationLanguageCode(value);
+    case "providerKey":
+      return normalizeSourceObservationProviderKey(value);
+    case "externalKey":
+      return normalizeSourceObservationExternalKey(value);
+    default:
+      return value;
+  }
+}
+
+function normalizeSetCode(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeCardNumber(value: string): string {
+  const trimmed = value.trim();
+  return /^\d+$/.test(trimmed) ? trimmed.replace(/^0+(?=\d)/, "") : trimmed;
+}
+
+function normalizeExternalReferences(
+  references: readonly (SourceObservationExternalCatalogItemReference | SourceObservationExternalProductReference)[],
+): readonly (SourceObservationExternalCatalogItemReference | SourceObservationExternalProductReference)[] {
+  return references.map((reference) => ({
+    ...reference,
+    providerKey: normalizeSourceObservationProviderKey(reference.providerKey),
+    externalKey: normalizeSourceObservationExternalKey(reference.externalKey),
+  }));
 }

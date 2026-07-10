@@ -27,7 +27,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "magic-card-print",
             normalizedFields: {
               name: "Fury Sliver",
-              setCode: "TSP",
+              setCode: "tsp",
               setName: "Time Spiral",
             },
             externalCatalogItemReferences: [
@@ -54,7 +54,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "magic-card-print",
             normalizedFields: {
               name: "Time Spiral Booster Pack",
-              setCode: "TSP",
+              setCode: "tsp",
             },
           },
         },
@@ -95,7 +95,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "magic-set-reference",
             normalizedFields: {
               name: "Time Spiral",
-              setCode: "TSP",
+              setCode: "tsp",
               setName: "Time Spiral",
               productLineName: "Magic: The Gathering",
             },
@@ -135,7 +135,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "magic-set-reference",
             normalizedFields: {
               name: "Time Spiral Unknown Option",
-              setCode: "TSPX",
+              setCode: "tspx",
             },
           },
         },
@@ -278,7 +278,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "lorcana-set-reference",
             normalizedFields: {
               name: "The First Chapter Unknown Option",
-              setCode: "1X",
+              setCode: "1x",
             },
           },
         },
@@ -421,7 +421,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "lorcana-set-reference",
             normalizedFields: {
               name: "The First Chapter Unknown Option",
-              setCode: "1X",
+              setCode: "1x",
             },
           },
         },
@@ -595,7 +595,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "pokemon-card",
             normalizedFields: {
               name: "Sprigatito",
-              cardNumber: "001",
+              cardNumber: "1",
               cardVariantKey: "standard",
             },
             externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:493958" }],
@@ -741,7 +741,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedKind: "magic-sealed-product",
             normalizedFields: {
               name: "Time Spiral Booster Pack",
-              setCode: "TSP",
+              setCode: "tsp",
               setName: "Time Spiral",
               sealedProductForm: "booster-pack",
               packCount: 1,
@@ -920,7 +920,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
               name: "Dark Magician",
               passcode: 46986414,
               setName: "Starter Deck: Yugi",
-              setCode: "SDY-006",
+              setCode: "sdy-006",
               rarity: "Ultra Rare",
               tcg: "yugioh",
               productLineName: "Yu-Gi-Oh!",
@@ -956,7 +956,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedFields: {
               name: "Starter Deck: Yugi",
               setName: "Starter Deck: Yugi",
-              setCode: "SDY",
+              setCode: "sdy",
               releaseDate: "2002-03-29",
               cardCount: 50,
               tcg: "yugioh",
@@ -1309,7 +1309,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedFields: {
               name: "Romance Dawn",
               setId: "op-01",
-              setCode: "OP-01",
+              setCode: "op-01",
               setName: "Romance Dawn",
               cardCount: 121,
               tcg: "one-piece",
@@ -1400,7 +1400,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedFields: {
               name: "The First Chapter",
               setId: "1",
-              setCode: "TFC",
+              setCode: "tfc",
               setName: "The First Chapter",
               cardCount: 204,
               tcg: "lorcana",

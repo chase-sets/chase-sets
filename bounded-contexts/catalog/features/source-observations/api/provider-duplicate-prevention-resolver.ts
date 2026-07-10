@@ -8,6 +8,11 @@ import type {
   SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
 } from "../domain/domain";
+import {
+  normalizeSourceObservationNaturalKeys,
+  normalizeSourceObservationProviderKey,
+  sourceObservationLinkExternalKey,
+} from "../domain/domain";
 import type {
   CatalogProviderDuplicatePreventionIdentityRule,
   CatalogProviderDuplicatePreventionTagRule,
@@ -59,10 +64,14 @@ export async function resolveCatalogProviderDuplicatePrevention(input: {
   normalized: SourceObservationNormalized;
   catalog: CatalogProviderPromotionResolvedCatalogMapping;
 }): Promise<CatalogProviderDuplicatePreventionResult> {
+  const normalizedInput = {
+    ...input,
+    normalized: normalizeSourceObservationNaturalKeys(input.normalized),
+  };
   const evidenceSummaries: CatalogProviderDuplicatePreventionEvidenceSummary[] = [];
 
-  for (const rule of input.profile.duplicatePreventionMapping.rules) {
-    const ruleResult = await evaluateDuplicatePreventionRule(input, rule);
+  for (const rule of normalizedInput.profile.duplicatePreventionMapping.rules) {
+    const ruleResult = await evaluateDuplicatePreventionRule(normalizedInput, rule);
     if (!ruleResult) {
       continue;
     }
@@ -156,8 +165,8 @@ async function evaluateDuplicatePreventionRule(
 
   if (rule.matchKind === "source-observation-link") {
     const candidateCatalogItemId = await findCatalogItemIdForExternalProductReference(input.db, {
-      providerKey: input.providerKey,
-      externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+      providerKey: normalizeSourceObservationProviderKey(input.providerKey),
+      externalKey: sourceObservationLinkExternalKey(input.normalized.languageCode, input.externalKey),
     });
     return candidateCatalogItemId
       ? reusableRuleEvaluation(rule, [candidateCatalogItemId], "source observation Product reference")

@@ -1208,7 +1208,7 @@ describe("source observation runtime: provider integration jobs", () => {
           kind: "magic-sealed-product",
           tcg: "magic",
           name: "Time Spiral Booster Pack",
-          setCode: "TSP",
+          setCode: "tsp",
           setName: "Time Spiral",
           sealedProductForm: "booster-pack",
           packCount: 1,
@@ -1514,7 +1514,7 @@ describe("source observation runtime: provider integration jobs", () => {
         sourceProfileVersion: "2026.06.19",
         normalized: expect.objectContaining({
           kind: normalizedKind,
-          setCode: "TSP",
+          setCode: "tsp",
           setName: "Time Spiral",
         }),
       });
