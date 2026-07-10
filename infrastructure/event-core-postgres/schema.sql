@@ -120,3 +120,15 @@ CREATE TABLE IF NOT EXISTS event_projection_blocked_streams (
 CREATE INDEX IF NOT EXISTS event_projection_blocked_streams_active_idx
   ON event_projection_blocked_streams (projection_key, state, first_blocked_global_position)
   WHERE state IN ('blocked', 'retrying');
+
+-- Ledgered migrations: one-time reshapes below are removed from additive boot SQL
+-- and applied once by infrastructure/bounded-context-runtime/schema.ts.
+
+-- 20260710_event_store_write_hot_fillfactor
+SET lock_timeout = '5s';
+
+ALTER TABLE event_store_streams
+  SET (fillfactor = 90);
+
+ALTER TABLE event_projection_checkpoints
+  SET (fillfactor = 90);

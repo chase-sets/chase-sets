@@ -3,6 +3,7 @@ import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import {
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
+  EVENT_STORE_MAX_PAYLOAD_BYTES,
   EVENT_STORE_READ_PAGE_SIZE_DEFAULT,
   EVENT_STORE_READ_PAGE_SIZE_LIMIT,
   EVENT_STORE_WAKE_NOTIFICATION_KIND,
@@ -71,6 +72,85 @@ describe("postgres event store", () => {
     await expect(store.readAll({ limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT + 1 })).rejects.toThrow(
       "Event store read limit must be an integer between 1 and 500.",
     );
+
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects an oversized event payload with a typed error before opening a transaction", async () => {
+    const { pool, calls } = createAppendPool();
+    const store = createPostgresEventStore({ pool });
+
+    await expect(
+      store.appendToStream(
+        appendInput({
+          events: [
+            {
+              eventType: "checkout.session.created",
+              payload: { content: "x".repeat(EVENT_STORE_MAX_PAYLOAD_BYTES) },
+            },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: "payload_too_large",
+      details: {
+        eventType: "checkout.session.created",
+        payloadBytes: EVENT_STORE_MAX_PAYLOAD_BYTES + 14,
+        maxPayloadBytes: EVENT_STORE_MAX_PAYLOAD_BYTES,
+      },
+    });
+
+    expect(calls).toEqual([]);
+  });
+
+  it("accepts an event payload exactly at the byte limit", async () => {
+    const { pool, calls } = createAppendPool();
+    const store = createPostgresEventStore({
+      pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+    });
+
+    await expect(
+      store.appendToStream(
+        appendInput({
+          events: [
+            {
+              eventType: "checkout.session.created",
+              payload: { content: "x".repeat(EVENT_STORE_MAX_PAYLOAD_BYTES - 14) },
+            },
+          ],
+        }),
+      ),
+    ).resolves.toHaveLength(1);
+
+    expect(calls.some((call) => call.sql.includes("INSERT INTO event_store_events"))).toBe(true);
+  });
+
+  it("rejects an oversized payload anywhere in a multi-stream append before persisting any stream", async () => {
+    const { pool, calls } = createAppendPool();
+    const store = createPostgresEventStore({ pool });
+
+    await expect(
+      store.appendToStreams!([
+        appendInput(),
+        appendInput({
+          streamId: "checkout.checkout-session-chk_02",
+          events: [
+            {
+              eventType: "checkout.session.created",
+              payload: { content: "x".repeat(EVENT_STORE_MAX_PAYLOAD_BYTES) },
+            },
+          ],
+        }),
+      ]),
+    ).rejects.toMatchObject({
+      code: "payload_too_large",
+      details: {
+        eventType: "checkout.session.created",
+        maxPayloadBytes: EVENT_STORE_MAX_PAYLOAD_BYTES,
+      },
+    });
 
     expect(calls).toEqual([]);
   });

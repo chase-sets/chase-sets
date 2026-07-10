@@ -12,7 +12,7 @@ export type EventStore = Readonly<{
   readAll: (input?: ReadAllInput) => Promise<readonly StoredEvent[]>;
 }>;
 
-export type EventStoreErrorCode = "concurrency_conflict" | "infrastructure_failure";
+export type EventStoreErrorCode = "concurrency_conflict" | "payload_too_large" | "infrastructure_failure";
 
 export type EventStoreError = Error &
   Readonly<{
