@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   currency_code text NOT NULL,
   processor_name text NOT NULL,
   processor_payment_kind text NOT NULL DEFAULT 'payment-intent',
-  processor_payment_reference text NOT NULL UNIQUE,
+  processor_payment_reference text NOT NULL,
   processor_client_secret text NULL,
   processor_redirect_url text NULL,
   processor_status text NOT NULL,
@@ -356,6 +356,17 @@ ON CONFLICT (payment_id, order_id) DO NOTHING`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_saved_checkout_instruments_agent_grant_idx
   ON payments_saved_checkout_instruments (account_id, agent_grant_id, readiness, updated_at DESC, instrument_id)
   WHERE agent_grant_id IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260709_payments_payment_pages_processor_reference_qualified",
+    description:
+      "Qualify payment processor reference uniqueness by processor and payment kind so the same bare reference can coexist across processors.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE payments_payment_pages DROP CONSTRAINT IF EXISTS payments_payment_pages_processor_payment_reference_key`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS payments_payment_pages_processor_reference_idx
+  ON payments_payment_pages (processor_name, processor_payment_kind, processor_payment_reference)`,
     ],
   },
 ] as const;
