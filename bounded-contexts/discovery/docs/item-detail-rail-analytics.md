@@ -15,7 +15,7 @@ The event detail must contain `event` plus optional bounded labels:
 - `outcome`: bounded outcome such as `opened`, `shown`, or `unavailable`
 - `gate`: deferred registration or commitment gate such as `accept_offer`, `create_listing`, or `buyer_registration`
 - `viewer`: `guest`, `signed_in`, or `unknown`
-- `surface`: `desktop_rail`, `mobile_action_bar`, `action_rail`, `market_book`, `reference_info`, or `guest_registration`
+- `surface`: `desktop_rail`, `mobile_action_bar`, `action_rail`, `market_book`, `reference_info`, `similar_items`, or `guest_registration`
 
 Labels must be ASCII, 80 characters or shorter, and match `[a-zA-Z0-9_.-]+`.
 
@@ -23,6 +23,7 @@ Labels must be ASCII, 80 characters or shorter, and match `[a-zA-Z0-9_.-]+`.
 
 - `rail_intent_selected`: top-level Buy/Sell/Watch intent changed.
 - `workflow_selected`: rail accordion or market-book workflow selected.
+- `similar_item_selected`: a visitor followed a Similar Items card link. It records only `surface=similar_items` and `selection=implicit`, never either catalog item identifier.
 - `reference_info_opened`: shared design-system Reference Info popup opened.
 - `payout_preview_shown`: selected-offer seller payout preview was visible.
 - `standard_preview_unavailable`: selected-offer standard terms preview could not be shown.
@@ -40,6 +41,8 @@ Labels must be ASCII, 80 characters or shorter, and match `[a-zA-Z0-9_.-]+`.
 Rail analytics must not include product IDs, listing IDs, offer IDs, account IDs, account-specific agreement IDs, fee quote fingerprints, raw prices, payout amounts, addresses, emails, shipping destinations, buyer contact fields, or private account-specific transaction terms.
 
 Reference Info analytics record topic and open outcome only. Payout analytics record preview visibility and source category through bounded labels, not monetary values or fee details.
+
+Similar Items analytics records only the event, surface, and implicit-selection labels. Source and destination item IDs, titles, ranks, similarity scores, and category values are prohibited.
 
 ## Observability
 

@@ -13,6 +13,8 @@ import type {
 export type {
   DiscoveryItemDetail,
   DiscoveryItemDetailSellerOverlay,
+  DiscoverySimilarItem,
+  DiscoverySimilarItemsResponse,
   DiscoveryPublicListing,
   DiscoveryPublicAccount,
   DiscoverySitemapUrl,
@@ -31,6 +33,7 @@ export type { ProductAlertPageRow } from "./features/product-alerts/read-model/q
 import type {
   DiscoveryItemDetail,
   DiscoveryItemDetailSellerOverlay,
+  DiscoverySimilarItemsResponse,
   DiscoveryPublicListing,
   DiscoveryPublicAccount,
   DiscoverySitemapUrl,
@@ -113,6 +116,16 @@ export function createDiscoveryApiClient({
         await client.items[":id"].$get({
           param: { id },
           header: headers,
+        }),
+      );
+    },
+    async getSimilarItems(id: string, limit?: number): Promise<DiscoverySimilarItemsResponse> {
+      const params = new URLSearchParams();
+      if (limit !== undefined) params.set("limit", String(limit));
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/items/${encodeURIComponent(id)}/similar${suffix}`), {
+          headers,
         }),
       );
     },

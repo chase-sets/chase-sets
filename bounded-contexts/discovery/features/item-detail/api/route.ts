@@ -6,6 +6,22 @@ import type { DiscoveryItemDetailServices } from "./runtime";
 export function discoveryItemDetailRoutes(services: DiscoveryItemDetailServices) {
   const app = new Hono<AuthenticatedApiEnv>();
 
+  app.get("/:id/similar", async (c) => {
+    const result = await services.findSimilarItems(c.req.param("id"), {
+      limit: readSimilarItemsLimit(c.req.query("limit")),
+    });
+
+    if (!result) {
+      return c.json(
+        { error: { code: "not_found", message: t("discovery.features.itemDetail.api.route.item.not.found") } },
+        404,
+      );
+    }
+
+    c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return c.json(result);
+  });
+
   app.get("/:id/seller-overlay", async (c) => {
     const actor = c.get("actor");
 
@@ -64,4 +80,10 @@ export function discoveryItemDetailRoutes(services: DiscoveryItemDetailServices)
   });
 
   return app;
+}
+
+function readSimilarItemsLimit(value: string | undefined) {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }

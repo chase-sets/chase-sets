@@ -13,6 +13,7 @@ import type {
   DiscoveryAccountOfferMatchWithTerms,
   DiscoveryItemDetail,
   DiscoverySellerInventoryItem,
+  DiscoverySimilarItem,
 } from "../../client-support/contracts";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import {
@@ -169,6 +170,17 @@ function attachSelectedSellerListingOverlay(
   };
 }
 
+async function loadSimilarItems(
+  api: ReturnType<typeof createDiscoveryRequestApiClient>,
+  catalogItemId: string,
+): Promise<DiscoverySimilarItem[]> {
+  try {
+    return (await api.getSimilarItems(catalogItemId)).items;
+  } catch {
+    return [];
+  }
+}
+
 async function loadItemDetailSellerOverlay(
   api: ReturnType<typeof createDiscoveryRequestApiClient>,
   request: Request,
@@ -212,6 +224,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (!id) {
     return {
       item: null,
+      similarItems: [],
       accountOfferMatches: [],
       sellerInventoryItems: [],
       sellerAccountId: null,
@@ -255,6 +268,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     if (item.slug && id !== item.slug) {
       throw redirect(`/items/${item.slug}${browserUrl.search}`, { status: 301 });
     }
+
+    const similarItemsPromise = loadSimilarItems(api, item.catalog_item_id);
 
     let productAlertClaimError: string | null = null;
 
@@ -339,6 +354,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     return {
       item,
+      similarItems: await similarItemsPromise,
       accountOfferMatches,
       sellerInventoryItems,
       sellerAccountId: canSellOnItem ? (actor?.accountId ?? null) : null,
@@ -369,6 +385,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     if (error instanceof DiscoveryApiError) {
       return {
         item: null,
+        similarItems: [],
         accountOfferMatches: [],
         sellerInventoryItems: [],
         sellerAccountId: null,
@@ -396,6 +413,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     return {
       item: null,
+      similarItems: [],
       accountOfferMatches: [],
       sellerInventoryItems: [],
       sellerAccountId: null,

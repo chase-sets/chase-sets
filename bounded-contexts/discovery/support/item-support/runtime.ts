@@ -28,7 +28,9 @@ export function createDiscoveryItemRuntime(
 ): DiscoveryItemsServices {
   const market = createDiscoveryMarketRuntime(deps);
   const search = createDiscoveryItemSearchRuntime(deps, searchRetrieval);
-  const detail = createDiscoveryItemDetailRuntime(deps);
+  const detail = createDiscoveryItemDetailRuntime(deps, {
+    semanticSimilarItemsEnabled: Boolean(searchRetrieval.provider),
+  });
 
   return {
     market,

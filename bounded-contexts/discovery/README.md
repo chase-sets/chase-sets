@@ -67,6 +67,8 @@ Semantic retrieval candidates are evaluated before rollout with the checked-in g
 
 Runtime semantic retrieval is filter-respecting and fail-open: rescue is independently kill-switchable and hybrid fusion is an explicit opt-in. Query embeddings use the Voyage `query` input type and a bounded process-local cache; provider or vector-index failures preserve the lexical Result Set.
 
+Item detail also uses the stored Search Embedding for a bounded **Similar Items** Result Set. This item-to-item path never calls an embedding provider at request time and falls back to active same-category peers when semantic retrieval is disabled, unavailable, or fails.
+
 ## Item Detail Rail Analytics
 
 The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.
