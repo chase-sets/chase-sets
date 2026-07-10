@@ -72,6 +72,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Projection Rebuild Replay](./architecture/projection-rebuild-replay.md): projection revision policy and automatic read-model rebuild behavior.
 - [Event Projection Runtime](./architecture/event-projection-runtime.md): consumer-owned subscriptions, projection consumer states, scaling, idempotency, poison-event behavior, lag metrics, and ownership/reset-strategy rules.
 - [Postgres Schema Migrations](./architecture/postgres-schema-migrations.md): bounded-context schema migration ledger, advisory-lock bootstrap model, concurrent-index policy, and migration authoring rules.
+- [Postgres Retention Sweeps](./architecture/postgres-retention-sweeps.md): context-owned retention registration, bounded shared worker execution, table-class windows, and explicit archive/delete exemptions.
 - [Postgres Event Store Partitioning And Retention](./architecture/postgres-event-store-partitioning-retention.md): global-position partitioning decision, archive/retention gates, snapshot criteria, and migration prerequisites for `event_store_events`.
 - [Projection Helper Toolkit](./architecture/projection-toolkit.md): typed row/JSONB helper mapping, escape-hatch guidance, and row-identity migration proof.
 - [Event Projection Operations](./architecture/event-projection-operations.md): durable operation queue, leases, fencing, rebuild strategies, and handler transaction rules.

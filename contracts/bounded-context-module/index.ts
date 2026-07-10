@@ -483,6 +483,26 @@ export type BcSchemaMigration = Readonly<{
   readonly statements: readonly string[];
 }>;
 
+/**
+ * A context-owned declaration consumed by the platform worker's shared
+ * retention-sweep runner. `predicateSql` is evaluated against the `candidate`
+ * table alias and must be a trusted, parameter-free SQL expression.
+ */
+export type BcRetentionSweep = Readonly<{
+  readonly name: string;
+  readonly tableName: string;
+  readonly predicateSql: string;
+  readonly orderBySql: string;
+  readonly intervalMs: number;
+  readonly batchLimit: number;
+}>;
+
+export type BcRetentionExemption = Readonly<{
+  readonly tableName: string;
+  readonly owner: string;
+  readonly reason: string;
+}>;
+
 export type BcSeedOptions = Readonly<{
   enabledDataProfiles: readonly EnvironmentDataProfile[];
   environmentName?: string | null;
@@ -504,6 +524,8 @@ export interface BcApiModule<
   readonly streamPrefix: string;
   readonly schemaSql: string;
   readonly schemaMigrations?: readonly BcSchemaMigration[];
+  readonly retentionSweeps?: readonly BcRetentionSweep[];
+  readonly retentionExemptions?: readonly BcRetentionExemption[];
   readonly apiMounts: readonly BcApiMount[];
   readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly mcpCapabilities?: BcMcpCapabilities;
@@ -528,6 +550,8 @@ export type DefineBoundedContextModuleInput<
   manifest: BcContextManifestInput;
   schemaSql: string;
   schemaMigrations?: readonly BcSchemaMigration[];
+  retentionSweeps?: readonly BcRetentionSweep[];
+  retentionExemptions?: readonly BcRetentionExemption[];
   createServices: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["createServices"];
   buildApis: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["buildApis"];
   buildMcpHandlers?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["buildMcpHandlers"];
@@ -567,6 +591,8 @@ export function defineBoundedContextModule<
     streamPrefix: manifest.streamPrefix,
     schemaSql: input.schemaSql,
     ...(input.schemaMigrations ? { schemaMigrations: input.schemaMigrations } : {}),
+    ...(input.retentionSweeps ? { retentionSweeps: input.retentionSweeps } : {}),
+    ...(input.retentionExemptions ? { retentionExemptions: input.retentionExemptions } : {}),
     apiMounts: manifest.apiMounts ?? [],
     anonymousRoutes: manifest.anonymousRoutes ?? [],
     ...(manifest.mcpCapabilities ? { mcpCapabilities: manifest.mcpCapabilities } : {}),

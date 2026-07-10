@@ -3,6 +3,11 @@ export { default as contextManifest } from "./context.json";
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import {
+  settlementRetentionExemptions,
+  settlementRetentionSchemaMigrations,
+  settlementRetentionSweeps,
+} from "./support/runtime-support/retention-policy";
 import type { SettlementHostPorts, SettlementServices } from "./support/runtime-support/services";
 import { buildSettlementApi, buildSettlementMoneyMovementWebhookApi } from "./api";
 import { createSettlementServices } from "./support/runtime-support/services";
@@ -23,7 +28,9 @@ import { createSettlementWalletMcpHandlers } from "./features/wallets/api/mcp";
 export const module = defineBoundedContextModule<SettlementServices, PgTransactionalPool, SettlementHostPorts>({
   manifest: contextManifest,
   schemaSql: settlementSchemaSql,
-  schemaMigrations: settlementSchemaMigrations,
+  retentionSweeps: settlementRetentionSweeps,
+  retentionExemptions: settlementRetentionExemptions,
+  schemaMigrations: [...settlementSchemaMigrations, ...settlementRetentionSchemaMigrations],
   createServices: (pool, ports) => createSettlementServices(pool, ports),
   buildApis: (services) => [buildSettlementApi(services), buildSettlementMoneyMovementWebhookApi(services)],
   buildMcpHandlers: (services) => {

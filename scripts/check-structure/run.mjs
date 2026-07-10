@@ -22,6 +22,7 @@ import { validateCrossContextReadInventory } from "./cross-context-read-inventor
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
 import { findBootSchemaDdlDisciplineViolations } from "./boot-schema-ddl-discipline.mjs";
+import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -3319,6 +3320,9 @@ export async function runStructureCheck(options = {}) {
   for (const violation of bootSchemaDdlDisciplineViolations) {
     violations.push(`${violation.file}:${violation.line}: ${violation.message}`);
   }
+
+  const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
+  violations.push(...retentionSweepCoverageResult.violations);
 
   const workspaceTsconfigResult = await checkWorkspaceTsconfigExtends({ repoRoot });
   for (const violation of workspaceTsconfigResult.violations) {

@@ -3,6 +3,7 @@ export { default as contextManifest } from "./context.json";
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import { marketplaceRetentionExemptions, marketplaceRetentionSweeps } from "./support/runtime-support/retention-policy";
 import {
   buildMarketplaceAccountProjectionHandlers,
   buildMarketplaceCatalogProjectionHandlers,
@@ -29,6 +30,8 @@ import { seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 export const module = defineBoundedContextModule<MarketplaceServices, PgTransactionalPool, MarketplaceServiceOptions>({
   manifest: contextManifest,
   schemaSql: marketplaceSchemaSql,
+  retentionSweeps: marketplaceRetentionSweeps,
+  retentionExemptions: marketplaceRetentionExemptions,
   createServices: (pool, options) => createMarketplaceServices(pool, options),
   buildApis: (services) => [buildMarketplaceApi(services), buildReviewApi(services.reviews)],
   buildMcpHandlers: (services) => {

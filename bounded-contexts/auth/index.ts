@@ -3,6 +3,11 @@ export { default as contextManifest } from "./context.json";
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
+import {
+  authRetentionExemptions,
+  authRetentionSchemaMigrations,
+  authRetentionSweeps,
+} from "./support/runtime-support/retention-policy";
 import { buildAuthApi } from "./api";
 import {
   buildAuthIdentityAccountProjectionHandlers,
@@ -22,6 +27,9 @@ import {
 export const module = defineBoundedContextModule<AuthServices, PgTransactionalPool, AuthHostPorts>({
   manifest: contextManifest,
   schemaSql: authSchemaSql,
+  retentionSweeps: authRetentionSweeps,
+  retentionExemptions: authRetentionExemptions,
+  schemaMigrations: authRetentionSchemaMigrations,
   createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [buildAuthApi(services)],
   projectionHandlerSets: (services) => services.projectors,
