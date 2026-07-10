@@ -3,6 +3,7 @@ import { Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import {
   applyPlatformSecretManifest,
+  buildManagedPostgresDatabaseEnv,
   buildNamespaceManifest,
   buildPlatformSecretBundle,
   buildPlatformSecretManifest,
@@ -162,6 +163,40 @@ describe("platform Kubernetes secret", () => {
     expect(decodedSecretValues.join("\n")).not.toContain("sslmode=disable");
   });
 
+  it("exports pooled staging query URLs while listener, waiter, work-signal, and bootstrap URLs stay direct", () => {
+    const databaseEnv = buildManagedPostgresDatabaseEnv({
+      terraformState: managedPostgresTerraformState(),
+      environment: "staging",
+      queryConnectionMode: "pooled",
+      secretKeys: [
+        "BOOTSTRAP_DATABASE_URL_CATALOG",
+        "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL",
+        "DATABASE_URL_CATALOG",
+        "DATABASE_URL_CATALOG_WAITER",
+        "PLATFORM_CONTROL_DATABASE_URL",
+        "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+        "WORKER_LISTENER_DATABASE_URL_CATALOG",
+      ],
+    });
+
+    expect(databaseEnv).toEqual({
+      BOOTSTRAP_DATABASE_URL_CATALOG:
+        "postgresql://cs_staging_catalog:catalog-direct-password@staging-db.example:25060/chase_sets_staging_catalog?sslmode=require",
+      BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL:
+        "postgresql://cs_staging_control:control-direct-password@staging-db.example:25060/chase_sets_staging_control?sslmode=require",
+      DATABASE_URL_CATALOG:
+        "postgresql://cs_staging_catalog:catalog-direct-password@staging-pool.example:25061/catalog-runtime?sslmode=require",
+      DATABASE_URL_CATALOG_WAITER:
+        "postgresql://cs_staging_catalog_wake:catalog-wake-password@staging-db.example:25060/chase_sets_staging_catalog?sslmode=require",
+      PLATFORM_CONTROL_DATABASE_URL:
+        "postgresql://cs_staging_control:control-direct-password@staging-pool.example:25061/control-runtime?sslmode=require",
+      PLATFORM_WORK_SIGNAL_DATABASE_URL:
+        "postgresql://cs_staging_control:control-direct-password@staging-db.example:25060/chase_sets_staging_control?sslmode=require",
+      WORKER_LISTENER_DATABASE_URL_CATALOG:
+        "postgresql://cs_staging_catalog_wake:catalog-wake-password@staging-db.example:25060/chase_sets_staging_catalog?sslmode=require",
+    });
+  });
+
   it("applies the secret manifest through kubectl stdin", async () => {
     const writes = [];
     const child = new EventEmitter();
@@ -248,3 +283,50 @@ describe("platform Kubernetes secret", () => {
     });
   });
 });
+
+function managedPostgresTerraformState() {
+  const indexedResource = (type, name, entries) => ({
+    type,
+    name,
+    instances: Object.entries(entries).map(([indexKey, attributes]) => ({ index_key: indexKey, attributes })),
+  });
+
+  return {
+    resources: [
+      {
+        type: "digitalocean_database_cluster",
+        name: "postgres",
+        instances: [{ attributes: { host: "staging-db.example", port: 25060 } }],
+      },
+      indexedResource("digitalocean_database_db", "contexts", {
+        catalog: { name: "chase_sets_staging_catalog" },
+        control: { name: "chase_sets_staging_control" },
+      }),
+      indexedResource("digitalocean_database_user", "contexts", {
+        catalog: { name: "cs_staging_catalog", password: "catalog-direct-password" },
+        control: { name: "cs_staging_control", password: "control-direct-password" },
+      }),
+      indexedResource("digitalocean_database_user", "wake_listeners", {
+        catalog: { name: "cs_staging_catalog_wake", password: "catalog-wake-password" },
+      }),
+      indexedResource("digitalocean_database_connection_pool", "contexts", {
+        catalog: {
+          name: "catalog-runtime",
+          mode: "transaction",
+          host: "staging-pool.example",
+          port: 25061,
+          user: "cs_staging_catalog",
+          password: "",
+        },
+        control: {
+          name: "control-runtime",
+          mode: "transaction",
+          host: "staging-pool.example",
+          port: 25061,
+          user: "cs_staging_control",
+          password: "",
+        },
+      }),
+    ],
+  };
+}

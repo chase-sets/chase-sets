@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
+import { appendFileSync, readFileSync } from "node:fs";
 import process from "node:process";
 import { buildPlatformHelmValues, platformHelmPreviewPostgresName } from "./render-platform-helm-values.mjs";
 
@@ -21,6 +22,130 @@ export function collectPlatformSecretKeys(values = buildPlatformHelmValues()) {
   }
 
   return [...keys].sort((left, right) => left.localeCompare(right, "en"));
+}
+
+export function buildManagedPostgresDatabaseEnv(options) {
+  const environment = options.environment ?? "managed";
+  const queryConnectionMode = options.queryConnectionMode ?? "direct";
+  if (queryConnectionMode !== "direct" && queryConnectionMode !== "pooled") {
+    throw new Error(`Unsupported ${environment} query connection mode '${queryConnectionMode}'.`);
+  }
+
+  const resources = Array.isArray(options.terraformState?.resources) ? options.terraformState.resources : [];
+  const resource = (type, name) => resources.find((candidate) => candidate.type === type && candidate.name === name);
+  const indexed = (item) =>
+    new Map((item?.instances ?? []).map((instance) => [String(instance.index_key ?? ""), instance.attributes ?? {}]));
+  const cluster = resource("digitalocean_database_cluster", "postgres");
+  const databases = indexed(resource("digitalocean_database_db", "contexts"));
+  const contextUsers = indexed(resource("digitalocean_database_user", "contexts"));
+  const wakeUsers = indexed(resource("digitalocean_database_user", "wake_listeners"));
+  const contextPools = indexed(resource("digitalocean_database_connection_pool", "contexts"));
+  const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
+
+  if (!clusterAttrs.host || !clusterAttrs.port) {
+    throw new Error(
+      `${capitalize(environment)} Terraform state does not contain a usable DigitalOcean database cluster.`,
+    );
+  }
+
+  const directUrlFor = (contextName, users) => {
+    const database = databases.get(contextName);
+    const user = users.get(contextName);
+    if (!database?.name || !user?.name || !user?.password) {
+      throw new Error(`${capitalize(environment)} Terraform state is missing database/user data for '${contextName}'.`);
+    }
+    return postgresManagedUrl({
+      username: user.name,
+      password: user.password,
+      host: clusterAttrs.host,
+      port: clusterAttrs.port,
+      database: database.name,
+    });
+  };
+  const pooledUrlFor = (contextName) => {
+    const pool = contextPools.get(contextName);
+    const contextUser = contextUsers.get(contextName);
+    const username = pool?.user || contextUser?.name;
+    const password = pool?.password || contextUser?.password;
+    if (
+      !pool?.name ||
+      !pool?.host ||
+      !pool?.port ||
+      !username ||
+      !password ||
+      (pool.mode && pool.mode !== "transaction")
+    ) {
+      throw new Error(`${capitalize(environment)} Terraform state is missing a transaction pool for '${contextName}'.`);
+    }
+    return postgresManagedUrl({
+      username,
+      password,
+      host: pool.host,
+      port: pool.port,
+      database: pool.name,
+    });
+  };
+  const queryUrlFor = (contextName) =>
+    queryConnectionMode === "pooled" ? pooledUrlFor(contextName) : directUrlFor(contextName, contextUsers);
+  const result = {};
+
+  for (const key of options.secretKeys ?? []) {
+    let match = /^BOOTSTRAP_DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
+    if (match) {
+      result[key] = directUrlFor(contextNameFromEnvToken(match[1]), contextUsers);
+      continue;
+    }
+
+    if (key === "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL") {
+      result[key] = directUrlFor("control", contextUsers);
+      continue;
+    }
+
+    match = /^DATABASE_URL_([A-Z0-9_]+)_WAITER$/.exec(key);
+    if (match) {
+      result[key] = directUrlFor(contextNameFromEnvToken(match[1]), wakeUsers);
+      continue;
+    }
+
+    match = /^WORKER_LISTENER_DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
+    if (match) {
+      result[key] = directUrlFor(contextNameFromEnvToken(match[1]), wakeUsers);
+      continue;
+    }
+
+    match = /^DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
+    if (match) {
+      result[key] = queryUrlFor(contextNameFromEnvToken(match[1]));
+      continue;
+    }
+
+    if (key === "PLATFORM_CONTROL_DATABASE_URL") {
+      result[key] = queryUrlFor("control");
+      continue;
+    }
+
+    if (key === "PLATFORM_WORK_SIGNAL_DATABASE_URL") {
+      result[key] = directUrlFor("control", contextUsers);
+    }
+  }
+
+  return result;
+}
+
+export function exportManagedPostgresDatabaseEnv(options) {
+  const databaseEnv = buildManagedPostgresDatabaseEnv(options);
+  const githubEnvPath = options.githubEnvPath ?? process.env.GITHUB_ENV;
+  if (!githubEnvPath) {
+    throw new Error("GITHUB_ENV is required to export managed Postgres database URLs.");
+  }
+
+  const lines = Object.entries(databaseEnv).map(([name, value]) => {
+    (options.log ?? console.log)(`::add-mask::${value}`);
+    return `${name}=${value}`;
+  });
+  appendFileSync(githubEnvPath, `${lines.join("\n")}\n`);
+
+  return { keyCount: lines.length, keys: Object.keys(databaseEnv) };
 }
 
 export function buildPlatformSecretManifest(options = {}) {
@@ -210,11 +335,20 @@ function buildPreviewPostgresSecretMaterial(options) {
 }
 
 function contextNameForDatabaseSecretKey(key) {
+  if (key === "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL") {
+    return "control";
+  }
+
+  let match = /^BOOTSTRAP_DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
+  if (match) {
+    return contextNameFromEnvToken(match[1]);
+  }
+
   if (key === "PLATFORM_CONTROL_DATABASE_URL" || key === "PLATFORM_WORK_SIGNAL_DATABASE_URL") {
     return "control";
   }
 
-  let match = /^DATABASE_URL_([A-Z0-9_]+)_WAITER$/.exec(key);
+  match = /^DATABASE_URL_([A-Z0-9_]+)_WAITER$/.exec(key);
   if (match) {
     return contextNameFromEnvToken(match[1]);
   }
@@ -251,6 +385,14 @@ function postgresUrl({ username, password, host, port, database }) {
   // sslmode=disable; staging/production URLs are never synthesized here and
   // keep their managed-cluster sslmode=require shape.
   return `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}?sslmode=disable`;
+}
+
+function postgresManagedUrl({ username, password, host, port, database }) {
+  return `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}?sslmode=require`;
+}
+
+function capitalize(value) {
+  return value.length > 0 ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
 }
 
 function generateSecretToken(options) {
@@ -306,6 +448,10 @@ function parseArgs(argv, env = process.env) {
     release: env.CHASE_SETS_HELM_RELEASE,
     deploymentEnvironment: env.DEPLOYMENT_ENVIRONMENT,
     dryRun: false,
+    exportDatabaseUrls: false,
+    terraformStatePath: undefined,
+    databaseEnvironment: env.DEPLOYMENT_ENVIRONMENT,
+    queryConnectionMode: "direct",
     kubectlPath: env.KUBECTL_PATH ?? "kubectl",
   };
 
@@ -313,6 +459,13 @@ function parseArgs(argv, env = process.env) {
     const arg = argv[index];
     if (arg === "--dry-run") {
       options.dryRun = true;
+    } else if (arg === "--export-database-urls") {
+      options.exportDatabaseUrls = true;
+      options.terraformStatePath = readNextArg(argv, ++index, arg);
+    } else if (arg === "--database-environment") {
+      options.databaseEnvironment = readNextArg(argv, ++index, arg);
+    } else if (arg === "--query-connection-mode") {
+      options.queryConnectionMode = readNextArg(argv, ++index, arg);
     } else if (arg === "--namespace") {
       options.namespace = readNextArg(argv, ++index, arg);
     } else if (arg === "--secret-name") {
@@ -321,7 +474,7 @@ function parseArgs(argv, env = process.env) {
       options.kubectlPath = readNextArg(argv, ++index, arg);
     } else {
       throw new Error(
-        "Usage: node ./scripts/platform-kubernetes-secret.mjs [--dry-run] [--namespace <name>] [--secret-name <name>] [--kubectl <path>]",
+        "Usage: node ./scripts/platform-kubernetes-secret.mjs [--dry-run] [--namespace <name>] [--secret-name <name>] [--kubectl <path>] [--export-database-urls <terraform-state-path> --database-environment <name> --query-connection-mode <direct|pooled>]",
       );
     }
   }
@@ -339,6 +492,23 @@ function readNextArg(argv, index, name) {
 
 async function main(argv, env = process.env) {
   const options = parseArgs(argv, env);
+  if (options.exportDatabaseUrls) {
+    if (options.dryRun) {
+      throw new Error("--dry-run and --export-database-urls cannot be combined.");
+    }
+    const secretSummary = summarizePlatformSecret(options);
+    const result = exportManagedPostgresDatabaseEnv({
+      terraformState: JSON.parse(readFileSync(options.terraformStatePath, "utf8")),
+      secretKeys: secretSummary.keys,
+      environment: options.databaseEnvironment,
+      queryConnectionMode: options.queryConnectionMode,
+      githubEnvPath: env.GITHUB_ENV,
+    });
+    console.log(
+      `Exported ${result.keyCount} ${options.databaseEnvironment ?? "managed"} Kubernetes database URL values.`,
+    );
+    return 0;
+  }
   if (options.dryRun) {
     console.log(JSON.stringify(summarizePlatformSecret(options), null, 2));
     return 0;

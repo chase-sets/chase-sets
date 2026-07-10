@@ -895,6 +895,69 @@ describe("realtime outbox", () => {
     expect(statements.some((sql) => sql.includes("DELETE FROM platform_realtime_stream_leases"))).toBe(true);
   });
 
+  it("absorbs Postgres connection-ceiling failures from background stream lease renewal", async () => {
+    vi.useFakeTimers();
+    const connectionCeilingError = Object.assign(
+      new Error("remaining connection slots are reserved for roles with the SUPERUSER attribute"),
+      { code: "53300", severity: "FATAL" },
+    );
+    const renewalErrors: unknown[] = [];
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (error: unknown) => unhandledRejections.push(error);
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const client = {
+        query: async (sql: string) => {
+          if (sql.includes("SELECT counter_key, active_count")) {
+            return {
+              rows: [
+                { counter_key: "global", active_count: "0" },
+                { counter_key: "connection:account:account_1", active_count: "0" },
+              ],
+              rowCount: 2,
+            };
+          }
+          return { rows: [], rowCount: 1 };
+        },
+        release: () => undefined,
+      };
+      const pool = {
+        connect: async () => client,
+        query: async (sql: string) => {
+          if (sql.includes("SET expires_at")) {
+            throw connectionCeilingError;
+          }
+          return { rows: [], rowCount: 1 };
+        },
+      };
+      const limiter = createPostgresRealtimeStreamLimiter({
+        pool: pool as never,
+        leaseTtlMs: 30_000,
+        renewIntervalMs: 1_000,
+        onRenewalError: (error) => {
+          renewalErrors.push(error);
+          throw new Error("telemetry observer failed");
+        },
+      });
+      const lease = await limiter.acquire({
+        connectionKey: "account:account_1",
+        maxActiveStreams: 10,
+        maxActiveStreamsPerConnectionKey: 2,
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await Promise.resolve();
+
+      expect(renewalErrors).toEqual([connectionCeilingError]);
+      expect(unhandledRejections).toEqual([]);
+      await lease?.release();
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+      vi.useRealTimers();
+    }
+  });
+
   it("exercises a synthetic multi-instance stream-limit load harness", async () => {
     let active = 0;
     const activeByConnectionKey = new Map<string, number>();

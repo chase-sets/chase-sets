@@ -45,6 +45,34 @@ describe("error handler", () => {
     });
   });
 
+  it("fails connection-exhausted event-store requests without exposing the database error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const connectionError = {
+      code: "infrastructure_failure",
+      message: "Failed to append events to Postgres event store.",
+      metadata: {
+        cause: "remaining connection slots are reserved for roles with the SUPERUSER attribute",
+        postgresCode: "53300",
+      },
+    };
+
+    try {
+      const response = errorHandler(connectionError, testContext);
+      const body = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(body).toMatchObject({
+        error: {
+          code: "internal_error",
+        },
+      });
+      expect(JSON.stringify(body)).not.toContain("connection slots");
+      expect(consoleError).toHaveBeenCalledWith("Event store error:", connectionError);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("redacts unexpected errors behind an internal error response", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 

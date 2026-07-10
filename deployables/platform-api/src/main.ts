@@ -766,6 +766,12 @@ async function createPlatformRealtimeStreamLimiter(): Promise<
         pool: pools.control,
         leaseTtlMs: config.realtime.streamLimiter.leaseTtlMs,
         renewIntervalMs: config.realtime.streamLimiter.renewIntervalMs,
+        onRenewalError: (error) => {
+          logger.warn("Realtime Postgres stream lease renewal failed; the lease will retry on the next interval.", {
+            type: "realtime.stream_limiter.postgres.renewal_failed",
+            error,
+          });
+        },
       }),
     };
   }
