@@ -28,6 +28,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, manifest, export, import-boundary, deployable-composition, and structure-gate failure rules.
+- [Identifier Conventions](./architecture/identifier-conventions.md): branded typed-ID minting/parsing, trust-boundary parsing, cross-context ID ownership, camelCase-vs-snake_case field-naming scope, natural-key normalization, provider-scoped external uniqueness, and internal-vs-user-facing ID policy.
 - [Settings Ownership](./architecture/settings-ownership.md): decision rule for behavior-coupled settings, User-owned presentation preferences, device-local ephemera, and deployable/design-system boundaries.
 - [Identity User Preferences Proof Plan](../bounded-contexts/identity/docs/user-preferences-proof-plan.md): settings ownership rule and milestone #55 proof plan for cross-device theme persistence, first paint/no FOUC, and reduced-motion shell behavior.
 

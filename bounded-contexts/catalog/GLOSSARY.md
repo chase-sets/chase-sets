@@ -177,7 +177,7 @@ Product identity is the tuple `(catalogItemId, selectedOptions)`. A Product is n
 
 ## Identity and IDs
 
-Use these identifiers in APIs and schemas:
+These are the canonical snake_case column names in Catalog SQL schemas and durable wire read-model rows. TypeScript, JSON API bodies, MCP arguments, and event payloads use the camelCase form of the same identifiers instead (`catalogItemId`, `productId`, `dimensionId`, and so on) — see [Identifier Conventions](../../docs/architecture/identifier-conventions.md) for the full camelCase-vs-snake_case scope rule.
 
 - `catalog_item_id`
 - `product_id`
@@ -228,9 +228,11 @@ Notes:
 - Product-line-specific content meanings belong in Product Content Type and Inclusion Policy configuration, not Catalog domain enums.
 - Product Contents must not create cycles in the accepted resolved graph.
 
-## API Guidance
+## SQL and Storage Field Guidance
 
-Preferred field names:
+This section names SQL columns and durable wire read-model row fields — not JSON API, command, or event payload fields. See [Identifier Conventions](../../docs/architecture/identifier-conventions.md): APIs, commands, and events use the camelCase form of every name below (`catalogItemId`, `productId`, `dimensionId`, `selectedOptions`, and so on).
+
+Preferred SQL/storage field names:
 
 - `catalog_item_id`
 - `product_id`
@@ -258,13 +260,13 @@ Avoid:
 - `version_schema`
 - `version_summary`
 
-Canonical selection shape:
+Canonical selection shape (camelCase, as sent/received over the API and stored in commands/events):
 
 ```json
 [
   {
-    "dimension_id": "dim_form",
-    "option_id": "opt_graded"
+    "dimensionId": "dim_form",
+    "optionId": "opt_graded"
   }
 ]
 ```
