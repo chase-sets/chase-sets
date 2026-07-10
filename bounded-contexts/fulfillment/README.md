@@ -64,6 +64,10 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 4. Fulfillment issues facts that may trigger refunds, but it does not execute refunds.
 5. A shipment may be cancelled for buyer self-service cancellation only before packing starts.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/fulfillment run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/fulfillment run test` before opening a PR.
+
 ## Open Extraction Candidates
 
 - Returns management can be extracted later if reverse logistics becomes a large standalone workflow.

@@ -2,6 +2,32 @@
 
 This Terraform root owns stable environment-level DNS that must survive App Platform resets.
 
+## Apply
+
+This root has one state key today, `environment-dns/staging.tfstate`; there is no production or preview key because the records below are staging-only.
+
+```bash
+terraform init \
+  -backend-config=bucket=chase-sets-terraform-state \
+  -backend-config=key=environment-dns/staging.tfstate \
+  -backend-config=region=us-east-1 \
+  -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+  -backend-config=skip_credentials_validation=true \
+  -backend-config=skip_metadata_api_check=true \
+  -backend-config=skip_region_validation=true \
+  -backend-config=skip_requesting_account_id=true \
+  -backend-config=use_path_style=true \
+  -backend-config=use_lockfile=true
+
+terraform apply \
+  -var=environment=staging \
+  -var=digitalocean_token="$DIGITALOCEAN_ACCESS_TOKEN" \
+  -var=spaces_access_id="$SPACES_ACCESS_ID" \
+  -var=spaces_secret_key="$SPACES_SECRET_KEY"
+```
+
+The `Platform Deploy` and `Platform Staging Reset` GitHub workflows run this same init/apply sequence for staging environment DNS; see [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md).
+
 ## Staging
 
 Staging delegates `staging.chasesets.com` from the parent `chasesets.com` zone into its own DigitalOcean DNS zone. That makes `staging.chasesets.com` a zone apex, so App Platform can manage routing and certificates with apex-compatible records while Google Workspace MX/TXT records coexist at the same owner name.

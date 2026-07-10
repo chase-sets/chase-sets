@@ -82,6 +82,10 @@ Offer Matches is a Marketplace source list. It can surface matching demand and p
 6. A review is always attached to an Order; only counterparties on the same completed order may review each other, with at most one active review per order, per direction.
 7. The canonical review summary is derived only from active reviews, and review flows stay downstream of commerce execution without blocking ordering, payment, or fulfillment.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/marketplace run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/marketplace run test` before opening a PR.
+
 ## Reviews
 
 Marketplace owns reviews as the `reviews` slice. Reviews are post-transaction evaluations tied to completed commerce: Identity provides author and subject account references, Ordering provides order references and counterparty pairing, Fulfillment delivery-complete signals unlock review eligibility, and support-request outcomes can suspend eligibility. Durable review events use the `marketplace.review.*` namespace, review streams use the `marketplace.review-` prefix, and review read-model tables use Marketplace-owned names.

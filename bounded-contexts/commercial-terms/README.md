@@ -43,3 +43,7 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 1. Commercial Terms resolution is deterministic for an account and timestamp.
 2. Account-specific agreements override default schedules when both are active.
 3. Marketplace consumes resolved snapshots for seller confirmation and emits locked snapshots for downstream ordering.
+
+## Tests
+
+Run `pnpm --filter @chase-sets/commercial-terms run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/commercial-terms run test` before opening a PR.

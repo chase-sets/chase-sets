@@ -59,6 +59,10 @@ Stripe runtime configuration, webhook setup, smoke tests, and incident workflows
 4. Payments may carry marketplace checkout fees and rebate inputs, but Settlement owns ledger postings.
 5. Self-service purchase cancellation refunds include the cancelled order total plus the allocated Marketplace Checkout Fee.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/payments run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/payments run test` before opening a PR.
+
 ## Open Extraction Candidates
 
 - Fraud review can be extracted later if authorization risk becomes a distinct workflow.

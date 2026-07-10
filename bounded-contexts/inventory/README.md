@@ -65,6 +65,10 @@ Import product resolution is documented in [Import Product Resolution](./docs/im
 7. Reserved stock must preserve the ship-from location derived from its storage location so downstream shipping prices can use a single shipment origin.
 8. Platform import rows must resolve to Catalog-owned Product identity before they create inventory or draft listings.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/inventory run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/inventory run test` before opening a PR.
+
 ## Open Extraction Candidates
 
 - Warehouse topology and location-based fulfillment orchestration can be extracted later if multi-location fulfillment becomes materially more complex.

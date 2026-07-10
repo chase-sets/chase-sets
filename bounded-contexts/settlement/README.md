@@ -57,6 +57,10 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 3. Payouts are issued only after eligibility and payout-release rules are satisfied.
 4. Settlement reconciles against Payments but does not own payment processor state.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/settlement run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/settlement run test` before opening a PR.
+
 ## Operations
 
 Stripe Connect configuration, embedded payout setup target state, payout smoke tests, reconciliation, and incident workflows live in [Money Operations](../../docs/runbooks/money-operations.md). The cross-context responsibility decision lives in [ADR 0006: Stripe Connect Custom Account Experience](../../docs/adr/0006-stripe-connect-custom-account-experience.md).

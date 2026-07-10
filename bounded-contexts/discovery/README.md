@@ -87,6 +87,10 @@ The simplified item-detail rail analytics contract is documented in [Item Detail
 6. When a display name changes, the previous slug redirects to the current slug for that entity.
 7. Product Contents search/detail behavior consumes only the resolved Catalog fact and does not own containment truth.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/discovery run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/discovery run test` before opening a PR.
+
 ## Structure Notes
 
 - `features/item-detail` and `features/search` keep their own slice-local runtime, projection, schema, query, route, and UI files.

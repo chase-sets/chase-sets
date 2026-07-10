@@ -22,6 +22,28 @@ Public Presence owns Chase Sets public product pages, prelaunch policy surfaces,
 
 Public Presence terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
+## Core Aggregates and Process Managers
+
+- Waitlist Signup
+
+## Incoming Dependencies
+
+- None today. Public Presence has no durable dependency on another bounded context's read models or events. Internal waitlist review receives an authenticated actor at the deployable composition layer (`AuthenticatedApiEnv`) rather than importing Auth or Identity facts directly.
+
+## Outgoing Integration Events
+
+- None outside Public Presence. `public-presence.waitlist-signup.recorded` and `public-presence.waitlist-signup.updated` are consumed only by Public Presence's own waitlist and transactional-email projections today.
+
+## Invariants
+
+1. A Waitlist Signup id is derived deterministically from the normalized email address, so a repeat submission from the same email updates the existing signup instead of creating a duplicate.
+2. Recording or updating a Waitlist Signup requires accepted email consent.
+3. A Waitlist Signup must declare at least one interest.
+
+## Tests
+
+Run `pnpm --filter @chase-sets/public-presence run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/public-presence run test` before opening a PR.
+
 ## Composition
 
 The marketplace and admin deployables only compose routes from this context. Product copy, waitlist domain behavior, read models, UI, and tests stay here.

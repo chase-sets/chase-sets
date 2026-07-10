@@ -44,3 +44,7 @@ Notifications terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 2. Notification settings manage delivery and notification-center behavior, not source-context business rules.
 3. Product Alert rules remain Discovery-owned and appear as a `Product alerts` category inside notification settings.
 4. The marketplace notification center is a shell side sheet on desktop and bottom sheet on mobile, not a primary full-page account destination.
+
+## Tests
+
+Run `pnpm --filter @chase-sets/notifications run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/notifications run test` before opening a PR.
