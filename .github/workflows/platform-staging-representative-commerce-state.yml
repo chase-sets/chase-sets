@@ -171,6 +171,9 @@ jobs:
       SMOKE_SELLER_EMAIL: stripe-sandbox-evidence+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
       SMOKE_SELLER_PASSWORD: staging-stripe-${{ github.run_id }}-${{ github.run_attempt }}
       SMOKE_SELLER_DISPLAY_NAME: Stripe Sandbox Evidence ${{ github.run_id }}-${{ github.run_attempt }}
+      # Seller-flow synthetic accounts need an admin-created registration bypass.
+      PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
