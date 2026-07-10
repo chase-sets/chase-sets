@@ -2067,6 +2067,22 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Clean up expired restore-point forks
+        # The restore-point preflight fails closed on any fork older than the
+        # 6-hour guard; busy deploy days outpace the scheduled cleanup cron, so
+        # deploys sweep their own expired forks before creating a new one.
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: ${{ vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          node ./scripts/production-db-restore-point-cleanup.mjs \
+            --min-age-hours 6 \
+            --out artifacts/release-health/pre-deploy-restore-point-cleanup.json \
+            --apply
+
       - name: Create production database restore point
         if: env.SHOULD_DEPLOY != 'false'
         id: production_restore_point
