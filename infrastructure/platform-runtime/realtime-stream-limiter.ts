@@ -87,6 +87,7 @@ export function createPostgresRealtimeStreamLimiter(
     leaseTtlMs?: number;
     renewIntervalMs?: number;
     cleanupIntervalMs?: number;
+    onRenewalError?: (error: unknown) => void;
   }>,
 ): RealtimeStreamLimiter {
   const leaseTtlMs = options.leaseTtlMs ?? 30_000;
@@ -169,7 +170,7 @@ export function createPostgresRealtimeStreamLimiter(
           return (result.rowCount ?? 0) > 0;
         };
         const renewalTimer = setInterval(() => {
-          void renew();
+          observeLeaseRenewal(renew(), options.onRenewalError);
         }, renewIntervalMs);
         renewalTimer.unref?.();
 
@@ -259,6 +260,7 @@ export function createRedisRealtimeStreamLimiter(
     namespace?: string;
     leaseTtlSeconds?: number;
     renewIntervalMs?: number;
+    onRenewalError?: (error: unknown) => void;
   }>,
 ): RealtimeStreamLimiter {
   const namespace = options.namespace ?? "chase_sets:realtime:streams";
@@ -300,7 +302,7 @@ export function createRedisRealtimeStreamLimiter(
         return renewed > 0;
       };
       const renewalTimer = setInterval(() => {
-        void renew();
+        observeLeaseRenewal(renew(), options.onRenewalError);
       }, renewIntervalMs);
       renewalTimer.unref?.();
       return {
@@ -321,6 +323,17 @@ export function createRedisRealtimeStreamLimiter(
       };
     },
   };
+}
+
+function observeLeaseRenewal(renewal: Promise<boolean>, onError?: (error: unknown) => void): void {
+  void renewal.catch((error: unknown) => {
+    try {
+      onError?.(error);
+    } catch {
+      // A background lease-renewal observer must never turn a recoverable
+      // coordination outage into an unhandled rejection or process exit.
+    }
+  });
 }
 
 const ACQUIRE_STREAM_LEASE_SCRIPT = `

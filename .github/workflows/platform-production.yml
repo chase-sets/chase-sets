@@ -869,78 +869,10 @@ jobs:
           set -euo pipefail
           state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
           terraform -chdir=infrastructure/digitalocean/platform state pull > "$state_path"
-          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
-          const { execFileSync } = require("node:child_process");
-          const fs = require("node:fs");
-
-          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
-          const resources = Array.isArray(state.resources) ? state.resources : [];
-          const resource = (type, name) =>
-            resources.find((candidate) => candidate.type === type && candidate.name === name);
-          const indexed = (item) =>
-            new Map((item?.instances ?? []).map((instance) => [String(instance.index_key ?? ""), instance.attributes ?? {}]));
-          const contextFromToken = (token) => token.toLowerCase().replaceAll("_", "-");
-
-          const cluster = resource("digitalocean_database_cluster", "postgres");
-          const databases = indexed(resource("digitalocean_database_db", "contexts"));
-          const contextUsers = indexed(resource("digitalocean_database_user", "contexts"));
-          const wakeUsers = indexed(resource("digitalocean_database_user", "wake_listeners"));
-          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
-          if (!clusterAttrs.host || !clusterAttrs.port) {
-            throw new Error("Staging Terraform state does not contain a usable DigitalOcean database cluster.");
-          }
-
-          const secretSummary = JSON.parse(
-            execFileSync(process.execPath, [
-              "./scripts/platform-kubernetes-secret.mjs",
-              "--dry-run",
-              "--namespace",
-              process.env.CHASE_SETS_KUBERNETES_NAMESPACE,
-            ], { encoding: "utf8" }),
-          );
-
-          const urlFor = (contextName, users) => {
-            const database = databases.get(contextName);
-            const user = users.get(contextName);
-            if (!database?.name || !user?.name || !user?.password) {
-              throw new Error(`Staging Terraform state is missing database/user data for '${contextName}'.`);
-            }
-            return `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
-              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
-          };
-
-          const lines = [];
-          const add = (name, value) => {
-            console.log(`::add-mask::${value}`);
-            lines.push(`${name}=${value}`);
-          };
-
-          for (const key of secretSummary.keys ?? []) {
-            let match = /^DATABASE_URL_([A-Z0-9_]+)_WAITER$/.exec(key);
-            if (match) {
-              add(key, urlFor(contextFromToken(match[1]), wakeUsers));
-              continue;
-            }
-
-            match = /^WORKER_LISTENER_DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
-            if (match) {
-              add(key, urlFor(contextFromToken(match[1]), wakeUsers));
-              continue;
-            }
-
-            match = /^DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
-            if (match) {
-              add(key, urlFor(contextFromToken(match[1]), contextUsers));
-              continue;
-            }
-
-            if (key === "PLATFORM_CONTROL_DATABASE_URL" || key === "PLATFORM_WORK_SIGNAL_DATABASE_URL") {
-              add(key, urlFor("control", contextUsers));
-            }
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
-          NODE
+          node ./scripts/platform-kubernetes-secret.mjs \
+            --export-database-urls "$state_path" \
+            --database-environment staging \
+            --query-connection-mode pooled
 
       - name: Apply staging Kubernetes runtime secrets
         if: env.SHOULD_DEPLOY != 'false'
@@ -2415,78 +2347,10 @@ jobs:
           set -euo pipefail
           state_path="${RUNNER_TEMP}/platform-production.tfstate.json"
           terraform -chdir=infrastructure/digitalocean/platform state pull > "$state_path"
-          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
-          const { execFileSync } = require("node:child_process");
-          const fs = require("node:fs");
-
-          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
-          const resources = Array.isArray(state.resources) ? state.resources : [];
-          const resource = (type, name) =>
-            resources.find((candidate) => candidate.type === type && candidate.name === name);
-          const indexed = (item) =>
-            new Map((item?.instances ?? []).map((instance) => [String(instance.index_key ?? ""), instance.attributes ?? {}]));
-          const contextFromToken = (token) => token.toLowerCase().replaceAll("_", "-");
-
-          const cluster = resource("digitalocean_database_cluster", "postgres");
-          const databases = indexed(resource("digitalocean_database_db", "contexts"));
-          const contextUsers = indexed(resource("digitalocean_database_user", "contexts"));
-          const wakeUsers = indexed(resource("digitalocean_database_user", "wake_listeners"));
-          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
-          if (!clusterAttrs.host || !clusterAttrs.port) {
-            throw new Error("Production Terraform state does not contain a usable DigitalOcean database cluster.");
-          }
-
-          const secretSummary = JSON.parse(
-            execFileSync(process.execPath, [
-              "./scripts/platform-kubernetes-secret.mjs",
-              "--dry-run",
-              "--namespace",
-              process.env.CHASE_SETS_KUBERNETES_NAMESPACE,
-            ], { encoding: "utf8" }),
-          );
-
-          const urlFor = (contextName, users) => {
-            const database = databases.get(contextName);
-            const user = users.get(contextName);
-            if (!database?.name || !user?.name || !user?.password) {
-              throw new Error(`Production Terraform state is missing database/user data for '${contextName}'.`);
-            }
-            return `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
-              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
-          };
-
-          const lines = [];
-          const add = (name, value) => {
-            console.log(`::add-mask::${value}`);
-            lines.push(`${name}=${value}`);
-          };
-
-          for (const key of secretSummary.keys ?? []) {
-            let match = /^DATABASE_URL_([A-Z0-9_]+)_WAITER$/.exec(key);
-            if (match) {
-              add(key, urlFor(contextFromToken(match[1]), wakeUsers));
-              continue;
-            }
-
-            match = /^WORKER_LISTENER_DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
-            if (match) {
-              add(key, urlFor(contextFromToken(match[1]), wakeUsers));
-              continue;
-            }
-
-            match = /^DATABASE_URL_([A-Z0-9_]+)$/.exec(key);
-            if (match) {
-              add(key, urlFor(contextFromToken(match[1]), contextUsers));
-              continue;
-            }
-
-            if (key === "PLATFORM_CONTROL_DATABASE_URL" || key === "PLATFORM_WORK_SIGNAL_DATABASE_URL") {
-              add(key, urlFor("control", contextUsers));
-            }
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
-          NODE
+          node ./scripts/platform-kubernetes-secret.mjs \
+            --export-database-urls "$state_path" \
+            --database-environment production \
+            --query-connection-mode direct
 
       - name: Apply production Kubernetes runtime secrets
         if: env.SHOULD_DEPLOY != 'false'

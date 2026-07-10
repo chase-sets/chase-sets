@@ -12,6 +12,7 @@ const generatedBy = "node ./scripts/render-platform-helm-values.mjs";
 const platformHelmChartName = "chase-sets-platform";
 const platformHelmReleaseName = "chase-sets-platform";
 const platformBootstrapCommand = "pnpm --filter @chase-sets/app-platform-api run bootstrap:production";
+const bootstrapDatabaseSecretKeyPrefix = "BOOTSTRAP_";
 const bootstrapQuiesceTimeoutSeconds = 45;
 const bootstrapCommandTimeoutSeconds = 780;
 const bootstrapHookActiveDeadlineSeconds = 890;
@@ -727,7 +728,13 @@ function helmInstanceCountExpression(component) {
 function helmEnv(component) {
   if (component.name === "platform-bootstrap") {
     return [
-      ...component.env.filter((entry) => entry.name !== "PLATFORM_BOOTSTRAP_OWNER"),
+      ...component.env
+        .filter((entry) => entry.name !== "PLATFORM_BOOTSTRAP_OWNER")
+        .map((entry) =>
+          isBootstrapDatabaseEnv(entry.name)
+            ? { ...entry, secretKey: `${bootstrapDatabaseSecretKeyPrefix}${entry.name}` }
+            : entry,
+        ),
       {
         name: "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL",
         secret: true,
@@ -737,6 +744,10 @@ function helmEnv(component) {
   }
 
   return component.env;
+}
+
+function isBootstrapDatabaseEnv(name) {
+  return name === "PLATFORM_CONTROL_DATABASE_URL" || /^DATABASE_URL_[A-Z0-9_]+$/.test(name);
 }
 
 function normalizeTerraformComponent(component, locals) {

@@ -765,52 +765,52 @@ components:
         value: "4"
       - name: "DATABASE_URL_AUTH"
         secret: true
-        secretKey: "DATABASE_URL_AUTH"
+        secretKey: "BOOTSTRAP_DATABASE_URL_AUTH"
       - name: "DATABASE_URL_CATALOG"
         secret: true
-        secretKey: "DATABASE_URL_CATALOG"
+        secretKey: "BOOTSTRAP_DATABASE_URL_CATALOG"
       - name: "DATABASE_URL_CHECKOUT"
         secret: true
-        secretKey: "DATABASE_URL_CHECKOUT"
+        secretKey: "BOOTSTRAP_DATABASE_URL_CHECKOUT"
       - name: "DATABASE_URL_COMMERCIAL_TERMS"
         secret: true
-        secretKey: "DATABASE_URL_COMMERCIAL_TERMS"
+        secretKey: "BOOTSTRAP_DATABASE_URL_COMMERCIAL_TERMS"
       - name: "DATABASE_URL_DISCOVERY"
         secret: true
-        secretKey: "DATABASE_URL_DISCOVERY"
+        secretKey: "BOOTSTRAP_DATABASE_URL_DISCOVERY"
       - name: "DATABASE_URL_FULFILLMENT"
         secret: true
-        secretKey: "DATABASE_URL_FULFILLMENT"
+        secretKey: "BOOTSTRAP_DATABASE_URL_FULFILLMENT"
       - name: "DATABASE_URL_IDENTITY"
         secret: true
-        secretKey: "DATABASE_URL_IDENTITY"
+        secretKey: "BOOTSTRAP_DATABASE_URL_IDENTITY"
       - name: "DATABASE_URL_INVENTORY"
         secret: true
-        secretKey: "DATABASE_URL_INVENTORY"
+        secretKey: "BOOTSTRAP_DATABASE_URL_INVENTORY"
       - name: "DATABASE_URL_MARKETPLACE"
         secret: true
-        secretKey: "DATABASE_URL_MARKETPLACE"
+        secretKey: "BOOTSTRAP_DATABASE_URL_MARKETPLACE"
       - name: "DATABASE_URL_NOTIFICATIONS"
         secret: true
-        secretKey: "DATABASE_URL_NOTIFICATIONS"
+        secretKey: "BOOTSTRAP_DATABASE_URL_NOTIFICATIONS"
       - name: "DATABASE_URL_ORDERING"
         secret: true
-        secretKey: "DATABASE_URL_ORDERING"
+        secretKey: "BOOTSTRAP_DATABASE_URL_ORDERING"
       - name: "DATABASE_URL_PAYMENTS"
         secret: true
-        secretKey: "DATABASE_URL_PAYMENTS"
+        secretKey: "BOOTSTRAP_DATABASE_URL_PAYMENTS"
       - name: "DATABASE_URL_PLATFORM_OPERATIONS"
         secret: true
-        secretKey: "DATABASE_URL_PLATFORM_OPERATIONS"
+        secretKey: "BOOTSTRAP_DATABASE_URL_PLATFORM_OPERATIONS"
       - name: "DATABASE_URL_PRICING"
         secret: true
-        secretKey: "DATABASE_URL_PRICING"
+        secretKey: "BOOTSTRAP_DATABASE_URL_PRICING"
       - name: "DATABASE_URL_PUBLIC_PRESENCE"
         secret: true
-        secretKey: "DATABASE_URL_PUBLIC_PRESENCE"
+        secretKey: "BOOTSTRAP_DATABASE_URL_PUBLIC_PRESENCE"
       - name: "DATABASE_URL_SETTLEMENT"
         secret: true
-        secretKey: "DATABASE_URL_SETTLEMENT"
+        secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
       - name: "DEPLOYMENT_ENVIRONMENT"
         value: "preview"
       - name: "NODE_ENV"
@@ -825,7 +825,7 @@ components:
         secretKey: "PLATFORM_ADMIN_PASSWORD"
       - name: "PLATFORM_CONTROL_DATABASE_URL"
         secret: true
-        secretKey: "PLATFORM_CONTROL_DATABASE_URL"
+        secretKey: "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL"
       - name: "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
         value: "false"
       - name: "PLATFORM_INTERNAL_AUTH_SECRET"

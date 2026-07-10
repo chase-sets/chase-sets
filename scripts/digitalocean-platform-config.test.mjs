@@ -1183,10 +1183,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingKubeconfigStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
     expect(stagingKubeconfigStep).toContain("Configured staging Kubernetes context: ${current_context}");
     expect(stagingKubeconfigStep).toContain("Using staging DOKS cluster Terraform state address");
-    expect(stagingDatabaseUrlsStep).toContain('resource("digitalocean_database_user", "contexts")');
-    expect(stagingDatabaseUrlsStep).toContain('resource("digitalocean_database_cluster", "postgres")');
-    expect(stagingDatabaseUrlsStep).toContain("clusterAttrs.host");
-    expect(stagingDatabaseUrlsStep).not.toContain("digitalocean_database_connection_pool");
+    expect(stagingDatabaseUrlsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
+    expect(stagingDatabaseUrlsStep).toContain('--export-database-urls "$state_path"');
+    expect(stagingDatabaseUrlsStep).toContain("--database-environment staging");
+    expect(stagingDatabaseUrlsStep).toContain("--query-connection-mode pooled");
     expect(stagingRuntimeSecretsStep).toContain("node ./scripts/platform-kubernetes-secret.mjs");
     expect(stagingRuntimeSecretsStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
     expect(stagingRegistryPullSecretStep).toContain("doctl registry get --format Name --no-header");

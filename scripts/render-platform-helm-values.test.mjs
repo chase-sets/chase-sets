@@ -54,6 +54,19 @@ describe("render platform Helm values", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
 
+  it("keeps schema bootstrap on dedicated direct database secret keys", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const bootstrapEnv = new Map(values.components["platform-bootstrap"].env.map((entry) => [entry.name, entry]));
+    const apiEnv = new Map(values.components["platform-api"].env.map((entry) => [entry.name, entry]));
+
+    expect(bootstrapEnv.get("DATABASE_URL_CATALOG")?.secretKey).toBe("BOOTSTRAP_DATABASE_URL_CATALOG");
+    expect(bootstrapEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe(
+      "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL",
+    );
+    expect(apiEnv.get("DATABASE_URL_CATALOG")?.secretKey).toBe("DATABASE_URL_CATALOG");
+    expect(apiEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe("PLATFORM_CONTROL_DATABASE_URL");
+  });
+
   it("scaffolds the six current full-platform App Platform components", () => {
     const values = buildPlatformHelmValues({ repoRoot });
     const expectedNames = componentNames(runtimeTopologyBaselines.staging.expectedComponents);
