@@ -35,6 +35,11 @@ Resolved display copy from Display Templates is documented in [Catalog Resolved 
 Alias and translation equivalence facts are documented in [Catalog Alias Vocabulary And Ownership ADR](./docs/catalog-alias-vocabulary-adr.md).
 Published resolved alias facts for downstream search and display are documented in [Catalog Resolved Aliases](./docs/resolved-aliases.md).
 Product-to-product containment is documented in [Product Contents Contract](./docs/product-contents-contract.md).
+Admin bulk workflow selection, preview/confirm, and job semantics are documented in [Catalog Admin Bulk Workflows](./docs/admin-bulk-workflows.md).
+Bulk publish policy for draft Catalog Items is documented in [Bulk Catalog Item Publish](./docs/bulk-catalog-item-publish.md).
+Alias source governance and acceptance-disposition policy are documented in [Catalog Alias Source Governance](./docs/catalog-alias-source-governance.md).
+Catalog Item image and fallback-image facts are documented in [Catalog Item Imagery](./docs/catalog-item-imagery.md).
+Physical shipping measurement facts are documented in [Product Measures](./docs/product-measures.md).
 
 ## Owns
 

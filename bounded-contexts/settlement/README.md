@@ -26,6 +26,7 @@ Settlement owns internal financial truth for marketplace balances and payouts.
 ## Ubiquitous Language
 
 Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+Account-money navigation and Wallet/Payouts placement are documented in [Account Money Navigation](./docs/account-money-navigation.md).
 
 ## Core Aggregates and Process Managers
 
@@ -39,7 +40,8 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Ordering for commercial commitments
 - Payments for charge and refund outcomes
 - Fulfillment for delivery, return, and exception outcomes
-- Identity and Reputation for account-risk release inputs
+- Identity for account-creation facts used in account-risk release inputs
+- Marketplace for listing and review facts used in account-risk release inputs
 
 ## Outgoing Integration Events
 

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkDocsIndex } from "./check-docs-index.mjs";
+import { checkContextDocReferences, checkDocsIndex } from "./check-docs-index.mjs";
 
 const temporaryRoots = [];
 
@@ -84,5 +84,65 @@ describe("checkDocsIndex", () => {
     );
 
     await expect(checkDocsIndex({ repoRoot: rootDir })).resolves.toEqual({ orphanDocs: [], proseAccuracyIssues: [] });
+  });
+});
+
+describe("checkContextDocReferences", () => {
+  it("reports bounded-context docs with zero inbound references", async () => {
+    const rootDir = createTempRepo();
+    write(rootDir, "bounded-contexts/widgets/docs/orphan-policy.md", "# Orphan Policy\n");
+
+    await expect(checkContextDocReferences({ repoRoot: rootDir })).resolves.toEqual({
+      orphanContextDocs: ["bounded-contexts/widgets/docs/orphan-policy.md"],
+    });
+  });
+
+  it("treats a context README link as a reference", async () => {
+    const rootDir = createTempRepo();
+    write(rootDir, "bounded-contexts/widgets/docs/widget-policy.md", "# Widget Policy\n");
+    write(
+      rootDir,
+      "bounded-contexts/widgets/README.md",
+      "Widget policy is documented in [Widget Policy](./docs/widget-policy.md).\n",
+    );
+
+    await expect(checkContextDocReferences({ repoRoot: rootDir })).resolves.toEqual({ orphanContextDocs: [] });
+  });
+
+  it("treats a link from another Markdown file as a reference", async () => {
+    const rootDir = createTempRepo();
+    write(rootDir, "bounded-contexts/widgets/docs/widget-policy.md", "# Widget Policy\n");
+    write(
+      rootDir,
+      "docs/architecture/overview.md",
+      "See [Widget Policy](../../bounded-contexts/widgets/docs/widget-policy.md).\n",
+    );
+
+    await expect(checkContextDocReferences({ repoRoot: rootDir })).resolves.toEqual({ orphanContextDocs: [] });
+  });
+
+  it("treats a code/test/config mention as a reference", async () => {
+    const rootDir = createTempRepo();
+    write(rootDir, "bounded-contexts/widgets/docs/widget-policy.md", "# Widget Policy\n");
+    write(
+      rootDir,
+      "bounded-contexts/widgets/features/policy/domain/domain.ts",
+      "// Policy rules: see bounded-contexts/widgets/docs/widget-policy.md\n",
+    );
+
+    await expect(checkContextDocReferences({ repoRoot: rootDir })).resolves.toEqual({ orphanContextDocs: [] });
+  });
+
+  it("does not count a doc's own content as a reference to itself", async () => {
+    const rootDir = createTempRepo();
+    write(
+      rootDir,
+      "bounded-contexts/widgets/docs/widget-policy.md",
+      "# Widget Policy\n\nSelf-reference: widget-policy.md\n",
+    );
+
+    await expect(checkContextDocReferences({ repoRoot: rootDir })).resolves.toEqual({
+      orphanContextDocs: ["bounded-contexts/widgets/docs/widget-policy.md"],
+    });
   });
 });

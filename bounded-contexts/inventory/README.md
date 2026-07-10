@@ -34,6 +34,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 Automatic listing stock policy is documented in [Automatic Listing Stock](./docs/automatic-listing-stock.md).
 Import product resolution is documented in [Import Product Resolution](./docs/import-product-resolution.md).
+CSV import row formats and examples are documented in [Inventory CSV Import Examples](./docs/import-csv-examples.md).
 
 ## Core Aggregates and Process Managers
 

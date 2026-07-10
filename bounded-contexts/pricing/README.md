@@ -23,6 +23,7 @@ Pricing owns product-scoped fair-value estimation, seller repricing intelligence
 ## Ubiquitous Language
 
 Pricing terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+The Pricing-owned TCGplayer ingestion boundary is documented in [TCGplayer Price Signals](./docs/tcgplayer-price-signals.md), which consumes the Catalog-owned [TCGplayer Automation Client Contract](../catalog/docs/tcgplayer-automation-client-contract.md).
 
 ## Core Aggregates and Process Managers
 

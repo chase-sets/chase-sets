@@ -3,11 +3,16 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { collectFiles } from "./lib/files.mjs";
 import { normalizePath, normalizeRelative, repoRoot } from "./lib/repo.mjs";
 
 const indexRelativePaths = ["README.md", "docs/README.md"];
 const docsRootRelativePath = "docs";
+const contextDocsRootRelativePath = "bounded-contexts";
 const markdownLinkPattern = /\[[^\]]+\]\(([^)]+)\)/g;
+const contextDocReferenceFileExtensions = new Set([".md", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"]);
+const contextDocAcceptedReferenceKinds =
+  "a link from its context README, a link from another Markdown file, or a mention in a code/test/config file";
 const pushWakeGlossaryTerms = [
   "Wake Intent",
   "Projection Wake Relay",
@@ -109,6 +114,76 @@ export async function checkDocsIndex(options = {}) {
   return { orphanDocs, proseAccuracyIssues };
 }
 
+async function walkContextDocs(rootDir) {
+  const contextsDir = path.join(rootDir, contextDocsRootRelativePath);
+  if (!existsSync(contextsDir)) {
+    return [];
+  }
+
+  const results = [];
+  for (const contextEntry of await readdir(contextsDir, { withFileTypes: true })) {
+    if (!contextEntry.isDirectory()) {
+      continue;
+    }
+
+    const docsDir = path.join(contextsDir, contextEntry.name, "docs");
+    if (!existsSync(docsDir)) {
+      continue;
+    }
+
+    for (const entry of await readdir(docsDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        results.push(normalizeRelative(path.join(docsDir, entry.name), rootDir));
+      }
+    }
+  }
+
+  return results.sort((left, right) => left.localeCompare(right, "en"));
+}
+
+// A bounded-context doc counts as referenced when its filename is mentioned by any other
+// Markdown file (a context README link or another doc's cross-link) or by any code/test/config
+// file (a runtime or test reference). This mirrors the exhaustive reference mapping the 2026-07-02
+// documentation audit used to find orphaned context docs by hand.
+export async function checkContextDocReferences(options = {}) {
+  const rootDir = path.resolve(options.repoRoot ?? repoRoot);
+  const contextDocs = await walkContextDocs(rootDir);
+
+  if (contextDocs.length === 0) {
+    return { orphanContextDocs: [] };
+  }
+
+  const relativePathByBasename = new Map(
+    contextDocs.map((relativePath) => [path.basename(relativePath), relativePath]),
+  );
+  const referencedBasenames = new Set();
+
+  const candidateFiles = await collectFiles(rootDir, { extensions: contextDocReferenceFileExtensions });
+
+  for (const filePath of candidateFiles) {
+    if (relativePathByBasename.size === referencedBasenames.size) {
+      break;
+    }
+
+    const fileRelativePath = normalizeRelative(filePath, rootDir);
+    const content = readFileSync(filePath, "utf8");
+
+    for (const [basename, docRelativePath] of relativePathByBasename) {
+      if (referencedBasenames.has(basename) || fileRelativePath === docRelativePath) {
+        continue;
+      }
+
+      if (content.includes(basename)) {
+        referencedBasenames.add(basename);
+      }
+    }
+  }
+
+  const orphanContextDocs = contextDocs.filter((relativePath) => !referencedBasenames.has(path.basename(relativePath)));
+
+  return { orphanContextDocs };
+}
+
 function readOptional(rootDir, relativePath) {
   const filePath = path.join(rootDir, relativePath);
   if (!existsSync(filePath)) {
@@ -173,7 +248,17 @@ async function main() {
     );
   }
 
+  const { orphanContextDocs } = await checkContextDocReferences();
+  if (orphanContextDocs.length > 0) {
+    throw new Error(
+      `${orphanContextDocs.length} bounded-context doc(s) have no inbound reference. Every ` +
+        `bounded-contexts/*/docs/*.md file needs ${contextDocAcceptedReferenceKinds}:\n` +
+        orphanContextDocs.join("\n"),
+    );
+  }
+
   console.log("Docs index covers all docs Markdown files.");
+  console.log("Every bounded-context doc has at least one inbound reference.");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
