@@ -66,7 +66,29 @@ const concurrentEventStoreIndexesMigration = {
   statements: eventStoreEventsReadIndexStatements.map((statement) => statement.concurrent),
 };
 
-const contextSchemaMigrations = [contextBackfillMigration, concurrentEventStoreIndexesMigration] as const;
+const eventStoreWriteHotFillfactorLockTimeoutSql = `SET lock_timeout = '5s';`;
+
+const eventStoreStreamsFillfactorSql = `ALTER TABLE event_store_streams
+  SET (fillfactor = 90);`;
+
+const eventProjectionCheckpointsFillfactorSql = `ALTER TABLE event_projection_checkpoints
+  SET (fillfactor = 90);`;
+
+const eventStoreWriteHotFillfactorMigration = {
+  migrationId: "20260710_event_store_write_hot_fillfactor",
+  description: "Set fillfactor 90 on write-hot event-store stream and projection checkpoint tables.",
+  statements: [
+    eventStoreWriteHotFillfactorLockTimeoutSql,
+    eventStoreStreamsFillfactorSql,
+    eventProjectionCheckpointsFillfactorSql,
+  ],
+};
+
+const contextSchemaMigrations = [
+  contextBackfillMigration,
+  concurrentEventStoreIndexesMigration,
+  eventStoreWriteHotFillfactorMigration,
+] as const;
 const eventCoreBootstrapSchemaSql = removeEventCoreMigrationStatements(eventCorePostgresSchemaSql.trim());
 
 export const eventSubscriptionSchemaSql = `CREATE TABLE IF NOT EXISTS ${SUBSCRIPTION_CHECKPOINTS_TABLE} (
@@ -570,6 +592,9 @@ function removeEventCoreMigrationStatements(schemaSql: string): string {
     eventStoreEventsBackfillSql,
     eventStoreEventsContextNotNullSql,
     ...eventStoreEventsReadIndexStatements.map((statement) => statement.boot),
+    eventStoreWriteHotFillfactorLockTimeoutSql,
+    eventStoreStreamsFillfactorSql,
+    eventProjectionCheckpointsFillfactorSql,
   ]) {
     result = result.replace(statement, "");
   }

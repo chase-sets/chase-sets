@@ -58,6 +58,8 @@ export const EVENT_STORE_WAKE_NOTIFICATION_MAX_PAYLOAD_BYTES = 4 * 1024;
 // Keep event reads bounded to match list and poison-event page hardening.
 export const EVENT_STORE_READ_PAGE_SIZE_DEFAULT = 500;
 export const EVENT_STORE_READ_PAGE_SIZE_LIMIT = 500;
+// Bounds the payload portion of a full 500-event catch-up page to about 32 MiB.
+export const EVENT_STORE_MAX_PAYLOAD_BYTES = 64 * 1024;
 export const EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY = "-8041932795057830931";
 
 export type EventStoreWakeNotificationPayload = Readonly<{
@@ -141,7 +143,7 @@ const DEFAULT_EVENTS_TABLE = "event_store_events";
 
 const DEFAULT_STREAMS_TABLE = "event_store_streams";
 
-const EVENT_STORE_ERROR_CODES = new Set(["concurrency_conflict", "infrastructure_failure"]);
+const EVENT_STORE_ERROR_CODES = new Set(["concurrency_conflict", "payload_too_large", "infrastructure_failure"]);
 
 const POSTGRES_WAKE_NOTIFICATION_CHANNEL_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 const SENSITIVE_WAKE_NOTIFICATION_KEY_PATTERN =
@@ -216,6 +218,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         return [];
       }
 
+      assertEventPayloadSizes([input]);
+
       return observeEventStoreOperation(
         "append_to_stream",
         {
@@ -262,6 +266,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       if (appendInputs.length === 0) {
         return inputs.map((input) => ({ streamId: input.streamId, storedEvents: [] }));
       }
+
+      assertEventPayloadSizes(appendInputs);
 
       return observeEventStoreOperation(
         "append_to_streams",
@@ -1016,6 +1022,27 @@ function assertSafeWakeNotificationRecord(value: unknown, path: string): void {
 
 function byteLengthUtf8(value: string): number {
   return typeof Buffer !== "undefined" ? Buffer.byteLength(value, "utf8") : new TextEncoder().encode(value).length;
+}
+
+function assertEventPayloadSizes(inputs: readonly AppendToStreamInput[]): void {
+  for (const input of inputs) {
+    for (const event of input.events) {
+      const payloadBytes = byteLengthUtf8(JSON.stringify(event.payload));
+      if (payloadBytes <= EVENT_STORE_MAX_PAYLOAD_BYTES) {
+        continue;
+      }
+
+      throw createEventStoreError(
+        "payload_too_large",
+        `Event payload is ${payloadBytes} bytes, which exceeds the ${EVENT_STORE_MAX_PAYLOAD_BYTES} byte limit.`,
+        {
+          eventType: event.eventType,
+          payloadBytes,
+          maxPayloadBytes: EVENT_STORE_MAX_PAYLOAD_BYTES,
+        },
+      );
+    }
+  }
 }
 
 function normalizeEventStoreError(error: unknown, message: string): EventStoreError {

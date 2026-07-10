@@ -20,7 +20,7 @@ describe("bounded context runtime schema", () => {
     expect(eventSubscriptionSchemaSql).toContain("rebuilding_generation bigint NULL");
   });
 
-  it("moves event-store backfills and large indexes out of boot-time schema SQL", () => {
+  it("moves event-store backfills, large indexes, and write-hot fillfactor changes out of boot-time schema SQL", () => {
     const schemaSql = composeModuleSchemaSql({
       schemaSql: "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);",
     });
@@ -30,6 +30,7 @@ describe("bounded context runtime schema", () => {
     expect(schemaSql).not.toContain("UPDATE event_store_events");
     expect(schemaSql).not.toContain("ALTER COLUMN stream_context_name SET NOT NULL");
     expect(schemaSql).not.toContain("CREATE INDEX IF NOT EXISTS event_store_events_stream_idx");
+    expect(schemaSql).not.toContain("SET (fillfactor = 90)");
   });
 
   it("applies ledgered schema migrations under an advisory lock", async () => {
@@ -96,6 +97,7 @@ describe("bounded context runtime schema", () => {
     );
     expect(bootSchemaSql).not.toContain("UPDATE event_store_events");
     expect(bootSchemaSql).not.toContain("CREATE INDEX IF NOT EXISTS event_store_events_stream_idx");
+    expect(bootSchemaSql).not.toContain("SET (fillfactor = 90)");
     expect(queryLog.filter((entry) => entry.sql.includes("UPDATE event_store_events")).length).toBe(1);
     expect(
       queryLog.filter((entry) => entry.sql.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_")),
@@ -103,6 +105,15 @@ describe("bounded context runtime schema", () => {
     expect(
       queryLog.filter((entry) => entry.sql.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_")),
     ).toHaveLength(2);
+    expect(queryLog.filter((entry) => entry.sql === "SET lock_timeout = '5s';")).toHaveLength(1);
+    expect(
+      queryLog.filter((entry) => entry.sql.includes("ALTER TABLE event_store_streams\n  SET (fillfactor = 90)")),
+    ).toHaveLength(1);
+    expect(
+      queryLog.filter((entry) =>
+        entry.sql.includes("ALTER TABLE event_projection_checkpoints\n  SET (fillfactor = 90)"),
+      ),
+    ).toHaveLength(1);
     expect(secondBootSql).not.toContain("UPDATE event_store_events");
     expect(secondBootSql).not.toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_");
     expect(secondBootSql).not.toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS example_pages_");
@@ -110,6 +121,7 @@ describe("bounded context runtime schema", () => {
       new Set([
         "20260628_event_store_context_columns_backfill",
         "20260628_event_store_events_concurrent_indexes",
+        "20260710_event_store_write_hot_fillfactor",
         "20260703_example_pages_concurrent_indexes",
       ]),
     );

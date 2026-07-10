@@ -29,6 +29,8 @@ Large `event_store_events` indexes also moved out of boot schema SQL. They run a
 
 Context-owned read-model indexes can stay in additive boot schema SQL unless production evidence shows they need the same concurrent-index treatment.
 
+The write-hot `event_store_streams` and `event_projection_checkpoints` tables use fillfactor 90 through the ledgered `20260710_event_store_write_hot_fillfactor` migration. The migration leads with a five-second `lock_timeout` because changing a table storage parameter requires an `ACCESS EXCLUSIVE` lock. It changes storage policy for future writes only: deployment deliberately does not run `VACUUM FULL` or `pg_repack`, avoiding a table rewrite and its additional lock, disk, and operational risk. Normal updates will gradually realize the reserved page space. If production evidence requires rollback, apply a new ledgered migration with the same lock timeout and `ALTER TABLE ... RESET (fillfactor)` for both tables; existing pages still are not rewritten automatically.
+
 ## Adding A Migration
 
 Add a migration only for cross-cutting or shared runtime schema work. Bounded-context-owned table changes should usually remain with that context's schema unless the change is a one-time data backfill, a large-table concurrent index, or another operation that must not run every boot.
