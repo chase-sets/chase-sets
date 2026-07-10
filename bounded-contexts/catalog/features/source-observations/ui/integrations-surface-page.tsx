@@ -13,11 +13,11 @@ export interface CatalogIntegrationsSurfacePageProps {
   surface: CatalogControlPlaneRouteSurfaceKey;
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
-  // Optional alias-review visibility slot (#1908) supplied by the composition
+  // Optional alias-review visibility slot supplied by the composition
   // root for the daily surface so operators see proposed alias equivalents while
   // reviewing Source Observations before promotion.
   aliasVisibility?: ReactElement | null;
-  // Streamed source-options slice (#1970). The daily surface defers the option
+  // Streamed source-options slice. The daily surface defers the option
   // fan-out, so the shell renders the status panel behind a Suspense boundary
   // around this promise; the other surfaces leave it absent and render no panel.
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;

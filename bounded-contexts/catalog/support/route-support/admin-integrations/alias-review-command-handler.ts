@@ -4,8 +4,8 @@ import type { CatalogIntegrationsCommandResult } from "./integrations-command-re
 type Api = ReturnType<typeof createCatalogRequestApiClient>;
 type RouteContext = CatalogIntegrationsCommandResult["context"];
 
-// The alias-review (#1908) workspace POSTs its accept/reject/revoke/defer forms to
-// the daily integrations route action. These intents drive the #1905 Catalog
+// The alias-review workspace POSTs its accept/reject/revoke/defer forms to
+// the daily integrations route action. These intents drive the Catalog
 // Alias aggregate via the alias-review HTTP command endpoint:
 //
 //   accept / auto-accept → AcceptCatalogAlias

@@ -120,8 +120,8 @@ export type ProjectionWakeIntentEnqueueOutcome =
    * durable events remain the source of truth and fallback polling still
    * drains the projection, so a lost coalesce extension is safe — but the
    * enqueuer (the relay fan-out loop) must never wedge behind a hung or
-   * orphaned lock holder (issue #4649 shape: zombie rows pinned through a
-   * deploy-churn window starve claims and cleanup via SKIP LOCKED).
+   * orphaned lock holder (zombie rows pinned through a deploy-churn window
+   * starve claims and cleanup via SKIP LOCKED).
    */
   | "blocked";
 export type ProjectionWakeRoutingMode = "safe_over_wake" | "unspecified";
@@ -445,7 +445,7 @@ const CHECKPOINT_READY_WORK_SIGNAL_SOURCE = "platform-runtime.work-signal-store"
 // cursors/positions, versions, and correlation metadata. The relay guards its
 // own metadata before enqueueing, but `api-wait`, `reconciliation`, and
 // `operator` origins reach this store directly, so the store enforces the
-// denylist for every writer (issue #1235). Keys are normalized from camelCase
+// denylist for every writer. Keys are normalized from camelCase
 // to snake_case before matching, so composed keys such as `paymentIntentId`
 // or `guestEmailAddress` are caught too — this is a strict superset of the
 // emission-side denylists (`SENSITIVE_RELAY_METADATA_KEY_PATTERN` in
@@ -1290,7 +1290,7 @@ export function createPostgresWorkSignalStore(
       // pinned: the expire scan's FOR UPDATE SKIP LOCKED silently skips rows
       // locked by another transaction, and claims skip the same rows, so a
       // hung or orphaned lock holder turns them into immortal zombies that
-      // read as perpetually queued starvation (issue #4649). Count them
+      // read as perpetually queued starvation. Count them
       // without locking so operators and drills can tell zombies from
       // ordinary backlog; the runbook remedy is terminating the lock holder.
       const immortalResult = await query<Readonly<{ immortal_count: number }>>(

@@ -10,13 +10,13 @@ import type { CatalogAliasConfidenceKey } from "../../alias-equivalence/domain/a
 import type { ProviderOptionAlias } from "./provider-adapters/provider-adapter";
 
 // ---------------------------------------------------------------------------
-// Provider option aliases (#1907)
+// Provider option aliases
 //
 // Source scope selection happens BEFORE any import, so option labels come from
 // provider option queries / provider English endpoints rather than durable
 // Catalog Alias candidates (which only exist after import). This is a separate
-// data path, but it MUST reuse the same alias vocabulary (#1903) and the same
-// English-endpoint alignment rule (#1906) instead of inventing an untyped label
+// data path, but it MUST reuse the same alias vocabulary and the same
+// English-endpoint alignment rule instead of inventing an untyped label
 // mechanism. This module is the pure bridge: it turns a same-id English match
 // into a typed `ProviderOptionAlias`, and it owns the deterministic label policy
 // every option-list renderer applies.
@@ -25,7 +25,7 @@ import type { ProviderOptionAlias } from "./provider-adapters/provider-adapter";
 /**
  * Build a typed option alias from an already-matched English-endpoint name.
  *
- * The caller runs `matchTcgdexEnglishEndpointEntity` (the #1906 reusable rule)
+ * The caller runs `matchTcgdexEnglishEndpointEntity` (the reusable rule)
  * to obtain `englishName`; this function only wraps the result in the shared
  * vocabulary, assigning the governed review status and recording evidence. It
  * never duplicates the alignment rule.

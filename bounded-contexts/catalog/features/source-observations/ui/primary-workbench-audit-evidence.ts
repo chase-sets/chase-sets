@@ -28,8 +28,8 @@ export function auditEvidenceFor(input: {
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   securityPrivacy: CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
-  // Deep-evidence index keyed by observationId. The slim review row no longer
-  // carries duplicate/conflict evidence (#1971), so the source-observation audit
+  // Deep-evidence index keyed by observationId. The slim review row does not
+  // carry duplicate/conflict evidence, so the source-observation audit
   // rows read those diagnostic codes from the index instead.
   reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
   validationReadiness: ValidationReadiness;
@@ -220,8 +220,8 @@ function auditSourceObservationRowsFor(input: {
   reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
 }): readonly AuditTimelineRow[] {
   return input.rows.slice(0, 16).map((row) => {
-    // The slim review row dropped the source profile version and the deep
-    // duplicate/conflict evidence (#1971); read them from the in-process evidence
+    // The slim review row omits the source profile version and the deep
+    // duplicate/conflict evidence; read them from the in-process evidence
     // index, defaulting empty so the audit timeline stays total even if absent.
     const evidence = input.reviewEvidenceByObservationId.get(row.observationId);
     return {

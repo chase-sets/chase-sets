@@ -23,8 +23,8 @@ export type CatalogPrimaryWorkbenchSourceScopeOption = Readonly<{
 // One guided source-scope control, derived from a provider source-option page. The
 // shell renders these as native selects whose name is the structured route-context
 // query field (languageCode, productLineId, seriesId, expansionId, expansionName),
-// so picking an option updates the route the same way the raw importScope text box
-// used to — without the operator typing a colon-delimited scope string.
+// so picking an option updates the route without the operator typing a
+// colon-delimited scope string.
 export type CatalogPrimaryWorkbenchGuidedScopeField = Readonly<{
   queryKind: string;
   scope: string;

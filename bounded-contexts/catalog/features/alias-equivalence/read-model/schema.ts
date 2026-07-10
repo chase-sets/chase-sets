@@ -1,4 +1,4 @@
-// Catalog Alias persistence (#1905).
+// Catalog Alias persistence.
 //
 // Three queryable tables:
 //   - catalog_source_observation_alias_candidates: typed alias candidates
@@ -131,7 +131,7 @@ CREATE INDEX IF NOT EXISTS catalog_reference_record_aliases_published_idx
   ON catalog_reference_record_aliases (reference_record_id, alias_type)
   WHERE review_status IN ('accepted', 'auto-accepted');
 
--- Resolved Alias facts (#1910).
+-- Resolved Alias facts.
 --
 -- Following the Resolved Display Identity derived-fact pattern: the publishable
 -- aliases for a target are resolved into one stable fact per (target, language),

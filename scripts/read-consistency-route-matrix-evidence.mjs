@@ -93,8 +93,8 @@ export function validateReadConsistencyRouteMatrixEvidenceOptions(options) {
 }
 
 /**
- * Optional join against the route-matrix sampler artifact (issue #4721): the
- * sampler self-generates traffic where the m53 design permits and records a
+ * Optional join against the route-matrix sampler artifact: the
+ * sampler self-generates traffic where the design permits and records a
  * support-safe blocker for every route it cannot drive (private/representative
  * commerce state, unconfigured observation inputs). Without the join, a
  * blocked-by-design route with zero in-window samples is indistinguishable
@@ -237,7 +237,7 @@ export function buildReadConsistencyRouteMatrixEvidence(input) {
       passingRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "pass").length,
       failingRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "fail").length,
       // Blocked = the sampler recorded a support-safe blocker and the window
-      // held zero samples: a coverage gap to close (issue #4721), never proof
+      // held zero samples: a coverage gap to close, never proof
       // of wake health and never conflated with a failing route.
       blockedRouteCount: routes.filter((route) => route.wakeBeforeWait.status === "blocked").length,
       coverage: routes.some((route) => route.wakeBeforeWait.status === "blocked") ? "partial" : "full",
@@ -270,8 +270,8 @@ export function routeMatrixRouteEvidence(route, measurement, samplerRoute = null
       : "fail";
   // A route the sampler could not drive (support-safe blocker recorded) with
   // zero in-window samples is a coverage gap, not an SLO regression: report it
-  // as `blocked` so the m53 evidence distinguishes "no traffic possible" from
-  // "traffic present and failing" (issue #4721). Ambient samples always win —
+  // as `blocked` so the evidence distinguishes "no traffic possible" from
+  // "traffic present and failing". Ambient samples always win —
   // any nonzero sampleCount keeps the strict metric-based verdict.
   const status = samplerRoute?.status === "blocked" && sampleCount === 0 ? "blocked" : metricStatus;
 
@@ -458,7 +458,7 @@ async function main(argv, env = process.env) {
   // Fail only on routes with real in-window signal that breaches. Routes the
   // sampler recorded as blocked-by-design surface as `blocked` with
   // coverage: "partial" — a loudly reported coverage gap, not gate noise that
-  // reads identically to a wake regression (issue #4721). The release-health
+  // reads identically to a wake regression. The release-health
   // report keeps treating any non-pass route as not-passing evidence.
   return evidence.routes.some((route) => route.wakeBeforeWait.status === "fail") ? 1 : 0;
 }

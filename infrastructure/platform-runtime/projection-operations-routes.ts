@@ -94,7 +94,7 @@ export function createProjectionOperationsRoutes(
   });
 
   // Read-only push-wake pipeline status for the operator console. Structural
-  // fields only (ADR 0010 privacy boundary, #1235): counts, lanes, origins,
+  // fields only (ADR 0010 privacy boundary): counts, lanes, origins,
   // states, positions, owners, and timestamps — never wake-intent metadata,
   // error bodies, or stream identifiers.
   app.get("/wake-status", async (c) => {
@@ -115,11 +115,11 @@ export function createProjectionOperationsRoutes(
       relay,
       schedulers,
       rollout: readWakeRolloutStatus(),
-      // Push-first migration inventory (#1224): disposition by projection
+      // Push-first migration inventory: disposition by projection
       // group derived from the wake registry. Structural metadata only:
       // names, owners, states, counts.
       migration: readWakeMigrationStatus(),
-      // Static composite-origin disposition inventory (#1248/#1238): which
+      // Static composite-origin disposition inventory: which
       // wake families ride the work-signal composite versus documented
       // exceptions. Structural metadata only.
       origins: listWorkSignalOriginDispositions(),

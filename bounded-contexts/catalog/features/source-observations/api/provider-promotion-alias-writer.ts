@@ -12,7 +12,7 @@ import {
 } from "./provider-promotion-alias-planner";
 
 // ---------------------------------------------------------------------------
-// Promotion alias writer (#1909)
+// Promotion alias writer
 //
 // Bridges the pure promotion alias plan to the Catalog Alias aggregate. The
 // writer reads the reviewed candidate rows an observation produced, reads the
@@ -37,7 +37,7 @@ const PROMOTION_ALIAS_REVOKE_REASONS: Record<string, string> = {
 };
 
 export type PromotionAliasReader = Readonly<{
-  /** Reviewed alias candidates an observation produced (#1906 intake rows). */
+  /** Reviewed alias candidates an observation produced (intake rows). */
   listCandidatesForObservation: (observationId: string) => Promise<readonly PromotionAliasCandidate[]>;
   /** Aliases already published for a Catalog Item, for retraction detection. */
   listPublishedCatalogItemAliases: (catalogItemId: string) => Promise<readonly PromotionPublishedAlias[]>;

@@ -269,7 +269,7 @@ const projectionRunners = collectWorkerRunners(runtime, {
 });
 // Projection operations get their own runner group (and loop) so queued
 // recovery operations are never starved by projection-group backlog priority,
-// and a hung operation cannot pin projection replay capacity (issue #4496).
+// and a hung operation cannot pin projection replay capacity.
 const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   controlPlane,
   runnerCount: config.projectionOperations.runnerCount,
@@ -519,7 +519,7 @@ const projectionWakeRelayInterestIndex = buildProjectionInterestIndex({
       };
     }),
     // Rollout/owner/opt-out data from the source-context wake registry and
-    // the push-first migration inventory (#1245/#1224): owners on every
+    // the push-first migration inventory: owners on every
     // entry, plus disables for registry-disabled/opted-out sources and
     // owner-approved projection opt-outs.
     ...listProjectionInterestOverridesForPushMigration(),
@@ -695,7 +695,7 @@ app.get("/internal/workers/status", async (c) => {
           configuredSourceContextNames: projectionWakeRelaySources.map((source) => source.sourceContextName),
           listenerSourceContextNames: [...projectionWakeRelayListenerPools.keys()],
           interestIndexVersion: projectionWakeRelayInterestIndex.indexVersion,
-          // Operator surface for #1220: loaded index version, staleness and
+          // Operator surface: loaded index version, staleness and
           // generation time, enabled source contexts, disabled/opt-out entry
           // counts, and route-dependency coverage.
           interestIndex: summarizeProjectionInterestIndex(projectionWakeRelayInterestIndex),

@@ -166,7 +166,7 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   subtitle?: string | null;
 }>;
 
-// Published Catalog resolved-alias fact (#1910). Discovery consumes this stable
+// Published Catalog resolved-alias fact. Discovery consumes this stable
 // per-target, per-language fact only; an empty `aliases` list is a retraction.
 type CatalogItemAliasesResolvedEventData = Readonly<{
   catalogItemId: string;
@@ -676,7 +676,7 @@ async function refreshDiscoverySearchItem(
     .concat(localizedMapValues(item.description_i18n))
     .join(" ");
 
-  // Resolved Catalog alias text (#1910) folds into search only when the rollout
+  // Resolved Catalog alias text folds into search only when the rollout
   // kill-switch is open. Title/subtitle/description keep ownership of display and
   // slugs; aliases add matchable text at type-aware weights so a broad species
   // alias never outranks an exact title or an official equivalent.
@@ -1127,7 +1127,7 @@ async function applyCatalogItemDisplayIdentity(
 }
 
 /**
- * Applies a published resolved-alias fact (#1910) to the search source row,
+ * Applies a published resolved-alias fact to the search source row,
  * per alias language. A non-empty list sets that language's aliases; an empty
  * list is a retraction and removes the language key so the aliases drop out of
  * search_text on the event (and on rebuild, since rebuild reads the same row).

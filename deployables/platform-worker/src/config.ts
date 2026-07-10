@@ -305,7 +305,7 @@ export function loadConfig(): PlatformWorkerConfig {
       "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS",
       Math.min(2, maxConcurrentRunners),
     ),
-    // Idle-runner backlog refresh cadence (#4763): surfaces orphaned backlog on
+    // Idle-runner backlog refresh cadence: surfaces orphaned backlog on
     // groups that fell behind without running so they re-enter the fair
     // rotation instead of starving behind the discovery cascade.
     projectionPriorityRefreshIntervalMs: getPositiveNumberEnv("WORKER_PROJECTION_PRIORITY_REFRESH_INTERVAL_MS", 5_000),

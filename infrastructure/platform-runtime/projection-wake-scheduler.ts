@@ -229,7 +229,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
   // worker may run the lane. Binding the lease identity to the hosted-context
   // cohort keeps single-flight within a homogeneous cohort (unchanged connection
   // budget) while guaranteeing every hosted context always has a lane runner
-  // that can claim it. See issue #4643 / #4633.
+  // that can claim it.
   const hostedContextCohortToken = createHostedContextCohortToken(hostedTargetContextNames);
 
   const computeRetryBackoffMs = (attemptCount: number): number => {
@@ -543,7 +543,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
         // Keep `name` stable for status/metrics continuity, but scope the
         // single-flight lease to this worker's hosted-context cohort so a lane
         // held by a worker that cannot claim a given target context never
-        // starves that context's intents platform-wide (issue #4643).
+        // starves that context's intents platform-wide.
         leaseName: `job:${laneRunnerName}@${hostedContextCohortToken}`,
         // Hot-lane runners are the runner loop's reserved-capacity class so
         // critical read-after-write wakes (checkout, payment-start, proof)

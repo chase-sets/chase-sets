@@ -1567,7 +1567,7 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
   rows: readonly CatalogPrimaryWorkbenchSourceObservationReviewRow[];
 }>;
 
-// Slim review-row contract (#1971). A review row carries ONLY what the dense table
+// Slim review-row contract. A review row carries ONLY what the dense table
 // cell and the per-row action buttons render: identity, status, the first-N fact
 // summaries the cell badges show, a duplicate count, the redaction-safe payload
 // summary, promotion readiness, command disposition, and the inline `actions[]`
@@ -1613,7 +1613,7 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
 }>;
 
 // Deep evidence for a single Source Observation, separated from the review row so
-// it ships only when the operator opens the evidence SideSheet (#1971). It carries
+// it ships only when the operator opens the evidence SideSheet. It carries
 // the full normalized-fact / duplicate / conflict / audit lists and every
 // provenance field the sheet's KeyValueList renders. Composed from the same Source
 // Observation the slim row is, so the sheet shows exactly what it showed before —
@@ -1678,8 +1678,8 @@ export type CatalogPrimaryWorkbenchProductContentsEvidenceLine = Readonly<{
   provenanceSummary: readonly string[];
 }>;
 
-// Response contract for the lazy evidence endpoint the review SideSheet fetches
-// (#1971). On success `detail` carries the composed deep evidence; on absence or a
+// Response contract for the lazy evidence endpoint the review SideSheet fetches.
+// On success `detail` carries the composed deep evidence; on absence or a
 // transient failure it is null so the sheet renders its error fallback instead of
 // the route boundary throwing. Lives on the feature contract so both the route
 // loader (server) and the evidence sheet (client) depend on the feature, not on a
@@ -2955,7 +2955,7 @@ function assertPrimaryWorkbenchImportJobs(value: CatalogPrimaryWorkbenchReadMode
 }
 
 // The four audience surface routes that make up the rebuilt integrations
-// workbench (#1739). The daily base route plus three nested surface routes are
+// workbench. The daily base route plus three nested surface routes are
 // all safe in-workbench destinations; ?section= only names a workspace within a
 // surface, so it never changes which route a link targets.
 const safePrimaryWorkbenchSurfacePaths = new Set<string>([

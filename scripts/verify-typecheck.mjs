@@ -15,9 +15,9 @@ async function runPackageManager(args) {
 
 // The root tsconfig.json includes every workspace source file and
 // tsconfig.tests.json includes every test file, so two incremental tsc passes
-// cover the full graph. The former per-workspace typecheck fan-out re-checked
-// the same files dozens of times (issue #1328). Workspace --workspace/
-// --workspace-list arguments are accepted and ignored for CI compatibility.
+// cover the full graph without re-checking the same files per workspace.
+// Workspace --workspace/--workspace-list arguments are accepted and ignored
+// for CI compatibility.
 export async function verifyTypecheck() {
   await runPackageManager(["run", "check:no-any"]);
   await runPackageManager(["exec", "tsc", "-p", "./tsconfig.json", "--noEmit"]);

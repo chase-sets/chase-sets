@@ -27,7 +27,7 @@ export interface CatalogWorkbenchShellProps {
   // one "Back to import workbench" link; the daily surface is the primary job and
   // renders none.
   surface: CatalogControlPlaneRouteSurfaceKey;
-  // Streamed source-options slice (#1970). When the daily loader defers the
+  // Streamed source-options slice. When the daily loader defers the
   // option fan-out it passes the promise here and the status panel renders behind
   // a Suspense boundary; when absent (the other surfaces, or a test that supplies
   // a fully-populated read model), the panel reads the synchronous slice on
@@ -64,8 +64,8 @@ export function CatalogWorkbenchShell({
         // actions are NOT duplicated here: each stage owns its action exactly
         // once ("Pull provider data" in Run sync, "Preview promotion" in the
         // review selection surface and the Create / update stage), and the
-        // three-stage stepper provides the at-a-glance wayfinding the header
-        // copies used to duplicate.
+        // three-stage stepper provides the at-a-glance wayfinding instead of the
+        // header.
         actions={showReturnLink ? <WorkbenchReturnLink routeContext={readModel.routeContext} /> : null}
       />
 
@@ -76,8 +76,8 @@ export function CatalogWorkbenchShell({
           cohesive, collapsible bar ahead of the three-stage stepper (Run sync ->
           Review -> Create) rather than stacked inline by the shell. The bar opens
           until a scope is chosen, then collapses to a one-line summary with an edit
-          affordance; expand/edit is client state + the shared fetcher submit
-          (#1969), so it never full-reloads. */}
+          affordance; expand/edit is client state + the shared fetcher submit,
+          so it never full-reloads. */}
       {surface === "daily" ? (
         <CatalogImportContextBar readModel={readModel} deferredSourceOptions={deferredSourceOptions} />
       ) : null}
@@ -104,7 +104,7 @@ export function CatalogWorkbenchShell({
             }),
           },
           {
-            // Blockers are no longer counted here: they live once in the
+            // Blockers live once in the
             // authoritative WorkspaceBlockerPanel (with the stepper's per-stage
             // blocked status as the structural cue). This slot instead surfaces
             // the promotion's write blast radius — the count of draft Catalog

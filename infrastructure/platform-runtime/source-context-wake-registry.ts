@@ -282,7 +282,7 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "identity",
     owner: "Identity",
-    // Staging-enabled for cross-device User presentation preferences (#2744):
+    // Staging-enabled for cross-device User presentation preferences:
     // preference writes must wake Identity's own read models so reloads and
     // second sessions observe the committed viewer setting without waiting on
     // fallback polling. Production remains inert through the environment kill

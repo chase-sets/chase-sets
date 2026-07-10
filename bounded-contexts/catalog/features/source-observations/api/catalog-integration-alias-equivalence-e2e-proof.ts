@@ -16,7 +16,7 @@ import {
 } from "./catalog-integration-diagnostic-taxonomy";
 
 // ---------------------------------------------------------------------------
-// Catalog Alias Equivalence end-to-end milestone proof (#1913)
+// Catalog Alias Equivalence end-to-end proof
 //
 // The final milestone slice. Every prior alias slice proved one hop; this proof
 // walks the WHOLE catalog-side pipeline once, deterministically and without any
@@ -24,12 +24,12 @@ import {
 // reader can verify the flow actually connects end to end:
 //
 //   TCGdex Japanese scope (fixture)
-//     -> extract alias candidates (#1906, real extractor, Indonesian guard)
-//     -> review accept / reject / defer / auto-accept (#1908 governance + operator)
-//     -> plan promotion to durable facts (#1909, real planner)
-//     -> resolve the publishable aliases into the published fact (#1910 fold)
+//     -> extract alias candidates (real extractor, Indonesian guard)
+//     -> review accept / reject / defer / auto-accept (governance + operator)
+//     -> plan promotion to durable facts (real planner)
+//     -> resolve the publishable aliases into the published fact (fold)
 //     -> CROSS-CONTEXT HANDOFF: the resolved fact Discovery consumes for English
-//        search (#1911) and the English-locale display name Catalog renders (#1914)
+//        search and the English-locale display name Catalog renders
 //     -> revoke a published alias and re-resolve: removal propagates to search
 //        and display reverts to the native name.
 //
@@ -46,7 +46,7 @@ import {
 // Discovery internals (search weighting, CJK bigrams, kill-switch) live in the
 // Discovery bounded context and are intentionally NOT imported here: the proof
 // asserts the published fact at the context boundary, not Discovery's private
-// projection, which is exactly the ADR boundary (#1903).
+// projection, which is exactly the bounded-context boundary.
 // ---------------------------------------------------------------------------
 
 export const catalogAliasEquivalenceE2eProofSchemaVersion = "catalog-alias-equivalence-e2e-proof/v1" as const;
@@ -70,7 +70,7 @@ export const TCGDEX_ALIAS_E2E_PROOF_SCOPE = {
 } as const;
 
 /**
- * The five scenario cards #1913 requires, each exercising a distinct alias edge:
+ * The five scenario cards this proof requires, each exercising a distinct alias edge:
  *
  *  - `species-helps`: a Pokemon (サボネア) the English species name Cacnea helps
  *    find, with an English mirror so an official equivalent and a species alias
@@ -350,7 +350,7 @@ function extractScenarios(): readonly ExtractedScenario[] {
  * Stage 3: apply the operator review decision to each scenario's candidates.
  * Governed auto-accept (review status from the extractor) is preserved; the
  * operator then accepts/rejects/leaves-pending the same-id English official
- * equivalent per the fixture, mirroring the alias-review workflow (#1908).
+ * equivalent per the fixture, mirroring the alias-review workflow.
  */
 function reviewCandidate(scenario: ExtractedScenario, candidate: CatalogAliasCandidate): CatalogAliasReviewStateKey {
   // The native localized name and species alias keep their governed pending
@@ -395,7 +395,7 @@ function resolutionFor(scenario: ExtractedScenario): PromotionAliasTargetResolut
 /**
  * A publishable alias fact for a Catalog Item, as it would appear in
  * `catalog_item_aliases` after promotion. The proof folds these the same way the
- * #1910 resolver does (publishable filter, broad-by-fan-out) to derive the
+ * resolver does (publishable filter, broad-by-fan-out) to derive the
  * published fact, without a database.
  */
 type PublishedItemAlias = Readonly<{
@@ -465,7 +465,7 @@ function publishedItemAliases(scenarios: readonly ExtractedScenario[]): {
   return { rows, proposed, publishable, evidenceOnly };
 }
 
-/** The English display name a card renders for an English-locale viewer (#1914). */
+/** The English display name a card renders for an English-locale viewer. */
 function englishDisplay(nativeName: string, rows: readonly PublishedItemAlias[]): string {
   const display: ResolvedDisplayAlias | null = selectDisplayAlias(
     rows.map((row) => ({
@@ -479,7 +479,7 @@ function englishDisplay(nativeName: string, rows: readonly PublishedItemAlias[])
   return display ? composeDisplayWithNativeSecondary(display.aliasText, nativeName) : nativeName;
 }
 
-/** Whether an English query reaches a card through any publishable English alias (#1911). */
+/** Whether an English query reaches a card through any publishable English alias. */
 function englishReachable(rows: readonly PublishedItemAlias[]): boolean {
   return rows.some((row) => isEnglish(row.aliasLanguageCode));
 }
@@ -650,7 +650,7 @@ function buildRevocationStage(
 
   // Revoke the published English alias: it drops out of the publishable set, so
   // the re-resolved fact (the publishable rows) no longer contains it. This is
-  // exactly what the #1910 resolver fold produces when an alias is revoked.
+  // exactly what the resolver fold produces when an alias is revoked.
   const rowsAfter = rowsBefore.filter((row) => row.aliasHash !== englishAliasBefore.aliasHash);
 
   return {
@@ -728,11 +728,11 @@ export function assertCatalogAliasEquivalenceE2eProofConnects(packet: CatalogAli
     throw new Error("Alias e2e proof must publish at least one accepted alias.");
   }
 
-  // Buyer outcome #1911: English search finds the Japanese card.
+  // Buyer outcome: English search finds the Japanese card.
   if (!stages.search.englishQueryFindsJapaneseCard) {
     throw new Error("Alias e2e proof must prove English search reaches the Japanese サボネア card (#1911).");
   }
-  // Buyer outcome #1914: English-locale display shows the English name with the
+  // Buyer outcome: English-locale display shows the English name with the
   // native name as secondary.
   if (
     !stages.display.sampleEnglishDisplay.includes("Cacnea") ||

@@ -270,7 +270,7 @@ export function buildProjectionAttentionReport(snapshot) {
       .filter((projection) => projection.blockedStreamCount > 0)
       .map((projection) => projection.projectionKey),
     failedOperationCount,
-    // Executor-jam forensics (#4496): the terminal failure classes across the
+    // Executor-jam forensics: the terminal failure classes across the
     // whole failed-operation history and every operation currently claimed,
     // so a stuck executor is visible from the artifact alone.
     failedOperationTotal: snapshot.operationSummary?.failedCount ?? null,
@@ -409,7 +409,7 @@ async function fetchProjectionOperationsSnapshot(auth) {
   return result.body;
 }
 
-// Best-effort executor-jam forensics (#4496): the snapshot's `operations`
+// Best-effort executor-jam forensics: the snapshot's `operations`
 // list only carries the 25 newest operations, which hides the failed backlog
 // and the currently claimed operation whenever fresh retries flood the queue.
 // Fetch the failed history and running set explicitly; the snapshot stays
@@ -703,7 +703,7 @@ function sanitizeOperation(operation) {
     requestedByUserIdFingerprint: value.requestedByUserId == null ? null : fingerprint(value.requestedByUserId),
     claimOwnerIdFingerprint: value.claimOwnerId == null ? null : fingerprint(value.claimOwnerId),
     // Claim expiry is the single field that separates a reclaimable expired
-    // claim from an unreapable NULL-claim ghost (issue #4496); keep it in the
+    // claim from an unreapable NULL-claim ghost; keep it in the
     // support-safe snapshot so stuck `running` rows are diagnosable from
     // artifacts alone.
     claimedUntil: value.claimedUntil == null ? null : readSafeTimestamp(value.claimedUntil),

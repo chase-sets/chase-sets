@@ -3,7 +3,7 @@
 //
 //   owner          (default) Owning context users: full database/schema usage
 //                  so bootstrap can create and migrate that context's tables.
-//   wake-listener  Dedicated relay listener users (#1243): CONNECT (LISTEN
+//   wake-listener  Dedicated relay listener users: CONNECT (LISTEN
 //                  needs no further privilege), USAGE on the schema, and
 //                  read-only SELECT on the event-store tables only — guarded
 //                  by to_regclass so a freshly created database whose

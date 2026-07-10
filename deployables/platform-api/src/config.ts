@@ -185,7 +185,7 @@ export type PlatformApiReadConsistencyConfig = Readonly<{
   readinessNotificationsEnabled: boolean;
 }>;
 
-// Issue #1225: critical post-write routes keep exact-dependency waits. These
+// Critical post-write routes keep exact-dependency waits. These
 // defaults are always prepended to environment route tuning, so a global
 // READ_CONSISTENCY_EXACT_DEPENDENCY_MODE downgrade cannot widen these waits.
 export const CRITICAL_READ_CONSISTENCY_ROUTE_TUNING: readonly ReadConsistencyRouteTuning[] = [

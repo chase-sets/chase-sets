@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url";
 import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { loadTestEnvironment } from "./run-workspaces.mjs";
 
-// Runs the non-DB test tier as a single vitest projects-mode process
-// (issue #1419). Mirrors the environment loading run-workspaces performed for
+// Runs the non-DB test tier as a single vitest projects-mode process.
+// Mirrors the environment loading run-workspaces performs for
 // `test --exclude-test-profile=db` and `test:unit --test-profile=db`:
 // TEST_DATABASE_URL stays out unless inherited from the caller.
 export async function runVitestProjects(options = {}) {

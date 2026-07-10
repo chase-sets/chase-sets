@@ -172,11 +172,10 @@ test.describe("catalog admin integrations", () => {
     // alias candidates for the scope). Assert it only when it actually rendered, so
     // the test never assumes the seed carries alias candidates.
     await expectAliasReviewWorkspaceIfPresent(page);
-    // The rebuilt daily surface no longer renders a page-local "Import to promotion
-    // workbench" label; that text was tied to the removed page-local workflow/module
-    // nav. The workbench identity is now carried by the heading (asserted above) and the
-    // linear three-stage flow ("Run sync" / "Review changes" / "Create / update items",
-    // asserted below).
+    // The daily surface does not render a page-local "Import to promotion
+    // workbench" label. The workbench identity is carried by the heading
+    // (asserted above) and the linear three-stage flow ("Run sync" / "Review
+    // changes" / "Create / update items", asserted below).
     // Cross-surface navigation now lives in the admin shell side nav as a nested
     // "Integrations" group, not a page-local "Catalog control plane workflows" nav.
     await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toHaveCount(0);
@@ -221,7 +220,7 @@ test.describe("catalog admin integrations", () => {
     await expectVisibleText(page, "Run sync");
     await expectVisibleText(page, "Review changes");
     await expectVisibleText(page, "Create / update items");
-    // #1967 consolidation: the primary actions are no longer duplicated in the
+    // The primary actions are not duplicated in the
     // shell header. Each action lives once in its owning stage. The header carries
     // only the per-surface return affordance (none on the daily route). Open each
     // owning stage and confirm its single canonical action; the run-sync stage is
@@ -424,13 +423,13 @@ test.describe("catalog admin integrations", () => {
     await expect(page.locator('a[href="/catalog/integrations"]').first()).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 900 });
-    // The page-local workflow nav and its mobile combobox are gone; cross-surface
-    // navigation is the admin shell's responsibility now.
+    // There is no page-local workflow nav or mobile combobox; cross-surface
+    // navigation is the admin shell's responsibility.
     await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toHaveCount(0);
     await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveCount(0);
-    // #1967: the primary "Pull provider data" / "Preview promotion" actions are no
-    // longer duplicated in the shell header, so the supporting surfaces (this is the
-    // health surface) no longer surface them — they live only in the daily flow's
+    // The primary "Pull provider data" / "Preview promotion" actions are not
+    // duplicated in the shell header, so the supporting surfaces (this is the
+    // health surface) do not surface them — they live only in the daily flow's
     // owning stages, asserted on the daily route above.
     await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
@@ -456,8 +455,8 @@ test.describe("catalog admin integrations", () => {
       healthTriageRegion.getByText(/No active or failed import jobs|Import job|Active jobs/i).first(),
     ).toBeVisible();
     // The health surface stacks three workspaces but renders the "Back to import
-    // workbench" affordance exactly once, in the surface header (no longer once per
-    // stacked workspace), so this no longer needs a .first() disambiguator.
+    // workbench" affordance exactly once, in the surface header (not once per
+    // stacked workspace), so this needs no .first() disambiguator.
     const healthBackLinks = page.getByRole("link", { name: "Back to import workbench" });
     await expect(healthBackLinks).toHaveCount(1);
     await expect(healthBackLinks).toHaveAttribute("href", /\/catalog\/integrations(\?|$)/);
@@ -496,12 +495,12 @@ test.describe("catalog admin integrations", () => {
       "aria-current",
       "page",
     );
-    // The setup workspaces are gone from the daily route's content/navigation: the daily
+    // The setup workspaces are not part of the daily route's content/navigation: the daily
     // import-to-promotion workspace heading does not render on the providers surface.
     await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
     // Return-to-daily preserves the full working set on the base /catalog/integrations route.
     // The providers surface renders its single header "Back to import workbench" affordance
-    // once (no longer per stacked workspace); when the deep-linked profile version is stale
+    // once (not per stacked workspace); when the deep-linked profile version is stale
     // the profile-authoring empty state also offers a return path, so take the header link
     // (first in DOM order) explicitly.
     const backToDailyHref = await page

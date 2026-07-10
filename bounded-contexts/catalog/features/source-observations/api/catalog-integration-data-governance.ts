@@ -342,8 +342,7 @@ export function catalogIntegrationProviderDataSignoffChecklist(): readonly strin
 }
 
 // ---------------------------------------------------------------------------
-// One Piece provider authority and Scrydex credit-aware import policy (#2269,
-// #2270, #2287).
+// One Piece provider authority and Scrydex credit-aware import policy.
 // ---------------------------------------------------------------------------
 
 export const CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV =
@@ -612,8 +611,7 @@ function onePieceValidationCheck(
 }
 
 // ---------------------------------------------------------------------------
-// Lorcana provider authority and Scrydex credit-aware import policy (#2464,
-// #2466, #2472, #2473).
+// Lorcana provider authority and Scrydex credit-aware import policy.
 // ---------------------------------------------------------------------------
 
 export const CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_ENV =
@@ -985,14 +983,14 @@ function lorcanaValidationCheck(
 }
 
 // ---------------------------------------------------------------------------
-// Alias source governance (#1912)
+// Alias source governance
 //
 // Governs which external sources may supply an official English equivalent for a
 // localized card/set/series name, which alias kinds may be auto-accepted versus
 // held for review, how governed sources break ties when they disagree on the
 // official English name, and how generated translations/romanizations are
-// constrained. This is the policy that #1903, #1906, #1908, #1909, and #1911
-// reference instead of inventing their own. The alias term and review-state
+// constrained. This is the policy the rest of the alias-equivalence pipeline
+// references instead of inventing their own. The alias term and review-state
 // strings here match the ADR slice (#1903) verbatim and are not imported from
 // its not-yet-merged files.
 // ---------------------------------------------------------------------------
@@ -1007,7 +1005,7 @@ export const CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION = "alias-source-gove
 /**
  * Approved categories of alias source. A category describes *how* a candidate
  * English equivalent was produced, independent of which concrete provider
- * supplied it. Display ownership lives in #1914; this file owns trust only.
+ * supplied it. Display ownership lives elsewhere; this file owns trust only.
  */
 export type CatalogAliasSourceCategoryKey =
   | "provider-same-id-localized-endpoint"
@@ -1188,7 +1186,7 @@ export function getCatalogAliasSourceGovernancePolicy(
 /**
  * The ordered list of source categories that may decide the official English
  * name when governed sources disagree, lowest precedence number first. Consumed
- * by promotion conflict handling (#1909).
+ * by promotion conflict handling.
  */
 export function catalogAliasOfficialEnglishPrecedenceOrder(): readonly CatalogAliasSourceCategoryKey[] {
   return catalogAliasSourceGovernancePolicies

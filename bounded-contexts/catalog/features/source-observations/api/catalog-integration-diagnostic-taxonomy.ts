@@ -709,7 +709,7 @@ export const catalogIntegrationDiagnosticTaxonomy = [
   ),
 
   // -------------------------------------------------------------------------
-  // Catalog Alias equivalence diagnostics (#1913)
+  // Catalog Alias equivalence diagnostics
   //
   // The end-to-end alias pipeline (TCGdex Japanese import -> Source Observation
   // -> alias candidate -> review -> promotion -> published resolved fact ->

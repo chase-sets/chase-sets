@@ -25,7 +25,7 @@ export type CatalogIntegrationsCommandResult = Readonly<{
 }>;
 
 // The post-command navigation a redirect-owning surface performs. The UI decides
-// this from the result; it is no longer hard-coded in the action. The href routes
+// this from the result rather than hard-coding it in the action. The href routes
 // to the canonical surface for the result's section and carries the command
 // feedback as query state so the destination loader can render the same banner.
 export function commandRedirectHref(result: CatalogIntegrationsCommandResult): string {

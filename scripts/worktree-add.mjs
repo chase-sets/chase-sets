@@ -1,8 +1,8 @@
-// Sanitized worktree creation (issue #1423). Two corrupted husk directories
-// with mangled `;C`-suffixed names were created by hand-built worktree-add
-// commands joining a second path onto the directory argument. This helper is
-// the supported way to add a pooled worktree: it validates the name and
-// branch strictly before any git command runs.
+// Sanitized worktree creation. This helper is the supported way to add a
+// pooled worktree: it validates the name and branch strictly before any git
+// command runs, so a hand-built worktree-add command cannot join a second
+// path onto the directory argument and create a corrupted, mangled-name husk
+// directory.
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

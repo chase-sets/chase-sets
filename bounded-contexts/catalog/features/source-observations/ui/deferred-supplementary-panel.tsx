@@ -1,8 +1,8 @@
 import type { ReactElement } from "react";
 import { Skeleton, WorkbenchDetailPanel, WorkbenchStack, WorkbenchText } from "@chase-sets/design-system";
 
-// Shared design-system loading panel for a streamed supplementary boundary
-// (#1970): a labelled status line plus skeleton bars sized to the panel the
+// Shared design-system loading panel for a streamed supplementary boundary:
+// a labelled status line plus skeleton bars sized to the panel the
 // streamed value will replace. Rendered identically on the server and the client,
 // so the deferred Suspense boundary hydrates without a mismatch warning. Lives in
 // its own module so both the route view (alias-review slot) and the workbench

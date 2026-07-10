@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Support-safe projection hot-lag attribution evidence for #2515.
+// Support-safe projection hot-lag attribution evidence.
 //
 // Reads redacted endpoint/log exports only. It does not contact databases,
 // DigitalOcean, staging, production, or secret-backed services.

@@ -38,7 +38,7 @@ export function createWebReadyLoader(service: string) {
 // Mirrors infrastructure/platform-runtime/health.ts's `/live` handler: a pure
 // process-liveness check with no database, platform-api, or other upstream
 // call, so a briefly slow readiness dependency never trips the kubelet
-// liveness probe and kills a healthy pod (#4767, following #4765/#4766).
+// liveness probe and kills a healthy pod.
 export function createWebLiveLoader() {
   return function loader(_args: WebLoaderArgs) {
     return Response.json({

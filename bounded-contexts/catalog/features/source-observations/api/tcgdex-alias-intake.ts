@@ -16,14 +16,14 @@ import {
 } from "./tcgdex-alias-extraction";
 
 // ---------------------------------------------------------------------------
-// TCGdex alias intake (#1906)
+// TCGdex alias intake
 //
 // Bridges a recorded TCGdex Source Observation to the alias candidate model.
 // For each observation payload it reads the native (source-language) series /
 // expansion / card names, fetches the same-id English mirror entities (only when
 // the source language is not already English, and only through the injected
 // fetch so fixtures stay call-free), extracts typed alias candidates with the
-// governance policy, and hands them to the #1905 persistence sink.
+// governance policy, and hands them to the persistence sink.
 //
 // The default English-mirror entity loader is fixture-injectable via `fetch`;
 // no live provider call is required. When the source language is English there
@@ -41,8 +41,8 @@ export type TcgdexAliasIntakeObservation = Readonly<{
 
 /**
  * Loads the English-mirror counterpart for a single TCGdex entity, returning
- * null when `/v2/en/...` did not exist for that id. Injected so tests and #1907
- * can supply their own loader without a live provider call.
+ * null when `/v2/en/...` did not exist for that id. Injected so tests and
+ * source-option labels can supply their own loader without a live provider call.
  */
 export type TcgdexEnglishMirrorLoader = (input: {
   entity: "set" | "series" | "card";
@@ -52,7 +52,7 @@ export type TcgdexEnglishMirrorLoader = (input: {
 export type TcgdexAliasIntakeInput = Readonly<{
   profile: CatalogProviderIntegrationProfile;
   observations: readonly TcgdexAliasIntakeObservation[];
-  /** Persist the produced candidates (the #1905 upsert sink). */
+  /** Persist the produced candidates (the upsert sink). */
   persist: (candidates: readonly CatalogAliasCandidate[], observedAt: string) => Promise<void>;
   observedAt: string;
   fetch?: typeof globalThis.fetch;

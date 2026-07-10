@@ -14,7 +14,7 @@ import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-pla
 import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-plane/validation/validation-readiness-workspace";
 
 // Optional slots a route surface may supply to the workspaces it renders. Slots
-// are rendered nodes the composition root owns (e.g. the #1908 alias-review
+// are rendered nodes the composition root owns (e.g. the alias-review
 // workspace), so the IA render registry stays agnostic of their data sources.
 export type CatalogPrimaryWorkbenchWorkspaceSlots = Readonly<{
   aliasVisibility?: ReactElement | null;

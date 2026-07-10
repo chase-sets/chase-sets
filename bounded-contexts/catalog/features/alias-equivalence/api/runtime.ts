@@ -92,7 +92,7 @@ export type CatalogAliasServices = Readonly<{
   ) => ReturnType<typeof listPublishableReferenceRecordAliases>;
   getReferenceRecordAlias: (aliasHash: string) => ReturnType<typeof getReferenceRecordAlias>;
   /**
-   * Admin alias review read model (#1908): candidate summaries by scope, coverage
+   * Admin alias review read model: candidate summaries by scope, coverage
    * counters, and auto-accept eligibility for the operator review workspace.
    */
   getCatalogAliasReviewReadModel: (input: {

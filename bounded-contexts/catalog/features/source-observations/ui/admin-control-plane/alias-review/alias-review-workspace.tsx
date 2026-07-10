@@ -32,12 +32,12 @@ import type {
   CatalogAliasReviewWarningKey,
 } from "../../../../../features/alias-equivalence/api/alias-review-admin-contracts";
 
-// The alias-review workspace (#1908). A standalone admin module that an operator
+// The alias-review workspace. A standalone admin module that an operator
 // opens during integration review to see, understand, and act on alias
 // candidates before promotion. It renders only design-system components; bulk
 // review actions are dispatched as POST forms to the action href the composition
 // root supplies, mirroring the Source Observation review module. The workspace
-// reads the #1908 alias review read model, never raw provider JSON.
+// reads the alias review read model, never raw provider JSON.
 export type CatalogAliasReviewWorkspaceProps = Readonly<{
   readModel: CatalogAliasReviewReadModel;
   /** Route the bulk review forms POST to (supplied by the deployable). */

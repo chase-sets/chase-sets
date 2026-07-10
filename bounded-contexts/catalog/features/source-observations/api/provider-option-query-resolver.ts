@@ -16,7 +16,7 @@ export type CatalogProviderIntegrationOption = Readonly<{
   description: string | null;
   parentValue: string | null;
   imageUrl: string | null;
-  /** Typed equivalence aliases sharing the Catalog Alias vocabulary (#1903). */
+  /** Typed equivalence aliases sharing the Catalog Alias vocabulary. */
   aliases: readonly ProviderOptionAliasRecord[];
   metadata: JsonObject;
 }>;

@@ -17,8 +17,8 @@ export type ConflictResolutionRow = ConflictResolution["rows"][number];
 
 type ReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number];
 
-// The review row paired with its deep evidence detail. The slim review row no
-// longer carries the full fact/duplicate/conflict/audit evidence (#1971), so the
+// The review row paired with its deep evidence detail. The slim review row does
+// not carry the full fact/duplicate/conflict/audit evidence, so the
 // conflict-resolution composer reads it from the in-process evidence index instead.
 // Empty-evidence defaults keep the composer total even if an index entry is absent.
 type ConflictReviewRow = Readonly<{

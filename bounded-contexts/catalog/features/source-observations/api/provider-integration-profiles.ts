@@ -153,7 +153,7 @@ export type CatalogProviderOptionQueryOutputMapping = Readonly<{
   parentValuePath?: string;
   imageUrlPath?: string;
   imageUrlCoalescePaths?: readonly string[];
-  /** Record path to a typed `ProviderOptionAlias[]` produced by the adapter (#1907). */
+  /** Record path to a typed `ProviderOptionAlias[]` produced by the adapter. */
   aliasesPath?: string;
   metadataPaths: Readonly<Record<string, string>>;
 }>;

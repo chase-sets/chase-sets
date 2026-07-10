@@ -33,7 +33,7 @@ export async function profileSectionCommandFromFormData(
   // Fetch only the targeted profile version (via its authoring model) instead of
   // re-listing every provider profile just to find one row. The authoring model
   // carries the same CatalogProviderProfileVersionReview the section command
-  // needs (#1744).
+  // needs.
   const authoringModel =
     await api.getSourceObservationProviderProfileAuthoringModel<CatalogProviderProfileAuthoringModel>(
       input.providerKey,

@@ -60,7 +60,7 @@ export function sourceObservationRoutes(
     }
 
     // The daily import surface requests `?audience=daily` to skip the audit-lifecycle
-    // projection it never renders (#1972); providers/governance/release omit the
+    // projection it never renders; providers/governance/release omit the
     // parameter and receive the full overview, including the lifecycle timeline their
     // evidence slices cite.
     const audience = parseCatalogIntegrationControlPlaneOverviewAudience(c.req.query("audience"));

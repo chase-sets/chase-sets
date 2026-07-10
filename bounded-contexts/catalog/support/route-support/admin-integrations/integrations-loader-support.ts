@@ -84,7 +84,7 @@ type CatalogIntegrationsBaseline = Readonly<{
 // `providerReadiness` from the control-plane overview (the metric strip, the
 // import-jobs activity strip, and the provider-scope selector); it never reads the
 // audit-lifecycle entries, which feed only the governance/release evidence slices.
-// So the daily loader requests the audit-trimmed `daily` overview (#1972) — skipping
+// So the daily loader requests the audit-trimmed `daily` overview — skipping
 // the server-side audit projection and ~11% of the at-scale payload — while the
 // providers/governance/release surfaces keep fetching the `full` overview their
 // evidence slices cite.
@@ -178,9 +178,9 @@ async function finalizeSurfaceLoad(input: {
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   readModelFailures?: readonly CatalogPrimaryWorkbenchReadModelFailure[];
 }) {
-  // The source-option fan-out is no longer fetched here: every surface builds its
+  // The source-option fan-out is not fetched here: every surface builds its
   // read model without the option pages, so `sourceOptions` is the structural
-  // skeleton. The daily surface streams the populated slice separately (#1970);
+  // skeleton. The daily surface streams the populated slice separately;
   // the other surfaces do not render the status panel at all.
   const readModelInput: BuildSurfaceReadModelInput = {
     surface: input.surface,
@@ -217,7 +217,7 @@ async function finalizeSurfaceLoad(input: {
 // Daily import-to-promotion surface (/admin/integrations). Awaits only the
 // baseline plus the paginated Source Observation review wave — the data the
 // shell, metric strip, and 3-stage flow paint from — and DEFERS the supplementary
-// loads behind streamed promises (#1970): the source-option fan-out (~150–250 KB,
+// loads behind streamed promises: the source-option fan-out (~150–250 KB,
 // feeds only the secondary status panel) and the alias-review read model
 // (supplementary pre-promotion context). The read model is built without the
 // option pages, so `sourceOptions` is its structural skeleton (declared kinds +
@@ -710,7 +710,7 @@ function candidateStatusFromReviewStatus(status: string | undefined): string | n
   }
 }
 
-// Fetch the #1908 alias-review read model for the selected provider/profile scope
+// Fetch the alias-review read model for the selected provider/profile scope
 // so the daily surface can surface alias candidates before promotion. Alias
 // review is supplementary context: a missing endpoint (older API) or a transient
 // failure must never break the import-to-promotion workflow, so this resolves to

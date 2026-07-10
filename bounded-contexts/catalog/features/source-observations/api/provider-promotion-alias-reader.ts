@@ -19,9 +19,9 @@ import type { PromotionAliasCandidate, PromotionPublishedAlias } from "./provide
 import type { PromotionAliasReader } from "./provider-promotion-alias-writer";
 
 // ---------------------------------------------------------------------------
-// Promotion alias reader adapter (#1909)
+// Promotion alias reader adapter
 //
-// Default `PromotionAliasReader` over the #1905 alias read-model. Promotion
+// Default `PromotionAliasReader` over the alias read-model. Promotion
 // reads only the reviewed candidates an observation produced and only the
 // already-published (accepted/auto-accepted) aliases for the resolved targets,
 // so the writer can decide what to publish and what to retract. The composition

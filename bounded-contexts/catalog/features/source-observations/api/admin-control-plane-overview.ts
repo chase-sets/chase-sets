@@ -126,7 +126,7 @@ export type CatalogIntegrationAuditLifecycleEntry = Readonly<{
 }>;
 
 // Which audience the overview is being assembled for. The daily import-to-promotion
-// surface (#1972) renders the metric strip, the import-jobs activity strip, and the
+// surface renders the metric strip, the import-jobs activity strip, and the
 // provider-scope selector — derived from `readiness`, `unitActivity`, and
 // `providerReadiness`. It never reads the audit-lifecycle entries (those feed only
 // the governance/release evidence slices), so `daily` skips assembling that

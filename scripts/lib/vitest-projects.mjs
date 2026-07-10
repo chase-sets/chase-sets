@@ -2,8 +2,8 @@ import path from "node:path";
 import { configDefaults } from "vitest/config";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./repo.mjs";
 
-// Builds the project list for the root vitest projects-mode run (issue #1419).
-// The selection mirrors the former two-pass verify:test exactly:
+// Builds the project list for the root vitest projects-mode run.
+// The selection follows a two-pass split:
 // - workspaces without a db test profile run their `test` script subset, and
 // - db-profile workspaces run their `test:unit` subset (their non-DB tests).
 // Workspace package.json scripts stay the single source of truth: the config

@@ -33,7 +33,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   deferredCatalogSyncRun = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
-  // Optional alias-review visibility slot (#1908): the composition root supplies
+  // Optional alias-review visibility slot: the composition root supplies
   // the alias-review workspace so operators see proposed alias equivalents while
   // reviewing Source Observations before promotion. The workspace stays agnostic
   // of the alias read model by accepting it as a rendered node.

@@ -1214,7 +1214,7 @@ export function createCatalogApiClient({
     },
     async getCatalogIntegrationControlPlaneOverview<T>(audience?: "full" | "daily"): Promise<T> {
       // The daily import surface passes `daily` to fetch the audit-lifecycle-trimmed
-      // overview it actually renders (#1972); the other surfaces omit it and receive
+      // overview it actually renders; the other surfaces omit it and receive
       // the full overview their evidence slices cite.
       const query = audience === "daily" ? "?audience=daily" : "";
       const response = await configuredFetch(

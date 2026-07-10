@@ -18,7 +18,7 @@ import {
 } from "./alias-recompute";
 
 // ---------------------------------------------------------------------------
-// Catalog Alias projections (#1905)
+// Catalog Alias projections
 //
 // Two projection responsibilities:
 //   1. Source Observation alias candidates are upserted into
@@ -33,7 +33,7 @@ import {
 //
 // Because the set of publishable aliases for a target can change with any of
 // these events, each handler enqueues bounded, idempotent resolved-alias
-// recompute work for the affected target (#1910). The recompute worker resolves
+// recompute work for the affected target. The recompute worker resolves
 // the new publishable set and publishes the `aliases-resolved` fact only when
 // the resolved hash changes, including the empty (retracted) fact when the last
 // publishable alias is revoked or rejected.

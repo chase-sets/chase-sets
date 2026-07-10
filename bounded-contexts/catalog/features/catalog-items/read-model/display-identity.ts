@@ -9,9 +9,9 @@ import {
 } from "./display-alias-policy";
 
 const MAX_REFERENCE_EXPANSION_DEPTH = 4;
-// Bumped to 2 when accepted English aliases began feeding display identity (#1914):
-// the resolved hash now also reflects the chosen display alias, so a resolver
-// upgrade must re-resolve every item even when the template output is unchanged.
+// Bump this version whenever the resolved hash depends on a new input (e.g. the
+// chosen display alias), so a resolver upgrade re-resolves every item even when
+// the template output is unchanged.
 const DISPLAY_IDENTITY_RESOLVER_VERSION = 2;
 
 export type DisplayIdentityItem = Readonly<{
@@ -98,7 +98,7 @@ type ResolutionContext = Readonly<{
 /**
  * Catalog Item + Reference Record display aliases the resolver folds into the
  * resolved title/subtitle for an English-locale viewer. Loaded from the
- * publishable alias queries (#1905) and selected by the display policy (#1914).
+ * publishable alias queries and selected by the display policy.
  */
 export type DisplayIdentityAliases = Readonly<{
   itemDisplayAlias: ResolvedDisplayAlias | null;

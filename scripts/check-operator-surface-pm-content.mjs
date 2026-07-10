@@ -11,8 +11,8 @@ import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
 // Our own launch sequencing — GitHub issue/PR numbers, release-blocker severity,
 // internal owner-team names, and release-engineering vocabulary — belongs in
 // GitHub issues, milestones, and CI, not in operator-facing read models, UI, or
-// localization copy. Once those surfaces were cleaned (epic #1889), this guard
-// fails closed if PM content tries to re-enter them.
+// localization copy. This guard fails closed if PM content tries to re-enter
+// those surfaces.
 //
 // Scope is deliberately narrow so the guard passes on the cleaned tree without
 // flagging legitimate operational content:
@@ -40,7 +40,7 @@ const allowedPathSubstrings = [
   "/fixtures/",
   "/test-fixtures/",
   "/test-support/",
-  // The relocated acceptance / proof verification harnesses (#1895) are
+  // The relocated acceptance / proof verification harnesses are
   // test-only scaffolding, not served operator surfaces.
   "/features/source-observations/tests/",
 ];
@@ -115,7 +115,7 @@ const copyRules = [
   // Deliberately NO bare-"runbook" rule. Every runbook reference on a live
   // operator surface today is a genuine operational alert/runbook *link*
   // (a `docs/runbooks/*.md` href plus its "Runbook {value}" / "Alert/runbook"
-  // label), which Integration Health triage keeps on purpose (#1896). The PM
+  // label), which Integration Health triage keeps on purpose. The PM
   // sense of "runbook" only ever appeared inside the release-policy laundry list
   // ("docs, runbooks, release notes, operator instructions"), which the
   // `release-note`, `operator-instruction`, and issue-reference rules already

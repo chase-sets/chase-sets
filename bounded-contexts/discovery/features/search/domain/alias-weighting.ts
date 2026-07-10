@@ -1,6 +1,6 @@
 // Discovery consumes the published Catalog resolved-alias fact only. These
 // shapes mirror the `aliases[]` entries of `catalog.catalog-item.aliases-resolved`
-// and `catalog.reference-record.aliases-resolved` (#1910). Discovery never reads
+// and `catalog.reference-record.aliases-resolved`. Discovery never reads
 // alias candidates, provider profiles, or the alias review state machine; it
 // applies its own search weighting and dedupe over the stable fact.
 

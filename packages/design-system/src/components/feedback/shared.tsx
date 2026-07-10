@@ -7,7 +7,7 @@ export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "in
 
 /**
  * Commerce-facing accents that extend the semantic status {@link Tone} set for label-style
- * primitives (Badge/StatusPill/Tag). They map to the #1648 `--trust`/`--deal`/`--rating`
+ * primitives (Badge/StatusPill/Tag). They map to the `--trust`/`--deal`/`--rating`
  * tokens and exist only as label accents — they are intentionally NOT part of {@link Tone},
  * which stays the canonical semantic set for banners, toasts, notices, and disclosures.
  */

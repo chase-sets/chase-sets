@@ -5,7 +5,7 @@ import { cx } from "../../utils/cx";
  * Internal forms-slice slot helper for inputs that pin a decorative or
  * interactive adornment (currency symbol, search icon, password toggle) inside a
  * single-line control. It owns the `relative` positioning context and the
- * `absolute inset-y-0` slot chrome so each input no longer hand-rolls a raw
+ * `absolute inset-y-0` slot chrome so no input needs to hand-roll a raw
  * `relative` wrapper plus an absolutely-positioned host span. The control itself
  * keeps its own padding offset (e.g. `pl-[...]`) so the text never overlaps the
  * adornment.

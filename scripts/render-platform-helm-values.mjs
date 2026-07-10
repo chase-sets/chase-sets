@@ -177,7 +177,7 @@ const databasePoolMaxByComponent = {
 
 export const doksStagingWorkerEnvOverrides = {
   // DOKS staging keeps operation/job runners at the compact Helm baseline but
-  // widens the projection runner group to 4 (#4762): a ~1.8M-event backlog
+  // widens the projection runner group to 4: a ~1.8M-event backlog
   // across ~28 independent projection groups was draining serially through the
   // single default slot, so the 2 large discovery cascade groups monopolised it
   // pass-after-pass and 26 small groups (auth, identity, checkout, ordering,
@@ -197,13 +197,13 @@ export const doksStagingWorkerEnvOverrides = {
   WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "4",
   WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "3",
   WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "2",
-  // The staging DOKS worker owns the projection wake relay (issue #4743).
-  // #4739 omits the App Platform worker component entirely when DOKS owns the
-  // estate, and that worker was the only relay-enabled process: after its
-  // removal the `projection-wake-relay:active` lease sat expired under the
-  // dead owner and relay fan-out ceased fleet-wide (empty wake ledger;
-  // authenticated login/session read-after-write timed out while guest flows
-  // passed). The Helm base keeps the relay off for previews (no listener URLs
+  // The staging DOKS worker owns the projection wake relay.
+  // Omitting the App Platform worker component entirely when DOKS owns the
+  // estate removes the only relay-enabled process: without this setting the
+  // `projection-wake-relay:active` lease sits expired under the
+  // dead owner and relay fan-out ceases fleet-wide (empty wake ledger;
+  // authenticated login/session read-after-write times out while guest flows
+  // pass). The Helm base keeps the relay off for previews (no listener URLs
   // there by design), but the estate's ONLY worker must run the relay. The
   // seven direct LISTEN connections simply transfer from the removed App
   // Platform worker, so the cluster connection budget is unchanged, and the
@@ -212,7 +212,7 @@ export const doksStagingWorkerEnvOverrides = {
 };
 
 export const doksStagingApiOverrides = {
-  // #4765: the cutover-evidence battery fans authenticated setup across many
+  // The cutover-evidence battery fans authenticated setup across many
   // clients. Keep one API available while another is briefly busy or rolling,
   // and give the scheduler enough information to avoid memory-pressure churn.
   // This mirrors the existing 1 vCPU / 1 GiB App Platform API envelope while
@@ -278,9 +278,9 @@ const doksHealthProbeByComponent = {
   },
 };
 
-// #4765 widened scope: the base chart's liveness probe defaulted to whatever
-// path readiness used (see the `livenessPath` fallback in _helpers.tpl),
-// which put platform-api's liveness on the DB-aware /health/ready check with
+// The base chart's liveness probe defaults to whatever
+// path readiness uses (see the `livenessPath` fallback in _helpers.tpl),
+// which puts platform-api's liveness on the DB-aware /health/ready check with
 // Kubernetes' default 1s timeout / 10s period / 3-failure threshold. A live
 // preview namespace (chase-sets-pr-4766) proved this kills healthy pods
 // (Exit Code 137, kubelet "failed liveness probe ... /health/ready") under
@@ -295,11 +295,11 @@ const doksHealthProbeByComponent = {
 // in infrastructure/platform-runtime/health.ts, mounted at /health) and
 // platform-worker (deployables/platform-worker/src/main.ts).
 //
-// #4767 widened scope again: the React Router web deployables (admin-web,
-// marketplace, public-web) were still probed on the DB-free-in-name-only
-// `health/ready` route with Kubernetes' tight defaults, and a live preview
+// The React Router web deployables (admin-web,
+// marketplace, public-web) are also probed on the DB-free-in-name-only
+// `health/ready` route with Kubernetes' tight defaults; a live preview
 // run (chase-sets-pr-4736) showed the kubelet killing admin-web on the same
-// pattern. Each now also registers a `health/live` route
+// pattern. Each also registers a `health/live` route
 // (deployables/<name>/app/routes.ts + routes/health-live.ts, built on
 // createWebLiveLoader in infrastructure/platform-runtime/web-assets.ts) that
 // returns { status: "ok" } with no database or upstream call, so they opt
@@ -325,7 +325,7 @@ const componentsWithTolerantLiveness = new Set([
   "public-web",
 ]);
 
-// #4768: platform-api readiness probes the DB-aware /health/ready (SELECT 1 on
+// platform-api readiness probes the DB-aware /health/ready (SELECT 1 on
 // the control pool). Kubernetes' default 1s probe timeout is too tight for a
 // DB-touching check: under battery load the readiness query cannot acquire a
 // pooled connection within 1s, both replicas flap to 503, and the whole API is
@@ -333,7 +333,7 @@ const componentsWithTolerantLiveness = new Set([
 // period (10s) and failure threshold (3) unchanged, so a genuinely unreachable
 // DB still goes NotReady within ~30s (3 failures x 10s period) — readiness
 // stays strict and traffic-gating is preserved. Liveness is deliberately
-// untouched (it correctly probes the DB-free /health/live per #4766).
+// untouched (it correctly probes the DB-free /health/live).
 const readinessProbeTuning = {
   timeoutSeconds: 3,
   periodSeconds: 10,
@@ -644,8 +644,8 @@ function toHelmComponent(component) {
     result.healthPath = healthProbe.readinessPath;
   }
 
-  // Tolerant process liveness (#4765, widened to the web deployables by
-  // #4767): only for components verified to serve /health/live. startupPath
+  // Tolerant process liveness: only for components verified to serve
+  // /health/live. startupPath
   // holds liveness off until boot completes for the components with a
   // heavier boot sequence; livenessPath is the single explicit source of
   // truth for which path liveness probes (see _helpers.tpl) and is
@@ -660,7 +660,7 @@ function toHelmComponent(component) {
     result.livenessProbe = { ...tolerantLivenessProbe };
   }
 
-  // Readiness timing override (#4768): give the DB-aware readiness probe a
+  // Readiness timing override: give the DB-aware readiness probe a
   // realistic per-probe budget so pool contention under load can no longer
   // flap the pod out of its Service endpoints.
   if (componentsWithReadinessTuning.has(component.name)) {
@@ -945,7 +945,7 @@ function collectTopLevelComponents(spec) {
       break;
     }
 
-    // #4738: the platform-worker is rendered through a conditional
+    // The platform-worker is rendered through a conditional
     // dynamic "worker" block (absent when DOKS owns the runtime), so the DOKS
     // helm renderer must resolve it the same as a static worker block.
     const isWorker = match[0].startsWith("worker") || /dynamic\s+"worker"/.test(match[0]);

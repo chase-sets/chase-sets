@@ -151,7 +151,7 @@ const transportBlockingTransports = new Set<CatalogPrimaryWorkbenchReadModel["re
 // Derive the daily health signal from the core read model the daily surface
 // already loads — provider transport degradation, stale read-model freshness, and
 // failed jobs — without computing the full health-triage slice (which the daily
-// surface deliberately omits, #1744). A blocking transport failure surfaces as
+// surface deliberately omits). A blocking transport failure surfaces as
 // "blocked"; softer degradation (partial data, stale cache, throttling, stale
 // freshness, failed jobs) surfaces as "degraded". Returns null when health is
 // nominal, so the daily flow renders no indicator in the common case.
@@ -202,8 +202,8 @@ export function DailyHealthStatusIndicator({
 
 // The single "Back to import workbench" affordance for a supporting surface. The
 // release, providers, and governance surfaces stack multiple workspaces; rather
-// than each workspace repeating an identical return link (#1739 left three on the
-// release surface), the surface header renders this once. The href is the daily
+// than each workspace repeating an identical return link, the surface header
+// renders this once. The href is the daily
 // working set the operator detoured from — identical for every workspace on the
 // surface — so one link per surface is correct.
 export function WorkbenchReturnLink({

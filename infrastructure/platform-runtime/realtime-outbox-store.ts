@@ -395,7 +395,7 @@ export async function recordRealtimeProjectionPatch(
            updated_at = EXCLUDED.updated_at`,
       [outboxId, topics, recordedAt],
     );
-    // Wake hint only (#1248): the outbox row above is the durable replay
+    // Wake hint only: the outbox row above is the durable replay
     // source of truth, and SSE streams keep their polling fallback. Legacy
     // listeners that cannot read the envelope treat it as a wake-all signal.
     try {

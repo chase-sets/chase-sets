@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Staging push-wake recovery and load drills (#1234 / #1237, Milestone #19).
+// Staging push-wake recovery and load drills.
 //
 // Drills run against deployed staging surfaces plus direct staging database
 // access (the same Terraform-state-derived URLs the staging operational
@@ -13,12 +13,11 @@
 //                   (optionally) generate bounded synthetic Buy Now
 //                   single-write attempts and prove durable convergence within
 //                   a bounded budget. This is the executable
-//                   missed-notification/missed-fan-out detection drill from
-//                   the #1234 review update.
+//                   missed-notification/missed-fan-out detection drill.
 //   load            Bounded synthetic load: N canary iterations at
 //                   concurrency C (hard caps), followed by the same
 //                   reconciliation convergence audit. Bounded staging load
-//                   evidence for #1237; explicitly not a production-like
+//                   evidence; explicitly not a production-like
 //                   volume load test.
 import { spawn } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";

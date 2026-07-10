@@ -241,7 +241,7 @@ export type TcgdexEnglishMirrorEntity = Readonly<{ id: string; name: string }>;
  * Returns null when the English endpoint did not exist (404 or any transport
  * failure) or did not return a usable id/name. This is the network half of the
  * same-id English match: the pure alignment rule lives in
- * `matchTcgdexEnglishEndpointEntity` so #1907 and alias intake share it. Reads
+ * `matchTcgdexEnglishEndpointEntity` so source-option labels and alias intake share it. Reads
  * the explicit English locale (`en`), never the Indonesian `id` code.
  */
 export async function fetchTcgdexEnglishMirrorEntity(input: {

@@ -126,7 +126,7 @@ type PostgresNotificationClient = PgPoolClient &
   }>;
 
 const POSTGRES_CHANNEL_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
-// Aligned with the event-store and relay wake denylists (issue #1235): work
+// Aligned with the event-store and relay wake denylists: work
 // signals are wake hints, so they must carry only opaque work identifiers,
 // versions, and correlation metadata — never row-level identity keys.
 const SENSITIVE_PAYLOAD_KEY_PATTERN =
@@ -454,8 +454,8 @@ export type WorkSignalOriginDisposition = Readonly<{
 }>;
 
 // Tracked migration/reuse disposition for every platform work-signal origin
-// family (#1248/#1238). Structural metadata only: this inventory backs the
-// operator wake-status panel (#1232) and the work-signal structure guardrail,
+// family. Structural metadata only: this inventory backs the
+// operator wake-status panel and the work-signal structure guardrail,
 // so it must never carry payloads, identifiers, or environment secrets.
 const WORK_SIGNAL_ORIGIN_DISPOSITIONS: readonly WorkSignalOriginDisposition[] = [
   {

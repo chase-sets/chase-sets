@@ -16,11 +16,11 @@ import {
 } from "./resolved-aliases";
 
 // ---------------------------------------------------------------------------
-// Resolved Alias recompute work (#1910)
+// Resolved Alias recompute work
 //
 // Bounded, resumable recompute for the published alias fact, mirroring the
 // Resolved Display Identity recompute queue. Accepted-alias changes (accept,
-// reject, revoke — see the alias projection / promotion writer #1909) enqueue a
+// reject, revoke — see the alias projection / promotion writer) enqueue a
 // pending row for the affected target. The worker resolves the publishable
 // aliases through the canonical resolver, persists the resolved fact, and
 // publishes the `aliases-resolved` event only when the resolved hash changes.

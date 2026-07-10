@@ -17,8 +17,8 @@ export const PROJECTION_CONVERGENCE_GATE_VERSION = "guest-buy-now-projection-con
 // Setup-stage projection lag (the account flow's synthetic invitation waiting on
 // the auth-identity-invitation-projection to catch up after a fleet rollout) is a
 // transient post-restart catch-up condition, not a defect. It must consume the
-// remaining attempt budget instead of aborting the probe on the first observation
-// (issue #4709). Steady-state setup errors still surface once the budget is spent.
+// remaining attempt budget instead of aborting the probe on the first observation.
+// Steady-state setup errors still surface once the budget is spent.
 export const SETUP_STAGE_PROJECTION_LAG_FAILURE_REASON = "setup-stage-projection-lag";
 export const PRODUCTION_FEASIBILITY_DECISION = Object.freeze({
   feasible: false,
@@ -52,9 +52,10 @@ const MAX_ATTEMPT_LIMIT = 10;
 const MAX_FIXTURE_CANDIDATES = 20;
 const READY_POLL_INTERVAL_MS = 250;
 const SLO_MODES = ["warn", "gate"];
-// The 10s ready budget is an interim value pending the #1237 numeric SLO/load
-// proof. Until it is ratified, SLO-exceeded results with a user-safe final
-// state warn instead of aborting the release (issue #1323). Unsafe states
+// The 10s ready budget is the ratified #1237 single-write readiness SLO (see
+// docs/architecture/projection-freshness-slos.md). SLO-exceeded results with
+// a user-safe final state warn instead of aborting the release (issue #1323)
+// unless --slo-mode gate is set. Unsafe states
 // (permanent not-found, missing after-write/cookies, platform errors,
 // negative-probe failures) always abort regardless of mode.
 const DEFAULT_SLO_MODE = "warn";
@@ -1016,7 +1017,7 @@ export async function runProjectionConvergenceGate(options) {
     convergenceProjectionNames: normalizeConvergenceProjectionNames(options.convergenceProjectionNames) ?? "all",
     // A timing gate never blocks promotion on its own: it waits out the post-rollout
     // catch-up window so the SLO-sensitive Buy Now probe starts against a converged
-    // fleet, then proceeds regardless (issue #4709). Steady-state SLO breaches still
+    // fleet, then proceeds regardless. Steady-state SLO breaches still
     // fail loudly in the probe step that follows.
     promotionDecision: "proceed",
     gate: gate ?? {

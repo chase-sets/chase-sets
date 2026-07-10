@@ -284,9 +284,9 @@ export type RealtimeOutboxWakeSignalOptions = Readonly<{
   listenRetryCooldownMs?: number;
 }>;
 
-// Realtime SSE wake signal on the platform work-signal composite
-// (#1248/#1238): one lazily connected composite waiter per realtime context
-// pool, listening on `realtime_projection_patch`. Wakes are latency hints —
+// Realtime SSE wake signal on the platform work-signal composite: one lazily
+// connected composite waiter per realtime context pool, listening on
+// `realtime_projection_patch`. Wakes are latency hints —
 // the durable outbox rows remain the replay source of truth and SSE streams
 // keep their bounded polling fallback, so listener loss only costs latency.
 export function createRealtimeOutboxWakeSignal(

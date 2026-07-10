@@ -14,7 +14,7 @@ import {
 } from "./alias";
 
 // ---------------------------------------------------------------------------
-// Catalog Alias aggregate (#1905)
+// Catalog Alias aggregate
 //
 // The accepted-alias lifecycle as an event-sourced aggregate, keyed by the
 // alias hash so re-proposing identical evidence is idempotent. The state

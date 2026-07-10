@@ -15,7 +15,7 @@ type RouteContext = CatalogIntegrationsCommandResult["context"];
 // The govern-and-recover surface owns the destructive provider profile lifecycle
 // operations (rollback, deprecate, retire). These genuinely belong on another
 // surface, so their results name the lifecycle-recovery section: the surface
-// resolves a redirect from the result, but the action no longer forces it.
+// resolves a redirect from the result; the action itself never forces one.
 export type GovernanceCommandIntent =
   | "rollback-provider-profile"
   | "deprecate-provider-profile"
