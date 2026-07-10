@@ -297,6 +297,7 @@ describe("MCP runtime routes", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { tools: Array<{ name: string; annotations: { availability: string } }> };
     expect(body.tools.map((tool) => tool.name).sort()).toEqual([
+      "authenticity.get-case-status",
       "checkout.add-cart-line",
       "checkout.cancel-session",
       "checkout.get-cart",
@@ -489,6 +490,13 @@ describe("MCP runtime routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       resources: [
+        expect.objectContaining({
+          uriTemplate: "chase-sets://authenticity/cases/{caseId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["authenticity.view"],
+          }),
+        }),
         expect.objectContaining({
           uriTemplate: "chase-sets://identity/{accountId}/account",
           annotations: expect.objectContaining({

@@ -41,6 +41,7 @@
     }
   },
   "tool_names": [
+    "authenticity.get-case-status",
     "identity.get-account",
     "discovery.search-market",
     "discovery.get-item-detail",
@@ -94,6 +95,7 @@
     "platform-operations.get-support-request"
   ],
   "resource_uri_templates": [
+    "chase-sets://authenticity/cases/{caseId}",
     "chase-sets://identity/{accountId}/account",
     "chase-sets://discovery/items/{itemSlug}",
     "chase-sets://inventory/{accountId}/items/{inventoryItemId}",

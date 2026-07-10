@@ -1,0 +1,26 @@
+{
+  "name": "@chase-sets/authenticity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:watch": "vitest --config ./tests/vitest.config.mjs",
+    "test:fast": "vitest run --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./context": "./context.json"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/event-core": "workspace:*",
+    "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/localization": "workspace:*",
+    "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/primitives": "workspace:*",
+    "hono": "^4.12.12"
+  }
+}

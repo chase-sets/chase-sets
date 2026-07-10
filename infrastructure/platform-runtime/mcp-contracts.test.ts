@@ -143,6 +143,7 @@ describe("MCP service catalog", () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual([
+      "authenticity.get-case-status",
       "checkout.add-cart-line",
       "checkout.cancel-session",
       "checkout.get-cart",
@@ -200,6 +201,7 @@ describe("MCP service catalog", () => {
         .map((resource) => resource.uriTemplate)
         .sort(),
     ).toEqual([
+      "chase-sets://authenticity/cases/{caseId}",
       "chase-sets://checkout/{accountId}/cart",
       "chase-sets://discovery/items/{itemSlug}",
       "chase-sets://fulfillment/{accountId}/shipments/{shipmentId}",

@@ -1,0 +1,94 @@
+{
+  "contextName": "authenticity",
+  "packageName": "@chase-sets/authenticity",
+  "ownedNouns": ["authenticity-case"],
+  "streamPrefix": "authenticity.",
+  "apiBasePath": "/api/authenticity",
+  "slices": ["cases"],
+  "allowedSupportDirectories": ["runtime-support"],
+  "publicExports": [".", "./context"],
+  "allowedContextDependencies": [],
+  "seedRequirements": [],
+  "projectionGroups": [
+    {
+      "projectionName": "authenticity-case-projection",
+      "sourceContextNames": ["authenticity"],
+      "ownedTables": ["authenticity_cases"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "hostPorts": [
+    {
+      "portName": "authenticityFacilityDirectory",
+      "providedBy": "platform-api",
+      "purpose": "Platform-configured authenticity facility address and operating identity for the single platform-operated facility; the provider-port seam for later third-party authenticators."
+    }
+  ],
+  "apiDeployables": ["platform-api"],
+  "apiMounts": [
+    {
+      "mountPath": "/api/authenticity",
+      "kind": "primary",
+      "requiresAuth": true
+    }
+  ],
+  "mcpCapabilities": {
+    "tools": [{ "name": "authenticity.get-case-status", "ownerSlice": "cases" }],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://authenticity/cases/{caseId}",
+        "ownerSlice": "cases"
+      }
+    ]
+  },
+  "mutationConsistencyInventory": [
+    {
+      "id": "authenticity.case-command-snapshots",
+      "owner": "authenticity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/authenticity/features/cases/api/route.ts:POST /",
+        "api-route:bounded-contexts/authenticity/features/cases/api/route.ts:POST /:id/inbound-tracking",
+        "api-route:bounded-contexts/authenticity/features/cases/api/route.ts:POST /:id/receive",
+        "api-route:bounded-contexts/authenticity/features/cases/api/route.ts:POST /:id/inspection/start",
+        "api-route:bounded-contexts/authenticity/features/cases/api/route.ts:POST /:id/verdict",
+        "api-route:bounded-contexts/authenticity/features/cases/api/route.ts:POST /:id/forward",
+        "api-route:bounded-contexts/authenticity/features/cases/api/route.ts:POST /:id/return"
+      ],
+      "visibleDestination": {
+        "description": "Every authenticity case command route reloads and returns the committed case snapshot from the same-context read model after the command commits, so callers never need a separate fresh read."
+      },
+      "proof": {
+        "authoritativeResponse": "Each route handler calls the command, then reloads the case by id from the authenticity_cases read model and returns that row as the response body.",
+        "tests": [
+          "bounded-contexts/authenticity/features/cases/api/route.test.ts",
+          "bounded-contexts/authenticity/features/cases/api/runtime.test.ts"
+        ]
+      }
+    }
+  ],
+  "deployableContributions": [],
+  "shellContributions": [],
+  "directoryIntent": {
+    "cases": {
+      "classification": "slice",
+      "purpose": "Own the AuthenticityCase aggregate, verdict lifecycle, and case read models for the authenticity check context.",
+      "expectedConsumers": ["Internal authenticity module composition"]
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide authenticity event-store composition, the platform-operated facility directory port, and shared domain primitives.",
+      "expectedConsumers": ["cases"]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Reserve authenticity-case route metadata for future deployable page route contributions.",
+      "expectedConsumers": ["Future generated deployable route adapters"]
+    }
+  },
+  "runtimeDeployables": ["platform-worker"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "workerRuntimeProfiles": ["proof", "public"]
+}
