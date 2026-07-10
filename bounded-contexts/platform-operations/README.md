@@ -1,5 +1,7 @@
 # Platform Operations
 
+## Purpose
+
 Platform Operations owns internal operator workflows for cross-context platform runtime health.
 
 ## Owns
@@ -26,6 +28,44 @@ Platform Operations owns internal operator workflows for cross-context platform 
 - Transactional decisions, order lifecycle invariants, or payment authorizations behind analytical reporting
 - Account reviews, reputation summaries, or support tickets behind platform feedback
 
+## Ubiquitous Language
+
+Platform Operations terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+
+## Core Aggregates and Process Managers
+
+- Platform Feedback
+- Support Request, driven by the `support-requests` flow catalog
+
+## Incoming Dependencies
+
+- Marketplace for report, listing, and review facts that feed the reported-content moderation queue and insights dashboards.
+- Identity for account-creation facts that feed insights dashboards and risk alerts.
+- Payments for payment and dispute facts that feed insights dashboards and risk alerts.
+- Ordering for order lifecycle facts that feed insights dashboards and guide support-request flows.
+- Fulfillment for shipment lifecycle facts that feed insights dashboards and guide support-request flows.
+
+## Outgoing Integration Events
+
+- `support.support-request.opened`
+- `support.support-request.escalated`
+- `support.support-request.resolved`
+- `support.support-request.closed`
+- `support.support-request.cancelled`
+
+Marketplace, Ordering, Payments, and Settlement subscribe to these `support.*` facts. Other `support.*` streams (`.evidence-submitted`, `.offer-accepted`, `.offer-declined`, `.response-recorded`) and the `platform-operations.reported-content.action-recorded` / `platform-operations.risk-alert.action-recorded` facts stay internal to Platform Operations today; only its own projections subscribe to them.
+
+## Invariants
+
+1. Platform feedback is immutable after submission; only admin review status (new/reviewed/archived) and operator notes may change afterward, and archived feedback cannot be reviewed again.
+2. A support request can be opened only by a requester role its flow definition allows, and must include the order total at open time.
+3. A return refund resolution requires completed return checklist evidence; a high-value return refund requires support-role review rather than buyer/seller self-resolution.
+4. An offer refund amount must be greater than zero and cannot exceed the order total.
+
+## Tests
+
+Run `pnpm --filter @chase-sets/platform-operations run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/platform-operations run test` before opening a PR.
+
 ## Platform Feedback
 
 Platform Operations hosts the former Experience bounded context as the `platform-feedback` slice. Platform feedback is internal-only product signal: a user submission is immutable after it is sent, admin lifecycle state is limited to new/reviewed/archived, and follow-up consent records permission to use existing contact methods only. Marketplace, inventory, and payments routes embed the `PlatformFeedbackPrompt` from the `./server` surface, and the feedback API stays mounted at `/api/experience`.
@@ -38,7 +78,7 @@ Cross-context outcomes stay with the context that owns the consequence:
 
 - Payments listens for refund-producing support resolutions and issues order-scoped refunds.
 - Settlement listens for open support requests and keeps seller proceeds on hold so payouts cannot include disputed order funds.
-- Reputation removes review eligibility while an order is under support review and restores it only when the outcome does not change the transaction.
+- Marketplace removes review eligibility while an order is under support review and restores it only when the outcome does not change the transaction.
 - Ordering and Fulfillment remain the source of truth for order and shipment state that support uses to guide available flows.
 
 Buyer cancellation after Fulfillment records package preparation uses the `buyer-cancel-request` flow. Before package preparation, Ordering owns self-service purchase cancellation and support must not create a parallel workflow. Refund-style outcomes keep settlement funds held until the money movement and seller-ledger reconciliation have completed.

@@ -5,7 +5,7 @@ Chase Sets launches with English only, but user-facing copy must go through the 
 ## Runtime
 
 - Shared localization primitives live in `contracts/localization`.
-- English copy lives in `contracts/localization/locales/en.ts`.
+- English copy is split by owning context under `contracts/localization/locales/en/<context>.ts` (for example `en/checkout.ts`, `en/payments.ts`). `contracts/localization/locales/en.ts` imports every per-context file and spreads them into one `englishTranslations` catalog; it holds no copy of its own. Catalog is large enough that its own file, `en/catalog.ts`, does the same merge one level down from per-slice files under `en/catalog/` (`en/catalog/blueprints.ts`, `en/catalog/catalog-items.ts`, and so on).
 - Import `t` from `@chase-sets/localization` anywhere user-facing text is composed:
 
 ```ts
@@ -33,7 +33,7 @@ Callers that need telemetry can create a translator with `createTranslator({ onM
 
 ## Adding Copy
 
-1. Add the English value to `contracts/localization/locales/en.ts`.
+1. Add the English value to the owning context's file under `contracts/localization/locales/en/` (for example `en/checkout.ts`), or the matching per-slice file under `en/catalog/` for Catalog keys. Do not add copy directly to the merge files `en.ts` or `en/catalog.ts`.
 2. Use a namespaced key that follows ownership:
    - `checkout.features.cart.ui.cartPage.check.out`
    - `catalog.support.shellSupport.ui.lifecycleControls.cancel`

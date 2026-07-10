@@ -69,6 +69,10 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 8. Tax quotes stay provider-agnostic behind resolver interfaces; orders store immutable tax snapshots after quote resolution.
 9. Production marketplace launch may use zero-tax snapshots only while tax readiness evidence confirms no tracked jurisdiction requires collection; provider-backed quotes become required before collecting sales tax in any registered or collecting jurisdiction.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/ordering run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/ordering run test` before opening a PR.
+
 ## Tax
 
 Ordering hosts the former Tax bounded context as the `tax-quotes` and `tax-nexus` slices. Order creation requests tax through the injected `taxQuoteResolver` host port and stores the resulting tax snapshot with the order. The slices stay intentionally provider-light so production tax providers can be added without coupling order creation to vendor APIs.

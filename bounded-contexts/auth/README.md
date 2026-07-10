@@ -39,6 +39,37 @@ It is the canonical home for:
 
 Those remain in Identity.
 
+## Ubiquitous Language
+
+Auth terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+
+## Core Aggregates and Process Managers
+
+- Session
+
+## Incoming Dependencies
+
+- Identity for user, account, membership, and invitation facts, projected into auth-owned tables for local reads (`auth-identity-account-projection`, `auth-identity-user-projection`, `auth-identity-membership-projection`, `auth-identity-invitation-projection`).
+- Identity's `@chase-sets/identity/server` for the narrow synchronous identity mutations that still belong to Identity.
+- Ordering, Fulfillment, and Payments order/shipment/refund facts, consumed only by the optional agent-webhook projection once all three source contexts are mounted.
+
+## Outgoing Integration Events
+
+- None. `auth.session.started`, `auth.session.account-switched`, `auth.session.revoked`, and `auth.session.expired` are consumed only by Auth's own session projection today.
+
+## Invariants
+
+1. A session aggregate can be started only once; starting an already-started session is rejected.
+2. Switching account, revoking, or expiring a session requires an active session.
+3. Switching a session's account requires the target account to already be listed in the session's available accounts and to differ from the current account.
+4. Auth resolves the actor for hosts; Identity remains the sole owner of the underlying user, account, membership, and permission facts an actor carries.
+5. Social Login must not create or link a user unless the provider returns a verified email address.
+6. Dynamic Client Registration accepts only public OAuth clients; Auth does not issue, store, or echo client secrets.
+
+## Tests
+
+Run `pnpm --filter @chase-sets/auth run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/auth run test` before opening a PR.
+
 ## Current Boundary
 
 Auth is the canonical home for interactive authentication behavior, session persistence, session-token persistence, and the `/api/auth` surface.

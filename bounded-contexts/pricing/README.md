@@ -53,6 +53,10 @@ Pricing terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 3. Pricing is downstream of transactional truth.
 4. Forecast inputs may influence automation policies but do not become transactional commitments on their own.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/pricing run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/pricing run test` before opening a PR.
+
 ## Open Extraction Candidates
 
 - Seller strategy automation can be extracted later if it grows beyond recommendation generation.

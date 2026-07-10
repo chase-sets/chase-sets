@@ -7,6 +7,58 @@ import { listContextManifests, listWorkspacePackages, normalizeRelative, repoRoo
 const readmeRelativePath = "README.md";
 const generatedBy = "pnpm run generate:readme-manifest-sections";
 
+// The shape bounded-contexts/README.md promises for every context README, in
+// order. Some entries accept more than one heading spelling because Discovery
+// and Notifications document their read-model-only "aggregates" as "Core
+// Models" instead of "Core Aggregates and Process Managers"; both describe the
+// same required section.
+const requiredContextReadmeSections = [
+  ["## Purpose"],
+  ["## Owns"],
+  ["## Does Not Own"],
+  ["## Ubiquitous Language"],
+  ["## Core Aggregates and Process Managers", "## Core Models"],
+  ["## Incoming Dependencies"],
+  ["## Outgoing Integration Events"],
+  ["## Invariants"],
+];
+
+function containsHeading(content, heading) {
+  return content === heading || content.startsWith(`${heading}\n`) || content.includes(`\n${heading}\n`);
+}
+
+export function checkContextReadmeSections(options = {}) {
+  const rootDir = path.resolve(options.repoRoot ?? repoRoot);
+  const contexts = listContextManifests({ repoRoot: rootDir });
+  const issues = [];
+
+  for (const { dirName, dir, manifest } of contexts) {
+    const readmePath = path.join(dir, readmeRelativePath);
+    const relativePath = normalizeRelative(readmePath, rootDir);
+
+    if (!existsSync(readmePath)) {
+      issues.push(`${relativePath} is missing`);
+      continue;
+    }
+
+    const content = readFileSync(readmePath, "utf8");
+
+    for (const headingOptions of requiredContextReadmeSections) {
+      if (!headingOptions.some((heading) => containsHeading(content, heading))) {
+        issues.push(`${relativePath} is missing required section: ${headingOptions[0]}`);
+      }
+    }
+
+    const packageName = manifest.packageName ?? `@chase-sets/${dirName}`;
+    const testCommand = `pnpm --filter ${packageName} run test:watch`;
+    if (!content.includes(testCommand)) {
+      issues.push(`${relativePath} does not show how to run its tests (expected \`${testCommand}\`)`);
+    }
+  }
+
+  return issues;
+}
+
 function formatInlineCodeList(values) {
   return values.map((value) => `\`${value}\``).join(", ");
 }
@@ -149,7 +201,22 @@ function parseArgs(args) {
 }
 
 function main() {
-  const result = syncReadmeManifestSections(parseArgs(process.argv.slice(2)));
+  const args = parseArgs(process.argv.slice(2));
+  const result = syncReadmeManifestSections(args);
+
+  if (args.check) {
+    // Sibling check: bounded-contexts/README.md promises every context README
+    // follows a common shape (issue #3550). This runs alongside the root
+    // README manifest-section check instead of becoming its own verify:static
+    // chain entry.
+    const contextReadmeIssues = checkContextReadmeSections();
+    if (contextReadmeIssues.length > 0) {
+      throw new Error(
+        `bounded-contexts/README.md's declared README shape is not met by ${contextReadmeIssues.length} issue(s):\n${contextReadmeIssues.join("\n")}`,
+      );
+    }
+  }
+
   console.log(result.checked ? "README manifest sections are current." : "README manifest sections generated.");
 }
 

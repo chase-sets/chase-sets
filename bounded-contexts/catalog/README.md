@@ -64,6 +64,34 @@ Product-to-product containment is documented in [Product Contents Contract](./do
 - Order creation and checkout
 - Search and discovery filtering behavior
 
+## Ubiquitous Language
+
+Catalog terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+
+## Core Aggregates and Process Managers
+
+- Catalog Item
+- Dimension
+- Blueprint
+- Component
+- Category
+- Reference Type
+- Reference Record
+- Display Template
+- Source Observation
+- Catalog Sync Scope
+- Catalog Scope Record
+- Provider Scope Mapping
+- External Catalog Item Reference
+- External Product Reference
+- Product Contents
+
+See [Catalog Concepts](#catalog-concepts) below for what each aggregate owns.
+
+## Incoming Dependencies
+
+- None. Catalog is a root context: it has no `allowedContextDependencies` on other bounded-context packages and no event subscriptions from other contexts today.
+
 ## Catalog Concepts
 
 ### Dimension
@@ -230,25 +258,27 @@ type ProductDescriptor = {
 };
 ```
 
-## Integration Guidance
+## Outgoing Integration Events
 
-Structural authoring streams remain Catalog-internal. Downstream contexts should consume Catalog Item snapshots and resolved product data, not internal authoring aggregates.
+Downstream contexts (Checkout, Discovery, Inventory, Marketplace, Ordering, Pricing) subscribe directly to Catalog's per-aggregate lifecycle streams, not only to the resolved-fact surface:
 
-Initial integration surface:
+- Catalog Item: `catalog.catalog-item.created`, `.blueprint-assigned`, `.metadata-revised`, `.published`, `.retired`, `.archived`, `.field-value-set`, `.field-value-cleared`, `.category-assigned`, `.category-removed`, `.tags-set`, `.image-urls-set`, `.image-fallback-set`, `.image-fallback-cleared`, `.product-asset-sets-set`, `.external-catalog-item-reference-linked`, `.external-catalog-item-reference-unlinked`, `.external-product-reference-linked`, `.external-product-reference-unlinked`
+- Resolved facts: `catalog.catalog-item.display-identity-resolved`, `catalog.catalog-item.aliases-resolved`, `catalog.catalog-item.product-measures-resolved`, `catalog.product-contents.resolved`
+- Blueprint: `catalog.blueprint.created`, `.revised`, `.dimensions-set`, `.product-resolution-rules-set`, `.published`
+- Dimension: `catalog.dimension.created`, `.revised`, `.option-added`, `.option-revised`, `.options-reordered`
+- Category: `catalog.category.created`, `.revised`, `.published`, `.deprecated`, `.archived`
+- Field: `catalog.field.created`, `.configured`
+- Reference Record: `catalog.reference-record.created`, `.revised`, `.published`, `.deprecated`, `.archived`
 
-- `CatalogItemPublished`
-- `CatalogItemUpdated`
-- `CatalogItemArchived`
-- `catalog.catalog-item.display-identity-resolved`
-- `catalog.catalog-item.aliases-resolved`
-- `catalog.reference-record.aliases-resolved`
-- `catalog.product-contents.resolved`
+`catalog.reference-record.aliases-resolved` is published but has no subscriber today.
 
-Those events should carry the Catalog Item snapshot plus the `product_schema` downstream consumers need to validate `selected_options` and compute `product_id`.
+`support/runtime-support/catalog-events.ts` defines separate PascalCase `CatalogItemPublished`, `CatalogItemUpdated`, and `CatalogItemArchived` integration event types. Nothing in this repository publishes or subscribes to them; treat them as unused scaffolding, not the live integration surface, until they gain a publisher and a consumer.
 
-Display Template authoring events are Catalog-internal. Downstream contexts should consume the item-level display identity fact when title/subtitle copy changes because of template policy.
+Catalog Item events carry the Catalog Item snapshot plus the `product_schema` downstream consumers need to validate `selected_options` and compute `product_id`.
 
-Alias review and source-governance events are Catalog-internal. Downstream search (#1911) and display (#1914) consume only the resolved alias facts `catalog.catalog-item.aliases-resolved` and `catalog.reference-record.aliases-resolved`, never `Alias Candidate` records, provider profiles, or the alias review state machine. The resolved alias fact follows the same derived-fact pattern as Resolved Display Identity: Catalog publishes a stable per-target, per-language alias list with hash/version metadata only when the resolved hash changes, and a revoked or rejected alias publishes a resolved fact that drops it (an empty/retracted list) so consumers remove it. See [Catalog Resolved Aliases](./docs/resolved-aliases.md).
+Display Template authoring events are Catalog-internal. Downstream contexts consume the item-level display identity fact when title/subtitle copy changes because of template policy.
+
+Alias review and source-governance events are Catalog-internal. Downstream search and display consume only the resolved alias fact `catalog.catalog-item.aliases-resolved` (and, once a consumer subscribes, `catalog.reference-record.aliases-resolved`), never `Alias Candidate` records, provider profiles, or the alias review state machine. The resolved alias fact follows the same derived-fact pattern as Resolved Display Identity: Catalog publishes a stable per-target, per-language alias list with hash/version metadata only when the resolved hash changes, and a revoked or rejected alias publishes a resolved fact that drops it (an empty/retracted list) so consumers remove it. See [Catalog Resolved Aliases](./docs/resolved-aliases.md).
 
 Product Contents authoring, review, provider evidence, and configuration events are Catalog-internal. Downstream contexts consume only `catalog.product-contents.resolved`, never unresolved provider evidence or Product Content Type internals outside the resolved published shape. See [Product Contents Contract](./docs/product-contents-contract.md).
 
@@ -264,3 +294,7 @@ Product Contents authoring, review, provider evidence, and configuration events 
 8. Product-facing title and subtitle copy should come from Display Templates whenever the copy can be expressed from Fields and Reference Records; repeated manual metadata is fallback and exception data.
 9. External catalog item references map provider product identifiers to Catalog Item truth; external product references map provider SKU identifiers to Product selection truth; title parsing remains review evidence until promoted into an explicit reference.
 10. Product Contents model containment between Catalog selections; fields, tags, categories, Reference Record relationships, and external references must not become substitute containment models.
+
+## Tests
+
+Run `pnpm --filter @chase-sets/catalog run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/catalog run test` before opening a PR.

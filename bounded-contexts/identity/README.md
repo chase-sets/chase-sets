@@ -77,6 +77,10 @@ User preference ownership is governed by [Settings Ownership](../../docs/archite
 4. Buying and selling are available to active accounts by default.
 5. Buyer and Seller remain contextual transaction roles, not account capability classes.
 
+## Tests
+
+Run `pnpm --filter @chase-sets/identity run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/identity run test` before opening a PR.
+
 ## Boundary Notes
 
 - Identity owns identity-management behavior and admin surfaces.

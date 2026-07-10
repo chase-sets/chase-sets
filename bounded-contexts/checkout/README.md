@@ -22,6 +22,50 @@ Checkout owns account commerce intent and active checkout workflows before order
 - Shipment aggregates
 - Listing and inventory rules
 
+## Ubiquitous Language
+
+Checkout terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+
+## Core Aggregates and Process Managers
+
+- Cart
+- Sell List
+- Checkout Session
+
+## Incoming Dependencies
+
+- Catalog for canonical item, blueprint, and dimension facts used to keep cart and sell-list lines valid.
+- Marketplace for listing, offer, and review facts referenced by sell-list intent and checkout confirmation.
+- Inventory for item and hold facts used to keep availability current during checkout.
+- Identity for account and shipping-address facts.
+- Payments for payment lifecycle facts and checkout-affordance signals.
+- Settlement for payout-readiness facts that gate seller checkout review.
+- Commercial Terms (`@chase-sets/commercial-terms`) for synchronous seller-side fee resolution.
+- Ordering (`@chase-sets/ordering`) for synchronous order state read during checkout confirmation.
+- Auth (`@chase-sets/auth`) for synchronous actor/session resolution in route composition.
+
+## Outgoing Integration Events
+
+- `checkout.cart.line-added`
+- `checkout.cart.line-quantity-set`
+- `checkout.cart.line-fulfillment-set`
+- `checkout.cart.line-removed`
+- `checkout.cart.checked-out`
+- `checkout.sell-list.line-added`
+- `checkout.sell-list.line-quantity-set`
+- `checkout.sell-list.line-removed`
+- `checkout.sell-list.checkout-confirmed`
+- `checkout.session.started`
+- `checkout.session.optimization-goal-selected`
+- `checkout.session.fulfillment-preview-recorded`
+- `checkout.session.shipping-option-selected`
+- `checkout.session.shipping-address-set`
+- `checkout.session.reservations-recorded`
+- `checkout.session.orders-created`
+- `checkout.session.payment-started`
+- `checkout.session.offer-submitted`
+- `checkout.session.cancelled`
+
 ## Invariants
 
 1. Cart is mutable saved buyer intent.
@@ -33,6 +77,10 @@ Checkout owns account commerce intent and active checkout workflows before order
 7. Marketplace source lists may post selected offer ids into the Checkout-owned Sell List route; Checkout resolves the Marketplace offer snapshot before storing durable seller intent.
 8. Ordering creates orders grouped by seller account only after Checkout confirms a cart or buy-now session or Marketplace emits accepted offer facts.
 9. Payments initializes external money movement only after orders or accepted-offer commitments require it.
+
+## Tests
+
+Run `pnpm --filter @chase-sets/checkout run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/checkout run test` before opening a PR.
 
 ## Development Data
 
