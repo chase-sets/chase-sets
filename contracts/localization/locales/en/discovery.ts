@@ -625,7 +625,13 @@ export const discoveryEnglishTranslations = {
   "discovery.features.itemDetail.ui.itemDetailPage.seller.context.description":
     "Account identity, location, and available quantity are shown before checkout.",
   "discovery.features.itemDetail.ui.itemDetailPage.shipping.credit": "Shipping credit",
+  "discovery.routes.publicAccount.account.profile.unavailable.description":
+    "{accountName}'s marketplace profile isn't available right now.",
+  "discovery.routes.publicAccount.account.unavailable": "Account unavailable",
   "discovery.routes.publicAccount.active.listings": "Active listings",
+  "discovery.routes.publicAccount.all.roles": "All roles",
+  "discovery.routes.publicAccount.as.buyer": "As buyer",
+  "discovery.routes.publicAccount.as.seller": "As seller",
   "discovery.routes.publicAccount.building.trust": "Building trust",
   "discovery.routes.publicAccount.buyer.confidence": "Order confidence",
   "discovery.routes.publicAccount.buyer.protection": "Order protection",
@@ -641,6 +647,8 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicAccount.feedback": "Feedback",
   "discovery.routes.publicAccount.feedback.summary": "{rating} average from {count} reviews.",
   "discovery.routes.publicAccount.marketplace.buyer": "Marketplace account",
+  "discovery.routes.publicAccount.member.since.label": "Member since",
+  "discovery.routes.publicAccount.member.since.unknown": "Not available",
   "discovery.routes.publicAccount.new.account": "New account",
   "discovery.routes.publicAccount.no.feedback.yet": "No feedback yet",
   "discovery.routes.publicAccount.no.written.feedback": "No written feedback yet.",

@@ -33,6 +33,7 @@ const MARKET_ACCOUNT_CREATED_COLUMNS = [
   "seller_display_name",
   "seller_listing_availability_status",
   "status",
+  "created_at",
   "updated_at",
 ] as const;
 const MARKET_ACCOUNT_AVAILABILITY_COLUMNS = [
@@ -479,12 +480,19 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         table: MARKET_ACCOUNTS_TABLE,
         insertColumns: MARKET_ACCOUNT_CREATED_COLUMNS,
         conflictColumns: ["account_id"],
+        // created_at is set once here and excluded from the conflict update so a
+        // replayed or redelivered "identity.account.created" event never shifts
+        // the public profile's "member since" date (m108, #4268).
+        updateColumns: MARKET_ACCOUNT_CREATED_COLUMNS.filter(
+          (column) => column !== "account_id" && column !== "created_at",
+        ),
         values: {
           account_id: accountId,
           seller_slug: sellerSlug,
           seller_display_name: displayName,
           seller_listing_availability_status: "available",
           status: "active",
+          created_at: event.timing.recordedAt,
           updated_at: event.timing.recordedAt,
         },
       });

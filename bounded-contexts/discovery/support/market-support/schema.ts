@@ -38,6 +38,11 @@ ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS rating_5_count_as_buyer integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS reputation_updated_at timestamptz NULL;
 
+-- Public profile "member since" (m108, #4268): set once from
+-- identity.account.created and never overwritten afterward.
+ALTER TABLE discovery_market_accounts
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NULL;
+
 CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
   review_id text PRIMARY KEY,
   author_account_id text NOT NULL DEFAULT '',
@@ -274,6 +279,28 @@ export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
    SET revealed_at = updated_at
    WHERE status = 'active'
      AND revealed_at IS NULL`,
+    ],
+  },
+  {
+    migrationId: "20260711_discovery_market_accounts_created_at_backfill",
+    description:
+      "Backfill discovery_market_accounts.created_at for rows that predate the column (m108 public profile, #4268); best-effort approximation from updated_at since the true registration timestamp was never captured pre-launch.",
+    statements: [
+      `SET lock_timeout = '2s'`,
+      `UPDATE discovery_market_accounts
+   SET created_at = updated_at
+   WHERE created_at IS NULL`,
+    ],
+  },
+  {
+    migrationId: "20260711_discovery_market_account_reviews_public_list_idx",
+    description:
+      "Index discovery_market_account_reviews for the public profile's revealed-only, role-filterable, paginated review list (m108, #4268).",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_market_account_reviews_public_list_idx
+  ON discovery_market_account_reviews (subject_account_id, revealed_at, updated_at DESC)
+  WHERE status = 'active' AND revealed_at IS NOT NULL;`,
     ],
   },
 ];

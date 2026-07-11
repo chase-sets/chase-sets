@@ -306,16 +306,32 @@ export interface DiscoveryPublicListing extends DiscoveryMarketListing {
   seller_review_count?: number;
 }
 
+// Role-split reputation (m108): as-seller counters reflect reviews authored
+// by buyers about this account, as-buyer counters reflect reviews authored by
+// sellers -- never blend the two directions.
 export interface DiscoveryPublicAccount {
   account_id: string;
   account_slug: string;
   account_display_name: string | null;
   status: string;
-  average_rating?: string | null;
-  review_count?: number;
+  created_at: string | null;
+  average_rating_as_seller: string | null;
+  review_count_as_seller: number;
+  rating_1_count_as_seller: number;
+  rating_2_count_as_seller: number;
+  rating_3_count_as_seller: number;
+  rating_4_count_as_seller: number;
+  rating_5_count_as_seller: number;
+  average_rating_as_buyer: string | null;
+  review_count_as_buyer: number;
+  rating_1_count_as_buyer: number;
+  rating_2_count_as_buyer: number;
+  rating_3_count_as_buyer: number;
+  rating_4_count_as_buyer: number;
+  rating_5_count_as_buyer: number;
   active_listing_count: number;
   updated_at: string;
-  recent_reviews: DiscoveryPublicAccountReview[];
+  reviews: { items: DiscoveryPublicAccountReview[]; total: number };
   listings: DiscoveryPublicListing[];
 }
 

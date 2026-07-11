@@ -253,10 +253,11 @@ export function createDiscoveryApiClient({
         }),
       );
     },
-    async getPublicAccountBySlug(slug: string): Promise<DiscoveryPublicAccount> {
+    async getPublicAccountBySlug(slug: string, query = ""): Promise<DiscoveryPublicAccount> {
       return parseJsonResponse(
         await client.accounts[":slug"].$get({
           param: { slug },
+          query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
       );

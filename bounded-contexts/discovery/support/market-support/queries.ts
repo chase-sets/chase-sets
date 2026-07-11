@@ -44,16 +44,33 @@ type DiscoveryPublicListingDbRow = DiscoveryPublicListingRow &
     active_held_quantity?: unknown;
   }>;
 
+// Role-split reputation (m108): as-seller counters reflect reviews authored
+// by buyers about this account, as-buyer counters reflect reviews authored
+// by sellers. Mirrors marketplace's ReviewSummaryRow shape so both role
+// dimensions render from a single round trip.
 export type DiscoveryPublicAccountRow = Readonly<{
   account_id: string;
   account_slug: string;
   account_display_name: string | null;
   status: string;
-  average_rating: string | null;
-  review_count: number;
+  created_at: string | null;
+  average_rating_as_seller: string | null;
+  review_count_as_seller: number;
+  rating_1_count_as_seller: number;
+  rating_2_count_as_seller: number;
+  rating_3_count_as_seller: number;
+  rating_4_count_as_seller: number;
+  rating_5_count_as_seller: number;
+  average_rating_as_buyer: string | null;
+  review_count_as_buyer: number;
+  rating_1_count_as_buyer: number;
+  rating_2_count_as_buyer: number;
+  rating_3_count_as_buyer: number;
+  rating_4_count_as_buyer: number;
+  rating_5_count_as_buyer: number;
   active_listing_count: number;
   updated_at: string;
-  recent_reviews: DiscoveryPublicAccountReviewRow[];
+  reviews: Readonly<{ items: readonly DiscoveryPublicAccountReviewRow[]; total: number }>;
   listings: DiscoveryPublicListingRow[];
 }>;
 
@@ -67,6 +84,23 @@ export type DiscoveryPublicAccountReviewRow = Readonly<{
   submitted_at: string | null;
   updated_at: string;
 }>;
+
+// The account's own role in the underlying order ("which of my roles was
+// reviewed") -- the opposite of the stored `author_role`, since a review's
+// author reviews the counterparty. Mirrors marketplace's
+// roleToAuthorRoleFilter (never blend the two directions).
+export type DiscoveryPublicAccountReviewRoleFilter = "seller" | "buyer";
+
+function reviewRoleToAuthorRole(role: DiscoveryPublicAccountReviewRoleFilter): "buyer" | "seller" {
+  return role === "seller" ? "buyer" : "seller";
+}
+
+function normalizeReviewPageParams(params: Readonly<{ limit?: number; offset?: number }>) {
+  return {
+    limit: Math.max(1, Math.min(params.limit ?? 10, 100)),
+    offset: Math.max(0, params.offset ?? 0),
+  };
+}
 
 function mapListing(row: DiscoveryPublicListingDbRow): DiscoveryPublicListingRow {
   const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicRow } = row;
@@ -137,17 +171,35 @@ export async function getDiscoveryPublicListingBySlug(
 export async function getDiscoveryPublicAccountBySlug(
   db: PgQueryable,
   slug: string,
+  options: Readonly<{
+    reviewRole?: DiscoveryPublicAccountReviewRoleFilter;
+    reviewLimit?: number;
+    reviewOffset?: number;
+  }> = {},
 ): Promise<DiscoveryPublicAccountRow | null> {
   const accountResult = await db.query<
-    Omit<DiscoveryPublicAccountRow, "listings" | "active_listing_count" | "recent_reviews">
+    Omit<DiscoveryPublicAccountRow, "listings" | "active_listing_count" | "reviews">
   >(
     `SELECT
        account.account_id,
        account.seller_slug AS account_slug,
        account.seller_display_name AS account_display_name,
        account.status,
-       account.average_rating_as_seller::text AS average_rating,
-       COALESCE(account.review_count_as_seller, 0)::integer AS review_count,
+       account.created_at::text AS created_at,
+       account.average_rating_as_seller::text AS average_rating_as_seller,
+       COALESCE(account.review_count_as_seller, 0)::integer AS review_count_as_seller,
+       COALESCE(account.rating_1_count_as_seller, 0)::integer AS rating_1_count_as_seller,
+       COALESCE(account.rating_2_count_as_seller, 0)::integer AS rating_2_count_as_seller,
+       COALESCE(account.rating_3_count_as_seller, 0)::integer AS rating_3_count_as_seller,
+       COALESCE(account.rating_4_count_as_seller, 0)::integer AS rating_4_count_as_seller,
+       COALESCE(account.rating_5_count_as_seller, 0)::integer AS rating_5_count_as_seller,
+       account.average_rating_as_buyer::text AS average_rating_as_buyer,
+       COALESCE(account.review_count_as_buyer, 0)::integer AS review_count_as_buyer,
+       COALESCE(account.rating_1_count_as_buyer, 0)::integer AS rating_1_count_as_buyer,
+       COALESCE(account.rating_2_count_as_buyer, 0)::integer AS rating_2_count_as_buyer,
+       COALESCE(account.rating_3_count_as_buyer, 0)::integer AS rating_3_count_as_buyer,
+       COALESCE(account.rating_4_count_as_buyer, 0)::integer AS rating_4_count_as_buyer,
+       COALESCE(account.rating_5_count_as_buyer, 0)::integer AS rating_5_count_as_buyer,
        account.updated_at::text AS updated_at
      FROM discovery_market_accounts AS account
      LEFT JOIN discovery_slug_redirects AS redirect
@@ -169,7 +221,27 @@ export async function getDiscoveryPublicAccountBySlug(
     return null;
   }
 
-  const [listingResult, reviewResult] = await Promise.all([
+  // Privacy pass (m108, #4268): a suspended or closed account renders a
+  // minimal "unavailable" profile -- no listings, no review content, no
+  // pagination round trip.
+  if (account.status !== "active") {
+    return {
+      ...account,
+      active_listing_count: 0,
+      reviews: { items: [], total: 0 },
+      listings: [],
+    };
+  }
+
+  const { limit, offset } = normalizeReviewPageParams({ limit: options.reviewLimit, offset: options.reviewOffset });
+  const reviewValues: unknown[] = [account.account_id];
+  let reviewRoleClause = "";
+  if (options.reviewRole) {
+    reviewValues.push(reviewRoleToAuthorRole(options.reviewRole));
+    reviewRoleClause = `\n         AND review.author_role = $${reviewValues.length}`;
+  }
+
+  const [listingResult, reviewCountResult, reviewItemsResult] = await Promise.all([
     db.query<DiscoveryPublicListingDbRow>(
       `WITH startable_listing AS (
          SELECT
@@ -198,6 +270,14 @@ export async function getDiscoveryPublicAccountBySlug(
        ORDER BY updated_at DESC, price_amount::numeric ASC, listing_id ASC`,
       [account.account_id],
     ),
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM discovery_market_account_reviews AS review
+       WHERE review.subject_account_id = $1
+         AND review.status = 'active'
+         AND review.revealed_at IS NOT NULL${reviewRoleClause}`,
+      reviewValues,
+    ),
     db.query<DiscoveryPublicAccountReviewRow>(
       `SELECT
          review.review_id,
@@ -213,16 +293,17 @@ export async function getDiscoveryPublicAccountBySlug(
          ON author.account_id = review.author_account_id
        WHERE review.subject_account_id = $1
          AND review.status = 'active'
+         AND review.revealed_at IS NOT NULL${reviewRoleClause}
        ORDER BY review.updated_at DESC, review.review_id DESC
-       LIMIT 5`,
-      [account.account_id],
+       LIMIT $${reviewValues.length + 1} OFFSET $${reviewValues.length + 2}`,
+      [...reviewValues, limit, offset],
     ),
   ]);
 
   return {
     ...account,
     active_listing_count: listingResult.rows.length,
-    recent_reviews: reviewResult.rows,
+    reviews: { items: reviewItemsResult.rows, total: Number(reviewCountResult.rows[0]?.count ?? 0) },
     listings: listingResult.rows.map(mapListing),
   };
 }

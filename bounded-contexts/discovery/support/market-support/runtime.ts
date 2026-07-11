@@ -11,7 +11,10 @@ import {
 
 export type DiscoveryMarketServices = Readonly<{
   getPublicListingBySlug: (slug: string) => ReturnType<typeof getDiscoveryPublicListingBySlug>;
-  getPublicAccountBySlug: (slug: string) => ReturnType<typeof getDiscoveryPublicAccountBySlug>;
+  getPublicAccountBySlug: (
+    slug: string,
+    options?: Parameters<typeof getDiscoveryPublicAccountBySlug>[2],
+  ) => ReturnType<typeof getDiscoveryPublicAccountBySlug>;
   countPublicSitemapEntities: () => ReturnType<typeof countDiscoveryPublicSitemapEntities>;
   listPublicSitemapEntityPage: (
     kind: DiscoverySitemapEntityKind,
@@ -23,7 +26,7 @@ export type DiscoveryMarketServices = Readonly<{
 export function createDiscoveryMarketRuntime(deps: DiscoveryRuntimeDeps): DiscoveryMarketServices {
   return {
     getPublicListingBySlug: (slug) => getDiscoveryPublicListingBySlug(deps.db, slug),
-    getPublicAccountBySlug: (slug) => getDiscoveryPublicAccountBySlug(deps.db, slug),
+    getPublicAccountBySlug: (slug, options) => getDiscoveryPublicAccountBySlug(deps.db, slug, options),
     countPublicSitemapEntities: () => countDiscoveryPublicSitemapEntities(deps.db),
     listPublicSitemapEntityPage: (kind, page) => listDiscoveryPublicSitemapEntityPage(deps.db, kind, page),
     projectors: [

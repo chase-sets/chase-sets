@@ -10,9 +10,12 @@ import {
   LinkButton,
   MarketplaceEmptyState,
   AccountCredibilityHeader,
+  Badge,
   Box,
   PageSection,
+  Pagination,
   ProductOptions,
+  RatingDistribution,
   RatingSummary,
   Stack,
   Text,
@@ -21,10 +24,26 @@ import {
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
+import type { DiscoveryPublicAccount } from "../support/client-support/contracts";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import { applyDiscoveryPublicAccountPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+
+const ACCOUNT_REVIEW_PAGE_SIZE = 10;
+const ACCOUNT_REVIEW_ROLES = new Set(["seller", "buyer"]);
+
+type AccountReviewRoleFilter = "seller" | "buyer" | null;
+
+type AccountRatingDimension = Readonly<{
+  averageRating: string | null;
+  reviewCount: number;
+  rating1Count: number;
+  rating2Count: number;
+  rating3Count: number;
+  rating4Count: number;
+  rating5Count: number;
+}>;
 
 function formatMoney(value: string): string {
   return `$${value}`;
@@ -94,15 +113,124 @@ function formatReviewDate(value: string | null | undefined) {
   }).format(date);
 }
 
+function formatMemberSince(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function reviewRoleFromRequest(request: Request): AccountReviewRoleFilter {
+  const role = new URL(request.url).searchParams.get("role");
+  return role && ACCOUNT_REVIEW_ROLES.has(role) ? (role as "seller" | "buyer") : null;
+}
+
+function reviewPageFromRequest(request: Request): number {
+  const page = Number(new URL(request.url).searchParams.get("page") ?? "1");
+  return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+}
+
+function sellerDimension(account: DiscoveryPublicAccount): AccountRatingDimension {
+  return {
+    averageRating: account.average_rating_as_seller,
+    reviewCount: account.review_count_as_seller,
+    rating1Count: account.rating_1_count_as_seller,
+    rating2Count: account.rating_2_count_as_seller,
+    rating3Count: account.rating_3_count_as_seller,
+    rating4Count: account.rating_4_count_as_seller,
+    rating5Count: account.rating_5_count_as_seller,
+  };
+}
+
+function buyerDimension(account: DiscoveryPublicAccount): AccountRatingDimension {
+  return {
+    averageRating: account.average_rating_as_buyer,
+    reviewCount: account.review_count_as_buyer,
+    rating1Count: account.rating_1_count_as_buyer,
+    rating2Count: account.rating_2_count_as_buyer,
+    rating3Count: account.rating_3_count_as_buyer,
+    rating4Count: account.rating_4_count_as_buyer,
+    rating5Count: account.rating_5_count_as_buyer,
+  };
+}
+
+function ratingPercent(count: number, total: number) {
+  return total > 0 ? Math.round((count / total) * 100) : 0;
+}
+
+function RoleRatingDistribution({ title, dimension }: { title: string; dimension: AccountRatingDimension }) {
+  const average = Number.parseFloat(dimension.averageRating ?? "0");
+
+  return (
+    <RatingDistribution
+      title={title}
+      average={Number.isFinite(average) ? average : 0}
+      count={dimension.reviewCount || t("discovery.routes.publicAccount.no.feedback.yet")}
+      rows={[
+        { stars: 5, value: ratingPercent(dimension.rating5Count, dimension.reviewCount) },
+        { stars: 4, value: ratingPercent(dimension.rating4Count, dimension.reviewCount) },
+        { stars: 3, value: ratingPercent(dimension.rating3Count, dimension.reviewCount) },
+        { stars: 2, value: ratingPercent(dimension.rating2Count, dimension.reviewCount) },
+        { stars: 1, value: ratingPercent(dimension.rating1Count, dimension.reviewCount) },
+      ]}
+    />
+  );
+}
+
+function navigateToAccountReviewsPage(role: AccountReviewRoleFilter, page: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  if (role) {
+    url.searchParams.set("role", role);
+  } else {
+    url.searchParams.delete("role");
+  }
+  url.searchParams.set("page", String(page));
+  window.location.assign(`${url.pathname}${url.search}#feedback`);
+}
+
+function accountReviewRoleHref(currentSearch: string, role: AccountReviewRoleFilter): string {
+  const params = new URLSearchParams(currentSearch);
+  params.delete("page");
+  if (role) {
+    params.set("role", role);
+  } else {
+    params.delete("role");
+  }
+  const query = params.toString();
+  return `${query ? `?${query}` : ""}#feedback`;
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const slug = params.accountSlug;
 
   if (!slug) {
-    return { account: null, notFound: true, canonicalUrl: null };
+    return { account: null, notFound: true, canonicalUrl: null, reviewRole: null, reviewPage: 1, search: "" };
   }
 
+  const reviewRole = reviewRoleFromRequest(request);
+  const reviewPage = reviewPageFromRequest(request);
+  const reviewQuery = new URLSearchParams({
+    limit: String(ACCOUNT_REVIEW_PAGE_SIZE),
+    offset: String((reviewPage - 1) * ACCOUNT_REVIEW_PAGE_SIZE),
+    ...(reviewRole ? { role: reviewRole } : {}),
+  }).toString();
+
   try {
-    const account = await createDiscoveryRequestApiClient(request).getPublicAccountBySlug(slug);
+    const account = await createDiscoveryRequestApiClient(request).getPublicAccountBySlug(slug, reviewQuery);
     const url = new URL(request.url);
 
     if (account.account_slug && slug !== account.account_slug) {
@@ -113,10 +241,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       account,
       notFound: false,
       canonicalUrl: new URL(`/accounts/${account.account_slug}`, url.origin).toString(),
+      reviewRole,
+      reviewPage,
+      search: url.search,
     };
   } catch (error) {
     if (error instanceof DiscoveryApiError) {
-      return { account: null, notFound: true, canonicalUrl: null };
+      return { account: null, notFound: true, canonicalUrl: null, reviewRole, reviewPage, search: "" };
     }
 
     throw error;
@@ -137,6 +268,10 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
       : t("discovery.routes.publicAccount.this.marketplace.account.is.not.available"),
   }),
   ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
+  // Suspended/closed and not-found profiles carry no lasting public content
+  // worth indexing (privacy pass, m108 #4268); the launch-wide indexability
+  // gate in the deployable root already covers pre-launch noindex separately.
+  ...(!data?.account || data.account.status !== "active" ? [{ name: "robots", content: "noindex" }] : []),
 ];
 
 export default function PublicAccountRoute() {
@@ -172,14 +307,41 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
       </Container>
     );
   }
-  const accountRating = parseRating(account.average_rating);
-  const accountReviewCount = account.review_count ?? 0;
+
+  // Privacy pass (m108, #4268): a suspended or closed account gets a minimal
+  // "unavailable" profile -- no listings, no reviews, no reputation numbers,
+  // no member-since. The API already withholds this content server-side;
+  // this branch keeps the client from ever rendering stale realtime data for
+  // an account that should no longer be publicly browsable.
+  if (account.status !== "active") {
+    return (
+      <Container width="content">
+        <PageSection title={t("discovery.routes.publicAccount.account.unavailable")}>
+          <Text>
+            {t("discovery.routes.publicAccount.account.profile.unavailable.description", {
+              accountName: account.account_display_name ?? t("discovery.routes.publicAccount.account"),
+            })}
+          </Text>
+        </PageSection>
+      </Container>
+    );
+  }
+
+  const sellerRating = parseRating(account.average_rating_as_seller);
+  const sellerReviewCount = account.review_count_as_seller;
   const reputationValue =
-    accountRating !== null && accountReviewCount > 0 ? (
-      <RatingSummary value={accountRating} count={accountReviewCount} compact />
+    sellerRating !== null && sellerReviewCount > 0 ? (
+      <RatingSummary value={sellerRating} count={sellerReviewCount} compact />
     ) : (
       t("discovery.routes.publicAccount.no.feedback.yet")
     );
+  const memberSince = formatMemberSince(account.created_at);
+  const reviewRole = data.reviewRole;
+  const reviewPage = data.reviewPage;
+  const reviewPageSize = ACCOUNT_REVIEW_PAGE_SIZE;
+  const reviewTotal = account.reviews.total;
+  const reviewTotalPages = Math.max(1, Math.ceil(reviewTotal / reviewPageSize));
+  const showReviewPagination = reviewTotal > reviewPageSize;
 
   return (
     <Container width="expanded">
@@ -206,16 +368,12 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               value: reputationValue,
             },
             {
-              label: t("discovery.routes.publicAccount.response.time"),
-              value: t("discovery.routes.publicAccount.responds.through.order.updates"),
+              label: t("discovery.routes.publicAccount.member.since.label"),
+              value: memberSince ?? t("discovery.routes.publicAccount.member.since.unknown"),
             },
             {
-              label: t("discovery.routes.publicAccount.profile.updated"),
-              value: new Intl.DateTimeFormat("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              }).format(new Date(account.updated_at)),
+              label: t("discovery.routes.publicAccount.response.time"),
+              value: t("discovery.routes.publicAccount.responds.through.order.updates"),
             },
           ]}
           policies={[
@@ -242,23 +400,54 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
 
         <Box id="feedback">
           <PageSection title={t("discovery.routes.publicAccount.feedback")}>
-            <Stack gap={3}>
-              <Text>
-                {accountRating !== null && accountReviewCount > 0
-                  ? t("discovery.routes.publicAccount.feedback.summary", {
-                      rating: accountRating.toFixed(1),
-                      count: accountReviewCount,
-                    })
-                  : t("discovery.routes.publicAccount.no.feedback.yet")}
-              </Text>
-              {account.recent_reviews.length > 0 ? (
+            <Stack gap={4}>
+              <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                <RoleRatingDistribution
+                  title={t("discovery.routes.publicAccount.as.seller")}
+                  dimension={sellerDimension(account)}
+                />
+                <RoleRatingDistribution
+                  title={t("discovery.routes.publicAccount.as.buyer")}
+                  dimension={buyerDimension(account)}
+                />
+              </Grid>
+
+              <Stack direction="row" gap={2}>
+                <LinkButton
+                  href={accountReviewRoleHref(data.search, null)}
+                  tone={reviewRole === null ? "primary" : "secondary"}
+                >
+                  {t("discovery.routes.publicAccount.all.roles")}
+                </LinkButton>
+                <LinkButton
+                  href={accountReviewRoleHref(data.search, "seller")}
+                  tone={reviewRole === "seller" ? "primary" : "secondary"}
+                >
+                  {t("discovery.routes.publicAccount.as.seller")}
+                </LinkButton>
+                <LinkButton
+                  href={accountReviewRoleHref(data.search, "buyer")}
+                  tone={reviewRole === "buyer" ? "primary" : "secondary"}
+                >
+                  {t("discovery.routes.publicAccount.as.buyer")}
+                </LinkButton>
+              </Stack>
+
+              {account.reviews.items.length > 0 ? (
                 <Stack gap={2}>
-                  {account.recent_reviews.map((review) => {
+                  {account.reviews.items.map((review) => {
                     const reviewDate = formatReviewDate(review.submitted_at ?? review.updated_at);
                     return (
                       <Card key={review.review_id}>
                         <Stack gap={2}>
-                          <RatingSummary value={review.rating} compact />
+                          <Stack direction="row" gap={2} align="center">
+                            <RatingSummary value={review.rating} compact />
+                            <Badge tone="neutral">
+                              {review.author_role === "buyer"
+                                ? t("discovery.routes.publicAccount.as.seller")
+                                : t("discovery.routes.publicAccount.as.buyer")}
+                            </Badge>
+                          </Stack>
                           <Text size="sm" weight="semibold">
                             {reviewDate
                               ? t("discovery.routes.publicAccount.review.byline", {
@@ -281,6 +470,14 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                   {t("discovery.routes.publicAccount.no.written.feedback")}
                 </Text>
               )}
+
+              {showReviewPagination ? (
+                <Pagination
+                  page={reviewPage}
+                  totalPages={reviewTotalPages}
+                  onPageChange={(page) => navigateToAccountReviewsPage(reviewRole, page)}
+                />
+              ) : null}
             </Stack>
           </PageSection>
         </Box>
@@ -326,18 +523,18 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                   sellerName={account.account_display_name ?? t("discovery.routes.publicAccount.account")}
                   sellerHref={`/accounts/${account.account_slug}#feedback`}
                   sellerTrustLabel={
-                    accountRating !== null && accountReviewCount > 0
+                    sellerRating !== null && sellerReviewCount > 0
                       ? t("discovery.routes.publicAccount.reputation.rating", {
-                          rating: accountRating.toFixed(1),
-                          count: accountReviewCount,
+                          rating: sellerRating.toFixed(1),
+                          count: sellerReviewCount,
                         })
                       : account.status === "active"
                         ? t("discovery.routes.publicAccount.verified.account")
                         : t("discovery.routes.publicAccount.account.details.visible")
                   }
                   sellerVerified={account.status === "active"}
-                  rating={accountRating ?? undefined}
-                  reviewCount={accountReviewCount}
+                  rating={sellerRating ?? undefined}
+                  reviewCount={sellerReviewCount}
                   fulfillment={buyerFulfillmentLabel(listing.ship_from_code)}
                   availability={availabilityDetail}
                   condition={
