@@ -6,7 +6,7 @@ Public Presence is the product-facing surface that explains Chase Sets before ma
 
 ## Waitlist Signup
 
-A **Waitlist Signup** is an email-consented request for Chase Sets early access, qualified by account intent and product interests.
+A **Waitlist Signup** is a request for Chase Sets early access, qualified by account intent and product interests. Joining implies consent to early-access emails; consent to additional product updates beyond early-access notifications is a separate, optional opt-in.
 
 Notes:
 

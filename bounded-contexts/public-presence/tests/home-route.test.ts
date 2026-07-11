@@ -107,7 +107,7 @@ describe("public presence home route", () => {
           email: "collector@example.com",
           role: "both",
           interests: "low-sales-fees",
-          emailConsent: "yes",
+          marketingConsent: "yes",
           pagePath: "/",
         }),
       }),

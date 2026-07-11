@@ -926,7 +926,7 @@ function WaitlistSignupPanel({
   source: Parameters<typeof PublicPresenceHomePage>[0]["source"];
   variant?: "hero" | "full";
 }) {
-  const [emailConsent, setEmailConsent] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const formStarted = useRef(false);
   const isHero = variant === "hero";
   const section = isHero ? "hero" : "final_cta";
@@ -1078,26 +1078,27 @@ function WaitlistSignupPanel({
                 />
               </Grid>
             )}
-            <Checkbox
-              label={t("publicPresence.waitlist.consent")}
-              description={isHero ? undefined : t("publicPresence.waitlist.consent.description")}
-              name="emailConsent"
-              value="yes"
-              checked={emailConsent}
-              onCheckedChange={(checked) => {
-                const consentChecked = checked === true;
-                trackFormStart("consent");
-                setEmailConsent(consentChecked);
-                trackWaitlistEvent("waitlist_consent_checked", {
-                  section,
-                  checked: consentChecked,
-                  role: intent.role,
-                  interest: intent.interest,
-                  variant: landingExperimentVariant,
-                });
-              }}
-              required
-            />
+            {isHero ? null : (
+              <Checkbox
+                label={t("publicPresence.waitlist.marketingConsent")}
+                description={t("publicPresence.waitlist.marketingConsent.description")}
+                name="marketingConsent"
+                value="yes"
+                checked={marketingConsent}
+                onCheckedChange={(checked) => {
+                  const consentChecked = checked === true;
+                  trackFormStart("marketingConsent");
+                  setMarketingConsent(consentChecked);
+                  trackWaitlistEvent("waitlist_marketing_consent_checked", {
+                    section,
+                    checked: consentChecked,
+                    role: intent.role,
+                    interest: intent.interest,
+                    variant: landingExperimentVariant,
+                  });
+                }}
+              />
+            )}
             <HoneypotInput name="website" />
             <HiddenInput name="pagePath" value={source.pagePath} />
             <HiddenInput name="referrer" value={source.referrer ?? ""} />
@@ -1109,11 +1110,9 @@ function WaitlistSignupPanel({
             <Button type="submit" size={isHero ? "md" : "lg"} block leadingIcon="rocket">
               {t("publicPresence.waitlist.submit")}
             </Button>
-            {isHero ? null : (
-              <Text size="sm" tone="secondary">
-                {t("publicPresence.waitlist.noCommitment")}
-              </Text>
-            )}
+            <Text size="sm" tone="secondary">
+              {isHero ? t("publicPresence.waitlist.impliedConsent") : t("publicPresence.waitlist.noCommitment")}
+            </Text>
           </Stack>
         </Form>
       </Stack>

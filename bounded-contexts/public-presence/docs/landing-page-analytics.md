@@ -17,7 +17,7 @@ Current event names:
 - `waitlist_signup_failed`
 - `waitlist_role_selected`
 - `waitlist_interest_selected`
-- `waitlist_consent_checked`
+- `waitlist_marketing_consent_checked`
 - `policy_link_clicked`
 
 Event details include:
@@ -36,7 +36,7 @@ Primary funnel metrics:
 - Hero intent tab selection to form submission.
 - Audience-path CTA selection to final form start.
 - Mobile sticky CTA click to form submission.
-- Consent checked to submitted signup.
+- Optional marketing consent checked to submitted signup (final-CTA variant only; early-access consent is implied and untracked as a discrete opt-in).
 - Submitted signup to succeeded or failed action result.
 
 First experiments to run:

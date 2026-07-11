@@ -115,7 +115,7 @@ export function createPublicWaitlistRoutes(services: WaitlistServices) {
           email: String(body.email ?? ""),
           role: String(body.role ?? ""),
           interests: Array.isArray(body.interests) ? body.interests.map(String) : [],
-          emailConsent: Boolean(body.emailConsent),
+          marketingConsent: Boolean(body.marketingConsent),
           source: {
             pagePath: String(body.source?.pagePath ?? "/"),
             referrer: typeof body.source?.referrer === "string" ? body.source.referrer : null,

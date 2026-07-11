@@ -4,7 +4,12 @@ export type SubmitWaitlistSignupRequest = Readonly<{
   email: string;
   role: WaitlistCommerceIntent;
   interests: readonly WaitlistInterest[];
-  emailConsent: boolean;
+  /**
+   * Optional consent to additional product updates beyond early-access
+   * notifications. Early-access consent is implied by signing up and is
+   * never a required condition of joining the waitlist.
+   */
+  marketingConsent?: boolean;
   source: WaitlistSource;
   website?: string | null;
 }>;
@@ -15,6 +20,7 @@ export type WaitlistSignupListItem = Readonly<{
   role: WaitlistCommerceIntent;
   interests: readonly WaitlistInterest[];
   email_consent_accepted_at: string;
+  marketing_consent_accepted_at: string | null;
   page_path: string;
   referrer: string | null;
   utm_source: string | null;

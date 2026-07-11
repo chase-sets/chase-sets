@@ -416,9 +416,10 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.badge": "Early access",
   "publicPresence.waitlist.compactDescription": "Prelaunch only. No buying, listing, or payment required.",
   "publicPresence.waitlist.compactTitle": "Request early access",
-  "publicPresence.waitlist.consent": "Send me early access updates",
-  "publicPresence.waitlist.consent.description":
-    "Ask support@chasesets.com to remove you from prelaunch updates or waitlist records.",
+  "publicPresence.waitlist.impliedConsent": "We'll email you about early access. Unsubscribe anytime.",
+  "publicPresence.waitlist.marketingConsent": "Also send me product updates and beta news",
+  "publicPresence.waitlist.marketingConsent.description":
+    "Beyond early access emails, this covers new features, launch milestones, and founder updates. Ask support@chasesets.com to remove you anytime.",
   "publicPresence.waitlist.afterSignup.join": "Sign up with your email, marketplace intent, and first priority.",
   "publicPresence.waitlist.afterSignup.signal":
     "Tell us whether seller economics, bulk listing, buying, pricing, or shipping matters first.",

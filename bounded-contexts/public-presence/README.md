@@ -37,7 +37,7 @@ Public Presence terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. A Waitlist Signup id is derived deterministically from the normalized email address, so a repeat submission from the same email updates the existing signup instead of creating a duplicate.
-2. Recording or updating a Waitlist Signup requires accepted email consent.
+2. Early-access email consent is implied by joining the waitlist and is recorded automatically at signup time; it is never a required condition of joining. Consent to additional product updates beyond early-access notifications is a separate, optional opt-in.
 3. A Waitlist Signup must declare at least one interest.
 
 ## Tests

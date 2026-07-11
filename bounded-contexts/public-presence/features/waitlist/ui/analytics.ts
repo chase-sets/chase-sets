@@ -7,7 +7,7 @@ export const waitlistAnalyticsEventNames = [
   "waitlist_signup_failed",
   "waitlist_role_selected",
   "waitlist_interest_selected",
-  "waitlist_consent_checked",
+  "waitlist_marketing_consent_checked",
   "section_viewed",
   "policy_link_clicked",
 ] as const;

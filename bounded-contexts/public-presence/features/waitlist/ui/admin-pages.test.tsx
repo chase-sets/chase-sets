@@ -24,6 +24,7 @@ describe("waitlist admin page", () => {
               role: "both",
               interests: ["low-sales-fees"],
               email_consent_accepted_at: "2026-05-07T12:00:00.000Z",
+              marketing_consent_accepted_at: null,
               page_path: "/",
               referrer: null,
               utm_source: "discord",

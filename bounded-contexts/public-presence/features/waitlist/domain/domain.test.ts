@@ -12,13 +12,13 @@ const source = {
 };
 
 describe("waitlist signup domain", () => {
-  it("records a normalized signup with consent", async () => {
+  it("records a normalized signup with implied early-access consent", async () => {
     const events = await decideWaitlistSignup(initialWaitlistSignupState, {
       type: "RecordWaitlistSignup",
       email: " TODD@EXAMPLE.COM ",
       role: "both",
       interests: ["pricing-tools", "low-sales-fees"],
-      emailConsentAcceptedAt: "2026-05-07T12:00:00.000Z",
+      marketingConsentAcceptedAt: null,
       source,
       recordedAt: "2026-05-07T12:00:00.000Z",
     });
@@ -26,6 +26,24 @@ describe("waitlist signup domain", () => {
     expect(events).toHaveLength(1);
     expect(events[0].data.email).toBe("todd@example.com");
     expect(events[0].data.interests).toEqual(["low-sales-fees", "pricing-tools"]);
+    // Early-access consent is implied by signing up, so it is always granted
+    // at the recorded timestamp regardless of any optional marketing opt-in.
+    expect(events[0].data.emailConsentAcceptedAt).toBe("2026-05-07T12:00:00.000Z");
+    expect(events[0].data.marketingConsentAcceptedAt).toBeNull();
+  });
+
+  it("records optional marketing consent when accepted", async () => {
+    const events = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "todd@example.com",
+      role: "sell",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: "2026-05-07T12:00:00.000Z",
+      source,
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+
+    expect(events[0].data.marketingConsentAcceptedAt).toBe("2026-05-07T12:00:00.000Z");
   });
 
   it("updates an existing signup on duplicate email", async () => {
@@ -34,7 +52,7 @@ describe("waitlist signup domain", () => {
       email: "todd@example.com",
       role: "buy",
       interests: ["set-completion"],
-      emailConsentAcceptedAt: "2026-05-07T12:00:00.000Z",
+      marketingConsentAcceptedAt: null,
       source,
       recordedAt: "2026-05-07T12:00:00.000Z",
     });
@@ -44,7 +62,7 @@ describe("waitlist signup domain", () => {
       email: "TODD@example.com",
       role: "both",
       interests: ["bulk-listing"],
-      emailConsentAcceptedAt: "2026-05-07T12:05:00.000Z",
+      marketingConsentAcceptedAt: "2026-05-07T12:05:00.000Z",
       source,
       recordedAt: "2026-05-07T12:05:00.000Z",
     });
@@ -52,31 +70,34 @@ describe("waitlist signup domain", () => {
     expect(updated.type).toBe("public-presence.waitlist-signup.updated");
     expect(updated.data.signupId).toBe(recorded.data.signupId);
     expect(updated.data.role).toBe("both");
+    expect(updated.data.marketingConsentAcceptedAt).toBe("2026-05-07T12:05:00.000Z");
   });
 
-  it("requires consent and a valid email", async () => {
+  it("requires a valid email", async () => {
     await expect(async () =>
       decideWaitlistSignup(initialWaitlistSignupState, {
         type: "RecordWaitlistSignup",
         email: "not-an-email",
         role: "both",
         interests: ["bulk-listing"],
-        emailConsentAcceptedAt: null,
+        marketingConsentAcceptedAt: null,
         source,
         recordedAt: "2026-05-07T12:00:00.000Z",
       }),
     ).rejects.toThrow("Enter a valid email address.");
+  });
 
+  it("requires a valid timestamp for optional marketing consent", async () => {
     await expect(async () =>
       decideWaitlistSignup(initialWaitlistSignupState, {
         type: "RecordWaitlistSignup",
         email: "todd@example.com",
         role: "both",
         interests: ["bulk-listing"],
-        emailConsentAcceptedAt: null,
+        marketingConsentAcceptedAt: "not-a-timestamp",
         source,
         recordedAt: "2026-05-07T12:00:00.000Z",
       }),
-    ).rejects.toThrow("Email consent is required.");
+    ).rejects.toThrow("Marketing consent must record a timestamp.");
   });
 });
