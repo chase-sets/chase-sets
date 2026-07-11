@@ -40,8 +40,12 @@ import {
   type PromoBarMessage,
 } from "@chase-sets/design-system";
 import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
+import prelaunchHero800wUrl from "./assets/chase-sets-prelaunch-hero-800w.webp?url";
+import prelaunchHero1200wUrl from "./assets/chase-sets-prelaunch-hero-1200w.webp?url";
 import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare-preview.webp?url";
 import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp?url";
+import waitlistCardPanels600wUrl from "./assets/chase-sets-waitlist-card-panels-600w.webp?url";
+import waitlistCardPanels1080wUrl from "./assets/chase-sets-waitlist-card-panels-1080w.webp?url";
 import { trackWaitlistEvent } from "./analytics";
 import { publicPresenceT as t } from "./public-presence-translator";
 
@@ -449,6 +453,8 @@ export function PublicPresenceHomePage({
         <Stack gap={2} data-public-presence-section="hero">
           <MarketingImageHero
             imageSrc={prelaunchHeroUrl}
+            imageSrcSet={`${prelaunchHero800wUrl} 800w, ${prelaunchHero1200wUrl} 1200w, ${prelaunchHeroUrl} 1731w`}
+            imageSizes="100vw"
             imageAlt={t("publicPresence.home.heroImageAlt")}
             imagePosition="center"
             imageLoading="eager"
@@ -753,6 +759,8 @@ function MarketplaceModelSection() {
       <Grid columns={{ base: 1, lg: 2 }} gap={4}>
         <MarketingVisualCard
           imageSrc={waitlistCardPanelsUrl}
+          imageSrcSet={`${waitlistCardPanels600wUrl} 600w, ${waitlistCardPanels1080wUrl} 1080w, ${waitlistCardPanelsUrl} 2172w`}
+          imageSizes="(min-width: 1024px) 50vw, 100vw"
           imageAlt={t("publicPresence.home.workflowImageAlt")}
           imagePosition="center"
           imageLoading="lazy"

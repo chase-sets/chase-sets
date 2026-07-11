@@ -96,6 +96,10 @@ export interface MarketingHeroHighlight {
 export interface MarketingImageHeroProps {
   imageSrc: string;
   imageAlt: string;
+  /** `srcset` candidates (e.g. `"/hero-800w.webp 800w, /hero-1200w.webp 1200w"`) so narrower viewports skip desktop-weight bytes. */
+  imageSrcSet?: ImgHTMLAttributes<HTMLImageElement>["srcSet"];
+  /** `sizes` describing the image's rendered width per viewport; required for `imageSrcSet` to pick the right candidate. */
+  imageSizes?: ImgHTMLAttributes<HTMLImageElement>["sizes"];
   imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
   imageLoading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
   imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
@@ -114,6 +118,8 @@ export interface MarketingImageHeroProps {
 export function MarketingImageHero({
   imageSrc,
   imageAlt,
+  imageSrcSet,
+  imageSizes,
   imageFetchPriority = "high",
   imageLoading = "eager",
   imageDecoding = "async",
@@ -141,6 +147,8 @@ export function MarketingImageHero({
     >
       <img
         src={imageSrc}
+        srcSet={imageSrcSet}
+        sizes={imageSrcSet ? imageSizes : undefined}
         alt={imageAlt}
         loading={imageLoading}
         decoding={imageDecoding}
@@ -235,6 +243,10 @@ export function MarketingImageHero({
 export interface MarketingVisualCardProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
   imageSrc: string;
   imageAlt: string;
+  /** `srcset` candidates (e.g. `"/card-600w.webp 600w, /card-1080w.webp 1080w"`) so narrower viewports skip desktop-weight bytes. */
+  imageSrcSet?: ImgHTMLAttributes<HTMLImageElement>["srcSet"];
+  /** `sizes` describing the image's rendered width per viewport; required for `imageSrcSet` to pick the right candidate. */
+  imageSizes?: ImgHTMLAttributes<HTMLImageElement>["sizes"];
   imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
   imageLoading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
   imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
@@ -259,6 +271,8 @@ const marketingVisualCardImagePositionClasses: Record<
 export function MarketingVisualCard({
   imageSrc,
   imageAlt,
+  imageSrcSet,
+  imageSizes,
   imageFetchPriority = "auto",
   imageLoading = "lazy",
   imageDecoding = "async",
@@ -278,6 +292,8 @@ export function MarketingVisualCard({
     >
       <img
         src={imageSrc}
+        srcSet={imageSrcSet}
+        sizes={imageSrcSet ? imageSizes : undefined}
         alt={imageAlt}
         loading={imageLoading}
         decoding={imageDecoding}
