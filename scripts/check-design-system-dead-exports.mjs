@@ -133,7 +133,6 @@ const canonicalReserveZeroConsumerExports = [
   "Subheading",
   "surfaceSemanticToneClasses",
   "Switch",
-  "Table",
   "Tag",
   "TagInput",
   "ThemeScope",

@@ -33,6 +33,7 @@ import {
   Stack,
   Surface,
   PriceBreakdown,
+  Table,
   Text,
   TextInput,
   type PromoBarMessage,
@@ -466,6 +467,8 @@ export function PublicPresenceHomePage({
 
         <SellerEconomicsSection />
 
+        <FeeComparisonSection />
+
         <AudiencePathSection onIntentSelect={selectIntent} />
 
         <ProductSignalPreview />
@@ -644,6 +647,67 @@ function SellerEconomicsSection() {
           reassurance={t("publicPresence.home.sellerEconomics.math.reassurance")}
         />
       </Grid>
+    </PageSection>
+  );
+}
+
+// Fee-comparison sourcing: major-marketplace figures use each marketplace's
+// own published seller-fee schedule, applied to a $10.00 item price before
+// shipping or tax. Retrieved 2026-07-10.
+// - Marketplace A = TCGplayer: 10.75% Marketplace-seller commission (Level
+//   1-4, effective 2026-02-10) + 2.5% + $0.30 transaction fee.
+//   https://help.tcgplayer.com/hc/en-us/articles/201357836-TCGplayer-Fees
+//   https://seller.tcgplayer.com/blog/important-changes-to-tcgplayer-direct-minimum-pricing-and-marketplace-fees
+// - Marketplace B = eBay: 13.25% trading-card final value fee (non-store
+//   rate, on sale totals up to $7,500) + $0.30 per-order fee (orders of $10
+//   or less).
+//   https://www.ebay.com/help/selling/fees-credits-invoices/selling-fees?id=4822
+// Named-vs-anonymized competitor labeling is a legal-safety call for product
+// review; ship anonymized "Marketplace A/B" until product/legal picks a
+// naming approach.
+function FeeComparisonSection() {
+  return (
+    <PageSection
+      data-public-presence-section="fee_comparison"
+      title={t("publicPresence.home.sellerEconomics.comparison.title")}
+      description={t("publicPresence.home.sellerEconomics.comparison.description")}
+    >
+      <Stack gap={3}>
+        <Table
+          caption={t("publicPresence.home.sellerEconomics.comparison.caption")}
+          columns={[
+            t("publicPresence.home.sellerEconomics.comparison.column.metric"),
+            t("publicPresence.home.sellerEconomics.comparison.column.chaseSets"),
+            t("publicPresence.home.sellerEconomics.comparison.column.marketplaceA"),
+            t("publicPresence.home.sellerEconomics.comparison.column.marketplaceB"),
+          ]}
+          rows={[
+            [
+              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.label"),
+              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.chaseSets"),
+              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.marketplaceA"),
+              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.marketplaceB"),
+            ],
+            [
+              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.label"),
+              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.chaseSets"),
+              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.marketplaceA"),
+              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.marketplaceB"),
+            ],
+            [
+              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label"),
+              <Badge tone="success" variant="solid">
+                {t("publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets")}
+              </Badge>,
+              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.marketplaceA"),
+              t("publicPresence.home.sellerEconomics.comparison.row.youKeep.marketplaceB"),
+            ],
+          ]}
+        />
+        <Text size="sm" tone="tertiary">
+          {t("publicPresence.home.sellerEconomics.comparison.sourceNote")}
+        </Text>
+      </Stack>
     </PageSection>
   );
 }

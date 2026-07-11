@@ -112,6 +112,29 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.paths.sell.title": "I want to sell cards",
   "publicPresence.home.paths.title": "Pick the workflow you want prioritized",
   "publicPresence.home.sellerEconomics.badge": "Founding seller economics",
+  "publicPresence.home.sellerEconomics.comparison.caption":
+    "Marketplace fee, per-order and payment fee, and dollars kept on a $10 card: Chase Sets versus two major trading card marketplaces.",
+  "publicPresence.home.sellerEconomics.comparison.column.chaseSets": "Chase Sets",
+  "publicPresence.home.sellerEconomics.comparison.column.marketplaceA": "Major marketplace A",
+  "publicPresence.home.sellerEconomics.comparison.column.marketplaceB": "Major marketplace B",
+  "publicPresence.home.sellerEconomics.comparison.column.metric": "On a $10 card",
+  "publicPresence.home.sellerEconomics.comparison.description":
+    "Compare the marketplace fee, per-order and payment fee, and dollars kept before you decide where to list.",
+  "publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.chaseSets": "$0.00",
+  "publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.label": "Marketplace fee",
+  "publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.marketplaceA": "$1.08",
+  "publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.marketplaceB": "$1.33",
+  "publicPresence.home.sellerEconomics.comparison.row.perOrderFee.chaseSets": "$0.00",
+  "publicPresence.home.sellerEconomics.comparison.row.perOrderFee.label": "Per-order and payment fee",
+  "publicPresence.home.sellerEconomics.comparison.row.perOrderFee.marketplaceA": "$0.55",
+  "publicPresence.home.sellerEconomics.comparison.row.perOrderFee.marketplaceB": "$0.30",
+  "publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets": "$10.00",
+  "publicPresence.home.sellerEconomics.comparison.row.youKeep.label": "You keep",
+  "publicPresence.home.sellerEconomics.comparison.row.youKeep.marketplaceA": "$8.37",
+  "publicPresence.home.sellerEconomics.comparison.row.youKeep.marketplaceB": "$8.37",
+  "publicPresence.home.sellerEconomics.comparison.sourceNote":
+    "Major marketplace figures use each marketplace's own published seller-fee schedule, applied to a $10.00 item price before shipping or tax, as of July 2026. Chase Sets figures reflect the 0% beta seller fee lock with no separate seller payment-processing fee.",
+  "publicPresence.home.sellerEconomics.comparison.title": "The same $10 card, three marketplaces",
   "publicPresence.home.sellerEconomics.description":
     "Built for cards other marketplaces make hard to sell profitably: 0% beta listing fees, no separate seller processing line, repeat listing work, and buyer-visible order costs.",
   "publicPresence.home.sellerEconomics.lock.description":
