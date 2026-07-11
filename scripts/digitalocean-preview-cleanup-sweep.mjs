@@ -13,17 +13,21 @@ export const DEFAULT_PREVIEW_STATE_PREFIX = "platform/previews/";
 export const PREVIEW_DATABASE_TERRAFORM_ADDRESS = "digitalocean_database_cluster.postgres";
 export const PREVIEW_DATABASE_DELETE_CONFIRMATION = "delete leaked preview database clusters";
 
-// Per-preview DNS. The retired Terraform preview path created per-preview DNS
-// records; the Kubernetes preview path must do the same. A single wildcard at
-// `*.preview.chasesets.com` only matches one label, so it covers the apex host
-// `pr-<n>.preview.chasesets.com` but never the two-label app hosts
-// (`admin.pr-<n>.preview.chasesets.com`, `marketplace.pr-<n>.preview.chasesets.com`).
-// Each preview therefore needs its own apex A record plus a `*.pr-<n>.preview`
-// wildcard, both pointing at the DOKS ingress load balancer.
+// Per-preview DNS. Preview hostnames are single-label under
+// preview.chasesets.com (`pr-<n>`, `pr-<n>-marketplace`, `pr-<n>-admin`), so
+// ONE shared `*.preview.chasesets.com` wildcard record (applied once by the
+// `apply-shared-dns` command below, part of the one-time bootstrap in
+// docs/runbooks/doks-platform-operations.md) now covers every preview's every
+// app host, replacing the old per-preview apex + `*.pr-<n>.preview` wildcard
+// pair. `destroyPreviewDnsRecords`/`destroy-dns` and the `dnsRecordCandidates`
+// detection in `discoverPreviewCleanupTargets` stay in place, unmodified, to
+// drain any per-preview records created before this fix; no new PR ever
+// creates one again.
 export const PREVIEW_DNS_BASE_DOMAIN = "chasesets.com";
 export const PREVIEW_DNS_ENVIRONMENT_LABEL = "preview";
 export const PREVIEW_DNS_RECORD_TTL = 60;
 export const PREVIEW_DNS_IPV4_PATTERN = /^(\d{1,3}\.){3}\d{1,3}$/;
+export const PREVIEW_SHARED_DNS_FQDN = `*.${PREVIEW_DNS_ENVIRONMENT_LABEL}.${PREVIEW_DNS_BASE_DOMAIN}`;
 
 function commandOutput(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -687,17 +691,19 @@ export function previewDnsRecordName(fqdn, zone) {
   throw new Error(`${normalizedFqdn} is not inside DNS zone ${normalizedZone}.`);
 }
 
-export function previewDnsRecordPlan(prNumber, options = {}) {
-  const { apex, wildcard, prNumber: parsed, baseDomain } = previewDnsFqdns(prNumber, options.baseDomain);
-  const zone = resolvePreviewDnsZone(options.registeredDomains ?? [], apex, baseDomain);
+// The ONE shared wildcard record every preview host resolves through:
+// `pr-<n>`, `pr-<n>-marketplace`, and `pr-<n>-admin` are each a
+// single label under preview.chasesets.com, so this one record -- applied
+// once by the `apply-shared-dns` bootstrap command, never per-PR -- covers
+// every preview forever, with no new DNS record created per PR.
+export function previewSharedDnsRecordPlan(options = {}) {
+  const fqdn = PREVIEW_SHARED_DNS_FQDN;
+  const baseDomain = options.baseDomain ?? PREVIEW_DNS_BASE_DOMAIN;
+  const zone = resolvePreviewDnsZone(options.registeredDomains ?? [], fqdn, baseDomain);
   return {
-    prNumber: parsed,
     zone,
     target: options.target ?? null,
-    records: [
-      { role: "apex", fqdn: apex, name: previewDnsRecordName(apex, zone) },
-      { role: "wildcard", fqdn: wildcard, name: previewDnsRecordName(wildcard, zone) },
-    ],
+    record: { role: "wildcard", fqdn, name: previewDnsRecordName(fqdn, zone) },
   };
 }
 
@@ -757,27 +763,25 @@ function listPreviewDomainRecords(dependencies) {
   return listDomainRecords;
 }
 
-export async function applyPreviewDnsRecords(options, dependencies = {}) {
+// One-time (and re-runnable/idempotent) bootstrap: ensures the single shared
+// `*.preview.chasesets.com` wildcard A record exists and points at the DOKS
+// ingress load balancer. Part of the docs/runbooks/doks-platform-operations.md
+// bootstrap alongside `doks-cluster-addons.mjs --environment staging`; never
+// invoked per-PR.
+export async function applySharedPreviewDnsRecord(options, dependencies = {}) {
   const record = {
     schemaVersion: DIGITALOCEAN_PREVIEW_DNS_VERSION,
-    mode: "apply",
-    prNumber: null,
+    mode: "apply-shared",
     zone: null,
     target: String(options.target ?? "").trim(),
-    actions: [],
+    action: null,
     result: "failure",
     warnings: [],
     errors: [],
   };
 
-  const parsedPr = Number.parseInt(String(options.prNumber ?? ""), 10);
-  if (!Number.isInteger(parsedPr) || parsedPr <= 0) {
-    record.errors.push("--pr-number must be a positive integer.");
-  }
   if (!PREVIEW_DNS_IPV4_PATTERN.test(record.target)) {
     record.errors.push("--target must be a valid IPv4 address (the DOKS ingress load balancer).");
-  }
-  if (record.errors.length > 0) {
     return record;
   }
 
@@ -819,12 +823,11 @@ export async function applyPreviewDnsRecords(options, dependencies = {}) {
     return record;
   }
 
-  const plan = previewDnsRecordPlan(parsedPr, {
+  const plan = previewSharedDnsRecordPlan({
     registeredDomains: domains,
     baseDomain: options.baseDomain,
     target: record.target,
   });
-  record.prNumber = plan.prNumber;
   record.zone = plan.zone;
 
   let existing = [];
@@ -837,34 +840,33 @@ export async function applyPreviewDnsRecords(options, dependencies = {}) {
   }
   const existingRecords = Array.isArray(existing) ? existing : [];
 
-  for (const planned of plan.records) {
-    const matches = existingRecords.filter(
-      (candidate) =>
-        String(candidate?.type ?? candidate?.Type ?? "").toUpperCase() === "A" &&
-        normalizeDnsName(candidate?.name ?? candidate?.Name) === normalizeDnsName(planned.name),
-    );
-    const alreadyPointed =
-      matches.length === 1 && String(matches[0]?.data ?? matches[0]?.Data ?? "").trim() === record.target;
-    if (alreadyPointed) {
-      record.actions.push({ fqdn: planned.fqdn, action: "unchanged" });
-      continue;
-    }
-
-    try {
-      for (const stale of matches) {
-        const id = String(stale?.id ?? stale?.ID ?? stale?.Id ?? "");
-        if (id) {
-          await deleteRecord(plan.zone, id);
-        }
-      }
-      await createRecord(plan.zone, planned.name, record.target);
-      record.actions.push({ fqdn: planned.fqdn, action: matches.length > 0 ? "replaced" : "created" });
-    } catch (error) {
-      record.errors.push(`Failed to upsert ${planned.fqdn}: ${describeError(error)}`);
-    }
+  const matches = existingRecords.filter(
+    (candidate) =>
+      String(candidate?.type ?? candidate?.Type ?? "").toUpperCase() === "A" &&
+      normalizeDnsName(candidate?.name ?? candidate?.Name) === normalizeDnsName(plan.record.name),
+  );
+  const alreadyPointed =
+    matches.length === 1 && String(matches[0]?.data ?? matches[0]?.Data ?? "").trim() === record.target;
+  if (alreadyPointed) {
+    record.action = "unchanged";
+    record.result = "success";
+    return record;
   }
 
-  record.result = record.errors.length > 0 ? "failure" : "success";
+  try {
+    for (const stale of matches) {
+      const id = String(stale?.id ?? stale?.ID ?? stale?.Id ?? "");
+      if (id) {
+        await deleteRecord(plan.zone, id);
+      }
+    }
+    await createRecord(plan.zone, plan.record.name, record.target);
+    record.action = matches.length > 0 ? "replaced" : "created";
+    record.result = "success";
+  } catch (error) {
+    record.errors.push(`Failed to upsert ${plan.record.fqdn}: ${describeError(error)}`);
+  }
+
   return record;
 }
 
@@ -1017,9 +1019,8 @@ function parseImportDatabaseArgs(argv, env = process.env) {
   };
 }
 
-function parseApplyDnsArgs(argv, env = process.env) {
+function parseApplySharedDnsArgs(argv, env = process.env) {
   return {
-    prNumber: readOption(argv, "--pr-number", env.PREVIEW_PR_NUMBER ?? ""),
     target: readOption(argv, "--target", env.DOKS_INGRESS_TARGET ?? ""),
     baseDomain: readOption(argv, "--base-domain", env.PREVIEW_DNS_BASE_DOMAIN ?? PREVIEW_DNS_BASE_DOMAIN),
     outPath: readOption(argv, "--out", env.PREVIEW_DNS_RECORD_OUT),
@@ -1181,9 +1182,9 @@ async function main(argv = process.argv.slice(2)) {
     return record.result === "failure" ? 1 : 0;
   }
 
-  if (command === "apply-dns") {
-    const options = parseApplyDnsArgs(commandArgs);
-    const record = await applyPreviewDnsRecords(options);
+  if (command === "apply-shared-dns") {
+    const options = parseApplySharedDnsArgs(commandArgs);
+    const record = await applySharedPreviewDnsRecord(options);
     await writeOptionalRecord(options.outPath, record);
     console.log(JSON.stringify(record, null, 2));
     return record.result === "failure" ? 1 : 0;
@@ -1198,7 +1199,7 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   throw new Error(
-    "Usage: node scripts/digitalocean-preview-cleanup-sweep.mjs <discover|inventory|cleanup-databases|import-database|apply-dns|destroy-dns> [options]",
+    "Usage: node scripts/digitalocean-preview-cleanup-sweep.mjs <discover|inventory|cleanup-databases|import-database|apply-shared-dns|destroy-dns> [options]",
   );
 }
 
