@@ -15,10 +15,12 @@ import {
   previewDnsRecordPlan,
   previewPrNumberFromDatabaseClusterName,
   previewPrNumberFromDnsRecordFqdn,
+  previewPrNumberFromNamespaceName,
   previewPrNumberFromStateKey,
   resolvePreviewDnsZone,
   selectPreviewDatabaseClusterTargets,
   selectPreviewDnsRecordTargets,
+  selectPreviewNamespaceTargets,
   selectPreviewStateTargets,
 } from "./digitalocean-preview-cleanup-sweep.mjs";
 
@@ -152,6 +154,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
         ],
         listDomains: async () => [{ name: "chasesets.com" }],
         listDomainRecords: async () => [],
+        listNamespaces: async () => [],
         fetchPullRequest: async (prNumber) => ({
           state: prNumber === 11 ? "open" : "closed",
           merged: prNumber === 10,
@@ -437,6 +440,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
           { id: "apex-50", type: "A", name: "pr-50.preview", data: "159.203.145.65" },
           { id: "wild-50", type: "A", name: "*.pr-50.preview", data: "159.203.145.65" },
         ],
+        listNamespaces: async () => [],
         fetchPullRequest: async () => ({ state: "closed", merged: false }),
       },
     );
@@ -448,6 +452,104 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       expect.objectContaining({ prNumber: 50, pullRequestState: "closed", selected: true }),
     ]);
     expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 50 })]);
+  });
+
+  it("extracts preview PR numbers from live chase-sets-pr-* namespace names only", () => {
+    expect(previewPrNumberFromNamespaceName("chase-sets-pr-123")).toBe(123);
+    expect(previewPrNumberFromNamespaceName("chase-sets-platform")).toBeNull();
+    expect(previewPrNumberFromNamespaceName("chase-sets-pr-123-postgres")).toBeNull();
+    expect(previewPrNumberFromNamespaceName("ingress-nginx")).toBeNull();
+  });
+
+  it("selects deduplicated, sorted preview namespace targets from a kubectl namespace list", () => {
+    expect(
+      selectPreviewNamespaceTargets([
+        { metadata: { name: "chase-sets-pr-12" } },
+        { metadata: { name: "chase-sets-pr-2" } },
+        { metadata: { name: "chase-sets-pr-12" } },
+        { metadata: { name: "chase-sets-platform" } },
+        { metadata: { name: "kube-system" } },
+      ]),
+    ).toEqual([
+      { prNumber: 2, namespace: "chase-sets-pr-2" },
+      { prNumber: 12, namespace: "chase-sets-pr-12" },
+    ]);
+    expect(selectPreviewNamespaceTargets(["chase-sets-pr-7", "ingress-nginx"])).toEqual([
+      { prNumber: 7, namespace: "chase-sets-pr-7" },
+    ]);
+  });
+
+  it("sweeps a leaked namespace for a merged PR that left no Terraform state, database cluster, or DNS record behind", async () => {
+    const result = await discoverPreviewCleanupTargets(
+      {
+        bucket: "chase-sets-terraform-state",
+        endpointUrl: "https://nyc3.digitaloceanspaces.com",
+        prefix: "platform/previews",
+        repository: "chase-sets/chase-sets",
+        githubToken: "token",
+        checkoutRef: "main",
+        imageSha: "abc123",
+        checkedAt: "2026-07-10T12:00:00.000Z",
+      },
+      {
+        awsJson: async () => ({ Contents: [] }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [{ name: "chasesets.com" }],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => [
+          { metadata: { name: "chase-sets-pr-4736" } }, // merged PR, straggler namespace
+          { metadata: { name: "chase-sets-pr-4783" } }, // still-open PR
+          { metadata: { name: "chase-sets-platform" } }, // not a preview namespace
+        ],
+        fetchPullRequest: async (prNumber) => ({
+          state: prNumber === 4783 ? "open" : "closed",
+          merged: prNumber === 4736,
+        }),
+      },
+    );
+
+    expect(result.record.namespaceCandidates).toEqual([
+      { prNumber: 4736, namespace: "chase-sets-pr-4736" },
+      { prNumber: 4783, namespace: "chase-sets-pr-4783" },
+    ]);
+    // The open PR's namespace must never be selected for teardown, even
+    // though it was discovered as a live chase-sets-pr-* namespace.
+    expect(result.record.targets).toEqual([
+      expect.objectContaining({ prNumber: 4736, pullRequestState: "closed", merged: true, selected: true }),
+    ]);
+    expect(result.record.targets.some((target) => target.prNumber === 4783)).toBe(false);
+    expect(result.matrix.include).toEqual([expect.objectContaining({ pr_number: 4736 })]);
+  });
+
+  it("degrades to a warning instead of failing the whole sweep when namespace listing is unavailable", async () => {
+    const result = await discoverPreviewCleanupTargets(
+      {
+        bucket: "chase-sets-terraform-state",
+        endpointUrl: "https://nyc3.digitaloceanspaces.com",
+        prefix: "platform/previews",
+        repository: "chase-sets/chase-sets",
+        githubToken: "token",
+        checkoutRef: "main",
+        imageSha: "abc123",
+        checkedAt: "2026-07-10T12:00:00.000Z",
+      },
+      {
+        awsJson: async () => ({
+          Contents: [{ Key: "platform/previews/pr-90.tfstate" }],
+        }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [{ name: "chasesets.com" }],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => {
+          throw new Error("no kubeconfig configured for this run");
+        },
+        fetchPullRequest: async () => ({ state: "closed", merged: true }),
+      },
+    );
+
+    expect(result.record.result).toBe("warning");
+    expect(result.record.namespaceCandidates).toEqual([]);
+    expect(result.record.targets).toEqual([expect.objectContaining({ prNumber: 90, selected: true })]);
   });
 
   it("upserts the apex and wildcard preview records against the DOKS ingress target", async () => {

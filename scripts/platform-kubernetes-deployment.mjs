@@ -17,6 +17,12 @@ const stagingValuesPath = `${chartPath}/values.staging.yaml`;
 const defaultRelease = "chase-sets-platform";
 const defaultNamespace = "chase-sets-platform";
 const defaultTimeout = "10m";
+// teardown only ever deletes preview namespaces/releases. The bare
+// "chase-sets-platform" default above is the staging/production namespace,
+// so teardown must never fall through to it: require an explicit
+// chase-sets-pr-<number> namespace, matching how the preview deploy names
+// its namespace and Helm release in platform-pr.yml.
+const previewNamespacePattern = /^chase-sets-pr-\d+$/;
 
 export function platformKubernetesWorkloads(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
@@ -177,6 +183,27 @@ export function buildHelmStatusArgs(options = {}) {
   return ["status", release, "--namespace", namespace];
 }
 
+export function buildHelmUninstallArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
+
+  return ["uninstall", release, "--namespace", namespace, "--wait", "--timeout", timeout];
+}
+
+export function buildNamespaceDeleteArgs(options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
+
+  return ["delete", "namespace", namespace, "--ignore-not-found", "--wait=true", `--timeout=${timeout}`];
+}
+
+export function buildNamespaceGetArgs(options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+
+  return ["get", "namespace", namespace, "--output", "name"];
+}
+
 export function buildRolloutStatusArgs(deployment, options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
@@ -322,6 +349,77 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
     result: "success",
     workloads,
   });
+}
+
+// Preview namespaces are created by the Helm deploy (`helm upgrade --install
+// --create-namespace`), never by Terraform, so nothing destroys them when a
+// preview PR closes. `helm uninstall` alone can leave the in-cluster Postgres
+// PVC, Secrets, and the namespace itself behind, so this always finishes with
+// an unconditional `kubectl delete namespace` (which removes everything in
+// it regardless of Helm tracking) and then verifies the namespace is
+// actually gone. A namespace that survives throws rather than returning a
+// "success" record, so a cleanup run reports failure instead of a false
+// green when the delete silently no-ops or times out.
+export async function teardownPlatformKubernetesNamespace(options = {}) {
+  const helmPath = options.helmPath ?? "helm";
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const release = options.release ?? defaultRelease;
+  if (!previewNamespacePattern.test(namespace)) {
+    throw new Error(`Refusing to tear down non-preview namespace "${namespace}"; expected chase-sets-pr-<number>.`);
+  }
+  const releaseExists = options.releaseExists ?? (await helmReleaseExists({ ...options, helmPath }));
+
+  if (releaseExists) {
+    await runProcess({
+      command: helmPath,
+      args: buildHelmUninstallArgs(options),
+      spawn: options.spawn,
+      captureOutput: true,
+      allowFailure: true,
+    });
+  }
+
+  await runProcess({
+    command: kubectlPath,
+    args: buildNamespaceDeleteArgs(options),
+    spawn: options.spawn,
+  });
+
+  const namespaceStillExists = await namespaceExists({ ...options, kubectlPath });
+  if (namespaceStillExists) {
+    throw new Error(
+      `Preview namespace ${namespace} still exists after kubectl delete namespace completed; refusing to report cleanup success.`,
+    );
+  }
+
+  return {
+    schemaVersion: PLATFORM_KUBERNETES_DEPLOYMENT_VERSION,
+    action: "teardown",
+    release,
+    namespace,
+    result: "success",
+    releaseUninstalled: releaseExists,
+  };
+}
+
+async function namespaceExists(options) {
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+
+  try {
+    await runProcess({
+      command: kubectlPath,
+      args: buildNamespaceGetArgs(options),
+      spawn: options.spawn,
+      captureOutput: true,
+    });
+    return true;
+  } catch (error) {
+    if (isNamespaceNotFound(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function helmReleaseExists(options = {}) {
@@ -479,13 +577,21 @@ function isHelmReleaseNotFound(error) {
   return /release:\s*not found/i.test(output) || /release [^\n]+ not found/i.test(output);
 }
 
+function isNamespaceNotFound(error) {
+  const output = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}\n${error instanceof Error ? error.message : String(error)}`;
+  return /\(NotFound\)/i.test(output) || /namespaces?\s+"[^"]+"\s+not found/i.test(output);
+}
+
 // Exported so the deploy-artifact guard can drive the EXACT workflow argv
 // end-to-end (CLI parse -> helm arg construction).
 export function parseArgs(argv, env = process.env) {
   const command = argv.find((arg) => arg !== "--");
-  if (!command || !["deploy", "rollback", "diagnostics", "plan", "capture-rollback-target"].includes(command)) {
+  if (
+    !command ||
+    !["deploy", "rollback", "diagnostics", "plan", "capture-rollback-target", "teardown"].includes(command)
+  ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan|capture-rollback-target> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -609,6 +715,20 @@ async function main(argv, env = process.env) {
       last_known_good_commit: target.lastKnownGoodCommit,
     });
     console.log(JSON.stringify(target, null, 2));
+    return 0;
+  }
+
+  if (options.command === "teardown") {
+    const evidence = await teardownPlatformKubernetesNamespace(options);
+    if (options.outPath) {
+      const { writeJsonRecord } = await import("./lib/output-file.mjs");
+      await writeJsonRecord(options.outPath, evidence);
+    }
+    writeGithubOutput(options.githubOutputPath, {
+      result: evidence.result,
+      release_uninstalled: String(evidence.releaseUninstalled),
+    });
+    console.log(JSON.stringify(evidence, null, 2));
     return 0;
   }
 
