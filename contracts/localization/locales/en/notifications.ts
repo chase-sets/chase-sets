@@ -27,16 +27,16 @@ export const notificationsEnglishTranslations = {
   "notifications.features.notificationCenter.ui.shell.source.shipments": "Shipments",
   "notifications.intents.restockDecisionPending.body":
     "{quantity} returned units need a restock or write-off decision.",
-  "notifications.intents.restockDecisionPending.title": "Restock decision pending for order {orderId}",
+  "notifications.intents.restockDecisionPending.title": "Restock decision pending for order {orderReference}",
   "notifications.intents.saleRecorded.body": "{quantity} units across {lineCount} lines were recorded as sold.",
-  "notifications.intents.saleRecorded.title": "Sale recorded for order {orderId}",
+  "notifications.intents.saleRecorded.title": "Sale recorded for order {orderReference}",
   "notifications.intents.stockCommitted.body": "{quantity} units across {lineCount} lines are committed to this sale.",
-  "notifications.intents.stockCommitted.title": "Stock committed for order {orderId}",
+  "notifications.intents.stockCommitted.title": "Stock committed for order {orderReference}",
   "notifications.intents.stockReturned.body.orderCancelled":
     "{quantity} units across {lineCount} lines returned to available stock after the order was cancelled.",
   "notifications.intents.stockReturned.body.paymentDeadline":
     "{quantity} units across {lineCount} lines returned to available stock after the payment deadline passed.",
-  "notifications.intents.stockReturned.title": "Stock returned for order {orderId}",
+  "notifications.intents.stockReturned.title": "Stock returned for order {orderReference}",
   "notifications.routes.accountNotifications.description": "Review marketplace updates from the notification center.",
   "notifications.routes.accountNotifications.title": "Notifications | Marketplace",
 } as const;

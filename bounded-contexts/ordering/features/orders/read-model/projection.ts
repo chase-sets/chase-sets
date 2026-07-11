@@ -1,5 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { OrderId } from "@chase-sets/primitives/typed-ids";
+import { withOrderDisplayReference } from "./display-reference";
 
 export function buildOrderingOrderProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -69,9 +71,11 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
         }>;
       };
 
-      await db.query(
-        `INSERT INTO ordering_order_pages (
+      await withOrderDisplayReference(data.orderId as OrderId, (displayReference) =>
+        db.query(
+          `INSERT INTO ordering_order_pages (
            order_id,
+           display_reference,
            source_type,
            source_reference_id,
            buyer_account_id,
@@ -110,10 +114,11 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
            cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, 'pending-reservation', $33, $33, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, 'pending-reservation', $34, $34, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
-         SET source_type = EXCLUDED.source_type,
+         SET display_reference = EXCLUDED.display_reference,
+             source_type = EXCLUDED.source_type,
              source_reference_id = EXCLUDED.source_reference_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
@@ -148,47 +153,49 @@ export function buildOrderingOrderProjectionHandlers(db: PgQueryable): Projector
              updated_at = EXCLUDED.updated_at,
              cancellation_reason = EXCLUDED.cancellation_reason,
              ready_for_fulfillment_at = EXCLUDED.ready_for_fulfillment_at`,
-        [
-          data.orderId,
-          data.sourceType,
-          data.sourceReferenceId,
-          data.buyerAccountId,
-          data.sellerAccountId,
-          data.shippingOption,
-          data.itemSubtotalAmount,
-          data.shippingBaseAmount,
-          data.shippingDiscountAmount,
-          data.shippingAllowanceAmount ?? data.shippingChargeAmount,
-          data.shippingOverageAmount ?? "0.00",
-          data.shippingChargeAmount,
-          data.salesTaxAmount,
-          data.taxSnapshot.taxableAmount,
-          data.taxSnapshot.jurisdictionCountry,
-          data.taxSnapshot.jurisdictionState,
-          data.taxSnapshot.rateBps,
-          data.taxSnapshot.providerName,
-          data.taxSnapshot.providerQuoteReference,
-          data.taxSnapshot.quotedAt,
-          data.totalAmount,
-          data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
-          data.commercialTermsSnapshot.sellerNetAmount,
-          data.commercialTermsSnapshot.sellerItemNetAmount ?? data.commercialTermsSnapshot.sellerNetAmount,
-          data.commercialTermsSnapshot.sellerPayoutAmount ??
-            (
-              Number.parseFloat(data.commercialTermsSnapshot.sellerNetAmount) +
-              Number.parseFloat(
-                data.commercialTermsSnapshot.shippingAllowanceAmount ?? data.shippingAllowanceAmount ?? "0.00",
-              )
-            ).toFixed(2),
-          data.commercialTermsSnapshot.shippingAllowancePercentageBps ?? 500,
-          data.commercialTermsSnapshot.termsScheduleId,
-          data.commercialTermsSnapshot.termsAgreementId,
-          data.commercialTermsSnapshot.termsResolvedAt,
-          JSON.stringify(data.shippingDestinationSnapshot),
-          JSON.stringify(data.shippingOriginSnapshot),
-          JSON.stringify(data.shippingPlanSnapshot ?? {}),
-          event.timing.recordedAt,
-        ],
+          [
+            data.orderId,
+            displayReference,
+            data.sourceType,
+            data.sourceReferenceId,
+            data.buyerAccountId,
+            data.sellerAccountId,
+            data.shippingOption,
+            data.itemSubtotalAmount,
+            data.shippingBaseAmount,
+            data.shippingDiscountAmount,
+            data.shippingAllowanceAmount ?? data.shippingChargeAmount,
+            data.shippingOverageAmount ?? "0.00",
+            data.shippingChargeAmount,
+            data.salesTaxAmount,
+            data.taxSnapshot.taxableAmount,
+            data.taxSnapshot.jurisdictionCountry,
+            data.taxSnapshot.jurisdictionState,
+            data.taxSnapshot.rateBps,
+            data.taxSnapshot.providerName,
+            data.taxSnapshot.providerQuoteReference,
+            data.taxSnapshot.quotedAt,
+            data.totalAmount,
+            data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
+            data.commercialTermsSnapshot.sellerNetAmount,
+            data.commercialTermsSnapshot.sellerItemNetAmount ?? data.commercialTermsSnapshot.sellerNetAmount,
+            data.commercialTermsSnapshot.sellerPayoutAmount ??
+              (
+                Number.parseFloat(data.commercialTermsSnapshot.sellerNetAmount) +
+                Number.parseFloat(
+                  data.commercialTermsSnapshot.shippingAllowanceAmount ?? data.shippingAllowanceAmount ?? "0.00",
+                )
+              ).toFixed(2),
+            data.commercialTermsSnapshot.shippingAllowancePercentageBps ?? 500,
+            data.commercialTermsSnapshot.termsScheduleId,
+            data.commercialTermsSnapshot.termsAgreementId,
+            data.commercialTermsSnapshot.termsResolvedAt,
+            JSON.stringify(data.shippingDestinationSnapshot),
+            JSON.stringify(data.shippingOriginSnapshot),
+            JSON.stringify(data.shippingPlanSnapshot ?? {}),
+            event.timing.recordedAt,
+          ],
+        ),
       );
 
       await db.query(`DELETE FROM ordering_order_line_pages WHERE order_id = $1`, [data.orderId]);

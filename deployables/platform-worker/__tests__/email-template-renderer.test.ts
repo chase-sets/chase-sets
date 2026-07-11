@@ -59,6 +59,50 @@ describe("platform email template renderer", () => {
     expect(rendered.textBody).not.toContain("A Chase Sets account update is available.");
   });
 
+  it("renders order confirmation copy with the support-safe order reference, never the raw ULID", () => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Order ORD-E6K7M8N9 confirmed",
+        templateId: "order_confirmed",
+        templateData: { orderReference: "ORD-E6K7M8N9", orderTotal: "18.50" },
+      }),
+    );
+
+    expect(rendered.textBody).toContain("Order reference: ORD-E6K7M8N9");
+    expect(rendered.textBody).toContain("Order total: 18.50");
+    expect(rendered.textBody).not.toContain("ord_01");
+    expect(rendered.htmlBody).toContain("Order ORD-E6K7M8N9 confirmed");
+  });
+
+  it("renders payment-deadline cancellation copy with the order reference and a raw-id reorder link", () => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Order ORD-E6K7M8N9 cancelled after payment deadline",
+        templateId: "order_payment_deadline_cancelled",
+        templateData: {
+          orderReference: "ORD-E6K7M8N9",
+          reorderHref: "/marketplace?reorderFrom=ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+        },
+      }),
+    );
+
+    expect(rendered.textBody).toContain("Order reference: ORD-E6K7M8N9");
+    expect(rendered.textBody).toContain("Reorder: /marketplace?reorderFrom=ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9");
+  });
+
+  it("renders payment captured copy with the borrowed order reference", () => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Payment received for ORD-E6K7M8N9",
+        templateId: "payment_captured",
+        templateData: { paymentReference: "ORD-E6K7M8N9", amount: "20.00", currencyCode: "USD" },
+      }),
+    );
+
+    expect(rendered.textBody).toContain("Payment reference: ORD-E6K7M8N9");
+    expect(rendered.textBody).toContain("Amount: 20.00 USD");
+  });
+
   it("renders auth magic links as absolute sign-in URLs", () => {
     const rendered = platformEmailTemplateRenderer.render(
       message({

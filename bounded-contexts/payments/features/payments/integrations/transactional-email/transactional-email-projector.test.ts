@@ -14,7 +14,12 @@ describe("payments transactional email projector", () => {
       globalPosition: "10",
       trace: { traceId: "trace_pay" },
       timing: { occurredAt: "2026-05-31T00:00:00.000Z", recordedAt: "2026-05-31T00:00:01.000Z" },
-      data: { paymentId: "pay_123", orderIds: ["ord_123"], amount: "20.00", currencyCode: "USD" },
+      data: {
+        paymentId: "pay_123",
+        orderIds: ["ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9"],
+        amount: "20.00",
+        currencyCode: "USD",
+      },
     } as never);
 
     expect(outbox.enqueueNotification).toHaveBeenCalledOnce();

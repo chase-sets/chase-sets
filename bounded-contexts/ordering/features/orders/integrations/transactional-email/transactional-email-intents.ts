@@ -1,4 +1,6 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
+import type { OrderId } from "@chase-sets/primitives/typed-ids";
 
 export type OrderConfirmedEmailIntentInput = Readonly<{
   buyerEmail: string;
@@ -14,15 +16,17 @@ export type OrderPaymentDeadlineCancelledEmailIntentInput = Readonly<{
 }>;
 
 export function mapOrderConfirmedToTransactionalEmail(input: OrderConfirmedEmailIntentInput): NotificationMessage {
+  const orderReference = deriveDisplayReferenceOrRaw(input.orderId as OrderId);
+
   return createTransactionalEmailNotificationMessage({
     messageType: "ordering.order.created",
     criticality: "commerce",
     to: [{ email: input.buyerEmail }],
-    subject: `Order ${input.orderId} confirmed`,
+    subject: `Order ${orderReference} confirmed`,
     templateId: "order_confirmed",
     templateVersion: 1,
     locale: "en",
-    templateData: { orderId: input.orderId, orderTotal: input.orderTotal },
+    templateData: { orderReference, orderTotal: input.orderTotal },
     idempotencyKey: `ordering:order_confirmed:${input.orderId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
@@ -32,16 +36,18 @@ export function mapOrderConfirmedToTransactionalEmail(input: OrderConfirmedEmail
 export function mapOrderPaymentDeadlineCancelledToTransactionalEmail(
   input: OrderPaymentDeadlineCancelledEmailIntentInput,
 ): NotificationMessage {
+  const orderReference = deriveDisplayReferenceOrRaw(input.orderId as OrderId);
+
   return createTransactionalEmailNotificationMessage({
     messageType: "ordering.order.cancelled.payment-deadline",
     criticality: "commerce",
     to: [{ email: input.buyerEmail }],
-    subject: `Order ${input.orderId} cancelled after payment deadline`,
+    subject: `Order ${orderReference} cancelled after payment deadline`,
     templateId: "order_payment_deadline_cancelled",
     templateVersion: 1,
     locale: "en",
     templateData: {
-      orderId: input.orderId,
+      orderReference,
       reorderHref: `/marketplace?reorderFrom=${encodeURIComponent(input.orderId)}`,
     },
     idempotencyKey: `ordering:payment_deadline_cancelled:${input.orderId}`,

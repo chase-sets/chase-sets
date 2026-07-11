@@ -5,6 +5,7 @@ import { OrderingOrderDetailPage } from "./order-detail-page";
 
 const order = {
   order_id: "ord_1",
+  display_reference: "ORD-TESTREF1",
   source_type: "cart-checkout",
   source_reference_id: null,
   buyer_account_id: "acc_buyer",
@@ -88,6 +89,7 @@ describe("ordering order detail page", () => {
     expect(markup).toContain('value="cancel-purchase"');
     expect(markup).toContain("Support reference");
     expect(markup).toContain("ord_1");
+    expect(markup).toContain("ORD-TESTREF1");
     expect(markup).not.toContain("View fulfillment");
   });
 

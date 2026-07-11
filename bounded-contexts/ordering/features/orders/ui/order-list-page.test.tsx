@@ -6,6 +6,7 @@ import type { PurchaseListItem, SaleListItem } from "./contracts";
 function buildOrder(overrides: Partial<PurchaseListItem & SaleListItem> = {}): PurchaseListItem & SaleListItem {
   return {
     order_id: "ord_1",
+    display_reference: "ORD-TESTREF1",
     source_type: "cart-checkout",
     source_reference_id: null,
     buyer_account_id: "acc_buyer",
@@ -72,6 +73,7 @@ describe("ordering order list page", () => {
 
     expect(markup).toContain("Charizard");
     expect(markup).toContain("Purchase");
+    expect(markup).toContain("ORD-TESTREF1");
     expect(markup).not.toContain("Seller payout");
     expect(markup).not.toContain("$22.99");
   });

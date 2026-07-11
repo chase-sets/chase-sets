@@ -1,10 +1,15 @@
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { t } from "@chase-sets/localization";
 import type {
   EmailNotificationChannel,
   NotificationMessage,
   WebNotificationChannel,
 } from "@chase-sets/outbound-messaging";
+
+function orderReferenceOrRaw(orderId: string): string {
+  return deriveDisplayReferenceOrRaw(orderId as OrderId);
+}
 
 export type OrderCreatedNotificationInput = Readonly<{
   buyerAccountId: AccountId;
@@ -52,7 +57,8 @@ export type RestockDecisionPendingNotificationInput = Readonly<{
 }>;
 
 export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInput): NotificationMessage {
-  const title = `Order ${input.orderId} confirmed`;
+  const orderReference = orderReferenceOrRaw(input.orderId);
+  const title = `Order ${orderReference} confirmed`;
   const body = `Your order total is ${input.orderTotal}.`;
   const actionHref = `/account/purchases/${input.orderId}`;
   const webChannel: WebNotificationChannel = {
@@ -80,7 +86,7 @@ export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInp
     templateId: "order_confirmed",
     templateVersion: 1,
     locale: "en",
-    templateData: { orderId: input.orderId, orderTotal: input.orderTotal },
+    templateData: { orderReference, orderTotal: input.orderTotal },
     channels,
     idempotencyKey: `notifications:ordering:order_created:${input.orderId}`,
     correlationId: input.correlationId,
@@ -95,7 +101,7 @@ export function mapStockCommittedToNotification(input: SellerStockNotificationIn
     sellerAccountId: input.sellerAccountId,
     messageType: "inventory.stock-committed",
     criticality: "commerce",
-    title: t("notifications.intents.stockCommitted.title", { orderId: input.orderId }),
+    title: t("notifications.intents.stockCommitted.title", { orderReference: orderReferenceOrRaw(input.orderId) }),
     body: t("notifications.intents.stockCommitted.body", {
       quantity: input.totalQuantity,
       lineCount: input.lineCount,
@@ -126,7 +132,7 @@ export function mapStockReturnedToNotification(input: SellerStockReturnedNotific
     sellerAccountId: input.sellerAccountId,
     messageType: "inventory.stock-returned",
     criticality: "commerce",
-    title: t("notifications.intents.stockReturned.title", { orderId: input.orderId }),
+    title: t("notifications.intents.stockReturned.title", { orderReference: orderReferenceOrRaw(input.orderId) }),
     body: t(releaseReasonCopyKey, {
       quantity: input.totalQuantity,
       lineCount: input.lineCount,
@@ -154,7 +160,7 @@ export function mapSaleRecordedToNotification(input: SaleRecordedNotificationInp
     sellerAccountId: input.sellerAccountId,
     messageType: "inventory.sale-recorded",
     criticality: "operational",
-    title: t("notifications.intents.saleRecorded.title", { orderId: input.orderId }),
+    title: t("notifications.intents.saleRecorded.title", { orderReference: orderReferenceOrRaw(input.orderId) }),
     body: t("notifications.intents.saleRecorded.body", {
       quantity: input.totalQuantity,
       lineCount: input.lineCount,
@@ -184,7 +190,9 @@ export function mapRestockDecisionPendingToNotification(
     sellerAccountId: input.sellerAccountId,
     messageType: "inventory.restock-decision-pending",
     criticality: "commerce",
-    title: t("notifications.intents.restockDecisionPending.title", { orderId: input.orderId }),
+    title: t("notifications.intents.restockDecisionPending.title", {
+      orderReference: orderReferenceOrRaw(input.orderId),
+    }),
     body: t("notifications.intents.restockDecisionPending.body", { quantity: input.quantity }),
     actionHref: itemLedgerHref,
     templateId: "seller_restock_decision_pending",

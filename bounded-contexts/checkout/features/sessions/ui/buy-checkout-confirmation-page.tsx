@@ -11,7 +11,11 @@ import {
   Stack,
 } from "@chase-sets/design-system";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
-import { buyCheckoutSupportReference, formatBuyCheckoutReferenceList } from "./buy-checkout-confirmation-formatting";
+import {
+  buyCheckoutPaymentReference,
+  buyCheckoutSupportReference,
+  formatBuyCheckoutReferenceList,
+} from "./buy-checkout-confirmation-formatting";
 
 export type BuyCheckoutPaymentSummary = Readonly<{
   amount: string;
@@ -62,7 +66,7 @@ export function BuyCheckoutConfirmationPage({
 }) {
   const orderReferenceValue = formatBuyCheckoutReferenceList(session.order_ids);
   const supportReferenceValue = buyCheckoutSupportReference(session);
-  const paymentReferenceValue = session.payment_id ?? t("checkout.features.sessions.ui.checkoutPage.pending");
+  const paymentReferenceValue = buyCheckoutPaymentReference(session);
   const paymentTotalValue = formatPaymentAmount(paymentSummary);
   const paymentStatusValue = paymentSummary
     ? paymentStatusLabel(paymentSummary.status)

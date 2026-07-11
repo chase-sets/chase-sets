@@ -92,8 +92,28 @@ function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): reado
   if (message.templateId === "order_confirmed") {
     return [
       "Your Chase Sets order has been confirmed.",
-      `Order ID: ${String(message.templateData.orderId ?? "")}`,
+      `Order reference: ${String(message.templateData.orderReference ?? "")}`,
       `Order total: ${String(message.templateData.orderTotal ?? "")}`,
+      "",
+      "Chase Sets",
+    ];
+  }
+
+  if (message.templateId === "order_payment_deadline_cancelled") {
+    return [
+      "Your Chase Sets order was cancelled after the payment deadline passed.",
+      `Order reference: ${String(message.templateData.orderReference ?? "")}`,
+      `Reorder: ${String(message.templateData.reorderHref ?? "")}`,
+      "",
+      "Chase Sets",
+    ];
+  }
+
+  if (message.templateId === "payment_captured") {
+    return [
+      "Your Chase Sets payment was received.",
+      `Payment reference: ${String(message.templateData.paymentReference ?? "")}`,
+      `Amount: ${String(message.templateData.amount ?? "")} ${String(message.templateData.currencyCode ?? "")}`,
       "",
       "Chase Sets",
     ];

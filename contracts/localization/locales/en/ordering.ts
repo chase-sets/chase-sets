@@ -267,7 +267,7 @@ export const orderingEnglishTranslations = {
   "ordering.routes.accountSales.seller": "Seller",
   "ordering.features.orders.ui.orderDetailPage.cancel.projection": "Cancel {projectionLabel}",
   "ordering.features.orders.ui.orderDetailPage.counterparty.description": "Counterparty: {counterparty}",
-  "ordering.features.orders.ui.orderDetailPage.order.title": "{projectionLabel} {orderId}",
+  "ordering.features.orders.ui.orderDetailPage.order.title": "{projectionLabel} {orderReference}",
   "ordering.features.orders.ui.orderDetailPage.projection.issue": "{projectionLabel} issue",
   "ordering.features.orders.ui.orderDetailPage.summary.title": "{projectionLabel} Summary",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.ready.for.counterparty.review":

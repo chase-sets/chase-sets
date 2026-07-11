@@ -26,7 +26,7 @@ const session: CheckoutSessionRow = {
       quantity: 2,
     },
   ],
-  order_ids: ["ord_1", "ord_2"],
+  order_ids: ["ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9", "ord_01JZ6DKP7S7Z4AZ5N5E6K7M8P1"],
   order_write_commit_positions: [],
   checkout_reservations: [],
   payment_id: "pay_1",
@@ -72,7 +72,7 @@ describe("buy checkout confirmation page", () => {
     expect(markup).toContain("Payment total");
     expect(markup).toContain("$27.29");
     expect(markup).toContain("Order reference");
-    expect(markup).toContain("ord_1, ord_2");
+    expect(markup).toContain("ORD-E6K7M8N9, ORD-E6K7M8P1");
     expect(markup).toContain("Order status");
     expect(markup).toContain("Ready for payment");
     expect(markup).toContain("Support reference");
