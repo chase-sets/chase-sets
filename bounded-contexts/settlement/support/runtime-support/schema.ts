@@ -9,7 +9,7 @@ import {
   settlementAccountRiskSourceSchemaMigrations,
   settlementAccountRiskSourceSchemaSql,
 } from "../../features/wallets/integrations/account-risk-source/account-risk-source-schema";
-import { settlementPayoutSchemaSql } from "../../features/payouts/read-model/schema";
+import { settlementPayoutSchemaMigrations, settlementPayoutSchemaSql } from "../../features/payouts/read-model/schema";
 import {
   settlementPayoutReadinessSchemaMigrations,
   settlementPayoutReadinessSchemaSql,
@@ -57,4 +57,5 @@ export const settlementSchemaMigrations = [
   ...settlementWalletSchemaMigrations,
   ...settlementAccountRiskSourceSchemaMigrations,
   ...settlementPayoutReadinessSchemaMigrations,
+  ...settlementPayoutSchemaMigrations,
 ] as const;

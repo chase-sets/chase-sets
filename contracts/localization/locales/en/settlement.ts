@@ -589,7 +589,7 @@ export const settlementEnglishTranslations = {
     "Checked {checked}; reconciled {reconciled}; errors {errors}",
   "settlement.features.payouts.ui.payoutDetailPage.attempt.plural": "attempts",
   "settlement.features.payouts.ui.payoutDetailPage.attempt.singular": "attempt",
-  "settlement.features.payouts.ui.payoutDetailPage.payout.title": "Payout {payoutId}",
+  "settlement.features.payouts.ui.payoutDetailPage.payout.title": "Payout {payoutReference}",
   "settlement.features.payouts.ui.payoutDetailPage.retry.next": "{count} {attemptLabel}; next {nextAt}",
   "settlement.features.payouts.ui.payoutDetailPage.retry.none.pending":
     "{count} {attemptLabel}; no automatic retry pending",
