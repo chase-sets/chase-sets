@@ -3,6 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { SupportOperationsDetailPage } from "../../features/support-requests/ui/support-operations-page";
 import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
+import { resolveSupportRequestsMarketplaceOrigin } from "./requests";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("support.routes.admin.operationsRequestDetail.request.failed");
@@ -16,6 +17,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createSupportRequestRequestApiClient(request);
   return {
     supportRequest: await api.getSupportOperationsRequest(params.id ?? ""),
+    marketplaceOrigin: resolveSupportRequestsMarketplaceOrigin(),
   };
 }
 
@@ -86,7 +88,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 ];
 
 export default function SupportOperationsRequestDetailRoute() {
-  const { supportRequest } = useLoaderData<typeof loader>();
+  const { supportRequest, marketplaceOrigin } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
   return (
@@ -94,6 +96,7 @@ export default function SupportOperationsRequestDetailRoute() {
       request={supportRequest}
       actionError={actionData?.error ?? null}
       actionResult={searchParams.get("action")}
+      marketplaceOrigin={marketplaceOrigin}
     />
   );
 }

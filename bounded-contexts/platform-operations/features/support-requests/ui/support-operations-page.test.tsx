@@ -2,8 +2,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { SupportOperationsPage } from "./support-operations-page";
-import type { SupportRequestListItem } from "./contracts";
+import { SupportOperationsDetailPage, SupportOperationsPage } from "./support-operations-page";
+import type { SupportRequestDetail, SupportRequestListItem } from "./contracts";
 
 function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): SupportRequestListItem {
   return {
@@ -40,6 +40,16 @@ function buildQueueItem(overrides: Partial<SupportRequestListItem> = {}): Suppor
   };
 }
 
+function buildDetailItem(overrides: Partial<SupportRequestDetail> = {}): SupportRequestDetail {
+  return {
+    ...buildQueueItem(),
+    evidence: [],
+    responses: [],
+    offers: [],
+    ...overrides,
+  };
+}
+
 function renderPage(props: Partial<Parameters<typeof SupportOperationsPage>[0]> = {}) {
   const router = createMemoryRouter(
     [
@@ -49,6 +59,20 @@ function renderPage(props: Partial<Parameters<typeof SupportOperationsPage>[0]> 
       },
     ],
     { initialEntries: ["/support/requests"] },
+  );
+
+  render(<RouterProvider router={router} />);
+}
+
+function renderDetailPage(props: Partial<Parameters<typeof SupportOperationsDetailPage>[0]> = {}) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/support/requests/:id",
+        element: <SupportOperationsDetailPage request={buildDetailItem()} {...props} />,
+      },
+    ],
+    { initialEntries: ["/support/requests/sup_1"] },
   );
 
   render(<RouterProvider router={router} />);
@@ -125,5 +149,52 @@ describe("SupportOperationsPage", () => {
     renderPage({ queue: { items: [buildQueueItem()], total: 4, count: 1 } });
 
     expect(screen.getByText("Showing 1 of 4")).toBeTruthy();
+  });
+
+  it("renders actionable buyer/seller marketplace order links when a marketplace origin is configured", () => {
+    renderPage({
+      queue: { items: [buildQueueItem()], total: 1, count: 1 },
+      marketplaceOrigin: "https://marketplace.chasesets.com",
+    });
+
+    expect(screen.getAllByText("ord_1").length).toBeGreaterThan(0);
+    const purchaseLink = screen.getAllByRole("link", { name: /View purchase \(buyer\)/ })[0] as HTMLAnchorElement;
+    const saleLink = screen.getAllByRole("link", { name: /View sale \(seller\)/ })[0] as HTMLAnchorElement;
+    expect(purchaseLink.href).toBe("https://marketplace.chasesets.com/account/purchases/ord_1");
+    expect(saleLink.href).toBe("https://marketplace.chasesets.com/account/sales/ord_1");
+    expect(purchaseLink.target).toBe("_blank");
+    expect(purchaseLink.rel).toContain("noreferrer");
+  });
+
+  it("renders a visible configuration hint instead of a dead order id when no marketplace origin is configured", () => {
+    renderPage({ queue: { items: [buildQueueItem()], total: 1, count: 1 } });
+
+    expect(screen.getAllByText("ord_1").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Marketplace link unavailable — set CHASE_SETS_MARKETPLACE_ORIGIN").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /View purchase/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /View sale/ })).toBeNull();
+  });
+});
+
+describe("SupportOperationsDetailPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders actionable buyer/seller marketplace order links on the case detail order row", () => {
+    renderDetailPage({ marketplaceOrigin: "https://marketplace.chasesets.com" });
+
+    const purchaseLink = screen.getByRole("link", { name: /View purchase \(buyer\)/ }) as HTMLAnchorElement;
+    const saleLink = screen.getByRole("link", { name: /View sale \(seller\)/ }) as HTMLAnchorElement;
+    expect(purchaseLink.href).toBe("https://marketplace.chasesets.com/account/purchases/ord_1");
+    expect(saleLink.href).toBe("https://marketplace.chasesets.com/account/sales/ord_1");
+  });
+
+  it("renders a visible configuration hint on the case detail order row when no marketplace origin is configured", () => {
+    renderDetailPage();
+
+    expect(screen.getByText("Marketplace link unavailable — set CHASE_SETS_MARKETPLACE_ORIGIN")).toBeTruthy();
   });
 });

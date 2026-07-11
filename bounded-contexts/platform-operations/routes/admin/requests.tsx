@@ -13,11 +13,17 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("support.routes.admin.operationsQueue.request.failed");
 }
 
+export function resolveSupportRequestsMarketplaceOrigin() {
+  const configured = process.env.CHASE_SETS_MARKETPLACE_ORIGIN?.trim();
+  return configured || null;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createSupportRequestRequestApiClient(request);
   const filters = supportOperationsQueueFilters(request);
   const pagination = supportOperationsQueuePagination(request);
   const query = supportOperationsQueueQuery(request);
+  const marketplaceOrigin = resolveSupportRequestsMarketplaceOrigin();
 
   try {
     return {
@@ -25,6 +31,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       filters,
       pagination,
       unavailableMessage: null,
+      marketplaceOrigin,
     };
   } catch (error) {
     return {
@@ -36,6 +43,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       filters,
       pagination,
       unavailableMessage: errorMessage(error),
+      marketplaceOrigin,
     };
   }
 }
@@ -90,6 +98,7 @@ export default function SupportOperationsQueueRoute() {
       unavailableMessage={data.unavailableMessage}
       escalationResult={escalationResult}
       actionError={actionData?.error ?? null}
+      marketplaceOrigin={data.marketplaceOrigin}
     />
   );
 }

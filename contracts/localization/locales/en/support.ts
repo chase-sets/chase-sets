@@ -82,6 +82,10 @@ export const supportEnglishTranslations = {
     "Urgent, overdue, and ready-for-support requests appear here when marketplace support needs operator attention.",
   "support.features.supportRequests.ui.supportOperationsPage.issue": "Issue",
   "support.features.supportRequests.ui.supportOperationsPage.order": "Order",
+  "support.features.supportRequests.ui.supportOperationsPage.order.viewPurchase": "View purchase (buyer)",
+  "support.features.supportRequests.ui.supportOperationsPage.order.viewSale": "View sale (seller)",
+  "support.features.supportRequests.ui.supportOperationsPage.order.marketplaceLinkUnavailable":
+    "Marketplace link unavailable — set CHASE_SETS_MARKETPLACE_ORIGIN",
   "support.features.supportRequests.ui.supportOperationsPage.accounts": "Accounts",
   "support.features.supportRequests.ui.supportOperationsPage.status": "Status",
   "support.features.supportRequests.ui.supportOperationsPage.priority": "Priority",

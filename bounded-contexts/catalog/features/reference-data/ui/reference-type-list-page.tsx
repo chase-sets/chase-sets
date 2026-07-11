@@ -2,10 +2,20 @@ import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
-import { Button, Dialog, Stack, StatusPill, TextInput, Textarea, type DataColumn } from "@chase-sets/design-system";
+import {
+  Button,
+  Dialog,
+  LinkButton,
+  Stack,
+  StatusPill,
+  TextInput,
+  Textarea,
+  type DataColumn,
+} from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
@@ -121,6 +131,11 @@ export function ReferenceTypeListPage({ data, query }: CatalogListRouteData<Refe
           <Button onClick={() => setShowCreate(true)}>
             {t("catalog.features.referenceData.ui.referenceTypeListPage.new.reference.type")}
           </Button>
+        }
+        headerActions={
+          <LinkButton href={toCatalogAdminHref("/reference-records")} tone="secondary">
+            {t("catalog.features.referenceData.ui.referenceTypeListPage.manage.reference.records")}
+          </LinkButton>
         }
       />
       <Dialog
