@@ -31,6 +31,19 @@ export {
   type ActivityListProps,
 } from "./timeline";
 export {
+  Sparkline,
+  type SparklinePoint,
+  type SparklineProps,
+  TimeSeriesChart,
+  type TimeSeriesPoint,
+  type TimeSeriesBandPoint,
+  type TimeSeriesMarker,
+  type TimeSeriesCurve,
+  type TimeSeriesSeries,
+  type TimeSeriesChartProps,
+  type ChartTone,
+} from "./chart";
+export {
   Card,
   type CardProps,
   type CardHeaderProps,

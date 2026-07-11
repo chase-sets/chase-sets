@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 357
-- Source modules covered: 123
+- Runtime exports indexed: 359
+- Source modules covered: 124
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -291,6 +291,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Slider` | `packages/design-system/src/components/forms/slider.tsx` | Purpose not documented; symbol name suggests: Slider. | `No production consumer yet.` |
 | `Slot` | `packages/design-system/src/primitives/layout.tsx` | Semantic alias for behavior-only mount points such as observer sentinels. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `Spacer` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Spacer. | `No production consumer yet.` |
+| `Sparkline` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Sparkline. | `No production consumer yet.` |
 | `SpecificationList` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Specification List. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
 | `SplitPane` | `packages/design-system/src/patterns/app-shells/page-layouts.tsx` | Purpose not documented; symbol name suggests: Split Pane. | `No production consumer yet.` |
 | `Stack` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Stack. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
@@ -323,6 +324,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ThemeScope` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: Theme Scope. | `No production consumer yet.` |
 | `Thumbnail` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Thumbnail. | `No production consumer yet.` |
 | `Timeline` | `packages/design-system/src/components/data-display/timeline.tsx` | Purpose not documented; symbol name suggests: Timeline. | `No production consumer yet.` |
+| `TimeSeriesChart` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Time Series Chart. | `No production consumer yet.` |
 | `toastManager` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: toast Manager. | `No production consumer yet.` |
 | `ToastProvider` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: Toast Provider. | `No production consumer yet.` |
 | `ToastRegion` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: Toast Region. | `bounded-contexts/catalog/support/shell-support/ui/toasts.tsx` |

@@ -198,10 +198,15 @@ Use [Operational Workflow Patterns](./OPERATIONAL_WORKFLOWS.md) for task-focused
 
 Use [Dense Admin Workbench Pattern](./DENSE_ADMIN_WORKBENCH.md) for rebuilt admin control planes where a primary operational path needs supporting detours, dense review queues, selected-record actions, evidence side sheets, and fail-closed blocker states.
 
+## Data Visualization
+
+Use [Chart Primitives](./CHART_PRIMITIVES.md) for `Sparkline` (inline mini price-trend, no axes) and `TimeSeriesChart` (multi-series line/step charts with band ranges, verified-sale markers, and a first-class minimum-sample state). Both are hand-rolled SVG — no charting dependency — colored exclusively from tone tokens, reduced-motion aware, and screen-reader accessible through a generated series summary. Market-analytics surfaces (m111/m112) are the canonical consumers.
+
 ## Responsive Defaults
 
 - Mobile-first behavior is the default for every component.
 - Layout and shell primitives span the viewport by default and preserve responsive horizontal gutters.
+- `TimeSeriesChart` scales fluidly by default and only introduces horizontal scroll, inside its own container, when a caller sets `minChartWidth` for dense series; it never overflows the page.
 - Width-capped layouts are opt-in through optional `width` props on layout and shell wrappers.
 - Marketplace navigation uses bottom navigation on smaller screens.
 - Admin navigation uses bottom navigation on smaller screens and persistent side navigation at larger breakpoints.

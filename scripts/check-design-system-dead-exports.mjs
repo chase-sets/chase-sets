@@ -184,6 +184,14 @@ const defaultAllowedZeroConsumerExports = [
     symbol: "MediaFrame",
     reason: "internal layout/commerce media primitive; kept after cart adopted MarketplaceCartLineItem",
   },
+  {
+    symbol: "Sparkline",
+    reason: "m111 chart primitive (#4306); first consumer is the item-detail market panel (#4307), landing after this",
+  },
+  {
+    symbol: "TimeSeriesChart",
+    reason: "m111 chart primitive (#4306); first consumer is the item-detail market panel (#4307), landing after this",
+  },
 ];
 
 function isSourceFile(filePath) {
