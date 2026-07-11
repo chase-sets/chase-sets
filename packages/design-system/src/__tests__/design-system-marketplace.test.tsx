@@ -453,6 +453,27 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Beta signal");
     expect(markup).toContain("Move more inventory");
     expect(markup).toContain("max-w-[34rem] text-pretty");
+    expect(markup).not.toContain("srcset");
+    expect(markup).not.toContain("sizes=");
+  });
+
+  it("wires marketing visual card srcset/sizes so narrower viewports request a smaller image", () => {
+    const markup = renderToString(
+      <MarketingVisualCard
+        imageSrc="/assets/waitlist-panels.webp"
+        imageSrcSet="/assets/waitlist-panels-600w.webp 600w, /assets/waitlist-panels-1080w.webp 1080w, /assets/waitlist-panels.webp 2172w"
+        imageSizes="(min-width: 1024px) 50vw, 100vw"
+        imageAlt="Sorted collectible inventory"
+        imageWidth={1200}
+        imageHeight={900}
+        title="Move more inventory"
+      />,
+    );
+
+    expect(markup).toContain(
+      'srcSet="/assets/waitlist-panels-600w.webp 600w, /assets/waitlist-panels-1080w.webp 1080w, /assets/waitlist-panels.webp 2172w"',
+    );
+    expect(markup).toContain('sizes="(min-width: 1024px) 50vw, 100vw"');
   });
 
   it("passes first-paint image hints through marketing heroes", () => {
@@ -484,6 +505,27 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Marketing highlights");
     expect(markup).toContain("Seller fee");
     expect(markup).toContain("0% beta listings");
+    expect(markup).not.toContain("srcset");
+    expect(markup).not.toContain("sizes=");
+  });
+
+  it("wires marketing hero srcset/sizes so mobile viewports request the narrower hero variant", () => {
+    const markup = renderToString(
+      <MarketingImageHero
+        imageSrc="/assets/hero.webp"
+        imageSrcSet="/assets/hero-800w.webp 800w, /assets/hero-1200w.webp 1200w, /assets/hero.webp 1731w"
+        imageSizes="100vw"
+        imageAlt="Cards ready to list"
+        imageWidth={1600}
+        imageHeight={1000}
+        title="List cards without giving up margin"
+      />,
+    );
+
+    expect(markup).toContain(
+      'srcSet="/assets/hero-800w.webp 800w, /assets/hero-1200w.webp 1200w, /assets/hero.webp 1731w"',
+    );
+    expect(markup).toContain('sizes="100vw"');
   });
 
   it("surfaces the primary marketing highlight outside the md:hidden breakpoint so small screens see it", () => {
