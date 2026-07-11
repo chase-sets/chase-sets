@@ -91,6 +91,240 @@ const listingPhoto = {
   },
 } as const;
 
+describe("marketplace listing no-op suppression", () => {
+  function createdListing(overrides: Partial<CreateListingCommand> = {}) {
+    return decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      ...overrides,
+    }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+  }
+
+  describe("UpdateListingPrice", () => {
+    it("returns no events when the commanded price and terms exactly match current state", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.00",
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_resubmit",
+        termsResolvedAt: "2026-07-09T12:00:00.000Z",
+      });
+
+      expect(events).toEqual([]);
+    });
+
+    it("returns no events when the commanded price is formatted differently but equal in value", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.0",
+        marketplaceSalesFeeUnitAmount: "1.0",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_resubmit",
+      });
+
+      expect(events).toEqual([]);
+    });
+
+    it("emits an event when the price changes", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.01",
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]?.type).toBe("marketplace.listing.price-updated");
+    });
+
+    it("emits an event when the marketplace sales fee changes", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.00",
+        marketplaceSalesFeeUnitAmount: "1.01",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+    });
+
+    it("emits an event when the seller net amount changes", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.00",
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "8.99",
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+    });
+
+    it("emits an event when the shipping allowance changes", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.00",
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        shippingAllowancePercentageBps: 600,
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+    });
+
+    it("emits an event for a terms-only change even when the price is identical", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.00",
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        termsScheduleId: "cts_new_schedule",
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]?.type).toBe("marketplace.listing.price-updated");
+      if (events[0]?.type !== "marketplace.listing.price-updated") {
+        throw new Error("Expected a price-updated event.");
+      }
+      expect(events[0].data.termsScheduleId).toBe("cts_new_schedule");
+    });
+
+    it("emits an event when the agreement id changes", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.00",
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        termsAgreementId: "cta_new_agreement",
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+    });
+  });
+
+  describe("UpdateListingQuantityCap", () => {
+    it("returns no events when quantity cap, purchase limits, and fee terms are all unchanged", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingQuantityCap",
+        quantityCap: 3,
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_resubmit",
+      });
+
+      expect(events).toEqual([]);
+    });
+
+    it("emits an event when the quantity cap changes", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingQuantityCap",
+        quantityCap: 5,
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]?.type).toBe("marketplace.listing.quantity-cap-updated");
+    });
+
+    it("emits an event when purchase limits change", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingQuantityCap",
+        quantityCap: 3,
+        purchaseLimits: { maxUnitsPerOrder: 1 },
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+    });
+
+    it("emits an event for a terms-only change even when the quantity cap is identical", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingQuantityCap",
+        quantityCap: 3,
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        termsScheduleId: "cts_new_schedule",
+        feeQuoteFingerprint: "fee_changed",
+      });
+
+      expect(events).toHaveLength(1);
+    });
+  });
+
+  describe("UpdateListingPurchaseLimits", () => {
+    it("returns no events when purchase limits are unchanged", () => {
+      const listing = createdListing({
+        purchaseLimits: { maxUnitsPerOrder: 1 },
+      });
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPurchaseLimits",
+        purchaseLimits: { maxUnitsPerOrder: 1 },
+      });
+
+      expect(events).toEqual([]);
+    });
+
+    it("returns no events when purchase limits are unset both before and after", () => {
+      const listing = createdListing();
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPurchaseLimits",
+        purchaseLimits: null,
+      });
+
+      expect(events).toEqual([]);
+    });
+
+    it("emits an event when purchase limits change", () => {
+      const listing = createdListing({
+        purchaseLimits: { maxUnitsPerOrder: 1 },
+      });
+
+      const events = decideMarketplaceListing(listing, {
+        type: "UpdateListingPurchaseLimits",
+        purchaseLimits: { maxUnitsPerOrder: 2 },
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]?.type).toBe("marketplace.listing.purchase-limits-updated");
+    });
+  });
+});
+
 describe("marketplace listing purchase limits", () => {
   it("stores nullable buyer purchase limits on created listings", () => {
     const events = decideMarketplaceListing(initialMarketplaceListingState, {
