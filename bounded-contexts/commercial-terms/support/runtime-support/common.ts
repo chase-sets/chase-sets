@@ -101,6 +101,19 @@ export function normalizeCommercialTermsStatus(value: string): CommercialTermsSt
   return value;
 }
 
+/**
+ * Shared account-id validation for the commercial-terms-owned targeting
+ * dimensions (agreement policy documents key on account id; see
+ * `terms-policy.ts`). Lives here, not in a feature slice, so support-layer
+ * modules (which features depend on, never the reverse) can validate account
+ * ids without importing from a feature.
+ */
+export function normalizeCommercialAccountId(value: unknown): string {
+  const accountId = typeof value === "string" ? value.trim() : "";
+  assert(accountId.startsWith("acc_"), "Account ID must start with acc_.");
+  return accountId;
+}
+
 export function numberToMoneyAmount(value: number) {
   assert(Number.isFinite(value), "Money amount must be finite.");
   return centsToMoneyAmount(numberToCents(value, "nearest"));

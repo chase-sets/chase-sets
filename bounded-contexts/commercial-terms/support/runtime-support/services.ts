@@ -1,22 +1,22 @@
-import {
-  createPostgresEventStore,
-  createPostgresProjectionStore,
-  type PgQueryable,
-  type PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createAgreementRuntime } from "../../features/agreements/api/runtime";
 import { createResolutionRuntime } from "../../features/resolutions/api/runtime";
 import { createScheduleRuntime } from "../../features/schedules/api/runtime";
+import { createCommercialTermsPolicyRuntime, type CommercialTermsPolicyRuntime } from "./policy-runtime";
 
 export type CommercialTermsServices = Readonly<{
   schedules: ReturnType<typeof createScheduleRuntime>;
   agreements: ReturnType<typeof createAgreementRuntime>;
   resolutions: ReturnType<typeof createResolutionRuntime>;
-  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (currently just the checkout processing-fee policy). */
-  policies: PolicyRuntime;
+  /**
+   * The shared platform-policy runtime, mounted once for every
+   * commercial-terms `definePolicy` document: the checkout processing-fee
+   * policy, and schedules and agreements. There is exactly one
+   * aggregate/projection pair for all three.
+   */
+  policies: CommercialTermsPolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -29,23 +29,20 @@ export function createCommercialTermsServices(pool: PgTransactionalPool): Commer
       sourceContextName: "commercial-terms",
     }),
   });
-  const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const schedules = createScheduleRuntime({
+  const policies = createCommercialTermsPolicyRuntime({
     eventStore,
-    checkpointStore,
+    db,
+  });
+  const schedules = createScheduleRuntime({
+    policies,
     db,
   });
   const agreements = createAgreementRuntime({
-    eventStore,
-    checkpointStore,
+    policies,
     db,
   });
   const resolutions = createResolutionRuntime({
-    db,
-  });
-  const policies = createPolicyRuntime({
-    eventStore,
     db,
   });
 
@@ -54,7 +51,7 @@ export function createCommercialTermsServices(pool: PgTransactionalPool): Commer
     agreements,
     resolutions,
     policies,
-    projectors: [...schedules.projectors, ...agreements.projectors, ...policies.projectors],
+    projectors: [...policies.projectors],
     pool,
     db,
   };

@@ -1,12 +1,20 @@
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { buildCreatePolicyDocumentCommand } from "@chase-sets/platform-policy/commands";
 import { commercialTermsSeedIds } from "../seed-support/ids";
 import { createCommercialTermsServices } from "./services";
+import { agreementStreamId, scheduleStreamId } from "./policy-runtime";
 import {
   CHECKOUT_PROCESSING_FEE_LAUNCH_POLICY_VALUE,
   checkoutProcessingFeePolicy,
 } from "../../features/checkout-processing-fee/domain/policy";
+import {
+  COMMERCIAL_TERMS_SCHEDULE_LAUNCH_VALUES,
+  commercialTermsAgreementPolicy,
+  commercialTermsSchedulePolicy,
+} from "./terms-policy";
+import type { CommercialAccountType } from "./common";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 function createSeedContext() {
@@ -39,49 +47,47 @@ export async function seedCommercialTermsDatabase(
   if (shouldSeedCritical) {
     await seedDefaultScheduleIfMissing(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.personalDefault,
-      label: "Personal Default",
       accountType: "personal",
-      marketplaceSalesFeePercentageBps: 900,
-      marketplaceSalesFeeFixedAmount: "0.15",
       effectiveFrom,
     });
 
     await seedDefaultScheduleIfMissing(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.businessDefault,
-      label: "Business Default",
       accountType: "business",
-      marketplaceSalesFeePercentageBps: 850,
-      marketplaceSalesFeeFixedAmount: "0.10",
       effectiveFrom,
     });
 
     await seedDefaultScheduleIfMissing(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.enterpriseDefault,
-      label: "Enterprise Default",
       accountType: "enterprise",
-      marketplaceSalesFeePercentageBps: 600,
-      marketplaceSalesFeeFixedAmount: "0.00",
       effectiveFrom,
     });
 
     await seedCheckoutProcessingFeePolicyIfMissing(services, context, "2026-05-03T00:00:00.000Z");
   }
 
-  if (shouldSeedScenario && !(await agreementExists(pool, commercialTermsSeedIds.agreements.sellerOverride))) {
-    await services.agreements.commandHandler({
-      streamId: `commercial-terms.agreement-${commercialTermsSeedIds.agreements.sellerOverride}`,
-      command: {
-        type: "CreateAgreement",
-        agreementId: commercialTermsSeedIds.agreements.sellerOverride,
-        accountId: identitySeedIds.demo.accountId,
+  if (
+    shouldSeedScenario &&
+    !(await policyDocumentExistsById(services.db, commercialTermsSeedIds.agreements.sellerOverride))
+  ) {
+    const definition = commercialTermsAgreementPolicy(identitySeedIds.demo.accountId);
+    const command = buildCreatePolicyDocumentCommand(definition, {
+      documentId: commercialTermsSeedIds.agreements.sellerOverride,
+      value: {
         label: "Chase Sets Seller Agreement",
+        accountId: identitySeedIds.demo.accountId,
         marketplaceSalesFeePercentageBps: 700,
         marketplaceSalesFeeFixedAmount: "0.05",
-        status: "active",
-        effectiveFrom,
-        effectiveUntil: null,
-        createdByUserId: identitySeedIds.support.userId,
+        shippingAllowancePercentageBps: 500,
       },
+      status: "active",
+      effectiveFrom,
+      effectiveUntil: null,
+      actorUserId: identitySeedIds.support.userId,
+    });
+    await services.policies.commandHandler({
+      streamId: agreementStreamId(commercialTermsSeedIds.agreements.sellerOverride),
+      command,
       context,
     });
   }
@@ -97,47 +103,113 @@ function profileEnabled(options: BcSeedOptions | undefined, profile: "critical-b
   return (options?.enabledDataProfiles ?? defaultProfiles).includes(profile);
 }
 
+/**
+ * Seeds a schedule with its schema-declared launch value
+ * (`COMMERCIAL_TERMS_SCHEDULE_LAUNCH_VALUES`, defined once in
+ * `terms-policy.ts` and shared with the compiled fallback) so behavior is
+ * byte-identical at cutover -- seed values are derived from the same
+ * schema-declared defaults the resolver falls back to, not restated. A
+ * policy document's id is normally assigned by the machinery itself, but
+ * schedules keep a pre-registered seed id (`commercialTermsSeedIds`) for
+ * deterministic fixtures across bootstrap runs.
+ */
 async function seedDefaultScheduleIfMissing(
   services: ReturnType<typeof createCommercialTermsServices>,
   context: ReturnType<typeof createSeedContext>,
   input: Readonly<{
     scheduleId: string;
-    label: string;
-    accountType: "personal" | "business" | "enterprise";
-    marketplaceSalesFeePercentageBps: number;
-    marketplaceSalesFeeFixedAmount: string;
+    accountType: CommercialAccountType;
     effectiveFrom: string;
   }>,
 ) {
-  if (await schedulePageExists(services.db, input.scheduleId)) {
+  if (await policyDocumentExistsById(services.db, input.scheduleId)) {
     return;
   }
 
-  if (await streamExists(services.db, `commercial-terms.schedule-${input.scheduleId}`)) {
-    await upsertSeedSchedulePage(services.db, input);
-    return;
-  }
+  const definition = commercialTermsSchedulePolicy(input.accountType);
+  const value = COMMERCIAL_TERMS_SCHEDULE_LAUNCH_VALUES[input.accountType];
 
-  await services.schedules.commandHandler({
-    streamId: `commercial-terms.schedule-${input.scheduleId}`,
-    command: {
-      type: "CreateSchedule",
-      scheduleId: input.scheduleId,
-      label: input.label,
-      accountType: input.accountType,
-      marketplaceSalesFeePercentageBps: input.marketplaceSalesFeePercentageBps,
-      marketplaceSalesFeeFixedAmount: input.marketplaceSalesFeeFixedAmount,
-      status: "active",
+  // A prior, interrupted bootstrap may have already appended the
+  // CreatePolicyDocument event without the projection having caught up to
+  // write the row yet. Re-issuing the command would replay the stream and
+  // hit "Policy document has already been created" -- upsert the row
+  // directly from the known seed value instead, same as the projection
+  // would once it catches up.
+  if (await streamExists(services.db, scheduleStreamId(input.scheduleId))) {
+    await upsertSeedPolicyDocumentPage(services.db, {
+      documentId: input.scheduleId,
+      policyKey: definition.policyKey,
+      contextName: definition.contextName,
+      schemaSummary: definition.schemaSummary,
+      value,
       effectiveFrom: input.effectiveFrom,
-      effectiveUntil: null,
-      createdByUserId: identitySeedIds.support.userId,
-    },
+    });
+    return;
+  }
+
+  const command = buildCreatePolicyDocumentCommand(definition, {
+    documentId: input.scheduleId,
+    value,
+    status: "active",
+    effectiveFrom: input.effectiveFrom,
+    effectiveUntil: null,
+    actorUserId: identitySeedIds.support.userId,
+  });
+  await services.policies.commandHandler({
+    streamId: scheduleStreamId(input.scheduleId),
+    command,
     context,
   });
 }
 
-async function schedulePageExists(db: Pick<PgTransactionalPool, "query">, scheduleId: string): Promise<boolean> {
-  return rowExists(db, "SELECT 1 FROM commercial_terms_schedule_pages WHERE schedule_id = $1 LIMIT 1", [scheduleId]);
+async function streamExists(db: Pick<PgTransactionalPool, "query">, streamId: string): Promise<boolean> {
+  return rowExists(db, "SELECT 1 FROM event_store_streams WHERE stream_id = $1 LIMIT 1", [streamId]);
+}
+
+async function upsertSeedPolicyDocumentPage(
+  db: Pick<PgTransactionalPool, "query">,
+  input: Readonly<{
+    documentId: string;
+    policyKey: string;
+    contextName: string;
+    schemaSummary: string;
+    value: unknown;
+    effectiveFrom: string;
+  }>,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO platform_policy_documents (
+       document_id,
+       policy_key,
+       context_name,
+       schema_summary,
+       status,
+       value,
+       effective_from,
+       effective_until,
+       created_at,
+       updated_at
+     ) VALUES (
+       $1, $2, $3, $4, 'active', $5::jsonb, $6, NULL, $6, $6
+     )
+     ON CONFLICT (document_id) DO UPDATE
+     SET policy_key = EXCLUDED.policy_key,
+         context_name = EXCLUDED.context_name,
+         schema_summary = EXCLUDED.schema_summary,
+         status = EXCLUDED.status,
+         value = EXCLUDED.value,
+         effective_from = EXCLUDED.effective_from,
+         effective_until = EXCLUDED.effective_until,
+         updated_at = EXCLUDED.updated_at`,
+    [
+      input.documentId,
+      input.policyKey,
+      input.contextName,
+      input.schemaSummary,
+      JSON.stringify(input.value),
+      input.effectiveFrom,
+    ],
+  );
 }
 
 /**
@@ -153,7 +225,7 @@ async function seedCheckoutProcessingFeePolicyIfMissing(
   context: ReturnType<typeof createSeedContext>,
   effectiveFrom: string,
 ) {
-  if (await policyDocumentExists(services.db, checkoutProcessingFeePolicy.policyKey)) {
+  if (await policyDocumentExistsByKey(services.db, checkoutProcessingFeePolicy.policyKey)) {
     return;
   }
 
@@ -170,73 +242,14 @@ async function seedCheckoutProcessingFeePolicyIfMissing(
   );
 }
 
-async function policyDocumentExists(db: Pick<PgTransactionalPool, "query">, policyKey: string): Promise<boolean> {
+async function policyDocumentExistsById(db: Pick<PgTransactionalPool, "query">, documentId: string): Promise<boolean> {
+  return rowExists(db, "SELECT 1 FROM platform_policy_documents WHERE document_id = $1 LIMIT 1", [documentId]);
+}
+
+async function policyDocumentExistsByKey(db: Pick<PgTransactionalPool, "query">, policyKey: string): Promise<boolean> {
   return rowExists(db, "SELECT 1 FROM platform_policy_documents WHERE policy_key = $1 AND status = 'active' LIMIT 1", [
     policyKey,
   ]);
-}
-
-async function agreementExists(db: PgTransactionalPool, agreementId: string): Promise<boolean> {
-  return (
-    (await rowExists(db, "SELECT 1 FROM commercial_terms_agreement_pages WHERE agreement_id = $1 LIMIT 1", [
-      agreementId,
-    ])) ||
-    (await rowExists(db, "SELECT 1 FROM event_store_streams WHERE stream_id = $1 LIMIT 1", [
-      `commercial-terms.agreement-${agreementId}`,
-    ]))
-  );
-}
-
-async function streamExists(db: Pick<PgTransactionalPool, "query">, streamId: string): Promise<boolean> {
-  return rowExists(db, "SELECT 1 FROM event_store_streams WHERE stream_id = $1 LIMIT 1", [streamId]);
-}
-
-async function upsertSeedSchedulePage(
-  db: Pick<PgTransactionalPool, "query">,
-  input: Readonly<{
-    scheduleId: string;
-    label: string;
-    accountType: "personal" | "business" | "enterprise";
-    marketplaceSalesFeePercentageBps: number;
-    marketplaceSalesFeeFixedAmount: string;
-    effectiveFrom: string;
-  }>,
-): Promise<void> {
-  await db.query(
-    `INSERT INTO commercial_terms_schedule_pages (
-       schedule_id,
-       label,
-       account_type,
-       marketplace_sales_fee_percentage_bps,
-       marketplace_sales_fee_fixed_amount,
-       shipping_allowance_percentage_bps,
-       status,
-       effective_from,
-       effective_until,
-       created_at,
-       updated_at
-     ) VALUES (
-       $1, $2, $3, $4, $5, 500, 'active', $6, NULL, $6, $6
-     )
-     ON CONFLICT (schedule_id) DO UPDATE
-     SET label = EXCLUDED.label,
-         account_type = EXCLUDED.account_type,
-         marketplace_sales_fee_percentage_bps = EXCLUDED.marketplace_sales_fee_percentage_bps,
-         marketplace_sales_fee_fixed_amount = EXCLUDED.marketplace_sales_fee_fixed_amount,
-         shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
-         status = EXCLUDED.status,
-         effective_from = EXCLUDED.effective_from,
-         effective_until = EXCLUDED.effective_until,
-         updated_at = EXCLUDED.updated_at`,
-    [
-      input.scheduleId,
-      input.label,
-      input.accountType,
-      input.marketplaceSalesFeePercentageBps,
-      input.marketplaceSalesFeeFixedAmount,
-      input.effectiveFrom,
-    ],
-  );
 }
 
 async function rowExists(

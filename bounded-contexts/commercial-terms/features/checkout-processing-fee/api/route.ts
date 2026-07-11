@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import type { CommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import type { CommercialTermsApiEnv } from "../../../api";
 import { normalizeCommercialTermsStatus } from "../../../support/runtime-support/common";
 import { checkoutProcessingFeePolicy, type CheckoutProcessingFeePolicyValue } from "../domain/policy";
@@ -76,7 +76,7 @@ function documentCommandBody(body: Record<string, unknown>) {
   };
 }
 
-export function createCheckoutProcessingFeeRoutes(policies: PolicyRuntime) {
+export function createCheckoutProcessingFeeRoutes(policies: CommercialTermsPolicyRuntime) {
   const app = new Hono<CommercialTermsApiEnv>();
 
   app.get("/", async (c) => {

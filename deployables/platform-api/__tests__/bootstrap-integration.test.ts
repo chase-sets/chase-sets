@@ -194,10 +194,10 @@ describe("platform api bootstrap", () => {
       "SELECT to_regclass('public.identity_user_pages') AS relation_name",
     );
     const commercialTermsSchedules = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages",
+      "SELECT COUNT(*) AS count FROM platform_policy_documents WHERE policy_key LIKE 'commercial-terms.schedule.%'",
     );
     const commercialTermsAgreements = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages",
+      "SELECT COUNT(*) AS count FROM platform_policy_documents WHERE policy_key LIKE 'commercial-terms.agreement.%'",
     );
     const seededCatalogItems = await pools.catalog.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM catalog_items",
@@ -406,12 +406,14 @@ describe("platform api bootstrap", () => {
     const commercialTermsScheduleEvents = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
        FROM event_store_events
-       WHERE event_type = 'commercial-terms.schedule.created'`,
+       WHERE event_type IN ('commercial-terms.schedule.created', 'platform-policy.document.created')
+         AND stream_id LIKE 'commercial-terms.schedule-%'`,
     );
     const commercialTermsAgreementEvents = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
        FROM event_store_events
-       WHERE event_type = 'commercial-terms.agreement.created'`,
+       WHERE event_type IN ('commercial-terms.agreement.created', 'platform-policy.document.created')
+         AND stream_id LIKE 'commercial-terms.agreement-%'`,
     );
     const marketplaceListings = await pools.marketplace.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM marketplace_listing_pages",

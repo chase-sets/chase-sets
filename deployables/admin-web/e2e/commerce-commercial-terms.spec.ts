@@ -61,7 +61,7 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
   });
   const createUrl = new URL(page.url());
   await waitForCommercialTermsProjection(page, createUrl, {
-    projectionName: "commercial-terms-schedule-projection",
+    projectionName: "platform-policy-document-projection",
     label: `create commercial terms schedule ${label}`,
   });
   await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
@@ -107,7 +107,7 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
   });
   const createUrl = new URL(page.url());
   await waitForCommercialTermsProjection(page, createUrl, {
-    projectionName: "commercial-terms-agreement-projection",
+    projectionName: "platform-policy-document-projection",
     label: `create commercial agreement ${label}`,
   });
   await page.goto(createUrl.pathname, { waitUntil: "domcontentloaded" });
