@@ -40,4 +40,19 @@ CREATE TABLE IF NOT EXISTS marketplace_review_shipment_sources (
 
 CREATE INDEX IF NOT EXISTS marketplace_review_shipment_sources_order_idx
   ON marketplace_review_shipment_sources (order_id, updated_at DESC, shipment_id DESC);
+
+CREATE TABLE IF NOT EXISTS marketplace_review_support_request_sources (
+  support_request_id text PRIMARY KEY,
+  order_id text NOT NULL,
+  status text NOT NULL,
+  resolution_type text NULL,
+  flow_type text NULL,
+  opened_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  cancelled_at timestamptz NULL,
+  resolved_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS marketplace_review_support_request_sources_order_idx
+  ON marketplace_review_support_request_sources (order_id, updated_at DESC, support_request_id DESC);
 `;

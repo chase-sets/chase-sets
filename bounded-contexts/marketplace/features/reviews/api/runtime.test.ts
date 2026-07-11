@@ -80,6 +80,10 @@ describe("marketplace review runtime", () => {
     const inserts: (readonly unknown[])[] = [];
     const db = {
       query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("MIN(delivered_at)")) {
+          return { rows: [{ delivered_at: "2026-04-02T00:00:00.000Z" }] };
+        }
+
         if (sql.includes("FROM marketplace_review_shipment_sources")) {
           return { rows: [{ order_id: "ord_1" }] };
         }
@@ -93,6 +97,10 @@ describe("marketplace review runtime", () => {
               },
             ],
           };
+        }
+
+        if (sql.includes("FROM marketplace_review_support_request_sources")) {
+          return { rows: [] };
         }
 
         if (sql.includes("INSERT INTO marketplace_review_eligibility_pages")) {
@@ -115,8 +123,8 @@ describe("marketplace review runtime", () => {
       deliveredAt: "2026-04-02T00:00:00.000Z",
     });
     expect(inserts).toEqual([
-      ["ord_1", "acc_buyer", "acc_seller", "buyer", "2026-04-02T00:00:00.000Z"],
-      ["ord_1", "acc_seller", "acc_buyer", "seller", "2026-04-02T00:00:00.000Z"],
+      ["ord_1", "acc_buyer", "acc_seller", "buyer", null, "2026-04-02T00:00:00.000Z", "2026-04-02T00:00:00.000Z"],
+      ["ord_1", "acc_seller", "acc_buyer", "seller", null, "2026-04-02T00:00:00.000Z", "2026-04-02T00:00:00.000Z"],
     ]);
   });
 
@@ -178,6 +186,57 @@ describe("marketplace review runtime", () => {
       authorRole: "seller",
       rating: 4,
       feedback: "Prompt payment and clear communication.",
+      resolutionContext: null,
+    });
+  });
+
+  it("carries the refund resolution marker from the eligibility row onto the submitted review", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                author_account_id: "acc_buyer",
+                subject_account_id: "acc_seller",
+                author_role: "buyer",
+                resolution_context: "resolved-via-refund",
+                eligible_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("FROM marketplace_review_pages")) {
+          return { rows: [] };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createReviewRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await runtime.submitReview(
+      {
+        orderId: "ord_1",
+        authorAccountId: "acc_buyer",
+        subjectAccountId: "acc_seller",
+        rating: 1,
+        feedback: "Card arrived misdescribed; refunded after support review.",
+      },
+      context,
+    );
+
+    expect(allEvents).toHaveLength(1);
+    expect(allEvents[0]?.payload).toMatchObject({
+      authorRole: "buyer",
+      resolutionContext: "resolved-via-refund",
     });
   });
 });

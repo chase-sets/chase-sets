@@ -31,7 +31,13 @@ class ReputationProjectionDb implements PgQueryable {
   public readonly shipments = new Map<string, { order_id: string; status: string; delivered_at: string | null }>();
   public readonly supportRequests = new Map<
     string,
-    { order_id: string; status: string; resolution_type: string | null }
+    {
+      order_id: string;
+      status: string;
+      resolution_type: string | null;
+      flow_type: string | null;
+      resolved_at: string | null;
+    }
   >();
   public readonly eligibilities = new Map<string, EligibilityRow>();
   public readonly reviews = new Map<string, ReviewRow>();
@@ -40,53 +46,50 @@ class ReputationProjectionDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
-    if (sql.includes("FROM ordering_order_pages AS order_page")) {
-      const orderId = String(values[0]);
-      const order = this.orders.get(orderId);
-      const shipment = [...this.shipments.values()]
-        .filter((candidate) => candidate.order_id === orderId && candidate.status === "delivered")
-        .sort((left, right) => String(left.delivered_at).localeCompare(String(right.delivered_at)))[0];
-      const isBlockedBySupport = [...this.supportRequests.values()].some(
-        (request) =>
-          request.order_id === orderId &&
-          request.status !== "cancelled" &&
-          !(request.status === "resolved" && ["no-action", "support-reviewed"].includes(request.resolution_type ?? "")),
-      );
-
+    if (sql.includes("SELECT buyer_account_id, seller_account_id") && sql.includes("FROM ordering_order_pages")) {
+      const order = this.orders.get(String(values[0]));
       return {
-        rows:
-          order && shipment?.delivered_at && !isBlockedBySupport
-            ? ([
-                {
-                  buyer_account_id: order.buyer_account_id,
-                  seller_account_id: order.seller_account_id,
-                  delivered_at: shipment.delivered_at,
-                },
-              ] as Row[])
-            : [],
-        rowCount: order && shipment?.delivered_at && !isBlockedBySupport ? 1 : 0,
+        rows: order ? ([{ ...order }] as Row[]) : [],
+        rowCount: order ? 1 : 0,
       };
     }
 
+    if (sql.includes("MIN(delivered_at)") && sql.includes("ordering_order_review_shipment_sources")) {
+      const orderId = String(values[0]);
+      const deliveredAts = [...this.shipments.values()]
+        .filter((shipment) => shipment.order_id === orderId && shipment.delivered_at !== null)
+        .map((shipment) => String(shipment.delivered_at))
+        .sort();
+      return {
+        rows: [{ delivered_at: deliveredAts[0] ?? null } as Row],
+        rowCount: 1,
+      };
+    }
+
+    if (sql.includes("FROM ordering_order_review_support_request_sources") && sql.includes("resolved_at::text")) {
+      const orderId = String(values[0]);
+      const rows = [...this.supportRequests.values()]
+        .filter((request) => request.order_id === orderId)
+        .map((request) => ({
+          status: request.status,
+          resolution_type: request.resolution_type,
+          flow_type: request.flow_type,
+          resolved_at: request.resolved_at,
+        }));
+      return { rows: rows as Row[], rowCount: rows.length };
+    }
+
     if (sql.includes("INSERT INTO ordering_order_review_eligibility_pages")) {
-      const [orderId, buyerAccountId, sellerAccountId, eligibleAt, updatedAt] = values.map(String);
+      const [orderId, authorAccountId, subjectAccountId, authorRole, eligibleAt, updatedAt] = values.map(String);
       this.upsertEligibility({
         order_id: orderId,
-        author_account_id: buyerAccountId,
-        subject_account_id: sellerAccountId,
-        author_role: "buyer",
+        author_account_id: authorAccountId,
+        subject_account_id: subjectAccountId,
+        author_role: authorRole,
         eligible_at: eligibleAt,
         updated_at: updatedAt,
       });
-      this.upsertEligibility({
-        order_id: orderId,
-        author_account_id: sellerAccountId,
-        subject_account_id: buyerAccountId,
-        author_role: "seller",
-        eligible_at: eligibleAt,
-        updated_at: updatedAt,
-      });
-      return { rows: [], rowCount: 2 };
+      return { rows: [], rowCount: 1 };
     }
 
     if (sql.includes("INSERT INTO ordering_order_review_shipment_sources")) {
@@ -116,30 +119,32 @@ class ReputationProjectionDb implements PgQueryable {
           order_id: orderId,
           status: "resolved",
           resolution_type: String(values[2]),
+          flow_type: values[3] === null ? null : String(values[3]),
+          resolved_at: String(values[4]),
         });
       } else if (sql.includes("VALUES ($1, $2, 'cancelled'")) {
         this.supportRequests.set(supportRequestId, {
           order_id: orderId,
           status: "cancelled",
           resolution_type: null,
+          flow_type: null,
+          resolved_at: null,
         });
       } else {
         this.supportRequests.set(supportRequestId, {
           order_id: orderId,
           status: "open",
           resolution_type: null,
+          flow_type: null,
+          resolved_at: null,
         });
       }
       return { rows: [], rowCount: 1 };
     }
 
     if (sql.includes("DELETE FROM ordering_order_review_eligibility_pages")) {
-      const orderId = String(values[0]);
-      for (const [key, row] of [...this.eligibilities.entries()]) {
-        if (row.order_id === orderId) {
-          this.eligibilities.delete(key);
-        }
-      }
+      const [orderId, authorAccountId, subjectAccountId] = values.map(String);
+      this.eligibilities.delete(`${orderId}:${authorAccountId}:${subjectAccountId}`);
       return { rows: [], rowCount: 0 };
     }
 
@@ -384,6 +389,108 @@ describe("ordering reputation opportunity projection", () => {
       event("fulfillment.shipment.delivered", {
         shipmentId: "shp_1",
         deliveredAt: "2026-04-03T00:00:00.000Z",
+      }),
+    );
+
+    expect(db.eligibilities.size).toBe(0);
+  });
+
+  it("restores only the buyer→seller direction on refund-class resolutions", async () => {
+    const db = new ReputationProjectionDb();
+    db.orders.set("ord_1", { buyer_account_id: "acc_buyer", seller_account_id: "acc_seller" });
+    const handlers = buildOrderingReputationProjectionHandlers(db);
+
+    await handlers["fulfillment.shipment.created"]!(
+      event("fulfillment.shipment.created", {
+        shipmentId: "shp_1",
+        orderId: "ord_1",
+        createdAt: "2026-04-02T00:00:00.000Z",
+      }),
+    );
+    await handlers["fulfillment.shipment.delivered"]!(
+      event("fulfillment.shipment.delivered", {
+        shipmentId: "shp_1",
+        deliveredAt: "2026-04-03T00:00:00.000Z",
+      }),
+    );
+    await handlers["support.support-request.opened"]!(
+      event("support.support-request.opened", {
+        supportRequestId: "sup_1",
+        orderId: "ord_1",
+        openedAt: "2026-04-04T00:00:00.000Z",
+      }),
+    );
+    await handlers["support.support-request.resolved"]!(
+      event("support.support-request.resolved", {
+        supportRequestId: "sup_1",
+        orderId: "ord_1",
+        flowType: "product-not-as-described",
+        resolution: {
+          resolutionType: "full-refund",
+          resolvedAt: "2026-04-06T00:00:00.000Z",
+        },
+      }),
+    );
+
+    expect(db.eligibilities.get("ord_1:acc_buyer:acc_seller")).toMatchObject({
+      author_role: "buyer",
+      eligible_at: "2026-04-03T00:00:00.000Z",
+    });
+    expect(db.eligibilities.get("ord_1:acc_seller:acc_buyer")).toBeUndefined();
+  });
+
+  it("restores buyer→seller without a delivery when a seller-caused cancellation resolves the request", async () => {
+    const db = new ReputationProjectionDb();
+    db.orders.set("ord_1", { buyer_account_id: "acc_buyer", seller_account_id: "acc_seller" });
+    const handlers = buildOrderingReputationProjectionHandlers(db);
+
+    await handlers["support.support-request.opened"]!(
+      event("support.support-request.opened", {
+        supportRequestId: "sup_1",
+        orderId: "ord_1",
+        openedAt: "2026-04-02T12:00:00.000Z",
+      }),
+    );
+    await handlers["support.support-request.resolved"]!(
+      event("support.support-request.resolved", {
+        supportRequestId: "sup_1",
+        orderId: "ord_1",
+        flowType: "seller-cannot-fulfill",
+        resolution: {
+          resolutionType: "cancel-order",
+          resolvedAt: "2026-04-04T00:00:00.000Z",
+        },
+      }),
+    );
+
+    expect(db.eligibilities.get("ord_1:acc_buyer:acc_seller")).toMatchObject({
+      author_role: "buyer",
+      eligible_at: "2026-04-04T00:00:00.000Z",
+    });
+    expect(db.eligibilities.get("ord_1:acc_seller:acc_buyer")).toBeUndefined();
+  });
+
+  it("restores neither direction for a consensual buyer-cancel-request cancellation", async () => {
+    const db = new ReputationProjectionDb();
+    db.orders.set("ord_1", { buyer_account_id: "acc_buyer", seller_account_id: "acc_seller" });
+    const handlers = buildOrderingReputationProjectionHandlers(db);
+
+    await handlers["support.support-request.opened"]!(
+      event("support.support-request.opened", {
+        supportRequestId: "sup_1",
+        orderId: "ord_1",
+        openedAt: "2026-04-02T12:00:00.000Z",
+      }),
+    );
+    await handlers["support.support-request.resolved"]!(
+      event("support.support-request.resolved", {
+        supportRequestId: "sup_1",
+        orderId: "ord_1",
+        flowType: "buyer-cancel-request",
+        resolution: {
+          resolutionType: "cancel-order",
+          resolvedAt: "2026-04-04T00:00:00.000Z",
+        },
       }),
     );
 

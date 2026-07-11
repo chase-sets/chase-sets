@@ -756,6 +756,9 @@
       "@chase-sets/realtime": [
         "./contracts/realtime/index.ts"
       ],
+      "@chase-sets/review-eligibility": [
+        "./contracts/review-eligibility/index.ts"
+      ],
       "@chase-sets/ses-email": [
         "./infrastructure/ses-email/index.ts"
       ],

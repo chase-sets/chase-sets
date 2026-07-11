@@ -9,6 +9,7 @@ export interface ReviewListItem {
   rating: number;
   feedback: string | null;
   status: string;
+  resolution_context: string | null;
   submitted_at: string;
   updated_at: string;
   withdrawn_at: string | null;

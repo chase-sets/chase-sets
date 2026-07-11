@@ -15,6 +15,7 @@ const reviews = [
     rating: 5,
     feedback: "Packed carefully.",
     status: "active",
+    resolution_context: null,
     submitted_at: "2026-04-02T00:00:00.000Z",
     updated_at: "2026-04-02T00:00:00.000Z",
     withdrawn_at: null,
@@ -38,5 +39,21 @@ describe("review list page", () => {
     expect(markup).toContain("Author Account");
     expect(markup).toContain("Reviewed account:");
     expect(markup).toContain("Reviewed Account");
+    expect(markup).not.toContain("Resolved via refund");
+  });
+
+  it("shows the neutral resolved-via-refund badge only for refund-context reviews", () => {
+    const markup = renderToString(
+      <ReviewListPage
+        title="Reviews"
+        eyebrow="Reviews"
+        emptyTitle="No reviews"
+        emptyDescription="Nothing yet."
+        reviewDetailBasePath="/account/reviews"
+        reviews={[{ ...reviews[0]!, resolution_context: "resolved-via-refund" }]}
+      />,
+    );
+
+    expect(markup).toContain("Resolved via refund");
   });
 });
