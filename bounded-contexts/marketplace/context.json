@@ -484,7 +484,7 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeId": "account-listings",
+        "routeId": "account-listings-new",
         "actions": ["Create listing", "Create and publish listing"],
         "command": "Marketplace listing commands",
         "helperUses": ["navigateAfterWriteFromSourcesWithCompactToken"]
@@ -571,7 +571,7 @@
         "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
-        "routeId": "account-listings",
+        "routeId": "account-listings-new",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listing-inventory",
         "readModelTables": [
@@ -583,7 +583,7 @@
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account Listings loads seller inventory options inside the default-safe fresh-write loader, merges an explicit Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item, and renders a route-owned empty inventory fallback when valid post-write supply reads are still catching up."
+          "behavior": "Account Listings New loads seller inventory options inside the default-safe fresh-write loader, merges an explicit Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item, and renders a route-owned empty inventory fallback when valid post-write supply reads are still catching up."
         }
       }
     },
@@ -602,7 +602,7 @@
         "command": "Inventory import commit handoff"
       },
       "destination": {
-        "routeId": "account-listings",
+        "routeId": "account-listings-new",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listing-inventory",
         "readModelTables": [
@@ -614,7 +614,7 @@
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Committed import rows link to Account Listings with an explicit inventoryItemId; the loader preserves normal Marketplace supply options but merges the exact Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item."
+          "behavior": "Committed import rows link to Account Listings New with an explicit inventoryItemId; the loader preserves normal Marketplace supply options but merges the exact Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item."
         }
       }
     },
@@ -634,14 +634,14 @@
         "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
-        "routeId": "account-listings",
+        "routeId": "account-listings-new",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/supply-locations/exists",
         "readModelTables": ["marketplace_supply_locations"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account Listings checks Listing stock readiness with exact Marketplace supply-location freshness and falls back to asking for ship-from details instead of throwing a generic page error while valid post-write supply reads catch up."
+          "behavior": "Account Listings New checks Listing stock readiness with exact Marketplace supply-location freshness and falls back to asking for ship-from details instead of throwing a generic page error while valid post-write supply reads catch up."
         }
       }
     },
@@ -995,7 +995,10 @@
       "owner": "marketplace",
       "risk": "important",
       "strategy": "fresh-read",
-      "surfaces": ["post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#3"],
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/marketplace/routes/account-listings-new.tsx"
+      ],
       "visibleDestination": {
         "routeId": "account-listing",
         "apiContextName": "marketplace",
@@ -1003,15 +1006,32 @@
         "readModelTables": ["marketplace_listing_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "The create listing form submits through Account Listings and redirects to the new listing detail with a Marketplace commit receipt; the detail loader waits on the listing projection before rendering price, quantity, photos, and status."
+          "behavior": "The create listing form submits through the dedicated Account Listings New route and redirects to the new listing detail with a Marketplace commit receipt; the detail loader waits on the listing projection before rendering price, quantity, photos, and status."
         }
       },
       "proof": {
         "tests": [
-          "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx",
+          "bounded-contexts/marketplace/features/listings/ui/listing-create-page.test.tsx",
           "bounded-contexts/marketplace/tests/account-listing-detail-error-boundary.test.tsx",
-          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts",
+          "bounded-contexts/marketplace/tests/account-listings-new-web-route.test.ts",
           "bounded-contexts/marketplace/tests/account-listing-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.listing-bulk-status-forms",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "optimistic-with-correction",
+      "surfaces": ["post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#3"],
+      "visibleDestination": {
+        "description": "Bulk pause/withdraw submits the selected listing ids to the Account Listings route action, which batches the existing per-listing pause/withdraw commands and returns a per-row outcome list without redirecting; React Router revalidates the Account Listings loader on the same response, refreshing the table, status badges, and status counts from the Marketplace listings read model."
+      },
+      "proof": {
+        "correction": "Each selected listing's outcome (succeeded or failed, with the command error message) renders inline immediately from the action response; if a succeeded row's status has not yet caught up in the revalidated table read, the outcome banner stays visible until the next projection-backed reload reflects the new status, and failed rows leave the listing's status and badge unchanged so the seller can retry.",
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
         ]
       }
     },
@@ -1125,6 +1145,13 @@
           "routeId": "account-listings",
           "routePath": "account/listings",
           "fileExport": "./routes/account-listings",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-listings-new",
+          "routePath": "account/listings/new",
+          "fileExport": "./routes/account-listings-new",
           "routeType": "route",
           "sourceContext": "marketplace"
         },

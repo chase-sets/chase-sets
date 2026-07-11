@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceListingListPage } from "./listing-list-page";
-import type { MarketplaceSellerListingAvailability } from "./contracts";
+import type { MarketplaceListingListItem, MarketplaceSellerListingAvailability } from "./contracts";
 
 const availableListings = {
   account_id: "acc_seller",
@@ -15,236 +15,136 @@ const availableListings = {
   updated_at: "2026-06-01T00:00:00.000Z",
 } satisfies MarketplaceSellerListingAvailability;
 
-const acerolaProductSchema = {
-  canonicalDimensionOrder: [
-    { dimensionId: "form" },
-    { dimensionId: "condition" },
-    { dimensionId: "grading_company" },
-    { dimensionId: "grade" },
-  ],
-  dimensions: [
-    {
-      dimensionId: "form",
-      dimensionName: "Form",
-      required: true,
-      appliesWhen: [],
-      allowedOptions: [
-        { optionId: "graded", code: "graded", label: "Graded" },
-        { optionId: "raw", code: "raw", label: "Raw" },
-      ],
+function buildListingRow(overrides: Partial<MarketplaceListingListItem> = {}): MarketplaceListingListItem {
+  return {
+    listing_id: "lst_1",
+    account_id: "acc_seller",
+    inventory_item_id: "inv_1",
+    catalog_catalog_item_id: "cat_charizard",
+    product_id: "cat_charizard::raw",
+    item_language_code: "en",
+    item_title: "Charizard",
+    item_subtitle: "Base Set",
+    selected_options: [],
+    product_summary: null,
+    product_measure_snapshot: { weightOunces: 1 } as never,
+    graded_card: null,
+    storage_location_name: "North shelf",
+    ship_from_code: "CHI",
+    ship_from_address: {
+      name: "Seller Shipping",
+      line1: "1 Warehouse Way",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
     },
-    {
-      dimensionId: "condition",
-      dimensionName: "Condition",
-      required: true,
-      appliesWhen: [{ dimensionId: "form", optionIds: ["raw"] }],
-      allowedOptions: [
-        { optionId: "damaged", code: "damaged", label: "Damaged" },
-        { optionId: "near_mint", code: "near_mint", label: "Near Mint" },
-      ],
-    },
-    {
-      dimensionId: "grading_company",
-      dimensionName: "Grading Company",
-      required: true,
-      appliesWhen: [{ dimensionId: "form", optionIds: ["graded"] }],
-      allowedOptions: [{ optionId: "psa", code: "psa", label: "PSA" }],
-    },
-    {
-      dimensionId: "grade",
-      dimensionName: "Grade",
-      required: true,
-      appliesWhen: [{ dimensionId: "form", optionIds: ["graded"] }],
-      allowedOptions: [{ optionId: "gem_mint_10", code: "gem_mint_10", label: "Gem Mint 10" }],
-    },
-  ],
-};
-
-function stubSearchFetch(items: readonly Record<string, unknown>[]) {
-  return vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ items }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }),
-  );
+    price_amount: "20.00",
+    marketplace_sales_fee_unit_amount: "1.00",
+    seller_net_unit_amount: "19.00",
+    shipping_allowance_percentage_bps: 500,
+    terms_schedule_id: "cts_default",
+    terms_agreement_id: null,
+    terms_resolved_at: "2026-04-17T00:00:00.000Z",
+    fee_quote_fingerprint: "20.00|1.00|19.00|cts_default|",
+    quantity_cap: 1,
+    max_units_per_order: null,
+    max_units_per_day: null,
+    max_units_per_customer_account: null,
+    listing_photos: [],
+    status: "active",
+    created_at: "2026-04-17T00:00:00.000Z",
+    updated_at: "2026-04-17T00:00:00.000Z",
+    ...overrides,
+  };
 }
 
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
 });
 
-describe("marketplace listing form migration smoke", () => {
-  it("keeps create-listing multipart payload fields after migration to shared Form", () => {
+describe("marketplace listings workbench", () => {
+  it("links to the dedicated create-listing route instead of embedding a create form", () => {
     const markup = renderToString(
-      <MarketplaceListingListPage
-        data={{ items: [] }}
-        listingAvailability={availableListings}
-        inventoryItems={[]}
-        hasListingStockLocation
-      />,
+      <MarketplaceListingListPage data={{ items: [] }} listingAvailability={availableListings} />,
     );
 
-    expect(markup).toContain('method="post"');
-    expect(markup).toMatch(/encType="multipart\/form-data"|enctype="multipart\/form-data"/);
-    expect(markup).toContain('name="selectedOptions"');
-    expect(markup).toContain('name="catalogItemId"');
-    expect(markup).toContain('name="priceAmount"');
-    expect(markup).toContain('name="quantityCap"');
-    expect(markup).toContain('name="listingPhotos"');
-    expect(markup).toContain('accept="image/jpeg,image/png,image/webp"');
-    expect(markup).toContain('value="create-and-publish-listing"');
-    expect(markup).toContain('value="preview-listing"');
-    expect(markup).toContain('value="create-listing"');
+    expect(markup).toContain('href="/account/listings/new"');
+    expect(markup).not.toContain('name="catalogItemId"');
+    expect(markup).not.toContain('encType="multipart/form-data"');
   });
 
-  it("renders catalog item creation as a visible search and selection flow, not a raw ID field", () => {
-    const markup = renderToString(
-      <MarketplaceListingListPage
-        data={{ items: [] }}
-        listingAvailability={availableListings}
-        inventoryItems={[]}
-        hasListingStockLocation
-      />,
-    );
-
-    expect(markup).toContain("Search catalog");
-    expect(markup).toMatch(/<select[^>]*name="catalogItemId"/);
-    expect(markup).not.toMatch(/<input[^>]*name="catalogItemId"/);
-  });
-
-  it("finds a catalog item by title search and lets the seller select it without an ID", async () => {
-    vi.stubGlobal(
-      "fetch",
-      stubSearchFetch([
-        {
-          catalog_item_id: "cat_acerola",
-          title: "Acerola's Mischief",
-          subtitle: "Base Set",
-          product_schema: acerolaProductSchema,
-        },
-      ]),
-    );
-
+  it("renders status-count metrics from server-computed status counts", () => {
     render(
       <MarketplaceListingListPage
         data={{ items: [] }}
         listingAvailability={availableListings}
-        inventoryItems={[]}
-        hasListingStockLocation={false}
-        catalogItemApiBaseUrl="/catalog-items"
+        statusCounts={{ active: 3, draft: 2, paused: 1, withdrawn: 4 }}
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Search catalog"), { target: { value: "Acerola" } });
-
-    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
-    const requestedUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
-    expect(requestedUrl).toContain("/catalog-items?");
-    expect(requestedUrl).toContain("search=Acerola");
-
-    const catalogItemSelect = (await screen.findByLabelText("Catalog item")) as HTMLSelectElement;
-    expect(catalogItemSelect.querySelector('option[value="cat_acerola"]')).toBeTruthy();
-
-    fireEvent.change(catalogItemSelect, { target: { value: "cat_acerola" } });
-
-    await screen.findByText("Acerola's Mischief");
-    expect(screen.getByLabelText("Form")).toBeTruthy();
+    expect(screen.getByText("Active listings")).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
+    expect(screen.getByText("Draft listings")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByText("Paused listings")).toBeTruthy();
+    expect(screen.getByText("1")).toBeTruthy();
+    expect(screen.getByText("Withdrawn listings")).toBeTruthy();
+    expect(screen.getByText("4")).toBeTruthy();
   });
 
-  it("preserves claimed draft product options without posting inactive dimensions", async () => {
-    vi.stubGlobal(
-      "fetch",
-      stubSearchFetch([
-        {
-          catalog_item_id: "cat_acerola",
-          title: "Acerola's Mischief",
-          subtitle: null,
-          product_schema: acerolaProductSchema,
-        },
-      ]),
+  it("renders a URL-persisted status filter and title search", () => {
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [buildListingRow()] }}
+        listingAvailability={availableListings}
+        filters={{ status: "paused", search: "Charizard" }}
+      />,
     );
 
+    expect((screen.getByLabelText("Search by title") as HTMLInputElement).value).toBe("Charizard");
+    expect((screen.getByLabelText("Status") as HTMLSelectElement).value).toBe("paused");
+    expect(screen.getByText("Title: Charizard")).toBeTruthy();
+    expect(screen.getByText("Status: Paused")).toBeTruthy();
+  });
+
+  it("selects listing rows and submits bulk pause with the selected ids", () => {
     const { container } = render(
       <MarketplaceListingListPage
-        data={{ items: [] }}
+        data={{ items: [buildListingRow({ listing_id: "lst_1" }), buildListingRow({ listing_id: "lst_2" })] }}
         listingAvailability={availableListings}
-        inventoryItems={[]}
-        hasListingStockLocation={false}
-        catalogItemApiBaseUrl="/catalog-items"
-        createForm={{
-          catalogItemId: "cat_acerola",
-          selectedOptions: [
-            { dimensionId: "form", optionId: "raw" },
-            { dimensionId: "condition", optionId: "damaged" },
-          ],
-          priceAmount: "21.74",
-          quantityCap: "1",
-        }}
       />,
     );
 
-    await screen.findByText("Acerola's Mischief");
+    // DataTable renders both a mobile card list and a desktop table; select the row's checkbox
+    // by its accessible label (each surface renders one, both toggle the same selection state).
+    fireEvent.click(screen.getAllByLabelText("Select row lst_1")[0]!);
 
-    await waitFor(() =>
-      expect((container.querySelector('input[name="selectedOptions"]') as HTMLInputElement | null)?.value).toBe(
-        JSON.stringify([
-          { dimensionId: "form", optionId: "raw" },
-          { dimensionId: "condition", optionId: "damaged" },
-        ]),
-      ),
-    );
-    expect(screen.getByLabelText("Form")).toBeTruthy();
-    expect(screen.getByLabelText("Condition")).toBeTruthy();
-    expect(screen.queryByLabelText("Grading Company")).toBeNull();
-    expect(screen.queryByLabelText("Grade")).toBeNull();
+    expect(screen.getByText("Pause selected")).toBeTruthy();
+    expect(screen.getByText("Withdraw selected")).toBeTruthy();
+    const hiddenInput = container.querySelector('input[type="hidden"][name="listingIds"]') as HTMLInputElement | null;
+    expect(hiddenInput?.value).toBe("lst_1");
+
+    const pauseButton = screen.getByRole("button", { name: "Pause selected" }) as HTMLButtonElement;
+    expect(pauseButton.getAttribute("name")).toBe("intent");
+    expect(pauseButton.getAttribute("value")).toBe("bulk-pause-listings");
   });
 
-  it("blocks create-and-publish for selected inventory without a shipping measure", () => {
+  it("renders per-row bulk action outcomes with success and failure badges", () => {
     render(
       <MarketplaceListingListPage
-        data={{ items: [] }}
+        data={{ items: [buildListingRow()] }}
         listingAvailability={availableListings}
-        inventoryItems={[
-          {
-            item_id: "inv_missing_measure",
-            catalog_catalog_item_id: "cat_charizard",
-            product_id: "cat_charizard::raw",
-            item_language_code: "en",
-            item_title: "Charizard",
-            item_subtitle: "Base Set",
-            selected_options: [],
-            product_summary: "Raw",
-            product_measure_snapshot: null,
-            graded_card: null,
-            storage_location_id: "loc_1",
-            storage_location_name: "North shelf",
-            ship_from_code: "CHI",
-            ship_from_address: {
-              name: "Seller Shipping",
-              line1: "1 Warehouse Way",
-              city: "Chicago",
-              state: "IL",
-              postalCode: "60601",
-              country: "US",
-            },
-            total_quantity: 1,
-            available_quantity: 1,
-            acquisition_cost_amount: null,
-          },
+        bulkActionOutcomes={[
+          { listingId: "lst_1", label: "Listing lst_1", outcome: "success", message: null },
+          { listingId: "lst_2", label: "Listing lst_2", outcome: "error", message: "Listing is withdrawn." },
         ]}
-        hasListingStockLocation
-        createForm={{
-          inventoryItemId: "inv_missing_measure",
-          priceAmount: "20.00",
-          quantityCap: "1",
-        }}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Create and publish" }).hasAttribute("disabled")).toBe(true);
-    expect(
-      screen.getByText("Resolve the catalog shipping measure before creating an active listing from this inventory."),
-    ).toBeTruthy();
+    expect(screen.getByText("1 succeeded, 1 failed")).toBeTruthy();
+    expect(screen.getByText("Succeeded")).toBeTruthy();
+    expect(screen.getByText("Failed")).toBeTruthy();
+    expect(screen.getByText("Listing is withdrawn.")).toBeTruthy();
   });
 });

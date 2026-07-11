@@ -5,6 +5,7 @@ import {
   getMarketSummaryForItem,
   listItemListings,
   listSellerInventoryItemSupply,
+  listSellerListings,
   MARKETPLACE_ITEM_LISTINGS_DEFAULT_PAGE_SIZE,
 } from "./queries";
 
@@ -216,5 +217,69 @@ describe("marketplace listing read-model queries", () => {
     });
 
     expect(calls[0]?.params).toEqual(["cat_air_balloon::form:raw|condition:damaged", 100, 0]);
+  });
+
+  it("scopes seller listings to account only when no status filter or search is applied", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        if (sql.includes("COUNT(*)")) {
+          return { rows: [{ count: "1" } as Row] };
+        }
+        return { rows: [listingPageRow as Row] };
+      },
+    };
+
+    await listSellerListings(db, { accountId: "acc_seller" });
+
+    expect(calls[0]?.params).toEqual(["acc_seller"]);
+    expect(calls[0]?.sql).not.toContain("status =");
+    expect(calls[0]?.sql).not.toContain("ILIKE");
+    expect(calls[1]?.params).toEqual(["acc_seller", 50, 0]);
+  });
+
+  it("filters seller listings by status and title search", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        if (sql.includes("COUNT(*)")) {
+          return { rows: [{ count: "1" } as Row] };
+        }
+        return { rows: [listingPageRow as Row] };
+      },
+    };
+
+    await listSellerListings(db, {
+      accountId: "acc_seller",
+      status: "paused",
+      search: "Air",
+      limit: 25,
+      offset: 0,
+    });
+
+    expect(calls[0]?.sql).toContain("status = $2");
+    expect(calls[0]?.sql).toContain("item_title ILIKE $3");
+    expect(calls[0]?.params).toEqual(["acc_seller", "paused", "%Air%"]);
+    expect(calls[1]?.params).toEqual(["acc_seller", "paused", "%Air%", 25, 0]);
+  });
+
+  it("ignores an unrecognized status filter value", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        if (sql.includes("COUNT(*)")) {
+          return { rows: [{ count: "0" } as Row] };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+
+    await listSellerListings(db, { accountId: "acc_seller", status: "not-a-real-status" });
+
+    expect(calls[0]?.params).toEqual(["acc_seller"]);
+    expect(calls[0]?.sql).not.toContain("status =");
   });
 });

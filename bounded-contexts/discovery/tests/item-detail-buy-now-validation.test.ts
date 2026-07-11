@@ -1922,7 +1922,7 @@ describe("item detail buy now validation and watch intents", () => {
 
     expect(result.status).toBe(302);
     expect(result.headers.get("Location")).toBe(
-      "/register?returnTo=%2Faccount%2Flistings%3FclaimListingIntent%3Dldi_1",
+      "/register?returnTo=%2Faccount%2Flistings%2Fnew%3FclaimListingIntent%3Dldi_1",
     );
     expect(result.headers.get("Set-Cookie")).toContain("chase_sets_anonymous_listing_drafts=anon_listing_draft_1");
     expect(createAnonymousListingDraftIntent).toHaveBeenCalledWith("anon_listing_draft_1", {

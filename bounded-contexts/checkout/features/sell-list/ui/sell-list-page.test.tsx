@@ -267,7 +267,7 @@ describe("checkout sell list page", () => {
     expect(markup).toContain('href="/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"');
     expect(markup).toContain("Create listing");
     expect(markup).toContain("Add inventory");
-    expect(markup).toContain('href="/account/listings?catalogItemId=cat_charizard');
+    expect(markup).toContain('href="/account/listings/new?catalogItemId=cat_charizard');
     expect(markup).toContain('href="/account/inventory?catalogItemId=cat_charizard');
     expect(markup).toContain("returnTo=%2Faccount%2Fsell-list");
     expect(markup).toContain("disabled");
@@ -345,7 +345,7 @@ describe("checkout sell list page", () => {
 
     const setupLink = screen.getByRole("link", { name: "Create matching listing" });
     expect(setupLink.getAttribute("href")).toBe(
-      "/account/listings?catalogItemId=cat_charizard&recommendedPrice=350.00&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D",
+      "/account/listings/new?catalogItemId=cat_charizard&recommendedPrice=350.00&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D",
     );
     expect(screen.getAllByRole("link", { name: "Resolve items" })[0]?.getAttribute("href")).toBe(
       setupLink.getAttribute("href"),

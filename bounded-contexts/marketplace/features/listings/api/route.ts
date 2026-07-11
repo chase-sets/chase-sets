@@ -286,11 +286,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
+    const status = c.req.query("status")?.trim();
+    const search = c.req.query("search")?.trim();
     const [result, statusCounts] = await Promise.all([
       services.listSellerListings({
         accountId: access.actor.accountId,
         limit,
         offset,
+        status: status && status !== "all" ? status : undefined,
+        search: search ? search : undefined,
       }),
       services.getSellerListingStatusCounts(access.actor.accountId),
     ]);

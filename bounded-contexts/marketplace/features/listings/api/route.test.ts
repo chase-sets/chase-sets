@@ -528,6 +528,33 @@ describe("marketplace listing routes", () => {
     );
   });
 
+  it("forwards status and search filters to the seller listings query and drops the all-status sentinel", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: sellerActor,
+      services,
+    });
+
+    await app.fetch(
+      new Request("http://marketplace.test/account/listings?status=paused&search=Charizard&limit=25&offset=0"),
+    );
+
+    expect(services.listSellerListings).toHaveBeenCalledWith({
+      accountId: "acc_seller",
+      limit: 25,
+      offset: 0,
+      status: "paused",
+      search: "Charizard",
+    });
+
+    vi.mocked(services.listSellerListings).mockClear();
+    await app.fetch(new Request("http://marketplace.test/account/listings?status=all"));
+
+    expect(services.listSellerListings).toHaveBeenCalledWith(
+      expect.objectContaining({ status: undefined, search: undefined }),
+    );
+  });
+
   it("returns a stable code when listing creation cannot find Marketplace inventory supply", async () => {
     const services = createServices();
     vi.mocked(services.createListing).mockRejectedValueOnce(new Error("Inventory item not found."));
