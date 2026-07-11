@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  AdminResourceListPage,
   AppliedFilterChips,
   Form,
   Inline,
@@ -10,8 +11,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { useAdminResourceListPageChange } from "@chase-sets/design-system/react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import { IDENTITY_MEMBERSHIP_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import type { Membership } from "./contracts";
 
@@ -86,9 +87,10 @@ export function MembershipListPage({
   filters?: IdentityListFilters;
 }) {
   const appliedFilters = buildMembershipAppliedFilters(filters);
+  const onPageChange = useAdminResourceListPageChange(initialData);
 
   return (
-    <AdminListPage
+    <AdminResourceListPage
       title={t("identity.features.memberships.ui.membershipListPage.memberships")}
       items={initialData.items}
       columns={columns}
@@ -143,6 +145,7 @@ export function MembershipListPage({
         </>
       }
       pagination={initialData}
+      onPageChange={onPageChange}
     />
   );
 }

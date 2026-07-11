@@ -1,5 +1,5 @@
-import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react";
-import { Form as ReactRouterForm } from "react-router";
+import { forwardRef, useCallback, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { Form as ReactRouterForm, useLocation, useNavigate } from "react-router";
 import { cx } from "../../utils/cx";
 import { FormProvider, type FormStatus } from "./form";
 
@@ -67,3 +67,29 @@ export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function 
     </FormProvider>
   );
 });
+
+/**
+ * Wires an AdminResourceListPage's `limit`/`offset` pagination onto client-side navigation:
+ * clicking a page updates the `limit`/`offset` search params via `useNavigate` instead of a full
+ * page reload. Returns a no-op when `pagination` is undefined (unpaginated lists).
+ */
+export function useAdminResourceListPageChange(
+  pagination: Readonly<{ limit: number; offset: number; total: number }> | undefined,
+): (page: number) => void {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  return useCallback(
+    (page: number) => {
+      if (!pagination) {
+        return;
+      }
+
+      const searchParams = new URLSearchParams(location.search);
+      searchParams.set("limit", String(pagination.limit));
+      searchParams.set("offset", String((page - 1) * pagination.limit));
+      navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
+    },
+    [navigate, location, pagination],
+  );
+}

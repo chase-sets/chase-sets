@@ -1,13 +1,21 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Inline, NativeSelect, Stack, TextInput } from "@chase-sets/design-system";
-import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
+import {
+  AdminResourceDetailPage,
+  HiddenInput,
+  Form,
+  Button,
+  Inline,
+  NativeSelect,
+  Stack,
+  TextInput,
+} from "@chase-sets/design-system";
 import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
 import { AccountBadgeList, accountBadgeLabel, accountBadgeKeys, accountBadgeLabels } from "./account-badges";
 import type { Account } from "./contracts";
 
 export function AccountDetailPage({ data }: { data: Account }) {
   return (
-    <AdminDetailPage
+    <AdminResourceDetailPage
       breadcrumbs={[
         { label: t("identity.features.accounts.ui.accountListPage.accounts"), href: "/access/accounts" },
         { label: data.display_name },

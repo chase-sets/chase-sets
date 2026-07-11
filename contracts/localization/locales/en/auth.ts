@@ -194,8 +194,6 @@ export const authEnglishTranslations = {
   "auth.support.apiSupport.support.forbidden": "Forbidden.",
   "auth.support.apiSupport.support.missing.auth.actor": "Missing auth actor.",
   "auth.support.apiSupport.support.missing.auth.request.context": "Missing auth request context.",
-  "auth.features.sessions.ui.adminPages.item.count": "{count} items",
-  "auth.features.sessions.ui.adminPages.view": "View",
   "auth.support.apiSupport.guestCheckoutRoutes.claim.link.is.invalid.or.expired": "Claim link is invalid or expired.",
   "auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required": "Guest checkout token required.",
   "auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.does.not.match.this.email":

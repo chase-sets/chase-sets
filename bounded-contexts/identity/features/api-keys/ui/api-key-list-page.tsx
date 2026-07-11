@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  AdminResourceListPage,
   AppliedFilterChips,
   HiddenInput,
   Form,
@@ -13,8 +14,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { useAdminResourceListPageChange } from "@chase-sets/design-system/react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import { IDENTITY_API_KEY_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
@@ -96,9 +97,10 @@ export function ApiKeyListPage({
 }) {
   const userItems = buildApiKeyUserPickerItems(users);
   const appliedFilters = buildApiKeyAppliedFilters(filters);
+  const onPageChange = useAdminResourceListPageChange(initialData);
 
   return (
-    <AdminListPage
+    <AdminResourceListPage
       title={t("identity.features.apiKeys.ui.apiKeyListPage.api.keys")}
       items={initialData.items}
       columns={columns}
@@ -179,6 +181,7 @@ export function ApiKeyListPage({
       emptyMessage={t("identity.features.apiKeys.ui.apiKeyListPage.no.api.keys.yet")}
       getHref={(row) => `/access/api-keys/${row.api_key_id}`}
       pagination={initialData}
+      onPageChange={onPageChange}
     />
   );
 }

@@ -1,6 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Inline, Stack } from "@chase-sets/design-system";
-import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
+import { AdminResourceDetailPage, HiddenInput, Form, Button, Inline, Stack } from "@chase-sets/design-system";
 import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
 
@@ -13,7 +12,7 @@ export function ApiKeyDetailPage({
 }) {
   const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
   return (
-    <AdminDetailPage
+    <AdminResourceDetailPage
       breadcrumbs={[
         { label: t("identity.features.apiKeys.ui.apiKeyListPage.api.keys"), href: "/access/api-keys" },
         { label: data.name },

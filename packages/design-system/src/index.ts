@@ -9,6 +9,7 @@ export * from "./hooks";
 export * from "./icons";
 export * from "./motion/config";
 export * from "./motion/primitives";
+export * from "./patterns/admin-resource-shell";
 export * from "./patterns/app-shells";
 export * from "./patterns/dense-admin-workbench";
 export * from "./patterns/dense-admin-workbench-proof";
