@@ -29,6 +29,7 @@ Auth row deletion is the retention action required by the PII policy: expired ma
 - `identity_invitations`: durable Identity history, not ephemeral Auth token data.
 - `auth_identity_invitations`, `inventory_holds`, `marketplace_supply_holds`: mutable event projections that must remain present for later lifecycle events.
 - `event_store_events`: the canonical event ledger remains permanent under its separate partitioning/retention decision.
+- `pricing_market_trades` (the Trades Tape, #4303): permanent product/market data, not ephemeral request history -- explicitly out of scope for m84 #3625 sweeps.
 - Platform lease, work-signal, post-write-token, realtime-lease, and UCP idempotency tables retain their purpose-built cleanup paths. Fencing tokens and UCP agent profiles are durable authorization/control state.
 
 The structure gate scans new `expires_at`, terminal-state, and insert-only timestamped table shapes. A new candidate must appear in a context retention policy or receive a justified exemption; silent unbounded growth fails `check:structure`.
