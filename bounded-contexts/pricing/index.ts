@@ -13,6 +13,11 @@ import {
   buildPricingOrderingInputProjectionHandlers,
 } from "./features/recommendations/integrations/source/source-projection";
 import { buildPricingMarketTradesProjectionHandlers } from "./features/market-trades/integrations/source/source-projection";
+import {
+  buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers,
+  buildPricingMarketTradesIdentityIntegrityProjectionHandlers,
+  buildPricingMarketTradesPaymentsIntegrityProjectionHandlers,
+} from "./features/market-trades/integrations/integrity/integrity-projection";
 import { pricingSchemaSql } from "./support/runtime-support/schema";
 import { pricingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedPricingDatabase } from "./support/runtime-support/seed";
@@ -52,6 +57,18 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
         "fulfillment.pricing-market-trades-projection": {
           filterToEventTypes: true,
           buildHandlers: () => marketTradesHandlers,
+        },
+        "identity.pricing-market-trades-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildPricingMarketTradesIdentityIntegrityProjectionHandlers(services.db),
+        },
+        "payments.pricing-market-trades-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(services.db),
+        },
+        "authenticity.pricing-market-trades-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers(services.db),
         },
       },
     });

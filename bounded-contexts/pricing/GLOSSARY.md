@@ -34,7 +34,11 @@ A **Historical Price Trend** is an analysis view over prior Market Price Snapsho
 
 ## Trades Tape
 
-The **Trades Tape** is the normalized, ordered history of completed marketplace trades used as pricing evidence: one row per order line that reaches a sale, backfilled in full by projection replay over Ordering and Fulfillment events. Each entry carries the sale channel, the payment (`sold_at`) and delivery (`settled_at`) timestamps, a verified-sale marker (m109), and an exclusion flag with reason for refunded or cancelled trades. Tape-integrity exclusions (fraud, self-dealing) are a later addition (#4304).
+The **Trades Tape** is the normalized, ordered history of completed marketplace trades used as pricing evidence: one row per order line that reaches a sale, backfilled in full by projection replay over Ordering and Fulfillment events. Each entry carries the sale channel, the payment (`sold_at`) and delivery (`settled_at`) timestamps, a verified-sale marker, and an exclusion flag with reason. Refunded and cancelled exclusions come from order/shipment facts; fraud-flagged exclusions come from m107 risk-flag events (Identity's `manual-payout-review` badge assignment, Payments' Stripe early-fraud-warning receipt) reacting retroactively against every historical trade for the flagged account or order (#4304); the verified marker is set by an m109 authenticity case's "passed" verdict on the trade's order. Self-dealing trades never reach the tape at all -- m107 #4250 hard-blocks same-account orders at creation -- so the reserved `self-dealing` exclusion reason has no writer.
+
+## Stat-Hygiene Policy
+
+The **Stat-Hygiene Policy** is Pricing's m110 platform-policy declaration of the Trades Tape's manipulation-resistance dials: the minimum trade sample before a median displays, the short/long convenience lookback windows, and the outlier-trimming percentile applied to each tail of an aggregate stats window. Declared as a runtime-configurable policy with a compiled fallback (#4304); the Daily Product Rollup's query and maintenance call sites still read the equivalent hard-coded constants directly, pending the m110 policy-consolidation slice that wires live resolution.
 
 ## Daily Product Rollup
 

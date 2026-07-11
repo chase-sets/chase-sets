@@ -28,12 +28,15 @@ CREATE TABLE IF NOT EXISTS pricing_market_trades (
   -- Delivery (fulfillment.shipment.delivered). NULL until the shipment
   -- carrying this line is marked delivered.
   settled_at timestamptz NULL,
-  -- Always false until the m109 authenticity-check integration wires
-  -- verified-sale markers onto this seam.
+  -- Set true by an m109 authenticity-case 'passed' verdict on the trade's
+  -- order (see integrations/integrity/integrity-projection.ts).
   verified boolean NOT NULL DEFAULT false,
-  -- Fraud/self-dealing exclusion wiring is a later slice; this table only
-  -- wires the refund/cancel reasons already available from order and
-  -- shipment facts, leaving the remaining reasons as a seam.
+  -- 'fraud-flagged' is wired by m107 risk-flag events (identity
+  -- manual-payout-review badge assignment, Stripe early-fraud-warning
+  -- receipt) retroactively excluding a flagged account's/order's historical
+  -- trades. 'self-dealing' stays declared but has no writer -- an m107 hard
+  -- block rejects same-account orders at creation, so a self-dealing trade
+  -- never reaches the tape to begin with.
   excluded boolean NOT NULL DEFAULT false,
   exclusion_reason text NULL CHECK (exclusion_reason IN ('refunded', 'cancelled', 'fraud-flagged', 'self-dealing')),
   updated_at timestamptz NOT NULL,
@@ -54,4 +57,20 @@ CREATE INDEX IF NOT EXISTS pricing_market_trades_included_time_series_idx
 CREATE INDEX IF NOT EXISTS pricing_market_trades_shipment_idx
   ON pricing_market_trades (shipment_id)
   WHERE shipment_id IS NOT NULL;
+
+-- Tape-integrity correlation seam: m109 authenticity verdicts carry only
+-- caseId, not orderId/lineId, so this small side table remembers the
+-- caseId -> orderId link recorded when the case opens (which does carry
+-- orderId) for the verdict-recorded reaction to join back through. Owned by
+-- the same pricing-market-trades-projection group as pricing_market_trades
+-- itself -- it exists purely to serve that projection's own reactions, never
+-- queried by another projection or route.
+CREATE TABLE IF NOT EXISTS pricing_market_trade_authenticity_cases (
+  case_id text PRIMARY KEY,
+  order_id text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS pricing_market_trade_authenticity_cases_order_idx
+  ON pricing_market_trade_authenticity_cases (order_id);
 `;

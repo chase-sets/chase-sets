@@ -134,7 +134,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `pricing:pricing-fulfillment-input-projection` | Pricing | fulfillment | push-eligible | 0/1 |
 | `pricing:pricing-inventory-input-projection` | Pricing | **inventory** | push-enabled | 1/1 |
 | `pricing:pricing-market-input-projection` | Pricing | **marketplace** | push-enabled | 1/1 |
-| `pricing:pricing-market-trades-projection` | Pricing | fulfillment, **ordering** | push-eligible | 1/2 |
+| `pricing:pricing-market-trades-projection` | Pricing | authenticity, fulfillment, **identity**, **ordering**, **payments** | push-eligible | 3/5 |
 | `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-transactional-email-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
