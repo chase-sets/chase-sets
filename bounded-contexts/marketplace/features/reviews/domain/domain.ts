@@ -5,7 +5,10 @@ import {
   assertNever,
   ensureIsoTimestamp,
   normalizeFeedback,
+  normalizeModerationReason,
   normalizeRating,
+  normalizeReplyFeedback,
+  normalizeRequiredText,
   normalizeRevealReason,
   normalizeReviewRole,
   normalizeReviewStatus,
@@ -35,6 +38,21 @@ export type ReviewState = Readonly<{
   revealedAt: string | null;
   revealReason: ReviewRevealReason | null;
   reviewWindowExpiresAt: string | null;
+  // Moderation (m108). `withdrawnByActorType` distinguishes an
+  // author-initiated withdrawal (blocked post-reveal) from an
+  // operator-initiated one (the only path once a review is revealed).
+  // `moderationReason` holds the latest operator withdraw/redact reason for
+  // display; the authoritative audit trail is the event stream itself.
+  withdrawnByActorType: "author" | "operator" | null;
+  moderationOperatorUserId: string | null;
+  moderationReason: string | null;
+  feedbackRedactedAt: string | null;
+  // Subject reply: one threaded, moderatable response per review.
+  replyId: string | null;
+  replyFeedback: string | null;
+  replyStatus: "active" | "withdrawn" | null;
+  replySubmittedAt: string | null;
+  replyWithdrawnAt: string | null;
 }>;
 
 export const initialReviewState: ReviewState = {
@@ -53,6 +71,15 @@ export const initialReviewState: ReviewState = {
   revealedAt: null,
   revealReason: null,
   reviewWindowExpiresAt: null,
+  withdrawnByActorType: null,
+  moderationOperatorUserId: null,
+  moderationReason: null,
+  feedbackRedactedAt: null,
+  replyId: null,
+  replyFeedback: null,
+  replyStatus: null,
+  replySubmittedAt: null,
+  replyWithdrawnAt: null,
 };
 
 export type SubmitReviewCommand = Readonly<{
@@ -88,6 +115,53 @@ export type WithdrawReviewCommand = Readonly<{
 }>;
 
 /**
+ * Operator moderation (m108): removes the review from display and
+ * every downstream aggregate while preserving the full event history. Unlike
+ * the author's own `WithdrawReview`, this is allowed regardless of reveal
+ * state -- post-reveal author withdrawal is blocked by design and routes
+ * through moderation instead.
+ */
+export type OperatorWithdrawReviewCommand = Readonly<{
+  type: "OperatorWithdrawReview";
+  withdrawnAt: string;
+  operatorUserId: string;
+  reason: string;
+}>;
+
+/**
+ * Operator moderation (m108): removes abusive/PII-laden review text
+ * while the rating stands. Idempotent no-op when there is no feedback left to
+ * redact.
+ */
+export type OperatorRedactReviewFeedbackCommand = Readonly<{
+  type: "OperatorRedactReviewFeedback";
+  redactedAt: string;
+  operatorUserId: string;
+  reason: string;
+}>;
+
+/**
+ * Subject reply (m108): one threaded public response per review,
+ * authored only by the review's subject, only once the review is revealed
+ * (the subject cannot respond to content it cannot yet see).
+ */
+export type SubmitReviewReplyCommand = Readonly<{
+  type: "SubmitReviewReply";
+  replyId: string;
+  subjectAccountId: string;
+  feedback: string;
+  submittedAt: string;
+}>;
+
+/** Operator moderation of a subject reply, mirroring review withdrawal. */
+export type OperatorWithdrawReviewReplyCommand = Readonly<{
+  type: "OperatorWithdrawReviewReply";
+  withdrawnAt: string;
+  operatorUserId: string;
+  reason: string;
+}>;
+
+/**
  * Reveals a hidden review, either because the counterpart review for the
  * same order just submitted (both directions reveal together) or because the
  * submission window elapsed with no counterpart (this review reveals alone).
@@ -101,7 +175,15 @@ export type RevealReviewCommand = Readonly<{
   reason: ReviewRevealReason;
 }>;
 
-export type ReviewCommand = SubmitReviewCommand | UpdateReviewCommand | WithdrawReviewCommand | RevealReviewCommand;
+export type ReviewCommand =
+  | SubmitReviewCommand
+  | UpdateReviewCommand
+  | WithdrawReviewCommand
+  | RevealReviewCommand
+  | OperatorWithdrawReviewCommand
+  | OperatorRedactReviewFeedbackCommand
+  | SubmitReviewReplyCommand
+  | OperatorWithdrawReviewReplyCommand;
 
 export type ReviewSubmittedEvent = DomainEvent<
   "marketplace.review.submitted",
@@ -134,6 +216,43 @@ export type ReviewWithdrawnEvent = DomainEvent<
   Readonly<{
     reviewId: ReviewId;
     withdrawnAt: string;
+    // Present only for operator-initiated withdrawals (m108) -- the
+    // audit trail this AC requires: every moderation action is an event with
+    // actor + reason. Absent (undefined) for the author's own withdrawal.
+    actorType?: "operator";
+    operatorUserId?: string;
+    reason?: string;
+  }>
+>;
+
+export type ReviewFeedbackRedactedEvent = DomainEvent<
+  "marketplace.review.feedback-redacted",
+  Readonly<{
+    reviewId: ReviewId;
+    redactedAt: string;
+    operatorUserId: string;
+    reason: string;
+  }>
+>;
+
+export type ReviewReplySubmittedEvent = DomainEvent<
+  "marketplace.review.reply-submitted",
+  Readonly<{
+    reviewId: ReviewId;
+    replyId: string;
+    subjectAccountId: AccountId;
+    feedback: string;
+    submittedAt: string;
+  }>
+>;
+
+export type ReviewReplyWithdrawnEvent = DomainEvent<
+  "marketplace.review.reply-withdrawn",
+  Readonly<{
+    reviewId: ReviewId;
+    withdrawnAt: string;
+    operatorUserId: string;
+    reason: string;
   }>
 >;
 
@@ -146,7 +265,14 @@ export type ReviewRevealedEvent = DomainEvent<
   }>
 >;
 
-export type ReviewEvent = ReviewSubmittedEvent | ReviewUpdatedEvent | ReviewWithdrawnEvent | ReviewRevealedEvent;
+export type ReviewEvent =
+  | ReviewSubmittedEvent
+  | ReviewUpdatedEvent
+  | ReviewWithdrawnEvent
+  | ReviewRevealedEvent
+  | ReviewFeedbackRedactedEvent
+  | ReviewReplySubmittedEvent
+  | ReviewReplyWithdrawnEvent;
 
 export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEvent> = (state, command) => {
   switch (command.type) {
@@ -234,6 +360,82 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
         },
       ];
     }
+    case "OperatorWithdrawReview": {
+      assert(state.reviewId !== null, "Review must be submitted first.");
+      if (state.status === "withdrawn") {
+        return [];
+      }
+
+      return [
+        {
+          type: "marketplace.review.withdrawn",
+          data: {
+            reviewId: state.reviewId,
+            withdrawnAt: ensureIsoTimestamp(command.withdrawnAt, "Review withdrawal must record a timestamp."),
+            actorType: "operator",
+            operatorUserId: normalizeRequiredText(command.operatorUserId, "Operator is required."),
+            reason: normalizeModerationReason(command.reason),
+          },
+        },
+      ];
+    }
+    case "OperatorRedactReviewFeedback": {
+      assert(state.reviewId !== null, "Review must be submitted first.");
+      assert(state.status !== "withdrawn", "Withdrawn reviews cannot be redacted.");
+      if (state.feedback === null) {
+        return [];
+      }
+
+      return [
+        {
+          type: "marketplace.review.feedback-redacted",
+          data: {
+            reviewId: state.reviewId,
+            redactedAt: ensureIsoTimestamp(command.redactedAt, "Feedback redaction must record a timestamp."),
+            operatorUserId: normalizeRequiredText(command.operatorUserId, "Operator is required."),
+            reason: normalizeModerationReason(command.reason),
+          },
+        },
+      ];
+    }
+    case "SubmitReviewReply": {
+      assert(state.reviewId !== null, "Review must be submitted first.");
+      assert(state.status === "active", "Withdrawn reviews cannot be replied to.");
+      assert(state.revealedAt !== null, "Reviews cannot be replied to before they are revealed.");
+      assert(command.subjectAccountId === state.subjectAccountId, "Only the review subject may reply.");
+      assert(state.replyId === null, "A reply already exists for this review.");
+
+      return [
+        {
+          type: "marketplace.review.reply-submitted",
+          data: {
+            reviewId: state.reviewId,
+            replyId: normalizeRequiredText(command.replyId, "Reply id is required."),
+            subjectAccountId: state.subjectAccountId,
+            feedback: normalizeReplyFeedback(command.feedback),
+            submittedAt: ensureIsoTimestamp(command.submittedAt, "Reply submission must record a timestamp."),
+          },
+        },
+      ];
+    }
+    case "OperatorWithdrawReviewReply": {
+      assert(state.replyId !== null, "No reply exists for this review.");
+      if (state.replyStatus === "withdrawn") {
+        return [];
+      }
+
+      return [
+        {
+          type: "marketplace.review.reply-withdrawn",
+          data: {
+            reviewId: state.reviewId as ReviewId,
+            withdrawnAt: ensureIsoTimestamp(command.withdrawnAt, "Reply withdrawal must record a timestamp."),
+            operatorUserId: normalizeRequiredText(command.operatorUserId, "Operator is required."),
+            reason: normalizeModerationReason(command.reason),
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -268,6 +470,15 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         revealedAt: isPreReveal ? null : event.data.submittedAt,
         revealReason: isPreReveal ? null : "window-expired",
         reviewWindowExpiresAt,
+        withdrawnByActorType: null,
+        moderationOperatorUserId: null,
+        moderationReason: null,
+        feedbackRedactedAt: null,
+        replyId: null,
+        replyFeedback: null,
+        replyStatus: null,
+        replySubmittedAt: null,
+        replyWithdrawnAt: null,
       };
     }
     case "marketplace.review.updated":
@@ -283,6 +494,9 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         status: normalizeReviewStatus("withdrawn"),
         withdrawnAt: event.data.withdrawnAt,
         updatedAt: event.data.withdrawnAt,
+        withdrawnByActorType: event.data.actorType ?? "author",
+        moderationOperatorUserId: event.data.operatorUserId ?? null,
+        moderationReason: event.data.reason ?? null,
       };
     case "marketplace.review.revealed":
       return {
@@ -290,6 +504,31 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         revealedAt: event.data.revealedAt,
         revealReason: normalizeRevealReason(event.data.reason),
         updatedAt: event.data.revealedAt,
+      };
+    case "marketplace.review.feedback-redacted":
+      return {
+        ...state,
+        feedback: null,
+        feedbackRedactedAt: event.data.redactedAt,
+        moderationOperatorUserId: event.data.operatorUserId,
+        moderationReason: event.data.reason,
+        updatedAt: event.data.redactedAt,
+      };
+    case "marketplace.review.reply-submitted":
+      return {
+        ...state,
+        replyId: event.data.replyId,
+        replyFeedback: event.data.feedback,
+        replyStatus: "active",
+        replySubmittedAt: event.data.submittedAt,
+        updatedAt: event.data.submittedAt,
+      };
+    case "marketplace.review.reply-withdrawn":
+      return {
+        ...state,
+        replyStatus: "withdrawn",
+        replyWithdrawnAt: event.data.withdrawnAt,
+        updatedAt: event.data.withdrawnAt,
       };
     default:
       return assertNever(event);

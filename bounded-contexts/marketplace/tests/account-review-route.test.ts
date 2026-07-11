@@ -4,7 +4,7 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
 } from "@chase-sets/http/responses";
-import { loader as reviewLoader } from "../routes/marketplace/account-review";
+import { action as reviewAction, loader as reviewLoader } from "../routes/marketplace/account-review";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 const actor = {
@@ -14,7 +14,7 @@ const actor = {
   accountId: "acc_1",
   membershipId: "mbr_1",
   roleKey: "owner",
-  permissions: ["reputation.view"],
+  permissions: ["reputation.view", "reputation.manage"],
 };
 
 const review = {
@@ -93,6 +93,7 @@ describe("marketplace account review route", () => {
 
     expect(result).toEqual({
       review: null,
+      viewerAccountId: "acc_1",
       recovery: "fresh-write-preparing",
     });
   });
@@ -168,7 +169,93 @@ describe("marketplace account review route", () => {
     } as never);
 
     expect(result.review).toMatchObject({ review_id: "rev_1" });
+    expect(result.viewerAccountId).toBe("acc_1");
     expect(reviewHeaders[0]?.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(reviewHeaders[0]?.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("marketplace");
+  });
+
+  describe("subject reply action (m108)", () => {
+    function replyFormRequest(feedback: string) {
+      const body = new URLSearchParams({ feedback });
+      return new Request("http://localhost/account/reviews/rev_1", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      });
+    }
+
+    it("posts the reply to the API and redirects back to the review with a fresh-write receipt", async () => {
+      const replyBodies: unknown[] = [];
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = requestUrl(input);
+
+          if (url.includes("/api/auth/session")) {
+            return jsonResponse({ actor });
+          }
+
+          if (url.includes("/api/marketplace/reviews/rev_1/reply")) {
+            const request = input instanceof Request ? input : new Request(url, init);
+            replyBodies.push(await request.clone().json());
+            return jsonResponse({ id: "rev_1", replyId: "rvr_1", version: 3, status: "submitted" }, 201);
+          }
+
+          return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+        }),
+      );
+
+      const result = await reviewAction({
+        request: replyFormRequest("Thanks for the feedback -- glad it arrived safely."),
+        params: { reviewId: "rev_1" },
+        context: undefined,
+      } as never);
+
+      expect(replyBodies).toEqual([{ feedback: "Thanks for the feedback -- glad it arrived safely." }]);
+      expect(result).toBeInstanceOf(Response);
+      const response = result as Response;
+      expect(response.status).toBeGreaterThanOrEqual(300);
+      expect(response.status).toBeLessThan(400);
+      expect(response.headers.get("location")).toContain("/account/reviews/rev_1");
+    });
+
+    it("returns the API validation error and the draft response when a reply already exists", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestUrl(input);
+
+          if (url.includes("/api/auth/session")) {
+            return jsonResponse({ actor });
+          }
+
+          if (url.includes("/api/marketplace/reviews/rev_1/reply")) {
+            return jsonResponse(
+              {
+                error: {
+                  code: "validation_failed",
+                  message: "A reply already exists for this review.",
+                },
+              },
+              400,
+            );
+          }
+
+          return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+        }),
+      );
+
+      const result = await reviewAction({
+        request: replyFormRequest("Second reply attempt."),
+        params: { reviewId: "rev_1" },
+        context: undefined,
+      } as never);
+
+      expect(result).toEqual({
+        error: "A reply already exists for this review.",
+        values: { feedback: "Second reply attempt." },
+      });
+    });
   });
 });

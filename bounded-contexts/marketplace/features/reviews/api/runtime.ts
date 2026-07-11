@@ -81,6 +81,26 @@ export type ReviewServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ reviewId: string; version: number }>;
+  /** Operator moderation (m108): allowed regardless of reveal state. */
+  operatorWithdrawReview: (
+    params: Readonly<{ reviewId: string; operatorUserId: string; reason: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ reviewId: string; version: number }>;
+  /** Operator moderation (m108): rating stands, text is removed. */
+  operatorRedactReviewFeedback: (
+    params: Readonly<{ reviewId: string; operatorUserId: string; reason: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ reviewId: string; version: number }>;
+  /** Subject reply (m108): one threaded response, subject-only, post-reveal only. */
+  submitReviewReply: (
+    params: Readonly<{ reviewId: string; subjectAccountId: string; feedback: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ reviewId: string; replyId: string; version: number }>;
+  /** Operator moderation of a subject reply (m108). */
+  operatorWithdrawReviewReply: (
+    params: Readonly<{ reviewId: string; operatorUserId: string; reason: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ reviewId: string; version: number }>;
   listPublicAccountReviews: (
     params: Parameters<typeof listPublicAccountReviews>[1],
   ) => ReturnType<typeof listPublicAccountReviews>;
@@ -273,6 +293,64 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       });
 
       return { reviewId: review.review_id, version: result.version };
+    },
+    async operatorWithdrawReview(params, context) {
+      const result = await commandHandler({
+        streamId: `marketplace.review-${params.reviewId}`,
+        command: {
+          type: "OperatorWithdrawReview",
+          withdrawnAt: new Date().toISOString(),
+          operatorUserId: params.operatorUserId,
+          reason: params.reason,
+        },
+        context,
+      });
+
+      return { reviewId: params.reviewId, version: result.version };
+    },
+    async operatorRedactReviewFeedback(params, context) {
+      const result = await commandHandler({
+        streamId: `marketplace.review-${params.reviewId}`,
+        command: {
+          type: "OperatorRedactReviewFeedback",
+          redactedAt: new Date().toISOString(),
+          operatorUserId: params.operatorUserId,
+          reason: params.reason,
+        },
+        context,
+      });
+
+      return { reviewId: params.reviewId, version: result.version };
+    },
+    async submitReviewReply(params, context) {
+      const replyId = createId("rvr");
+      const result = await commandHandler({
+        streamId: `marketplace.review-${params.reviewId}`,
+        command: {
+          type: "SubmitReviewReply",
+          replyId,
+          subjectAccountId: params.subjectAccountId,
+          feedback: params.feedback,
+          submittedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { reviewId: params.reviewId, replyId, version: result.version };
+    },
+    async operatorWithdrawReviewReply(params, context) {
+      const result = await commandHandler({
+        streamId: `marketplace.review-${params.reviewId}`,
+        command: {
+          type: "OperatorWithdrawReviewReply",
+          withdrawnAt: new Date().toISOString(),
+          operatorUserId: params.operatorUserId,
+          reason: params.reason,
+        },
+        context,
+      });
+
+      return { reviewId: params.reviewId, version: result.version };
     },
     async sweepReviewWindowExpirations(params, context) {
       const now = params.now ?? new Date().toISOString();

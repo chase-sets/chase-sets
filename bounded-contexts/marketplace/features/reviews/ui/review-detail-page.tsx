@@ -1,14 +1,19 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Button,
+  Card,
+  Form,
   LinkButton,
   MarketplaceEmptyState,
+  MarketplaceNotice,
   Page,
   PageHeader,
   PageSection,
   ReviewCard,
   Stack,
   Text,
+  Textarea,
 } from "@chase-sets/design-system";
 import type { ReviewDetail } from "./contracts";
 
@@ -22,8 +27,37 @@ function isPending(review: ReviewDetail) {
   return review.status !== "withdrawn" && review.revealed_at === null;
 }
 
-export function ReviewDetailPage({ backHref, review }: { backHref: string; review: ReviewDetail }) {
+// Subject reply compose gating (m108): only the review's subject may reply,
+// only once the review is revealed and still active, and only once ever --
+// one round, no flame wars. reply_id stays set after an operator withdraws a
+// reply, so a withdrawn reply cannot be re-posted.
+function canComposeReply(review: ReviewDetail, viewerAccountId: string | null | undefined) {
+  return (
+    viewerAccountId != null &&
+    viewerAccountId === review.subject_account_id &&
+    review.status === "active" &&
+    review.revealed_at !== null &&
+    review.reply_id === null
+  );
+}
+
+export function ReviewDetailPage({
+  backHref,
+  review,
+  viewerAccountId,
+  replyErrorMessage,
+  isSubmittingReply = false,
+  defaultReplyFeedback = "",
+}: {
+  backHref: string;
+  review: ReviewDetail;
+  viewerAccountId?: string | null;
+  replyErrorMessage?: string | null;
+  isSubmittingReply?: boolean;
+  defaultReplyFeedback?: string;
+}) {
   const pending = isPending(review);
+  const showReplyForm = canComposeReply(review, viewerAccountId);
 
   return (
     <Page>
@@ -68,12 +102,60 @@ export function ReviewDetailPage({ backHref, review }: { backHref: string; revie
                     {t("reputation.features.reviews.ui.reviewDetailPage.resolved.via.refund")}
                   </Badge>
                 ) : null}
+                {review.withdrawn_by_actor_type === "operator" ? (
+                  <Badge tone="danger">
+                    {t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}
+                  </Badge>
+                ) : null}
+                {review.feedback_redacted_at !== null ? (
+                  <Badge tone="danger">{t("reputation.features.reviews.ui.reviewDetailPage.moderated.redacted")}</Badge>
+                ) : null}
               </Stack>
             }
             verified
+            sellerResponse={
+              review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined
+            }
           />
         )}
       </PageSection>
+
+      {showReplyForm ? (
+        <PageSection title={t("reputation.features.reviews.ui.reviewDetailPage.reply.title")}>
+          <Card>
+            <Stack gap={3}>
+              <Text size="sm" tone="secondary">
+                {t("reputation.features.reviews.ui.reviewDetailPage.reply.description")}
+              </Text>
+              {replyErrorMessage ? (
+                <MarketplaceNotice
+                  tone="danger"
+                  title={t("reputation.features.reviews.ui.reviewDetailPage.reply.title")}
+                  description={replyErrorMessage}
+                />
+              ) : null}
+              <Form spacing="none" method="post">
+                <Stack gap={3}>
+                  <Textarea
+                    name="feedback"
+                    label={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback")}
+                    defaultValue={defaultReplyFeedback}
+                    rows={4}
+                    required
+                    maxLength={1000}
+                    description={t("reputation.features.reviews.ui.reviewDetailPage.reply.feedback.description")}
+                  />
+                  <Button type="submit">
+                    {isSubmittingReply
+                      ? t("reputation.features.reviews.ui.reviewDetailPage.reply.submitting")
+                      : t("reputation.features.reviews.ui.reviewDetailPage.reply.submit")}
+                  </Button>
+                </Stack>
+              </Form>
+            </Stack>
+          </Card>
+        </PageSection>
+      ) : null}
     </Page>
   );
 }

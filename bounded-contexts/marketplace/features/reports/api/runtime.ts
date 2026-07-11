@@ -3,6 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   decideMarketplaceListing,
@@ -12,6 +13,7 @@ import {
   type MarketplaceListingEvent,
   type MarketplaceListingState,
 } from "../../listings/domain/domain";
+import { getReviewModerationTarget } from "../../reviews/read-model/queries";
 import {
   decideMarketplaceReport,
   evolveMarketplaceReport,
@@ -29,6 +31,7 @@ export const LISTING_REPORT_AUTO_UNLIST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type MarketplaceReportRuntimeDeps = Readonly<{
   eventStore: EventStore;
+  db: PgQueryable;
 }>;
 
 export type MarketplaceReportServices = Readonly<{
@@ -52,6 +55,26 @@ export type MarketplaceReportServices = Readonly<{
     threshold: number;
     autoUnlisted: boolean;
   }>;
+  /**
+   * Report a review (m108): authenticated only (visitors cannot
+   * report reviews -- reviews already require a verified transaction, so
+   * anonymous reporting is not needed), and only on a revealed review --
+   * pre-reveal review text is not public yet, so there is nothing to report.
+   * Feeds the same reported-content queue as `reportListing` (built once for
+   * both listing and review targets); reviews have no auto-unlist
+   * equivalent, so this never triggers an automatic domain action.
+   */
+  reportReview: (
+    params: Readonly<{
+      reviewId: string;
+      reporterAccountId: string;
+      reporterUserId: string | null;
+      reason: MarketplaceReportReason;
+      details?: string | null;
+      sourceRoutePath: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ reportId: string; version: number }>;
 }>;
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -180,6 +203,37 @@ export function createMarketplaceReportRuntime(deps: MarketplaceReportRuntimeDep
         threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
         autoUnlisted: shouldAutoUnlist,
       };
+    },
+    async reportReview(params, context) {
+      const review = await getReviewModerationTarget(deps.db, params.reviewId);
+      assert(review !== null, "Review not found.");
+      assert(review.status === "active", "This review is no longer active.");
+      assert(review.revealed_at !== null, "This review has not been revealed yet.");
+
+      const reportId = createId("rpt");
+      const reporterKey = stableReporterKey("account", params.reporterAccountId);
+      const submittedAt = new Date().toISOString();
+      const result = await commandHandler({
+        streamId: stableReportStreamId("review", params.reviewId, reporterKey),
+        command: {
+          type: "SubmitMarketplaceReport",
+          reportId,
+          targetType: "review",
+          targetId: params.reviewId,
+          targetOwnerAccountId: review.subject_account_id,
+          reporterKind: "account",
+          reporterKey,
+          reporterAccountId: params.reporterAccountId,
+          reporterUserId: params.reporterUserId,
+          reason: normalizeReason(params.reason),
+          details: params.details ?? null,
+          sourceRoutePath: params.sourceRoutePath,
+          submittedAt,
+        },
+        context,
+      });
+
+      return { reportId, version: result.version };
     },
   };
 }

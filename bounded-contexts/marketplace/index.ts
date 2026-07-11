@@ -1,6 +1,11 @@
 export { default as contextManifest } from "./context.json";
 
-import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  buildEventReactionsFromManifest,
+  buildEventSubscriptionsFromManifest,
+  defineBoundedContextModule,
+  type BcContextManifest,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { marketplaceRetentionExemptions, marketplaceRetentionSweeps } from "./support/runtime-support/retention-policy";
@@ -20,6 +25,7 @@ import {
   buildReviewShipmentSourceProjectionHandlers,
   buildReviewSupportSourceProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
+import { buildReviewModerationReactionHandlers } from "./features/reviews/integrations/moderation/moderation-reaction";
 import type { MarketplaceServiceOptions, MarketplaceServices } from "./support/runtime-support/services";
 import { buildMarketplaceApi } from "./api";
 import { buildReviewApi } from "./features/reviews/api/http";
@@ -30,8 +36,10 @@ import { marketplaceSupplyProjectionSchemaMigrations } from "./features/listings
 import { reviewSchemaMigrations } from "./features/reviews/read-model/schema";
 import { seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 
+const marketplaceContextManifest = contextManifest as BcContextManifest;
+
 export const module = defineBoundedContextModule<MarketplaceServices, PgTransactionalPool, MarketplaceServiceOptions>({
-  manifest: contextManifest,
+  manifest: marketplaceContextManifest,
   schemaSql: marketplaceSchemaSql,
   schemaMigrations: [
     ...marketplaceUnloggedProjectionSchemaMigrations,
@@ -64,58 +72,75 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
   buildSubscriptions: (services) => {
     const accountProjectionHandlers = buildMarketplaceAccountProjectionHandlers(services.db);
 
-    return buildEventSubscriptionsFromManifest({
-      contextName: "marketplace",
-      manifest: contextManifest,
-      handlers: {
-        "catalog.marketplace-catalog-item-projection": () => buildMarketplaceCatalogProjectionHandlers(services.db),
-        "catalog.marketplace-listing-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
-        },
-        "identity.marketplace-identity-account-projection": {
-          filterToEventTypes: true,
-          buildHandlers: () => accountProjectionHandlers,
-        },
-        "inventory.marketplace-inventory-supply-projection": () =>
-          buildMarketplaceInventoryProjectionHandlers(services.db, {
-            onInventoryItemChanged: services.listings.reconcileInventoryCapacity,
-          }),
-        "marketplace.marketplace-identity-account-projection": {
-          subscriptionName: "marketplace.review-account-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => accountProjectionHandlers,
-        },
-        "marketplace.marketplace-listing-projection": {
-          subscriptionName: "marketplace.self-listing-projection",
-          filterToEventTypes: true,
-          buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
-        },
-        "identity.marketplace-review-account-source-projection": {
-          subscriptionName: "marketplace.review-account-source-projection",
-          buildHandlers: () => buildReviewAccountProjectionHandlers(services.db),
-        },
-        "ordering.marketplace-review-order-source-projection": {
-          subscriptionName: "marketplace.review-order-source-projection",
-          buildHandlers: () => buildReviewOrderSourceProjectionHandlers(services.db),
-        },
-        "fulfillment.marketplace-review-shipment-source-projection": {
-          subscriptionName: "marketplace.review-shipment-source-projection",
-          buildHandlers: () =>
-            buildReviewShipmentSourceProjectionHandlers(services.db, {
-              onDeliveredShipment: services.reviews.recordDeliveredShipmentReviewEligibility,
+    return [
+      ...buildEventSubscriptionsFromManifest({
+        contextName: "marketplace",
+        manifest: marketplaceContextManifest,
+        handlers: {
+          "catalog.marketplace-catalog-item-projection": () => buildMarketplaceCatalogProjectionHandlers(services.db),
+          "catalog.marketplace-listing-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
+          },
+          "identity.marketplace-identity-account-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => accountProjectionHandlers,
+          },
+          "inventory.marketplace-inventory-supply-projection": () =>
+            buildMarketplaceInventoryProjectionHandlers(services.db, {
+              onInventoryItemChanged: services.listings.reconcileInventoryCapacity,
             }),
+          "marketplace.marketplace-identity-account-projection": {
+            subscriptionName: "marketplace.review-account-projection",
+            filterToEventTypes: true,
+            buildHandlers: () => accountProjectionHandlers,
+          },
+          "marketplace.marketplace-listing-projection": {
+            subscriptionName: "marketplace.self-listing-projection",
+            filterToEventTypes: true,
+            buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
+          },
+          "identity.marketplace-review-account-source-projection": {
+            subscriptionName: "marketplace.review-account-source-projection",
+            buildHandlers: () => buildReviewAccountProjectionHandlers(services.db),
+          },
+          "ordering.marketplace-review-order-source-projection": {
+            subscriptionName: "marketplace.review-order-source-projection",
+            buildHandlers: () => buildReviewOrderSourceProjectionHandlers(services.db),
+          },
+          "fulfillment.marketplace-review-shipment-source-projection": {
+            subscriptionName: "marketplace.review-shipment-source-projection",
+            buildHandlers: () =>
+              buildReviewShipmentSourceProjectionHandlers(services.db, {
+                onDeliveredShipment: services.reviews.recordDeliveredShipmentReviewEligibility,
+              }),
+          },
+          "platform-operations.marketplace-review-support-source-projection": {
+            subscriptionName: "marketplace.review-support-source-projection",
+            buildHandlers: () => buildReviewSupportSourceProjectionHandlers(services.db),
+          },
+          "settlement.marketplace-settlement-negative-balance-projection": {
+            buildHandlers: () => buildMarketplaceSettlementNegativeBalanceProjectionHandlers(services.listings),
+            filterToEventTypes: true,
+          },
         },
-        "platform-operations.marketplace-review-support-source-projection": {
-          subscriptionName: "marketplace.review-support-source-projection",
-          buildHandlers: () => buildReviewSupportSourceProjectionHandlers(services.db),
+      }),
+      ...buildEventReactionsFromManifest({
+        contextName: "marketplace",
+        manifest: marketplaceContextManifest,
+        handlers: {
+          "platform-operations.marketplace-review-moderation-reaction": {
+            filterToEventTypes: true,
+            buildHandlers: () =>
+              buildReviewModerationReactionHandlers({
+                operatorWithdrawReview: services.reviews.operatorWithdrawReview,
+                operatorRedactReviewFeedback: services.reviews.operatorRedactReviewFeedback,
+                operatorWithdrawReviewReply: services.reviews.operatorWithdrawReviewReply,
+              }),
+          },
         },
-        "settlement.marketplace-settlement-negative-balance-projection": {
-          buildHandlers: () => buildMarketplaceSettlementNegativeBalanceProjectionHandlers(services.listings),
-          filterToEventTypes: true,
-        },
-      },
-    });
+      }),
+    ];
   },
   seed: seedMarketplaceContextDatabase,
 });

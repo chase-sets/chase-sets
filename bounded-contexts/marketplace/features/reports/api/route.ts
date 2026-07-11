@@ -115,5 +115,69 @@ export function createMarketplaceReportRoutes(services: MarketplaceReportService
     }
   });
 
+  // Reviews (m108): authenticated only, unlike listing reports --
+  // reviews already require a verified transaction, so anonymous reporting
+  // is not needed.
+  app.post("/reviews/:id/report", async (c) => {
+    const actor = c.get("actor");
+    if (!actor) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.reports.api.reporter.required"),
+          },
+        },
+        401,
+      );
+    }
+
+    const rateLimit = reportListingSubmitRateLimiter.check(`account:${actor.accountId}`);
+    if (rateLimit.limited) {
+      return rateLimitExceededJsonResponse("marketplace.report-listing.submit", rateLimit);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.reports.api.reporter.required"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.reportReview(
+        {
+          reviewId: c.req.param("id"),
+          reporterAccountId: actor.accountId,
+          reporterUserId: actor.userId,
+          reason: normalizeReason(body.reason),
+          details: typeof body.details === "string" ? body.details : null,
+          sourceRoutePath: typeof body.sourceRoutePath === "string" ? body.sourceRoutePath : "/reviews",
+        },
+        context,
+      );
+
+      return c.json(
+        {
+          id: result.reportId,
+          version: result.version,
+          status: "submitted",
+          targetType: "review",
+          targetId: c.req.param("id"),
+        },
+        201,
+      );
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   return app;
 }

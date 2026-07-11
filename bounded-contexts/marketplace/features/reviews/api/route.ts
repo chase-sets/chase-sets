@@ -276,5 +276,47 @@ export function createAccountReviewRoutes(services: ReviewServices) {
     }
   });
 
+  // Subject reply (m108): one threaded response, posted only by the
+  // review's subject. The domain decider is the source of truth for "only
+  // the subject" and "only once" -- this route just forwards the actor.
+  app.post("/:id/reply", async (c) => {
+    const access = requireReviewAccess(c, "reputation.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("reputation.features.reviews.api.route.authentication.context.missing.4"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      const result = await services.submitReviewReply(
+        {
+          reviewId: c.req.param("id"),
+          subjectAccountId: access.actor.accountId,
+          feedback: typeof body.feedback === "string" ? body.feedback : "",
+        },
+        context,
+      );
+      return c.json(
+        { id: result.reviewId, replyId: result.replyId, version: result.version, status: "submitted" },
+        201,
+      );
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   return app;
 }

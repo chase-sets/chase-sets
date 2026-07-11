@@ -152,6 +152,9 @@ export function buildPlatformOperationsReportedContentProjectionHandlers(db: PgQ
         "contact-seller": "seller-contact-requested",
         unlist: "manually-unlisted",
         "escalate-account-suspension": "suspension-escalated",
+        "withdraw-review": "review-withdrawn",
+        "redact-review-feedback": "review-feedback-redacted",
+        "withdraw-review-reply": "review-reply-withdrawn",
       };
       const status = statusByAction[data.action];
       if (!status) {

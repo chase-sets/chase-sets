@@ -22,6 +22,19 @@ export type ReviewListRow = Readonly<{
   withdrawn_at: string | null;
   revealed_at: string | null;
   reveal_reason: string | null;
+  // Moderation (m108). withdrawn_by_actor_type distinguishes an
+  // author withdrawal from an operator one; the reason columns hold the
+  // latest operator withdraw-or-redact reason for display.
+  withdrawn_by_actor_type: string | null;
+  moderation_operator_user_id: string | null;
+  moderation_reason: string | null;
+  feedback_redacted_at: string | null;
+  // Subject reply: one threaded, moderatable response per review.
+  reply_id: string | null;
+  reply_feedback: string | null;
+  reply_status: string | null;
+  reply_submitted_at: string | null;
+  reply_withdrawn_at: string | null;
 }>;
 
 export type ReviewDetailRow = ReviewListRow;
@@ -98,7 +111,16 @@ const baseReviewSelect = `
     page.updated_at,
     page.withdrawn_at,
     page.revealed_at,
-    page.reveal_reason
+    page.reveal_reason,
+    page.withdrawn_by_actor_type,
+    page.moderation_operator_user_id,
+    page.moderation_reason,
+    page.feedback_redacted_at,
+    page.reply_id,
+    page.reply_feedback,
+    page.reply_status,
+    page.reply_submitted_at,
+    page.reply_withdrawn_at
   FROM marketplace_review_pages AS page
   LEFT JOIN marketplace_review_account_sources AS author
     ON author.account_id = page.author_account_id
@@ -126,7 +148,16 @@ const subjectRedactedReviewSelect = `
     page.updated_at,
     page.withdrawn_at,
     page.revealed_at,
-    page.reveal_reason
+    page.reveal_reason,
+    page.withdrawn_by_actor_type,
+    page.moderation_operator_user_id,
+    page.moderation_reason,
+    page.feedback_redacted_at,
+    page.reply_id,
+    page.reply_feedback,
+    page.reply_status,
+    page.reply_submitted_at,
+    page.reply_withdrawn_at
   FROM marketplace_review_pages AS page
   LEFT JOIN marketplace_review_account_sources AS author
     ON author.account_id = page.author_account_id
@@ -278,7 +309,16 @@ const detailReviewSelect = `
     page.updated_at,
     page.withdrawn_at,
     page.revealed_at,
-    page.reveal_reason
+    page.reveal_reason,
+    page.withdrawn_by_actor_type,
+    page.moderation_operator_user_id,
+    page.moderation_reason,
+    page.feedback_redacted_at,
+    page.reply_id,
+    page.reply_feedback,
+    page.reply_status,
+    page.reply_submitted_at,
+    page.reply_withdrawn_at
   FROM marketplace_review_pages AS page
   LEFT JOIN marketplace_review_account_sources AS author
     ON author.account_id = page.author_account_id
@@ -526,6 +566,33 @@ export async function listPendingReviewsPastWindow(
   return result.rows;
 }
 
+export type ReviewModerationTargetRow = Readonly<{
+  review_id: string;
+  subject_account_id: string;
+  status: string;
+  revealed_at: string | null;
+}>;
+
+/**
+ * Minimal, unrestricted lookup for the report/moderation surfaces (m108):
+ * unlike `getAccountReview`, this is not scoped to a viewing account --
+ * reporting and operator moderation both need the review's subject and
+ * reveal state regardless of who is asking.
+ */
+export async function getReviewModerationTarget(
+  db: PgQueryable,
+  reviewId: string,
+): Promise<ReviewModerationTargetRow | null> {
+  const result = await db.query<ReviewModerationTargetRow>(
+    `SELECT review_id, subject_account_id, status, revealed_at::text AS revealed_at
+     FROM marketplace_review_pages
+     WHERE review_id = $1`,
+    [reviewId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 /**
  * Resolves a public seller slug (MCP `subjectAccountSlug` input) to its
  * canonical account id via the unique `marketplace_review_account_sources`
@@ -543,6 +610,39 @@ export async function getAccountIdBySlug(db: PgQueryable, slug: string): Promise
   );
 
   return result.rows[0]?.account_id ?? null;
+}
+
+/**
+ * The buyer's shipping email snapshot captured at order-create time (m108)
+ * -- the only email address available anywhere in the reviews source
+ * tables. Used to add an email channel to buyer-directed nudge notifications;
+ * seller-directed nudges stay web-only, mirroring every other seller
+ * notification intent in the platform.
+ */
+export async function getReviewOrderBuyerEmail(db: PgQueryable, orderId: string): Promise<string | null> {
+  const result = await db.query<{ buyer_email: string | null }>(
+    `SELECT buyer_email
+     FROM marketplace_review_order_sources
+     WHERE order_id = $1`,
+    [orderId],
+  );
+
+  return result.rows[0]?.buyer_email ?? null;
+}
+
+/** Marks the reminder as sent so the sweep never re-selects this row. */
+export async function markReviewOpportunityReminderNotified(
+  db: PgQueryable,
+  params: Readonly<{ orderId: string; authorAccountId: string; subjectAccountId: string; notifiedAt: string }>,
+): Promise<void> {
+  await db.query(
+    `UPDATE marketplace_review_eligibility_pages
+     SET reminder_notified_at = $4
+     WHERE order_id = $1
+       AND author_account_id = $2
+       AND subject_account_id = $3`,
+    [params.orderId, params.authorAccountId, params.subjectAccountId, params.notifiedAt],
+  );
 }
 
 export async function findActiveReviewForDirection(

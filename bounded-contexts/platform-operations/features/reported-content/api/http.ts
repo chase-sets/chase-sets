@@ -49,7 +49,10 @@ function normalizeAction(value: unknown): ReportedContentModerationAction {
     value === "dismiss" ||
     value === "contact-seller" ||
     value === "unlist" ||
-    value === "escalate-account-suspension"
+    value === "escalate-account-suspension" ||
+    value === "withdraw-review" ||
+    value === "redact-review-feedback" ||
+    value === "withdraw-review-reply"
   ) {
     return value;
   }

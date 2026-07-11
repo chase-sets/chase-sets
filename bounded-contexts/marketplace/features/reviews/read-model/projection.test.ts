@@ -158,4 +158,117 @@ describe("marketplace review projection", () => {
     );
     expect(summaryRefreshesAfterReveal).toHaveLength(2);
   });
+
+  describe("moderation and subject reply (m108, #4269)", () => {
+    it("records the operator actor and reason on a moderated withdrawal", async () => {
+      const queries: { sql: string; params: readonly unknown[] }[] = [];
+      const db = {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+          queries.push({ sql, params: params ?? [] });
+          if (sql.includes("RETURNING subject_account_id")) {
+            return { rows: [{ subject_account_id: "acc_seller" }] };
+          }
+          return { rows: [] };
+        }),
+      };
+      const handlers = buildReviewProjectionHandlers(db as never);
+
+      await handlers["marketplace.review.withdrawn"]?.({
+        data: {
+          reviewId: "rev_1",
+          withdrawnAt: "2026-04-05T00:00:00.000Z",
+          actorType: "operator",
+          operatorUserId: "usr_operator",
+          reason: "Abusive language.",
+        },
+      } as never);
+
+      const withdrawUpdate = queries.find(
+        (query) =>
+          query.sql.includes("UPDATE marketplace_review_pages") && query.sql.includes("withdrawn_by_actor_type"),
+      );
+      expect(withdrawUpdate?.params).toEqual([
+        "rev_1",
+        "2026-04-05T00:00:00.000Z",
+        "operator",
+        "usr_operator",
+        "Abusive language.",
+      ]);
+    });
+
+    it("defaults the withdrawal actor to 'author' when the event carries no actor fields", async () => {
+      const queries: { sql: string; params: readonly unknown[] }[] = [];
+      const db = {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+          queries.push({ sql, params: params ?? [] });
+          if (sql.includes("RETURNING subject_account_id")) {
+            return { rows: [{ subject_account_id: "acc_seller" }] };
+          }
+          return { rows: [] };
+        }),
+      };
+      const handlers = buildReviewProjectionHandlers(db as never);
+
+      await handlers["marketplace.review.withdrawn"]?.({
+        data: { reviewId: "rev_1", withdrawnAt: "2026-04-05T00:00:00.000Z" },
+      } as never);
+
+      const withdrawUpdate = queries.find((query) => query.sql.includes("UPDATE marketplace_review_pages"));
+      expect(withdrawUpdate?.params).toEqual(["rev_1", "2026-04-05T00:00:00.000Z", "author", null, null]);
+    });
+
+    it("redacts feedback without touching the summary aggregate", async () => {
+      const queries: { sql: string; params: readonly unknown[] }[] = [];
+      const db = {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+          queries.push({ sql, params: params ?? [] });
+          return { rows: [] };
+        }),
+      };
+      const handlers = buildReviewProjectionHandlers(db as never);
+
+      await handlers["marketplace.review.feedback-redacted"]?.({
+        data: {
+          reviewId: "rev_1",
+          redactedAt: "2026-04-05T00:00:00.000Z",
+          operatorUserId: "usr_operator",
+          reason: "PII in the text.",
+        },
+      } as never);
+
+      expect(queries).toHaveLength(1);
+      expect(queries[0]?.sql).toContain("feedback = NULL");
+      expect(queries[0]?.params).toEqual(["rev_1", "2026-04-05T00:00:00.000Z", "usr_operator", "PII in the text."]);
+    });
+
+    it("stores a submitted reply and its withdrawal", async () => {
+      const queries: { sql: string; params: readonly unknown[] }[] = [];
+      const db = {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+          queries.push({ sql, params: params ?? [] });
+          return { rows: [] };
+        }),
+      };
+      const handlers = buildReviewProjectionHandlers(db as never);
+
+      await handlers["marketplace.review.reply-submitted"]?.({
+        data: {
+          reviewId: "rev_1",
+          replyId: "rvr_1",
+          feedback: "Thanks for the feedback.",
+          submittedAt: "2026-04-06T00:00:00.000Z",
+        },
+      } as never);
+
+      expect(queries[0]?.sql).toContain("reply_status = 'active'");
+      expect(queries[0]?.params).toEqual(["rev_1", "rvr_1", "Thanks for the feedback.", "2026-04-06T00:00:00.000Z"]);
+
+      await handlers["marketplace.review.reply-withdrawn"]?.({
+        data: { reviewId: "rev_1", withdrawnAt: "2026-04-07T00:00:00.000Z" },
+      } as never);
+
+      expect(queries[1]?.sql).toContain("reply_status = 'withdrawn'");
+      expect(queries[1]?.params).toEqual(["rev_1", "2026-04-07T00:00:00.000Z"]);
+    });
+  });
 });

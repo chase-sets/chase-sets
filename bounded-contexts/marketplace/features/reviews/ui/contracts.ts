@@ -17,6 +17,17 @@ export interface ReviewListItem {
   withdrawn_at: string | null;
   revealed_at: string | null;
   reveal_reason: string | null;
+  // Moderation (m108).
+  withdrawn_by_actor_type: string | null;
+  moderation_operator_user_id: string | null;
+  moderation_reason: string | null;
+  feedback_redacted_at: string | null;
+  // Subject reply: one threaded, moderatable response per review.
+  reply_id: string | null;
+  reply_feedback: string | null;
+  reply_status: string | null;
+  reply_submitted_at: string | null;
+  reply_withdrawn_at: string | null;
 }
 
 export interface ReviewDetail extends ReviewListItem {}

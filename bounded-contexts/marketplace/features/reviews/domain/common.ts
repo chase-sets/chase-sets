@@ -132,3 +132,20 @@ export function normalizeFeedback(value?: string | null): string | null {
 
   return normalized;
 }
+
+// Moderation actions (m108) always carry a required, bounded reason so
+// the event itself is the audit trail entry -- no operator action is ever
+// reason-less.
+export function normalizeModerationReason(value: string): string {
+  const normalized = normalizeRequiredText(value, "A moderation reason is required.");
+  assert(normalized.length <= 1000, "Moderation reason must be 1000 characters or fewer.");
+  return normalized;
+}
+
+// A subject reply is never optional text like review feedback -- posting one
+// requires content, so it is normalized as required rather than nullable.
+export function normalizeReplyFeedback(value: string): string {
+  const normalized = normalizeRequiredText(value, "Reply feedback is required.");
+  assert(normalized.length <= 1000, "Reply feedback must be 1000 characters or fewer.");
+  return normalized;
+}

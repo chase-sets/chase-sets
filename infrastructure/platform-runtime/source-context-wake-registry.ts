@@ -434,8 +434,9 @@ export const sourceContextWakeRegistry = [
       "marketplace.listing-stock-location-self-refresh",
       "marketplace.offer-match-accept-to-detail",
       "marketplace.offer-match-seller-control-list-refresh",
-      "marketplace.submitted-offer-detail",
+      "marketplace.review-reply-to-detail",
       "marketplace.review-submit-to-detail",
+      "marketplace.submitted-offer-detail",
     ],
   }),
   registryEntry({
@@ -542,6 +543,7 @@ export const sourceContextWakeRegistry = [
       "platform-operations:reported-content-queue-projection",
       "platform-operations:risk-alert-queue-projection",
       "payments:payments-support-refund-effect",
+      "marketplace:marketplace-review-moderation-reaction",
       "marketplace:marketplace-review-support-source-projection",
       "ordering:ordering-order-review-opportunity-projection",
       "settlement:settlement-support-hold-projection",

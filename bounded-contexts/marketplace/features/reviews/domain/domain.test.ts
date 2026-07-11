@@ -242,4 +242,248 @@ describe("marketplace review domain", () => {
       ),
     ).rejects.toThrow("Reviews cannot be withdrawn after they are revealed.");
   });
+
+  describe("operator moderation (m108, #4269)", () => {
+    it("withdraws a revealed review, which the author cannot do", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+
+      const events = await decideReview(revealedState, {
+        type: "OperatorWithdrawReview",
+        withdrawnAt: "2026-04-07T00:00:00.000Z",
+        operatorUserId: "usr_operator",
+        reason: "Abusive language.",
+      });
+      const state = events.reduce(evolveReview, revealedState);
+
+      expect(events[0]?.data).toMatchObject({
+        actorType: "operator",
+        operatorUserId: "usr_operator",
+        reason: "Abusive language.",
+      });
+      expect(state.status).toBe("withdrawn");
+      expect(state.withdrawnByActorType).toBe("operator");
+      expect(state.moderationOperatorUserId).toBe("usr_operator");
+      expect(state.moderationReason).toBe("Abusive language.");
+    });
+
+    it("operator withdrawal is idempotent", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+      const firstEvents = await decideReview(revealedState, {
+        type: "OperatorWithdrawReview",
+        withdrawnAt: "2026-04-07T00:00:00.000Z",
+        operatorUserId: "usr_operator",
+        reason: "Abusive language.",
+      });
+      const withdrawnState = firstEvents.reduce(evolveReview, revealedState);
+
+      const secondEvents = await decideReview(withdrawnState, {
+        type: "OperatorWithdrawReview",
+        withdrawnAt: "2026-04-08T00:00:00.000Z",
+        operatorUserId: "usr_operator",
+        reason: "Abusive language.",
+      });
+
+      expect(secondEvents).toEqual([]);
+    });
+
+    it("requires a reason for operator withdrawal", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+
+      await expect(
+        Promise.resolve().then(() =>
+          decideReview(revealedState, {
+            type: "OperatorWithdrawReview",
+            withdrawnAt: "2026-04-07T00:00:00.000Z",
+            operatorUserId: "usr_operator",
+            reason: "  ",
+          }),
+        ),
+      ).rejects.toThrow("A moderation reason is required.");
+    });
+
+    it("redacts review feedback while the rating stands", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+
+      const events = await decideReview(revealedState, {
+        type: "OperatorRedactReviewFeedback",
+        redactedAt: "2026-04-07T00:00:00.000Z",
+        operatorUserId: "usr_operator",
+        reason: "PII in the text.",
+      });
+      const state = events.reduce(evolveReview, revealedState);
+
+      expect(state.feedback).toBeNull();
+      expect(state.rating).toBe(revealedState.rating);
+      expect(state.feedbackRedactedAt).toBe("2026-04-07T00:00:00.000Z");
+      expect(state.moderationReason).toBe("PII in the text.");
+    });
+
+    it("redaction is idempotent once feedback is already null", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+      const firstEvents = await decideReview(revealedState, {
+        type: "OperatorRedactReviewFeedback",
+        redactedAt: "2026-04-07T00:00:00.000Z",
+        operatorUserId: "usr_operator",
+        reason: "PII in the text.",
+      });
+      const redactedState = firstEvents.reduce(evolveReview, revealedState);
+
+      const secondEvents = await decideReview(redactedState, {
+        type: "OperatorRedactReviewFeedback",
+        redactedAt: "2026-04-08T00:00:00.000Z",
+        operatorUserId: "usr_operator",
+        reason: "PII in the text.",
+      });
+
+      expect(secondEvents).toEqual([]);
+    });
+
+    it("cannot redact a withdrawn review", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+      const withdrawnEvents = await decideReview(revealedState, {
+        type: "OperatorWithdrawReview",
+        withdrawnAt: "2026-04-07T00:00:00.000Z",
+        operatorUserId: "usr_operator",
+        reason: "Abusive language.",
+      });
+      const withdrawnState = withdrawnEvents.reduce(evolveReview, revealedState);
+
+      await expect(
+        Promise.resolve().then(() =>
+          decideReview(withdrawnState, {
+            type: "OperatorRedactReviewFeedback",
+            redactedAt: "2026-04-08T00:00:00.000Z",
+            operatorUserId: "usr_operator",
+            reason: "PII in the text.",
+          }),
+        ),
+      ).rejects.toThrow("Withdrawn reviews cannot be redacted.");
+    });
+  });
+
+  describe("subject reply (m108, #4269)", () => {
+    it("lets the subject reply once, after reveal", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+
+      const events = await decideReview(revealedState, {
+        type: "SubmitReviewReply",
+        replyId: "rvr_1" as never,
+        subjectAccountId: revealedState.subjectAccountId as unknown as string,
+        feedback: "Thanks for the feedback -- resolved via replacement.",
+        submittedAt: "2026-04-06T00:00:00.000Z",
+      });
+      const state = events.reduce(evolveReview, revealedState);
+
+      expect(events[0]?.type).toBe("marketplace.review.reply-submitted");
+      expect(state.replyStatus).toBe("active");
+      expect(state.replyFeedback).toBe("Thanks for the feedback -- resolved via replacement.");
+      expect(state.replySubmittedAt).toBe("2026-04-06T00:00:00.000Z");
+    });
+
+    it("rejects a reply before the review is revealed", async () => {
+      const submittedEvents = await decideReview(initialReviewState, {
+        type: "SubmitReview",
+        reviewId: "rev_1" as never,
+        orderId: "ord_1" as never,
+        authorAccountId: "acc_buyer" as never,
+        subjectAccountId: "acc_seller" as never,
+        authorRole: "buyer",
+        rating: 5,
+        feedback: "Fast shipping.",
+        submittedAt: "2026-04-02T00:00:00.000Z",
+        reviewWindowExpiresAt: "2026-06-01T00:00:00.000Z",
+      });
+      const submittedState = submittedEvents.reduce(evolveReview, initialReviewState);
+
+      await expect(
+        Promise.resolve().then(() =>
+          decideReview(submittedState, {
+            type: "SubmitReviewReply",
+            replyId: "rvr_1" as never,
+            subjectAccountId: "acc_seller",
+            feedback: "Too soon.",
+            submittedAt: "2026-04-02T00:05:00.000Z",
+          }),
+        ),
+      ).rejects.toThrow("Reviews cannot be replied to before they are revealed.");
+    });
+
+    it("rejects a reply from anyone other than the subject", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+
+      await expect(
+        Promise.resolve().then(() =>
+          decideReview(revealedState, {
+            type: "SubmitReviewReply",
+            replyId: "rvr_1" as never,
+            subjectAccountId: "acc_someone_else",
+            feedback: "Not the subject.",
+            submittedAt: "2026-04-06T00:00:00.000Z",
+          }),
+        ),
+      ).rejects.toThrow("Only the review subject may reply.");
+    });
+
+    it("rejects a second reply -- one threaded response only, no flame wars", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+      const firstReplyEvents = await decideReview(revealedState, {
+        type: "SubmitReviewReply",
+        replyId: "rvr_1" as never,
+        subjectAccountId: revealedState.subjectAccountId as unknown as string,
+        feedback: "First reply.",
+        submittedAt: "2026-04-06T00:00:00.000Z",
+      });
+      const repliedState = firstReplyEvents.reduce(evolveReview, revealedState);
+
+      await expect(
+        Promise.resolve().then(() =>
+          decideReview(repliedState, {
+            type: "SubmitReviewReply",
+            replyId: "rvr_2" as never,
+            subjectAccountId: revealedState.subjectAccountId as unknown as string,
+            feedback: "Second reply attempt.",
+            submittedAt: "2026-04-06T01:00:00.000Z",
+          }),
+        ),
+      ).rejects.toThrow("A reply already exists for this review.");
+    });
+
+    it("lets an operator withdraw a reply", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+      const replyEvents = await decideReview(revealedState, {
+        type: "SubmitReviewReply",
+        replyId: "rvr_1" as never,
+        subjectAccountId: revealedState.subjectAccountId as unknown as string,
+        feedback: "First reply.",
+        submittedAt: "2026-04-06T00:00:00.000Z",
+      });
+      const repliedState = replyEvents.reduce(evolveReview, revealedState);
+
+      const withdrawEvents = await decideReview(repliedState, {
+        type: "OperatorWithdrawReviewReply",
+        withdrawnAt: "2026-04-07T00:00:00.000Z",
+        operatorUserId: "usr_operator",
+        reason: "Reply contained PII.",
+      });
+      const state = withdrawEvents.reduce(evolveReview, repliedState);
+
+      expect(state.replyStatus).toBe("withdrawn");
+      expect(state.replyWithdrawnAt).toBe("2026-04-07T00:00:00.000Z");
+    });
+
+    it("rejects withdrawing a reply that does not exist", async () => {
+      const { revealedState } = await submitAndReveal({ reason: "counterpart-submitted" });
+
+      await expect(
+        Promise.resolve().then(() =>
+          decideReview(revealedState, {
+            type: "OperatorWithdrawReviewReply",
+            withdrawnAt: "2026-04-07T00:00:00.000Z",
+            operatorUserId: "usr_operator",
+            reason: "No reply exists.",
+          }),
+        ),
+      ).rejects.toThrow("No reply exists for this review.");
+    });
+  });
 });

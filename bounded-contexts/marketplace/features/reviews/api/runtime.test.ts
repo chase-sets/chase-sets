@@ -461,4 +461,110 @@ describe("marketplace review runtime", () => {
     const reasons = revealedEvents.map((event) => (event.payload as { reason: string }).reason).sort();
     expect(reasons).toEqual(["counterpart-submitted", "counterpart-submitted", "window-expired"]);
   });
+
+  describe("operator moderation and subject reply (m108, #4269)", () => {
+    async function createRuntimeWithRevealedReview() {
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
+            return {
+              rows: [
+                {
+                  order_id: "ord_1",
+                  author_account_id: "acc_buyer",
+                  subject_account_id: "acc_seller",
+                  author_role: "buyer",
+                  eligible_at: new Date().toISOString(),
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        }),
+      };
+      const { allEvents, eventStore } = createInMemoryEventStore();
+      const runtime = createReviewRuntime({ eventStore, checkpointStore: createCheckpointStore(), db: db as never });
+
+      const submitted = await runtime.submitReview(
+        {
+          orderId: "ord_1",
+          authorAccountId: "acc_buyer",
+          subjectAccountId: "acc_seller",
+          rating: 5,
+          feedback: "Great transaction.",
+        },
+        context,
+      );
+      await runtime.commandHandler({
+        streamId: `marketplace.review-${submitted.reviewId}`,
+        command: { type: "RevealReview", revealedAt: new Date().toISOString(), reason: "window-expired" },
+        context,
+      });
+
+      return { runtime, allEvents, reviewId: submitted.reviewId };
+    }
+
+    it("lets an operator withdraw a revealed review", async () => {
+      const { runtime, allEvents, reviewId } = await createRuntimeWithRevealedReview();
+
+      const result = await runtime.operatorWithdrawReview(
+        { reviewId, operatorUserId: "usr_operator", reason: "Abusive language." },
+        context,
+      );
+
+      expect(result.reviewId).toBe(reviewId);
+      const withdrawn = allEvents.find((event) => event.eventType === "marketplace.review.withdrawn");
+      expect(withdrawn?.payload).toMatchObject({
+        actorType: "operator",
+        operatorUserId: "usr_operator",
+        reason: "Abusive language.",
+      });
+    });
+
+    it("lets an operator redact review feedback while the rating stands", async () => {
+      const { runtime, allEvents, reviewId } = await createRuntimeWithRevealedReview();
+
+      await runtime.operatorRedactReviewFeedback(
+        { reviewId, operatorUserId: "usr_operator", reason: "PII in the text." },
+        context,
+      );
+
+      const redacted = allEvents.find((event) => event.eventType === "marketplace.review.feedback-redacted");
+      expect(redacted?.payload).toMatchObject({ operatorUserId: "usr_operator", reason: "PII in the text." });
+    });
+
+    it("lets the subject submit a reply and an operator withdraw it", async () => {
+      const { runtime, allEvents, reviewId } = await createRuntimeWithRevealedReview();
+
+      const replyResult = await runtime.submitReviewReply(
+        { reviewId, subjectAccountId: "acc_seller", feedback: "Thanks for the feedback." },
+        context,
+      );
+
+      expect(replyResult.replyId).toMatch(/^rvr_/);
+      const submitted = allEvents.find((event) => event.eventType === "marketplace.review.reply-submitted");
+      expect(submitted?.payload).toMatchObject({
+        subjectAccountId: "acc_seller",
+        feedback: "Thanks for the feedback.",
+      });
+
+      await runtime.operatorWithdrawReviewReply(
+        { reviewId, operatorUserId: "usr_operator", reason: "Reply contained PII." },
+        context,
+      );
+      const withdrawnReply = allEvents.find((event) => event.eventType === "marketplace.review.reply-withdrawn");
+      expect(withdrawnReply?.payload).toMatchObject({ operatorUserId: "usr_operator", reason: "Reply contained PII." });
+    });
+
+    it("rejects a reply from an account other than the subject", async () => {
+      const { runtime, reviewId } = await createRuntimeWithRevealedReview();
+
+      await expect(
+        runtime.submitReviewReply(
+          { reviewId, subjectAccountId: "acc_someone_else", feedback: "Not the subject." },
+          context,
+        ),
+      ).rejects.toThrow("Only the review subject may reply.");
+    });
+  });
 });

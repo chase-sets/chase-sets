@@ -167,16 +167,22 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
       const data = event.data as {
         reviewId: string;
         withdrawnAt: string;
+        actorType?: "operator";
+        operatorUserId?: string;
+        reason?: string;
       };
 
       const subjectResult = await db.query<{ subject_account_id: string }>(
         `UPDATE marketplace_review_pages
          SET status = 'withdrawn',
              withdrawn_at = $2,
-             updated_at = $2
+             updated_at = $2,
+             withdrawn_by_actor_type = $3,
+             moderation_operator_user_id = $4,
+             moderation_reason = $5
          WHERE review_id = $1
          RETURNING subject_account_id`,
-        [data.reviewId, data.withdrawnAt],
+        [data.reviewId, data.withdrawnAt, data.actorType ?? "author", data.operatorUserId ?? null, data.reason ?? null],
       );
 
       const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
@@ -185,6 +191,63 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
       }
 
       await refreshReviewSummary(db, subjectAccountId, data.withdrawnAt);
+    },
+    "marketplace.review.feedback-redacted": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        redactedAt: string;
+        operatorUserId: string;
+        reason: string;
+      };
+
+      // No summary refresh: the rating stands, and the summary aggregate
+      // never stores feedback text -- only the review row's own display
+      // needs updating.
+      await db.query(
+        `UPDATE marketplace_review_pages
+         SET feedback = NULL,
+             feedback_redacted_at = $2,
+             moderation_operator_user_id = $3,
+             moderation_reason = $4,
+             updated_at = $2
+         WHERE review_id = $1`,
+        [data.reviewId, data.redactedAt, data.operatorUserId, data.reason],
+      );
+    },
+    "marketplace.review.reply-submitted": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        replyId: string;
+        feedback: string;
+        submittedAt: string;
+      };
+
+      await db.query(
+        `UPDATE marketplace_review_pages
+         SET reply_id = $2,
+             reply_feedback = $3,
+             reply_status = 'active',
+             reply_submitted_at = $4,
+             reply_withdrawn_at = NULL,
+             updated_at = $4
+         WHERE review_id = $1`,
+        [data.reviewId, data.replyId, data.feedback, data.submittedAt],
+      );
+    },
+    "marketplace.review.reply-withdrawn": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        withdrawnAt: string;
+      };
+
+      await db.query(
+        `UPDATE marketplace_review_pages
+         SET reply_status = 'withdrawn',
+             reply_withdrawn_at = $2,
+             updated_at = $2
+         WHERE review_id = $1`,
+        [data.reviewId, data.withdrawnAt],
+      );
     },
     "marketplace.review.revealed": async (event) => {
       const data = event.data as {

@@ -4,9 +4,48 @@ export type ReportedContentQueueStatus =
   | "dismissed"
   | "seller-contact-requested"
   | "manually-unlisted"
-  | "suspension-escalated";
+  | "suspension-escalated"
+  | "review-withdrawn"
+  | "review-feedback-redacted"
+  | "review-reply-withdrawn";
 export type ReportedContentTargetType = "listing" | "review";
-export type ReportedContentModerationAction = "dismiss" | "contact-seller" | "unlist" | "escalate-account-suspension";
+export type ReportedContentModerationAction =
+  | "dismiss"
+  | "contact-seller"
+  | "unlist"
+  | "escalate-account-suspension"
+  // Review-scoped moderation (m108): the review domain commands these
+  // dispatch (withdraw / redact-feedback / withdraw the subject reply) live
+  // in marketplace, not platform-operations -- see the
+  // `marketplace-review-moderation-reaction`.
+  | "withdraw-review"
+  | "redact-review-feedback"
+  | "withdraw-review-reply";
+
+// Actions valid for each target type -- rejecting a listing action against a
+// review target (or vice versa) at the runtime boundary, before the event is
+// ever appended.
+export const REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE: Readonly<
+  Record<ReportedContentTargetType, readonly ReportedContentModerationAction[]>
+> = {
+  listing: ["dismiss", "contact-seller", "unlist", "escalate-account-suspension"],
+  review: [
+    "dismiss",
+    "contact-seller",
+    "escalate-account-suspension",
+    "withdraw-review",
+    "redact-review-feedback",
+    "withdraw-review-reply",
+  ],
+};
+
+// Review-scoped moderation actions must always carry a reason -- the event is
+// the audit trail ("every moderation action is an event with actor/reason").
+export const REPORTED_CONTENT_ACTIONS_REQUIRING_NOTE: readonly ReportedContentModerationAction[] = [
+  "withdraw-review",
+  "redact-review-feedback",
+  "withdraw-review-reply",
+];
 
 export type ReportedContentReportSummary = Readonly<{
   reportId: string;

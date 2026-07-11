@@ -83,6 +83,11 @@ export type DiscoveryPublicAccountReviewRow = Readonly<{
   feedback: string | null;
   submitted_at: string | null;
   updated_at: string;
+  // Subject reply mirror (m108): a single threaded response, visible
+  // wherever the review renders.
+  reply_feedback: string | null;
+  reply_status: string | null;
+  reply_submitted_at: string | null;
 }>;
 
 // The account's own role in the underlying order ("which of my roles was
@@ -287,7 +292,10 @@ export async function getDiscoveryPublicAccountBySlug(
          review.rating,
          review.feedback,
          review.submitted_at::text AS submitted_at,
-         review.updated_at::text AS updated_at
+         review.updated_at::text AS updated_at,
+         CASE WHEN review.reply_status = 'active' THEN review.reply_feedback ELSE NULL END AS reply_feedback,
+         review.reply_status,
+         review.reply_submitted_at::text AS reply_submitted_at
        FROM discovery_market_account_reviews AS review
        LEFT JOIN discovery_market_accounts AS author
          ON author.account_id = review.author_account_id
