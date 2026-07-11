@@ -269,6 +269,7 @@ describe("commercial terms admin routes", () => {
 
     expect(result).toEqual({
       items: [],
+      pagination: { limit: 50, offset: 0, total: 0 },
       loadError: "Commercial Terms projection is catching up.",
     });
   });
@@ -304,8 +305,8 @@ describe("commercial terms admin routes", () => {
   });
 
   it("loads schedule and agreement pages normally without a fresh-write token", async () => {
-    mockApi.listSchedules.mockResolvedValue({ items: [{ schedule_id: "cts_business" }] });
-    mockApi.listAgreements.mockResolvedValue({ items: [{ agreement_id: "cag_preferred" }] });
+    mockApi.listSchedules.mockResolvedValue({ items: [{ schedule_id: "cts_business" }], total: 1, count: 1 });
+    mockApi.listAgreements.mockResolvedValue({ items: [{ agreement_id: "cag_preferred" }], total: 1, count: 1 });
 
     await expect(
       schedulesLoader({
@@ -313,13 +314,40 @@ describe("commercial terms admin routes", () => {
         params: {},
         context: undefined,
       } as never),
-    ).resolves.toEqual({ items: [{ schedule_id: "cts_business" }], loadError: null });
+    ).resolves.toEqual({
+      items: [{ schedule_id: "cts_business" }],
+      pagination: { limit: 50, offset: 0, total: 1 },
+      loadError: null,
+    });
     await expect(
       agreementsLoader({
         request: new Request("https://admin.chasesets.com/commerce/terms/agreements"),
         params: {},
         context: undefined,
       } as never),
-    ).resolves.toEqual({ items: [{ agreement_id: "cag_preferred" }], loadError: null });
+    ).resolves.toEqual({
+      items: [{ agreement_id: "cag_preferred" }],
+      pagination: { limit: 50, offset: 0, total: 1 },
+      loadError: null,
+    });
+  });
+
+  it("forwards URL pagination to the schedules and agreements Commercial Terms API lists", async () => {
+    mockApi.listSchedules.mockResolvedValue({ items: [], total: 0, count: 0 });
+    mockApi.listAgreements.mockResolvedValue({ items: [], total: 0, count: 0 });
+
+    await schedulesLoader({
+      request: new Request("https://admin.chasesets.com/commerce/terms/schedules?limit=25&offset=50"),
+      params: {},
+      context: undefined,
+    } as never);
+    await agreementsLoader({
+      request: new Request("https://admin.chasesets.com/commerce/terms/agreements?limit=25&offset=50"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockApi.listSchedules).toHaveBeenCalledWith("limit=25&offset=50");
+    expect(mockApi.listAgreements).toHaveBeenCalledWith("limit=25&offset=50");
   });
 });

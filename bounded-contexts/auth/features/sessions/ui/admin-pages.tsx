@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router";
 import {
   ActionBar,
   Card,
@@ -18,6 +19,7 @@ export function AdminListPage<T>({
   columns,
   emptyMessage,
   getHref,
+  filters,
   pagination,
 }: {
   title: string;
@@ -25,22 +27,25 @@ export function AdminListPage<T>({
   columns: readonly DataColumn<T>[];
   emptyMessage: string;
   getHref?: (row: T) => string;
+  filters?: ReactNode;
   pagination?: Readonly<{ limit: number; offset: number; total: number }>;
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const pageSize = pagination?.limit ?? items.length;
   const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
   const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
   const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
 
   function navigateToPage(page: number) {
-    if (typeof window === "undefined" || !pagination) {
+    if (!pagination) {
       return;
     }
 
-    const url = new URL(window.location.href);
-    url.searchParams.set("limit", String(pageSize));
-    url.searchParams.set("offset", String((page - 1) * pageSize));
-    window.location.assign(`${url.pathname}${url.search}${url.hash}`);
+    const searchParams = new URLSearchParams(location.search);
+    searchParams.set("limit", String(pageSize));
+    searchParams.set("offset", String((page - 1) * pageSize));
+    navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
   }
 
   const columnsWithView: readonly DataColumn<T>[] = getHref
@@ -63,6 +68,7 @@ export function AdminListPage<T>({
       <Text size="lg" weight="semibold">
         {title}
       </Text>
+      {filters}
       <Card
         title={t("auth.features.sessions.ui.adminPages.item.count", {
           count: items.length,

@@ -1,7 +1,20 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, NativeSelect, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
+import {
+  AppliedFilterChips,
+  HiddenInput,
+  Form,
+  Inline,
+  FilterArea,
+  Button,
+  LinkButton,
+  NativeSelect,
+  Stack,
+  TextInput,
+  type DataColumn,
+} from "@chase-sets/design-system";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
+import { IDENTITY_INVITATION_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
 import type { Account } from "../../accounts/ui/contracts";
 import type { Invitation } from "./contracts";
@@ -32,18 +45,65 @@ const columns: DataColumn<Invitation>[] = [
   { key: "status", header: t("identity.features.invitations.ui.invitationListPage.status"), cell: (row) => row.status },
 ];
 
+function invitationStatusFilterLabel(status: string) {
+  switch (status) {
+    case "pending":
+      return t("identity.features.invitations.ui.invitationListPage.status.filter.pending");
+    case "accepted":
+      return t("identity.features.invitations.ui.invitationListPage.status.filter.accepted");
+    case "declined":
+      return t("identity.features.invitations.ui.invitationListPage.status.filter.declined");
+    case "cancelled":
+      return t("identity.features.invitations.ui.invitationListPage.status.filter.cancelled");
+    case "expired":
+      return t("identity.features.invitations.ui.invitationListPage.status.filter.expired");
+    default:
+      return t("identity.features.invitations.ui.invitationListPage.status.filter.all");
+  }
+}
+
+function invitationStatusFilterItems() {
+  return [
+    { value: "all", label: invitationStatusFilterLabel("all") },
+    ...IDENTITY_INVITATION_STATUSES.map((status) => ({ value: status, label: invitationStatusFilterLabel(status) })),
+  ];
+}
+
+function buildInvitationAppliedFilters(filters: IdentityListFilters) {
+  const applied: { id: string; label: string }[] = [];
+  if (filters.search) {
+    applied.push({
+      id: "search",
+      label: t("identity.features.invitations.ui.invitationListPage.search.filter.chip", { search: filters.search }),
+    });
+  }
+  if (filters.status !== "all") {
+    applied.push({
+      id: "status",
+      label: t("identity.features.invitations.ui.invitationListPage.status.filter.chip", {
+        status: invitationStatusFilterLabel(filters.status),
+      }),
+    });
+  }
+
+  return applied;
+}
+
 export function InvitationListPage({
   accounts,
   initialData,
+  filters = { status: "all", search: "" },
 }: {
   accounts: readonly Account[];
   initialData: PaginatedListResponse<Invitation>;
+  filters?: IdentityListFilters;
 }) {
   const accountSelectItems = accounts.map((account) => ({
     value: account.account_id,
     label: accountPickerLabel(account),
   }));
   const hasAccounts = accountSelectItems.length > 0;
+  const appliedFilters = buildInvitationAppliedFilters(filters);
 
   return (
     <AdminListPage
@@ -79,6 +139,54 @@ export function InvitationListPage({
             </Button>
           </Stack>
         </Form>
+      }
+      filters={
+        <>
+          <Form method="get" spacing="none">
+            <FilterArea
+              activeFilterCount={appliedFilters.length}
+              primaryFilterCount={2}
+              panelTitle={t("identity.features.invitations.ui.invitationListPage.filters")}
+              overflowTriggerLabel={t("identity.features.invitations.ui.invitationListPage.more.filters")}
+              filters={[
+                <TextInput
+                  key="search"
+                  label={t("identity.features.invitations.ui.invitationListPage.search")}
+                  name="search"
+                  defaultValue={filters.search}
+                  placeholder={t("identity.features.invitations.ui.invitationListPage.search.placeholder")}
+                />,
+                <NativeSelect
+                  key="status"
+                  label={t("identity.features.invitations.ui.invitationListPage.status")}
+                  name="status"
+                  defaultValue={filters.status}
+                  items={invitationStatusFilterItems()}
+                />,
+              ]}
+              actions={
+                <Inline>
+                  <Button type="submit" leadingIcon="filter">
+                    {t("identity.features.invitations.ui.invitationListPage.apply.filters")}
+                  </Button>
+                  <LinkButton href="/access/invitations" tone="secondary">
+                    {t("identity.features.invitations.ui.invitationListPage.clear.filters")}
+                  </LinkButton>
+                </Inline>
+              }
+            />
+          </Form>
+          <AppliedFilterChips
+            filters={appliedFilters}
+            clearAction={
+              appliedFilters.length > 0 ? (
+                <LinkButton href="/access/invitations" size="sm" tone="secondary">
+                  {t("identity.features.invitations.ui.invitationListPage.clear.filters")}
+                </LinkButton>
+              ) : null
+            }
+          />
+        </>
       }
       emptyMessage={t("identity.features.invitations.ui.invitationListPage.no.invitations.yet")}
       getHref={(row) => `/access/invitations/${row.invitation_id}`}

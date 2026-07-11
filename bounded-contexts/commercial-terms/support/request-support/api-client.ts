@@ -122,7 +122,9 @@ export function createCommercialTermsRequestApiClient(request: Request) {
 
   return {
     async listSchedules(query = "") {
-      return requestJson<{ items: CommercialTermsSchedule[] }>(`${baseUrl}/schedules${queryFromString(query)}`);
+      return requestJson<{ items: CommercialTermsSchedule[]; total: number; count: number }>(
+        `${baseUrl}/schedules${queryFromString(query)}`,
+      );
     },
     async getSchedule(id: string) {
       return requestJson<CommercialTermsSchedule>(`${baseUrl}/schedules/${id}`);
@@ -142,7 +144,9 @@ export function createCommercialTermsRequestApiClient(request: Request) {
       });
     },
     async listAgreements(query = "") {
-      return requestJson<{ items: CommercialAgreement[] }>(`${baseUrl}/agreements${queryFromString(query)}`);
+      return requestJson<{ items: CommercialAgreement[]; total: number; count: number }>(
+        `${baseUrl}/agreements${queryFromString(query)}`,
+      );
     },
     async getAgreement(id: string) {
       return requestJson<CommercialAgreement>(`${baseUrl}/agreements/${id}`);

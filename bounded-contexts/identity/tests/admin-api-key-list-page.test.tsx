@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { ApiKeyListPage, buildApiKeyUserPickerItems } from "../features/api-keys/ui/api-key-list-page";
 
 const users = [
@@ -17,6 +18,11 @@ const users = [
   },
 ];
 
+function renderWithRouter(element: React.ReactElement) {
+  const router = createMemoryRouter([{ path: "/", element }], { initialEntries: ["/"] });
+  render(<RouterProvider router={router} />);
+}
+
 describe("Access API key list page", () => {
   afterEach(() => {
     cleanup();
@@ -31,7 +37,7 @@ describe("Access API key list page", () => {
       },
     ]);
 
-    render(
+    renderWithRouter(
       <ApiKeyListPage
         initialData={{
           items: [],
@@ -56,5 +62,18 @@ describe("Access API key list page", () => {
     expect(screen.getByText("key_created_full_secret_value")).toBeTruthy();
     expect(screen.getByRole("button", { name: /copy/i })).toBeTruthy();
     expect(screen.getByText(/shown only once/i)).toBeTruthy();
+  });
+
+  it("renders URL-persisted status and search filters as applied filter chips", () => {
+    renderWithRouter(
+      <ApiKeyListPage
+        initialData={{ items: [], total: 0, count: 0, limit: 25, offset: 0 }}
+        users={[]}
+        filters={{ status: "revoked", search: "Ops Console" }}
+      />,
+    );
+
+    expect(screen.getByText("Search: Ops Console")).toBeTruthy();
+    expect(screen.getByText("Status: Revoked")).toBeTruthy();
   });
 });

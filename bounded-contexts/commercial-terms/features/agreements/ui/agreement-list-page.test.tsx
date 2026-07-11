@@ -1,12 +1,25 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { AgreementAccountCreatePage } from "./agreement-account-create-page";
 import { AgreementCreateFields } from "./agreement-create-fields";
 import { AgreementListPage } from "./agreement-list-page";
 
+function renderWithRouter(element: React.ReactElement) {
+  const router = createMemoryRouter([{ path: "/", element }], { initialEntries: ["/"] });
+  return render(<RouterProvider router={router} />);
+}
+
 describe("agreement list page", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("clearly validates typed account ids before agreement submission", () => {
-    const markup = renderToString(<AgreementListPage items={[]} />);
+    const { container } = renderWithRouter(<AgreementListPage items={[]} />);
+    const markup = container.innerHTML;
 
     expect(markup).toContain('name="accountId"');
     expect(markup).toContain('pattern="acc_.*"');

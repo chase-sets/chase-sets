@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { useLocation, useNavigate } from "react-router";
 import {
   Form,
   Badge,
@@ -10,6 +11,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  Pagination,
   Stack,
   Text,
 } from "@chase-sets/design-system";
@@ -22,13 +24,33 @@ function statusTone(status: string) {
 
 export function AgreementListPage({
   items,
+  pagination,
   errorMessage,
   loadErrorMessage,
 }: {
   items: readonly CommercialAgreementViewModel[];
+  pagination?: Readonly<{ limit: number; offset: number; total: number }>;
   errorMessage?: string | null;
   loadErrorMessage?: string | null;
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pageSize = pagination?.limit ?? items.length;
+  const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
+  const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
+  const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
+
+  function navigateToPage(page: number) {
+    if (!pagination) {
+      return;
+    }
+
+    const searchParams = new URLSearchParams(location.search);
+    searchParams.set("limit", String(pageSize));
+    searchParams.set("offset", String((page - 1) * pageSize));
+    navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
+  }
+
   return (
     <Page>
       <PageHeader
@@ -123,6 +145,9 @@ export function AgreementListPage({
             "commercialTerms.features.agreements.ui.agreementListPage.create.an.account.specific.agreement.to",
           )}
         />
+        {showPagination ? (
+          <Pagination page={currentPage} totalPages={totalPages} onPageChange={navigateToPage} />
+        ) : null}
       </PageSection>
     </Page>
   );

@@ -1,10 +1,21 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { InvitationListPage } from "./invitation-list-page";
 
+function renderWithRouter(element: React.ReactElement) {
+  const router = createMemoryRouter([{ path: "/", element }], { initialEntries: ["/"] });
+  return render(<RouterProvider router={router} />);
+}
+
 describe("InvitationListPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("uses an account picker for invitation creation", () => {
-    const markup = renderToStaticMarkup(
+    const { container } = renderWithRouter(
       <InvitationListPage
         accounts={[
           {
@@ -26,11 +37,25 @@ describe("InvitationListPage", () => {
         }}
       />,
     );
+    const markup = container.innerHTML;
 
     expect(markup).toContain('name="accountId"');
     expect(markup).toContain("<select");
     expect(markup).toContain('value="acc_1"');
     expect(markup).toContain("Card Vault (acc_1)");
     expect(markup).not.toContain('type="text" name="accountId"');
+  });
+
+  it("renders URL-persisted status and search filters as applied filter chips", () => {
+    renderWithRouter(
+      <InvitationListPage
+        accounts={[]}
+        initialData={{ items: [], total: 0, count: 0, limit: 25, offset: 0 }}
+        filters={{ status: "pending", search: "alex@example.com" }}
+      />,
+    );
+
+    expect(document.body.textContent).toContain("Search: alex@example.com");
+    expect(document.body.textContent).toContain("Status: Pending");
   });
 });

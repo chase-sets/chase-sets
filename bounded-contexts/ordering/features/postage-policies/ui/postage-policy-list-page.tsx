@@ -1,3 +1,4 @@
+import { useLocation, useNavigate } from "react-router";
 import {
   Form,
   Badge,
@@ -9,6 +10,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  Pagination,
   Stack,
   Text,
   TextInput,
@@ -49,11 +51,31 @@ function formatRequirementSummary(policy: PostagePolicyAdminViewModel["payload"]
 
 export function PostagePolicyListPage({
   items,
+  pagination,
   errorMessage,
 }: {
   items: readonly PostagePolicyAdminViewModel[];
+  pagination?: Readonly<{ limit: number; offset: number; total: number }>;
   errorMessage?: string | null;
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pageSize = pagination?.limit ?? items.length;
+  const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
+  const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
+  const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
+
+  function navigateToPage(page: number) {
+    if (!pagination) {
+      return;
+    }
+
+    const searchParams = new URLSearchParams(location.search);
+    searchParams.set("limit", String(pageSize));
+    searchParams.set("offset", String((page - 1) * pageSize));
+    navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`);
+  }
+
   return (
     <Page>
       <PageHeader
@@ -146,6 +168,9 @@ export function PostagePolicyListPage({
           emptyTitle={t("ordering.features.postagePolicies.ui.list.empty.title")}
           emptyDescription={t("ordering.features.postagePolicies.ui.list.empty.description")}
         />
+        {showPagination ? (
+          <Pagination page={currentPage} totalPages={totalPages} onPageChange={navigateToPage} />
+        ) : null}
       </PageSection>
     </Page>
   );
