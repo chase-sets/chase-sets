@@ -22,6 +22,8 @@ jobs:
       affected_workspaces: ${{ steps.scope.outputs.affected_workspaces }}
       build: ${{ steps.scope.outputs.build }}
       changed_files_json: ${{ steps.scope.outputs.changed_files_json }}
+      cluster_preview: ${{ steps.scope.outputs.cluster_preview }}
+      compose_smoke: ${{ steps.scope.outputs.compose_smoke }}
       db_tests: ${{ steps.scope.outputs.db_tests }}
       deploy: ${{ steps.scope.outputs.deploy }}
       docker_image: ${{ steps.scope.outputs.docker_image }}
@@ -833,7 +835,7 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       needs['change-scope'].result == 'success' &&
-      (needs['change-scope'].outputs.deploy == 'true' ||
+      (needs['change-scope'].outputs.cluster_preview == 'true' ||
        contains(github.event.pull_request.labels.*.name, 'preview')) &&
       (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') &&
       needs.typecheck.result == 'success' &&
@@ -1288,6 +1290,123 @@ jobs:
           PLATFORM_AUTH_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
         run: pnpm run stripe:money-smoke -- --edge-check --seller-flow
 
+  compose-preview-smoke:
+    name: Compose Boot Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # #4864: app-code PRs that would previously have earned a full
+    # chase-sets-pr-<n> cluster preview (dockerImageRequired) but do not
+    # touch a deploy surface (cluster_preview) get this cheaper compose
+    # boot+smoke instead. It needs no cloud credentials -- every value in
+    # its rendered env comes from scripts/platform-compose-smoke.mjs, never
+    # from `secrets.*` -- so unlike preview-deploy-smoke it is safe to run
+    # on fork PRs too. The `preview` label always wins: a labelled PR gets
+    # the real cluster preview above instead of this job.
+    if: >
+      always() &&
+      github.event_name == 'pull_request' &&
+      needs['change-scope'].result == 'success' &&
+      needs['change-scope'].outputs.compose_smoke == 'true' &&
+      !contains(github.event.pull_request.labels.*.name, 'preview') &&
+      (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') &&
+      needs.typecheck.result == 'success' &&
+      (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success')
+    needs:
+      - change-scope
+      - static
+      - typecheck
+      - unit-tests
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        id: buildx
+        continue-on-error: true
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        if: steps.buildx.outcome == 'failure'
+
+      - name: Build App Platform image
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --pull \
+            --cache-from type=gha,scope=platform-image \
+            --cache-to type=gha,scope=platform-image,mode=max \
+            --load \
+            --tag chase-sets-platform:compose-smoke \
+            .
+
+      - name: Render compose boot+smoke environment
+        run: node ./scripts/platform-compose-smoke.mjs render-env-all --out-dir artifacts/compose-smoke/env
+
+      - name: Boot compose stack
+        env:
+          CHASE_SETS_COMPOSE_SMOKE_IMAGE: chase-sets-platform:compose-smoke
+        run: docker compose -f docker-compose.pr-smoke.yml up --detach --wait --wait-timeout 300
+
+      - name: Compose service status
+        if: always()
+        run: docker compose -f docker-compose.pr-smoke.yml ps
+
+      # The compose stack has no ingress, so a small path-based proxy per
+      # domain stands in for the real one (see the comment atop
+      # scripts/platform-compose-ingress.mjs): platform-smoke.mjs makes the
+      # same `/api`, `/ucp`, `/mcp` calls a browser would make against a
+      # cluster preview's landing/marketplace/admin origins, and those calls
+      # must resolve to platform-api, not the web app container.
+      - name: Start compose ingress proxies
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/compose-smoke
+          nohup node ./scripts/platform-compose-ingress.mjs --port 18180 --label landing --web-target http://localhost:18192 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-landing.log 2>&1 &
+          disown
+          nohup node ./scripts/platform-compose-ingress.mjs --port 18181 --label marketplace --web-target http://localhost:18193 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-marketplace.log 2>&1 &
+          disown
+          nohup node ./scripts/platform-compose-ingress.mjs --port 18182 --label admin --web-target http://localhost:18194 --api-target http://localhost:18190 > artifacts/compose-smoke/ingress-admin.log 2>&1 &
+          disown
+          sleep 1
+
+      - name: Smoke check
+        env:
+          # Matches scripts/platform-compose-smoke.mjs's composeSmokeAdminEmail /
+          # composeSmokeAdminPassword constants -- these are compose-local
+          # placeholder credentials, never a real secret.
+          PLATFORM_ADMIN_EMAIL: compose-smoke@chasesets.test
+          PLATFORM_ADMIN_PASSWORD: compose-smoke-not-a-real-secret
+          SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_LANDING: "true"
+          SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_REQUIRE_SOCIAL_LOGIN: "false"
+          SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO: "false"
+          SMOKE_REQUIRE_FULFILLMENT_POSTAGE: "false"
+          SMOKE_WAITLIST_EMAIL: ops+compose-smoke-pr-${{ github.event.pull_request.number }}@chasesets.test
+          SMOKE_SOURCE: compose-smoke
+          SMOKE_UTM_CAMPAIGN: pr-${{ github.event.pull_request.number }}
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+        run: |
+          pnpm run smoke:platform -- \
+            http://localhost:18180 \
+            http://localhost:18182 \
+            http://localhost:18181
+
+      - name: Compose boot logs
+        if: failure()
+        run: docker compose -f docker-compose.pr-smoke.yml logs --no-color
+
+      - name: Compose ingress proxy logs
+        if: failure()
+        run: cat artifacts/compose-smoke/ingress-*.log
+
+      - name: Compose teardown
+        if: always()
+        run: docker compose -f docker-compose.pr-smoke.yml down --volumes --remove-orphans
+
   pr-required:
     name: PR Required
     runs-on: ubuntu-latest
@@ -1308,6 +1427,7 @@ jobs:
       - terraform-production-plan
       - terraform-observability-plan
       - preview-deploy-smoke
+      - compose-preview-smoke
     steps:
       - name: Verify required jobs
         run: |
@@ -1362,10 +1482,10 @@ jobs:
           require_job "Terraform Observability Plan" "${{ needs['terraform-observability-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
 
           preview_result="${{ needs['preview-deploy-smoke'].result }}"
-          preview_required="${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (needs['change-scope'].outputs.deploy == 'true' || contains(github.event.pull_request.labels.*.name, 'preview')) }}"
+          preview_required="${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (needs['change-scope'].outputs.cluster_preview == 'true' || contains(github.event.pull_request.labels.*.name, 'preview')) }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             if [ "$preview_required" = "true" ] && [ "$preview_result" != "success" ]; then
-              echo "Preview deployment and smoke must pass for same-repository deploy-scoped PRs and manual preview-label PRs." >&2
+              echo "Preview deployment and smoke must pass for same-repository deploy-surface PRs and manual preview-label PRs." >&2
               exit 1
             elif [ "$preview_required" != "true" ] && [ "$preview_result" != "skipped" ] && [ "$preview_result" != "success" ]; then
               echo "Preview deployment had an unexpected result when it was not required: ${preview_result}." >&2
@@ -1373,6 +1493,25 @@ jobs:
             fi
           elif [ "$preview_result" != "skipped" ] && [ "$preview_result" != "success" ]; then
             echo "Preview deployment had an unexpected result on a non-PR event: ${preview_result}." >&2
+            exit 1
+          fi
+
+          # #4864: app-code PRs that are docker-image-affecting but do not
+          # touch a deploy surface (and are not preview-labeled) get the
+          # compose boot+smoke job instead of a cluster preview -- exactly
+          # the complement of preview_required above.
+          compose_result="${{ needs['compose-preview-smoke'].result }}"
+          compose_required="${{ github.event_name == 'pull_request' && needs['change-scope'].outputs.compose_smoke == 'true' && !contains(github.event.pull_request.labels.*.name, 'preview') }}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "$compose_required" = "true" ] && [ "$compose_result" != "success" ]; then
+              echo "Compose boot smoke must pass for app-code PRs that are not scoped to a cluster preview." >&2
+              exit 1
+            elif [ "$compose_required" != "true" ] && [ "$compose_result" != "skipped" ] && [ "$compose_result" != "success" ]; then
+              echo "Compose boot smoke had an unexpected result when it was not required: ${compose_result}." >&2
+              exit 1
+            fi
+          elif [ "$compose_result" != "skipped" ] && [ "$compose_result" != "success" ]; then
+            echo "Compose boot smoke had an unexpected result on a non-PR event: ${compose_result}." >&2
             exit 1
           fi
 

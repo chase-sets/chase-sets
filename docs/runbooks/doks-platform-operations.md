@@ -45,6 +45,22 @@ The staging cluster carries a dedicated `preview` node pool for PR preview envir
 - Isolation contract: nodes carry the label `chase-sets.com/pool=preview` and the taint `chase-sets.com/preview-only=true:NoSchedule`. Staging workloads never tolerate the taint, so they cannot schedule onto preview nodes; the preview deploy path pins preview pods to the pool with the matching toleration plus a `chase-sets.com/pool=preview` nodeSelector.
 - Evidence: the `preview_node_pool` Terraform output records the pool posture (name, size, autoscale bounds, taint) for foundation-apply evidence.
 
+## Cluster Preview Scoping (#4864)
+
+Not every PR that reaches `preview-deploy-smoke`'s old gate needs a real `chase-sets-pr-<n>` namespace: at merge-velocity bursts (8-10 simultaneous previews), the fixed-size preview node pool above hit Helm pre-install timeouts (#4861), on top of the DO node-pool cost churn every namespace adds. `scripts/change-scope.mjs`'s `cluster_preview` output (consumed by `.github/workflows/platform-pr.yml`'s `preview-deploy-smoke` job) narrows the trigger to actual deploy surfaces:
+
+- `infrastructure/helm/**` (the chart itself)
+- Preview-relevant Terraform (`infrastructure/digitalocean/**` other than the DOKS-only, plan-only root)
+- The Dockerfile / `.dockerignore` / any `deployables/*/Dockerfile`
+- Deploy and cluster-preview scripts: `scripts/digitalocean-*.mjs`, `scripts/doks-*.mjs`, `scripts/platform-kubernetes-deployment.mjs`, `scripts/platform-kubernetes-secret.mjs`, `scripts/platform-ingress-wait.mjs`, `scripts/render-platform-helm-values.mjs`, `scripts/platform-smoke*.mjs`, `scripts/stripe-money-smoke-test*.mjs`
+- Deploy-pipeline workflow files (`.github/workflows/platform-*.yml`)
+
+A PR that only changes app code (bounded contexts, deployables, packages) still needs a docker image built, but instead of a cluster preview it gets the `compose-preview-smoke` job: the same production image booted with `docker compose` (platform-api, platform-worker, and all three web deployables against a real compose Postgres, env rendered by `scripts/platform-compose-smoke.mjs` from the same `buildPlatformHelmValues()` source of truth the Helm chart uses) and driven by the same `scripts/platform-smoke.mjs` the cluster preview runs, through a small path-based proxy (`scripts/platform-compose-ingress.mjs`) standing in for the ingress. It needs no cloud secrets — every value is a local placeholder — so unlike the cluster preview it also runs on fork PRs.
+
+**Escape hatch:** apply the `preview` label to any PR to force the real cluster preview regardless of what changed (it already forces the full battery via `full-battery` resolution in `platform-pr.yml`). Use this when you need to see the change behind a live `pr-N(-marketplace|-admin).preview.chasesets.com` URL, or to debug something the compose stand-in's proxy can't reproduce.
+
+Preview-cleanup (`platform-preview-cleanup.yml`, #4825) is unaffected: it discovers targets from closed/merged PR numbers and a scheduled cluster sweep, never from `change-scope` output, so it keeps reconciling every `chase-sets-pr-*` namespace a cluster preview (or a `preview`-labelled PR) actually created.
+
 ## Operator Shell Setup
 
 Initialize the DOKS Terraform root for the target environment and export a temporary kubeconfig. Do not commit kubeconfig files, Terraform state, or command output that contains secrets.

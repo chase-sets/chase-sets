@@ -30,7 +30,11 @@ const previewPostgresSecretName = "chase-sets-preview-postgres";
 export const previewWildcardTlsSecretName = "preview-wildcard-tls";
 export const previewWildcardTlsSecretNamespace = "cert-manager";
 
-const platformApiIngressPrefixes = [
+// Exported so scripts/platform-compose-ingress.mjs (the CI compose
+// boot+smoke job's ingress stand-in) routes requests by the exact same path
+// prefixes the real Kubernetes ingress uses, instead of maintaining a
+// second, driftable copy of this list.
+export const platformApiIngressPrefixes = [
   "/.well-known",
   "/ucp",
   "/mcp",

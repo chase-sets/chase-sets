@@ -151,6 +151,13 @@ describe("change-scope", () => {
     expect(scope.buildRequired).toBe(true);
     expect(scope.deployRequired).toBe(true);
     expect(scope.exposurePostureCategories).toEqual([]);
+    // #4864: a pure app-code change (no Helm/Terraform/deploy-script/deploy-
+    // workflow surface touched) still needs a docker image, but must not get
+    // a chase-sets-pr-<n> cluster preview -- it gets the CI compose
+    // boot+smoke job instead.
+    expect(scope.dockerImageRequired).toBe(true);
+    expect(scope.clusterPreviewRequired).toBe(false);
+    expect(scope.composeSmokeRequired).toBe(true);
   });
 
   it("reruns tests for dev-dependents of runtime changes without fanning out to their dependents", () => {
@@ -708,7 +715,7 @@ describe("change-scope", () => {
     expect(scope.dbTestsRequired).toBe(true);
   });
 
-  it("keeps workflow-only changes out of deployment", () => {
+  it("keeps workflow-only changes out of deployment but scopes platform-*.yml to a cluster preview", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -719,9 +726,28 @@ describe("change-scope", () => {
     expect(scope.workflowLintRequired).toBe(true);
     expect(scope.localChecksRequired).toBe(true);
     expect(scope.deployRequired).toBe(false);
+    // #4864: a deploy-pipeline workflow file is a deploy surface even though
+    // it never touches app code, so it still earns the real cluster preview
+    // (this is also why this issue's own PR self-tests the new rule).
+    expect(scope.clusterPreviewRequired).toBe(true);
+    expect(scope.composeSmokeRequired).toBe(false);
   });
 
-  it("treats Terraform and deployment helper changes as deployable infrastructure", () => {
+  it("keeps non-platform workflow changes off the cluster-preview surface", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: [".github/workflows/review-cadence-digest.yml"],
+      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+    });
+
+    expect(scope.workflowLintRequired).toBe(true);
+    expect(scope.deployRequired).toBe(false);
+    expect(scope.clusterPreviewRequired).toBe(false);
+    expect(scope.composeSmokeRequired).toBe(false);
+  });
+
+  it("treats Terraform and deployment helper changes as deployable infrastructure needing a cluster preview", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -732,9 +758,11 @@ describe("change-scope", () => {
     expect(scope.terraformRequired).toBe(true);
     expect(scope.deployRequired).toBe(true);
     expect(scope.dockerImageRequired).toBe(false);
+    expect(scope.clusterPreviewRequired).toBe(true);
+    expect(scope.composeSmokeRequired).toBe(false);
   });
 
-  it("keeps DOKS-only Terraform changes on the plan-only lane", () => {
+  it("keeps DOKS-only Terraform changes on the plan-only lane, off the cluster-preview surface", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -745,9 +773,11 @@ describe("change-scope", () => {
     expect(scope.terraformRequired).toBe(true);
     expect(scope.deployRequired).toBe(false);
     expect(scope.dockerImageRequired).toBe(false);
+    expect(scope.clusterPreviewRequired).toBe(false);
+    expect(scope.composeSmokeRequired).toBe(false);
   });
 
-  it("routes Helm chart changes through manifest validation without deploying", () => {
+  it("routes Helm chart changes through manifest validation and a cluster preview without a docker image", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -759,9 +789,14 @@ describe("change-scope", () => {
     expect(scope.terraformRequired).toBe(false);
     expect(scope.deployRequired).toBe(false);
     expect(scope.dockerImageRequired).toBe(false);
+    // #4864: Helm changes are a deploy surface in their own right, even
+    // without a docker image, because they alter what the cluster preview
+    // (and staging/production) actually deploys.
+    expect(scope.clusterPreviewRequired).toBe(true);
+    expect(scope.composeSmokeRequired).toBe(false);
   });
 
-  it("routes the platform Kubernetes Secret helper through workflow lint without deploying", () => {
+  it("routes the platform Kubernetes Secret helper through workflow lint and a cluster preview without deploying", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -774,9 +809,14 @@ describe("change-scope", () => {
     expect(scope.deployRequired).toBe(false);
     expect(scope.dockerImageRequired).toBe(false);
     expect(scope.terraformRequired).toBe(false);
+    // #4864: this script builds the runtime Secret every preview/staging/
+    // production release applies, so a change here is env plumbing that
+    // needs the real cluster preview, not just the dry-run in workflow lint.
+    expect(scope.clusterPreviewRequired).toBe(true);
+    expect(scope.composeSmokeRequired).toBe(false);
   });
 
-  it("routes the platform ingress wait helper through workflow lint without deploying", () => {
+  it("routes the platform ingress wait helper through workflow lint and a cluster preview without deploying", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -789,6 +829,21 @@ describe("change-scope", () => {
     expect(scope.deployRequired).toBe(false);
     expect(scope.dockerImageRequired).toBe(false);
     expect(scope.terraformRequired).toBe(false);
+    expect(scope.clusterPreviewRequired).toBe(true);
+    expect(scope.composeSmokeRequired).toBe(false);
+  });
+
+  it("routes DOKS and platform Kubernetes deploy script changes onto the cluster-preview surface", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["scripts/doks-cluster-addons.mjs", "scripts/platform-kubernetes-deployment.mjs"],
+      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+    });
+
+    expect(scope.dockerImageRequired).toBe(false);
+    expect(scope.clusterPreviewRequired).toBe(true);
+    expect(scope.composeSmokeRequired).toBe(false);
   });
 
   it("classifies exposure-posture changes for targeted release gates", () => {
