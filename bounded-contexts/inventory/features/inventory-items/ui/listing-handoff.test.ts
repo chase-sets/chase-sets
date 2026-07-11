@@ -8,12 +8,12 @@ describe("inventory listing handoff links", () => {
         "inv_1",
         "/account/inventory/items/inv_1?feedbackWorkflow=inventory-create&afterWrite=fresh&postWriteHandoff=handoff",
       ),
-    ).toBe("/account/listings?inventoryItemId=inv_1&afterWrite=fresh&postWriteHandoff=handoff");
+    ).toBe("/account/listings/new?inventoryItemId=inv_1&afterWrite=fresh&postWriteHandoff=handoff");
   });
 
   it("does not carry unrelated inventory page query parameters", () => {
     expect(inventoryListingHref("inv_1", "/account/inventory?feedbackWorkflow=inventory-create")).toBe(
-      "/account/listings?inventoryItemId=inv_1",
+      "/account/listings/new?inventoryItemId=inv_1",
     );
   });
 

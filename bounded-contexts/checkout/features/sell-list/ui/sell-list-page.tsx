@@ -288,7 +288,7 @@ function listingSetupHref(line: CheckoutSellListLineRow, priceAmount: string | n
     searchParams.set("selectedOptions", JSON.stringify(line.selected_options));
   }
 
-  return `/account/listings?${searchParams.toString()}`;
+  return `/account/listings/new?${searchParams.toString()}`;
 }
 
 function inventorySetupHref(line: CheckoutSellListLineRow) {
@@ -309,7 +309,7 @@ function inventoryListingSetupHref(inventoryItemId: string, priceAmount: string 
     searchParams.set("recommendedPrice", priceAmount);
   }
 
-  return `/account/listings?${searchParams.toString()}`;
+  return `/account/listings/new?${searchParams.toString()}`;
 }
 
 function sellListLineSetupHref(line: CheckoutSellListLineRow, inventoryItem?: SellListInventoryItem | null) {

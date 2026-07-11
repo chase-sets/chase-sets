@@ -11,7 +11,7 @@ describe("marketplace account gate context", () => {
   });
 
   it("explains listing draft account gates for local return paths", () => {
-    expect(marketplaceAccountGateContextMessage("/account/listings?claimListingIntent=ldi_1")).toEqual({
+    expect(marketplaceAccountGateContextMessage("/account/listings/new?claimListingIntent=ldi_1")).toEqual({
       title: "Use an account to publish this listing",
       description:
         "Your listing draft is saved. An account is required before inventory, payout, and listing publication can be confirmed.",

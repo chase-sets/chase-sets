@@ -72,6 +72,13 @@ export interface MarketplaceSellerListingStatusCounts {
   withdrawn: number;
 }
 
+export interface MarketplaceListingBulkActionOutcome {
+  listingId: string;
+  label: string;
+  outcome: "success" | "error";
+  message: string | null;
+}
+
 export interface MarketplaceGradedCardDetails {
   gradingCompany: string;
   grade: string;

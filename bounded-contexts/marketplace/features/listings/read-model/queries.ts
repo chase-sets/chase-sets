@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { MarketplaceGradedCardDetails, MarketplaceListingPhoto } from "../domain/domain";
@@ -550,27 +550,47 @@ export async function listActiveListingsForInventoryItem(db: PgQueryable, invent
   return result.rows.map(mapListingRow);
 }
 
+const SELLER_LISTING_STATUSES = new Set(["draft", "active", "paused", "withdrawn"]);
+
 export async function listSellerListings(
   db: PgQueryable,
-  params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
+  params: Readonly<{ accountId: string; limit?: number; offset?: number; status?: string; search?: string }>,
 ): Promise<{ items: MarketplaceListingListRow[]; total: number }> {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
+  const status = params.status && SELLER_LISTING_STATUSES.has(params.status) ? params.status : null;
+  const search = params.search?.trim() ? params.search.trim() : null;
+
+  const values: unknown[] = [params.accountId];
+  const conditions: string[] = [];
+  if (status) {
+    values.push(status);
+    conditions.push(`status = $${values.length}`);
+  }
+  if (search) {
+    values.push(`%${escapeLikePattern(search)}%`);
+    conditions.push(`item_title ILIKE $${values.length} ESCAPE '\\'`);
+  }
+  const filterSql = conditions.map((condition) => `AND ${condition}`).join("\n       ");
+  const limitIndex = values.length + 1;
+  const offsetIndex = values.length + 2;
 
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM marketplace_listing_pages
-       WHERE account_id = $1`,
-      [params.accountId],
+       WHERE account_id = $1
+       ${filterSql}`,
+      values,
     ),
     db.query<MarketplaceListingPageRow>(
       `SELECT *
        FROM marketplace_listing_pages
        WHERE account_id = $1
+       ${filterSql}
        ORDER BY updated_at DESC, listing_id DESC
-       LIMIT $2 OFFSET $3`,
-      [params.accountId, limit, offset],
+       LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+      [...values, limit, offset],
     ),
   ]);
 

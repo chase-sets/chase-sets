@@ -78,7 +78,7 @@ export function buildRegisterToSellHref(request: Request) {
 }
 
 export function buildRegisterToClaimListingDraftHref(intentId: string) {
-  const returnTo = `/account/listings?claimListingIntent=${encodeURIComponent(intentId)}`;
+  const returnTo = `/account/listings/new?claimListingIntent=${encodeURIComponent(intentId)}`;
   return `/register?returnTo=${encodeURIComponent(returnTo)}`;
 }
 

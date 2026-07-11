@@ -195,7 +195,7 @@ describe("InventoryImportBatchPage", () => {
     expect(allRejected).toContain("Storage location is archived.");
     expect(allRejected).not.toContain("Commit accepted rows");
     expect(committed).toContain("Inventory item inv_1 created.");
-    expect(committed).toContain("/account/listings?inventoryItemId=inv_1");
+    expect(committed).toContain("/account/listings/new?inventoryItemId=inv_1");
     expect(committed).not.toContain("Commit accepted rows");
   });
 
@@ -228,7 +228,9 @@ describe("InventoryImportBatchPage", () => {
     expect(html).toContain("Inventory item inv_1 created.");
     expect(html).toContain("Catalog item was not found.");
     expect(html).toContain("/account/inventory?afterWrite=fresh&amp;postWriteHandoff=handoff");
-    expect(html).toContain("/account/listings?inventoryItemId=inv_1&amp;afterWrite=fresh&amp;postWriteHandoff=handoff");
+    expect(html).toContain(
+      "/account/listings/new?inventoryItemId=inv_1&amp;afterWrite=fresh&amp;postWriteHandoff=handoff",
+    );
     expect(html).not.toContain("Commit accepted rows");
   });
 
@@ -263,6 +265,8 @@ describe("InventoryImportBatchPage", () => {
     );
 
     expect(html).toContain("/account/inventory?afterWrite=fresh&amp;postWriteHandoff=handoff");
-    expect(html).toContain("/account/listings?inventoryItemId=inv_1&amp;afterWrite=fresh&amp;postWriteHandoff=handoff");
+    expect(html).toContain(
+      "/account/listings/new?inventoryItemId=inv_1&amp;afterWrite=fresh&amp;postWriteHandoff=handoff",
+    );
   });
 });

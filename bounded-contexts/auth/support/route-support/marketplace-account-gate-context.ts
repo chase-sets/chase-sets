@@ -26,7 +26,7 @@ export function marketplaceAccountGateContextMessage(returnTo: string): Marketpl
     };
   }
 
-  if (url.pathname === "/account/listings" && url.searchParams.has("claimListingIntent")) {
+  if (url.pathname === "/account/listings/new" && url.searchParams.has("claimListingIntent")) {
     return {
       title: t("auth.routes.marketplace.accountGate.listing.draft.title"),
       description: t("auth.routes.marketplace.accountGate.listing.draft.description"),

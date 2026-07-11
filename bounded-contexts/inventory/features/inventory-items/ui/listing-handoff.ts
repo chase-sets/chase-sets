@@ -19,7 +19,7 @@ export function appendInventoryHandoffSearch(path: string, currentPath?: string 
 
 export function inventoryListingHref(itemId: string, currentPath?: string | null) {
   return appendInventoryHandoffSearch(
-    `/account/listings?${new URLSearchParams({ inventoryItemId: itemId })}`,
+    `/account/listings/new?${new URLSearchParams({ inventoryItemId: itemId })}`,
     currentPath,
   );
 }
