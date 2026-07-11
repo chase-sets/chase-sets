@@ -1,5 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
+import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { settlementWalletSchemaMigrations, settlementWalletSchemaSql } from "../../features/wallets/read-model/schema";
 import { settlementPaymentSourceSchemaSql } from "../../features/wallets/integrations/payment-source/payment-source-schema";
 import { settlementSupportSourceSchemaSql } from "../../features/wallets/integrations/support-source/support-source-schema";
@@ -45,6 +46,11 @@ export const settlementSchemaSql = [
   settlementPayoutReadinessSchemaSql,
   settlementPayoutSchemaSql,
   settlementWorkClaimSchemaSql,
+  // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
+  // for the clearance-window and payout-bounds policies -- see
+  // ../../features/wallets/domain/clearance-policy.ts and
+  // ../../features/payouts/domain/payout-policy.ts.
+  platformPolicySchemaSql,
 ].join("\n\n");
 
 export const settlementSchemaMigrations = [

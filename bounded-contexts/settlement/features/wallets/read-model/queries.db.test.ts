@@ -232,7 +232,14 @@ describeDb("settlement money maturity query persistence boundary", () => {
       deliveredDaysAgo: 8,
     });
 
-    await expect(listPendingCreditEntriesMaturedBy(pool, { now })).resolves.toEqual([
+    await expect(
+      listPendingCreditEntriesMaturedBy(pool, {
+        now,
+        baseClearanceDays: 2,
+        extendedClearanceDays: 7,
+        highValueThresholdAmount: "250.00",
+      }),
+    ).resolves.toEqual([
       expect.objectContaining({ ledger_entry_id: "led_ready_balance_funded_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_buyer_only_reviews_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_default_risk_long" }),
@@ -264,15 +271,75 @@ describeDb("settlement money maturity query persistence boundary", () => {
       deliveredDaysAgo: 8,
     });
 
+    const clearancePolicy = {
+      baseClearanceDays: 2,
+      extendedClearanceDays: 7,
+      highValueThresholdAmount: "250.00",
+    };
+
     await expect(
-      listPendingCreditEntriesMaturedBy(pool, { now, claimOwnerId: "worker-a", claimTtlMs: 120_000, limit: 1 }),
+      listPendingCreditEntriesMaturedBy(pool, {
+        now,
+        ...clearancePolicy,
+        claimOwnerId: "worker-a",
+        claimTtlMs: 120_000,
+        limit: 1,
+      }),
     ).resolves.toEqual([expect.objectContaining({ ledger_entry_id: "led_claim_first" })]);
     await expect(
-      listPendingCreditEntriesMaturedBy(pool, { now, claimOwnerId: "worker-b", claimTtlMs: 120_000, limit: 10 }),
+      listPendingCreditEntriesMaturedBy(pool, {
+        now,
+        ...clearancePolicy,
+        claimOwnerId: "worker-b",
+        claimTtlMs: 120_000,
+        limit: 10,
+      }),
     ).resolves.toEqual([expect.objectContaining({ ledger_entry_id: "led_claim_second" })]);
     await expect(
-      listPendingCreditEntriesMaturedBy(pool, { now, claimOwnerId: "worker-a", claimTtlMs: 120_000, limit: 10 }),
+      listPendingCreditEntriesMaturedBy(pool, {
+        now,
+        ...clearancePolicy,
+        claimOwnerId: "worker-a",
+        claimTtlMs: 120_000,
+        limit: 10,
+      }),
     ).resolves.toEqual([expect.objectContaining({ ledger_entry_id: "led_claim_first" })]);
+  });
+
+  it("changes maturity results when the clearance policy window is revised", async () => {
+    await seedWallet("acc_trusted");
+    await seedTrustedSeller("acc_trusted");
+    await seedMaturityCandidate({
+      ledgerEntryId: "led_revised_window_candidate",
+      accountId: "acc_trusted",
+      orderId: "ord_revised_window_candidate",
+      amount: "40.00",
+      postedDaysAgo: 3,
+      deliveredDaysAgo: 3,
+    });
+
+    // Under the launch policy (2-day base window) a 3-day-old posted/delivered
+    // entry has already matured.
+    await expect(
+      listPendingCreditEntriesMaturedBy(pool, {
+        now,
+        baseClearanceDays: 2,
+        extendedClearanceDays: 7,
+        highValueThresholdAmount: "250.00",
+      }),
+    ).resolves.toEqual([expect.objectContaining({ ledger_entry_id: "led_revised_window_candidate" })]);
+
+    // A revised, longer base window (documented operator behavior: the query
+    // evaluates at run time, so a widened window applies to already-posted
+    // entries too) pushes the same entry back out of the matured set.
+    await expect(
+      listPendingCreditEntriesMaturedBy(pool, {
+        now,
+        baseClearanceDays: 5,
+        extendedClearanceDays: 7,
+        highValueThresholdAmount: "250.00",
+      }),
+    ).resolves.toEqual([]);
   });
 
   async function seedWallet(accountId: string) {
