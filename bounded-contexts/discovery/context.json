@@ -207,13 +207,15 @@
     {
       "sourceContextName": "identity",
       "projectionName": "discovery-market-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
         "identity.account.suspended",
         "identity.account.reactivated",
-        "identity.account.closed"
+        "identity.account.closed",
+        "identity.account.badge-assigned",
+        "identity.account.badge-removed"
       ],
       "order": 20,
       "projectionHandlerSetNames": ["discovery-market-projection"]

@@ -22,6 +22,7 @@ import {
 } from "@chase-sets/design-system";
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import type { DiscoveryGradedCardDetails } from "../../../../support/client-support/contracts";
+import { hasTrustedSellerBadge, TrustedSellerBadge } from "../account-badges";
 import {
   formatMoneyAmount,
   getActionErrorMessage,
@@ -140,6 +141,8 @@ export function CheckoutPurchaseIntentSection({
     seller_slug?: string | null;
     seller_average_rating?: string | null;
     seller_review_count?: number;
+    /** Account badges mirror (m87 badge facts, m108 reputation). */
+    seller_badges?: readonly string[];
     graded_card?: DiscoveryGradedCardDetails | null;
   } | null;
   selectedListingSource?: MarketSelectionSource;
@@ -380,6 +383,7 @@ export function CheckoutPurchaseIntentSection({
                     reviewCount={selectedListing?.seller_review_count ?? 0}
                     ratingLabel="Seller account reputation"
                   />
+                  {hasTrustedSellerBadge(selectedListing?.seller_badges) ? <TrustedSellerBadge /> : null}
                 </Inline>
                 <ProductQuantitySummary
                   availability={selectedListingAvailability}

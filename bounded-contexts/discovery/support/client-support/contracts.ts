@@ -277,6 +277,8 @@ export interface DiscoveryMarketListing {
   seller_display_name: string | null;
   seller_average_rating?: string | null;
   seller_review_count?: number;
+  /** Account badges mirror (m87 badge facts, m108 reputation) -- e.g. "trusted-seller". */
+  seller_badges?: readonly string[];
   google_shopping_structured_data_payload?: DiscoveryGoogleShoppingStructuredDataPayload | null;
   visible_quantity: number;
   created_at: string;
@@ -315,6 +317,8 @@ export interface DiscoveryPublicAccount {
   account_display_name: string | null;
   status: string;
   created_at: string | null;
+  /** Account badges mirror (m87 badge facts, m108 reputation) -- e.g. "trusted-seller". */
+  badges: readonly string[];
   average_rating_as_seller: string | null;
   review_count_as_seller: number;
   rating_1_count_as_seller: number;

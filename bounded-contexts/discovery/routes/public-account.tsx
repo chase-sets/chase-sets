@@ -12,6 +12,7 @@ import {
   AccountCredibilityHeader,
   Badge,
   Box,
+  Inline,
   PageSection,
   Pagination,
   ProductOptions,
@@ -29,6 +30,8 @@ import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/r
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import { applyDiscoveryPublicAccountPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
+import { hasTrustedSellerBadge, TrustedSellerBadge } from "../features/item-detail/ui/account-badges";
+import { createSellerMetricsRequestApiClient, type SellerBehavioralMetricsChips } from "@chase-sets/marketplace/server";
 
 const ACCOUNT_REVIEW_PAGE_SIZE = 10;
 const ACCOUNT_REVIEW_ROLES = new Set(["seller", "buyer"]);
@@ -187,6 +190,37 @@ function RoleRatingDistribution({ title, dimension }: { title: string; dimension
   );
 }
 
+// m108 #4271: qualitative chips, never raw percentages -- each chip only
+// renders when its underlying rate is confidently good AND past the
+// display threshold (marketplace's public API already returns null for
+// "not confident" and "not enough orders", collapsing both into "say
+// nothing" here rather than distinguishing them to the buyer).
+function BehavioralMetricsChipRow({ chips }: { chips: SellerBehavioralMetricsChips | null }) {
+  if (!chips) {
+    return null;
+  }
+
+  const labels = [
+    chips.shipsOnTime === true ? t("discovery.routes.publicAccount.chips.ships.on.time") : null,
+    chips.lowCancellationRate === true ? t("discovery.routes.publicAccount.chips.rarely.cancels") : null,
+    chips.lowDisputeRate === true ? t("discovery.routes.publicAccount.chips.rarely.disputed") : null,
+  ].filter((label): label is string => label !== null);
+
+  if (labels.length === 0) {
+    return null;
+  }
+
+  return (
+    <Inline gap={2}>
+      {labels.map((label) => (
+        <Badge key={label} tone="success">
+          {label}
+        </Badge>
+      ))}
+    </Inline>
+  );
+}
+
 function navigateToAccountReviewsPage(role: AccountReviewRoleFilter, page: number) {
   if (typeof window === "undefined") {
     return;
@@ -218,7 +252,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const slug = params.accountSlug;
 
   if (!slug) {
-    return { account: null, notFound: true, canonicalUrl: null, reviewRole: null, reviewPage: 1, search: "" };
+    return {
+      account: null,
+      notFound: true,
+      canonicalUrl: null,
+      reviewRole: null,
+      reviewPage: 1,
+      search: "",
+      behavioralMetricsChips: null,
+    };
   }
 
   const reviewRole = reviewRoleFromRequest(request);
@@ -237,6 +279,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       throw redirect(`/accounts/${account.account_slug}${url.search}`, { status: 301 });
     }
 
+    const behavioralMetricsChips = await fetchSellerBehavioralMetricsChips(request, account.account_id);
+
     return {
       account,
       notFound: false,
@@ -244,13 +288,40 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       reviewRole,
       reviewPage,
       search: url.search,
+      behavioralMetricsChips,
     };
   } catch (error) {
     if (error instanceof DiscoveryApiError) {
-      return { account: null, notFound: true, canonicalUrl: null, reviewRole, reviewPage, search: "" };
+      return {
+        account: null,
+        notFound: true,
+        canonicalUrl: null,
+        reviewRole,
+        reviewPage,
+        search: "",
+        behavioralMetricsChips: null,
+      };
     }
 
     throw error;
+  }
+}
+
+// m108 #4271: composition-root call to marketplace's public server API
+// client (already the established cross-context pattern for discovery's
+// item-detail route, support/route-support/item-detail/loader.ts) rather
+// than a new event-subscribed local projection -- marketplace computes the
+// behavioral-metrics rates exactly once and discovery reads its public,
+// already-flag-gated, already-threshold-gated chip surface at request time.
+// Best-effort: a transient failure degrades to no chips, not a failed page.
+async function fetchSellerBehavioralMetricsChips(
+  request: Request,
+  accountId: string,
+): Promise<SellerBehavioralMetricsChips | null> {
+  try {
+    return await createSellerMetricsRequestApiClient(request).getBehavioralMetricsChips(accountId);
+  } catch {
+    return null;
   }
 }
 
@@ -353,6 +424,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               ? t("discovery.routes.publicAccount.verified.account")
               : t("discovery.routes.publicAccount.building.trust")
           }
+          badges={hasTrustedSellerBadge(account.badges) ? <TrustedSellerBadge /> : null}
           summary={
             account.active_listing_count > 0
               ? t("discovery.routes.publicAccount.verified.marketplace.account.profile")
@@ -397,6 +469,8 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
             </LinkButton>
           }
         />
+
+        <BehavioralMetricsChipRow chips={data.behavioralMetricsChips} />
 
         <Box id="feedback">
           <PageSection title={t("discovery.routes.publicAccount.feedback")}>

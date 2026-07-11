@@ -1,10 +1,18 @@
 {
   "contextName": "marketplace",
   "packageName": "@chase-sets/marketplace",
-  "ownedNouns": ["listing", "offer", "seller-listing-availability", "report", "review", "review-summary"],
+  "ownedNouns": [
+    "listing",
+    "offer",
+    "seller-listing-availability",
+    "report",
+    "review",
+    "review-summary",
+    "seller-reliability"
+  ],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["listings", "offers", "reports", "reviews"],
+  "slices": ["listings", "offers", "reports", "reviews", "seller-metrics"],
   "allowedSupportDirectories": [
     "request-support",
     "realtime-support",
@@ -183,6 +191,34 @@
       "eventTypes": ["settlement.wallet.negative-balance-collections-opened"],
       "order": 91,
       "projectionHandlerSetNames": ["marketplace-settlement-negative-balance-projection"]
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "marketplace-seller-metrics-order-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "order": 95,
+      "projectionHandlerSetNames": ["marketplace-seller-metrics-order-source-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "marketplace-seller-metrics-shipment-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.dispatched"],
+      "order": 96,
+      "projectionHandlerSetNames": ["marketplace-seller-metrics-shipment-source-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "marketplace-seller-metrics-support-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["support.support-request.resolved"],
+      "order": 97,
+      "projectionHandlerSetNames": ["marketplace-seller-metrics-support-source-projection"]
     }
   ],
   "eventReactions": [
@@ -275,6 +311,27 @@
       "projectionName": "marketplace-review-support-source-projection",
       "sourceContextNames": ["platform-operations"],
       "ownedTables": ["marketplace_review_eligibility_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-seller-metrics-order-source-projection",
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["marketplace_seller_metrics_order_sources", "marketplace_seller_metrics_summary_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-seller-metrics-shipment-source-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["marketplace_seller_metrics_shipment_sources"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-seller-metrics-support-source-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["marketplace_seller_metrics_support_request_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
@@ -1421,6 +1478,14 @@
       "purpose": "Own post-transaction review behavior, review-summary read models, review eligibility, and UI contracts for the marketplace context.",
       "expectedConsumers": ["Internal marketplace module composition"]
     },
+    "seller-metrics": {
+      "classification": "slice",
+      "purpose": "Own the marketplace seller-metrics slice's seller-reliability policy and rolling-window read model (on-time-shipment rate, seller-caused cancellation rate, dispute rate) computed from ordering, fulfillment, and support-request events, plus the seller-facing and public-chip API surfaces for it.",
+      "expectedConsumers": [
+        "Internal marketplace module composition",
+        "Discovery public-profile and item-detail chip/badge display"
+      ]
+    },
     "route-support": {
       "classification": "support",
       "purpose": "Provide shared Marketplace review-submission route composition for purchase and sale routes that differ only by entry path and not-found copy.",
@@ -1429,7 +1494,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["listings", "offers"],
+      "expectedConsumers": ["listings"],
       "crossCuttingRuntimeComposition": true
     },
     "realtime-support": {

@@ -31,6 +31,7 @@ function accountFixture(overrides: Partial<DiscoveryPublicAccount> = {}): Discov
     account_display_name: "North Store",
     status: "active",
     created_at: "2026-01-15T00:00:00.000Z",
+    badges: [],
     average_rating_as_seller: "4.80",
     review_count_as_seller: 8,
     rating_1_count_as_seller: 0,
@@ -111,15 +112,35 @@ describe("discovery public account loader", () => {
     vi.clearAllMocks();
   });
 
-  it("requests revealed, paginated reviews for the requested role and page", async () => {
-    const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response(JSON.stringify(accountFixture({ account_slug: "north-store" })), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-    );
+  // m108 #4271: the loader also fetches marketplace's public
+  // behavioral-metrics chips endpoint (best-effort, alongside the primary
+  // discovery account fetch) -- the fake fetch routes on URL so both calls
+  // resolve distinctly rather than one mock serving both shapes.
+  function stubAccountAndChipsFetch() {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("behavioral-metrics-chips")) {
+        return new Response(
+          JSON.stringify({
+            sellerAccountId: "acc_seller",
+            shipsOnTime: null,
+            lowCancellationRate: null,
+            lowDisputeRate: null,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify(accountFixture({ account_slug: "north-store" })), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("requests revealed, paginated reviews for the requested role and page", async () => {
+    const fetchMock = stubAccountAndChipsFetch();
 
     const result = await loader({
       request: new Request("http://localhost/accounts/north-store?role=seller&page=2"),
@@ -127,8 +148,9 @@ describe("discovery public account loader", () => {
       context: undefined,
     } as never);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const requestedUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const accountCall = fetchMock.mock.calls.find((call) => String(call[0]).includes("/accounts/north-store"));
+    const requestedUrl = String(accountCall?.[0] ?? "");
     expect(requestedUrl).toContain("/accounts/north-store");
     expect(requestedUrl).toContain("role=seller");
     expect(requestedUrl).toContain("limit=10");
@@ -140,14 +162,7 @@ describe("discovery public account loader", () => {
   });
 
   it("redirects to the canonical slug when the requested slug has been superseded", async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify(accountFixture({ account_slug: "north-store" })), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    stubAccountAndChipsFetch();
 
     let thrown: unknown;
     try {

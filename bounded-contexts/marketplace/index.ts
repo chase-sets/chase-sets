@@ -26,9 +26,15 @@ import {
   buildReviewSupportSourceProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
 import { buildReviewModerationReactionHandlers } from "./features/reviews/integrations/moderation/moderation-reaction";
+import {
+  buildSellerMetricsOrderSourceProjectionHandlers,
+  buildSellerMetricsShipmentSourceProjectionHandlers,
+  buildSellerMetricsSupportSourceProjectionHandlers,
+} from "./features/seller-metrics/integrations/source/source-projection";
 import type { MarketplaceServiceOptions, MarketplaceServices } from "./support/runtime-support/services";
 import { buildMarketplaceApi } from "./api";
 import { buildReviewApi } from "./features/reviews/api/http";
+import { buildSellerMetricsApi } from "./features/seller-metrics/api/http";
 import { createMarketplaceServices } from "./support/runtime-support/services";
 import { marketplaceSchemaSql } from "./support/runtime-support/schema";
 import { marketplaceUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -49,7 +55,11 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
   retentionSweeps: marketplaceRetentionSweeps,
   retentionExemptions: marketplaceRetentionExemptions,
   createServices: (pool, options) => createMarketplaceServices(pool, options),
-  buildApis: (services) => [buildMarketplaceApi(services), buildReviewApi(services.reviews)],
+  buildApis: (services) => [
+    buildMarketplaceApi(services),
+    buildReviewApi(services.reviews),
+    buildSellerMetricsApi(services.sellerMetrics),
+  ],
   buildMcpHandlers: (services) => {
     const listings = createMarketplaceListingMcpHandlers(services.listings);
     const offers = createMarketplaceOfferMcpHandlers(services.offers);
@@ -118,6 +128,27 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
           "platform-operations.marketplace-review-support-source-projection": {
             subscriptionName: "marketplace.review-support-source-projection",
             buildHandlers: () => buildReviewSupportSourceProjectionHandlers(services.db),
+          },
+          "ordering.marketplace-seller-metrics-order-source-projection": {
+            subscriptionName: "marketplace.seller-metrics-order-source-projection",
+            buildHandlers: () =>
+              buildSellerMetricsOrderSourceProjectionHandlers(services.db, {
+                resolvePolicy: services.policies.resolvePolicy,
+              }),
+          },
+          "fulfillment.marketplace-seller-metrics-shipment-source-projection": {
+            subscriptionName: "marketplace.seller-metrics-shipment-source-projection",
+            buildHandlers: () =>
+              buildSellerMetricsShipmentSourceProjectionHandlers(services.db, {
+                resolvePolicy: services.policies.resolvePolicy,
+              }),
+          },
+          "platform-operations.marketplace-seller-metrics-support-source-projection": {
+            subscriptionName: "marketplace.seller-metrics-support-source-projection",
+            buildHandlers: () =>
+              buildSellerMetricsSupportSourceProjectionHandlers(services.db, {
+                resolvePolicy: services.policies.resolvePolicy,
+              }),
           },
           "settlement.marketplace-settlement-negative-balance-projection": {
             buildHandlers: () => buildMarketplaceSettlementNegativeBalanceProjectionHandlers(services.listings),

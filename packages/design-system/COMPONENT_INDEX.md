@@ -338,7 +338,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ToolbarSeparator` | `packages/design-system/src/components/actions/toolbar.tsx` | Purpose not documented; symbol name suggests: Toolbar Separator. | `No production consumer yet.` |
 | `Tooltip` | `packages/design-system/src/components/feedback/tooltip.tsx` | Purpose not documented; symbol name suggests: Tooltip. | `No production consumer yet.` |
 | `TopNav` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Top Nav. | `No production consumer yet.` |
-| `TrustBadge` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Trust Badge. | `No production consumer yet.` |
+| `TrustBadge` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Trust Badge. | `bounded-contexts/discovery/features/item-detail/ui/account-badges.tsx` |
 | `useChaseMotion` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Chase Motion. | `No production consumer yet.` |
 | `useDensity` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Density. | `No production consumer yet.` |
 | `useFormContext` | `packages/design-system/src/components/forms/form.tsx` | Purpose not documented; symbol name suggests: use Form Context. | `No production consumer yet.` |

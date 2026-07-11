@@ -284,6 +284,7 @@ export const sourceContextWakeRegistry = [
       "pricing:pricing-fulfillment-input-projection",
       "pricing:pricing-market-trades-projection",
       "marketplace:marketplace-review-shipment-source-projection",
+      "marketplace:marketplace-seller-metrics-shipment-source-projection",
       "settlement:settlement-fulfillment-source-projection",
       "platform-operations:support-shipment-source-projection",
     ],
@@ -478,6 +479,7 @@ export const sourceContextWakeRegistry = [
       "pricing:pricing-order-input-projection",
       "pricing:pricing-market-trades-projection",
       "marketplace:marketplace-review-order-source-projection",
+      "marketplace:marketplace-seller-metrics-order-source-projection",
       "platform-operations:support-order-source-projection",
     ],
     routeDependencyIds: [
@@ -545,6 +547,7 @@ export const sourceContextWakeRegistry = [
       "payments:payments-support-refund-effect",
       "marketplace:marketplace-review-moderation-reaction",
       "marketplace:marketplace-review-support-source-projection",
+      "marketplace:marketplace-seller-metrics-support-source-projection",
       "ordering:ordering-order-review-opportunity-projection",
       "settlement:settlement-support-hold-projection",
     ],

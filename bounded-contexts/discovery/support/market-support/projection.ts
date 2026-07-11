@@ -467,6 +467,38 @@ async function markDiscoveryMarketSupplyHoldTerminal(
   return released.rows[0]?.item_id ?? null;
 }
 
+async function updateDiscoveryAccountBadges(
+  db: PgQueryable,
+  accountId: string,
+  badgeKey: string,
+  assigned: boolean,
+  updatedAt: string,
+) {
+  await db.query(
+    `UPDATE discovery_market_accounts
+     SET badges = CASE
+         WHEN $2 THEN (
+           SELECT COALESCE(jsonb_agg(value ORDER BY value), '[]'::jsonb)
+           FROM (
+             SELECT DISTINCT value
+             FROM jsonb_array_elements_text(discovery_market_accounts.badges || jsonb_build_array($3::text)) AS badge(value)
+           ) badges
+         )
+         ELSE COALESCE(
+           (
+             SELECT jsonb_agg(value ORDER BY value)
+             FROM jsonb_array_elements_text(discovery_market_accounts.badges) AS badge(value)
+             WHERE value <> $3
+           ),
+           '[]'::jsonb
+         )
+       END,
+       updated_at = $4
+     WHERE account_id = $1`,
+    [accountId, assigned, badgeKey, updatedAt],
+  );
+}
+
 export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
@@ -622,6 +654,24 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           accountId,
         ),
       );
+    },
+    // Account badges mirror (m87 badge facts, m108 #4271): the same
+    // add/remove-one-value-from-a-jsonb-array upsert marketplace already
+    // uses for `marketplace_account_pages.badges`
+    // (features/listings/integrations/supply/supply-projection.ts). No
+    // realtime patch is emitted for a badge change -- badges change rarely
+    // (an operator action, not buyer/seller commerce activity) and the
+    // public profile/item-detail already reload on their own realtime
+    // topics for other reasons; a fresh page load picks up a badge change.
+    "identity.account.badge-assigned": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+      const { badgeKey } = event.data as { badgeKey: string };
+      await updateDiscoveryAccountBadges(db, accountId, badgeKey, true, event.timing.recordedAt);
+    },
+    "identity.account.badge-removed": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+      const { badgeKey } = event.data as { badgeKey: string };
+      await updateDiscoveryAccountBadges(db, accountId, badgeKey, false, event.timing.recordedAt);
     },
     "marketplace.listing.created": async (event) => {
       const data = event.data as {

@@ -1007,7 +1007,8 @@ describeDb("discovery projection row identity", () => {
       "rating_4_count_as_buyer": 0,
       "rating_5_count_as_buyer": 0,
       "reputation_updated_at": "2026-06-12T13:04:00.000Z",
-      "created_at": "2026-06-12T12:36:00.000Z"
+      "created_at": "2026-06-12T12:36:00.000Z",
+      "badges": []
     }
   ],
   "marketListings": [
@@ -1085,6 +1086,55 @@ describeDb("discovery projection row identity", () => {
   ]
 }`),
     );
+  });
+
+  // m87 badge facts, m108 #4271: discovery's own local mirror of Identity's
+  // badge-assigned/-removed events, the same add/remove-one-value-from-a-jsonb-array
+  // idiom marketplace's marketplace_account_pages.badges already uses.
+  it("mirrors account badge-assigned and badge-removed events into a deduplicated jsonb array", async () => {
+    const marketHandlers = buildDiscoveryMarketProjectionHandlers(pool);
+
+    await project(
+      marketHandlers,
+      event("identity.account.created", "identity.account-acc_badged", {
+        accountId: "acc_badged",
+        displayName: "Badged Seller",
+      }),
+    );
+
+    const beforeBadges = await pool.query<{ badges: unknown }>(
+      `SELECT badges FROM discovery_market_accounts WHERE account_id = $1`,
+      ["acc_badged"],
+    );
+    expect(beforeBadges.rows[0]?.badges).toEqual([]);
+
+    await project(
+      marketHandlers,
+      event("identity.account.badge-assigned", "identity.account-acc_badged", { badgeKey: "trusted-seller" }),
+    );
+    // Re-assigning the same badge (e.g. a replayed or redelivered event) must
+    // not duplicate the array entry.
+    await project(
+      marketHandlers,
+      event("identity.account.badge-assigned", "identity.account-acc_badged", { badgeKey: "trusted-seller" }),
+    );
+
+    const afterAssign = await pool.query<{ badges: unknown }>(
+      `SELECT badges FROM discovery_market_accounts WHERE account_id = $1`,
+      ["acc_badged"],
+    );
+    expect(afterAssign.rows[0]?.badges).toEqual(["trusted-seller"]);
+
+    await project(
+      marketHandlers,
+      event("identity.account.badge-removed", "identity.account-acc_badged", { badgeKey: "trusted-seller" }),
+    );
+
+    const afterRemove = await pool.query<{ badges: unknown }>(
+      `SELECT badges FROM discovery_market_accounts WHERE account_id = $1`,
+      ["acc_badged"],
+    );
+    expect(afterRemove.rows[0]?.badges).toEqual([]);
   });
 });
 

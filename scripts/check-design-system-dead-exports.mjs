@@ -149,7 +149,6 @@ const canonicalReserveZeroConsumerExports = [
   "ToolbarSeparator",
   "Tooltip",
   "TopNav",
-  "TrustBadge",
   "useChaseMotion",
   "useDensity",
   "useFormContext",

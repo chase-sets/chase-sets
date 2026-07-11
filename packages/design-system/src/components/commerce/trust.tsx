@@ -10,9 +10,11 @@ export interface TrustBadgeProps {
   children: ReactNode;
   tone?: TrustTone;
   className?: string;
+  /** Native title/tooltip text -- e.g. a badge explainer ("what this means"). */
+  title?: string;
 }
 
-export function TrustBadge({ children, tone = "verified", className }: TrustBadgeProps) {
+export function TrustBadge({ children, tone = "verified", className, title }: TrustBadgeProps) {
   const iconName: IconName =
     tone === "warning" ? "warning" : tone === "secure" ? "lockClosed" : tone === "policy" ? "help" : "shield";
   const toneClass =
@@ -22,9 +24,11 @@ export function TrustBadge({ children, tone = "verified", className }: TrustBadg
 
   return (
     <span
+      title={title}
       className={cx(
         "inline-flex max-w-full items-center gap-1.5 rounded-tokenFull border px-2.5 py-1 text-xs font-semibold leading-4",
         toneClass,
+        title ? "cursor-help" : null,
         className,
       )}
     >

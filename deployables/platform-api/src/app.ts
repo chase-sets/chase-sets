@@ -28,6 +28,7 @@ import {
   marketplaceListingGatePolicy,
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
+  marketplaceSellerBehavioralMetricsPolicy,
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
@@ -195,7 +196,10 @@ export function createPlatformApiHost(
     policyConsoleCrossContextSources.push({
       contextName: "marketplace",
       db: marketplacePool,
-      definitions: [marketplaceListingGatePolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
+      definitions: [
+        marketplaceListingGatePolicy,
+        marketplaceSellerBehavioralMetricsPolicy,
+      ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.marketplace as { policies?: PolicyConsoleWritePort } | undefined,
       ),

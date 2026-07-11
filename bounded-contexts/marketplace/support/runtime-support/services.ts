@@ -14,6 +14,7 @@ import { createMarketplaceListingRuntime } from "../../features/listings/api/run
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";
 import { createMarketplaceReportRuntime } from "../../features/reports/api/runtime";
 import { createReviewRuntime } from "../../features/reviews/api/runtime";
+import { createSellerMetricsRuntime } from "../../features/seller-metrics/api/runtime";
 
 export type MarketplaceServiceOptions = Readonly<{
   commercialTermsResolver?: CommercialTermsResolver;
@@ -26,7 +27,8 @@ export type MarketplaceServices = Readonly<{
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
   reports: ReturnType<typeof createMarketplaceReportRuntime>;
   reviews: ReturnType<typeof createReviewRuntime>;
-  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (listing-gate policy). */
+  sellerMetrics: ReturnType<typeof createSellerMetricsRuntime>;
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (listing-gate, seller-behavioral-metrics policies). */
   policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   commercialTermsResolver: CommercialTermsResolver;
@@ -66,12 +68,14 @@ export function createMarketplaceServices(
     checkpointStore,
     db,
   });
+  const sellerMetrics = createSellerMetricsRuntime({ db, policies });
 
   return {
     listings,
     offers,
     reports,
     reviews,
+    sellerMetrics,
     policies,
     projectors: [...listings.projectors, ...offers.projectors, ...reviews.projectors, ...policies.projectors],
     commercialTermsResolver,

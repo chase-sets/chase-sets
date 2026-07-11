@@ -93,6 +93,38 @@ describe("marketplace listings workbench", () => {
     expect(screen.getByText("4")).toBeTruthy();
   });
 
+  it("renders seller-reliability metrics from the own-account behavioral-metrics read, gating null rates to 'not enough orders yet'", () => {
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        sellerBehavioralMetrics={{
+          seller_account_id: "acc_seller",
+          window_days: 90,
+          orders_created_count: 20,
+          seller_cancelled_count: 1,
+          cancellation_rate: "0.0500",
+          shipments_dispatched_count: 18,
+          shipments_on_time_count: 17,
+          on_time_shipment_rate: "0.9444",
+          disputes_resolved_count: 0,
+          disputes_against_seller_count: 0,
+          dispute_rate: null,
+          computed_at: "2026-07-01T00:00:00.000Z",
+          updated_at: "2026-07-01T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Seller reliability")).toBeTruthy();
+    expect(screen.getByText("On-time shipment rate")).toBeTruthy();
+    expect(screen.getByText("94.4%")).toBeTruthy();
+    expect(screen.getByText("Cancellation rate")).toBeTruthy();
+    expect(screen.getByText("5%")).toBeTruthy();
+    expect(screen.getByText("Dispute rate")).toBeTruthy();
+    expect(screen.getByText("Not enough orders yet")).toBeTruthy();
+  });
+
   it("renders a URL-persisted status filter and title search", () => {
     render(
       <MarketplaceListingListPage

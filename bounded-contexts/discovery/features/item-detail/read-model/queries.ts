@@ -68,6 +68,8 @@ export type DiscoveryItemDetailRow = Readonly<{
     seller_display_name: string | null;
     seller_average_rating: string | null;
     seller_review_count: number;
+    /** Account badges mirror (m87 badge facts, m108 reputation). */
+    seller_badges: readonly string[];
     visible_quantity: number;
     created_at: string;
     updated_at: string;
@@ -373,6 +375,7 @@ export async function getDiscoveryItemDetail(
          account.seller_display_name,
          account.average_rating_as_seller::text AS seller_average_rating,
          COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
+         COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
          ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity,
          listing.created_at::text AS created_at,
          listing.updated_at::text AS updated_at
@@ -408,6 +411,7 @@ export async function getDiscoveryItemDetail(
        seller_display_name,
        seller_average_rating,
        seller_review_count,
+       seller_badges,
        visible_quantity,
        created_at,
        updated_at
