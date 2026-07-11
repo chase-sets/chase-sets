@@ -295,22 +295,29 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "marketplace-web",
+      "deployable": "admin-web",
       "routes": [
         {
-          "routeId": "account-money-health",
-          "routePath": "account/money-health",
-          "fileExport": "./routes/marketplace/account-money-health",
+          "routeId": "settlement-money-health",
+          "routePath": "money-health",
+          "fileExport": "./routes/admin/money-health",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "section": "commerce"
         },
         {
-          "routeId": "account-payout-operations",
-          "routePath": "account/payout-operations",
-          "fileExport": "./routes/marketplace/account-payout-operations",
+          "routeId": "settlement-payout-operations",
+          "routePath": "payout-operations",
+          "fileExport": "./routes/admin/payout-operations",
           "routeType": "route",
-          "sourceContext": "settlement"
-        },
+          "sourceContext": "settlement",
+          "section": "commerce"
+        }
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "routes": [
         {
           "routeId": "account-payout-setup",
           "routePath": "account/payouts/setup",
@@ -343,6 +350,30 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "settlement-money-health",
+      "label": "Money Health",
+      "icon": "wallet",
+      "href": "/money-health",
+      "section": "commerce",
+      "order": 80,
+      "visibility": "signed-in",
+      "requiredPermissions": ["payouts.reconcile"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "settlement-payout-operations",
+      "label": "Payout Operations",
+      "icon": "wallet",
+      "href": "/payout-operations",
+      "section": "commerce",
+      "order": 85,
+      "visibility": "signed-in",
+      "requiredPermissions": ["payouts.reconcile"]
+    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -449,7 +480,7 @@
           "bounded-contexts/settlement/features/payouts/api/runtime.test.ts",
           "bounded-contexts/settlement/features/payouts/api/route.test.ts",
           "bounded-contexts/settlement/features/payouts/ui/payout-operations-page.test.tsx",
-          "bounded-contexts/settlement/routes/marketplace/account-payout-operations-route.test.ts"
+          "bounded-contexts/settlement/routes/admin/payout-operations-route.test.ts"
         ]
       }
     },
@@ -547,16 +578,16 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/settlement/features/payouts/ui/payout-operations-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/settlement/routes/marketplace/account-payout-operations.tsx"
+        "route-action:bounded-contexts/settlement/routes/admin/payout-operations.tsx"
       ],
       "visibleDestination": {
-        "routeId": "account-payout-operations",
+        "routeId": "settlement-payout-operations",
         "description": "The payout operations reconciliation form returns the durable reconciliation job snapshot and renders queued/running/completed progress instead of relying on the reconciliation list projection to update immediately."
       },
       "proof": {
         "authoritativeResponse": "runPayoutReconciliation returns the durable job public snapshot from enqueuePayoutReconciliationJob, and the operations page renders job status/progress/result fields with an explicit queued state until worker convergence updates the durable job.",
         "tests": [
-          "bounded-contexts/settlement/routes/marketplace/account-payout-operations-route.test.ts",
+          "bounded-contexts/settlement/routes/admin/payout-operations-route.test.ts",
           "bounded-contexts/settlement/features/payouts/api/route.test.ts",
           "bounded-contexts/settlement/features/payouts/ui/payout-operations-page.test.tsx"
         ]

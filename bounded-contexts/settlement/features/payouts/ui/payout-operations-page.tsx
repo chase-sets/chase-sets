@@ -57,6 +57,14 @@ function payoutReadinessIsStale(updatedAt: string | null) {
   return Date.now() - Date.parse(updatedAt) > 30 * 24 * 60 * 60 * 1000;
 }
 
+function payoutDetailHref(payoutId: string, marketplaceOrigin?: string | null) {
+  if (!marketplaceOrigin) {
+    return null;
+  }
+
+  return new URL(`/account/payouts/${payoutId}`, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();
+}
+
 export function SettlementPayoutOperationsPage({
   payouts,
   idempotencyKeys = [],
@@ -64,6 +72,7 @@ export function SettlementPayoutOperationsPage({
   runResult,
   currentFilter = "all",
   lastCheckedAt,
+  marketplaceOrigin,
 }: {
   payouts: readonly SettlementPayoutRow[];
   idempotencyKeys?: readonly SettlementProviderIdempotencyKeyRow[];
@@ -88,6 +97,7 @@ export function SettlementPayoutOperationsPage({
   }> | null;
   currentFilter?: string;
   lastCheckedAt?: string | null;
+  marketplaceOrigin?: string | null;
 }) {
   const filters = [
     ["all", t("settlement.features.payouts.ui.payoutOperationsPage.all")],
@@ -119,14 +129,9 @@ export function SettlementPayoutOperationsPage({
         title={t("settlement.features.payouts.ui.payoutOperationsPage.payout.operations")}
         description={t("settlement.features.payouts.ui.payoutOperationsPage.monitor.payouts.that.may.need.provider")}
         actions={
-          <Stack direction="row" gap={2}>
-            <LinkButton href="/account/money-health" tone="secondary">
-              {t("settlement.features.payouts.ui.payoutOperationsPage.money.health")}
-            </LinkButton>
-            <LinkButton href="/account/payouts" tone="secondary">
-              {t("settlement.features.payouts.ui.payoutOperationsPage.back.to.payouts")}
-            </LinkButton>
-          </Stack>
+          <LinkButton href="/commerce/money-health" tone="secondary">
+            {t("settlement.features.payouts.ui.payoutOperationsPage.money.health")}
+          </LinkButton>
         }
       />
 
@@ -304,7 +309,7 @@ export function SettlementPayoutOperationsPage({
           {filters.map(([value, label]) => (
             <LinkButton
               key={value}
-              href={value === "all" ? "/account/payout-operations" : `/account/payout-operations?filter=${value}`}
+              href={value === "all" ? "/commerce/payout-operations" : `/commerce/payout-operations?filter=${value}`}
               tone={currentFilter === value ? "primary" : "secondary"}
               size="sm"
             >
@@ -362,11 +367,21 @@ export function SettlementPayoutOperationsPage({
             {
               key: "actions",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.actions"),
-              cell: (row) => (
-                <LinkButton href={`/account/payouts/${row.payout_id}`} tone="secondary" size="sm">
-                  {t("settlement.features.payouts.ui.payoutOperationsPage.open")}
-                </LinkButton>
-              ),
+              cell: (row) => {
+                const href = payoutDetailHref(row.payout_id, marketplaceOrigin);
+                return href ? (
+                  <LinkButton
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    trailingIcon="externalLink"
+                    tone="secondary"
+                    size="sm"
+                  >
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.open")}
+                  </LinkButton>
+                ) : null;
+              },
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.payoutOperationsPage.no.payouts.need.attention")}
