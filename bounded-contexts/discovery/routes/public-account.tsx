@@ -171,7 +171,7 @@ function RoleRatingDistribution({ title, dimension }: { title: string; dimension
   );
 }
 
-// m108 #4271: qualitative chips, never raw percentages -- each chip only
+// Qualitative chips, never raw percentages -- each chip only
 // renders when its underlying rate is confidently good AND past the
 // display threshold (marketplace's public API already returns null for
 // "not confident" and "not enough orders", collapsing both into "say
@@ -288,7 +288,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 }
 
-// m108 #4271: composition-root call to marketplace's public server API
+// Composition-root call to marketplace's public server API
 // client (already the established cross-context pattern for discovery's
 // item-detail route, support/route-support/item-detail/loader.ts) rather
 // than a new event-subscribed local projection -- marketplace computes the
@@ -321,7 +321,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
   }),
   ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
   // Suspended/closed and not-found profiles carry no lasting public content
-  // worth indexing (privacy pass, m108 #4268); the launch-wide indexability
+  // worth indexing (reputation privacy pass); the launch-wide indexability
   // gate in the deployable root already covers pre-launch noindex separately.
   ...(!data?.account || data.account.status !== "active" ? [{ name: "robots", content: "noindex" }] : []),
 ];
@@ -360,7 +360,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
     );
   }
 
-  // Privacy pass (m108, #4268): a suspended or closed account gets a minimal
+  // Privacy pass: a suspended or closed account gets a minimal
   // "unavailable" profile -- no listings, no reviews, no reputation numbers,
   // no member-since. The API already withholds this content server-side;
   // this branch keeps the client from ever rendering stale realtime data for

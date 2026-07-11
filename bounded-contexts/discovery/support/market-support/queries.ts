@@ -244,7 +244,7 @@ export async function getDiscoveryPublicAccountBySlug(
 
   const account = { ...rawAccount, badges: normalizeBadgeArray(rawAccount.badges) };
 
-  // Privacy pass (m108, #4268): a suspended or closed account renders a
+  // Privacy pass: a suspended or closed account renders a
   // minimal "unavailable" profile -- no listings, no review content, no
   // pagination round trip.
   if (account.status !== "active") {

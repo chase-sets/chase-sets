@@ -71,7 +71,7 @@ export function previewDatabaseClusterNameForPrNumber(prNumber) {
   return `chase-sets-pr-${prNumber}-postgres`;
 }
 
-// The Kubernetes preview path (#4656) creates the preview's namespace with
+// The Kubernetes preview path creates the preview's namespace with
 // Helm (`--create-namespace`), never Terraform, so nothing in Terraform
 // state ever names it. A merged/closed PR's namespace can therefore only be
 // found by asking the live staging DOKS cluster which `chase-sets-pr-*`
@@ -341,7 +341,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     record.warnings.push(describeError(error));
   }
 
-  // A closed PR's namespace is the leak this sweep exists to catch (#4778):
+  // A closed PR's namespace is the leak this sweep exists to catch:
   // Terraform never created it, so it never appears in Terraform state, and
   // it can outlive its database cluster and DNS records once those are
   // cleaned up by an earlier partial run. Ask the live cluster directly.

@@ -61,6 +61,7 @@ const allowedPathSuffixes = [
 // number. Deliberately unbounded on the upper end (unlike the operator-surface
 // guard's #\d{3,4}) since issue numbers here have already crossed four digits.
 export const issueReferenceCommentPattern = /#\d{3,}/g;
+const issueReferenceCommentProbe = new RegExp(issueReferenceCommentPattern.source);
 
 // Comments that cite a real, load-bearing incident or ADR record rather than
 // narrating "this shipped in issue N". Each entry names the exact file and the
@@ -145,30 +146,40 @@ function lineFor(sourceText, position) {
   return sourceText.slice(0, position).split(/\r?\n/).length;
 }
 
-// Tokenizes with trivia preserved so comment tokens are visited directly,
-// rather than walking the AST and asking each node for its leading trivia.
-// This works uniformly across .ts/.tsx/.js/.mjs/.cjs because comment
-// tokenization does not depend on script kind, and it never looks inside
-// string/template literal tokens.
-export function findIssueReferenceCommentViolations(sourceText) {
+// Parses the file and collects comment ranges from each token's leading
+// trivia (every comment, including one trailing a statement or at end of
+// file, is leading trivia of the next token — the EndOfFileToken for the
+// last ones). A raw scanner loop cannot do this correctly: template-literal
+// middles/tails after a `${...}` substitution need the parser's
+// reScanTemplateToken, and without it whole spans of a file — comments
+// included — disappear into one mis-paired template token. The file name
+// picks the script kind so .ts angle-bracket casts and .tsx JSX both parse.
+export function findIssueReferenceCommentViolations(sourceText, fileName = "module.tsx") {
+  const sourceFile = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, false);
+  const seenCommentPositions = new Set();
   const violations = [];
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, sourceText);
 
-  let kind = scanner.scan();
-  while (kind !== ts.SyntaxKind.EndOfFileToken) {
-    if (kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) {
-      const commentText = scanner.getTokenText();
-      const commentStart = scanner.getTokenPos();
+  const recordCommentsAt = (fullStart) => {
+    for (const range of ts.getLeadingCommentRanges(sourceText, fullStart) ?? []) {
+      if (seenCommentPositions.has(range.pos)) continue;
+      seenCommentPositions.add(range.pos);
 
+      const commentText = sourceText.slice(range.pos, range.end);
       for (const match of commentText.matchAll(issueReferenceCommentPattern)) {
-        const position = commentStart + match.index;
+        const position = range.pos + match.index;
         violations.push({ line: lineFor(sourceText, position), match: match[0] });
       }
     }
-    kind = scanner.scan();
-  }
+  };
 
-  return violations;
+  const visit = (node) => {
+    recordCommentsAt(node.getFullStart());
+    for (const child of node.getChildren(sourceFile)) visit(child);
+  };
+  visit(sourceFile);
+  recordCommentsAt(sourceFile.endOfFileToken.getFullStart());
+
+  return violations.sort((left, right) => left.line - right.line);
 }
 
 export async function collectIssueReferenceCommentViolations(options = {}) {
@@ -183,7 +194,13 @@ export async function collectIssueReferenceCommentViolations(options = {}) {
       if (!isIssueReferenceCommentGuardedFile(relativeFile)) continue;
 
       const sourceText = readFileSync(filePath, "utf8");
-      for (const violation of findIssueReferenceCommentViolations(sourceText)) {
+      // Cheap prefilter: parsing is only needed to decide whether a match sits
+      // in a comment, and almost no files contain "#NNN" text at all. The probe
+      // is a non-global copy — calling .test() on the global pattern would
+      // advance its lastIndex, which matchAll then inherits via cloning.
+      if (!issueReferenceCommentProbe.test(sourceText)) continue;
+
+      for (const violation of findIssueReferenceCommentViolations(sourceText, relativeFile)) {
         if (isAllowlisted(relativeFile, violation.match)) continue;
         violations.push({ file: relativeFile, line: violation.line, match: violation.match });
       }

@@ -77,6 +77,16 @@ describe("findIssueReferenceCommentViolations", () => {
     expect(findIssueReferenceCommentViolations(source)).toEqual([]);
   });
 
+  it("flags a comment after a template literal with substitutions (raw-scanner blind spot)", () => {
+    const source = [
+      'const label = `${count} item${count === 1 ? "" : "s"}`;',
+      `// shipped in ${example("4271")} last quarter`,
+      "export const x = 1;",
+    ].join("\n");
+
+    expect(findIssueReferenceCommentViolations(source)).toEqual([{ line: 2, match: example("4271") }]);
+  });
+
   it("does not flag a SQL '--' line embedded inside a template-literal DDL string", () => {
     const source = [
       "export const schemaSql = `",
