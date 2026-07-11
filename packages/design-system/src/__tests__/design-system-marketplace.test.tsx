@@ -486,6 +486,28 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("0% beta listings");
   });
 
+  it("surfaces the primary marketing highlight outside the md:hidden breakpoint so small screens see it", () => {
+    const markup = renderToString(
+      <MarketingImageHero
+        imageSrc="/assets/hero.webp"
+        imageAlt="Cards ready to list"
+        density="compact"
+        title="List cards without giving up margin"
+        conversionPanel={<form aria-label="Early access form" />}
+        highlights={[
+          { label: "0% beta seller fees", value: "Keep 100% of the sale" },
+          { label: "No seller processing fee", value: "$0 separate line" },
+          { label: "Buyer totals", value: "Costs visible before payment" },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('md:hidden" aria-label="Marketing highlight">');
+    expect(markup).toContain('hidden max-w-2xl grid-cols-3 gap-2 md:grid" aria-label="Marketing highlights">');
+    expect(markup).toContain("0% beta seller fees");
+    expect(markup).toContain("Keep 100% of the sale");
+  });
+
   it("maps marketing hero legacy default density to comfortable", () => {
     const defaultAliasMarkup = renderToString(
       <MarketingImageHero imageSrc="/assets/hero.webp" imageAlt="Cards ready to list" density="default" title="Sell" />,

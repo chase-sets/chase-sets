@@ -186,19 +186,30 @@ export function MarketingImageHero({
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
           {conversionPanel && highlights.length > 0 ? (
-            <div className="hidden max-w-2xl grid-cols-3 gap-2 md:grid" aria-label="Marketing highlights">
-              {highlights.map((highlight, index) => (
-                <div
-                  key={index}
-                  className="min-w-0 rounded-tokenSm border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_76%,transparent)] px-3 py-2 backdrop-blur"
-                >
-                  <div className="truncate text-xs font-semibold uppercase tracking-wide text-tertiary">
-                    {highlight.label}
+            <>
+              <div
+                className="flex max-w-2xl min-h-[2.75rem] items-center gap-2 rounded-tokenSm border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_76%,transparent)] px-3 py-2 backdrop-blur md:hidden"
+                aria-label="Marketing highlight"
+              >
+                <span className="shrink-0 truncate text-xs font-semibold uppercase tracking-wide text-tertiary">
+                  {highlights[0].label}
+                </span>
+                <span className="truncate text-sm font-semibold text-foreground">{highlights[0].value}</span>
+              </div>
+              <div className="hidden max-w-2xl grid-cols-3 gap-2 md:grid" aria-label="Marketing highlights">
+                {highlights.map((highlight, index) => (
+                  <div
+                    key={index}
+                    className="min-w-0 rounded-tokenSm border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_76%,transparent)] px-3 py-2 backdrop-blur"
+                  >
+                    <div className="truncate text-xs font-semibold uppercase tracking-wide text-tertiary">
+                      {highlight.label}
+                    </div>
+                    <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{highlight.value}</div>
                   </div>
-                  <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{highlight.value}</div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           ) : null}
         </div>
         {conversionPanel ? (
