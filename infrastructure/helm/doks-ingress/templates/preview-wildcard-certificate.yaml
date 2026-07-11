@@ -1,0 +1,26 @@
+{{- if .Values.previewWildcardCertificate.enabled }}
+{{- $cert := .Values.previewWildcardCertificate }}
+# The ONE shared wildcard certificate every preview namespace's Ingress
+# references. Issued once here (DNS-01, so a wildcard name is even legal to
+# request) and copied into each `chase-sets-pr-<n>` namespace at deploy time
+# (copyPreviewWildcardTlsSecret in scripts/platform-kubernetes-deployment.mjs)
+# instead of every preview requesting -- and every ACME issuance counting
+# against Let's Encrypt's 50-certificates-per-168h quota -- its own
+# certificate. See docs/runbooks/doks-platform-operations.md for the
+# bootstrap and docs/runbooks/digitalocean-platform-deployment.md#preview-dns
+# for the retry-after diagnostic (#4857).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ required "previewWildcardCertificate.name is required" $cert.name | quote }}
+  namespace: {{ required "previewWildcardCertificate.namespace is required" $cert.namespace | quote }}
+  labels:
+{{ include "chase-sets-doks-ingress.labels" $ | nindent 4 }}
+spec:
+  secretName: {{ required "previewWildcardCertificate.secretName is required" $cert.secretName | quote }}
+  dnsNames:
+    - "*.{{ required "previewWildcardCertificate.dnsZone is required" $cert.dnsZone }}"
+  issuerRef:
+    name: {{ required "previewWildcardCertificate.issuerName is required" $cert.issuerName | quote }}
+    kind: ClusterIssuer
+{{- end }}

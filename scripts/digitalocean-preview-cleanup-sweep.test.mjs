@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION,
   PREVIEW_DATABASE_DELETE_CONFIRMATION,
-  applyPreviewDnsRecords,
+  PREVIEW_SHARED_DNS_FQDN,
+  applySharedPreviewDnsRecord,
   buildPreviewDatabaseClusterInventory,
   cleanupLeakedPreviewDatabaseClusters,
   cleanupMatrixForTargets,
@@ -12,11 +13,11 @@ import {
   discoverPreviewCleanupTargets,
   importPreviewDatabaseClusterIntoTerraformState,
   previewDatabaseClusterNameForPrNumber,
-  previewDnsRecordPlan,
   previewPrNumberFromDatabaseClusterName,
   previewPrNumberFromDnsRecordFqdn,
   previewPrNumberFromNamespaceName,
   previewPrNumberFromStateKey,
+  previewSharedDnsRecordPlan,
   resolvePreviewDnsZone,
   selectPreviewDatabaseClusterTargets,
   selectPreviewDnsRecordTargets,
@@ -363,25 +364,26 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(commands).toEqual([["terraform", ["-chdir=infrastructure/digitalocean/platform", "state", "list"]]]);
   });
 
-  it("plans a per-preview apex plus two-label wildcard against the owning DNS zone", () => {
-    // No delegated preview zone: records live directly in the chasesets.com zone
-    // as `pr-<n>.preview` and `*.pr-<n>.preview`.
-    expect(previewDnsRecordPlan(4736, { registeredDomains: [{ name: "chasesets.com" }] })).toEqual({
-      prNumber: 4736,
+  // #4857: ONE shared *.preview.chasesets.com wildcard record covers every
+  // preview forever (single-label hosts: pr-<n>, pr-<n>-marketplace,
+  // pr-<n>-admin), replacing the per-preview apex + *.pr-<n>.preview pair.
+  it("plans the single shared preview wildcard record against the owning DNS zone", () => {
+    expect(PREVIEW_SHARED_DNS_FQDN).toBe("*.preview.chasesets.com");
+
+    // No delegated preview zone: the record lives directly in the chasesets.com
+    // zone as `*.preview`.
+    expect(previewSharedDnsRecordPlan({ registeredDomains: [{ name: "chasesets.com" }] })).toEqual({
       zone: "chasesets.com",
       target: null,
-      records: [
-        { role: "apex", fqdn: "pr-4736.preview.chasesets.com", name: "pr-4736.preview" },
-        { role: "wildcard", fqdn: "*.pr-4736.preview.chasesets.com", name: "*.pr-4736.preview" },
-      ],
+      record: { role: "wildcard", fqdn: "*.preview.chasesets.com", name: "*.preview" },
     });
 
-    // A delegated preview.chasesets.com child zone shortens the record names.
-    const delegated = previewDnsRecordPlan(4736, {
+    // A delegated preview.chasesets.com child zone shortens the record name.
+    const delegated = previewSharedDnsRecordPlan({
       registeredDomains: [{ name: "chasesets.com" }, { name: "preview.chasesets.com" }],
     });
     expect(delegated.zone).toBe("preview.chasesets.com");
-    expect(delegated.records.map((entry) => entry.name)).toEqual(["pr-4736", "*.pr-4736"]);
+    expect(delegated.record.name).toBe("*");
   });
 
   it("resolves the longest registered zone that owns the preview host", () => {
@@ -552,17 +554,17 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(result.record.targets).toEqual([expect.objectContaining({ prNumber: 90, selected: true })]);
   });
 
-  it("upserts the apex and wildcard preview records against the DOKS ingress target", async () => {
+  // #4857: the ONE shared *.preview.chasesets.com wildcard record, applied
+  // once (idempotently) as part of the DOKS foundation bootstrap, never
+  // per-PR.
+  it("upserts the single shared preview wildcard record against the DOKS ingress target", async () => {
     const created = [];
     const deleted = [];
-    const record = await applyPreviewDnsRecords(
-      { prNumber: 60, target: "159.203.145.65" },
+    const record = await applySharedPreviewDnsRecord(
+      { target: "159.203.145.65" },
       {
         listDomains: async () => [{ name: "chasesets.com" }],
-        listDomainRecords: async () => [
-          { id: "stale-apex", type: "A", name: "pr-60.preview", data: "1.1.1.1" },
-          { id: "wild-current", type: "A", name: "*.pr-60.preview", data: "159.203.145.65" },
-        ],
+        listDomainRecords: async () => [{ id: "stale-wildcard", type: "A", name: "*.preview", data: "1.1.1.1" }],
         createDomainRecord: async (zone, name, data) => {
           created.push([zone, name, data]);
         },
@@ -574,18 +576,37 @@ describe("digitalocean-preview-cleanup-sweep", () => {
 
     expect(record.result).toBe("success");
     expect(record.zone).toBe("chasesets.com");
-    // Stale apex replaced; already-correct wildcard left untouched (idempotent).
-    expect(deleted).toEqual([["chasesets.com", "stale-apex"]]);
-    expect(created).toEqual([["chasesets.com", "pr-60.preview", "159.203.145.65"]]);
-    expect(record.actions).toEqual([
-      { fqdn: "pr-60.preview.chasesets.com", action: "replaced" },
-      { fqdn: "*.pr-60.preview.chasesets.com", action: "unchanged" },
-    ]);
+    expect(record.action).toBe("replaced");
+    expect(deleted).toEqual([["chasesets.com", "stale-wildcard"]]);
+    expect(created).toEqual([["chasesets.com", "*.preview", "159.203.145.65"]]);
   });
 
-  it("rejects preview DNS apply without a valid IPv4 ingress target", async () => {
-    const record = await applyPreviewDnsRecords(
-      { prNumber: 61, target: "not-an-ip" },
+  it("leaves the shared preview wildcard record untouched when it already points at the target (idempotent)", async () => {
+    const created = [];
+    const deleted = [];
+    const record = await applySharedPreviewDnsRecord(
+      { target: "159.203.145.65" },
+      {
+        listDomains: async () => [{ name: "chasesets.com" }],
+        listDomainRecords: async () => [{ id: "wild-current", type: "A", name: "*.preview", data: "159.203.145.65" }],
+        createDomainRecord: async (zone, name, data) => {
+          created.push([zone, name, data]);
+        },
+        deleteDomainRecord: async (zone, id) => {
+          deleted.push([zone, id]);
+        },
+      },
+    );
+
+    expect(record.result).toBe("success");
+    expect(record.action).toBe("unchanged");
+    expect(created).toEqual([]);
+    expect(deleted).toEqual([]);
+  });
+
+  it("rejects the shared preview DNS apply without a valid IPv4 ingress target", async () => {
+    const record = await applySharedPreviewDnsRecord(
+      { target: "not-an-ip" },
       { listDomains: async () => [{ name: "chasesets.com" }] },
     );
     expect(record.result).toBe("failure");
