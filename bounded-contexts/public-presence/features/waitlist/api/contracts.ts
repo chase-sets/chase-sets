@@ -10,6 +10,8 @@ export type SubmitWaitlistSignupRequest = Readonly<{
    * never a required condition of joining the waitlist.
    */
   marketingConsent?: boolean;
+  /** Referral code (referring signup's id) captured from an inbound `?ref=` link, if any. */
+  referredBySignupId?: string | null;
   source: WaitlistSource;
   website?: string | null;
 }>;
@@ -21,6 +23,7 @@ export type WaitlistSignupListItem = Readonly<{
   interests: readonly WaitlistInterest[];
   email_consent_accepted_at: string;
   marketing_consent_accepted_at: string | null;
+  referred_by_signup_id: string | null;
   page_path: string;
   referrer: string | null;
   utm_source: string | null;
@@ -30,6 +33,7 @@ export type WaitlistSignupListItem = Readonly<{
   utm_term: string | null;
   submitted_at: string;
   updated_at: string;
+  referral_count: number;
 }>;
 
 export type WaitlistMetrics = Readonly<{
@@ -37,4 +41,10 @@ export type WaitlistMetrics = Readonly<{
   buy_count: number;
   sell_count: number;
   both_count: number;
+}>;
+
+/** Referral progress for the "move up the list" founding-status mechanic. Eventually consistent; safe to show 0 while the projection catches up. */
+export type WaitlistReferralSummary = Readonly<{
+  referralCount: number;
+  referralGoal: number;
 }>;

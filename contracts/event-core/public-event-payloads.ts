@@ -526,6 +526,8 @@ export type WaitlistSignupRecordedPayload = Readonly<{
   /** Optional consent to additional product updates beyond early-access notifications. */
   marketingConsentAcceptedAt: string | null;
   source: WaitlistSourcePayload;
+  /** Referring signup's id, set once at initial signup only. Additive/optional so legacy events without it replay as unattributed. */
+  referredBySignupId?: string | null;
   recordedAt?: string;
 }>;
 

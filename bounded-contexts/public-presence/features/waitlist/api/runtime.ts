@@ -17,7 +17,7 @@ import {
   type WaitlistSignupState,
 } from "../domain/domain";
 import { buildWaitlistProjectionHandlers } from "../read-model/projection";
-import { getWaitlistMetrics, listWaitlistSignups } from "../read-model/queries";
+import { getWaitlistMetrics, getWaitlistReferralSummary, listWaitlistSignups } from "../read-model/queries";
 import {
   PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
   buildWaitlistTransactionalEmailProjectionHandlers,
@@ -38,12 +38,14 @@ export type WaitlistServices = Readonly<{
       role: string;
       interests: readonly string[];
       marketingConsent?: boolean;
+      referredBySignupId?: string | null;
       source: WaitlistSource;
     }>,
     context: EventStoreContext,
   ) => Promise<{ signupId: string; version: number }>;
   listWaitlistSignups: (params: Parameters<typeof listWaitlistSignups>[1]) => ReturnType<typeof listWaitlistSignups>;
   getWaitlistMetrics: () => ReturnType<typeof getWaitlistMetrics>;
+  getWaitlistReferralSummary: (signupId: string) => ReturnType<typeof getWaitlistReferralSummary>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -70,6 +72,7 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
           role: params.role,
           interests: params.interests,
           marketingConsentAcceptedAt: params.marketingConsent ? now : null,
+          referredBySignupId: params.referredBySignupId ?? null,
           source: params.source,
           recordedAt: now,
         },
@@ -80,6 +83,7 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
     },
     listWaitlistSignups: (params) => listWaitlistSignups(deps.db, params),
     getWaitlistMetrics: () => getWaitlistMetrics(deps.db),
+    getWaitlistReferralSummary: (signupId) => getWaitlistReferralSummary(deps.db, signupId),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "public-presence-waitlist-projection",

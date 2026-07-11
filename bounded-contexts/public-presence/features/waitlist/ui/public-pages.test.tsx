@@ -10,6 +10,7 @@ const source = {
   utmCampaign: "form-migration",
   utmContent: "hero",
   utmTerm: "pokemon",
+  referredBySignupId: null,
 };
 
 afterEach(() => {
@@ -89,5 +90,26 @@ describe("public waitlist form migration smoke", () => {
 
     const formDataAfterConsent = new FormData(form);
     expect(formDataAfterConsent.get("marketingConsent")).toBe("yes");
+  });
+
+  it("carries a referral code from the loader source into a hidden form field", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={{ ...source, referredBySignupId: "wls_referrer" }} />);
+
+    const panel = document.getElementById("waitlist-form");
+    const form = panel?.querySelector("form");
+    if (!form) {
+      throw new Error("Expected hero waitlist panel to render a form.");
+    }
+
+    const formData = new FormData(form);
+    expect(formData.get("referredBySignupId")).toBe("wls_referrer");
   });
 });

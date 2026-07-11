@@ -44,10 +44,19 @@ import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp
 import { trackWaitlistEvent } from "./analytics";
 import { publicPresenceT as t } from "./public-presence-translator";
 
-export type WaitlistActionData =
-  | Readonly<{ status: "joined"; id?: string; version?: number }>
-  | Readonly<{ status: "error"; message: string }>
-  | null;
+export type WaitlistActionData = Readonly<{ status: "error"; message: string }> | null;
+
+export type WaitlistPageSource = Readonly<{
+  pagePath: string;
+  referrer: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  /** Referral code (referring signup's id) read from an inbound `?ref=` link, if any. */
+  referredBySignupId: string | null;
+}>;
 
 const roleItems = [
   { value: "both", label: t("publicPresence.waitlist.role.both") },
@@ -353,15 +362,7 @@ export function PublicPresenceHomePage({
 }: {
   actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
-  source: Readonly<{
-    pagePath: string;
-    referrer: string | null;
-    utmSource: string | null;
-    utmMedium: string | null;
-    utmCampaign: string | null;
-    utmContent: string | null;
-    utmTerm: string | null;
-  }>;
+  source: WaitlistPageSource;
 }) {
   const [intent, setIntent] = useState<WaitlistIntent>(defaultIntent);
 
@@ -376,15 +377,9 @@ export function PublicPresenceHomePage({
   }, [source]);
 
   useEffect(() => {
-    if (actionData?.status === "joined") {
-      trackWaitlistEvent("waitlist_signup_succeeded", {
-        page_path: source.pagePath,
-        role: intent.role,
-        interest: intent.interest,
-        variant: landingExperimentVariant,
-      });
-    }
-
+    // Success never lands here: the route action redirects to /welcome on a
+    // committed signup, so this page only ever sees the error outcome (the
+    // form stays put so the visitor can correct and resubmit).
     if (actionData?.status === "error") {
       trackWaitlistEvent("waitlist_signup_failed", {
         page_path: source.pagePath,
@@ -875,7 +870,7 @@ function FinalCtaSection({
   discordInviteUrl?: string | null;
   intent: WaitlistIntent;
   onIntentChange: (intent: WaitlistIntent) => void;
-  source: Parameters<typeof PublicPresenceHomePage>[0]["source"];
+  source: WaitlistPageSource;
 }) {
   return (
     <PageSection data-public-presence-section="final_cta">
@@ -923,7 +918,7 @@ function WaitlistSignupPanel({
   intent: WaitlistIntent;
   onIntentChange: (intent: WaitlistIntent) => void;
   panelId?: string;
-  source: Parameters<typeof PublicPresenceHomePage>[0]["source"];
+  source: WaitlistPageSource;
   variant?: "hero" | "full";
 }) {
   const [marketingConsent, setMarketingConsent] = useState(false);
@@ -1016,13 +1011,6 @@ function WaitlistSignupPanel({
             </Text>
           </Stack>
         )}
-        {actionData?.status === "joined" ? (
-          <Banner
-            tone="success"
-            title={t("publicPresence.waitlist.success.title")}
-            description={t("publicPresence.waitlist.success.description")}
-          />
-        ) : null}
         {actionData?.status === "error" ? (
           <Banner tone="danger" title={t("publicPresence.waitlist.error.title")} description={actionData.message} />
         ) : null}
@@ -1107,6 +1095,7 @@ function WaitlistSignupPanel({
             <HiddenInput name="utmCampaign" value={source.utmCampaign ?? ""} />
             <HiddenInput name="utmContent" value={source.utmContent ?? ""} />
             <HiddenInput name="utmTerm" value={source.utmTerm ?? ""} />
+            <HiddenInput name="referredBySignupId" value={source.referredBySignupId ?? ""} />
             <Button type="submit" size={isHero ? "md" : "lg"} block leadingIcon="rocket">
               {t("publicPresence.waitlist.submit")}
             </Button>
