@@ -353,6 +353,74 @@ describe("support request runtime", () => {
     });
   });
 
+  describe("escalateOverdueSupportRequests cap reporting", () => {
+    function queueRow(supportRequestId: string) {
+      return {
+        support_request_id: supportRequestId,
+        status: "ready-for-support",
+        seller_response_due_at: null,
+        support_review_due_at: null,
+      };
+    }
+
+    it("reports the sweep as capped when the active queue holds more candidates than the page limit", async () => {
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("SELECT COUNT(*)") && sql.includes("FROM support_request_pages")) {
+            return { rows: [{ count: "5" }] };
+          }
+          if (sql.includes("FROM support_request_pages")) {
+            return { rows: [queueRow("sup_1"), queueRow("sup_2")] };
+          }
+          throw new Error(`Unexpected query: ${sql}`);
+        }),
+      };
+      const { eventStore } = createInMemoryEventStore();
+      const runtime = createSupportRequestRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+      });
+
+      const result = await runtime.escalateOverdueSupportRequests(
+        { now: "2026-06-01T00:00:00.000Z", limit: 2 },
+        context,
+      );
+
+      // Every candidate is `ready-for-support`, a status the sweep always
+      // skips (it needs a human decision, not an automatic escalation), so
+      // this isolates the cap signal from escalation outcomes.
+      expect(result).toEqual({ escalated: 0, skipped: 2, capped: true, total: 5 });
+    });
+
+    it("reports the sweep as not capped when the page covers the whole active queue", async () => {
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("SELECT COUNT(*)") && sql.includes("FROM support_request_pages")) {
+            return { rows: [{ count: "1" }] };
+          }
+          if (sql.includes("FROM support_request_pages")) {
+            return { rows: [queueRow("sup_1")] };
+          }
+          throw new Error(`Unexpected query: ${sql}`);
+        }),
+      };
+      const { eventStore } = createInMemoryEventStore();
+      const runtime = createSupportRequestRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+      });
+
+      const result = await runtime.escalateOverdueSupportRequests(
+        { now: "2026-06-01T00:00:00.000Z", limit: 100 },
+        context,
+      );
+
+      expect(result).toEqual({ escalated: 0, skipped: 1, capped: false, total: 1 });
+    });
+  });
+
   describe("deadline sweep", () => {
     const orderSourceRow = {
       order_id: "ord_1",

@@ -2,6 +2,11 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { SupportOperationsPage } from "../../features/support-requests/ui/support-operations-page";
+import {
+  supportOperationsQueueFilters,
+  supportOperationsQueuePagination,
+  supportOperationsQueueQuery,
+} from "../../support/request-support/list-pagination";
 import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 
 function errorMessage(error: unknown) {
@@ -10,14 +15,15 @@ function errorMessage(error: unknown) {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createSupportRequestRequestApiClient(request);
-  const query = new URLSearchParams({
-    limit: "100",
-    offset: "0",
-  });
+  const filters = supportOperationsQueueFilters(request);
+  const pagination = supportOperationsQueuePagination(request);
+  const query = supportOperationsQueueQuery(request);
 
   try {
     return {
-      queue: await api.listSupportOperationsQueue(query.toString()),
+      queue: await api.listSupportOperationsQueue(query),
+      filters,
+      pagination,
       unavailableMessage: null,
     };
   } catch (error) {
@@ -27,6 +33,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
         total: 0,
         count: 0,
       },
+      filters,
+      pagination,
       unavailableMessage: errorMessage(error),
     };
   }
@@ -40,11 +48,12 @@ export async function action({ request }: ActionFunctionArgs) {
   if (intent === "escalate-overdue") {
     try {
       const result = await api.escalateOverdueSupportRequests({ limit: 100 });
-      const query = new URLSearchParams({
-        escalated: String(result.escalated),
-        skipped: String(result.skipped),
-      });
-      return redirect(`/support/requests?${query.toString()}`);
+      const url = new URL(request.url);
+      url.searchParams.set("escalated", String(result.escalated));
+      url.searchParams.set("skipped", String(result.skipped));
+      url.searchParams.set("capped", String(result.capped));
+      url.searchParams.set("escalationTotal", String(result.total));
+      return redirect(`${url.pathname}${url.search}`);
     } catch (error) {
       return { error: errorMessage(error) };
     }
@@ -61,17 +70,23 @@ export default function SupportOperationsQueueRoute() {
   const [searchParams] = useSearchParams();
   const escalated = searchParams.get("escalated");
   const skipped = searchParams.get("skipped");
+  const capped = searchParams.get("capped");
+  const escalationTotal = searchParams.get("escalationTotal");
   const escalationResult =
     escalated !== null && skipped !== null
       ? {
           escalated: Number(escalated),
           skipped: Number(skipped),
+          capped: capped === "true",
+          total: Number(escalationTotal ?? 0),
         }
       : null;
 
   return (
     <SupportOperationsPage
       queue={data.queue}
+      filters={data.filters}
+      pagination={data.pagination}
       unavailableMessage={data.unavailableMessage}
       escalationResult={escalationResult}
       actionError={actionData?.error ?? null}

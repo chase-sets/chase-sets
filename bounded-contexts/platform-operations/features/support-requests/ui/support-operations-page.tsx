@@ -2,11 +2,14 @@ import { t } from "@chase-sets/localization";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   HiddenInput,
+  AppliedFilterChips,
   Badge,
   Button,
   Cluster,
   DataTable,
   EmptyState,
+  FilterArea,
+  Form,
   Grid,
   Inline,
   LinkButton,
@@ -14,18 +17,21 @@ import {
   Page,
   PageHeader,
   PageSection,
+  Pagination,
   Stack,
   Surface,
   Text,
   Textarea,
   TextInput,
 } from "@chase-sets/design-system";
-import type { SupportRequestDetail, SupportRequestListItem } from "./contracts";
+import type { SupportOperationsQueueFilters, SupportRequestDetail, SupportRequestListItem } from "./contracts";
 
 type SupportOperationsPageProps = Readonly<{
   queue: Readonly<{ items: readonly SupportRequestListItem[]; total: number; count: number }>;
+  filters?: SupportOperationsQueueFilters;
+  pagination?: Readonly<{ limit: number; offset: number }>;
   unavailableMessage?: string | null;
-  escalationResult?: Readonly<{ escalated: number; skipped: number }> | null;
+  escalationResult?: Readonly<{ escalated: number; skipped: number; capped: boolean; total: number }> | null;
   actionError?: string | null;
 }>;
 
@@ -133,6 +139,106 @@ function checklistSummary(request: SupportRequestListItem) {
 
 function isTerminalStatus(status: string) {
   return status === "resolved" || status === "closed" || status === "cancelled";
+}
+
+const SUPPORT_OPERATIONS_QUEUE_STATUS_FILTERS = [
+  "all",
+  "open",
+  "waiting-on-buyer",
+  "waiting-on-seller",
+  "ready-for-support",
+  "resolved",
+  "closed",
+  "cancelled",
+] as const;
+
+const SUPPORT_OPERATIONS_QUEUE_PRIORITY_FILTERS = ["all", "normal", "urgent"] as const;
+
+function queueStatusFilterLabel(status: string) {
+  switch (status) {
+    case "open":
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.open");
+    case "waiting-on-buyer":
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.waitingOnBuyer");
+    case "waiting-on-seller":
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.waitingOnSeller");
+    case "ready-for-support":
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.readyForSupport");
+    case "resolved":
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.resolved");
+    case "closed":
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.closed");
+    case "cancelled":
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.cancelled");
+    default:
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.all");
+  }
+}
+
+function queuePriorityFilterLabel(priority: string) {
+  switch (priority) {
+    case "normal":
+      return t("support.features.supportRequests.ui.supportOperationsPage.priority.filter.normal");
+    case "urgent":
+      return t("support.features.supportRequests.ui.supportOperationsPage.priority.filter.urgent");
+    default:
+      return t("support.features.supportRequests.ui.supportOperationsPage.priority.filter.all");
+  }
+}
+
+function queueStatusFilterItems() {
+  return SUPPORT_OPERATIONS_QUEUE_STATUS_FILTERS.map((status) => ({
+    value: status,
+    label: queueStatusFilterLabel(status),
+  }));
+}
+
+function queuePriorityFilterItems() {
+  return SUPPORT_OPERATIONS_QUEUE_PRIORITY_FILTERS.map((priority) => ({
+    value: priority,
+    label: queuePriorityFilterLabel(priority),
+  }));
+}
+
+function buildQueueAppliedFilters(filters: Readonly<{ status: string; priority: string; search: string }>) {
+  const applied: { id: string; label: string }[] = [];
+  if (filters.search) {
+    applied.push({
+      id: "search",
+      label: t("support.features.supportRequests.ui.supportOperationsPage.search.filter.chip", {
+        search: filters.search,
+      }),
+    });
+  }
+  if (filters.status !== "all") {
+    applied.push({
+      id: "status",
+      label: t("support.features.supportRequests.ui.supportOperationsPage.status.filter.chip", {
+        status: queueStatusFilterLabel(filters.status),
+      }),
+    });
+  }
+  if (filters.priority !== "all") {
+    applied.push({
+      id: "priority",
+      label: t("support.features.supportRequests.ui.supportOperationsPage.priority.filter.chip", {
+        priority: queuePriorityFilterLabel(filters.priority),
+      }),
+    });
+  }
+
+  return applied;
+}
+
+function navigateSupportOperationsQueue(page: number, pageSize: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("limit", String(pageSize));
+  url.searchParams.set("offset", String((page - 1) * pageSize));
+  window.location.assign(`${url.pathname}${url.search}${url.hash}`);
 }
 
 function actionResultMessage(actionResult: string | null | undefined) {
@@ -663,10 +769,18 @@ export function SupportOperationsDetailPage({
 
 export function SupportOperationsPage({
   queue,
+  filters = { status: "all", priority: "all", search: "" },
+  pagination,
   unavailableMessage,
   escalationResult,
   actionError,
 }: SupportOperationsPageProps) {
+  const pageSize = pagination?.limit ?? queue.items.length;
+  const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
+  const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(queue.total / pageSize)) : 1;
+  const showPagination = Boolean(pagination && (queue.total > pageSize || pagination.offset > 0));
+  const appliedFilters = buildQueueAppliedFilters(filters);
+
   return (
     <Page>
       <PageHeader
@@ -692,12 +806,25 @@ export function SupportOperationsPage({
 
       {escalationResult ? (
         <Surface tone="muted">
-          <Inline gap={2}>
-            <Badge tone="success">{t("support.features.supportRequests.ui.supportOperationsPage.success")}</Badge>
-            <Text size="sm" weight="semibold">
-              {t("support.features.supportRequests.ui.supportOperationsPage.escalation.result", escalationResult)}
-            </Text>
-          </Inline>
+          <Stack gap={2}>
+            <Inline gap={2}>
+              <Badge tone={escalationResult.capped ? "warning" : "success"}>
+                {escalationResult.capped
+                  ? t("support.features.supportRequests.ui.supportOperationsPage.partial")
+                  : t("support.features.supportRequests.ui.supportOperationsPage.success")}
+              </Badge>
+              <Text size="sm" weight="semibold">
+                {t("support.features.supportRequests.ui.supportOperationsPage.escalation.result", escalationResult)}
+              </Text>
+            </Inline>
+            {escalationResult.capped ? (
+              <Text size="sm" tone="secondary">
+                {t("support.features.supportRequests.ui.supportOperationsPage.escalation.capped", {
+                  total: escalationResult.total,
+                })}
+              </Text>
+            ) : null}
+          </Stack>
         </Surface>
       ) : null}
 
@@ -716,23 +843,84 @@ export function SupportOperationsPage({
         title={t("support.features.supportRequests.ui.supportOperationsPage.queue.title")}
         description={t("support.features.supportRequests.ui.supportOperationsPage.queue.description")}
       >
-        <Surface>
-          <Cluster>
-            <Text size="sm" weight="semibold">
-              {t("support.features.supportRequests.ui.supportOperationsPage.queue.count", {
-                count: queue.count,
-                total: queue.total,
-              })}
-            </Text>
-            <RouterForm method="post" spacing="none">
-              <HiddenInput type="hidden" name="intent" value="escalate-overdue" />
-              <Button type="submit" disabled={Boolean(unavailableMessage)}>
-                {t("support.features.supportRequests.ui.supportOperationsPage.escalate.overdue")}
-              </Button>
-            </RouterForm>
-          </Cluster>
-        </Surface>
-        <SupportOperationsQueue requests={queue.items} />
+        <Stack gap={3}>
+          <Form method="get" spacing="none">
+            <FilterArea
+              activeFilterCount={appliedFilters.length}
+              primaryFilterCount={3}
+              panelTitle={t("support.features.supportRequests.ui.supportOperationsPage.filters")}
+              overflowTriggerLabel={t("support.features.supportRequests.ui.supportOperationsPage.more.filters")}
+              filters={[
+                <TextInput
+                  key="search"
+                  label={t("support.features.supportRequests.ui.supportOperationsPage.search")}
+                  name="search"
+                  defaultValue={filters.search}
+                  placeholder={t("support.features.supportRequests.ui.supportOperationsPage.search.placeholder")}
+                />,
+                <NativeSelect
+                  key="status"
+                  label={t("support.features.supportRequests.ui.supportOperationsPage.status")}
+                  name="status"
+                  defaultValue={filters.status}
+                  items={queueStatusFilterItems()}
+                />,
+                <NativeSelect
+                  key="priority"
+                  label={t("support.features.supportRequests.ui.supportOperationsPage.priority")}
+                  name="priority"
+                  defaultValue={filters.priority}
+                  items={queuePriorityFilterItems()}
+                />,
+              ]}
+              actions={
+                <Inline>
+                  <Button type="submit" leadingIcon="filter">
+                    {t("support.features.supportRequests.ui.supportOperationsPage.apply.filters")}
+                  </Button>
+                  <LinkButton href="/support/requests" tone="secondary">
+                    {t("support.features.supportRequests.ui.supportOperationsPage.clear.filters")}
+                  </LinkButton>
+                </Inline>
+              }
+            />
+          </Form>
+          <AppliedFilterChips
+            filters={appliedFilters}
+            clearAction={
+              appliedFilters.length > 0 ? (
+                <LinkButton href="/support/requests" size="sm" tone="secondary">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.clear.filters")}
+                </LinkButton>
+              ) : null
+            }
+          />
+
+          <Surface>
+            <Cluster>
+              <Text size="sm" weight="semibold">
+                {t("support.features.supportRequests.ui.supportOperationsPage.queue.count", {
+                  count: queue.count,
+                  total: queue.total,
+                })}
+              </Text>
+              <RouterForm method="post" spacing="none">
+                <HiddenInput type="hidden" name="intent" value="escalate-overdue" />
+                <Button type="submit" disabled={Boolean(unavailableMessage)}>
+                  {t("support.features.supportRequests.ui.supportOperationsPage.escalate.overdue")}
+                </Button>
+              </RouterForm>
+            </Cluster>
+          </Surface>
+          <SupportOperationsQueue requests={queue.items} />
+          {showPagination ? (
+            <Pagination
+              page={currentPage}
+              totalPages={totalPages}
+              onPageChange={(page) => navigateSupportOperationsQueue(page, pageSize)}
+            />
+          ) : null}
+        </Stack>
       </PageSection>
     </Page>
   );

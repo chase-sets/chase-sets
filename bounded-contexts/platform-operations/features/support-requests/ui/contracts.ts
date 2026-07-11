@@ -29,4 +29,8 @@ export type SupportRequestCommandSnapshot = Readonly<{
 export type SupportRequestEscalationSnapshot = Readonly<{
   escalated: number;
   skipped: number;
+  capped: boolean;
+  total: number;
 }>;
+
+export type SupportOperationsQueueFilters = Readonly<{ status: string; priority: string; search: string }>;

@@ -187,8 +187,13 @@ describe("support request routes", () => {
     expect(command).toHaveBeenCalledTimes(1);
   });
 
-  it("returns command-owned support operations escalation counts", async () => {
-    const escalateOverdueSupportRequests = vi.fn(async () => ({ escalated: 3, skipped: 2 }));
+  it("returns command-owned support operations escalation counts, including whether the sweep was capped", async () => {
+    const escalateOverdueSupportRequests = vi.fn(async () => ({
+      escalated: 3,
+      skipped: 2,
+      capped: true,
+      total: 120,
+    }));
     const services = createServices({ escalateOverdueSupportRequests });
 
     const response = await buildApp(services).request("/support-requests/ops/escalate-overdue", {
@@ -198,8 +203,42 @@ describe("support request routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ escalated: 3, skipped: 2 });
+    await expect(response.json()).resolves.toEqual({ escalated: 3, skipped: 2, capped: true, total: 120 });
     expect(escalateOverdueSupportRequests).toHaveBeenCalledWith({ limit: 10 }, expect.any(Object));
+  });
+
+  it("forwards status, priority, and search query params to the operations queue read model", async () => {
+    const listSupportOperationsQueue = vi.fn(async () => ({ items: [], total: 0 }));
+    const services = createServices({ listSupportOperationsQueue });
+
+    const response = await buildApp(services).request(
+      "/support-requests/ops?limit=25&offset=50&status=ready-for-support&priority=urgent&search=ord_1",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ items: [], total: 0, count: 0 });
+    expect(listSupportOperationsQueue).toHaveBeenCalledWith({
+      limit: 25,
+      offset: 50,
+      status: "ready-for-support",
+      priority: "urgent",
+      search: "ord_1",
+    });
+  });
+
+  it("omits status, priority, and search from the operations queue read model call when absent", async () => {
+    const listSupportOperationsQueue = vi.fn(async () => ({ items: [], total: 0 }));
+    const services = createServices({ listSupportOperationsQueue });
+
+    await buildApp(services).request("/support-requests/ops");
+
+    expect(listSupportOperationsQueue).toHaveBeenCalledWith({
+      limit: 50,
+      offset: 0,
+      status: undefined,
+      priority: undefined,
+      search: undefined,
+    });
   });
 
   it.each([
