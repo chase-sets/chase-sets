@@ -7,6 +7,10 @@ import {
   subtractMoneyAmounts,
   type CommercialAccountType,
 } from "../../../support/runtime-support/common";
+import {
+  commercialTermsAgreementPolicyKey,
+  commercialTermsSchedulePolicyKey,
+} from "../../../support/runtime-support/terms-policy";
 
 export type ResolvedCommercialTerms = Readonly<{
   accountId: string;
@@ -137,23 +141,31 @@ async function getCommercialTermsAccount(
   return fallbackAccount;
 }
 
+/**
+ * Schedules and agreements resolve directly against the shared
+ * `platform_policy_documents` table (see `infrastructure/platform-policy/schema.ts`).
+ * This stays raw SQL rather than the shared `PolicyResolver` because that
+ * resolver always falls back to a compiled default when no document
+ * matches; resolution here must fail closed when no active schedule or
+ * agreement exists, exactly as it did before convergence.
+ */
 async function getActiveSchedule(db: PgQueryable, accountType: CommercialAccountType, effectiveAt: string) {
   const result = await db.query<ActiveSchedule>(
     `SELECT
-       schedule_id,
-       label,
-       marketplace_sales_fee_percentage_bps,
-       marketplace_sales_fee_fixed_amount::text,
-       shipping_allowance_percentage_bps,
+       document_id AS schedule_id,
+       value->>'label' AS label,
+       (value->>'marketplaceSalesFeePercentageBps')::integer AS marketplace_sales_fee_percentage_bps,
+       value->>'marketplaceSalesFeeFixedAmount' AS marketplace_sales_fee_fixed_amount,
+       (value->>'shippingAllowancePercentageBps')::integer AS shipping_allowance_percentage_bps,
        updated_at::text AS updated_at
-     FROM commercial_terms_schedule_pages
-     WHERE account_type = $1
+     FROM platform_policy_documents
+     WHERE policy_key = $1
        AND status = 'active'
        AND effective_from <= $2
        AND (effective_until IS NULL OR effective_until > $2)
-     ORDER BY effective_from DESC, updated_at DESC, schedule_id DESC
+     ORDER BY effective_from DESC, updated_at DESC, document_id DESC
      LIMIT 1`,
-    [accountType, effectiveAt],
+    [commercialTermsSchedulePolicyKey(accountType), effectiveAt],
   );
 
   return result.rows[0] ?? null;
@@ -162,18 +174,18 @@ async function getActiveSchedule(db: PgQueryable, accountType: CommercialAccount
 async function getActiveAgreement(db: PgQueryable, accountId: string, effectiveAt: string) {
   const result = await db.query<ActiveAgreement>(
     `SELECT
-       agreement_id,
-       marketplace_sales_fee_percentage_bps,
-       marketplace_sales_fee_fixed_amount::text,
-       shipping_allowance_percentage_bps
-     FROM commercial_terms_agreement_pages
-     WHERE account_id = $1
+       document_id AS agreement_id,
+       (value->>'marketplaceSalesFeePercentageBps')::integer AS marketplace_sales_fee_percentage_bps,
+       value->>'marketplaceSalesFeeFixedAmount' AS marketplace_sales_fee_fixed_amount,
+       (value->>'shippingAllowancePercentageBps')::integer AS shipping_allowance_percentage_bps
+     FROM platform_policy_documents
+     WHERE policy_key = $1
        AND status = 'active'
        AND effective_from <= $2
        AND (effective_until IS NULL OR effective_until > $2)
-     ORDER BY effective_from DESC, updated_at DESC, agreement_id DESC
+     ORDER BY effective_from DESC, updated_at DESC, document_id DESC
      LIMIT 1`,
-    [accountId, effectiveAt],
+    [commercialTermsAgreementPolicyKey(accountId), effectiveAt],
   );
 
   return result.rows[0] ?? null;

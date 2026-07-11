@@ -37,7 +37,7 @@ function createDb(
   }>,
 ): PgQueryable {
   return {
-    query: async <TRow>(sql: string) => {
+    query: async <TRow>(sql: string, params?: readonly unknown[]) => {
       if (sql.includes("FROM commercial_terms_account_pages")) {
         return {
           rows: options.accountMissing
@@ -52,16 +52,14 @@ function createDb(
         };
       }
 
-      if (sql.includes("FROM commercial_terms_schedule_pages")) {
-        return {
-          rows: options.schedule ? [options.schedule as TRow] : [],
-        };
-      }
-
-      if (sql.includes("FROM commercial_terms_agreement_pages")) {
-        return {
-          rows: options.agreement ? [options.agreement as TRow] : [],
-        };
+      if (sql.includes("FROM platform_policy_documents")) {
+        const policyKey = String(params?.[0] ?? "");
+        if (policyKey.startsWith("commercial-terms.schedule.")) {
+          return { rows: options.schedule ? [options.schedule as TRow] : [] };
+        }
+        if (policyKey.startsWith("commercial-terms.agreement.")) {
+          return { rows: options.agreement ? [options.agreement as TRow] : [] };
+        }
       }
 
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -83,15 +81,21 @@ function createPublicStandardDb(
   }>,
 ): PgQueryable {
   return {
-    query: async <TRow>(sql: string) => {
+    query: async <TRow>(sql: string, params?: readonly unknown[]) => {
       options.queries?.push(sql);
 
-      if (sql.includes("FROM commercial_terms_schedule_pages")) {
+      if (
+        sql.includes("FROM platform_policy_documents") &&
+        String(params?.[0] ?? "").startsWith("commercial-terms.schedule.")
+      ) {
         return {
           rows: options.schedule
             ? [
                 {
-                  ...options.schedule,
+                  schedule_id: options.schedule.schedule_id,
+                  label: options.schedule.label,
+                  marketplace_sales_fee_percentage_bps: options.schedule.marketplace_sales_fee_percentage_bps,
+                  marketplace_sales_fee_fixed_amount: options.schedule.marketplace_sales_fee_fixed_amount,
                   shipping_allowance_percentage_bps: options.schedule.shipping_allowance_percentage_bps ?? 500,
                   updated_at: options.schedule.updated_at ?? "2026-04-16T10:00:00.000Z",
                 } as TRow,
@@ -477,7 +481,8 @@ describe("commercial terms resolver", () => {
       resolvedAt: "2026-05-05T16:36:36.000Z",
     });
     expect(queries.some((sql) => sql.includes("commercial_terms_account_pages"))).toBe(false);
-    expect(queries.some((sql) => sql.includes("commercial_terms_agreement_pages"))).toBe(false);
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("FROM platform_policy_documents");
   });
 
   it("rounds public standard fee previews with the Commercial Terms formula", async () => {

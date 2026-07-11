@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import type { CommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import type { CommercialTermsApiEnv } from "../../../api";
 import { createCheckoutProcessingFeeRoutes } from "./route";
 
@@ -12,7 +12,7 @@ const context = {
   },
 };
 
-function createApp(policies: Partial<PolicyRuntime>, permissions: readonly string[]) {
+function createApp(policies: Partial<CommercialTermsPolicyRuntime>, permissions: readonly string[]) {
   const app = new Hono<CommercialTermsApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", {
@@ -27,7 +27,7 @@ function createApp(policies: Partial<PolicyRuntime>, permissions: readonly strin
     c.set("context", context);
     await next();
   });
-  app.route("/", createCheckoutProcessingFeeRoutes(policies as PolicyRuntime));
+  app.route("/", createCheckoutProcessingFeeRoutes(policies as CommercialTermsPolicyRuntime));
   return app;
 }
 
@@ -61,9 +61,10 @@ describe("commercial terms checkout processing-fee routes", () => {
       updated_at: "2026-05-03T00:00:00.000Z",
       history: [],
     }));
-    const app = createApp({ resolvePolicy: resolvePolicy as PolicyRuntime["resolvePolicy"], getPolicyDocument }, [
-      "commercial-terms.view",
-    ]);
+    const app = createApp(
+      { resolvePolicy: resolvePolicy as CommercialTermsPolicyRuntime["resolvePolicy"], getPolicyDocument },
+      ["commercial-terms.view"],
+    );
 
     const response = await app.request("/");
 

@@ -236,11 +236,7 @@ export const sourceContextWakeRegistry = [
     priorityLane: "bulk",
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [
-      "commercial-terms:commercial-terms-agreement-projection",
-      "commercial-terms:commercial-terms-schedule-projection",
-      "commercial-terms:platform-policy-document-projection",
-    ],
+    affectedProjectionNames: ["commercial-terms:platform-policy-document-projection"],
     routeDependencyIds: [
       "commercial-terms.account-agreement-create-to-list",
       "commercial-terms.agreement-create-to-list",

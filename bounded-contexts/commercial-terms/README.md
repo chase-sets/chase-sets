@@ -26,8 +26,8 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Core Aggregates and Process Managers
 
-- Commercial Terms Schedule
-- Commercial Agreement
+- Commercial Terms Schedule -- a `definePolicy` document on the shared `@chase-sets/platform-policy` machinery, keyed by account type (`commercial-terms.schedule.<accountType>`). Converged from a bespoke aggregate/projection onto the shared machinery in #4299; existing pre-convergence events (`commercial-terms.schedule.created`/`.revised`) remain readable via an upcast, never rewritten.
+- Commercial Agreement -- likewise a `definePolicy` document, keyed by account id (`commercial-terms.agreement.<accountId>`). Converged in #4299 alongside schedules.
 - Commercial Terms Resolver
 
 ## Incoming Dependencies
@@ -36,8 +36,8 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Outgoing Integration Events
 
-- `CommercialTermsScheduleCreated`
-- `CommercialAgreementCreated`
+- `platform-policy.document.created` / `platform-policy.document.revised` (shared platform-policy event vocabulary, adopted by schedules and agreements in #4299)
+- Historical: `commercial-terms.schedule.created`/`.revised`, `commercial-terms.agreement.created`/`.revised` (immutable pre-#4299 events, still present in existing streams)
 
 ## Invariants
 

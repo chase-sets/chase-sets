@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
   AppendToStreamInput,
   GlobalPosition,
@@ -9,6 +8,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { createCommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import { createAgreementRuntime } from "./runtime";
 
 const context = {
@@ -60,24 +60,14 @@ function createInMemoryEventStore() {
   return { allEvents, eventStore };
 }
 
-function createCheckpointStore(): ProjectionCheckpointStore {
-  return {
-    loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
-    saveCheckpoint: async () => undefined,
-  };
-}
-
 describe("commercial terms agreement runtime", () => {
   it("rejects malformed account ids before account existence resolution or writes", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async () => ({ rows: [] })),
     };
-    const runtime = createAgreementRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-    });
+    const policies = createCommercialTermsPolicyRuntime({ eventStore, db: db as never });
+    const runtime = createAgreementRuntime({ policies, db: db as never });
 
     await expect(
       runtime.createAgreement(
@@ -104,11 +94,8 @@ describe("commercial terms agreement runtime", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),
     };
-    const runtime = createAgreementRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-    });
+    const policies = createCommercialTermsPolicyRuntime({ eventStore, db: db as never });
+    const runtime = createAgreementRuntime({ policies, db: db as never });
 
     await expect(
       runtime.createAgreement(
@@ -138,10 +125,10 @@ describe("commercial terms agreement runtime", () => {
     const db = {
       query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
         queryParams.push(params ?? []);
-        if (sql.includes("FROM commercial_terms_agreement_history")) {
+        if (sql.includes("FROM platform_policy_document_history")) {
           return { rows: [] };
         }
-        if (sql.includes("WHERE agreement.agreement_id = $1")) {
+        if (sql.includes("WHERE agreement.document_id = $1")) {
           return {
             rows: [
               {
@@ -166,17 +153,14 @@ describe("commercial terms agreement runtime", () => {
           return { rows: [{ account_id: "acc_seller" }] };
         }
         if (sql.includes("tstzrange")) {
-          return { rows: [{ agreement_id: "cag_existing" }] };
+          return { rows: [{ document_id: "cag_existing" }] };
         }
 
         return { rows: [] };
       }),
     };
-    const runtime = createAgreementRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-    });
+    const policies = createCommercialTermsPolicyRuntime({ eventStore, db: db as never });
+    const runtime = createAgreementRuntime({ policies, db: db as never });
 
     await expect(
       runtime.reviseAgreement(
@@ -195,7 +179,7 @@ describe("commercial terms agreement runtime", () => {
       ),
     ).rejects.toThrow("Active agreement cag_existing already covers that account and effective window.");
     expect(queryParams).toContainEqual([
-      "acc_seller",
+      "commercial-terms.agreement.acc-seller",
       "2026-05-01T00:00:00.000Z",
       "2027-05-01T00:00:00.000Z",
       "cag_current",

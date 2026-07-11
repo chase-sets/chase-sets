@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
   AppendToStreamInput,
   GlobalPosition,
@@ -9,6 +8,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { createCommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import { createScheduleRuntime } from "./runtime";
 
 const context = {
@@ -60,30 +60,20 @@ function createInMemoryEventStore() {
   return { allEvents, eventStore };
 }
 
-function createCheckpointStore(): ProjectionCheckpointStore {
-  return {
-    loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
-    saveCheckpoint: async () => undefined,
-  };
-}
-
 describe("commercial terms schedule runtime", () => {
   it("rejects active schedule creation when the account type already has an overlapping active window", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("tstzrange")) {
-          return { rows: [{ schedule_id: "cts_existing" }] };
+          return { rows: [{ document_id: "cts_existing" }] };
         }
 
         return { rows: [] };
       }),
     };
-    const runtime = createScheduleRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-    });
+    const policies = createCommercialTermsPolicyRuntime({ eventStore, db: db as never });
+    const runtime = createScheduleRuntime({ policies, db: db as never });
 
     await expect(
       runtime.createSchedule(
@@ -110,10 +100,10 @@ describe("commercial terms schedule runtime", () => {
     const db = {
       query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
         queryParams.push(params ?? []);
-        if (sql.includes("FROM commercial_terms_schedule_history")) {
+        if (sql.includes("FROM platform_policy_document_history")) {
           return { rows: [] };
         }
-        if (sql.includes("WHERE schedule_id = $1")) {
+        if (sql.includes("WHERE document_id = $1") && sql.includes("policy_key LIKE 'commercial-terms.schedule.%'")) {
           return {
             rows: [
               {
@@ -133,17 +123,14 @@ describe("commercial terms schedule runtime", () => {
           };
         }
         if (sql.includes("tstzrange")) {
-          return { rows: [{ schedule_id: "cts_existing" }] };
+          return { rows: [{ document_id: "cts_existing" }] };
         }
 
         return { rows: [] };
       }),
     };
-    const runtime = createScheduleRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-    });
+    const policies = createCommercialTermsPolicyRuntime({ eventStore, db: db as never });
+    const runtime = createScheduleRuntime({ policies, db: db as never });
 
     await expect(
       runtime.reviseSchedule(
@@ -161,7 +148,12 @@ describe("commercial terms schedule runtime", () => {
         context,
       ),
     ).rejects.toThrow("Active schedule cts_existing already covers that account type and effective window.");
-    expect(queryParams).toContainEqual(["business", "2026-05-01T00:00:00.000Z", null, "cts_current"]);
+    expect(queryParams).toContainEqual([
+      "commercial-terms.schedule.business",
+      "2026-05-01T00:00:00.000Z",
+      null,
+      "cts_current",
+    ]);
     expect(allEvents).toHaveLength(0);
   });
 });

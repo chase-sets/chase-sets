@@ -1,4 +1,16 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { findOverlappingActivePolicyDocument } from "@chase-sets/platform-policy/queries";
+import { commercialTermsAgreementPolicyKey } from "../../../support/runtime-support/terms-policy";
+
+/**
+ * Agreements read against the shared `platform_policy_documents` /
+ * `platform_policy_document_history` tables instead of a bespoke
+ * `commercial_terms_agreement_pages` projection. Row
+ * shapes below are unchanged from the pre-convergence bespoke projection;
+ * the targeting field (`account_id`) and fee terms are extracted out of the
+ * opaque `value` jsonb column set by `terms-policy.ts`'s agreement policy
+ * value shape.
+ */
 
 export type CommercialAgreementRow = Readonly<{
   agreement_id: string;
@@ -39,32 +51,35 @@ export type AgreementWindowCheck = Readonly<{
 
 const agreementSelect = `
   SELECT
-    agreement.agreement_id,
-    agreement.account_id,
+    agreement.document_id AS agreement_id,
+    agreement.value->>'accountId' AS account_id,
     account.display_name AS account_display_name,
     account.account_type,
-    agreement.label,
-    agreement.marketplace_sales_fee_percentage_bps,
-    agreement.marketplace_sales_fee_fixed_amount::text,
-    agreement.shipping_allowance_percentage_bps,
+    agreement.value->>'label' AS label,
+    (agreement.value->>'marketplaceSalesFeePercentageBps')::integer AS marketplace_sales_fee_percentage_bps,
+    agreement.value->>'marketplaceSalesFeeFixedAmount' AS marketplace_sales_fee_fixed_amount,
+    (agreement.value->>'shippingAllowancePercentageBps')::integer AS shipping_allowance_percentage_bps,
     agreement.status,
     agreement.effective_from,
     agreement.effective_until,
     agreement.created_at,
     agreement.updated_at
-  FROM commercial_terms_agreement_pages AS agreement
+  FROM platform_policy_documents AS agreement
   LEFT JOIN commercial_terms_account_pages AS account
-    ON account.account_id = agreement.account_id
+    ON account.account_id = agreement.value->>'accountId'
 `;
 
 export async function listAgreements(db: PgQueryable, params: Readonly<{ limit?: number; offset?: number }> = {}) {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
   const [countResult, itemsResult] = await Promise.all([
-    db.query<{ count: string }>("SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages"),
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM platform_policy_documents WHERE policy_key LIKE 'commercial-terms.agreement.%'`,
+    ),
     db.query<CommercialAgreementRow>(
       `${agreementSelect}
-       ORDER BY agreement.updated_at DESC, agreement.agreement_id DESC
+       WHERE agreement.policy_key LIKE 'commercial-terms.agreement.%'
+       ORDER BY agreement.updated_at DESC, agreement.document_id DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset],
     ),
@@ -79,7 +94,8 @@ export async function listAgreements(db: PgQueryable, params: Readonly<{ limit?:
 export async function getAgreement(db: PgQueryable, agreementId: string) {
   const result = await db.query<CommercialAgreementRow>(
     `${agreementSelect}
-     WHERE agreement.agreement_id = $1`,
+     WHERE agreement.document_id = $1
+       AND agreement.policy_key LIKE 'commercial-terms.agreement.%'`,
     [agreementId],
   );
   const agreement = result.rows[0];
@@ -98,16 +114,16 @@ export async function listAgreementHistory(db: PgQueryable, agreementId: string)
     `SELECT
        history_id::text AS history_id,
        event_id,
-       agreement_id,
+       document_id AS agreement_id,
        event_type,
        actor_user_id,
        status,
-       payload,
+       value AS payload,
        effective_from,
        effective_until,
        recorded_at
-     FROM commercial_terms_agreement_history
-     WHERE agreement_id = $1
+     FROM platform_policy_document_history
+     WHERE document_id = $1
      ORDER BY recorded_at DESC, history_id DESC`,
     [agreementId],
   );
@@ -116,19 +132,14 @@ export async function listAgreementHistory(db: PgQueryable, agreementId: string)
 }
 
 export async function findOverlappingActiveAgreement(db: PgQueryable, params: AgreementWindowCheck) {
-  const result = await db.query<{ agreement_id: string }>(
-    `SELECT agreement_id
-     FROM commercial_terms_agreement_pages
-     WHERE account_id = $1
-       AND status = 'active'
-       AND ($4::text IS NULL OR agreement_id <> $4)
-       AND tstzrange(effective_from, COALESCE(effective_until, 'infinity'::timestamptz), '[)')
-         && tstzrange($2::timestamptz, COALESCE($3::timestamptz, 'infinity'::timestamptz), '[)')
-     LIMIT 1`,
-    [params.accountId, params.effectiveFrom, params.effectiveUntil, params.excludeAgreementId ?? null],
-  );
+  const overlap = await findOverlappingActivePolicyDocument(db, {
+    policyKey: commercialTermsAgreementPolicyKey(params.accountId),
+    effectiveFrom: params.effectiveFrom,
+    effectiveUntil: params.effectiveUntil,
+    excludeDocumentId: params.excludeAgreementId,
+  });
 
-  return result.rows[0] ?? null;
+  return overlap ? { agreement_id: overlap.document_id } : null;
 }
 
 export async function getCommercialTermsAccountReference(db: PgQueryable, accountId: string) {
