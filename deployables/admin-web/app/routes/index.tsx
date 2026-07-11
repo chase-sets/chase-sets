@@ -7,14 +7,17 @@ import {
   createUserPreferencesColorModeCookieSeedHeaders,
   requestWithoutFreshWrite,
   resolveIdentityShellViewer,
+  type CurrentActorDisplay,
   type IdentityShellViewer,
 } from "@chase-sets/identity/server";
+import { resolveAdminActorDisplay } from "../actor-display.server";
 import { requireSignedInAdminActor } from "../auth.server";
 import { resolveAdminWebSectionNavItems } from "../host";
 import { AdminRootShell } from "../admin-root-shell";
 
 type AdminIndexLoaderData = Readonly<{
   actor: Awaited<ReturnType<typeof requireSignedInAdminActor>>;
+  actorDisplay?: CurrentActorDisplay | null;
   sections: ReturnType<typeof resolveAdminWebSectionNavItems>;
   viewer: IdentityShellViewer;
 }>;
@@ -27,12 +30,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect(sections[0].href);
   }
 
-  const viewer = await resolveIdentityShellViewer(
-    createIdentityRequestApiClient(requestWithoutFreshWrite(request)),
-    actor,
-  );
+  const [viewer, actorDisplay] = await Promise.all([
+    resolveIdentityShellViewer(createIdentityRequestApiClient(requestWithoutFreshWrite(request)), actor),
+    resolveAdminActorDisplay(request),
+  ]);
   const payload = {
     actor,
+    actorDisplay,
     sections,
     viewer,
   };
@@ -42,11 +46,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export default function AdminIndexRoute() {
-  const { actor, sections, viewer } = useLoaderData() as AdminIndexLoaderData;
+  const { actor, actorDisplay, sections, viewer } = useLoaderData() as AdminIndexLoaderData;
 
   if (sections.length === 0) {
     return (
-      <AdminRootShell actor={actor} sections={sections} viewer={viewer}>
+      <AdminRootShell actor={actor} actorDisplay={actorDisplay} sections={sections} viewer={viewer}>
         <Page width="content">
           <EmptyState
             icon="lock"
@@ -61,7 +65,7 @@ export default function AdminIndexRoute() {
   }
 
   return (
-    <AdminRootShell actor={actor} sections={sections} viewer={viewer}>
+    <AdminRootShell actor={actor} actorDisplay={actorDisplay} sections={sections} viewer={viewer}>
       <Page>
         <PageHeader
           eyebrow={t("adminWeb.app.routes.index.admin")}

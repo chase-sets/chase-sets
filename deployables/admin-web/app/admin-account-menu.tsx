@@ -1,34 +1,37 @@
 import { t } from "@chase-sets/localization";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import {
+  displayActorAccountName,
+  displayActorUserName,
+  displayRole,
+  type CurrentActorDisplay,
+} from "@chase-sets/identity/web";
 import { AccountMenu, Form, type AccountMenuPreferences } from "@chase-sets/design-system";
 
 const signOutFormId = "admin-account-menu-sign-out";
 
-function formatActorLabel(value: string | undefined, fallback: string) {
-  if (!value) {
-    return fallback;
-  }
-
-  return (
-    value
-      .replace(/^acc(?:ount)?[_-]/i, "")
-      .replace(/^usr|^user[_-]/i, "")
-      .replace(/[_-]+/g, " ")
-      .trim()
-      .replace(/\b\w/g, (letter) => letter.toUpperCase()) || fallback
-  );
-}
-
 export function AdminAccountMenu({
   actor,
+  actorDisplay,
   preferences,
-}: Readonly<{ actor: ResolvedActor; preferences?: AccountMenuPreferences }>) {
+}: Readonly<{
+  actor: ResolvedActor;
+  actorDisplay?: CurrentActorDisplay | null;
+  preferences?: AccountMenuPreferences;
+}>) {
+  const accountName = actorDisplay
+    ? displayActorAccountName(actorDisplay)
+    : t("adminWeb.app.adminSectionLayout.admin.account");
+  const userName = actorDisplay ? displayActorUserName(actorDisplay) : t("adminWeb.app.adminSectionLayout.admin.user");
+  const roleKey = actorDisplay?.membership.role_key || actor.roleKey;
+  const roleName = roleKey ? displayRole(roleKey) : t("adminWeb.app.adminSectionLayout.operator");
+
   return (
     <>
       <Form id={signOutFormId} action="/access/sign-out" method="post" spacing="none" />
       <AccountMenu
         accountLabel={t("adminWeb.app.adminSectionLayout.account")}
-        accountName={formatActorLabel(actor.accountId, t("adminWeb.app.adminSectionLayout.admin.account"))}
+        accountName={accountName}
         items={[
           {
             key: "account-select",
@@ -46,11 +49,11 @@ export function AdminAccountMenu({
         menuLabel={t("adminWeb.app.adminSectionLayout.account.menu")}
         preferences={preferences}
         roleLabel={t("adminWeb.app.adminSectionLayout.role")}
-        roleName={formatActorLabel(actor.roleKey, t("adminWeb.app.adminSectionLayout.operator"))}
+        roleName={roleName}
         signOutFormId={signOutFormId}
         signOutLabel={t("adminWeb.app.adminSectionLayout.sign.out")}
         userLabel={t("adminWeb.app.adminSectionLayout.user")}
-        userName={formatActorLabel(actor.userId, t("adminWeb.app.adminSectionLayout.admin.user"))}
+        userName={userName}
       />
     </>
   );

@@ -212,10 +212,25 @@
       ]
     }
   ],
-  "anonymousRoutes": [{ "routePath": "/api/identity/api-keys/resolve", "methods": ["POST"] }],
+  "anonymousRoutes": [
+    {
+      "routePath": "/api/identity/api-keys/resolve",
+      "methods": ["POST"]
+    }
+  ],
   "mcpCapabilities": {
-    "tools": [{ "name": "identity.get-account", "ownerSlice": "accounts" }],
-    "resources": [{ "uriTemplate": "chase-sets://identity/{accountId}/account", "ownerSlice": "accounts" }]
+    "tools": [
+      {
+        "name": "identity.get-account",
+        "ownerSlice": "accounts"
+      }
+    ],
+    "resources": [
+      {
+        "uriTemplate": "chase-sets://identity/{accountId}/account",
+        "ownerSlice": "accounts"
+      }
+    ]
   },
   "readAfterWriteRouteInventory": [
     {
@@ -1465,7 +1480,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by identity-owned features and composition seams.",
-      "expectedConsumers": ["accounts", "consents", "shipping-addresses"],
+      "expectedConsumers": ["consents", "shipping-addresses"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
@@ -1496,7 +1511,7 @@
     "shell-support": {
       "classification": "support",
       "purpose": "Provide reusable shell-support assets shared by identity-owned features and composition seams.",
-      "expectedConsumers": ["accounts", "api-keys", "invitations", "memberships", "users"]
+      "expectedConsumers": ["accounts"]
     },
     "ucp-support": {
       "classification": "support",

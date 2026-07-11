@@ -62,3 +62,32 @@ export function buildCurrentActorDisplay(
     },
   };
 }
+
+/**
+ * Human-readable account label for the current actor's selected account.
+ * Fallback chain: display_name, then name, then the account's natural id.
+ * ULIDs stay canonical everywhere else; this is the one sanctioned surface
+ * that turns a `CurrentActorDisplay` into text a person should read.
+ */
+export function displayActorAccountName(display: CurrentActorDisplay): string {
+  return display.account.display_name ?? display.account.name ?? display.account.account_id;
+}
+
+/**
+ * Human-readable label for the current actor's user identity.
+ * Fallback chain: display_name, then primary_email, then the user's natural id.
+ */
+export function displayActorUserName(display: CurrentActorDisplay): string {
+  return display.user.display_name ?? display.user.primary_email ?? display.user.user_id;
+}
+
+/**
+ * Formats a `role_key` (e.g. "fulfillment_manager") into a readable label
+ * (e.g. "Fulfillment Manager").
+ */
+export function displayRole(roleKey: string): string {
+  return roleKey
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}

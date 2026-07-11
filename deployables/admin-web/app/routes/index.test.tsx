@@ -11,7 +11,7 @@ const {
 } = vi.hoisted(() => ({
   mockCreateIdentityRequestApiClient: vi.fn(),
   mockCreateUserPreferencesColorModeCookieSeedHeaders: vi.fn(),
-  mockIdentityApi: { getUserPreferences: vi.fn() },
+  mockIdentityApi: { getUserPreferences: vi.fn(), getCurrentActorDisplay: vi.fn() },
   mockRequestWithoutFreshWrite: vi.fn((request: Request) => request),
   mockRequireSignedInAdminActor: vi.fn(),
   mockResolveAdminWebSectionNavItems: vi.fn(),
@@ -71,6 +71,7 @@ describe("admin root loader", () => {
     mockCreateIdentityRequestApiClient.mockReturnValue(mockIdentityApi);
     mockCreateUserPreferencesColorModeCookieSeedHeaders.mockReturnValue(null);
     mockResolveIdentityShellViewer.mockResolvedValue({ actor: null, preferences: null });
+    mockIdentityApi.getCurrentActorDisplay.mockResolvedValue(null);
     mockResolveAdminWebSectionNavItems.mockReturnValue([]);
   });
 
@@ -107,6 +108,7 @@ describe("admin root loader", () => {
 
     expect(unwrapLoaderData(result)).toEqual({
       actor,
+      actorDisplay: null,
       sections,
       viewer,
     });
@@ -123,6 +125,7 @@ describe("admin root loader", () => {
 
     expect(unwrapLoaderData(result)).toEqual({
       actor,
+      actorDisplay: null,
       sections: [],
       viewer,
     });

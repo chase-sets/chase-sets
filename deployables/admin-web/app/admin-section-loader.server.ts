@@ -7,6 +7,7 @@ import {
   requestWithoutFreshWrite,
   resolveIdentityShellViewer,
 } from "@chase-sets/identity/server";
+import { resolveAdminActorDisplay } from "./actor-display.server";
 import { requireAdminSectionActor } from "./auth.server";
 import { resolveAdminWebNavItems, resolveAdminWebRouteFallbackPermission } from "./host";
 
@@ -39,12 +40,13 @@ export function createAdminSectionLoader(config: SectionLoaderConfig) {
     );
 
     const actor = await requireAdminSectionActor(request, config.section, fallbackPermission);
-    const viewer = await resolveIdentityShellViewer(
-      createIdentityRequestApiClient(requestWithoutFreshWrite(request)),
-      actor,
-    );
+    const [viewer, actorDisplay] = await Promise.all([
+      resolveIdentityShellViewer(createIdentityRequestApiClient(requestWithoutFreshWrite(request)), actor),
+      resolveAdminActorDisplay(request),
+    ]);
     const payload = {
       actor,
+      actorDisplay,
       viewer,
     };
     const cookieHeaders = createUserPreferencesColorModeCookieSeedHeaders(request, viewer.preferences?.colorMode);

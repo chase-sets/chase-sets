@@ -17,7 +17,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { Account } from "./contracts";
-import type { CurrentActorDisplay } from "../../../support/request-support/current-actor-display";
+import type { CurrentActorDisplay } from "../../../support/shell-support/current-actor-display";
 import { AccountBadgeList } from "./account-badges";
 
 function formatAccountValue(value: string) {
