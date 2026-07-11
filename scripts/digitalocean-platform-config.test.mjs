@@ -2282,7 +2282,7 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(previewJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(previewJob).toContain("needs['change-scope'].result == 'success'");
-    expect(previewJob).toContain("needs['change-scope'].outputs.deploy == 'true'");
+    expect(previewJob).toContain("needs['change-scope'].outputs.cluster_preview == 'true'");
     expect(previewJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(previewJob).toContain("needs['change-scope'].outputs.e2e_tests != 'true'");
     expect(previewJob).toContain("needs['e2e-tests'].result == 'success'");
@@ -2317,10 +2317,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewJob).not.toContain('--runtime-env "SES_');
 
     expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
-    expect(requiredJob).toContain("needs['change-scope'].outputs.deploy == 'true'");
+    expect(requiredJob).toContain("needs['change-scope'].outputs.cluster_preview == 'true'");
     expect(requiredJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(requiredJob).toContain(
-      "Preview deployment and smoke must pass for same-repository deploy-scoped PRs and manual preview-label PRs.",
+      "Preview deployment and smoke must pass for same-repository deploy-surface PRs and manual preview-label PRs.",
     );
     expect(requiredJob).toContain(
       "Preview deployment had an unexpected result when it was not required: ${preview_result}.",

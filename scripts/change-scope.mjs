@@ -20,7 +20,7 @@ const workflowPatterns = [/^\.github\/workflows\//, /^\.github\/actions\//];
 const terraformPatterns = [/^infrastructure\/digitalocean\//];
 const planOnlyTerraformPatterns = [/^infrastructure\/digitalocean\/doks\//];
 const helmPatterns = [/^infrastructure\/helm\//];
-const dockerPatterns = [/^Dockerfile$/, /^\.dockerignore$/];
+const dockerPatterns = [/^Dockerfile$/, /^\.dockerignore$/, /^deployables\/[^/]+\/Dockerfile$/];
 const rootRuntimePatterns = [
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
@@ -46,6 +46,22 @@ const workflowLintScriptPatterns = [
   /^scripts\/platform-ingress-wait\.mjs$/,
   /^scripts\/platform-kubernetes-secret\.mjs$/,
 ];
+// Cluster-preview scoping: a change that only touches these deploy
+// surfaces needs the real cluster preview (namespace + Helm release + TLS +
+// smoke) to prove out; every other runtime change gets the cheaper CI
+// compose boot+smoke instead (see platform-pr.yml's compose-preview-smoke
+// job). This is intentionally a superset of `deploymentScriptPatterns`
+// above: those patterns also drive the unrelated `deploy` output (the
+// "will this promote to staging/production" release-status signal), which
+// must not widen just because the cluster-preview surface widens.
+const clusterPreviewScriptPatterns = [
+  /^scripts\/doks-/,
+  /^scripts\/platform-kubernetes-deployment\.mjs$/,
+  /^scripts\/platform-kubernetes-secret\.mjs$/,
+  /^scripts\/platform-ingress-wait\.mjs$/,
+  /^scripts\/render-platform-helm-values\.mjs$/,
+];
+const clusterPreviewWorkflowPatterns = [/^\.github\/workflows\/platform-.*\.yml$/];
 const exposurePosturePatterns = {
   "public-marketplace-launch": [
     /^scripts\/marketplace-(?:launch|production|promotion|public-presence)/,
@@ -205,6 +221,8 @@ export function classifyChanges({
   let rootTestTypecheckChanged = false;
   let rootTestConfigChanged = false;
   let deploymentScriptChanged = false;
+  let clusterPreviewScriptChanged = false;
+  let clusterPreviewWorkflowChanged = false;
   let scriptOrConfigChanged = false;
   const selectedE2eSuiteIds = new Set();
   const exposurePostureCategories = new Set();
@@ -278,6 +296,8 @@ export function classifyChanges({
     rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
     rootTestConfigChanged ||= matchesAny(filePath, rootTestConfigPatterns);
     deploymentScriptChanged ||= matchesAny(filePath, deploymentScriptPatterns);
+    clusterPreviewScriptChanged ||= matchesAny(filePath, clusterPreviewScriptPatterns);
+    clusterPreviewWorkflowChanged ||= matchesAny(filePath, clusterPreviewWorkflowPatterns);
     workflowChanged ||= matchesAny(filePath, workflowLintScriptPatterns);
     scriptOrConfigChanged ||=
       filePath.startsWith("scripts/") || rootRuntimeChanged || rootTestTypecheckChanged || rootTestConfigChanged;
@@ -328,6 +348,20 @@ export function classifyChanges({
   const dockerImageRequired = runtimeChanged || dockerChanged;
   const terraformRequired = terraformChanged || deploymentScriptChanged;
   const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged;
+  // Cluster-preview scoping: narrower than `deployRequired` above.
+  // Deploy surfaces (Helm, preview-relevant Terraform, the Dockerfile,
+  // deployment/DOKS/ingress/secret scripts, and platform-*.yml workflows)
+  // still get the real cluster preview; every other runtime-affecting
+  // change (dockerImageRequired alone) falls through to the cheaper CI
+  // compose boot+smoke job instead of a chase-sets-pr-<n> namespace.
+  const clusterPreviewRequired =
+    helmChanged ||
+    previewDeployTerraformChanged ||
+    dockerChanged ||
+    deploymentScriptChanged ||
+    clusterPreviewScriptChanged ||
+    clusterPreviewWorkflowChanged;
+  const composeSmokeRequired = dockerImageRequired && !clusterPreviewRequired;
   const docsOnly = normalizedFiles.length > 0 && !nonDocumentationChanged;
   const localChecksRequired = docsOnly || nonDocumentationChanged || workflowChanged || scriptOrConfigChanged;
   const e2eSuiteIds = orderE2eSuiteIds(selectedE2eSuiteIds);
@@ -379,6 +413,8 @@ export function classifyChanges({
     terraformRequired,
     workflowLintRequired: workflowChanged || helmChanged,
     deployRequired,
+    clusterPreviewRequired,
+    composeSmokeRequired,
     exposurePostureChanged: exposurePostureCategories.size > 0,
     exposurePostureCategories: [...exposurePostureCategories].sort(),
   };
@@ -447,6 +483,8 @@ export function toOutputMap(scope) {
     terraform: String(scope.terraformRequired),
     workflow_lint: String(scope.workflowLintRequired),
     deploy: String(scope.deployRequired),
+    cluster_preview: String(scope.clusterPreviewRequired),
+    compose_smoke: String(scope.composeSmokeRequired),
     exposure_posture_changed: String(scope.exposurePostureChanged),
     exposure_posture_categories: scope.exposurePostureCategories.join(","),
     exposure_posture_categories_json: JSON.stringify(scope.exposurePostureCategories),
