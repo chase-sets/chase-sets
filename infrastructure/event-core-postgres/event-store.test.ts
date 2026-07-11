@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
+import * as observability from "@chase-sets/observability";
 import {
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
@@ -546,6 +547,149 @@ describe("postgres event store", () => {
   });
 });
 
+describe("postgres event store independent multi-stream appends", () => {
+  it("isolates a per-stream version conflict without rolling back sibling streams", async () => {
+    const { pool, calls } = createIndependentAppendPool({ versions: { "marketplace.listing-conflict": 3 } });
+    const store = createPostgresEventStore({
+      pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+    });
+
+    const results = await store.appendToStreamsIndependently!([
+      independentInput({
+        streamId: "marketplace.listing-conflict",
+        expectedVersion: 1, // stale -- real current version is 3
+      }),
+      independentInput({ streamId: "marketplace.listing-ok", expectedVersion: "no_stream" }),
+    ]);
+
+    expect(results).toMatchObject([
+      {
+        streamId: "marketplace.listing-conflict",
+        outcome: "conflict",
+        storedEvents: [],
+        error: { code: "concurrency_conflict" },
+      },
+      { streamId: "marketplace.listing-ok", outcome: "appended" },
+    ]);
+    expect(results[1]?.storedEvents).toHaveLength(1);
+
+    // The whole chunk committed -- a conflict on one stream never rolls back another.
+    expect(calls.map((call) => call.sql)).toContain("COMMIT");
+    expect(calls.map((call) => call.sql)).not.toContain("ROLLBACK");
+    expect(calls.filter(isEventInsertCall)).toHaveLength(1);
+  });
+
+  it("uses exactly one multi-row INSERT across every stream in an independent batch", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({
+      pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+    });
+
+    const results = await store.appendToStreamsIndependently!([
+      independentInput({ streamId: "marketplace.listing-a", expectedVersion: "no_stream" }),
+      independentInput({ streamId: "marketplace.listing-b", expectedVersion: "no_stream" }),
+      independentInput({ streamId: "marketplace.listing-c", expectedVersion: "no_stream" }),
+    ]);
+
+    const inserts = calls.filter(isEventInsertCall);
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].params).toHaveLength(17 * 3);
+    expect(results.every((result) => result.outcome === "appended")).toBe(true);
+    expect(results.map((result) => result.streamId)).toEqual([
+      "marketplace.listing-a",
+      "marketplace.listing-b",
+      "marketplace.listing-c",
+    ]);
+  });
+
+  it("returns no_op for zero-event inputs without touching the database, alongside real appends", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({
+      pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+    });
+
+    const results = await store.appendToStreamsIndependently!([
+      independentInput({ streamId: "marketplace.listing-noop", expectedVersion: "no_stream", events: [] }),
+      independentInput({ streamId: "marketplace.listing-real", expectedVersion: "no_stream" }),
+    ]);
+
+    expect(results).toMatchObject([
+      { streamId: "marketplace.listing-noop", outcome: "no_op", storedEvents: [] },
+      { streamId: "marketplace.listing-real", outcome: "appended" },
+    ]);
+    expect(calls.some((call) => call.params?.includes("marketplace.listing-noop"))).toBe(false);
+  });
+
+  it("produces events identical in shape to a single-stream append", async () => {
+    const singlePool = createIndependentAppendPool();
+    const singleStore = createPostgresEventStore({
+      pool: singlePool.pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+    });
+    const [single] = await singleStore.appendToStream(
+      appendInput({ streamId: "marketplace.listing-shape", expectedVersion: "no_stream" }),
+    );
+
+    const independentPool = createIndependentAppendPool();
+    const independentStore = createPostgresEventStore({
+      pool: independentPool.pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+    });
+    const [independentResult] = await independentStore.appendToStreamsIndependently!([
+      independentInput({ streamId: "marketplace.listing-shape", expectedVersion: "no_stream" }),
+    ]);
+
+    expect(independentResult.storedEvents[0]).toEqual(single);
+  });
+
+  it("records an advisory-lock hold sample only when a lock was actually acquired", async () => {
+    const recordSpy = vi.spyOn(observability, "recordEventStoreAppendAdvisoryLockHold");
+    recordSpy.mockClear();
+
+    const noopPool = createIndependentAppendPool();
+    const noopStore = createPostgresEventStore({ pool: noopPool.pool, createEventId: createSequentialEventId() });
+    await noopStore.appendToStreamsIndependently!([independentInput({ events: [] })]);
+    expect(recordSpy).not.toHaveBeenCalled();
+
+    const appendPool = createIndependentAppendPool();
+    const appendStore = createPostgresEventStore({ pool: appendPool.pool, createEventId: createSequentialEventId() });
+    await appendStore.appendToStreamsIndependently!(
+      [independentInput({ streamId: "marketplace.listing-telemetry", expectedVersion: "no_stream" })],
+      { telemetry: { holderKind: "bulk_chunk_append", sourceContextName: "marketplace" } },
+    );
+
+    expect(recordSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "committed",
+        holderKind: "bulk_chunk_append",
+        sourceContextName: "marketplace",
+      }),
+    );
+
+    recordSpy.mockRestore();
+  });
+
+  it("rejects a batch that repeats the same stream id more than once", async () => {
+    const { pool } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool, createEventId: createSequentialEventId() });
+
+    await expect(
+      store.appendToStreamsIndependently!([
+        independentInput({ streamId: "marketplace.listing-dup", expectedVersion: "no_stream" }),
+        independentInput({ streamId: "marketplace.listing-dup", expectedVersion: "no_stream" }),
+      ]),
+    ).rejects.toThrow("does not support the same stream id more than once");
+  });
+});
+
 describe("postgres transaction helper", () => {
   it("commits successful work and releases the client", async () => {
     const queries: string[] = [];
@@ -874,6 +1018,83 @@ function createAppendPool(
     },
     calls,
   };
+}
+
+function createIndependentAppendPool(
+  options: Readonly<{ versions?: Readonly<Record<string, number>> }> = {},
+): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
+  const calls: QueryCall[] = [];
+  let insertCount = 0;
+
+  const client = {
+    query: async (sql: string, params?: readonly unknown[]) => {
+      const normalizedSql = sql.trim();
+      calls.push({ sql: normalizedSql, ...(params ? { params } : {}) });
+
+      if (normalizedSql === "BEGIN" || normalizedSql === "COMMIT" || normalizedSql === "ROLLBACK") {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (normalizedSql === "SELECT pg_notify($1, $2)") {
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (normalizedSql.includes("SELECT current_version")) {
+        const streamId = String(params?.[0]);
+        return { rows: [{ current_version: options.versions?.[streamId] ?? 0 }], rowCount: 1 };
+      }
+
+      if (normalizedSql.includes("WHERE event_id = ANY")) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (normalizedSql.includes("RETURNING")) {
+        const values = params ?? [];
+        const rowWidth = 17;
+        const rows = [];
+        for (let offset = 0; offset < values.length; offset += rowWidth) {
+          const globalPosition = String(insertCount + 1);
+          insertCount += 1;
+          rows.push({
+            event_id: values[offset],
+            stream_id: values[offset + 1],
+            stream_version: values[offset + 2],
+            global_position: globalPosition,
+            tenant_id: values[offset + 3],
+            stream_context_name: values[offset + 4],
+            stream_category: values[offset + 5],
+            event_type: values[offset + 6],
+            payload: values[offset + 7],
+            metadata: values[offset + 8],
+            occurred_at: values[offset + 9],
+            recorded_at: values[offset + 10],
+            performed_by_user_id: values[offset + 11],
+            for_account_id: values[offset + 12],
+            trace_id: values[offset + 13] ?? null,
+            span_id: values[offset + 14] ?? null,
+            parent_span_id: values[offset + 15] ?? null,
+            trace_state: values[offset + 16] ?? null,
+          });
+        }
+        return { rows, rowCount: rows.length };
+      }
+
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => undefined,
+  };
+
+  return {
+    pool: {
+      query: client.query,
+      connect: async () => client,
+    },
+    calls,
+  };
+}
+
+function independentInput(overrides: Partial<AppendToStreamInput> = {}): AppendToStreamInput {
+  return appendInput(overrides);
 }
 
 function appendInput(overrides: Partial<AppendToStreamInput> = {}): AppendToStreamInput {

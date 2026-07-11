@@ -591,6 +591,9 @@
       "@chase-sets/platform-runtime/auth": [
         "./infrastructure/platform-runtime/auth.ts"
       ],
+      "@chase-sets/platform-runtime/bulk-append-lane": [
+        "./infrastructure/platform-runtime/bulk-append-lane.ts"
+      ],
       "@chase-sets/platform-runtime/config-schema": [
         "./infrastructure/platform-runtime/config-schema.ts"
       ],

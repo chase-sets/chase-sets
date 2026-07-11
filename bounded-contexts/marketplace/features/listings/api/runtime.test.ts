@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AppendToStreamsIndependentResult, EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
   AppendToStreamInput,
@@ -16,34 +16,73 @@ function createInMemoryEventStore() {
   const streams = new Map<string, StoredEvent[]>();
   const allEvents: StoredEvent[] = [];
 
-  const eventStore: EventStore = {
-    appendToStream: async (input: AppendToStreamInput) => {
-      const existing = streams.get(input.streamId) ?? [];
-      const stored = input.events.map((event, index) => {
-        globalPosition += 1;
-        return {
-          eventId: `evt_${globalPosition}` as never,
-          streamId: input.streamId,
-          streamVersion: existing.length + index + 1,
-          globalPosition: String(globalPosition) as GlobalPosition,
-          tenantId: input.context.tenantId,
-          eventType: event.eventType,
-          payload: event.payload,
-          metadata: event.metadata ?? {},
-          occurredAt: new Date().toISOString() as never,
-          recordedAt: new Date().toISOString() as never,
-          performedByUserId: input.context.audit.performedByUserId,
-          forAccountId: input.context.audit.forAccountId,
-          traceId: input.context.trace?.traceId,
-          spanId: input.context.trace?.spanId,
-          parentSpanId: input.context.trace?.parentSpanId,
-          traceState: input.context.trace?.traceState,
-        } satisfies StoredEvent;
-      });
+  function appendStoredEvents(input: AppendToStreamInput): StoredEvent[] {
+    const existing = streams.get(input.streamId) ?? [];
+    const stored = input.events.map((event, index) => {
+      globalPosition += 1;
+      return {
+        eventId: `evt_${globalPosition}` as never,
+        streamId: input.streamId,
+        streamVersion: existing.length + index + 1,
+        globalPosition: String(globalPosition) as GlobalPosition,
+        tenantId: input.context.tenantId,
+        eventType: event.eventType,
+        payload: event.payload,
+        metadata: event.metadata ?? {},
+        occurredAt: new Date().toISOString() as never,
+        recordedAt: new Date().toISOString() as never,
+        performedByUserId: input.context.audit.performedByUserId,
+        forAccountId: input.context.audit.forAccountId,
+        traceId: input.context.trace?.traceId,
+        spanId: input.context.trace?.spanId,
+        parentSpanId: input.context.trace?.parentSpanId,
+        traceState: input.context.trace?.traceState,
+      } satisfies StoredEvent;
+    });
 
-      streams.set(input.streamId, [...existing, ...stored]);
-      allEvents.push(...stored);
-      return stored;
+    streams.set(input.streamId, [...existing, ...stored]);
+    allEvents.push(...stored);
+    return stored;
+  }
+
+  function currentVersionMatches(input: AppendToStreamInput): boolean {
+    const currentVersion = (streams.get(input.streamId) ?? []).length;
+    if (input.expectedVersion === "any") {
+      return true;
+    }
+    if (input.expectedVersion === "no_stream") {
+      return currentVersion === 0;
+    }
+    return input.expectedVersion === currentVersion;
+  }
+
+  const eventStore: EventStore = {
+    appendToStream: async (input: AppendToStreamInput) => appendStoredEvents(input),
+    // A simplified but version-faithful independent-append fake: per-stream
+    // conflicts are isolated (never abort a sibling's append) -- the same
+    // invariant `appendToStreamsIndependently` guarantees against real
+    // Postgres (see event-core-postgres/event-store.db.test.ts).
+    appendToStreamsIndependently: async (inputs) => {
+      const results: AppendToStreamsIndependentResult[] = [];
+      for (const input of inputs) {
+        if (input.events.length === 0) {
+          results.push({ streamId: input.streamId, outcome: "no_op", storedEvents: [] });
+          continue;
+        }
+        if (!currentVersionMatches(input)) {
+          results.push({
+            streamId: input.streamId,
+            outcome: "conflict",
+            storedEvents: [],
+            error: Object.assign(new Error("Expected stream version does not match current version."), {
+              code: "concurrency_conflict",
+            }) as never,
+          });
+          continue;
+        }
+        results.push({ streamId: input.streamId, outcome: "appended", storedEvents: appendStoredEvents(input) });
+      }
+      return results;
     },
     readStream: async (input: ReadStreamInput) =>
       [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
@@ -1437,5 +1476,242 @@ describe("marketplace listing runtime", () => {
       "Too many saved listing drafts. Review or finish registration before saving another listing draft.",
     );
     expect(resolvePolicy).toHaveBeenCalledWith(expect.objectContaining({ policyKey: "marketplace.listing-gate" }));
+  });
+
+  describe("applyBulkListingPriceUpdates (#4326 chunked multi-listing appends)", () => {
+    function bulkListingsDb() {
+      return {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM marketplace_supply_items AS item")) {
+            return {
+              rows: [
+                {
+                  item_id: "inv_1",
+                  account_id: "acc_seller",
+                  catalog_catalog_item_id: "cat_1",
+                  product_id: "cat_1::",
+                  item_title: "Charizard",
+                  item_subtitle: null,
+                  selected_options: [],
+                  product_summary: null,
+                  product_measure_snapshot: productMeasureSnapshot,
+                  storage_location_name: "North shelf",
+                  ship_from_code: "CHI",
+                  ship_from_address: shipFromAddress,
+                  available_quantity: 10,
+                },
+              ],
+            };
+          }
+          if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+            return { rows: [{ quantity_cap: "0" }] };
+          }
+          throw new Error(`Unexpected query in test: ${sql}`);
+        }),
+      };
+    }
+
+    function bulkTermsResolver() {
+      return {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "1.00",
+          sellerNetUnitAmount: "19.00",
+          scheduleId: "cts_bulk",
+          agreementId: null,
+          resolvedAt: "2026-07-09T00:00:00.000Z",
+        })),
+      };
+    }
+
+    it("applies changed prices, suppresses no-ops, and isolates a domain error per listing", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+      });
+
+      for (const listingId of ["lst_bulk_1", "lst_bulk_2", "lst_bulk_3"]) {
+        await services.createListing(
+          {
+            accountId: "acc_seller" as never,
+            inventoryItemId: "inv_1",
+            priceAmount: "20.00",
+            quantityCap: 1,
+            listingIdOverride: listingId as never,
+          },
+          context,
+        );
+      }
+      // lst_bulk_3 is withdrawn -- its later bulk price update must isolate to an "error" outcome.
+      await services.withdrawListing({ accountId: "acc_seller", listingId: "lst_bulk_3" }, context);
+
+      const [changedQuote, sameQuote, withdrawnQuote] = await Promise.all([
+        services.previewListingTerms({ accountId: "acc_seller", priceAmount: "25.00" }),
+        services.previewListingTerms({ accountId: "acc_seller", priceAmount: "20.00" }),
+        services.previewListingTerms({ accountId: "acc_seller", priceAmount: "30.00" }),
+      ]);
+
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [
+            { listingId: "lst_bulk_1", priceAmount: "25.00", feeQuoteFingerprint: changedQuote.fee_quote_fingerprint },
+            { listingId: "lst_bulk_2", priceAmount: "20.00", feeQuoteFingerprint: sameQuote.fee_quote_fingerprint },
+            {
+              listingId: "lst_bulk_3",
+              priceAmount: "30.00",
+              feeQuoteFingerprint: withdrawnQuote.fee_quote_fingerprint,
+            },
+          ],
+        },
+        context,
+      );
+
+      expect(outcomes).toEqual([
+        { listingId: "lst_bulk_1", outcome: "applied", version: 2 },
+        { listingId: "lst_bulk_2", outcome: "no_op", version: 1 },
+        {
+          listingId: "lst_bulk_3",
+          outcome: "error",
+          version: 0,
+          message: "Withdrawn listings cannot be updated.",
+        },
+      ]);
+
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_bulk_1" })).resolves.toMatchObject([
+        { eventType: "marketplace.listing.created" },
+        { eventType: "marketplace.listing.price-updated" },
+      ]);
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_bulk_2" })).resolves.toHaveLength(1);
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_bulk_3" })).resolves.toMatchObject([
+        { eventType: "marketplace.listing.created" },
+        { eventType: "marketplace.listing.withdrawn" },
+      ]);
+    });
+
+    it("isolates an unowned/unknown listing to an error outcome without blocking the rest of the batch", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+      });
+
+      await services.createListing(
+        {
+          accountId: "acc_seller" as never,
+          inventoryItemId: "inv_1",
+          priceAmount: "20.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_owned" as never,
+        },
+        context,
+      );
+
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [
+            { listingId: "lst_does_not_exist", priceAmount: "25.00", feeQuoteFingerprint: "stale" },
+            { listingId: "lst_owned", priceAmount: "25.00", feeQuoteFingerprint: "stale-too" },
+          ],
+        },
+        context,
+      );
+
+      expect(outcomes[0]).toMatchObject({ listingId: "lst_does_not_exist", outcome: "error" });
+      expect(outcomes[1]).toMatchObject({ listingId: "lst_owned", outcome: "error" });
+      // Both fail at the fee-quote preflight stage in this test (stale fingerprints), independently.
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_owned" })).resolves.toHaveLength(1);
+    });
+
+    it("chunks the append according to the resolved marketplace.listing-bulk-price-update policy", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const appendSpy = vi.fn(eventStore.appendToStreamsIndependently!);
+      const spyEventStore: EventStore = { ...eventStore, appendToStreamsIndependently: appendSpy };
+      const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
+        if (policy.policyKey === "marketplace.listing-bulk-price-update") {
+          return {
+            policyKey: policy.policyKey,
+            value: { chunkSize: 2, yieldIntervalMs: 0 },
+            source: "policy" as const,
+            documentId: "pol_bulk_chunk",
+            effectiveFrom: "2026-07-01T00:00:00.000Z",
+            effectiveUntil: null,
+            resolvedAt: "2026-07-09T00:00:00.000Z",
+          };
+        }
+        throw new Error(`Unexpected policy resolution in test: ${policy.policyKey}`);
+      });
+
+      const services = createMarketplaceListingRuntime({
+        eventStore: spyEventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+        policies: { resolvePolicy } as never,
+      });
+
+      const listingIds = ["lst_chunk_1", "lst_chunk_2", "lst_chunk_3"];
+      for (const listingId of listingIds) {
+        await services.createListing(
+          {
+            accountId: "acc_seller" as never,
+            inventoryItemId: "inv_1",
+            priceAmount: "20.00",
+            quantityCap: 1,
+            listingIdOverride: listingId as never,
+          },
+          context,
+        );
+      }
+
+      const quotes = await Promise.all(
+        listingIds.map((_, index) =>
+          services.previewListingTerms({ accountId: "acc_seller", priceAmount: `${21 + index}.00` }),
+        ),
+      );
+
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: listingIds.map((listingId, index) => ({
+            listingId,
+            priceAmount: `${21 + index}.00`,
+            feeQuoteFingerprint: quotes[index]!.fee_quote_fingerprint,
+          })),
+        },
+        context,
+      );
+
+      expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
+      // 3 listings at chunkSize 2 -> two appendToStreamsIndependently calls (2 + 1).
+      expect(appendSpy).toHaveBeenCalledTimes(2);
+      expect(appendSpy.mock.calls[0]?.[0]).toHaveLength(2);
+      expect(appendSpy.mock.calls[1]?.[0]).toHaveLength(1);
+      expect(resolvePolicy).toHaveBeenCalledWith(
+        expect.objectContaining({ policyKey: "marketplace.listing-bulk-price-update" }),
+      );
+    });
+
+    it("returns an empty result and skips the lane entirely for an empty update batch", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: bulkTermsResolver() as never,
+      });
+
+      await expect(
+        services.applyBulkListingPriceUpdates({ accountId: "acc_seller", updates: [] }, context),
+      ).resolves.toEqual([]);
+    });
   });
 });
