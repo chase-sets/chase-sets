@@ -6,10 +6,11 @@ import type { CommercialAccountType } from "../../../support/runtime-support/com
 /**
  * Schedules read against the shared `platform_policy_documents` /
  * `platform_policy_document_history` tables (see
- * `infrastructure/platform-policy/schema.ts`) instead of a bespoke
- * `commercial_terms_schedule_pages` projection. Row
- * shapes below are unchanged from the pre-convergence bespoke projection so
- * the admin API/UI contract stays identical; the targeting field
+ * `infrastructure/platform-policy/schema.ts`) instead of the bespoke,
+ * now-dropped per-schedule read-model table that preceded the platform-policy
+ * convergence (retirement migration: `unlogged-projection-migrations.ts`).
+ * Row shapes below are unchanged from the pre-convergence bespoke projection
+ * so the admin API/UI contract stays identical; the targeting field
  * (`account_type`) and fee terms are extracted out of the opaque `value`
  * jsonb column set by `terms-policy.ts`'s schedule policy value shape.
  */

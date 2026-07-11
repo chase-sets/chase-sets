@@ -72,16 +72,22 @@ function readMigration(contextName) {
     "unlogged-projection-migrations.ts",
   );
   const source = readFileSync(path, "utf8");
-  const statementsBlock = source.match(/statements:\s*\[([\s\S]*?)\](?:,\s*)?\n\s*}/);
+  // A context's migration file may append more than one migration entry over
+  // time (e.g. a later entry retiring tables an earlier entry converted).
+  // Every "statements: [...]" block is collected, in file order, and
+  // flattened into one timeline -- callers below reason about ordering
+  // (lock_timeout before ALTER/DROP, FK drop before re-add) across the whole
+  // ledger, not per migration entry.
+  const statementsBlocks = [...source.matchAll(/statements:\s*\[([\s\S]*?)\](?:,\s*)?\n\s*}/g)];
 
-  if (!statementsBlock) {
+  if (statementsBlocks.length === 0) {
     throw new Error(`Could not read migration statements for ${contextName}.`);
   }
 
   return {
     source,
-    statements: [...statementsBlock[1].matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)].map((match) =>
-      JSON.parse(`"${match[1]}"`),
+    statements: statementsBlocks.flatMap((statementsBlock) =>
+      [...statementsBlock[1].matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)].map((match) => JSON.parse(`"${match[1]}"`)),
     ),
   };
 }
@@ -167,7 +173,7 @@ function addForeignKeyStatement(relationship) {
 
 function isSupportedAlterStatement(statement) {
   return (
-    /^ALTER TABLE [a-z][a-z0-9_]* SET UNLOGGED;$/.test(statement) ||
+    /^ALTER TABLE (?:IF EXISTS )?[a-z][a-z0-9_]* SET UNLOGGED;$/.test(statement) ||
     /^ALTER TABLE [a-z][a-z0-9_]* DROP CONSTRAINT IF EXISTS [a-z][a-z0-9_]*;$/.test(statement) ||
     /^ALTER TABLE [a-z][a-z0-9_]* ADD CONSTRAINT [a-z][a-z0-9_]* FOREIGN KEY \([a-z0-9_, ]+\) REFERENCES [a-z][a-z0-9_]* \([a-z0-9_, ]+\)(?: ON DELETE (?:CASCADE|SET NULL|RESTRICT|NO ACTION))? NOT VALID;$/.test(
       statement,
