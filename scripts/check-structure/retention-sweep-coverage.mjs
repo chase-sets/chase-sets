@@ -28,6 +28,10 @@ export const retentionCoverageExemptions = new Map([
   ["platform_realtime_stream_leases", "The realtime stream limiter cleans expired leases on admission/release."],
   ["platform_ucp_agent_profiles", "Agent profile expiry is authorization state, not disposable request history."],
   ["platform_ucp_idempotency_records", "The UCP idempotency store has its own expiry pruning path."],
+  [
+    "pricing_market_state_snapshots",
+    "Daily market-state history is product data retained forever, like the Trades Tape it derives from (#4303); never age-swept (#4305).",
+  ],
 ]);
 
 export async function validateRetentionSweepCoverage({ repoRoot }) {

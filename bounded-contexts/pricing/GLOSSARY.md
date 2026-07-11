@@ -36,6 +36,26 @@ A **Historical Price Trend** is an analysis view over prior Market Price Snapsho
 
 The **Trades Tape** is the normalized, ordered history of completed marketplace trades used as pricing evidence: one row per order line that reaches a sale, backfilled in full by projection replay over Ordering and Fulfillment events. Each entry carries the sale channel, the payment (`sold_at`) and delivery (`settled_at`) timestamps, a verified-sale marker (m109), and an exclusion flag with reason for refunded or cancelled trades. Tape-integrity exclusions (fraud, self-dealing) are a later addition (#4304).
 
+## Daily Product Rollup
+
+A **Daily Product Rollup** is the computed snapshot of a resolved product's Trades Tape activity for one UTC calendar day: first/last/min/max/median trade price, unit volume, trade count, and verified-trade count, with excluded trades omitted. It is derived entirely from already-recorded trades and is never an estimate -- see Market Price Snapshot and Market-Value Estimate for the distinct estimate concepts. Days with too few trades still carry their counts; only the median is suppressed for display below the minimum-sample threshold.
+
+## Market-State Snapshot
+
+A **Market-State Snapshot** is the recorded end-of-day supply/demand state for a resolved product: active listing count and lowest ask, open offer count and highest bid, and the Spread between them, captured from the already-projected listing/offer state.
+
+## Product Market Aggregate
+
+A **Product Market Aggregate** is the denormalized, always-current summary for a resolved product -- last-sold trade, 30/90-day median price and volume, and Sell-Through Rate -- maintained for cheap surface reads without querying the Trades Tape or Daily Product Rollups directly.
+
+## Spread
+
+**Spread** is the recorded distance between a resolved product's lowest active ask and highest open bid, captured on its Market-State Snapshot.
+
+## Sell-Through Rate
+
+**Sell-Through Rate** is the ratio of a resolved product's sold quantity to its available quantity (sold plus still-listed) over a trailing pricing window, recorded on its Product Market Aggregate.
+
 ## Planned Market Analytics And Repricing
 
 These planned terms pre-register upcoming market, analytics, and repricing language. They are not shipped behavior until Pricing adds the corresponding projections, policies, commands, and UI.
@@ -60,10 +80,6 @@ An **Active Ask** is a planned current listing-price input used to evaluate sell
 
 A **Demand Bid** is a planned offer-price input used to evaluate buyer-side demand.
 
-### Spread
-
-**Spread** is the planned distance between seller asks and buyer demand for a resolved product.
-
 ### Market Depth
 
 **Market Depth** is the planned estimate of available supply and demand across price levels.
@@ -71,10 +87,6 @@ A **Demand Bid** is a planned offer-price input used to evaluate buyer-side dema
 ### Liquidity Score
 
 A **Liquidity Score** is the planned normalized expression of a Liquidity Estimate.
-
-### Sell-Through Rate
-
-**Sell-Through Rate** is the planned ratio of sold quantity to available quantity over a pricing window.
 
 ### Price Volatility
 

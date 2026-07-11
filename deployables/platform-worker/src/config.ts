@@ -81,6 +81,7 @@ export type PlatformWorkerConfig = Readonly<{
   reviewWindowSweepIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
+  marketRollupsCloserIntervalMs: number | null;
   googleShoppingMaintenanceIntervalMs: number | null;
   googleShoppingMaintenanceBatchSize: number;
   googleShoppingRefreshWindowDays: number;
@@ -433,6 +434,10 @@ export function loadConfig(): PlatformWorkerConfig {
     reviewWindowSweepIntervalMs: getOptionalPositiveNumberEnv("REVIEW_WINDOW_SWEEP_INTERVAL_MS", 300_000),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
+    // Daily rollup closer (pricing market rollups): frequent enough that
+    // recently-closed days pick up a late refund/cancel exclusion within minutes, cheap
+    // enough (bounded per-pass tuple limit) to run that often.
+    marketRollupsCloserIntervalMs: getOptionalPositiveNumberEnv("MARKET_ROLLUPS_CLOSER_INTERVAL_MS", 300_000),
     googleShoppingMaintenanceIntervalMs: getOptionalPositiveNumberEnv(
       "GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS",
       86_400_000,
