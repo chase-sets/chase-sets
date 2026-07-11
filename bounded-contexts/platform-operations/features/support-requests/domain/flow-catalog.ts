@@ -21,6 +21,15 @@ export type SupportFlowDefinition = Readonly<{
   allowedResponses: readonly SupportResponseType[];
   allowedResolutions: readonly SupportResolutionType[];
   defaultResolution: SupportResolutionType;
+  /**
+   * Whether seller silence past `sellerResponseDueAt` auto-resolves the case
+   * to `defaultResolution` with a system actor. `false` for flows whose
+   * default requires a human-computed value (for example `partial-refund`,
+   * which needs an amount no sweep can safely infer) or that never enter
+   * `waiting-on-seller` in the first place; those escalate to
+   * `ready-for-support` on deadline expiry instead.
+   */
+  autoResolvesOnSellerSilence: boolean;
   automationSummary: string;
 }>;
 
@@ -76,6 +85,7 @@ export const supportFlowCatalog = [
     ],
     allowedResolutions: ["full-refund", "replacement", "no-action", "support-reviewed"],
     defaultResolution: "full-refund",
+    autoResolvesOnSellerSilence: true,
     automationSummary:
       "If delivery cannot be proven by the response deadline, the buyer is eligible for a full refund without additional buyer-seller messages.",
   },
@@ -115,8 +125,9 @@ export const supportFlowCatalog = [
     ],
     allowedResolutions: ["return-for-refund", "partial-refund", "replacement", "no-action", "support-reviewed"],
     defaultResolution: "return-for-refund",
+    autoResolvesOnSellerSilence: true,
     automationSummary:
-      "Photos and condition notes replace open-ended negotiation; seller chooses return, partial refund, replacement, or evidence challenge.",
+      "Photos and condition notes replace open-ended negotiation; seller chooses return, partial refund, replacement, or evidence challenge. If the seller does not respond by the deadline, the buyer is eligible for a return-for-refund without additional buyer-seller messages.",
   },
   {
     flowType: "product-damaged",
@@ -156,8 +167,9 @@ export const supportFlowCatalog = [
     ],
     allowedResolutions: ["full-refund", "partial-refund", "return-for-refund", "replacement", "support-reviewed"],
     defaultResolution: "return-for-refund",
+    autoResolvesOnSellerSilence: true,
     automationSummary:
-      "Damage evidence and carrier claim data allow support to resolve without parties negotiating packaging details.",
+      "Damage evidence and carrier claim data allow support to resolve without parties negotiating packaging details. If the seller does not respond by the deadline, the buyer is eligible for a return-for-refund without additional buyer-seller messages.",
   },
   {
     flowType: "wrong-product-received",
@@ -188,7 +200,9 @@ export const supportFlowCatalog = [
     ],
     allowedResolutions: ["full-refund", "return-for-refund", "replacement", "support-reviewed"],
     defaultResolution: "replacement",
-    automationSummary: "The seller chooses replacement, refund, or evidence challenge from structured options.",
+    autoResolvesOnSellerSilence: true,
+    automationSummary:
+      "The seller chooses replacement, refund, or evidence challenge from structured options. If the seller does not respond by the deadline, a replacement is issued without additional buyer-seller messages.",
   },
   {
     flowType: "missing-products",
@@ -219,7 +233,9 @@ export const supportFlowCatalog = [
     ],
     allowedResolutions: ["partial-refund", "replacement", "full-refund", "support-reviewed"],
     defaultResolution: "partial-refund",
-    automationSummary: "Missing quantity is captured as structured evidence so support can calculate the remedy.",
+    autoResolvesOnSellerSilence: false,
+    automationSummary:
+      "Missing quantity is captured as structured evidence so support can calculate the remedy. If the seller does not respond by the deadline, the case moves to support review rather than resolving automatically, because the remedy amount needs to be calculated.",
   },
   {
     flowType: "authenticity-concern",
@@ -243,6 +259,7 @@ export const supportFlowCatalog = [
     allowedResponses: ["challenge-with-evidence", "accept-return", "request-support-review"],
     allowedResolutions: ["return-for-refund", "full-refund", "no-action", "support-reviewed"],
     defaultResolution: "support-reviewed",
+    autoResolvesOnSellerSilence: false,
     automationSummary:
       "Authenticity concerns go straight to support review with seller response captured through evidence, not direct debate.",
   },
@@ -284,8 +301,9 @@ export const supportFlowCatalog = [
     allowedResponses: ["accept-return", "offer-partial-refund", "challenge-with-evidence", "request-support-review"],
     allowedResolutions: ["return-for-refund", "partial-refund", "no-action", "support-reviewed"],
     defaultResolution: "return-for-refund",
+    autoResolvesOnSellerSilence: true,
     automationSummary:
-      "Return reasons, photos, condition notes, and seller receipt attestation are captured before refund release.",
+      "Return reasons, photos, condition notes, and seller receipt attestation are captured before refund release. If the seller does not respond by the deadline and the buyer's return evidence checklist is complete, the return is resolved automatically; otherwise the case moves to support review.",
   },
   {
     flowType: "buyer-cancel-request",
@@ -300,7 +318,9 @@ export const supportFlowCatalog = [
     allowedResponses: ["confirm-cancellation", "challenge-with-evidence", "request-support-review"],
     allowedResolutions: ["cancel-order", "no-action", "support-reviewed"],
     defaultResolution: "cancel-order",
-    automationSummary: "If the order has not shipped, cancellation can be confirmed through structured seller action.",
+    autoResolvesOnSellerSilence: true,
+    automationSummary:
+      "If the order has not shipped, cancellation can be confirmed through structured seller action. If the seller does not respond by the deadline, the cancellation is confirmed automatically.",
   },
   {
     flowType: "seller-cannot-fulfill",
@@ -323,6 +343,7 @@ export const supportFlowCatalog = [
     allowedResponses: ["confirm-cannot-fulfill", "issue-refund", "request-support-review"],
     allowedResolutions: ["cancel-order", "full-refund", "support-reviewed"],
     defaultResolution: "full-refund",
+    autoResolvesOnSellerSilence: false,
     automationSummary:
       "Seller fulfillment failures move directly to support so buyer refund and inventory cleanup are not delayed.",
   },
@@ -347,6 +368,7 @@ export const supportFlowCatalog = [
     allowedResponses: ["request-support-review"],
     allowedResolutions: ["support-reviewed", "no-action"],
     defaultResolution: "support-reviewed",
+    autoResolvesOnSellerSilence: false,
     automationSummary: "Refund status is owned by support and payment data, avoiding buyer-seller back and forth.",
   },
   {
@@ -370,6 +392,7 @@ export const supportFlowCatalog = [
     allowedResponses: ["provide-tracking", "request-support-review"],
     allowedResolutions: ["support-reviewed", "no-action"],
     defaultResolution: "support-reviewed",
+    autoResolvesOnSellerSilence: false,
     automationSummary: "Seller logistics issues are routed to support or carrier operations without buyer involvement.",
   },
   {
@@ -393,6 +416,7 @@ export const supportFlowCatalog = [
     allowedResponses: ["request-support-review"],
     allowedResolutions: ["support-reviewed", "no-action", "full-refund"],
     defaultResolution: "support-reviewed",
+    autoResolvesOnSellerSilence: false,
     automationSummary: "Payment issues bypass seller response and route to support and payment operations.",
   },
 ] as const satisfies readonly SupportFlowDefinition[];

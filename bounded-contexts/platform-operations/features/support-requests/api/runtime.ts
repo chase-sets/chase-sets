@@ -45,6 +45,11 @@ import {
   listSupportOperationsQueue,
   listBuyerSupportRequests,
   listSellerSupportRequests,
+  listSupportRequestsNeedingResponseReminder,
+  listSupportRequestsNeedingReviewReminder,
+  listSupportRequestsOverdueForEscalation,
+  listSupportRequestsPastSellerResponseDeadline,
+  listSupportRequestsReadyForAutoClose,
 } from "../read-model/queries";
 
 type SupportRequestRuntimeDeps = Readonly<{
@@ -167,6 +172,22 @@ export type SupportRequestServices = Readonly<{
     params: Readonly<{ now?: string; limit?: number }>,
     context: EventStoreContext,
   ) => Promise<{ escalated: number; skipped: number }>;
+  /**
+   * The scheduled deadline sweep: auto-resolves seller-silence cases to
+   * their flow default, escalates contested/overdue cases and
+   * silence cases whose default cannot be safely applied, emits SLA reminder
+   * events, and auto-closes resolved cases after 7 days. Every state change
+   * is a domain event with a system actor (`resolvedByRole`/`escalatedByRole`
+   * `null`), never a silent row update. Safe to run concurrently: each
+   * candidate mutation goes through the same optimistic-concurrency command
+   * handler as the manual admin actions, so a duplicate attempt from an
+   * overlapping sweep either finds the case already past the guarded status
+   * (no-op) or loses the append race.
+   */
+  sweepSupportRequestDeadlines: (
+    params: Readonly<{ now?: string; limit?: number }>,
+    context: EventStoreContext,
+  ) => Promise<SupportRequestDeadlineSweepResult>;
   listSupportOperationsQueue: (
     params: Parameters<typeof listSupportOperationsQueue>[1],
   ) => ReturnType<typeof listSupportOperationsQueue>;
@@ -259,6 +280,19 @@ function isOfferResponseType(responseType: SupportResponseType) {
   return (
     responseType === "accept-return" || responseType === "offer-partial-refund" || responseType === "offer-replacement"
   );
+}
+
+export type SupportRequestDeadlineSweepResult = Readonly<{
+  autoResolved: number;
+  fallbackEscalated: number;
+  escalated: number;
+  autoClosed: number;
+  responseRemindersEmitted: number;
+  reviewRemindersEmitted: number;
+}>;
+
+function addHoursToIso(timestamp: string, hours: number): string {
+  return new Date(Date.parse(timestamp) + hours * 60 * 60 * 1000).toISOString();
 }
 
 function accountRoleForSupportRequest(
@@ -538,6 +572,213 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       }
 
       return { escalated, skipped };
+    },
+    sweepSupportRequestDeadlines: async (params, context) => {
+      const now = params.now ?? new Date().toISOString();
+      const limit = params.limit ?? 100;
+      let autoResolved = 0;
+      let fallbackEscalated = 0;
+      let escalated = 0;
+      let autoClosed = 0;
+      let responseRemindersEmitted = 0;
+      let reviewRemindersEmitted = 0;
+
+      // 1. Seller-silence candidates: auto-resolve to the flow default when
+      // that default needs no human-computed value; otherwise (or if the
+      // resolve attempt fails domain validation, e.g. incomplete return
+      // evidence) escalate instead of leaving the case stuck past its
+      // deadline. The whole per-candidate attempt is isolated: the read-model
+      // snapshot can be stale by the time the command reaches the aggregate
+      // (a concurrent sweep pass, a manual admin action, or a party response
+      // may have already moved the case), and every command re-validates
+      // against live state, so a losing attempt here is expected, not an
+      // error — the next sweep pass re-evaluates from fresh state.
+      const silenceCandidates = await listSupportRequestsPastSellerResponseDeadline(deps.db, { now, limit });
+      for (const candidate of silenceCandidates) {
+        const streamId = `support.support-request-${candidate.support_request_id}`;
+        const definition = getSupportFlowDefinition(normalizeFlowType(candidate.flow_type));
+
+        try {
+          if (definition.autoResolvesOnSellerSilence) {
+            const result = await commandHandler({
+              streamId,
+              command: {
+                type: "ResolveSupportRequest",
+                resolutionType: definition.defaultResolution,
+                summary: `Automatically resolved: the seller did not respond within the ${definition.sellerResponseHours}-hour support window.`,
+                refundAmount: null,
+                resolvedByAccountId: null,
+                resolvedByRole: null,
+                resolvedAt: now,
+              },
+              context,
+            });
+            if (result.newEvents.length > 0) {
+              autoResolved += 1;
+            }
+            // Zero new events means the case is already resolved (idempotent
+            // no-op, e.g. a concurrent runner won the race); nothing further
+            // to do for this candidate.
+            continue;
+          }
+
+          const escalateResult = await commandHandler({
+            streamId,
+            command: {
+              type: "EscalateSupportRequest",
+              escalatedAt: now,
+              reason: "Support deadline reached; this flow requires support to determine the remedy.",
+            },
+            context,
+          });
+          if (escalateResult.newEvents.length > 0) {
+            fallbackEscalated += 1;
+          }
+        } catch (error) {
+          if (!(error instanceof SupportDomainError)) {
+            throw error;
+          }
+          if (!definition.autoResolvesOnSellerSilence) {
+            // Escalation itself was rejected (case already moved on); skip.
+            continue;
+          }
+          // The default resolution could not be safely applied (for example
+          // incomplete return evidence); fall back to escalating instead.
+          try {
+            const escalateResult = await commandHandler({
+              streamId,
+              command: {
+                type: "EscalateSupportRequest",
+                escalatedAt: now,
+                reason: "Support deadline reached; the default resolution could not be safely applied automatically.",
+              },
+              context,
+            });
+            if (escalateResult.newEvents.length > 0) {
+              fallbackEscalated += 1;
+            }
+          } catch (escalateError) {
+            if (!(escalateError instanceof SupportDomainError)) {
+              throw escalateError;
+            }
+            // Case moved on between the resolve attempt and this fallback
+            // (e.g. a concurrent runner or manual action already handled it).
+          }
+        }
+      }
+
+      // 2. Halfway-elapsed reminders for the party currently expected to act
+      // (the seller, while waiting on their response).
+      const responseReminderCandidates = await listSupportRequestsNeedingResponseReminder(deps.db, { now, limit });
+      for (const candidate of responseReminderCandidates) {
+        const definition = getSupportFlowDefinition(normalizeFlowType(candidate.flow_type));
+        if (definition.sellerResponseHours === null) {
+          continue;
+        }
+        const halfwayAt = addHoursToIso(candidate.opened_at, definition.sellerResponseHours / 2);
+        if (Date.parse(halfwayAt) > Date.parse(now)) {
+          continue;
+        }
+        try {
+          const result = await commandHandler({
+            streamId: `support.support-request-${candidate.support_request_id}`,
+            command: { type: "EmitSupportResponseReminder", remindedAt: now },
+            context,
+          });
+          if (result.newEvents.length > 0) {
+            responseRemindersEmitted += 1;
+          }
+        } catch (error) {
+          if (!(error instanceof SupportDomainError)) {
+            throw error;
+          }
+          // The case moved on (resolved, responded, or already reminded by a
+          // concurrent runner) between the read-model query and this command.
+        }
+      }
+
+      // 3. Support-review-approaching reminders for ready-for-support cases
+      // (last quarter of the review window).
+      const reviewReminderCandidates = await listSupportRequestsNeedingReviewReminder(deps.db, { now, limit });
+      for (const candidate of reviewReminderCandidates) {
+        const definition = getSupportFlowDefinition(normalizeFlowType(candidate.flow_type));
+        if (definition.supportReviewHours === null) {
+          continue;
+        }
+        const approachingAt = addHoursToIso(candidate.support_review_due_at, -(definition.supportReviewHours * 0.25));
+        if (Date.parse(approachingAt) > Date.parse(now)) {
+          continue;
+        }
+        try {
+          const result = await commandHandler({
+            streamId: `support.support-request-${candidate.support_request_id}`,
+            command: { type: "EmitSupportReviewReminder", remindedAt: now },
+            context,
+          });
+          if (result.newEvents.length > 0) {
+            reviewRemindersEmitted += 1;
+          }
+        } catch (error) {
+          if (!(error instanceof SupportDomainError)) {
+            throw error;
+          }
+          // The case moved on (resolved or already reminded by a concurrent
+          // runner) between the read-model query and this command.
+        }
+      }
+
+      // 4. Contested/overdue cases outside the silence path (post-challenge,
+      // post-declined-offer, or otherwise stale) escalate on deadline expiry
+      // rather than auto-resolving.
+      const escalationCandidates = await listSupportRequestsOverdueForEscalation(deps.db, { now, limit });
+      for (const candidate of escalationCandidates) {
+        try {
+          const result = await commandHandler({
+            streamId: `support.support-request-${candidate.support_request_id}`,
+            command: { type: "EscalateSupportRequest", escalatedAt: now, reason: "Support deadline reached." },
+            context,
+          });
+          if (result.newEvents.length > 0) {
+            escalated += 1;
+          }
+        } catch (error) {
+          if (!(error instanceof SupportDomainError)) {
+            throw error;
+          }
+          // The case moved on (resolved/closed/cancelled) between the
+          // read-model query and this command.
+        }
+      }
+
+      // 5. Resolved cases past their 7-day auto-close clock release
+      // settlement holds and leave the operations queue.
+      const closeCandidates = await listSupportRequestsReadyForAutoClose(deps.db, { now, limit });
+      for (const candidate of closeCandidates) {
+        try {
+          const result = await commandHandler({
+            streamId: `support.support-request-${candidate.support_request_id}`,
+            command: { type: "CloseSupportRequest", closedAt: now },
+            context,
+          });
+          if (result.newEvents.length > 0) {
+            autoClosed += 1;
+          }
+        } catch (error) {
+          if (!(error instanceof SupportDomainError)) {
+            throw error;
+          }
+          // Already closed by a concurrent runner; idempotent no-op.
+        }
+      }
+
+      return {
+        autoResolved,
+        fallbackEscalated,
+        escalated,
+        autoClosed,
+        responseRemindersEmitted,
+        reviewRemindersEmitted,
+      };
     },
     listSupportOperationsQueue: (params) => listSupportOperationsQueue(deps.db, params),
     listBuyerSupportRequests: (params) => listBuyerSupportRequests(deps.db, params),

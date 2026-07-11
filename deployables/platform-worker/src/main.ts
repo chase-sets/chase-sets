@@ -1233,6 +1233,7 @@ function createScheduledJobRunners(
     ReturnType<typeof loadConfig>,
     | "paymentReconciliationIntervalMs"
     | "paymentDeadlineSweepIntervalMs"
+    | "supportRequestDeadlineSweepIntervalMs"
     | "sellerFundsReleaseIntervalMs"
     | "payoutReconciliationIntervalMs"
     | "googleMerchant"
@@ -1253,6 +1254,23 @@ function createScheduledJobRunners(
             params: { now?: Date; limit?: number } | undefined,
             context: typeof SYSTEM_CONTEXT,
           ) => Promise<{ checked: number; cancelled: number; progressed: number; failed: number }>;
+        };
+      }
+    | undefined;
+  const platformOperations = services["platform-operations"] as
+    | {
+        supportRequests?: {
+          sweepSupportRequestDeadlines?: (
+            params: { now?: string; limit?: number },
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<{
+            autoResolved: number;
+            fallbackEscalated: number;
+            escalated: number;
+            autoClosed: number;
+            responseRemindersEmitted: number;
+            reviewRemindersEmitted: number;
+          }>;
         };
       }
     | undefined;
@@ -1338,6 +1356,32 @@ function createScheduledJobRunners(
             throw new Error(`Payment deadline sweep failed for ${result.failed} candidate(s).`);
           }
           return result.cancelled + result.progressed;
+        },
+      ),
+    );
+  }
+
+  const sweepSupportRequestDeadlines = platformOperations?.supportRequests?.sweepSupportRequestDeadlines;
+  if (sweepSupportRequestDeadlines && input.supportRequestDeadlineSweepIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "platform-operations.support-request-deadline-sweep",
+        input.supportRequestDeadlineSweepIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await sweepSupportRequestDeadlines({ limit: 100 }, SYSTEM_CONTEXT);
+          logger.info("Support request deadline sweep completed.", {
+            type: "platform-operations.support-request-deadline-sweep",
+            result,
+          });
+          return (
+            result.autoResolved +
+            result.fallbackEscalated +
+            result.escalated +
+            result.autoClosed +
+            result.responseRemindersEmitted +
+            result.reviewRemindersEmitted
+          );
         },
       ),
     );
