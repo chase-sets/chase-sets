@@ -77,6 +77,7 @@ function services(): ReviewServices {
     getAccountReview: vi.fn(async (reviewId, accountId) =>
       reviewRow({ review_id: reviewId, subject_account_id: accountId }),
     ),
+    resolveAccountIdBySlug: vi.fn(async (slug) => (slug === "card-vault-abc123" ? "acc_seller" : null)),
   } as unknown as ReviewServices;
 }
 
@@ -115,6 +116,59 @@ describe("marketplace review MCP handlers", () => {
 
     expect(fakeServices.listWrittenReviews).toHaveBeenCalledWith({ authorAccountId: "acc_1", limit: 50, offset: 0 });
     expect(fakeServices.listReceivedReviews).toHaveBeenCalledWith({ subjectAccountId: "acc_1", limit: 50, offset: 0 });
+    expect(fakeServices.listPublicAccountReviews).toHaveBeenCalledWith({
+      accountId: "acc_seller",
+      limit: 50,
+      offset: 0,
+    });
+  });
+
+  it("resolves subjectAccountSlug to a canonical account id for the reputation summary", async () => {
+    const fakeServices = services();
+    const handlers = createMarketplaceReviewMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["marketplace.get-reputation-summary"]?.(
+      mcpRequest({ accountId: "acc_1", subjectAccountSlug: "card-vault-abc123" }),
+    );
+
+    expect(result).toMatchObject({ accountId: "acc_1", subjectAccountId: "acc_seller" });
+    expect(fakeServices.resolveAccountIdBySlug).toHaveBeenCalledWith("card-vault-abc123");
+    expect(fakeServices.getPublicAccountSummary).toHaveBeenCalledWith("acc_seller");
+  });
+
+  it("prefers subjectAccountId over subjectAccountSlug when both are given", async () => {
+    const fakeServices = services();
+    const handlers = createMarketplaceReviewMcpHandlers(fakeServices);
+
+    await handlers.toolHandlers["marketplace.get-reputation-summary"]?.(
+      mcpRequest({ accountId: "acc_1", subjectAccountId: "acc_explicit", subjectAccountSlug: "card-vault-abc123" }),
+    );
+
+    expect(fakeServices.resolveAccountIdBySlug).not.toHaveBeenCalled();
+    expect(fakeServices.getPublicAccountSummary).toHaveBeenCalledWith("acc_explicit");
+  });
+
+  it("rejects an unresolvable subjectAccountSlug", async () => {
+    const fakeServices = services();
+    const handlers = createMarketplaceReviewMcpHandlers(fakeServices);
+
+    await expect(
+      handlers.toolHandlers["marketplace.get-reputation-summary"]?.(
+        mcpRequest({ accountId: "acc_1", subjectAccountSlug: "no-such-seller" }),
+      ),
+    ).rejects.toThrow('No account found for subjectAccountSlug "no-such-seller".');
+    expect(fakeServices.getPublicAccountSummary).not.toHaveBeenCalled();
+  });
+
+  it("resolves subjectAccountSlug for public review reads", async () => {
+    const fakeServices = services();
+    const handlers = createMarketplaceReviewMcpHandlers(fakeServices);
+
+    await expect(
+      handlers.toolHandlers["marketplace.list-reviews"]?.(
+        mcpRequest({ accountId: "acc_1", side: "public", subjectAccountSlug: "card-vault-abc123" }),
+      ),
+    ).resolves.toMatchObject({ accountId: "acc_1", subjectAccountId: "acc_seller", side: "public" });
     expect(fakeServices.listPublicAccountReviews).toHaveBeenCalledWith({
       accountId: "acc_seller",
       limit: 50,

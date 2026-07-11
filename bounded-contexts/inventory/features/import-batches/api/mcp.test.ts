@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
+import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import { createInventoryImportBatchMcpHandlers } from "./mcp";
 import type { InventoryImportBatchServices } from "./runtime";
 
@@ -79,9 +80,31 @@ function services(): InventoryImportBatchServices {
   } as unknown as InventoryImportBatchServices;
 }
 
+function storageLocationRow(overrides: Record<string, unknown> = {}) {
+  return {
+    storage_location_id: "loc_1",
+    account_id: "acc_1",
+    name: "Warehouse A",
+    description: null,
+    ship_from_code: "AUS",
+    ship_from_address: {},
+    is_archived: false,
+    updated_at: "2026-05-28T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function storageLocations(
+  locations: readonly Record<string, unknown>[] = [storageLocationRow()],
+): Pick<StorageLocationServices, "listStorageLocations"> {
+  return {
+    listStorageLocations: vi.fn(async () => locations),
+  } as unknown as Pick<StorageLocationServices, "listStorageLocations">;
+}
+
 describe("inventory import batch MCP handlers", () => {
   it("lists source profiles so agents can choose row semantics", async () => {
-    const handlers = createInventoryImportBatchMcpHandlers(services());
+    const handlers = createInventoryImportBatchMcpHandlers(services(), storageLocations());
     const result = await handlers.toolHandlers["inventory.list-import-sources"]?.({
       actor,
       tool: null as never,
@@ -98,7 +121,7 @@ describe("inventory import batch MCP handlers", () => {
 
   it("creates batches from parsed provider rows and preserves actor context", async () => {
     const fakeServices = services();
-    const handlers = createInventoryImportBatchMcpHandlers(fakeServices);
+    const handlers = createInventoryImportBatchMcpHandlers(fakeServices, storageLocations());
 
     const result = await handlers.toolHandlers["inventory.create-import-batch"]?.({
       actor,
@@ -130,9 +153,64 @@ describe("inventory import batch MCP handlers", () => {
     );
   });
 
+  it("resolves a defaultStorageLocationName to the canonical storage location id", async () => {
+    const fakeServices = services();
+    const fakeStorageLocations = storageLocations([
+      storageLocationRow({ storage_location_id: "loc_9", name: "Back Room" }),
+    ]);
+    const handlers = createInventoryImportBatchMcpHandlers(fakeServices, fakeStorageLocations);
+
+    await handlers.toolHandlers["inventory.create-import-batch"]?.({
+      actor,
+      tool: null as never,
+      arguments: {
+        accountId: "acc_1",
+        sourceKey: "shopify-csv",
+        quantityMode: "replace",
+        defaultStorageLocationName: "back room",
+      },
+      request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
+    });
+
+    expect(fakeStorageLocations.listStorageLocations).toHaveBeenCalledWith({
+      accountId: "acc_1",
+      includeArchived: false,
+    });
+    expect(fakeServices.createBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultStorageLocationId: "loc_9" }),
+      expect.anything(),
+    );
+  });
+
+  it("rejects an ambiguous defaultStorageLocationName with a candidate list", async () => {
+    const fakeServices = services();
+    const fakeStorageLocations = storageLocations([
+      storageLocationRow({ storage_location_id: "loc_1", name: "Warehouse" }),
+      storageLocationRow({ storage_location_id: "loc_2", name: "Warehouse" }),
+    ]);
+    const handlers = createInventoryImportBatchMcpHandlers(fakeServices, fakeStorageLocations);
+
+    await expect(
+      handlers.toolHandlers["inventory.create-import-batch"]?.({
+        actor,
+        tool: null as never,
+        arguments: {
+          accountId: "acc_1",
+          sourceKey: "shopify-csv",
+          quantityMode: "replace",
+          defaultStorageLocationName: "Warehouse",
+        },
+        request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
+      }),
+    ).rejects.toThrow(/Multiple storage locations are named "Warehouse": loc_1 \(Warehouse\), loc_2 \(Warehouse\)/);
+    expect(fakeServices.createBatch).not.toHaveBeenCalled();
+  });
+
   it("rejects account id mismatches before calling Inventory", async () => {
     const fakeServices = services();
-    const handlers = createInventoryImportBatchMcpHandlers(fakeServices);
+    const handlers = createInventoryImportBatchMcpHandlers(fakeServices, storageLocations());
 
     await expect(
       handlers.toolHandlers["inventory.commit-import-batch"]?.({
@@ -148,7 +226,7 @@ describe("inventory import batch MCP handlers", () => {
 
   it("rejects dry-run writes before mutating import state", async () => {
     const fakeServices = services();
-    const handlers = createInventoryImportBatchMcpHandlers(fakeServices);
+    const handlers = createInventoryImportBatchMcpHandlers(fakeServices, storageLocations());
 
     await expect(
       handlers.toolHandlers["inventory.create-import-batch"]?.({
@@ -168,7 +246,7 @@ describe("inventory import batch MCP handlers", () => {
   });
 
   it("reads import batch resources by URI", async () => {
-    const handlers = createInventoryImportBatchMcpHandlers(services());
+    const handlers = createInventoryImportBatchMcpHandlers(services(), storageLocations());
     const result = await handlers.resourceHandlers["chase-sets://inventory/{accountId}/import-batches/{batchId}"]?.({
       actor,
       resource: null as never,

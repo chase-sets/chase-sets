@@ -22,6 +22,7 @@ import { buildReviewProjectionHandlers } from "../read-model/projection";
 import {
   findActiveReviewForDirection,
   findPendingCounterpartReview,
+  getAccountIdBySlug,
   getAccountReview,
   getOrderReviewOpportunity,
   getPublicAccountSummary,
@@ -87,6 +88,8 @@ export type ReviewServices = Readonly<{
   listReceivedReviews: (params: Parameters<typeof listReceivedReviews>[1]) => ReturnType<typeof listReceivedReviews>;
   getAccountReview: (reviewId: string, accountId: string) => ReturnType<typeof getAccountReview>;
   getPublicAccountSummary: (accountId: string) => ReturnType<typeof getPublicAccountSummary>;
+  /** Resolves a public seller slug (MCP `subjectAccountSlug` input) to its canonical account id, or null if unknown. */
+  resolveAccountIdBySlug: (slug: string) => ReturnType<typeof getAccountIdBySlug>;
   getOrderReviewOpportunity: (orderId: string, authorAccountId: string) => ReturnType<typeof getOrderReviewOpportunity>;
   recordDeliveredShipmentReviewEligibility: (params: { shipmentId: string; deliveredAt: string }) => Promise<void>;
   /**
@@ -318,6 +321,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     listReceivedReviews: (params) => listReceivedReviews(deps.db, params),
     getAccountReview: (reviewId, accountId) => getAccountReview(deps.db, reviewId, accountId),
     getPublicAccountSummary: (accountId) => getPublicAccountSummary(deps.db, accountId),
+    resolveAccountIdBySlug: (slug) => getAccountIdBySlug(deps.db, slug),
     getOrderReviewOpportunity: (orderId, authorAccountId) =>
       getOrderReviewOpportunity(deps.db, { orderId, authorAccountId }),
     projectors: [

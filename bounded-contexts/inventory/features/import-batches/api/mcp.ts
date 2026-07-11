@@ -12,6 +12,7 @@ import { listInventoryImportSourceProfiles } from "../domain/import-source-profi
 import type { InventoryImportSourceKey } from "../domain/import-source-profiles";
 import type { InventoryImportQuantityMode } from "../domain/import-source-adapters";
 import type { ImportCsvRow } from "../domain/csv";
+import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import type { InventoryImportBatchServices } from "./runtime";
 
 export type InventoryImportBatchMcpHandlers = Readonly<{
@@ -68,6 +69,47 @@ function rejectDryRun(args: Readonly<Record<string, unknown>>) {
   }
 }
 
+/**
+ * Mirrors `resolveStorageLocationId` in the inventory-items MCP handlers
+ * (kept feature-local rather than shared, matching the existing convention of
+ * small per-file argument helpers in this context). Storage location names
+ * are not database-unique, so an ambiguous name throws a structured,
+ * candidate-listing error rather than guessing.
+ */
+async function resolveDefaultStorageLocationId(
+  storageLocations: Pick<StorageLocationServices, "listStorageLocations">,
+  accountId: string,
+  args: Readonly<Record<string, unknown>>,
+): Promise<string | null> {
+  const id = readOptionalMcpTypedIdArgument(args, "defaultStorageLocationId", "loc");
+  if (id) {
+    return id;
+  }
+
+  const name = readMcpStringArgument(args, "defaultStorageLocationName");
+  if (!name) {
+    return null;
+  }
+
+  // Archived locations cannot receive new stock, so a default-location name
+  // resolves against active locations only.
+  const locations = await storageLocations.listStorageLocations({ accountId, includeArchived: false });
+  const normalizedName = name.trim().toLocaleLowerCase("en-US");
+  const matches = locations.filter((location) => location.name.trim().toLocaleLowerCase("en-US") === normalizedName);
+
+  if (matches.length === 0) {
+    throw new Error(`No active storage location named "${name}" was found for this account.`);
+  }
+  if (matches.length > 1) {
+    const candidates = matches.map((location) => `${location.storage_location_id} (${location.name})`).join(", ");
+    throw new Error(
+      `Multiple storage locations are named "${name}": ${candidates}. Provide defaultStorageLocationId to disambiguate.`,
+    );
+  }
+
+  return matches[0].storage_location_id;
+}
+
 function importBatchUriParts(uri: string): Readonly<{ accountId: string; batchId: string }> | null {
   const match = /^chase-sets:\/\/inventory\/([^/]+)\/import-batches\/([^/]+)$/.exec(uri);
   if (!match) {
@@ -82,6 +124,7 @@ function importBatchUriParts(uri: string): Readonly<{ accountId: string; batchId
 
 export function createInventoryImportBatchMcpHandlers(
   services: InventoryImportBatchServices,
+  storageLocations: Pick<StorageLocationServices, "listStorageLocations">,
 ): InventoryImportBatchMcpHandlers {
   const listImportSources: McpToolHandler = ({ actor, arguments: args }) => {
     ensureMcpActorAccount(actor, readMcpStringArgument(args, "accountId"));
@@ -103,7 +146,7 @@ export function createInventoryImportBatchMcpHandlers(
         parsedRows: parseParsedRows(args.parsedRows),
         sourceKey: readMcpStringArgument(args, "sourceKey") as InventoryImportSourceKey | undefined,
         quantityMode: parseQuantityMode(readMcpStringArgument(args, "quantityMode")),
-        defaultStorageLocationId: readOptionalMcpTypedIdArgument(args, "defaultStorageLocationId", "loc"),
+        defaultStorageLocationId: await resolveDefaultStorageLocationId(storageLocations, scopedActor.accountId, args),
         sourceFilename: readMcpStringArgument(args, "sourceFilename"),
       },
       createActorEventStoreContext(scopedActor),

@@ -3,6 +3,7 @@ import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { syncReviewEligibilityForOrder } from "./eligibility-sync";
 import {
+  buildReviewAccountProjectionHandlers,
   buildReviewOrderSourceProjectionHandlers,
   buildReviewShipmentSourceProjectionHandlers,
   buildReviewSupportSourceProjectionHandlers,
@@ -375,5 +376,88 @@ describe("marketplace review source projection eligibility", () => {
       subject_account_id: "acc_guest",
       author_role: "seller",
     });
+  });
+});
+
+// #3935: the account source projection additionally mirrors a public seller
+// slug (same deterministic displayName+accountId derivation discovery uses)
+// so the reputation MCP tools can resolve `subjectAccountSlug` without a
+// cross-context runtime dependency.
+describe("marketplace review account source projection", () => {
+  class ReviewAccountSourceDb implements PgQueryable {
+    public readonly accounts = new Map<string, { display_name: string; slug: string | null; status: string }>();
+
+    async query<Row = Record<string, unknown>>(
+      sql: string,
+      values: readonly unknown[] = [],
+    ): Promise<PgQueryResult<Row>> {
+      if (sql.includes("INSERT INTO marketplace_review_account_sources")) {
+        const [accountId, displayName, slug] = values.map((value) => (value === null ? null : String(value)));
+        this.accounts.set(accountId as string, {
+          display_name: displayName as string,
+          slug: slug as string | null,
+          status: sql.includes("COALESCE((SELECT status")
+            ? (this.accounts.get(accountId as string)?.status ?? "active")
+            : "active",
+        });
+        return { rows: [], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  }
+
+  it("derives and stores a public seller slug when an account is created", async () => {
+    const db = new ReviewAccountSourceDb();
+    const handlers = buildReviewAccountProjectionHandlers(db);
+
+    await handlers["identity.account.created"]?.(
+      event("identity.account.created", {
+        accountId: "acc_seller_1",
+        displayName: "Card Vault",
+      }),
+    );
+
+    const account = db.accounts.get("acc_seller_1");
+    expect(account?.display_name).toBe("Card Vault");
+    expect(account?.slug).toMatch(/^card-vault-[a-z0-9-]+$/);
+  });
+
+  it("recomputes the slug when the display name changes on profile update", async () => {
+    const db = new ReviewAccountSourceDb();
+    const handlers = buildReviewAccountProjectionHandlers(db);
+
+    await handlers["identity.account.created"]?.(
+      event("identity.account.created", {
+        accountId: "acc_seller_1",
+        displayName: "Card Vault",
+      }),
+    );
+    const originalSlug = db.accounts.get("acc_seller_1")?.slug;
+
+    const renameEvent = {
+      ...event("identity.account.profile-updated", { displayName: "Bargain Bin" }),
+      streamId: "identity.account-acc_seller_1" as never,
+    };
+    await handlers["identity.account.profile-updated"]?.(renameEvent);
+
+    const account = db.accounts.get("acc_seller_1");
+    expect(account?.display_name).toBe("Bargain Bin");
+    expect(account?.slug).toMatch(/^bargain-bin-[a-z0-9-]+$/);
+    expect(account?.slug).not.toBe(originalSlug);
+  });
+
+  it("derives the same slug for the same account id and display name every time", async () => {
+    const dbA = new ReviewAccountSourceDb();
+    const dbB = new ReviewAccountSourceDb();
+    const createdEvent = event("identity.account.created", {
+      accountId: "acc_seller_stable",
+      displayName: "Stable Seller",
+    });
+
+    await buildReviewAccountProjectionHandlers(dbA)["identity.account.created"]?.(createdEvent);
+    await buildReviewAccountProjectionHandlers(dbB)["identity.account.created"]?.(createdEvent);
+
+    expect(dbA.accounts.get("acc_seller_stable")?.slug).toBe(dbB.accounts.get("acc_seller_stable")?.slug);
   });
 });

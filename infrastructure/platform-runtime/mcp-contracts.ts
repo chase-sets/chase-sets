@@ -154,6 +154,15 @@ const arrayProperty = (description: string, items: McpJsonSchemaProperty): McpJs
   items,
 });
 
+// Shared guidance for every write tool's `idempotencyKey` field: the agent
+// host must generate one stable value per logical action and resend that
+// same value on every retry, so a retried call is deduped rather than
+// repeated.
+const IDEMPOTENCY_KEY_DESCRIPTION =
+  "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.";
+
+const idempotencyKeyProperty = (): McpJsonSchemaProperty => stringProperty(IDEMPOTENCY_KEY_DESCRIPTION);
+
 const objectSchema = (properties: McpJsonSchema["properties"], required: readonly string[] = []): McpJsonSchema => ({
   type: "object",
   additionalProperties: false,
@@ -352,7 +361,7 @@ const mutationInput = (idName: string, description: string): McpJsonSchema =>
       accountId: stringProperty("Authenticated account scope."),
       [idName]: stringProperty(description),
       reason: stringProperty("Business reason for the action."),
-      idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+      idempotencyKey: idempotencyKeyProperty(),
       confirmationText: stringProperty("Exact user or policy confirmation text."),
       dryRun: booleanProperty("Validate the action without committing it."),
     },
@@ -1131,7 +1140,7 @@ const marketplaceSubmitOfferInputSchema = objectSchema(
     priceAmount: stringProperty("Offer unit price in decimal currency format."),
     quantityRequested: integerProperty("Quantity requested by the buyer."),
     offerIdOverride: stringProperty("Optional deterministic offer id for idempotent handoffs."),
-    idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+    idempotencyKey: idempotencyKeyProperty(),
     confirmationText: stringProperty("Exact user or policy confirmation text."),
     dryRun: booleanProperty("Validate the action without committing it."),
   },
@@ -1336,7 +1345,7 @@ export const mcpServiceCatalog = [
             accountId: stringProperty("Authenticated account scope."),
             email: stringProperty("Invitee email address."),
             roleKey: stringProperty("Role to grant.", ["owner", "manager", "fulfillment", "viewer"]),
-            idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+            idempotencyKey: idempotencyKeyProperty(),
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the invitation without sending it."),
           },
@@ -1458,7 +1467,9 @@ export const mcpServiceCatalog = [
           "Search active public marketplace items and buyer-visible supply.",
           "accounts.view",
           objectSchema({
-            query: stringProperty("Marketplace search term."),
+            query: stringProperty(
+              'Marketplace search term. Accepts free text or a structured "<setCode> <collectorNumber>[/<total>]" natural key (for example "SV04 123/182", "sv04 123", "OP01-001") -- structured natural keys resolve through an exact set-code + collector-number lookup before falling back to full-text search.',
+            ),
             search: stringProperty("Deprecated alias for query."),
             category: stringProperty("Optional category name or slug."),
             tag: stringProperty("Optional public tag."),
@@ -1471,7 +1482,10 @@ export const mcpServiceCatalog = [
             cursor: stringProperty("Cursor for the next page."),
           }),
           "market-search",
-          ["Use to compare public marketplace options without exposing account-private data."],
+          [
+            "Use to compare public marketplace options without exposing account-private data.",
+            'Use a "<setCode> <collectorNumber>" query (e.g. "SV04 123/182") instead of a full-text guess when the agent already has the set code and collector number.',
+          ],
         ),
         availability: "available",
         permissionBoundary: publicBoundary,
@@ -1559,7 +1573,12 @@ export const mcpServiceCatalog = [
               accountId: stringProperty("Authenticated account scope."),
               catalogItemId: stringProperty("Optional Catalog Item natural key filter."),
               productId: stringProperty("Optional resolved Product natural key filter."),
-              storageLocationId: stringProperty("Optional storage location filter."),
+              storageLocationId: stringProperty(
+                "Optional storage location filter (ULID). Alternative to storageLocationName.",
+              ),
+              storageLocationName: stringProperty(
+                "Optional storage location filter by exact name (case-insensitive). Alternative to storageLocationId; if the name matches more than one location, the tool returns a disambiguation error listing the candidate ids.",
+              ),
               status: stringProperty("Deprecated alias for availability.", ["available", "held", "out-of-stock"]),
               availability: stringProperty("Optional hold-derived availability filter.", [
                 "available",
@@ -1614,9 +1633,14 @@ export const mcpServiceCatalog = [
                 description: "Parsed row with rowNumber and string values.",
                 additionalProperties: true,
               }),
-              defaultStorageLocationId: stringProperty("Default Inventory Storage Location for rows that omit one."),
+              defaultStorageLocationId: stringProperty(
+                "Default Inventory Storage Location (ULID) for rows that omit one. Alternative to defaultStorageLocationName.",
+              ),
+              defaultStorageLocationName: stringProperty(
+                "Default Inventory Storage Location name (case-insensitive, active locations only) for rows that omit one. Alternative to defaultStorageLocationId; if the name matches more than one active location, the tool returns a disambiguation error listing the candidate ids.",
+              ),
               sourceFilename: stringProperty("Original file or connector source name."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
@@ -1660,7 +1684,7 @@ export const mcpServiceCatalog = [
               accountId: stringProperty("Authenticated account scope."),
               batchId: stringProperty("Import batch identifier."),
               reason: stringProperty("Business reason for the action."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
@@ -1687,7 +1711,7 @@ export const mcpServiceCatalog = [
                 "Signed quantity adjustment. Positive adds stock; negative removes stock.",
               ),
               reason: stringProperty("Business reason for the stock adjustment."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
@@ -1825,7 +1849,12 @@ export const mcpServiceCatalog = [
           objectSchema(
             {
               accountId: stringProperty("Authenticated account scope."),
-              subjectAccountId: stringProperty("Account whose reputation summary should be read."),
+              subjectAccountId: stringProperty(
+                "Account whose reputation summary should be read (ULID). Alternative to subjectAccountSlug.",
+              ),
+              subjectAccountSlug: stringProperty(
+                "Public seller slug for the account whose reputation summary should be read (from a search result, listing, or order's seller reference). Alternative to subjectAccountId; if both are given, subjectAccountId wins.",
+              ),
             },
             ["accountId"],
           ),
@@ -1845,7 +1874,12 @@ export const mcpServiceCatalog = [
             {
               accountId: stringProperty("Authenticated account scope."),
               side: stringProperty("Review side.", ["written", "received", "public"]),
-              subjectAccountId: stringProperty("Reviewed account for public review reads."),
+              subjectAccountId: stringProperty(
+                "Reviewed account for public review reads (ULID). Alternative to subjectAccountSlug.",
+              ),
+              subjectAccountSlug: stringProperty(
+                "Public seller slug for the reviewed account, for public review reads. Alternative to subjectAccountId; if both are given, subjectAccountId wins.",
+              ),
               limit: integerProperty("Maximum reviews to return."),
               offset: integerProperty("Result offset."),
             },
@@ -1907,7 +1941,7 @@ export const mcpServiceCatalog = [
               quantityCap: integerProperty("Maximum listed quantity."),
               purchaseLimits: listingPurchaseLimitsInputProperty,
               listingIdOverride: stringProperty("Optional deterministic listing id for idempotent handoffs."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
@@ -1932,7 +1966,7 @@ export const mcpServiceCatalog = [
               listingId: stringProperty("Listing to update."),
               priceAmount: stringProperty("New listing unit price in decimal currency format."),
               feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
@@ -1956,7 +1990,7 @@ export const mcpServiceCatalog = [
               accountId: stringProperty("Authenticated account scope."),
               listingId: stringProperty("Listing to publish."),
               feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
@@ -1996,7 +2030,7 @@ export const mcpServiceCatalog = [
               feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
               sourceActionKey: stringProperty("Optional source action key for semantic handoffs."),
               reason: stringProperty("Business reason for the action."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
@@ -2284,7 +2318,7 @@ export const mcpServiceCatalog = [
                   source: stringProperty("Snapshot source."),
                 },
               },
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without changing cart state."),
             },
@@ -2330,7 +2364,7 @@ export const mcpServiceCatalog = [
                   source: stringProperty("Snapshot source."),
                 },
               },
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without changing cart state."),
             },
@@ -2354,7 +2388,7 @@ export const mcpServiceCatalog = [
               accountId: stringProperty("Authenticated account scope."),
               cartLineId: stringProperty("Checkout cart line identifier returned by checkout.get-cart."),
               reason: stringProperty("Business reason for removing the line."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without changing cart state."),
             },
@@ -2378,7 +2412,7 @@ export const mcpServiceCatalog = [
               accountId: stringProperty("Authenticated account scope."),
               sessionId: stringProperty("Checkout session identifier."),
               shippingAddressId: stringProperty("Saved shipping address identifier visible to the actor."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without changing checkout state."),
             },
@@ -2402,7 +2436,7 @@ export const mcpServiceCatalog = [
               accountId: stringProperty("Authenticated account scope."),
               sessionId: stringProperty("Checkout session identifier."),
               reason: stringProperty("Business reason for cancelling checkout."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without changing checkout state."),
             },
@@ -2566,7 +2600,7 @@ export const mcpServiceCatalog = [
             {
               accountId: stringProperty("Authenticated account scope."),
               returnUrl: stringProperty("HTTPS URL where the hosted page returns after card setup."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without creating a hosted setup session."),
             },
@@ -2654,7 +2688,7 @@ export const mcpServiceCatalog = [
             paymentId: stringProperty("Payment identifier."),
             amount: stringProperty("Refund amount in decimal currency format."),
             reason: stringProperty("Business reason for the refund."),
-            idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+            idempotencyKey: idempotencyKeyProperty(),
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate without requesting the refund."),
           },
@@ -2749,7 +2783,7 @@ export const mcpServiceCatalog = [
               overrideReason: stringProperty("Reason for changing sender or recipient address snapshots."),
               package: postagePackageProperty(),
               reason: stringProperty("Business reason for the action."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate the action without committing it."),
             },
@@ -2892,7 +2926,7 @@ export const mcpServiceCatalog = [
               amount: stringProperty("Payout amount in decimal currency format."),
               reason: stringProperty("Business reason for payout request."),
               sensitiveActionToken: stringProperty("Step-up verification token when required by payout policy."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without requesting payout."),
             },
@@ -2918,7 +2952,7 @@ export const mcpServiceCatalog = [
               providerReference: stringProperty("Optional expected connected payout account reference."),
               contactEmail: stringProperty("Optional account contact email for provider setup."),
               reason: stringProperty("Business reason for refreshing payout readiness."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without refreshing readiness."),
             },
@@ -2945,7 +2979,7 @@ export const mcpServiceCatalog = [
               refreshUrl: stringProperty("HTTPS URL where the provider sends expired-link recovery."),
               contactEmail: stringProperty("Optional account contact email for provider setup."),
               reason: stringProperty("Business reason for creating a hosted onboarding link."),
-              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              idempotencyKey: idempotencyKeyProperty(),
               confirmationText: stringProperty("Exact user or policy confirmation text."),
               dryRun: booleanProperty("Validate without creating a hosted link."),
             },

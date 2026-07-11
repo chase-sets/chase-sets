@@ -526,6 +526,25 @@ export async function listPendingReviewsPastWindow(
   return result.rows;
 }
 
+/**
+ * Resolves a public seller slug (MCP `subjectAccountSlug` input) to its
+ * canonical account id via the unique `marketplace_review_account_sources`
+ * slug index. Unlike a name lookup, this is never ambiguous -- the slug's
+ * account-id-hash suffix guarantees at most one match -- so a miss is simply
+ * "not found" rather than a disambiguation case.
+ */
+export async function getAccountIdBySlug(db: PgQueryable, slug: string): Promise<string | null> {
+  const result = await db.query<{ account_id: string }>(
+    `SELECT account_id
+     FROM marketplace_review_account_sources
+     WHERE slug = $1
+     LIMIT 1`,
+    [slug],
+  );
+
+  return result.rows[0]?.account_id ?? null;
+}
+
 export async function findActiveReviewForDirection(
   db: PgQueryable,
   params: Readonly<{

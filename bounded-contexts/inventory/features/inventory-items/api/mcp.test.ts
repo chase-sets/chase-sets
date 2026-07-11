@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
+import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import { createInventoryItemMcpHandlers } from "./mcp";
 import type { InventoryItemServices } from "./runtime";
 
@@ -74,10 +75,32 @@ function services(): InventoryItemServices {
   } as unknown as InventoryItemServices;
 }
 
+function storageLocationRow(overrides: Record<string, unknown> = {}) {
+  return {
+    storage_location_id: "loc_1",
+    account_id: "acc_1",
+    name: "Shelf A",
+    description: null,
+    ship_from_code: "AUS",
+    ship_from_address: {},
+    is_archived: false,
+    updated_at: "2026-07-08T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function storageLocations(
+  locations: readonly Record<string, unknown>[] = [storageLocationRow()],
+): Pick<StorageLocationServices, "listStorageLocations"> {
+  return {
+    listStorageLocations: vi.fn(async () => locations),
+  } as unknown as Pick<StorageLocationServices, "listStorageLocations">;
+}
+
 describe("inventory item MCP handlers", () => {
   it("lists account inventory with natural key and hold-derived availability filters", async () => {
     const fakeServices = services();
-    const handlers = createInventoryItemMcpHandlers(fakeServices);
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations());
 
     const result = await handlers.toolHandlers["inventory.list-items"]?.(
       mcpRequest({
@@ -103,9 +126,67 @@ describe("inventory item MCP handlers", () => {
     });
   });
 
+  it("resolves a storageLocationName filter to the canonical storage location id", async () => {
+    const fakeServices = services();
+    const fakeStorageLocations = storageLocations([
+      storageLocationRow({ storage_location_id: "loc_1", name: "Shelf A" }),
+    ]);
+    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations);
+
+    await handlers.toolHandlers["inventory.list-items"]?.(
+      mcpRequest({ accountId: "acc_1", storageLocationName: "shelf a" }),
+    );
+
+    expect(fakeStorageLocations.listStorageLocations).toHaveBeenCalledWith({
+      accountId: "acc_1",
+      includeArchived: true,
+    });
+    expect(fakeServices.listItems).toHaveBeenCalledWith(expect.objectContaining({ storageLocationId: "loc_1" }));
+  });
+
+  it("prefers storageLocationId over storageLocationName when both are given", async () => {
+    const fakeServices = services();
+    const fakeStorageLocations = storageLocations();
+    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations);
+
+    await handlers.toolHandlers["inventory.list-items"]?.(
+      mcpRequest({ accountId: "acc_1", storageLocationId: "loc_explicit", storageLocationName: "Shelf A" }),
+    );
+
+    expect(fakeStorageLocations.listStorageLocations).not.toHaveBeenCalled();
+    expect(fakeServices.listItems).toHaveBeenCalledWith(expect.objectContaining({ storageLocationId: "loc_explicit" }));
+  });
+
+  it("rejects an unknown storageLocationName", async () => {
+    const fakeServices = services();
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations([]));
+
+    await expect(
+      handlers.toolHandlers["inventory.list-items"]?.(
+        mcpRequest({ accountId: "acc_1", storageLocationName: "No Such Shelf" }),
+      ),
+    ).rejects.toThrow('No storage location named "No Such Shelf" was found for this account.');
+  });
+
+  it("returns a disambiguation error for an ambiguous storageLocationName", async () => {
+    const fakeServices = services();
+    const fakeStorageLocations = storageLocations([
+      storageLocationRow({ storage_location_id: "loc_1", name: "Warehouse" }),
+      storageLocationRow({ storage_location_id: "loc_2", name: "Warehouse" }),
+    ]);
+    const handlers = createInventoryItemMcpHandlers(fakeServices, fakeStorageLocations);
+
+    await expect(
+      handlers.toolHandlers["inventory.list-items"]?.(
+        mcpRequest({ accountId: "acc_1", storageLocationName: "Warehouse" }),
+      ),
+    ).rejects.toThrow(/Multiple storage locations are named "Warehouse": loc_1 \(Warehouse\), loc_2 \(Warehouse\)/);
+    expect(fakeServices.listItems).not.toHaveBeenCalled();
+  });
+
   it("adjusts stock through Inventory and returns an MCP write receipt", async () => {
     const fakeServices = services();
-    const handlers = createInventoryItemMcpHandlers(fakeServices);
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations());
 
     const result = await handlers.toolHandlers["inventory.adjust-item"]?.(
       mcpRequest({
@@ -145,7 +226,7 @@ describe("inventory item MCP handlers", () => {
 
   it("rejects account mismatches and dry-run writes before mutating stock", async () => {
     const fakeServices = services();
-    const handlers = createInventoryItemMcpHandlers(fakeServices);
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations());
 
     await expect(
       handlers.toolHandlers["inventory.adjust-item"]?.(
@@ -167,7 +248,7 @@ describe("inventory item MCP handlers", () => {
   });
 
   it("reads inventory item resources by URI", async () => {
-    const handlers = createInventoryItemMcpHandlers(services());
+    const handlers = createInventoryItemMcpHandlers(services(), storageLocations());
 
     const result = await handlers.resourceHandlers["chase-sets://inventory/{accountId}/items/{inventoryItemId}"]?.({
       actor,

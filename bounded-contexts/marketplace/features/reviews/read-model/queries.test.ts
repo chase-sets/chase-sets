@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   findPendingCounterpartReview,
+  getAccountIdBySlug,
   getAccountReview,
   getOrderReviewOpportunity,
   listPendingReviewsPastWindow,
@@ -241,5 +242,28 @@ describe("marketplace review queries", () => {
     const result = await listPendingReviewsPastWindow(db as never, { now: "2026-06-01T00:00:00.000Z" });
 
     expect(result).toEqual([{ review_id: "rev_expired" }]);
+  });
+
+  it("resolves an account id from its public seller slug", async () => {
+    const db = {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        expect(sql).toContain("FROM marketplace_review_account_sources");
+        expect(sql).toContain("WHERE slug = $1");
+        expect(params).toEqual(["card-vault-abc123"]);
+        return { rows: [{ account_id: "acc_seller" }] };
+      }),
+    };
+
+    const result = await getAccountIdBySlug(db as never, "card-vault-abc123");
+
+    expect(result).toEqual("acc_seller");
+  });
+
+  it("returns null when no account matches the slug", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+
+    const result = await getAccountIdBySlug(db as never, "no-such-seller");
+
+    expect(result).toBeNull();
   });
 });
