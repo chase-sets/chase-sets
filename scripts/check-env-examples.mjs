@@ -85,9 +85,9 @@ function extractConstStringBindings(source) {
 function extractEnvNamesFromSource(source, constBindings) {
   const names = new Set();
   const literalCallPattern =
-    /\b(?:getOptionalEnv|getBooleanEnv|getOptionalCsvEnv|getOptionalJsonEnv|getOptionalPositiveNumberEnv|getPositiveNumberEnv|getRequiredPositiveNumberEnv|getRequiredNonNegativeNumberEnv|getNonNegativeNumberEnv|getProjectionKeyListEnv)\(\s*"([A-Z][A-Z0-9_]*)"/g;
+    /\b(?:getOptionalEnv|getBooleanEnv|getBoundedDurationEnv|getOptionalCsvEnv|getOptionalJsonEnv|getOptionalPositiveNumberEnv|getPositiveNumberEnv|getRequiredPositiveNumberEnv|getRequiredNonNegativeNumberEnv|getNonNegativeNumberEnv|getProjectionKeyListEnv)\(\s*"([A-Z][A-Z0-9_]*)"/g;
   const constCallPattern =
-    /\b(?:getOptionalEnv|getBooleanEnv|getOptionalCsvEnv|getOptionalJsonEnv|getOptionalPositiveNumberEnv|getPositiveNumberEnv|getRequiredPositiveNumberEnv|getRequiredNonNegativeNumberEnv|getNonNegativeNumberEnv|getProjectionKeyListEnv)\(\s*([A-Z][A-Z0-9_]+)/g;
+    /\b(?:getOptionalEnv|getBooleanEnv|getBoundedDurationEnv|getOptionalCsvEnv|getOptionalJsonEnv|getOptionalPositiveNumberEnv|getPositiveNumberEnv|getRequiredPositiveNumberEnv|getRequiredNonNegativeNumberEnv|getNonNegativeNumberEnv|getProjectionKeyListEnv)\(\s*([A-Z][A-Z0-9_]+)/g;
   const processDotPattern = /\bprocess\.env\.([A-Z][A-Z0-9_]*)\b/g;
   const processBracketLiteralPattern = /\bprocess\.env\[\s*"([A-Z][A-Z0-9_]*)"\s*\]/g;
   const envNamePropertyPattern = /\b[a-zA-Z0-9_]*EnvName:\s*"([A-Z][A-Z0-9_]*)"/g;

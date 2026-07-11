@@ -255,6 +255,31 @@ export function getRequiredPositiveNumberEnv(name: string, defaultValue: number)
   throw new Error(`${name} must be a positive number.`);
 }
 
+/**
+ * A duration env reader for security-sensitive lifetimes (session/token TTLs):
+ * parses a positive millisecond integer and enforces `[minMs, maxMs]` bounds
+ * so a fat-fingered env value can never silently zero out or unbound an
+ * expiry. Fails closed at boot with a message naming the bounds, rather than
+ * clamping -- a clamp would let a misconfigured deploy ship silently.
+ */
+export function getBoundedDurationEnv(
+  name: string,
+  defaultValueMs: number,
+  bounds: Readonly<{ minMs: number; maxMs: number }>,
+): number {
+  const raw = getOptionalEnv(name);
+  const value = raw === null ? defaultValueMs : Number(raw);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be a positive number of milliseconds.`);
+  }
+  if (value < bounds.minMs || value > bounds.maxMs) {
+    throw new Error(`${name} must be between ${bounds.minMs}ms and ${bounds.maxMs}ms, got ${value}ms.`);
+  }
+
+  return value;
+}
+
 export function getReadConsistencyExactDependencyModeEnv(name: string): ReadConsistencyExactDependencyMode {
   const value = getOptionalEnv(name) ?? "enabled";
   if (value === "enabled" || value === "target-context") {

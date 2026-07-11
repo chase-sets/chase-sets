@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { isSocialLoginProviderKey } from "@chase-sets/auth-context";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import {
-  AUTH_SOCIAL_LOGIN_STATE_TTL_MS,
+  authSecurityLifetimesOf,
   createExpiryTimestamp,
   type AuthMethod,
 } from "../../features/sessions/domain/auth-flow";
@@ -142,14 +142,14 @@ function completeSocialLoginAuthentication(
   clearAccountSelectionCookie(headers, request);
 
   if (result.type === "account-selection-required") {
-    appendAccountSelectionCookie(headers, result.selectionToken, request);
+    appendAccountSelectionCookie(headers, result.selectionToken, result.selectionExpiresAt, request);
     return createRedirectResponse(
       `${getAccountSelectionPath(journey)}?returnTo=${encodeURIComponent(returnTo)}`,
       headers,
     );
   }
 
-  appendSessionCookie(headers, result.sessionToken, request);
+  appendSessionCookie(headers, result.sessionToken, result.session.expires_at, request);
   return createRedirectResponse(returnTo, headers);
 }
 
@@ -265,7 +265,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       providerName,
       journey,
       returnTo: getSafeReturnToFromUrl(requestUrl, journey),
-      expiresAt: createExpiryTimestamp(AUTH_SOCIAL_LOGIN_STATE_TTL_MS),
+      expiresAt: createExpiryTimestamp(authSecurityLifetimesOf(services).socialLoginStateTtlMs),
     });
 
     return createRedirectResponse(

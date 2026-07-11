@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { AUTH_CHALLENGE_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
+import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   consumeChallenge,
@@ -60,7 +60,7 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
       email,
       userId: user?.user_id ?? null,
       challengeValue,
-      expiresAt: createExpiryTimestamp(AUTH_CHALLENGE_TTL_MS),
+      expiresAt: createExpiryTimestamp(authSecurityLifetimesOf(services).challengeTtlMs),
     });
 
     return c.json({ challengeId, challenge: challengeValue });

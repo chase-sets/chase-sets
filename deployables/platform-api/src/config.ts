@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/platform-runtime/api";
 import {
   getBooleanEnv,
+  getBoundedDurationEnv,
   getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
   getContextWaiterDatabaseEnvName as getSharedContextWaiterDatabaseEnvName,
   getOptionalCsvEnv,
@@ -135,6 +136,28 @@ export type PlatformApiBaseConfig = Readonly<{
   adminRegistrationEnabled?: boolean;
   registrationAdmission?: PlatformApiRegistrationAdmissionConfig;
   taxProviderBackedQuotesRequired?: boolean;
+  authSecurityLifetimes?: PlatformApiAuthSecurityLifetimesConfig;
+}>;
+
+/**
+ * Env-overridable auth/UCP security lifetimes. Field shape mirrors
+ * `AuthSecurityLifetimesMs` in `@chase-sets/auth`'s
+ * `features/sessions/domain/auth-flow.ts` structurally (kept type-decoupled
+ * here so this config reader stays context-agnostic, matching every other
+ * config type in this file). Deliberately env-tier, never
+ * admin-policy-editable -- see
+ * `bounded-contexts/auth/docs/security-lifetimes.md`.
+ */
+export type PlatformApiAuthSecurityLifetimesConfig = Readonly<{
+  sessionTtlMs: number;
+  accountSelectionTtlMs: number;
+  magicLinkTtlMs: number;
+  challengeTtlMs: number;
+  socialLoginStateTtlMs: number;
+  guestCheckoutTtlMs: number;
+  ucpAccessTokenTtlMs: number;
+  ucpRefreshTokenTtlMs: number;
+  ucpAuthorizationCodeTtlMs: number;
 }>;
 
 export type PlatformApiBootstrapConfig = PlatformApiBaseConfig &
@@ -428,6 +451,59 @@ function loadRegistrationAdmissionMode(environmentName: string): PlatformApiRegi
   return isLongLivedEnvironment(environmentName) ? "invitation" : "open";
 }
 
+// Mirrors bounded-contexts/auth/features/sessions/domain/auth-flow.ts's
+// AUTH_SECURITY_LIFETIME_BOUNDS_MS. Kept as plain numbers (not imported)
+// so this config reader stays context-agnostic; resolveAuthSecurityLifetimesMs
+// re-validates the same bounds at host boot as a defense-in-depth backstop.
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * Security lifetimes: session tokens, account-selection tokens, magic
+ * links, WebAuthn/OTP challenges, social-login state, guest checkout
+ * tokens, and UCP OAuth token TTLs. ENV-TIER BY DESIGN -- never wire these
+ * from an admin-editable policy surface. Defaults equal the prior compiled
+ * constants, so an unconfigured deploy is byte-identical to before.
+ */
+function loadAuthSecurityLifetimesConfig(): PlatformApiAuthSecurityLifetimesConfig {
+  return {
+    sessionTtlMs: getBoundedDurationEnv("AUTH_SESSION_TTL_MS", 14 * DAY_MS, { minMs: HOUR_MS, maxMs: 30 * DAY_MS }),
+    accountSelectionTtlMs: getBoundedDurationEnv("AUTH_ACCOUNT_SELECTION_TTL_MS", 10 * MINUTE_MS, {
+      minMs: MINUTE_MS,
+      maxMs: HOUR_MS,
+    }),
+    magicLinkTtlMs: getBoundedDurationEnv("AUTH_MAGIC_LINK_TTL_MS", 15 * MINUTE_MS, {
+      minMs: 5 * MINUTE_MS,
+      maxMs: HOUR_MS,
+    }),
+    challengeTtlMs: getBoundedDurationEnv("AUTH_CHALLENGE_TTL_MS", 10 * MINUTE_MS, {
+      minMs: MINUTE_MS,
+      maxMs: 30 * MINUTE_MS,
+    }),
+    socialLoginStateTtlMs: getBoundedDurationEnv("AUTH_SOCIAL_LOGIN_STATE_TTL_MS", 10 * MINUTE_MS, {
+      minMs: MINUTE_MS,
+      maxMs: HOUR_MS,
+    }),
+    guestCheckoutTtlMs: getBoundedDurationEnv("AUTH_GUEST_CHECKOUT_TTL_MS", DAY_MS, {
+      minMs: HOUR_MS,
+      maxMs: 30 * DAY_MS,
+    }),
+    ucpAccessTokenTtlMs: getBoundedDurationEnv("UCP_OAUTH_ACCESS_TOKEN_TTL_MS", HOUR_MS, {
+      minMs: 5 * MINUTE_MS,
+      maxMs: DAY_MS,
+    }),
+    ucpRefreshTokenTtlMs: getBoundedDurationEnv("UCP_OAUTH_REFRESH_TOKEN_TTL_MS", 30 * DAY_MS, {
+      minMs: DAY_MS,
+      maxMs: 90 * DAY_MS,
+    }),
+    ucpAuthorizationCodeTtlMs: getBoundedDurationEnv("UCP_OAUTH_AUTHORIZATION_CODE_TTL_MS", 5 * MINUTE_MS, {
+      minMs: 30_000,
+      maxMs: 15 * MINUTE_MS,
+    }),
+  };
+}
+
 function loadDisposableEmailMode(): PlatformApiRegistrationAdmissionConfig["disposableEmailMode"] {
   const configured = getOptionalEnv("REGISTRATION_DISPOSABLE_EMAIL_MODE");
   if (!configured) {
@@ -614,6 +690,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       disposableEmailDomains: getOptionalCsvEnv("REGISTRATION_DISPOSABLE_EMAIL_DOMAINS"),
     },
     taxProviderBackedQuotesRequired: getBooleanEnv("TAX_PROVIDER_BACKED_QUOTES_REQUIRED", false),
+    authSecurityLifetimes: loadAuthSecurityLifetimesConfig(),
   };
 }
 

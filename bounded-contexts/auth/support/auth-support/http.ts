@@ -3,7 +3,6 @@ import {
   AUTH_GUEST_CHECKOUT_COOKIE_NAME,
   AUTH_SESSION_COOKIE_NAME,
 } from "../request-support/cookies";
-import { AUTH_ACCOUNT_SELECTION_TTL_MS, AUTH_SESSION_TTL_MS } from "../../features/sessions/domain/auth-flow";
 
 const DOCUMENT_REDIRECT_HEADER = "X-Remix-Reload-Document";
 
@@ -74,10 +73,20 @@ function appendCookie(
   headers.append("Set-Cookie", serializeCookie(name, value, options));
 }
 
-export function appendSessionCookie(headers: Headers, sessionToken: string, request?: Request) {
+/**
+ * Cookie Max-Age is derived from the server-issued `expiresAt` rather than a
+ * locally imported TTL constant, so the browser-facing cookie always tracks
+ * whatever lifetime platform-api actually resolved (env-configurable)
+ * instead of drifting from a second hardcoded copy.
+ */
+function maxAgeSecondsFromExpiry(expiresAt: string, now = Date.now()) {
+  return Math.max(Math.ceil((Date.parse(expiresAt) - now) / 1000), 0);
+}
+
+export function appendSessionCookie(headers: Headers, sessionToken: string, expiresAt: string, request?: Request) {
   appendCookie(headers, AUTH_SESSION_COOKIE_NAME, sessionToken, {
     request,
-    maxAgeSeconds: AUTH_SESSION_TTL_MS / 1000,
+    maxAgeSeconds: maxAgeSecondsFromExpiry(expiresAt),
   });
 }
 
@@ -88,10 +97,15 @@ export function clearSessionCookie(headers: Headers, request?: Request) {
   });
 }
 
-export function appendAccountSelectionCookie(headers: Headers, selectionToken: string, request?: Request) {
+export function appendAccountSelectionCookie(
+  headers: Headers,
+  selectionToken: string,
+  expiresAt: string,
+  request?: Request,
+) {
   appendCookie(headers, AUTH_ACCOUNT_SELECTION_COOKIE_NAME, selectionToken, {
     request,
-    maxAgeSeconds: AUTH_ACCOUNT_SELECTION_TTL_MS / 1000,
+    maxAgeSeconds: maxAgeSecondsFromExpiry(expiresAt),
   });
 }
 

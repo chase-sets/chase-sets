@@ -488,7 +488,7 @@ async function startGuestCheckoutSession(
   });
   const session = await guestApi.createCheckoutSession(sessionRequest);
   const response = redirectDocument(await checkoutSessionPath(session, writeSources));
-  appendGuestCheckoutCookie(response.headers, params.guest.guestToken, request);
+  appendGuestCheckoutCookie(response.headers, params.guest.guestToken, request, params.guest.expiresAt);
   appendClearedAnonymousCartCookie(response.headers, request);
 
   return response;

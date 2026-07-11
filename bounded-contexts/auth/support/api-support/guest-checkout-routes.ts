@@ -6,7 +6,7 @@ import {
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/auth-context";
-import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
+import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { mapGuestCheckoutClaimLinkRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
@@ -26,7 +26,6 @@ import { startInteractiveAuth, type AuthServices } from "../runtime-support/serv
 import { isGuestCheckoutActor } from "../runtime-support/runtime";
 import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
-const AUTH_GUEST_CHECKOUT_TTL_MS = 1000 * 60 * 60 * 24;
 const GUEST_CHECKOUT_CLAIM_LINK_NOTIFICATION_PROJECTION = "auth-guest-checkout-claim-link-notification-intent";
 const guestCheckoutClaimIpRateLimiter = createConfiguredInMemoryRateLimiter("auth.guest-checkout.claim.ip", {
   max: 20,
@@ -200,7 +199,7 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     });
     const tokenId = createId("cmd");
     const guestToken = services.auth.issueOpaqueToken("guest");
-    const expiresAt = createExpiryTimestamp(AUTH_GUEST_CHECKOUT_TTL_MS);
+    const expiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).guestCheckoutTtlMs);
 
     await upsertGuestCheckoutToken(services.db, {
       tokenId,
@@ -273,7 +272,7 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     const tokenId = createId("cmd");
     const token = services.auth.issueOpaqueToken("claim");
     const continuation = services.auth.issueOpaqueToken("claim-continuation");
-    const expiresAt = createExpiryTimestamp(AUTH_MAGIC_LINK_TTL_MS);
+    const expiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).magicLinkTtlMs);
     const paymentId = String(body.paymentId ?? "").trim();
     const claimLink = buildClaimContinuationLink(body.origin, paymentId, continuation);
 

@@ -9,6 +9,16 @@ import { PlatformPolicyDomainError } from "./domain";
  * machinery never inspects `Value`'s shape itself -- only `decodeValue` does,
  * so every policy can carry a different value shape on the same shared
  * event stream, tables, and resolver.
+ *
+ * EXCLUSION -- security lifetimes never belong here: session tokens,
+ * magic-link/challenge/social-login-state TTLs, guest checkout tokens, and
+ * UCP OAuth token TTLs are deliberately env-tier, not admin-policy-editable.
+ * A compromised admin session must
+ * never be able to stretch a session lifetime or shorten an OTP window by
+ * revising a policy document through this machinery. If a future slice is
+ * tempted to `definePolicy` one of these, that is the wrong direction --
+ * see `bounded-contexts/auth/docs/security-lifetimes.md` and
+ * `bounded-contexts/auth/features/sessions/domain/auth-flow.ts`.
  */
 
 const POLICY_KEY_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;

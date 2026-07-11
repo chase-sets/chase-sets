@@ -16,6 +16,7 @@ import {
 } from "@chase-sets/platform-runtime/agent-guardrails";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
 import type { AuthServices } from "../runtime-support/services";
 import { generateAgentWebhookSigningSecret, previewAgentWebhookSigningSecret } from "./agent-webhooks/webhook-signing";
 import { parseWebhookRegistration } from "./agent-webhooks/agent-webhook-registration";
@@ -144,9 +145,6 @@ export type UcpOAuthRoutesOptions = Readonly<{
   ) => Promise<unknown>;
 }>;
 
-const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
-const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
 const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
 const MAX_CLIENT_NAME_LENGTH = 120;
 const MAX_REDIRECT_URIS = 10;
@@ -391,7 +389,9 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     }
 
     const code = options.auth.auth.issueOpaqueToken("ucp_code");
-    const expiresAt = new Date(Date.now() + AUTHORIZATION_CODE_TTL_MS).toISOString();
+    const expiresAt = new Date(
+      Date.now() + authSecurityLifetimesOf(options.auth).ucpAuthorizationCodeTtlMs,
+    ).toISOString();
     await options.auth.db.query(
       `INSERT INTO identity_ucp_oauth_authorization_codes (
          code_id,
@@ -470,8 +470,9 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     const accessToken = options.auth.auth.issueOpaqueToken("ucp_at");
     const refreshToken = options.auth.auth.issueOpaqueToken("ucp_rt");
     const now = new Date();
-    const accessTokenExpiresAt = new Date(now.getTime() + ACCESS_TOKEN_TTL_MS).toISOString();
-    const refreshTokenExpiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS).toISOString();
+    const tokenLifetimes = authSecurityLifetimesOf(options.auth);
+    const accessTokenExpiresAt = new Date(now.getTime() + tokenLifetimes.ucpAccessTokenTtlMs).toISOString();
+    const refreshTokenExpiresAt = new Date(now.getTime() + tokenLifetimes.ucpRefreshTokenTtlMs).toISOString();
     await options.linkedPlatformAuthorizations.grant({
       authorizationId: createId("lpa"),
       platformProfileUrl: codeRow.platform_profile_url,
@@ -489,7 +490,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     return c.json({
       access_token: accessToken,
       token_type: "Bearer",
-      expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
+      expires_in: Math.floor(tokenLifetimes.ucpAccessTokenTtlMs / 1000),
       refresh_token: refreshToken,
       scope: normalizeScopes(codeRow.scopes).join(" "),
     });
@@ -691,8 +692,9 @@ async function refreshAccessToken(c: Context, options: UcpOAuthRoutesOptions, bo
   const accessToken = options.auth.auth.issueOpaqueToken("ucp_at");
   const newRefreshToken = options.auth.auth.issueOpaqueToken("ucp_rt");
   const now = new Date();
-  const accessTokenExpiresAt = new Date(now.getTime() + ACCESS_TOKEN_TTL_MS).toISOString();
-  const refreshTokenExpiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS).toISOString();
+  const tokenLifetimes = authSecurityLifetimesOf(options.auth);
+  const accessTokenExpiresAt = new Date(now.getTime() + tokenLifetimes.ucpAccessTokenTtlMs).toISOString();
+  const refreshTokenExpiresAt = new Date(now.getTime() + tokenLifetimes.ucpRefreshTokenTtlMs).toISOString();
   const authorization = await options.linkedPlatformAuthorizations.rotateRefreshToken({
     refreshTokenHash: options.auth.auth.hashSecret(refreshToken),
     newAccessTokenHash: options.auth.auth.hashSecret(accessToken),
@@ -709,7 +711,7 @@ async function refreshAccessToken(c: Context, options: UcpOAuthRoutesOptions, bo
   return c.json({
     access_token: accessToken,
     token_type: "Bearer",
-    expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
+    expires_in: Math.floor(tokenLifetimes.ucpAccessTokenTtlMs / 1000),
     refresh_token: newRefreshToken,
     scope: normalizeScopes(authorization.scopes).join(" "),
   });

@@ -11,10 +11,11 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthSecretAdapters } from "../auth-support/adapters";
 import {
-  AUTH_ACCOUNT_SELECTION_TTL_MS,
-  AUTH_SESSION_TTL_MS,
+  authSecurityLifetimesOf,
   createExpiryTimestamp,
+  resolveAuthSecurityLifetimesMs,
   type AuthMethod,
+  type AuthSecurityLifetimesMs,
   toSessionStreamId,
 } from "../../features/sessions/domain/auth-flow";
 import { AUTH_BOOTSTRAP_TENANT_ID, AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
@@ -94,6 +95,13 @@ export type AuthServices = Readonly<{
   adminGoogleWorkspaceSso: AdminGoogleWorkspaceSsoConfig | null;
   registrationAdmission: RegistrationAdmissionHostConfig;
   projectors: readonly ProjectionHandlerSet[];
+  /**
+   * Bounds-validated session/token lifetimes. Always populated by
+   * `createAuthServices`; optional on the type only so unit-test doubles
+   * that stub a handful of fields keep typechecking -- see
+   * `authSecurityLifetimesOf` for the safe accessor every call site uses.
+   */
+  securityLifetimes?: AuthSecurityLifetimesMs;
 }>;
 
 export type AdminGoogleWorkspaceSsoConfig = Readonly<{
@@ -106,6 +114,14 @@ export type AuthHostPorts = Readonly<{
   socialLoginProviders?: readonly SocialLoginProvider[];
   adminGoogleWorkspaceSso?: AdminGoogleWorkspaceSsoConfig | null;
   registrationAdmission?: RegistrationAdmissionHostConfig;
+  /**
+   * Deployable-supplied overrides for security lifetimes, bounds-validated
+   * by `resolveAuthSecurityLifetimesMs` at construction. ENV-TIER BY DESIGN:
+   * platform-api's config reader is the only sanctioned source -- never wire
+   * this from the admin-editable platform-policy machinery. See
+   * `bounded-contexts/auth/docs/security-lifetimes.md`.
+   */
+  securityLifetimes?: Partial<AuthSecurityLifetimesMs>;
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
@@ -136,6 +152,9 @@ function resolveRegistrationAdmissionConfig(
 }
 
 export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPorts = {}): AuthServices {
+  // Bounds-validated at host boot -- fails closed before any request is
+  // served if a deployable's env override is out of range.
+  const securityLifetimes = resolveAuthSecurityLifetimesMs(ports.securityLifetimes);
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "auth" }),
@@ -181,6 +200,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
     adminGoogleWorkspaceSso: ports.adminGoogleWorkspaceSso ?? null,
     registrationAdmission: resolveRegistrationAdmissionConfig(ports.registrationAdmission),
     projectors: [...sessions.projectors],
+    securityLifetimes,
   };
 }
 
@@ -329,7 +349,7 @@ async function startSessionForUser(
   }
 
   const sessionId = createId("ses");
-  const expiresAt = createExpiryTimestamp(AUTH_SESSION_TTL_MS);
+  const expiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).sessionTtlMs);
 
   const result = await services.sessions.commandHandler({
     streamId: toSessionStreamId(sessionId),
@@ -388,7 +408,7 @@ async function issueAccountSelectionToken(
 ) {
   const tokenId = createId("cmd");
   const selectionToken = services.auth.issueOpaqueToken("acct");
-  const selectionExpiresAt = createExpiryTimestamp(AUTH_ACCOUNT_SELECTION_TTL_MS);
+  const selectionExpiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).accountSelectionTtlMs);
 
   await insertAccountSelectionToken(services.db, {
     tokenId,
