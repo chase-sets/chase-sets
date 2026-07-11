@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { getWaitlistReferralSummary, listWaitlistSignups } from "./queries";
+import { getWaitlistReferralSummary, getWaitlistSignupCount, listWaitlistSignups } from "./queries";
 
 describe("waitlist read-model queries", () => {
   it("escapes LIKE metacharacters in email search text", async () => {
@@ -69,5 +69,17 @@ describe("waitlist read-model queries", () => {
     const summary = await getWaitlistReferralSummary(db, "wls_unknown");
 
     expect(summary.referralCount).toBe(0);
+  });
+
+  it("counts every waitlist signup with a single query", async () => {
+    const db: PgQueryable = {
+      query: vi.fn(async () => ({ rows: [{ count: "142" }], rowCount: 1 })),
+    };
+
+    const count = await getWaitlistSignupCount(db);
+
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("SELECT COUNT(*) AS count"));
+    expect(count).toBe(142);
   });
 });

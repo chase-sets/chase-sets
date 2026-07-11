@@ -23,11 +23,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw new Response("Not Found", { status: 404 });
   }
 
+  const discordInviteUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL?.trim() || null;
+  if (!discordInviteUrl && process.env.NODE_ENV !== "production") {
+    // See routes/marketplace/home.tsx: an unset invite URL is a
+    // startup-config gap to fix, not a silent feature drop to tolerate.
+    console.warn(
+      "[public-presence] CHASE_SETS_DISCORD_INVITE_URL is not set. The Discord CTA will not render until it is configured.",
+    );
+  }
+
   return {
     signupId,
     attributed: url.searchParams.get("attributed") === "1",
     publicOrigin: process.env.CHASE_SETS_PUBLIC_ORIGIN?.trim() || url.origin,
-    discordInviteUrl: process.env.CHASE_SETS_DISCORD_INVITE_URL?.trim() || null,
+    discordInviteUrl,
   };
 }
 

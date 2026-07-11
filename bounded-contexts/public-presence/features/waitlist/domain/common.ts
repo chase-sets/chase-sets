@@ -112,3 +112,21 @@ export function normalizeReferralCode(value: string | null | undefined): string 
   const trimmed = value.trim().toLowerCase();
   return waitlistSignupIdPattern.test(trimmed) ? trimmed : null;
 }
+
+/**
+ * Clean-number bucket the public waitlist counter rounds down to and the
+ * minimum signup count required before the counter displays at all. A single
+ * constant drives both so the first thing anyone ever sees is "25+", never a
+ * small, unimpressive exact count.
+ */
+export const WAITLIST_COUNTER_DISPLAY_BUCKET = 25;
+
+/**
+ * Rounds an exact waitlist signup count down to the nearest clean bucket for
+ * public display, and suppresses display entirely below the first bucket so
+ * an early, small count never renders as social proof.
+ */
+export function roundDownWaitlistCounterForDisplay(signupCount: number): number | null {
+  const bucketCount = Math.floor(signupCount / WAITLIST_COUNTER_DISPLAY_BUCKET) * WAITLIST_COUNTER_DISPLAY_BUCKET;
+  return bucketCount >= WAITLIST_COUNTER_DISPLAY_BUCKET ? bucketCount : null;
+}

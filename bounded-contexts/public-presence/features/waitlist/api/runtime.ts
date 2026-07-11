@@ -7,7 +7,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
-import { stableWaitlistSignupId, type WaitlistSource } from "../domain/common";
+import { roundDownWaitlistCounterForDisplay, stableWaitlistSignupId, type WaitlistSource } from "../domain/common";
 import {
   decideWaitlistSignup,
   evolveWaitlistSignup,
@@ -17,7 +17,13 @@ import {
   type WaitlistSignupState,
 } from "../domain/domain";
 import { buildWaitlistProjectionHandlers } from "../read-model/projection";
-import { getWaitlistMetrics, getWaitlistReferralSummary, listWaitlistSignups } from "../read-model/queries";
+import {
+  getWaitlistMetrics,
+  getWaitlistReferralSummary,
+  getWaitlistSignupCount,
+  listWaitlistSignups,
+} from "../read-model/queries";
+import type { WaitlistCounter } from "./contracts";
 import {
   PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
   buildWaitlistTransactionalEmailProjectionHandlers,
@@ -46,11 +52,15 @@ export type WaitlistServices = Readonly<{
   listWaitlistSignups: (params: Parameters<typeof listWaitlistSignups>[1]) => ReturnType<typeof listWaitlistSignups>;
   getWaitlistMetrics: () => ReturnType<typeof getWaitlistMetrics>;
   getWaitlistReferralSummary: (signupId: string) => ReturnType<typeof getWaitlistReferralSummary>;
+  getWaitlistCounter: () => Promise<WaitlistCounter>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
+const WAITLIST_COUNTER_CACHE_TTL_MS = 60_000;
+
 export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
+  let counterCache: { readAt: number; counter: WaitlistCounter } | null = null;
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<WaitlistSignupEvent>(),
@@ -84,6 +94,17 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
     listWaitlistSignups: (params) => listWaitlistSignups(deps.db, params),
     getWaitlistMetrics: () => getWaitlistMetrics(deps.db),
     getWaitlistReferralSummary: (signupId) => getWaitlistReferralSummary(deps.db, signupId),
+    async getWaitlistCounter() {
+      // The counter renders on every landing view and is bucketed to 25s for display,
+      // so a briefly stale value is invisible; the TTL keeps this public unauthenticated
+      // endpoint from running COUNT(*) once per request.
+      const readAt = Date.now();
+      if (!counterCache || readAt - counterCache.readAt >= WAITLIST_COUNTER_CACHE_TTL_MS) {
+        const signupCount = await getWaitlistSignupCount(deps.db);
+        counterCache = { readAt, counter: { displayCount: roundDownWaitlistCounterForDisplay(signupCount) } };
+      }
+      return counterCache.counter;
+    },
     projectors: [
       createProjectionHandlerSet({
         projectionName: "public-presence-waitlist-projection",

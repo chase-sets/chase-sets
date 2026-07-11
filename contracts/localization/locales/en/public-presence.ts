@@ -73,6 +73,19 @@ export const publicPresenceEnglishTranslations = {
     "Founding sellers get input on bulk listing, pricing, fulfillment, beta fee-lock rules, and offer rebates.",
   "publicPresence.home.finalCta.point.terms": "Public policies stay visible before marketplace transactions open.",
   "publicPresence.home.finalCta.title": "Help shape the founding seller wave",
+  "publicPresence.home.founderStory.badge": "From the founder",
+  "publicPresence.home.founderStory.description": "A short note on why Chase Sets exists and who is building it.",
+  "publicPresence.home.founderStory.name": "Todd Skelton",
+  "publicPresence.home.founderStory.point.collector":
+    "Every beta fee decision comes from someone who lists and ships cards too.",
+  "publicPresence.home.founderStory.point.roadmap":
+    "The founders-circle Discord is where the early roadmap gets shaped, not just announced.",
+  "publicPresence.home.founderStory.point.transparency":
+    "Fee math and policies stay public instead of buried in fine print.",
+  "publicPresence.home.founderStory.role": "Founder, Chase Sets",
+  "publicPresence.home.founderStory.story":
+    "I buy, sell, and ship trading cards myself, and I got tired of watching marketplace fees eat into card margin before a sale even clears. Chase Sets starts from that math: a 0% seller fee lock during beta, buyer totals shown before checkout, and a roadmap shaped by what the waitlist actually asks for.",
+  "publicPresence.home.founderStory.title": "Built by someone who lists cards too",
   "publicPresence.home.heroHighlight.launch.label": "Buyer totals",
   "publicPresence.home.heroHighlight.launch.value": "Costs visible before payment",
   "publicPresence.home.heroHighlight.lowValue.label": "0% beta seller fees",
@@ -423,6 +436,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.badge": "Early access",
   "publicPresence.waitlist.compactDescription": "Prelaunch only. No buying, listing, or payment required.",
   "publicPresence.waitlist.compactTitle": "Request early access",
+  "publicPresence.waitlist.counter.label": "Join {count}+ collectors and sellers already on the list",
   "publicPresence.waitlist.impliedConsent": "We'll email you about early access. Unsubscribe anytime.",
   "publicPresence.waitlist.marketingConsent": "Also send me product updates and beta news",
   "publicPresence.waitlist.marketingConsent.description":

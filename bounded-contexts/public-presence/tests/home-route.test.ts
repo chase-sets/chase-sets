@@ -205,4 +205,57 @@ describe("public presence home route", () => {
 
     expect(data.source.referredBySignupId).toBeNull();
   });
+
+  it("warns loudly outside production when the Discord invite URL is unconfigured", async () => {
+    const originalDiscordUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL;
+    const originalNodeEnv = process.env.NODE_ENV;
+    delete process.env.CHASE_SETS_DISCORD_INVITE_URL;
+    process.env.NODE_ENV = "development";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const data = await loader({
+        request: new Request("https://chasesets.test/"),
+        params: {},
+        context: undefined,
+      } as never);
+
+      expect(data.discordInviteUrl).toBeNull();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("CHASE_SETS_DISCORD_INVITE_URL"));
+    } finally {
+      warn.mockRestore();
+      if (originalDiscordUrl === undefined) {
+        delete process.env.CHASE_SETS_DISCORD_INVITE_URL;
+      } else {
+        process.env.CHASE_SETS_DISCORD_INVITE_URL = originalDiscordUrl;
+      }
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it("stays quiet when the Discord invite URL is unconfigured in production", async () => {
+    const originalDiscordUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL;
+    const originalNodeEnv = process.env.NODE_ENV;
+    delete process.env.CHASE_SETS_DISCORD_INVITE_URL;
+    process.env.NODE_ENV = "production";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      await loader({
+        request: new Request("https://chasesets.test/"),
+        params: {},
+        context: undefined,
+      } as never);
+
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      if (originalDiscordUrl === undefined) {
+        delete process.env.CHASE_SETS_DISCORD_INVITE_URL;
+      } else {
+        process.env.CHASE_SETS_DISCORD_INVITE_URL = originalDiscordUrl;
+      }
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
 });

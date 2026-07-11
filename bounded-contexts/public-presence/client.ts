@@ -1,6 +1,7 @@
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type {
   SubmitWaitlistSignupRequest,
+  WaitlistCounter,
   WaitlistMetrics,
   WaitlistReferralSummary,
   WaitlistSignupListItem,
@@ -11,6 +12,7 @@ const DEFAULT_BASE_URL = "/api/public-presence";
 
 export type {
   SubmitWaitlistSignupRequest,
+  WaitlistCounter,
   WaitlistMetrics,
   WaitlistReferralSummary,
   WaitlistSignupListItem,
@@ -86,6 +88,9 @@ export function createPublicPresenceApiClient({
       return parseJsonResponse(
         await configuredFetch(`${baseUrl}/waitlist/${encodeURIComponent(signupId)}/referral-summary`),
       );
+    },
+    async getWaitlistCounter(): Promise<WaitlistCounter> {
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/waitlist/count`));
     },
     async listActivePromoBarMessages(): Promise<ListResponse<PromoBarMessage>> {
       return parseJsonResponse(await configuredFetch(`${baseUrl}/promo-bar-messages`));
