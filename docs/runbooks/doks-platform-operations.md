@@ -210,6 +210,40 @@ kubectl get service --all-namespaces | grep -i loadbalancer
 kubectl get clusterissuers
 ```
 
+### Preview Wildcard Certificate Bootstrap (One-Time, `--environment staging` Only)
+
+Previews share ONE `*.preview.chasesets.com` TLS certificate instead of each preview namespace issuing its own (#4857); a per-preview issuance design exhausted Let's Encrypt's 50-certificates-per-168h quota during a high-throughput PR day and blocked every PR behind "PR Required" for three hours. Only the staging DOKS cluster hosts previews, so this bootstrap is scoped to `--environment staging` and is a normal part of `doks-cluster-addons.mjs`:
+
+```bash
+DIGITALOCEAN_ACCESS_TOKEN=<token with DNS write access> \
+  node ./scripts/doks-cluster-addons.mjs --environment staging
+```
+
+In addition to the ingress-nginx/cert-manager/ClusterIssuer steps above, a staging run:
+
+1. Applies the `digitalocean-dns-token` Secret (key `access-token`, from `DIGITALOCEAN_ACCESS_TOKEN`) into the `cert-manager` namespace by piping the manifest to `kubectl apply -f -` stdin — the token never appears in a command argument or in `--dry-run` output. This is the credential cert-manager's DNS-01 solver uses to create/delete the `_acme-challenge.preview.chasesets.com` TXT record during issuance.
+2. Renders `previewWildcardCertificate.enabled=true` on the `letsencrypt-production` `ClusterIssuer` release, which adds a `Certificate` for `*.preview.chasesets.com` (secret name `preview-wildcard-tls`) in the `cert-manager` namespace, issued through a DNS-01 solver scoped (via `selector.dnsZones`) to only the `preview.chasesets.com` zone — every other certificate this issuer signs keeps using the existing HTTP-01 solver, unaffected.
+
+This bootstrap is idempotent: re-running it re-applies the same Secret and Certificate spec, which is a no-op once the token is current and the certificate is issued. Re-run it whenever the DigitalOcean token rotates.
+
+The DNS wildcard that routes browser/client traffic to the load balancer is a separate, equally one-time step (DNS-01 issuance itself needs no A record — it proves ownership via a TXT record — but real preview traffic does):
+
+```bash
+DIGITALOCEAN_ACCESS_TOKEN=<token> \
+  node ./scripts/digitalocean-preview-cleanup-sweep.mjs apply-shared-dns --target <load-balancer-ipv4>
+```
+
+This is also idempotent (a no-op if the wildcard A record already points at the given target) and only needs re-running if the load balancer IP changes.
+
+Diagnose a stuck or retrying issuance in the `cert-manager` namespace (not a preview namespace):
+
+```bash
+kubectl describe certificate preview-wildcard -n cert-manager
+kubectl describe order -n cert-manager
+```
+
+A `rateLimited` order retries automatically until it succeeds; that is expected, not an incident.
+
 Application `Ingress` objects (platform chart) publish through `ingressClassName: nginx` with the `cert-manager.io/cluster-issuer` annotation and are enabled at cutover, not before.
 
 Inspection:
