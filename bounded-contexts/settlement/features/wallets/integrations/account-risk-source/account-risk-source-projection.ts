@@ -338,6 +338,12 @@ async function upsertVelocitySource(
   await refreshVelocityCounters(db, params.accountId, params.updatedAt);
 }
 
+// review_count/average_rating are payout-risk inputs (m108): author_role = 'buyer'
+// isolates reviews AUTHORED BY A BUYER, meaning the SUBJECT (this account) was
+// reviewed acting AS A SELLER. Reviews the subject earned as a buyer must never
+// count here — see the schema comment on settlement_account_review_sources.
+// Composes with the m107 trust-signal-eligible join: both filters must hold
+// for a review to count toward funds-release risk.
 async function refreshAccountReviews(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO settlement_account_risk_sources (
@@ -358,6 +364,7 @@ async function refreshAccountReviews(db: PgQueryable, accountId: string, updated
       AND trust_source.trust_signal_eligible = TRUE
      WHERE subject_account_id = $1
        AND status = 'active'
+       AND author_role = 'buyer'
      ON CONFLICT (account_id) DO UPDATE SET
        review_count = EXCLUDED.review_count,
        average_rating = EXCLUDED.average_rating,
@@ -547,6 +554,7 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
         orderId: string;
         authorAccountId?: string;
         subjectAccountId: string;
+        authorRole: string;
         rating: number;
         submittedAt: string;
       };
@@ -555,17 +563,19 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
            review_id,
            order_id,
            subject_account_id,
+           author_role,
            rating,
            status,
            updated_at
-         ) VALUES ($1, $2, $3, $4, 'active', $5)
+         ) VALUES ($1, $2, $3, $4, $5, 'active', $6)
          ON CONFLICT (review_id) DO UPDATE SET
            order_id = EXCLUDED.order_id,
            subject_account_id = EXCLUDED.subject_account_id,
+           author_role = EXCLUDED.author_role,
            rating = EXCLUDED.rating,
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at`,
-        [data.reviewId, data.orderId, data.subjectAccountId, data.rating, data.submittedAt],
+        [data.reviewId, data.orderId, data.subjectAccountId, data.authorRole, data.rating, data.submittedAt],
       );
       await refreshAccountReviews(db, data.subjectAccountId, data.submittedAt);
       await upsertVelocitySource(db, {
