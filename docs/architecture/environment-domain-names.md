@@ -76,13 +76,13 @@ Remote dev sessions currently use `dev.chasesets.com` and create hosts such as:
 - `admin.<slug>.dev.chasesets.com`
 - `api.<slug>.dev.chasesets.com`
 
-PR preview environments group all apps for one preview instance under the preview environment:
+PR preview environments group all apps for one preview instance under the preview environment. Every preview host is a single label under `preview.chasesets.com` on purpose (#4857): a single shared `*.preview.chasesets.com` wildcard certificate then covers every preview's every app host, so no preview deploy ever asks cert-manager to issue its own certificate.
 
 - `pr-123.preview.chasesets.com`
-- `marketplace.pr-123.preview.chasesets.com`
-- `admin.pr-123.preview.chasesets.com`
+- `pr-123-marketplace.preview.chasesets.com`
+- `pr-123-admin.preview.chasesets.com`
 
-If a hosting platform requires app-specific wildcard routing later, an adapter may use names such as `pr-123.marketplace.preview.chasesets.com`, but the docs and operator language should still describe the preview as `pr-123` in the `preview` environment.
+Do not introduce two-label preview hosts (for example `marketplace.pr-123.preview.chasesets.com`) even if a hosting platform's routing would make them convenient: a wildcard certificate only matches one label, so a second label would put that host back on the per-preview-certificate path that exhausted Let's Encrypt's quota and caused a multi-hour outage. The docs and operator language should describe the preview as `pr-123` in the `preview` environment.
 
 ## Implementation Notes
 

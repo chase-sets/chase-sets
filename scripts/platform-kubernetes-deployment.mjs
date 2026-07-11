@@ -6,10 +6,27 @@ import {
   buildDoksIngressValues,
   buildPlatformHelmValues,
   buildPreviewDoksIngressValues,
+  previewWildcardTlsSecretName,
+  previewWildcardTlsSecretNamespace,
 } from "./render-platform-helm-values.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v1";
+// Metadata fields cert-manager/the API server stamp onto the source Secret
+// that must never travel to the copy: a namespace mismatch makes `kubectl
+// apply -n <target>` refuse the object outright, and the rest are
+// cluster/revision identity that must be assigned fresh in the destination
+// namespace, not inherited from the cert-manager-owned original.
+const copiedSecretMetadataFieldsToStrip = [
+  "namespace",
+  "resourceVersion",
+  "uid",
+  "creationTimestamp",
+  "generation",
+  "ownerReferences",
+  "managedFields",
+  "selfLink",
+];
 
 const chartName = "chase-sets-platform";
 const chartPath = "infrastructure/helm/platform";
@@ -158,6 +175,88 @@ function buildDoksIngressHelmSetArgs(doksIngress) {
   ].flat();
 }
 
+export function buildPreviewWildcardSecretGetArgs(options = {}) {
+  const name = options.name ?? previewWildcardTlsSecretName;
+  const namespace = options.sourceNamespace ?? previewWildcardTlsSecretNamespace;
+  return ["get", "secret", name, "--namespace", namespace, "--output", "json"];
+}
+
+export function buildPreviewWildcardSecretApplyArgs(options = {}) {
+  const namespace = requiredOption(options.namespace, "namespace");
+  return ["apply", "--namespace", namespace, "-f", "-"];
+}
+
+// Strips cluster/revision identity so the object round-trips as a brand-new
+// Secret in the destination namespace instead of `kubectl apply` rejecting it
+// (namespace mismatch) or Kubernetes rejecting a stale resourceVersion.
+export function sanitizeCopiedSecretManifest(rawSecret, options = {}) {
+  const secret = typeof rawSecret === "string" ? JSON.parse(rawSecret) : rawSecret;
+  if (!secret || secret.kind !== "Secret") {
+    throw new Error("Expected a Kubernetes Secret manifest to copy.");
+  }
+
+  const metadata = { ...secret.metadata };
+  for (const field of copiedSecretMetadataFieldsToStrip) {
+    delete metadata[field];
+  }
+  const annotations = { ...(metadata.annotations ?? {}) };
+  delete annotations["kubectl.kubernetes.io/last-applied-configuration"];
+  metadata.annotations = annotations;
+  metadata.name = options.name ?? metadata.name;
+
+  return {
+    apiVersion: secret.apiVersion,
+    kind: secret.kind,
+    metadata,
+    type: secret.type,
+    data: secret.data,
+  };
+}
+
+// Copies the shared `*.preview.chasesets.com` wildcard TLS Secret (issued
+// once by cert-manager into the stable `cert-manager` namespace; see
+// infrastructure/helm/doks-ingress) into this preview's namespace so the
+// preview Ingress can reference it without ever asking cert-manager to issue
+// its own certificate. Runs before `helm upgrade --install` so the Ingress
+// resolves a real secret on its first reconcile. A high-throughput PR day
+// issuing one certificate per preview namespace exhausted Let's Encrypt's
+// 50-certificates-per-168h quota and blocked every PR behind "PR Required"
+// for three hours; this is the fix.
+export async function copyPreviewWildcardTlsSecret(options = {}) {
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+  const namespace = requiredOption(options.namespace, "namespace");
+  const name = options.name ?? previewWildcardTlsSecretName;
+
+  let getResult;
+  try {
+    getResult = await runProcess({
+      command: kubectlPath,
+      args: buildPreviewWildcardSecretGetArgs({ name, sourceNamespace: options.sourceNamespace }),
+      spawn: options.spawn,
+      captureOutput: true,
+    });
+  } catch (error) {
+    throw new Error(
+      `Preview deploy could not read the shared preview wildcard TLS secret "${name}" from namespace ` +
+        `"${options.sourceNamespace ?? previewWildcardTlsSecretNamespace}". Run the one-time bootstrap in ` +
+        `docs/runbooks/doks-platform-operations.md (node ./scripts/doks-cluster-addons.mjs --environment staging) ` +
+        `before deploying previews. Original error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const manifest = sanitizeCopiedSecretManifest(getResult.stdout, { name });
+
+  await runProcess({
+    command: kubectlPath,
+    args: buildPreviewWildcardSecretApplyArgs({ namespace }),
+    spawn: options.spawn,
+    captureOutput: true,
+    input: `${JSON.stringify(manifest)}\n`,
+  });
+
+  return { name: manifest.metadata.name, namespace };
+}
+
 export function buildHelmRollbackArgs(options = {}) {
   const release = requiredOption(options.release ?? defaultRelease, "release");
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
@@ -304,6 +403,19 @@ export async function deployPlatformToKubernetes(options = {}) {
   const helmPath = options.helmPath ?? "helm";
   const kubectlPath = options.kubectlPath ?? "kubectl";
   const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+
+  // Previews reference the shared *.preview.chasesets.com wildcard secret, so
+  // it must exist in this namespace before the Helm deploy creates the
+  // Ingress that points at it. Staging/production keep their existing
+  // per-environment cert-manager-issued certificate and never copy anything
+  // here.
+  if ((options.envOverrides ?? {}).DEPLOYMENT_ENVIRONMENT === "preview") {
+    await copyPreviewWildcardTlsSecret({
+      namespace: options.namespace ?? defaultNamespace,
+      kubectlPath,
+      spawn: options.spawn,
+    });
+  }
 
   await runProcess({
     command: helmPath,
@@ -518,14 +630,18 @@ function requiredOption(value, name) {
   return value;
 }
 
-async function runProcess(options) {
+function runProcess(options) {
   const spawnImpl = options.spawn ?? spawn;
 
-  await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    const hasInput = options.input != null;
+    const stdin = hasInput ? "pipe" : options.captureOutput ? "ignore" : "inherit";
+    const stdout_ = options.captureOutput ? "pipe" : "inherit";
+    const stderr_ = options.captureOutput ? "pipe" : "inherit";
     const child = spawnImpl(options.command, options.args, {
-      stdio: options.captureOutput ? ["ignore", "pipe", "pipe"] : "inherit",
+      stdio: [stdin, stdout_, stderr_],
       windowsHide: true,
     });
 
@@ -557,6 +673,10 @@ async function runProcess(options) {
         }),
       );
     });
+
+    if (hasInput) {
+      child.stdin.end(options.input);
+    }
   });
 }
 
