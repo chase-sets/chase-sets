@@ -1,8 +1,19 @@
 import { t } from "@chase-sets/localization";
-import { type DataColumn } from "@chase-sets/design-system";
+import {
+  AppliedFilterChips,
+  Form,
+  Inline,
+  FilterArea,
+  Button,
+  LinkButton,
+  NativeSelect,
+  TextInput,
+  type DataColumn,
+} from "@chase-sets/design-system";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "./admin-pages";
 import type { Session } from "./contracts";
+import { AUTH_SESSION_STATUSES, type AuthSessionListFilters } from "./list-filters";
 
 type SessionListResponse = ListResponse<Session> & Partial<Readonly<{ limit: number; offset: number }>>;
 
@@ -31,13 +42,57 @@ const columns: DataColumn<Session>[] = [
   { key: "status", header: t("auth.features.sessions.ui.sessionListPage.status"), cell: (row) => row.status },
 ];
 
+function sessionStatusFilterLabel(status: string) {
+  switch (status) {
+    case "active":
+      return t("auth.features.sessions.ui.sessionListPage.status.filter.active");
+    case "revoked":
+      return t("auth.features.sessions.ui.sessionListPage.status.filter.revoked");
+    case "expired":
+      return t("auth.features.sessions.ui.sessionListPage.status.filter.expired");
+    default:
+      return t("auth.features.sessions.ui.sessionListPage.status.filter.all");
+  }
+}
+
+function sessionStatusFilterItems() {
+  return [
+    { value: "all", label: sessionStatusFilterLabel("all") },
+    ...AUTH_SESSION_STATUSES.map((status) => ({ value: status, label: sessionStatusFilterLabel(status) })),
+  ];
+}
+
+function buildSessionAppliedFilters(filters: AuthSessionListFilters) {
+  const applied: { id: string; label: string }[] = [];
+  if (filters.search) {
+    applied.push({
+      id: "search",
+      label: t("auth.features.sessions.ui.sessionListPage.search.filter.chip", { search: filters.search }),
+    });
+  }
+  if (filters.status !== "all") {
+    applied.push({
+      id: "status",
+      label: t("auth.features.sessions.ui.sessionListPage.status.filter.chip", {
+        status: sessionStatusFilterLabel(filters.status),
+      }),
+    });
+  }
+
+  return applied;
+}
+
 export function SessionListPage({
   hrefBase = "/access/sessions",
   initialData,
+  filters = { status: "all", search: "" },
 }: {
   hrefBase?: string;
   initialData: SessionListResponse;
+  filters?: AuthSessionListFilters;
 }) {
+  const appliedFilters = buildSessionAppliedFilters(filters);
+
   return (
     <AdminListPage
       title={t("auth.features.sessions.ui.sessionListPage.sessions")}
@@ -45,6 +100,54 @@ export function SessionListPage({
       columns={columns}
       emptyMessage={t("auth.features.sessions.ui.sessionListPage.no.sessions.yet")}
       getHref={(row) => `${hrefBase}/${row.session_id}`}
+      filters={
+        <>
+          <Form method="get" spacing="none">
+            <FilterArea
+              activeFilterCount={appliedFilters.length}
+              primaryFilterCount={2}
+              panelTitle={t("auth.features.sessions.ui.sessionListPage.filters")}
+              overflowTriggerLabel={t("auth.features.sessions.ui.sessionListPage.more.filters")}
+              filters={[
+                <TextInput
+                  key="search"
+                  label={t("auth.features.sessions.ui.sessionListPage.search")}
+                  name="search"
+                  defaultValue={filters.search}
+                  placeholder={t("auth.features.sessions.ui.sessionListPage.search.placeholder")}
+                />,
+                <NativeSelect
+                  key="status"
+                  label={t("auth.features.sessions.ui.sessionListPage.status")}
+                  name="status"
+                  defaultValue={filters.status}
+                  items={sessionStatusFilterItems()}
+                />,
+              ]}
+              actions={
+                <Inline>
+                  <Button type="submit" leadingIcon="filter">
+                    {t("auth.features.sessions.ui.sessionListPage.apply.filters")}
+                  </Button>
+                  <LinkButton href={hrefBase} tone="secondary">
+                    {t("auth.features.sessions.ui.sessionListPage.clear.filters")}
+                  </LinkButton>
+                </Inline>
+              }
+            />
+          </Form>
+          <AppliedFilterChips
+            filters={appliedFilters}
+            clearAction={
+              appliedFilters.length > 0 ? (
+                <LinkButton href={hrefBase} size="sm" tone="secondary">
+                  {t("auth.features.sessions.ui.sessionListPage.clear.filters")}
+                </LinkButton>
+              ) : null
+            }
+          />
+        </>
+      }
       pagination={listPagination(initialData)}
     />
   );

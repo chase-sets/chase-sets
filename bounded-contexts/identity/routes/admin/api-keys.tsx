@@ -11,17 +11,23 @@ import {
   type ApiKeySecretMutationResult,
   type OneTimeApiKeySecret,
 } from "../../features/api-keys/api/one-time-secret";
+import {
+  IDENTITY_API_KEY_STATUSES,
+  identityListQuery,
+  readIdentityListFilters,
+} from "../../support/route-support/list-filters";
 
 type ApiKeyActionData = Readonly<{ oneTimeSecret: OneTimeApiKeySecret }>;
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   const page = readOffsetPageParams(request);
+  const filters = readIdentityListFilters(request, IDENTITY_API_KEY_STATUSES);
   const [apiKeys, users] = await Promise.all([
-    api.listApiKeys<ListResponse<ApiKey>>(page.query),
+    api.listApiKeys<ListResponse<ApiKey>>(identityListQuery(page.query, filters)),
     api.listUsers<ListResponse<User>>("limit=500&offset=0"),
   ]);
-  return { apiKeys: { ...apiKeys, limit: page.limit, offset: page.offset }, users: users.items };
+  return { apiKeys: { ...apiKeys, limit: page.limit, offset: page.offset }, users: users.items, filters };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -47,5 +53,12 @@ export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.apiKe
 export default function ApiKeysRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as ApiKeyActionData | undefined;
-  return <ApiKeyListPage initialData={data.apiKeys} users={data.users} oneTimeSecret={actionData?.oneTimeSecret} />;
+  return (
+    <ApiKeyListPage
+      initialData={data.apiKeys}
+      users={data.users}
+      oneTimeSecret={actionData?.oneTimeSecret}
+      filters={data.filters}
+    />
+  );
 }

@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
+import { readOffsetPageParams } from "@chase-sets/platform-runtime/http";
 import { AgreementListPage } from "../../features/agreements/ui/agreement-list-page";
 import {
   CommercialTermsApiError,
@@ -17,10 +18,11 @@ import {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
+  const page = readOffsetPageParams(request);
   try {
     const agreementsRead = await loadAfterWrite({
       request,
-      load: () => api.listAgreements("limit=100&offset=0"),
+      load: () => api.listAgreements(page.query),
       isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
       getStatus: commercialTermsApiErrorStatus,
       getErrorCode: commercialTermsApiErrorCode,
@@ -30,13 +32,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
     if (agreementsRead.kind !== "data") {
       return {
         items: [],
+        pagination: { limit: page.limit, offset: page.offset, total: 0 },
         loadError: formatCommercialTermsAdminLoadError("error" in agreementsRead ? agreementsRead.error : undefined),
       };
     }
 
-    return { items: agreementsRead.data.items, loadError: null };
+    return {
+      items: agreementsRead.data.items,
+      pagination: { limit: page.limit, offset: page.offset, total: agreementsRead.data.total },
+      loadError: null,
+    };
   } catch (error) {
-    return { items: [], loadError: formatCommercialTermsAdminLoadError(error) };
+    return {
+      items: [],
+      pagination: { limit: page.limit, offset: page.offset, total: 0 },
+      loadError: formatCommercialTermsAdminLoadError(error),
+    };
   }
 }
 
@@ -73,6 +84,11 @@ export default function CommercialTermsAgreementsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   return (
-    <AgreementListPage items={data.items} errorMessage={actionData?.error ?? null} loadErrorMessage={data.loadError} />
+    <AgreementListPage
+      items={data.items}
+      pagination={data.pagination}
+      errorMessage={actionData?.error ?? null}
+      loadErrorMessage={data.loadError}
+    />
   );
 }

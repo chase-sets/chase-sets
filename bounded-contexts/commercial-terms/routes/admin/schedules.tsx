@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
+import { readOffsetPageParams } from "@chase-sets/platform-runtime/http";
 import { ScheduleListPage } from "../../features/schedules/ui/schedule-list-page";
 import {
   CommercialTermsApiError,
@@ -16,10 +17,11 @@ import {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
+  const page = readOffsetPageParams(request);
   try {
     const schedulesRead = await loadAfterWrite({
       request,
-      load: () => api.listSchedules("limit=100&offset=0"),
+      load: () => api.listSchedules(page.query),
       isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
       getStatus: commercialTermsApiErrorStatus,
       getErrorCode: commercialTermsApiErrorCode,
@@ -29,13 +31,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
     if (schedulesRead.kind !== "data") {
       return {
         items: [],
+        pagination: { limit: page.limit, offset: page.offset, total: 0 },
         loadError: formatCommercialTermsAdminLoadError("error" in schedulesRead ? schedulesRead.error : undefined),
       };
     }
 
-    return { items: schedulesRead.data.items, loadError: null };
+    return {
+      items: schedulesRead.data.items,
+      pagination: { limit: page.limit, offset: page.offset, total: schedulesRead.data.total },
+      loadError: null,
+    };
   } catch (error) {
-    return { items: [], loadError: formatCommercialTermsAdminLoadError(error) };
+    return {
+      items: [],
+      pagination: { limit: page.limit, offset: page.offset, total: 0 },
+      loadError: formatCommercialTermsAdminLoadError(error),
+    };
   }
 }
 
@@ -71,6 +82,11 @@ export default function CommercialTermsSchedulesRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   return (
-    <ScheduleListPage items={data.items} errorMessage={actionData?.error ?? null} loadErrorMessage={data.loadError} />
+    <ScheduleListPage
+      items={data.items}
+      pagination={data.pagination}
+      errorMessage={actionData?.error ?? null}
+      loadErrorMessage={data.loadError}
+    />
   );
 }

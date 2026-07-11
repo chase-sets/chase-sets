@@ -1,7 +1,21 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Combobox, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
+import {
+  AppliedFilterChips,
+  HiddenInput,
+  Form,
+  Inline,
+  FilterArea,
+  Button,
+  Combobox,
+  LinkButton,
+  NativeSelect,
+  Stack,
+  TextInput,
+  type DataColumn,
+} from "@chase-sets/design-system";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
+import { IDENTITY_API_KEY_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
@@ -31,16 +45,57 @@ export function buildApiKeyUserPickerItems(users: readonly User[]) {
   }));
 }
 
+function apiKeyStatusFilterLabel(status: string) {
+  switch (status) {
+    case "active":
+      return t("identity.features.apiKeys.ui.apiKeyListPage.status.filter.active");
+    case "revoked":
+      return t("identity.features.apiKeys.ui.apiKeyListPage.status.filter.revoked");
+    default:
+      return t("identity.features.apiKeys.ui.apiKeyListPage.status.filter.all");
+  }
+}
+
+function apiKeyStatusFilterItems() {
+  return [
+    { value: "all", label: apiKeyStatusFilterLabel("all") },
+    ...IDENTITY_API_KEY_STATUSES.map((status) => ({ value: status, label: apiKeyStatusFilterLabel(status) })),
+  ];
+}
+
+function buildApiKeyAppliedFilters(filters: IdentityListFilters) {
+  const applied: { id: string; label: string }[] = [];
+  if (filters.search) {
+    applied.push({
+      id: "search",
+      label: t("identity.features.apiKeys.ui.apiKeyListPage.search.filter.chip", { search: filters.search }),
+    });
+  }
+  if (filters.status !== "all") {
+    applied.push({
+      id: "status",
+      label: t("identity.features.apiKeys.ui.apiKeyListPage.status.filter.chip", {
+        status: apiKeyStatusFilterLabel(filters.status),
+      }),
+    });
+  }
+
+  return applied;
+}
+
 export function ApiKeyListPage({
   initialData,
   users,
   oneTimeSecret,
+  filters = { status: "all", search: "" },
 }: {
   initialData: PaginatedListResponse<ApiKey>;
   users: readonly User[];
   oneTimeSecret?: OneTimeApiKeySecret | null;
+  filters?: IdentityListFilters;
 }) {
   const userItems = buildApiKeyUserPickerItems(users);
+  const appliedFilters = buildApiKeyAppliedFilters(filters);
 
   return (
     <AdminListPage
@@ -72,6 +127,54 @@ export function ApiKeyListPage({
             </Stack>
           </Form>
         </Stack>
+      }
+      filters={
+        <>
+          <Form method="get" spacing="none">
+            <FilterArea
+              activeFilterCount={appliedFilters.length}
+              primaryFilterCount={2}
+              panelTitle={t("identity.features.apiKeys.ui.apiKeyListPage.filters")}
+              overflowTriggerLabel={t("identity.features.apiKeys.ui.apiKeyListPage.more.filters")}
+              filters={[
+                <TextInput
+                  key="search"
+                  label={t("identity.features.apiKeys.ui.apiKeyListPage.search")}
+                  name="search"
+                  defaultValue={filters.search}
+                  placeholder={t("identity.features.apiKeys.ui.apiKeyListPage.search.placeholder")}
+                />,
+                <NativeSelect
+                  key="status"
+                  label={t("identity.features.apiKeys.ui.apiKeyListPage.status")}
+                  name="status"
+                  defaultValue={filters.status}
+                  items={apiKeyStatusFilterItems()}
+                />,
+              ]}
+              actions={
+                <Inline>
+                  <Button type="submit" leadingIcon="filter">
+                    {t("identity.features.apiKeys.ui.apiKeyListPage.apply.filters")}
+                  </Button>
+                  <LinkButton href="/access/api-keys" tone="secondary">
+                    {t("identity.features.apiKeys.ui.apiKeyListPage.clear.filters")}
+                  </LinkButton>
+                </Inline>
+              }
+            />
+          </Form>
+          <AppliedFilterChips
+            filters={appliedFilters}
+            clearAction={
+              appliedFilters.length > 0 ? (
+                <LinkButton href="/access/api-keys" size="sm" tone="secondary">
+                  {t("identity.features.apiKeys.ui.apiKeyListPage.clear.filters")}
+                </LinkButton>
+              ) : null
+            }
+          />
+        </>
       }
       emptyMessage={t("identity.features.apiKeys.ui.apiKeyListPage.no.api.keys.yet")}
       getHref={(row) => `/access/api-keys/${row.api_key_id}`}

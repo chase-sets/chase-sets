@@ -1471,7 +1471,7 @@
     "route-support": {
       "classification": "support",
       "purpose": "Provide reusable route-support assets shared by identity-owned features and composition seams.",
-      "expectedConsumers": ["Multiple identity slices", "Deployable composition for identity"]
+      "expectedConsumers": ["accounts", "api-keys", "invitations", "memberships", "users"]
     },
     "runtime-support": {
       "classification": "support",
