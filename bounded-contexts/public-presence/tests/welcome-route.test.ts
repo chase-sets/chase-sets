@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loader, meta } from "../routes/marketplace/welcome";
 
 describe("public presence welcome route", () => {
@@ -44,5 +44,32 @@ describe("public presence welcome route", () => {
 
   it("keeps the success page out of search results", () => {
     expect(meta({} as never)).toContainEqual({ name: "robots", content: "noindex, nofollow" });
+  });
+
+  it("warns loudly outside production when the Discord invite URL is unconfigured", async () => {
+    const originalDiscordUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL;
+    const originalNodeEnv = process.env.NODE_ENV;
+    delete process.env.CHASE_SETS_DISCORD_INVITE_URL;
+    process.env.NODE_ENV = "development";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const data = await loader({
+        request: new Request("https://chasesets.test/welcome?signup=wls_public"),
+        params: {},
+        context: undefined,
+      } as never);
+
+      expect(data.discordInviteUrl).toBeNull();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("CHASE_SETS_DISCORD_INVITE_URL"));
+    } finally {
+      warn.mockRestore();
+      if (originalDiscordUrl === undefined) {
+        delete process.env.CHASE_SETS_DISCORD_INVITE_URL;
+      } else {
+        process.env.CHASE_SETS_DISCORD_INVITE_URL = originalDiscordUrl;
+      }
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 });

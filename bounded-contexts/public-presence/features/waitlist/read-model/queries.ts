@@ -117,6 +117,17 @@ export async function getWaitlistReferralSummary(db: PgQueryable, signupId: stri
   };
 }
 
+/**
+ * Cheap, single-purpose count for the public landing-page waitlist counter.
+ * Deliberately separate from {@link getWaitlistMetrics} (admin-only, returns
+ * a role breakdown) so the public route never has a reason to expose more
+ * than the one number it displays.
+ */
+export async function getWaitlistSignupCount(db: PgQueryable): Promise<number> {
+  const result = await db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM public_presence_waitlist_signups`);
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 export async function getWaitlistMetrics(db: PgQueryable): Promise<WaitlistMetrics> {
   const result = await db.query<{
     total_count: string;

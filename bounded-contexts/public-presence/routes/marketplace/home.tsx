@@ -34,8 +34,18 @@ function actionErrorMessage(error: unknown) {
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const publicOrigin = process.env.CHASE_SETS_PUBLIC_ORIGIN?.trim() || url.origin;
+  const discordInviteUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL?.trim() || null;
+  if (!discordInviteUrl && process.env.NODE_ENV !== "production") {
+    // The Discord CTA now renders unconditionally wherever this env var is
+    // set; an unset var here is a startup-config gap, not an intended
+    // silent feature drop, so it must be loud in non-prod logs instead of
+    // quietly vanishing from the page.
+    console.warn(
+      "[public-presence] CHASE_SETS_DISCORD_INVITE_URL is not set. The Discord CTA will not render until it is configured.",
+    );
+  }
   return {
-    discordInviteUrl: process.env.CHASE_SETS_DISCORD_INVITE_URL?.trim() || null,
+    discordInviteUrl,
     publicOrigin,
     source: {
       pagePath: `${url.pathname}${url.search}`,

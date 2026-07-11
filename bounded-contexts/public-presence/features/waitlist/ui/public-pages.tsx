@@ -36,6 +36,7 @@ import {
   Table,
   Text,
   TextInput,
+  ToneIcon,
   type PromoBarMessage,
 } from "@chase-sets/design-system";
 import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
@@ -196,7 +197,7 @@ function useLandingSectionViewTracking() {
   }, []);
 }
 
-function DiscordInviteLink({ href }: { href: string }) {
+function DiscordInviteLink({ href, section = "final_cta" }: { href: string; section?: string }) {
   return (
     <LinkButton
       href={href}
@@ -205,7 +206,7 @@ function DiscordInviteLink({ href }: { href: string }) {
       leadingIcon="message"
       target="_blank"
       rel="noopener noreferrer"
-      onClick={() => trackCtaClick("final_cta", "discord")}
+      onClick={() => trackCtaClick(section, "discord")}
     >
       {t("publicPresence.home.discordCta")}
     </LinkButton>
@@ -251,6 +252,31 @@ function usePromoBarMessages() {
   }, []);
 
   return messages;
+}
+
+function useWaitlistCounterDisplay() {
+  const [displayCount, setDisplayCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/public-presence/waitlist/count", { credentials: "same-origin" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { displayCount?: number | null } | null) => {
+        if (cancelled || !body) {
+          return;
+        }
+
+        setDisplayCount(typeof body.displayCount === "number" ? body.displayCount : null);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return displayCount;
 }
 
 export function PublicPresencePageShell({ children }: { children: ReactNode }) {
@@ -365,6 +391,7 @@ export function PublicPresenceHomePage({
   source: WaitlistPageSource;
 }) {
   const [intent, setIntent] = useState<WaitlistIntent>(defaultIntent);
+  const waitlistCounterDisplay = useWaitlistCounterDisplay();
 
   useEffect(() => {
     trackWaitlistEvent("landing_page_view", {
@@ -455,6 +482,7 @@ export function PublicPresenceHomePage({
                 source={source}
                 panelId="waitlist-form"
                 variant="hero"
+                waitlistCounterDisplay={waitlistCounterDisplay}
               />
             }
           />
@@ -471,6 +499,8 @@ export function PublicPresenceHomePage({
         <MarketplaceModelSection />
 
         <SignupExpectationSection />
+
+        <FounderStorySection discordInviteUrl={discordInviteUrl} />
 
         <FinalCtaSection
           actionData={actionData}
@@ -859,6 +889,44 @@ function DiscountedShippingValue() {
   );
 }
 
+function FounderStorySection({ discordInviteUrl }: { discordInviteUrl?: string | null }) {
+  return (
+    <PageSection
+      data-public-presence-section="founder_story"
+      title={t("publicPresence.home.founderStory.title")}
+      description={t("publicPresence.home.founderStory.description")}
+    >
+      <Surface tone="subtle" elevated>
+        <Stack gap={3}>
+          <BadgeRow>
+            <Badge tone="trust">{t("publicPresence.home.founderStory.badge")}</Badge>
+          </BadgeRow>
+          <Inline gap={3} align="center">
+            <ToneIcon name="user" tone="trust" size="lg" label={t("publicPresence.home.founderStory.name")} />
+            <Stack gap={0}>
+              <Heading level={3}>{t("publicPresence.home.founderStory.name")}</Heading>
+              <Text size="sm" tone="secondary">
+                {t("publicPresence.home.founderStory.role")}
+              </Text>
+            </Stack>
+          </Inline>
+          <Text tone="secondary">{t("publicPresence.home.founderStory.story")}</Text>
+          <List
+            items={[
+              t("publicPresence.home.founderStory.point.collector"),
+              t("publicPresence.home.founderStory.point.transparency"),
+              t("publicPresence.home.founderStory.point.roadmap"),
+            ]}
+          />
+          <Inline gap={2}>
+            {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} section="founder_story" /> : null}
+          </Inline>
+        </Stack>
+      </Surface>
+    </PageSection>
+  );
+}
+
 function FinalCtaSection({
   actionData,
   discordInviteUrl,
@@ -913,6 +981,7 @@ function WaitlistSignupPanel({
   panelId = "waitlist",
   source,
   variant = "full",
+  waitlistCounterDisplay = null,
 }: {
   actionData: WaitlistActionData;
   intent: WaitlistIntent;
@@ -920,6 +989,8 @@ function WaitlistSignupPanel({
   panelId?: string;
   source: WaitlistPageSource;
   variant?: "hero" | "full";
+  /** Rounded, threshold-gated waitlist headcount. `null` hides the counter (see `WAITLIST_COUNTER_DISPLAY_BUCKET`). */
+  waitlistCounterDisplay?: number | null;
 }) {
   const [marketingConsent, setMarketingConsent] = useState(false);
   const formStarted = useRef(false);
@@ -998,6 +1069,14 @@ function WaitlistSignupPanel({
             <Text size="sm" tone="secondary">
               {t("publicPresence.waitlist.compactDescription")}
             </Text>
+            {waitlistCounterDisplay !== null ? (
+              <Inline gap={1} align="center">
+                <ToneIcon name="users" tone="primary" size="sm" />
+                <Text size="sm" weight="semibold">
+                  {t("publicPresence.waitlist.counter.label", { count: waitlistCounterDisplay })}
+                </Text>
+              </Inline>
+            ) : null}
           </Stack>
         ) : (
           <Stack gap={2}>

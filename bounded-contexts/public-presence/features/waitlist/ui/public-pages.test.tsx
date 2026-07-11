@@ -112,4 +112,77 @@ describe("public waitlist form migration smoke", () => {
     const formData = new FormData(form);
     expect(formData.get("referredBySignupId")).toBe("wls_referrer");
   });
+
+  it("shows the waitlist counter near the hero form once it clears the display threshold", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/waitlist/count")) {
+          return new Response(JSON.stringify({ displayCount: 125 }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const panel = document.getElementById("waitlist-form");
+    const counterText = await vi.waitFor(() => {
+      const match = panel?.textContent?.includes("125+");
+      if (!match) {
+        throw new Error("Counter not rendered yet.");
+      }
+      return match;
+    });
+
+    expect(counterText).toBe(true);
+  });
+
+  it("keeps the waitlist counter hidden below the display threshold", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ displayCount: null }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    await vi.waitFor(() => {
+      expect(document.getElementById("waitlist-form")?.textContent).not.toContain("+");
+    });
+  });
+
+  it("renders an unconditional founder-story Discord CTA ahead of the final section, and hides it when unconfigured", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container, rerender } = render(
+      <PublicPresenceHomePage actionData={null} discordInviteUrl="https://discord.gg/chase-sets" source={source} />,
+    );
+
+    const discordLinks = Array.from(
+      container.querySelectorAll<HTMLAnchorElement>('a[href="https://discord.gg/chase-sets"]'),
+    );
+    expect(discordLinks.length).toBeGreaterThanOrEqual(2);
+
+    const founderSection = container.querySelector('[data-public-presence-section="founder_story"]');
+    const finalCtaSection = container.querySelector('[data-public-presence-section="final_cta"]');
+    expect(founderSection?.querySelector('a[href="https://discord.gg/chase-sets"]')).not.toBeNull();
+    expect(finalCtaSection?.querySelector('a[href="https://discord.gg/chase-sets"]')).not.toBeNull();
+
+    rerender(<PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />);
+    expect(container.querySelectorAll('a[href="https://discord.gg/chase-sets"]').length).toBe(0);
+  });
 });

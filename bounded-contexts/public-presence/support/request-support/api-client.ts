@@ -6,6 +6,7 @@ export type {
   PromoBarMessageTone,
   SavePromoBarMessageRequest,
   SubmitWaitlistSignupRequest,
+  WaitlistCounter,
   WaitlistMetrics,
   WaitlistReferralSummary,
   WaitlistSignupListItem,

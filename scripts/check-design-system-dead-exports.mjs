@@ -144,7 +144,6 @@ const canonicalReserveZeroConsumerExports = [
   "Toggle",
   "ToggleGroup",
   "TokenSwatch",
-  "ToneIcon",
   "Toolbar",
   "ToolbarButton",
   "ToolbarInput",

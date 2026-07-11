@@ -147,6 +147,10 @@ export function createPublicWaitlistRoutes(services: WaitlistServices) {
     }
   });
 
+  app.get("/waitlist/count", async (c) => {
+    return c.json(await services.getWaitlistCounter());
+  });
+
   app.get("/waitlist/:signupId/referral-summary", async (c) => {
     if (isReferralSummaryRateLimited(c.req.raw)) {
       return c.json({ error: { code: "rate_limited", message: t("publicPresence.api.rate.limited") } }, 429);

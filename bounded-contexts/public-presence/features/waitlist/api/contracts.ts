@@ -48,3 +48,12 @@ export type WaitlistReferralSummary = Readonly<{
   referralCount: number;
   referralGoal: number;
 }>;
+
+/**
+ * Public landing-page waitlist counter. `displayCount` is already rounded
+ * down to a clean bucket and `null` below the display threshold, so the
+ * route/UI never re-derives or re-guards the raw count.
+ */
+export type WaitlistCounter = Readonly<{
+  displayCount: number | null;
+}>;

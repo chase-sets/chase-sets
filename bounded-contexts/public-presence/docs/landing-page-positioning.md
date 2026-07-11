@@ -18,6 +18,8 @@ Use only repo-verifiable credibility until live marketplace proof exists:
 - founders circle access on Discord for qualified early beta accounts
 - sample product previews
 - provider-backed payment and visible-total language already present in Public Presence copy
+- live waitlist signup counter, sourced from the waitlist read model and threshold-gated so an early, small count never displays (`WAITLIST_COUNTER_DISPLAY_BUCKET`)
+- founder identity and story (name, role, and why-building-this narrative), owned by the founder and updated when it goes stale
 
 Until `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production copy must keep the marketplace framed as prelaunch. Do not publish live-buying, live-listing, transaction-volume, payout, or delivery promises on the public site while the production marketplace gate is closed.
 

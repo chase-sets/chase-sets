@@ -25,6 +25,7 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
       both_count: 0,
     })),
     getWaitlistReferralSummary: vi.fn(async () => ({ referralCount: 0, referralGoal: 3 })),
+    getWaitlistCounter: vi.fn(async () => ({ displayCount: null })),
     projectors: [],
   } satisfies WaitlistServices;
 
@@ -275,6 +276,26 @@ describe("public presence API", () => {
     const malformed = await app.request("/waitlist/not-a-signup-id/referral-summary");
     expect(malformed.status).toBe(400);
     expect(getWaitlistReferralSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("exposes the rounded, threshold-gated waitlist counter publicly", async () => {
+    const getWaitlistCounter = vi.fn(async () => ({ displayCount: 125 }));
+    const app = publicAppFor(createServices({ getWaitlistCounter }));
+
+    const response = await app.request("/waitlist/count");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ displayCount: 125 });
+    expect(getWaitlistCounter).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a null display count below the waitlist counter threshold", async () => {
+    const app = publicAppFor(createServices());
+
+    const response = await app.request("/waitlist/count");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ displayCount: null });
   });
 
   it("exposes active promo bar messages publicly", async () => {
