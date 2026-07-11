@@ -12,10 +12,12 @@ import { createPaymentRuntime } from "../../features/payments/api/runtime";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "../../features/payments/api/balance-credit-resolver";
+import type { CheckoutProcessingFeePolicyResolver } from "../../features/payments/api/checkout-processing-fee-policy-resolver";
 
 export type PaymentsServiceOptions = Readonly<{
   processorGateway?: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
+  checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
   notificationOutbox?: NotificationOutbox;
 }>;
 
@@ -81,6 +83,7 @@ export function createPaymentsServices(
     processorGateway,
     refunds,
     balanceCreditResolver: options.balanceCreditResolver,
+    checkoutProcessingFeePolicyResolver: options.checkoutProcessingFeePolicyResolver,
     notificationOutbox,
   });
 

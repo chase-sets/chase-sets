@@ -167,6 +167,11 @@
       "purpose": "Apply available settlement wallet balance as checkout credit without Payments querying Settlement storage."
     },
     {
+      "portName": "checkoutProcessingFeePolicyResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolve the runtime-configurable checkout processing-fee policy at quote time without Payments querying Commercial Terms storage."
+    },
+    {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by payment and refund event projectors."

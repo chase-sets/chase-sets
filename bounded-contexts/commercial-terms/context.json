@@ -1,10 +1,15 @@
 {
   "contextName": "commercial-terms",
   "packageName": "@chase-sets/commercial-terms",
-  "ownedNouns": ["commercial-terms-schedule", "commercial-agreement", "commercial-terms-resolution"],
+  "ownedNouns": [
+    "commercial-terms-schedule",
+    "commercial-agreement",
+    "commercial-terms-resolution",
+    "checkout-processing-fee-policy"
+  ],
   "streamPrefix": "commercial-terms.",
   "apiBasePath": "/api/commercial-terms",
-  "slices": ["schedules", "agreements", "resolutions"],
+  "slices": ["schedules", "agreements", "resolutions", "checkout-processing-fee"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/identity"],
@@ -44,6 +49,13 @@
       "projectionName": "commercial-terms-agreement-projection",
       "sourceContextNames": ["commercial-terms"],
       "ownedTables": ["commercial_terms_agreement_pages", "commercial_terms_agreement_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["commercial-terms"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -249,17 +261,20 @@
         "api-route:bounded-contexts/commercial-terms/features/agreements/api/route.ts:PUT /:id",
         "api-route:bounded-contexts/commercial-terms/features/schedules/api/route.ts:POST /",
         "api-route:bounded-contexts/commercial-terms/features/schedules/api/route.ts:PUT /:id",
-        "api-route:bounded-contexts/commercial-terms/features/resolutions/api/route.ts:POST /preview"
+        "api-route:bounded-contexts/commercial-terms/features/resolutions/api/route.ts:POST /preview",
+        "api-route:bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.ts:POST /",
+        "api-route:bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.ts:PUT /:id"
       ],
       "visibleDestination": {
         "description": "Commercial Terms API command routes return command-local id/version snapshots, and resolution preview returns the calculated terms snapshot directly."
       },
       "proof": {
-        "authoritativeResponse": "Create and revise routes respond from the command result before projection reads; preview responds from the resolver calculation and does not redirect to a projection-backed browser page.",
+        "authoritativeResponse": "Create and revise routes respond from the command result before projection reads; preview responds from the resolver calculation and does not redirect to a projection-backed browser page. The checkout processing-fee create/revise routes are the shared platform-policy document commands and respond the same way -- no browser destination exists for this policy yet (admin UI is tracked as follow-up work).",
         "tests": [
           "bounded-contexts/commercial-terms/features/agreements/api/route.test.ts",
           "bounded-contexts/commercial-terms/features/schedules/api/route.test.ts",
-          "bounded-contexts/commercial-terms/features/resolutions/api/route.test.ts"
+          "bounded-contexts/commercial-terms/features/resolutions/api/route.test.ts",
+          "bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.test.ts"
         ]
       }
     },
@@ -487,6 +502,14 @@
       "purpose": "Own commercial-terms-resolution APIs, projections, and resolver queries.",
       "expectedConsumers": ["Internal commercial-terms module composition", "Downstream server resolution"]
     },
+    "checkout-processing-fee": {
+      "classification": "slice",
+      "purpose": "Own the checkout-processing-fee-policy definition and admin-managed create/revise API on the shared platform-policy machinery.",
+      "expectedConsumers": [
+        "Internal commercial-terms module composition",
+        "Payments (via checkoutProcessingFeePolicyResolver host port)"
+      ]
+    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide Commercial Terms request composition for admin routes that span schedules, agreements, and resolutions.",
@@ -496,7 +519,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide commercial-terms event-store composition and common fee math shared by runtime services.",
-      "expectedConsumers": ["schedules", "agreements", "resolutions"]
+      "expectedConsumers": ["schedules", "agreements", "resolutions", "checkout-processing-fee"]
     },
     "seed-support": {
       "classification": "support",

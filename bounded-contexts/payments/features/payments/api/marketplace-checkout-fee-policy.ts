@@ -1,5 +1,5 @@
 import { compareMoney, addMoney, normalizeMoneyAmount, subtractMoney } from "../../../support/runtime-support/common";
-import { grossUpMoneyAmountByBasisPoints } from "@chase-sets/primitives/money";
+import { addSignedMoneyAmounts, grossUpMoneyAmountByBasisPoints } from "@chase-sets/primitives/money";
 
 export const marketplaceCheckoutFeePaymentMethodCategories = ["card", "bank-account", "platform-credit"] as const;
 
@@ -17,6 +17,71 @@ export type MarketplaceCheckoutFeeQuote = Readonly<{
   quote_fingerprint: string;
   quoted_at: string;
 }>;
+
+/**
+ * The quote-fingerprint schema/format identifier. This stays a fixed
+ * constant across policy revisions -- it identifies *how* a quote is
+ * assembled (field order, method resolution), not the fee values in effect
+ * when it was computed. A revised policy still changes `quote_fingerprint`
+ * because the amounts embedded in it change, which is what drives the
+ * existing `fee_quote_stale` re-quote flow; bumping this constant is
+ * reserved for actual quote-schema changes.
+ */
+export const MARKETPLACE_CHECKOUT_FEE_QUOTE_FORMAT_VERSION = "marketplace-checkout-fee-v1";
+
+/** The launch policy's effective-at, used only when no policy document resolver is wired (compiled fallback). */
+export const DEFAULT_MARKETPLACE_CHECKOUT_FEE_EFFECTIVE_AT = "2026-05-03T00:00:00.000Z";
+
+export type MarketplaceCheckoutFeeMethodAdjustment = Readonly<{
+  paymentMethodCategory: MarketplaceCheckoutFeePaymentMethodCategory;
+  percentageBpsDelta: number;
+  fixedAmountDelta: string;
+}>;
+
+/**
+ * The runtime-configurable checkout processing-fee policy value: base
+ * percentage/fixed terms plus per-payment-method-category adjustments and
+ * the jurisdictions the policy is enabled for. This is the `Value` shape
+ * Commercial Terms declares via `definePolicy` (see
+ * `@chase-sets/commercial-terms/server`'s `checkoutProcessingFeePolicy`);
+ * Payments only depends on this plain-data shape, never on Commercial
+ * Terms' storage, so the migration invariant (compiled struct becomes the
+ * fallback default only) holds without a compile-time context dependency.
+ */
+export type MarketplaceCheckoutFeePolicyValue = Readonly<{
+  enabledJurisdictions: readonly string[];
+  base: Readonly<{
+    percentageBps: number;
+    fixedAmount: string;
+  }>;
+  methodAdjustments: readonly MarketplaceCheckoutFeeMethodAdjustment[];
+}>;
+
+/** The compiled launch values (290bps + $0.30 card, 50bps bank, 0bps credit) -- the migration's byte-identical fallback default. */
+export const defaultMarketplaceCheckoutFeePolicyValue: MarketplaceCheckoutFeePolicyValue = {
+  enabledJurisdictions: ["US"],
+  base: {
+    percentageBps: 290,
+    fixedAmount: "0.30",
+  },
+  methodAdjustments: [
+    {
+      paymentMethodCategory: "card",
+      percentageBpsDelta: 0,
+      fixedAmountDelta: "0.00",
+    },
+    {
+      paymentMethodCategory: "bank-account",
+      percentageBpsDelta: -240,
+      fixedAmountDelta: "-0.30",
+    },
+    {
+      paymentMethodCategory: "platform-credit",
+      percentageBpsDelta: -290,
+      fixedAmountDelta: "-0.30",
+    },
+  ],
+};
 
 export type MarketplaceCheckoutFeePolicy = Readonly<{
   policy_version: string;
@@ -59,6 +124,27 @@ export function normalizeMarketplaceCheckoutFeePaymentMethodCategory(
   }
 }
 
+/**
+ * Resolves the effective percentage/fixed terms for one payment method
+ * category: the policy's base terms plus that method's adjustment delta,
+ * floored at zero (a policy can only reduce or waive the fee per method, never
+ * invert it into a negative amount).
+ */
+function resolveMarketplaceCheckoutFeeMethodTerms(
+  policy: MarketplaceCheckoutFeePolicyValue,
+  method: MarketplaceCheckoutFeePaymentMethodCategory,
+): Readonly<{ resultingPercentageBps: number; resultingFixedAmount: string }> {
+  const adjustment = policy.methodAdjustments.find((candidate) => candidate.paymentMethodCategory === method);
+  const percentageBpsDelta = adjustment?.percentageBpsDelta ?? 0;
+  const fixedAmountDelta = adjustment?.fixedAmountDelta ?? "0.00";
+  const resultingPercentageBps = Math.max(0, policy.base.percentageBps + percentageBpsDelta);
+  const resultingFixedAmountSigned = addSignedMoneyAmounts(policy.base.fixedAmount, fixedAmountDelta);
+  const resultingFixedAmount =
+    compareMoney(resultingFixedAmountSigned, "0.00") > 0 ? normalizeMoneyAmount(resultingFixedAmountSigned) : "0.00";
+
+  return { resultingPercentageBps, resultingFixedAmount };
+}
+
 export function quoteMarketplaceCheckoutFee(
   params: Readonly<{
     orderAmount: string;
@@ -67,8 +153,8 @@ export function quoteMarketplaceCheckoutFee(
     paymentMethodCategory: MarketplaceCheckoutFeePaymentMethodCategory;
     quotedAt?: string;
   }>,
+  policy: MarketplaceCheckoutFeePolicyValue = defaultMarketplaceCheckoutFeePolicyValue,
 ): MarketplaceCheckoutFeeQuote {
-  const policyVersion = "marketplace-checkout-fee-v1";
   const orderAmount = normalizeMoneyAmount(params.orderAmount, {
     fieldName: "Checkout amount",
     allowZero: true,
@@ -82,8 +168,8 @@ export function quoteMarketplaceCheckoutFee(
     allowZero: true,
   });
   const method = compareMoney(externalBasisAmount, "0.00") === 0 ? "platform-credit" : params.paymentMethodCategory;
-  const rateBps = method === "platform-credit" ? 0 : method === "bank-account" ? 50 : 290;
-  const fixedAmount = method === "card" ? "0.30" : "0.00";
+  const { resultingPercentageBps: rateBps, resultingFixedAmount: fixedAmount } =
+    resolveMarketplaceCheckoutFeeMethodTerms(policy, method);
   const feeAmount =
     rateBps > 0 || compareMoney(fixedAmount, "0.00") > 0
       ? grossUpMoneyAmountByBasisPoints({
@@ -93,12 +179,13 @@ export function quoteMarketplaceCheckoutFee(
           roundingMode: "ceil",
         })
       : "0.00";
+  const cardTerms = resolveMarketplaceCheckoutFeeMethodTerms(policy, "card");
   const cardFeeAmount =
     compareMoney(externalBasisAmount, "0.00") > 0
       ? grossUpMoneyAmountByBasisPoints({
           basisAmount: externalBasisAmount,
-          percentageBps: 290,
-          fixedAmount: "0.30",
+          percentageBps: cardTerms.resultingPercentageBps,
+          fixedAmount: cardTerms.resultingFixedAmount,
           roundingMode: "ceil",
         })
       : "0.00";
@@ -107,7 +194,7 @@ export function quoteMarketplaceCheckoutFee(
   const processorAmount = addMoney(externalBasisAmount, feeAmount);
   const quotedAt = params.quotedAt ?? new Date().toISOString();
   const quoteFingerprint = [
-    policyVersion,
+    MARKETPLACE_CHECKOUT_FEE_QUOTE_FORMAT_VERSION,
     method,
     orderAmount,
     balanceCreditAmount,
@@ -124,44 +211,41 @@ export function quoteMarketplaceCheckoutFee(
     marketplace_checkout_fee_reduction_amount: reductionAmount,
     total_amount: totalAmount,
     processor_amount: processorAmount,
-    policy_version: policyVersion,
+    policy_version: MARKETPLACE_CHECKOUT_FEE_QUOTE_FORMAT_VERSION,
     quote_fingerprint: quoteFingerprint,
     quoted_at: quotedAt,
   };
 }
 
-export function marketplaceCheckoutFeePolicy(): MarketplaceCheckoutFeePolicy {
+/**
+ * Builds the publishable policy struct (the `/marketplace-checkout-fee-policy`
+ * endpoint payload) from a resolved policy value. Defaults to the compiled
+ * fallback so existing callers that don't pass a resolved policy keep
+ * publishing the launch values unchanged.
+ */
+export function marketplaceCheckoutFeePolicy(
+  policy: MarketplaceCheckoutFeePolicyValue = defaultMarketplaceCheckoutFeePolicyValue,
+  meta: Readonly<{ effectiveAt?: string | null }> = {},
+): MarketplaceCheckoutFeePolicy {
   return {
-    policy_version: "marketplace-checkout-fee-v1",
-    effective_at: "2026-05-03T00:00:00.000Z",
-    enabled_jurisdictions: ["US"],
+    policy_version: MARKETPLACE_CHECKOUT_FEE_QUOTE_FORMAT_VERSION,
+    effective_at: meta.effectiveAt ?? DEFAULT_MARKETPLACE_CHECKOUT_FEE_EFFECTIVE_AT,
+    enabled_jurisdictions: policy.enabledJurisdictions,
     base: {
-      percentage_bps: 290,
-      fixed_amount: "0.30",
+      percentage_bps: policy.base.percentageBps,
+      fixed_amount: policy.base.fixedAmount,
     },
-    method_adjustments: [
-      {
-        payment_method_category: "card",
-        percentage_bps_delta: 0,
-        fixed_amount_delta: "0.00",
-        resulting_percentage_bps: 290,
-        resulting_fixed_amount: "0.30",
-      },
-      {
-        payment_method_category: "bank-account",
-        percentage_bps_delta: -240,
-        fixed_amount_delta: "-0.30",
-        resulting_percentage_bps: 50,
-        resulting_fixed_amount: "0.00",
-      },
-      {
-        payment_method_category: "platform-credit",
-        percentage_bps_delta: -290,
-        fixed_amount_delta: "-0.30",
-        resulting_percentage_bps: 0,
-        resulting_fixed_amount: "0.00",
-      },
-    ],
+    method_adjustments: marketplaceCheckoutFeePaymentMethodCategories.map((category) => {
+      const adjustment = policy.methodAdjustments.find((candidate) => candidate.paymentMethodCategory === category);
+      const terms = resolveMarketplaceCheckoutFeeMethodTerms(policy, category);
+      return {
+        payment_method_category: category,
+        percentage_bps_delta: adjustment?.percentageBpsDelta ?? 0,
+        fixed_amount_delta: adjustment?.fixedAmountDelta ?? "0.00",
+        resulting_percentage_bps: terms.resultingPercentageBps,
+        resulting_fixed_amount: terms.resultingFixedAmount,
+      };
+    }),
     unsupported_methods_default: "no-positive-fee",
     quote_audit: {
       confirmation_required: true,

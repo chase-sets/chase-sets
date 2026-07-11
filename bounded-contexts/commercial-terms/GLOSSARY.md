@@ -31,3 +31,7 @@ Notes:
 ## Seller Net
 
 A **Seller Net** is the amount remaining from the resolved basis amount after the marketplace sales fee amount is applied.
+
+## Checkout Processing-Fee Policy
+
+A **Checkout Processing-Fee Policy** is the runtime-configurable, admin-managed policy for the buyer-side Marketplace Checkout Fee: base percentage/fixed terms, per-payment-method-category adjustments, and enabled jurisdictions. It is account-type-agnostic and effective-windowed, declared on the shared `@chase-sets/platform-policy` machinery rather than the Commercial Terms Schedule/Agreement pattern. Payments resolves the current value at quote time and owns the quote math itself; Commercial Terms owns only the policy value.

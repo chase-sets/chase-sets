@@ -1356,6 +1356,181 @@ describe("payment runtime", () => {
     ]);
   });
 
+  it("resolves the checkout processing-fee policy from the injected resolver and re-quotes stale fees after a mid-session revision", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    let policy = {
+      value: {
+        enabledJurisdictions: ["US"],
+        base: { percentageBps: 290, fixedAmount: "0.30" },
+        methodAdjustments: [
+          { paymentMethodCategory: "card" as const, percentageBpsDelta: 0, fixedAmountDelta: "0.00" },
+          { paymentMethodCategory: "bank-account" as const, percentageBpsDelta: -240, fixedAmountDelta: "-0.30" },
+          { paymentMethodCategory: "platform-credit" as const, percentageBpsDelta: -290, fixedAmountDelta: "-0.30" },
+        ],
+      },
+      source: "policy" as const,
+      documentId: "pol_checkout_fee_1",
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      resolvedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const checkoutProcessingFeePolicyResolver = {
+      resolveCheckoutProcessingFeePolicy: vi.fn(async () => policy),
+    };
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+      checkoutProcessingFeePolicyResolver,
+    });
+
+    const statusBeforeRevision = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    expect(statusBeforeRevision.marketplace_checkout_fee).toMatchObject({
+      marketplace_checkout_fee_amount: "1.06",
+      total_amount: "26.05",
+    });
+    expect(checkoutProcessingFeePolicyResolver.resolveCheckoutProcessingFeePolicy).toHaveBeenCalled();
+
+    // An admin revises the checkout processing-fee policy mid-session.
+    policy = {
+      ...policy,
+      value: {
+        enabledJurisdictions: ["US"],
+        base: { percentageBps: 350, fixedAmount: "0.35" },
+        methodAdjustments: [
+          { paymentMethodCategory: "card" as const, percentageBpsDelta: 0, fixedAmountDelta: "0.00" },
+          { paymentMethodCategory: "bank-account" as const, percentageBpsDelta: -300, fixedAmountDelta: "-0.35" },
+          { paymentMethodCategory: "platform-credit" as const, percentageBpsDelta: -350, fixedAmountDelta: "-0.35" },
+        ],
+      },
+      documentId: "pol_checkout_fee_2",
+    };
+
+    // Paying with the pre-revision fingerprint is rejected as stale -- the
+    // 409 `fee_quote_stale` flow the checkout route already maps to a
+    // re-quote-required response.
+    await expect(
+      services.createAccountPayment(
+        {
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1" as never],
+          currencyCode: "usd",
+          paymentMethodCategory: "card",
+          marketplaceCheckoutFeeQuoteFingerprint: statusBeforeRevision.marketplace_checkout_fee.quote_fingerprint,
+        },
+        context,
+      ),
+    ).rejects.toThrow(/^fee_quote_stale:/);
+
+    // Re-quoting picks up the revised policy...
+    const statusAfterRevision = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    expect(statusAfterRevision.marketplace_checkout_fee).toMatchObject({
+      marketplace_checkout_fee_amount: "1.27",
+      total_amount: "26.26",
+    });
+    expect(statusAfterRevision.marketplace_checkout_fee.quote_fingerprint).not.toBe(
+      statusBeforeRevision.marketplace_checkout_fee.quote_fingerprint,
+    );
+
+    // ...and paying with the fresh fingerprint succeeds.
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        currencyCode: "usd",
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: statusAfterRevision.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    expect(payment.amount).toBe("26.26");
+
+    const publishedPolicy = await services.getMarketplaceCheckoutFeePolicy();
+    expect(publishedPolicy).toMatchObject({
+      base: { percentage_bps: 350, fixed_amount: "0.35" },
+      effective_at: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("falls back to the compiled checkout processing-fee policy when the resolver reports no active document", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const checkoutProcessingFeePolicyResolver = {
+      resolveCheckoutProcessingFeePolicy: vi.fn(async () => ({
+        value: {
+          enabledJurisdictions: ["US"],
+          base: { percentageBps: 290, fixedAmount: "0.30" },
+          methodAdjustments: [
+            { paymentMethodCategory: "card" as const, percentageBpsDelta: 0, fixedAmountDelta: "0.00" },
+            { paymentMethodCategory: "bank-account" as const, percentageBpsDelta: -240, fixedAmountDelta: "-0.30" },
+            { paymentMethodCategory: "platform-credit" as const, percentageBpsDelta: -290, fixedAmountDelta: "-0.30" },
+          ],
+        },
+        source: "fallback" as const,
+        documentId: null,
+        effectiveFrom: null,
+        resolvedAt: "2026-01-01T00:00:00.000Z",
+      })),
+    };
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+      checkoutProcessingFeePolicyResolver,
+    });
+
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+
+    // Byte-identical to the compiled defaults: an empty policy table (no
+    // active document) never breaks the checkout hot path.
+    expect(status.marketplace_checkout_fee).toMatchObject({
+      marketplace_checkout_fee_amount: "1.06",
+      total_amount: "26.05",
+      quote_fingerprint: "marketplace-checkout-fee-v1|card|24.99|0.00|24.99|1.06|26.05|26.05",
+    });
+
+    const publishedPolicy = await services.getMarketplaceCheckoutFeePolicy();
+    expect(publishedPolicy).toMatchObject({
+      base: { percentage_bps: 290, fixed_amount: "0.30" },
+      effective_at: "2026-05-03T00:00:00.000Z",
+    });
+  });
+
+  it("falls back to the compiled checkout processing-fee policy when no resolver is wired at all", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway: createProcessorGateway(),
+    });
+
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+
+    expect(status.marketplace_checkout_fee).toMatchObject({
+      marketplace_checkout_fee_amount: "1.06",
+      total_amount: "26.05",
+    });
+  });
+
   it("uses an explicit relative return path for processor payment sessions", async () => {
     const { eventStore } = createInMemoryEventStore();
     const processorGateway = createProcessorGateway();

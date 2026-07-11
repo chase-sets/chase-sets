@@ -61,6 +61,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `commercial-terms:commercial-terms-account-projection` | Commercial Terms | **identity** | push-enabled | 1/1 |
 | `commercial-terms:commercial-terms-agreement-projection` | Commercial Terms | commercial-terms | push-eligible | 0/1 |
 | `commercial-terms:commercial-terms-schedule-projection` | Commercial Terms | commercial-terms | push-eligible | 0/1 |
+| `commercial-terms:platform-policy-document-projection` | Commercial Terms | commercial-terms | push-eligible | 0/1 |
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |

@@ -6,7 +6,11 @@ import {
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
 import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
-import { createCommercialTermsResolver, type CommercialTermsAccountSource } from "@chase-sets/commercial-terms/server";
+import {
+  createCheckoutProcessingFeePolicyResolver,
+  createCommercialTermsResolver,
+  type CommercialTermsAccountSource,
+} from "@chase-sets/commercial-terms/server";
 import {
   createDiscoveryUcpHandlers,
   discoveryRealtimeManifest,
@@ -131,6 +135,9 @@ export function createPlatformApiHost(
       })
     : undefined;
   const balanceCreditResolver = settlementPool ? createSettlementBalanceCreditResolver(settlementPool) : undefined;
+  const checkoutProcessingFeePolicyResolver = commercialTermsPool
+    ? createCheckoutProcessingFeePolicyResolver(commercialTermsPool)
+    : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
     const marketplaceServices = runtime?.services.marketplace as
       | {
@@ -154,6 +161,7 @@ export function createPlatformApiHost(
       ...options.hostPorts,
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+      ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       draftListingCreator,
     },
   });

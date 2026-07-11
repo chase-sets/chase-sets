@@ -17,7 +17,11 @@ import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import { settlementOperationLogFields, type SettlementServices } from "@chase-sets/settlement/server";
-import { createCommercialTermsResolver, type CommercialTermsAccountSource } from "@chase-sets/commercial-terms/server";
+import {
+  createCheckoutProcessingFeePolicyResolver,
+  createCommercialTermsResolver,
+  type CommercialTermsAccountSource,
+} from "@chase-sets/commercial-terms/server";
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   collectProjectionOperationRunners,
@@ -193,6 +197,9 @@ const commercialTermsResolver = pools["commercial-terms"]
     })
   : undefined;
 const balanceCreditResolver = pools.settlement ? createSettlementBalanceCreditResolver(pools.settlement) : undefined;
+const checkoutProcessingFeePolicyResolver = pools["commercial-terms"]
+  ? createCheckoutProcessingFeePolicyResolver(pools["commercial-terms"])
+  : undefined;
 const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
 const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
   const marketplaceServices = runtime?.services.marketplace as
@@ -225,6 +232,7 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     sourceObservationTelemetry,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+    ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
     agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers({
       ordering: pools.ordering,
       linkedAuthorizations: pools.identity,

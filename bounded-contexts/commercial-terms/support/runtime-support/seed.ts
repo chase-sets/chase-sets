@@ -3,6 +3,10 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { commercialTermsSeedIds } from "../seed-support/ids";
 import { createCommercialTermsServices } from "./services";
+import {
+  CHECKOUT_PROCESSING_FEE_LAUNCH_POLICY_VALUE,
+  checkoutProcessingFeePolicy,
+} from "../../features/checkout-processing-fee/domain/policy";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 function createSeedContext() {
@@ -59,6 +63,8 @@ export async function seedCommercialTermsDatabase(
       marketplaceSalesFeeFixedAmount: "0.00",
       effectiveFrom,
     });
+
+    await seedCheckoutProcessingFeePolicyIfMissing(services, context, "2026-05-03T00:00:00.000Z");
   }
 
   if (shouldSeedScenario && !(await agreementExists(pool, commercialTermsSeedIds.agreements.sellerOverride))) {
@@ -132,6 +138,42 @@ async function seedDefaultScheduleIfMissing(
 
 async function schedulePageExists(db: Pick<PgTransactionalPool, "query">, scheduleId: string): Promise<boolean> {
   return rowExists(db, "SELECT 1 FROM commercial_terms_schedule_pages WHERE schedule_id = $1 LIMIT 1", [scheduleId]);
+}
+
+/**
+ * Seeds the checkout processing-fee policy with the launch values (290bps +
+ * $0.30 card, 50bps bank, 0bps credit) so behavior is byte-identical at
+ * cutover: Payments' compiled fallback and this seeded document agree on
+ * every value. Unlike schedules/agreements, a policy document's id is
+ * assigned by the platform-policy machinery itself (not pre-registered), so
+ * idempotency is checked against the policy key rather than a fixed seed id.
+ */
+async function seedCheckoutProcessingFeePolicyIfMissing(
+  services: ReturnType<typeof createCommercialTermsServices>,
+  context: ReturnType<typeof createSeedContext>,
+  effectiveFrom: string,
+) {
+  if (await policyDocumentExists(services.db, checkoutProcessingFeePolicy.policyKey)) {
+    return;
+  }
+
+  await services.policies.createPolicyDocument(
+    checkoutProcessingFeePolicy,
+    {
+      value: CHECKOUT_PROCESSING_FEE_LAUNCH_POLICY_VALUE,
+      status: "active",
+      effectiveFrom,
+      effectiveUntil: null,
+      actorUserId: identitySeedIds.support.userId,
+    },
+    context,
+  );
+}
+
+async function policyDocumentExists(db: Pick<PgTransactionalPool, "query">, policyKey: string): Promise<boolean> {
+  return rowExists(db, "SELECT 1 FROM platform_policy_documents WHERE policy_key = $1 AND status = 'active' LIMIT 1", [
+    policyKey,
+  ]);
 }
 
 async function agreementExists(db: PgTransactionalPool, agreementId: string): Promise<boolean> {

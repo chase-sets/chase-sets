@@ -4,6 +4,13 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.agreements.api.route.authentication.required": "Authentication required.",
   "commercialTerms.features.agreements.api.route.forbidden": "Forbidden.",
   "commercialTerms.features.agreements.api.route.request.failed": "Request failed.",
+  "commercialTerms.features.checkoutProcessingFee.api.route.authentication.context.missing":
+    "Authentication context missing.",
+  "commercialTerms.features.checkoutProcessingFee.api.route.authentication.required": "Authentication required.",
+  "commercialTerms.features.checkoutProcessingFee.api.route.document.not.found":
+    "Checkout processing-fee document not found.",
+  "commercialTerms.features.checkoutProcessingFee.api.route.forbidden": "Forbidden.",
+  "commercialTerms.features.checkoutProcessingFee.api.route.request.failed": "Request failed.",
   "commercialTerms.features.agreements.ui.agreementDetailPage.account": "Account: ",
   "commercialTerms.features.agreements.ui.agreementDetailPage.account.type": "Account Type: ",
   "commercialTerms.features.agreements.ui.agreementDetailPage.admin": "Admin",

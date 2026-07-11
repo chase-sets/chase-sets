@@ -239,6 +239,7 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "commercial-terms:commercial-terms-agreement-projection",
       "commercial-terms:commercial-terms-schedule-projection",
+      "commercial-terms:platform-policy-document-projection",
     ],
     routeDependencyIds: [
       "commercial-terms.account-agreement-create-to-list",
