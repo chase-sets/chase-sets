@@ -69,6 +69,7 @@ export default function OrderingAccountSalesRoute() {
       emptyTitle={t("ordering.routes.accountSales.no.sales.yet")}
       emptyDescription={t("ordering.routes.accountSales.accepted.offers.and.checkout.activity.create")}
       orderDetailBasePath="/account/sales"
+      kind="sale"
       orders={sales.items}
       total={sales.total}
       summary={sales.summary}

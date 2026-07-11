@@ -41,6 +41,7 @@ export default function OrderingAccountPurchasesRoute() {
       emptyTitle={t("ordering.routes.accountPurchases.no.purchases.yet")}
       emptyDescription={t("ordering.routes.accountPurchases.your.checkout.activity.and.accepted.offers")}
       orderDetailBasePath="/account/purchases"
+      kind="purchase"
       orders={purchases.items}
       total={purchases.total}
       summary={purchases.summary}

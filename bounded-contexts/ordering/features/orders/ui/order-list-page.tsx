@@ -2,6 +2,9 @@ import { t } from "@chase-sets/localization";
 import {
   Badge,
   Grid,
+  Icon,
+  Image,
+  Inline,
   LinkButton,
   MarketplaceDashboardPanel,
   MarketplaceEmptyState,
@@ -16,8 +19,14 @@ import {
 } from "@chase-sets/design-system";
 import type { OrderListSummary, PurchaseListItem, SaleListItem } from "./contracts";
 
+export type OrderListKind = "purchase" | "sale";
+
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function formatOrderDate(value: string) {
+  return new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function navigateToOrderListPage(page: number, pageSize: number) {
@@ -42,8 +51,23 @@ function statusTone(status: string) {
   }
 }
 
-function orderLabel(title: string) {
-  return title.toLowerCase().includes("sale") ? "Sale" : "Purchase";
+function orderKindLabel(kind: OrderListKind) {
+  return kind === "sale"
+    ? t("ordering.features.orders.ui.orderListPage.kind.sale")
+    : t("ordering.features.orders.ui.orderListPage.kind.purchase");
+}
+
+function orderCardHeadline(itemTitles: readonly string[]) {
+  const [primary, ...rest] = itemTitles;
+  if (!primary) {
+    return t("ordering.features.orders.ui.orderListPage.untitled.order");
+  }
+
+  return rest.length > 0
+    ? [primary, t("ordering.features.orders.ui.orderListPage.more.items", { count: rest.length })]
+        .filter(Boolean)
+        .join(" ")
+    : primary;
 }
 
 export function OrderingOrderListPage({
@@ -52,6 +76,7 @@ export function OrderingOrderListPage({
   emptyTitle,
   emptyDescription,
   orderDetailBasePath,
+  kind,
   orders,
   total,
   summary,
@@ -62,6 +87,7 @@ export function OrderingOrderListPage({
   emptyTitle: string;
   emptyDescription: string;
   orderDetailBasePath: string;
+  kind: OrderListKind;
   orders: readonly (PurchaseListItem | SaleListItem)[];
   total?: number;
   summary?: OrderListSummary;
@@ -114,39 +140,57 @@ export function OrderingOrderListPage({
               }
             />
           ) : (
-            orders.map((order) => (
-              <Surface key={order.order_id} elevated>
-                <Stack gap={3}>
-                  <Stack gap={1}>
-                    <Text weight="semibold">{orderLabel(title)}</Text>
-                    <Badge tone={statusTone(order.status)}>{order.status}</Badge>
+            orders.map((order) => {
+              const caption = [orderKindLabel(kind), formatOrderDate(order.created_at)].filter(Boolean).join(" · ");
+
+              return (
+                <Surface key={order.order_id} elevated>
+                  <Stack gap={3}>
+                    <Inline gap={3} align="center">
+                      <Image
+                        src=""
+                        alt={orderCardHeadline(order.item_titles)}
+                        fallback={<Icon name="cards" size="md" tone="tertiary" />}
+                        width={48}
+                        rounded
+                      />
+                      <Stack gap={1}>
+                        <Text weight="semibold">{orderCardHeadline(order.item_titles)}</Text>
+                        <Text size="sm" tone="secondary">
+                          {caption}
+                        </Text>
+                        <Badge tone={statusTone(order.status)}>{order.status}</Badge>
+                      </Stack>
+                    </Inline>
+                    <Grid columns={{ base: 1, sm: kind === "sale" ? 3 : 2 }} gap={3}>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">
+                          {t("ordering.features.orders.ui.orderListPage.quantity")}
+                        </Text>
+                        <Text weight="semibold">{order.total_quantity}</Text>
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">
+                          {t("ordering.features.orders.ui.orderListPage.total")}
+                        </Text>
+                        <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
+                      </Stack>
+                      {kind === "sale" ? (
+                        <Stack gap={1}>
+                          <Text size="sm" tone="secondary">
+                            {t("ordering.features.orders.ui.orderListPage.seller.payout")}
+                          </Text>
+                          <Text>{formatMoney(order.seller_payout_amount)}</Text>
+                        </Stack>
+                      ) : null}
+                    </Grid>
+                    <LinkButton href={`${orderDetailBasePath}/${order.order_id}`} tone="secondary">
+                      {t("ordering.features.orders.ui.orderListPage.open.order")}
+                    </LinkButton>
                   </Stack>
-                  <Grid columns={{ base: 1, sm: 3 }} gap={3}>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("ordering.features.orders.ui.orderListPage.quantity")}
-                      </Text>
-                      <Text weight="semibold">{order.total_quantity}</Text>
-                    </Stack>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("ordering.features.orders.ui.orderListPage.total")}
-                      </Text>
-                      <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
-                    </Stack>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("ordering.features.orders.ui.orderListPage.seller.payout")}
-                      </Text>
-                      <Text>{formatMoney(order.seller_payout_amount)}</Text>
-                    </Stack>
-                  </Grid>
-                  <LinkButton href={`${orderDetailBasePath}/${order.order_id}`} tone="secondary">
-                    {t("ordering.features.orders.ui.orderListPage.open.order")}
-                  </LinkButton>
-                </Stack>
-              </Surface>
-            ))
+                </Surface>
+              );
+            })
           )}
         </Grid>
         {showPagination ? (
