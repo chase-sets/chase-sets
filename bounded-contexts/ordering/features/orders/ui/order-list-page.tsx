@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDate, formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
   Grid,
@@ -22,7 +22,7 @@ import type { OrderListSummary, PurchaseListItem, SaleListItem } from "./contrac
 export type OrderListKind = "purchase" | "sale";
 
 function formatOrderDate(value: string) {
-  return new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return formatDate(value);
 }
 
 function navigateToOrderListPage(page: number, pageSize: number) {

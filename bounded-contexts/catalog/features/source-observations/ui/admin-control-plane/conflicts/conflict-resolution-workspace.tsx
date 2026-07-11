@@ -14,7 +14,7 @@ import {
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import type {
   CatalogPrimaryWorkbenchActionState,
   CatalogPrimaryWorkbenchBlockerCategory,
@@ -274,7 +274,7 @@ const auditColumns: DataColumn<AuditEvent>[] = [
     key: "occurred",
     header: t("catalog.features.sourceObservations.ui.conflictResolution.table.occurred"),
     mobileLabel: t("catalog.features.sourceObservations.ui.conflictResolution.table.occurred"),
-    cell: (event) => formatDateTime(event.occurredAt),
+    cell: (event) => formatWorkspaceDateTime(event.occurredAt),
   },
 ];
 
@@ -395,15 +395,12 @@ function stateLabel(state: string): string {
     .replace(/^\w/, (char) => char.toUpperCase());
 }
 
-function formatDateTime(value: string | null): string {
+function formatWorkspaceDateTime(value: string | null): string {
   if (!value) {
     return t("catalog.features.sourceObservations.ui.conflictResolution.audit.notRecorded");
   }
   try {
-    return new Intl.DateTimeFormat("en", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(value));
+    return formatDateTime(value);
   } catch {
     return value;
   }

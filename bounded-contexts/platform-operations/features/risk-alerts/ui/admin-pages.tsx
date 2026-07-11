@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -41,8 +41,8 @@ const kindItems = [
   { value: "young-buyer-spend-velocity", label: t("platformOperations.riskAlerts.kind.buyerSpendVelocity") },
 ];
 
-function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleString() : t("platformOperations.riskAlerts.notSet");
+function formatAlertDateTime(value: string | null) {
+  return value ? formatDateTime(value) : t("platformOperations.riskAlerts.notSet");
 }
 
 function statusLabel(status: string) {
@@ -138,7 +138,7 @@ export function RiskAlertAdminListPage({
             {
               key: "last",
               header: t("platformOperations.riskAlerts.lastTriggered"),
-              cell: (item) => formatDate(item.last_triggered_at),
+              cell: (item) => formatAlertDateTime(item.last_triggered_at),
             },
             {
               key: "action",
@@ -190,8 +190,14 @@ export function RiskAlertAdminDetailPage({ item }: { item: RiskAlertQueueDetail 
                   ? t("platformOperations.riskAlerts.yes")
                   : t("platformOperations.riskAlerts.no"),
               },
-              { key: t("platformOperations.riskAlerts.firstTriggered"), value: formatDate(item.first_triggered_at) },
-              { key: t("platformOperations.riskAlerts.lastTriggered"), value: formatDate(item.last_triggered_at) },
+              {
+                key: t("platformOperations.riskAlerts.firstTriggered"),
+                value: formatAlertDateTime(item.first_triggered_at),
+              },
+              {
+                key: t("platformOperations.riskAlerts.lastTriggered"),
+                value: formatAlertDateTime(item.last_triggered_at),
+              },
             ]}
           />
           <Form spacing="md" method="post">
@@ -217,7 +223,7 @@ export function RiskAlertAdminDetailPage({ item }: { item: RiskAlertQueueDetail 
             <Text size="sm" tone="secondary">
               {t("platformOperations.riskAlerts.lastAction", {
                 action: item.last_action,
-                timestamp: formatDate(item.last_action_at),
+                timestamp: formatAlertDateTime(item.last_action_at),
               })}
             </Text>
           ) : null}

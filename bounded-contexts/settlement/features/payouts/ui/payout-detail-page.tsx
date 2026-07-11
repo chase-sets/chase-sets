@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
   Card,
   Inline,
@@ -40,7 +40,7 @@ export function SettlementPayoutDetailPage({
   requestSuccess?: boolean;
   showSupportDetails?: boolean;
 }) {
-  const requestedAt = new Date(payout.requested_at).toLocaleString();
+  const requestedAt = formatDateTime(payout.requested_at);
   const transferSubmitted = Boolean(payout.provider_transfer_reference || payout.sent_at);
   const payoutSubmitted = Boolean(payout.provider_payout_reference || payout.sent_at);
   const completed = payout.status === "completed";
@@ -115,7 +115,7 @@ export function SettlementPayoutDetailPage({
                 ? [
                     {
                       label: t("settlement.features.payouts.ui.payoutDetailPage.sent"),
-                      value: new Date(payout.sent_at).toLocaleString(),
+                      value: formatDateTime(payout.sent_at),
                     },
                   ]
                 : []),
@@ -123,7 +123,7 @@ export function SettlementPayoutDetailPage({
                 ? [
                     {
                       label: t("settlement.features.payouts.ui.payoutDetailPage.completed"),
-                      value: new Date(payout.completed_at).toLocaleString(),
+                      value: formatDateTime(payout.completed_at),
                     },
                   ]
                 : []),
@@ -131,7 +131,7 @@ export function SettlementPayoutDetailPage({
                 ? [
                     {
                       label: t("settlement.features.payouts.ui.payoutDetailPage.failed"),
-                      value: new Date(payout.failed_at).toLocaleString(),
+                      value: formatDateTime(payout.failed_at),
                     },
                   ]
                 : []),
@@ -150,7 +150,7 @@ export function SettlementPayoutDetailPage({
             <MarketplaceNotice
               tone="neutral"
               title={t("settlement.features.payouts.ui.payoutDetailPage.last.provider.check")}
-              description={new Date(payout.last_reconciled_at).toLocaleString()}
+              description={formatDateTime(payout.last_reconciled_at)}
             />
           ) : null}
         </Stack>
@@ -181,7 +181,7 @@ export function SettlementPayoutDetailPage({
             {
               label: t("settlement.features.payouts.ui.payoutDetailPage.provider.event.received"),
               description: payout.last_provider_event_at
-                ? new Date(payout.last_provider_event_at).toLocaleString()
+                ? formatDateTime(payout.last_provider_event_at)
                 : t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.event"),
               status: payout.last_provider_event_at ? "complete" : "upcoming",
             },
@@ -191,7 +191,7 @@ export function SettlementPayoutDetailPage({
                 : t("settlement.features.payouts.ui.payoutDetailPage.paid.2"),
               description:
                 completed && payout.completed_at
-                  ? new Date(payout.completed_at).toLocaleString()
+                  ? formatDateTime(payout.completed_at)
                   : failed
                     ? (payout.failure_reason ??
                       payout.provider_failure_message ??
@@ -230,13 +230,13 @@ export function SettlementPayoutDetailPage({
               <Text size="sm" tone="secondary">
                 {t("settlement.features.payouts.ui.payoutDetailPage.last.provider.event")}
                 {payout.last_provider_event_at
-                  ? new Date(payout.last_provider_event_at).toLocaleString()
+                  ? formatDateTime(payout.last_provider_event_at)
                   : t("settlement.features.payouts.ui.payoutDetailPage.none")}
               </Text>
               <Text size="sm" tone="secondary">
                 {t("settlement.features.payouts.ui.payoutDetailPage.last.reconciliation.check")}
                 {payout.last_reconciled_at
-                  ? new Date(payout.last_reconciled_at).toLocaleString()
+                  ? formatDateTime(payout.last_reconciled_at)
                   : t("settlement.features.payouts.ui.payoutDetailPage.none.2")}
               </Text>
               <Text size="sm" tone="secondary">
@@ -249,7 +249,7 @@ export function SettlementPayoutDetailPage({
                           ? "settlement.features.payouts.ui.payoutDetailPage.attempt.singular"
                           : "settlement.features.payouts.ui.payoutDetailPage.attempt.plural",
                       ),
-                      nextAt: new Date(payout.next_retry_at).toLocaleString(),
+                      nextAt: formatDateTime(payout.next_retry_at),
                     })
                   : payout.retry_count > 0
                     ? t("settlement.features.payouts.ui.payoutDetailPage.retry.none.pending", {

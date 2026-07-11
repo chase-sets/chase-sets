@@ -1,4 +1,4 @@
-import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatDateTime, formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   HiddenInput,
@@ -83,10 +83,6 @@ function formatOptionalMoney(amount: string | null) {
   return amount ? formatMoney(amount, "USD") : t("marketplace.features.listings.ui.listingDetailPage.not.set");
 }
 
-function formatAllowancePercentage(bps: number) {
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
-}
-
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
     t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
@@ -96,13 +92,13 @@ function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
       amount: formatMoney(preview.seller_net_unit_amount, "USD"),
     }),
     t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.summary", {
-      percentage: formatAllowancePercentage(preview.shipping_allowance_percentage_bps),
+      percentage: formatBpsPercent(preview.shipping_allowance_percentage_bps),
     }),
   ].join(". ");
 }
 
 function formatTimestamp(value: string | null) {
-  return value ? new Date(value).toLocaleString() : t("marketplace.features.listings.ui.listingDetailPage.not.set");
+  return value ? formatDateTime(value) : t("marketplace.features.listings.ui.listingDetailPage.not.set");
 }
 
 function feeHistoryLabel(eventType: string) {
@@ -284,7 +280,7 @@ export function MarketplaceListingDetailPage({
                   },
                   {
                     key: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
-                    value: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+                    value: formatBpsPercent(listing.shipping_allowance_percentage_bps),
                   },
                 ]}
               />
@@ -306,7 +302,7 @@ export function MarketplaceListingDetailPage({
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
-                value: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+                value: formatBpsPercent(listing.shipping_allowance_percentage_bps),
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.quantity.cap"),
@@ -325,7 +321,7 @@ export function MarketplaceListingDetailPage({
                 description: t(
                   "marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping",
                   {
-                    percentage: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+                    percentage: formatBpsPercent(listing.shipping_allowance_percentage_bps),
                   },
                 ),
               },
@@ -337,9 +333,7 @@ export function MarketplaceListingDetailPage({
               },
               {
                 title: t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at"),
-                description: listing.terms_resolved_at
-                  ? new Date(listing.terms_resolved_at).toLocaleString()
-                  : t("marketplace.features.listings.ui.listingDetailPage.not.set.2"),
+                description: formatTimestamp(listing.terms_resolved_at),
               },
             ]}
           />

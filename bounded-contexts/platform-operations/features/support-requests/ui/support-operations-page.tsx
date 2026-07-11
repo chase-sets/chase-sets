@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   HiddenInput,
@@ -112,17 +112,12 @@ function priorityTone(priority: string) {
   return (priority === "urgent" ? "danger" : "neutral") satisfies SupportTone;
 }
 
-function formatDateTime(value: string | null) {
+function formatOperationsDateTime(value: string | null) {
   if (!value) {
     return t("support.features.supportRequests.ui.supportOperationsPage.not.applicable");
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  return formatDateTime(value, { preset: "short" });
 }
 
 function nextDeadline(request: SupportRequestListItem) {
@@ -386,7 +381,7 @@ function SupportOperationsQueue({
         {
           key: "deadline",
           header: t("support.features.supportRequests.ui.supportOperationsPage.next.deadline"),
-          cell: (request) => formatDateTime(nextDeadline(request)),
+          cell: (request) => formatOperationsDateTime(nextDeadline(request)),
         },
         {
           key: "checklist",
@@ -415,11 +410,11 @@ function detailRows(request: SupportRequestDetail) {
     [t("support.features.supportRequests.ui.supportOperationsPage.priority"), request.priority],
     [
       t("support.features.supportRequests.ui.supportOperationsPage.next.deadline"),
-      formatDateTime(nextDeadline(request)),
+      formatOperationsDateTime(nextDeadline(request)),
     ],
     [
       t("support.features.supportRequests.ui.supportOperationsPage.seller.condition.attestation.due"),
-      formatDateTime(request.seller_condition_attestation_due_at),
+      formatOperationsDateTime(request.seller_condition_attestation_due_at),
     ],
   ] as const;
 }
@@ -759,7 +754,7 @@ export function SupportOperationsDetailPage({
             {
               key: "submitted",
               header: t("support.features.supportRequests.ui.supportOperationsPage.submitted"),
-              cell: (item) => formatDateTime(item.submittedAt),
+              cell: (item) => formatOperationsDateTime(item.submittedAt),
             },
           ]}
         />
@@ -795,7 +790,7 @@ export function SupportOperationsDetailPage({
             {
               key: "submitted",
               header: t("support.features.supportRequests.ui.supportOperationsPage.submitted"),
-              cell: (item) => formatDateTime(item.submittedAt),
+              cell: (item) => formatOperationsDateTime(item.submittedAt),
             },
           ]}
         />

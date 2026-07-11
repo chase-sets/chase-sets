@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   Form,
   Badge,
@@ -52,10 +52,6 @@ function roleLabel(value: string) {
 
 function interestLabel(value: string) {
   return interestItems.find((item) => item.value === value)?.label ?? value;
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleString();
 }
 
 export function WaitlistAdminPage({
@@ -123,7 +119,7 @@ export function WaitlistAdminPage({
             {
               key: "updated_at",
               header: t("publicPresence.admin.updated"),
-              cell: (item) => formatDate(item.updated_at),
+              cell: (item) => formatDateTime(item.updated_at),
             },
             {
               key: "email",

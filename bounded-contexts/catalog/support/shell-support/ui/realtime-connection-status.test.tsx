@@ -17,7 +17,7 @@ describe("CatalogRealtimeConnectionStatus", () => {
 
     render(<CatalogRealtimeConnectionStatus status="stale" staleSince={staleSince} reload={reload} />);
 
-    expect(screen.getByText(`Stale since ${staleSince.toLocaleString()}`)).toBeTruthy();
+    expect(screen.getByText("Stale since Jul 9, 2026, 10:32 AM UTC")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
     expect(reload).toHaveBeenCalledOnce();

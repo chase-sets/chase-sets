@@ -464,16 +464,13 @@ export const marketplaceEnglishTranslations = {
     "Add enough available supply before accepting this match.",
   "marketplace.features.offers.ui.offerMatchDetailPage.add.to.sell.list": "Add selected offer to Sell List",
   "marketplace.features.offers.ui.offerMatchDetailPage.ask.gap": "Ask gap: ",
-  "marketplace.features.offers.ui.offerMatchDetailPage.ask.gap.unknown": "Ask gap unavailable",
   "marketplace.features.offers.ui.offerMatchDetailPage.back.to.offer.matches": "Back to offer matches",
-  "marketplace.features.offers.ui.offerMatchDetailPage.below.ask": "{amount} below ask",
   "marketplace.features.offers.ui.offerMatchDetailPage.buyer": "Buyer: ",
   "marketplace.features.offers.ui.offerMatchDetailPage.buyer.reputation": "Buyer reputation",
   "marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill": "Can fulfill",
   "marketplace.features.offers.ui.offerMatchDetailPage.inventory": "Inventory",
   "marketplace.features.offers.ui.offerMatchDetailPage.listing.price": "Listing price: ",
   "marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee": "Marketplace sales fee: ",
-  "marketplace.features.offers.ui.offerMatchDetailPage.meets.ask": "Meets ask",
   "marketplace.features.offers.ui.offerMatchDetailPage.seller.shipping.allowance": "Seller shipping allowance",
   "marketplace.features.offers.ui.offerMatchDetailPage.accepting.this.offer.earns.percentage.toward.shipping":
     "Accepting this offer earns {percentage} toward shipping. Add same-buyer matches to the Sell List first when you can fulfill a larger order.",
@@ -489,7 +486,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask":
     "Offer is {percentage} of ask, {gap}.",
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.vs.ask": "Offer vs ask: ",
-  "marketplace.features.offers.ui.offerMatchDetailPage.over.ask": "{amount} over ask",
   "marketplace.features.offers.ui.offerMatchDetailPage.quote.time": "Quote time: ",
   "marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested": "Quantity requested: ",
   "marketplace.features.offers.ui.offerMatchDetailPage.review.an.offer.match.that.matches":
@@ -508,10 +504,8 @@ export const marketplaceEnglishTranslations = {
     "Add selected offers to the Checkout Sell List, then review payment readiness, fees, payout, and fulfillment before committing the sale.",
   "marketplace.features.offers.ui.offerMatchListPage.add.to.sell.list": "Add selected offer to Sell List",
   "marketplace.features.offers.ui.offerMatchListPage.actions": "Actions",
-  "marketplace.features.offers.ui.offerMatchListPage.ask.gap.unknown": "Ask gap unavailable",
   "marketplace.features.offers.ui.offerMatchListPage.at.or.above.ask": "At or above ask",
   "marketplace.features.offers.ui.offerMatchListPage.available.quantity": "{quantity} available",
-  "marketplace.features.offers.ui.offerMatchListPage.below.ask": "{amount} below ask",
   "marketplace.features.offers.ui.offerMatchListPage.best.match": "Best match",
   "marketplace.features.offers.ui.offerMatchListPage.best.match.snapshot": "Best match snapshot",
   "marketplace.features.offers.ui.offerMatchListPage.best.match.snapshot.description":
@@ -529,7 +523,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.item": "Item",
   "marketplace.features.offers.ui.offerMatchListPage.listing": "Listing",
   "marketplace.features.offers.ui.offerMatchListPage.listing.quantity": "{visible} visible of {cap} listed",
-  "marketplace.features.offers.ui.offerMatchListPage.meets.ask": "Meets ask",
   "marketplace.features.offers.ui.offerMatchListPage.mute.buyer": "Mute buyer",
   "marketplace.features.offers.ui.offerMatchListPage.muted.buyers": "Muted buyers",
   "marketplace.features.offers.ui.offerMatchListPage.muted.buyers.appear.here":
@@ -555,7 +548,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.offer.vs.ask": "Offer vs Ask",
   "marketplace.features.offers.ui.offerMatchListPage.open": "Open",
   "marketplace.features.offers.ui.offerMatchListPage.open.next.match.to.accept": "Open next match to accept",
-  "marketplace.features.offers.ui.offerMatchListPage.over.ask": "{amount} over ask",
   "marketplace.features.offers.ui.offerMatchListPage.quantity": "Quantity",
   "marketplace.features.offers.ui.offerMatchListPage.queued": "Queued",
   "marketplace.features.offers.ui.offerMatchListPage.queued.in.your.sell.list": "queued in your Sell List.",
@@ -588,6 +580,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.unmute": "Unmute",
   "marketplace.features.offers.ui.offerMatchListPage.view.listings": "View listings",
   "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing",
+  "marketplace.features.offers.ui.priceGap.below.ask": "{amount} below ask",
+  "marketplace.features.offers.ui.priceGap.meets.ask": "Meets ask",
+  "marketplace.features.offers.ui.priceGap.over.ask": "{amount} over ask",
+  "marketplace.features.offers.ui.priceGap.unknown": "Ask gap unavailable",
   "marketplace.features.offers.ui.offerDetailRecoveryPage.no.payment.or.sale.changed":
     "No payment or sale changed while these offer details finish updating.",
   "marketplace.features.offers.ui.offerDetailRecoveryPage.recover.offer": "Recover offer details",

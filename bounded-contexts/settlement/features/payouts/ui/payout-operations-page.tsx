@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -143,7 +143,7 @@ export function SettlementPayoutOperationsPage({
             <Text size="sm" tone="secondary">
               {t("settlement.features.payouts.ui.payoutOperationsPage.last.checked")}
               {lastCheckedAt
-                ? new Date(lastCheckedAt).toLocaleString()
+                ? formatDateTime(lastCheckedAt)
                 : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked.in.this.session")}
             </Text>
             {runResult ? (
@@ -274,7 +274,7 @@ export function SettlementPayoutOperationsPage({
                 id: "last-updated",
                 label: t("settlement.features.payouts.ui.payoutOperationsPage.setup.last.updated"),
                 value: payoutReadiness.updated_at
-                  ? new Date(payoutReadiness.updated_at).toLocaleString()
+                  ? formatDateTime(payoutReadiness.updated_at)
                   : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked"),
                 detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.readiness.snapshot"),
               },
@@ -342,7 +342,7 @@ export function SettlementPayoutOperationsPage({
               header: t("settlement.features.payouts.ui.payoutOperationsPage.last.checked.2"),
               cell: (row) =>
                 row.last_reconciled_at
-                  ? new Date(row.last_reconciled_at).toLocaleString()
+                  ? formatDateTime(row.last_reconciled_at)
                   : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked"),
             },
             {
@@ -350,7 +350,7 @@ export function SettlementPayoutOperationsPage({
               header: t("settlement.features.payouts.ui.payoutOperationsPage.retry.policy"),
               cell: (row) =>
                 row.next_retry_at
-                  ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}; next ${new Date(row.next_retry_at).toLocaleString()}`
+                  ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}; next ${formatDateTime(row.next_retry_at)}`
                   : row.retry_count > 0
                     ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}`
                     : t("settlement.features.payouts.ui.payoutOperationsPage.none"),
@@ -358,7 +358,7 @@ export function SettlementPayoutOperationsPage({
             {
               key: "updated_at",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.updated"),
-              cell: (row) => new Date(row.updated_at).toLocaleString(),
+              cell: (row) => formatDateTime(row.updated_at),
             },
             {
               key: "actions",
@@ -416,7 +416,7 @@ export function SettlementPayoutOperationsPage({
             {
               key: "created",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.created"),
-              cell: (row) => new Date(row.created_at).toLocaleString(),
+              cell: (row) => formatDateTime(row.created_at),
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.payoutOperationsPage.no.provider.attempts")}

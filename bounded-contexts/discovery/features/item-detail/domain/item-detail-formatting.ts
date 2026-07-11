@@ -1,4 +1,4 @@
-import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { DiscoveryMarketListing, DiscoveryOffer } from "../../../support/client-support/contracts";
 
 export function formatFieldValue(value: unknown): string {
@@ -35,21 +35,7 @@ export function formatRelationshipType(value: string): string {
 }
 
 export function formatUpdatedAt(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return `${new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "UTC",
-  }).format(date)} UTC`;
+  return formatDateTime(value);
 }
 
 export function formatMoney(value: string | null): string {

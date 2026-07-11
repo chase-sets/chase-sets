@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -114,8 +114,8 @@ function resolveMarketplaceHref(pathname: string | null, marketplaceOrigin: stri
   return new URL(pathname, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();
 }
 
-function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleString() : t("experience.platformFeedbackAdmin.notSet");
+function formatFeedbackDateTime(value: string | null) {
+  return value ? formatDateTime(value) : t("experience.platformFeedbackAdmin.notSet");
 }
 
 function entityLabel(entity: Readonly<{ type: string; id: string }>) {
@@ -218,7 +218,7 @@ export function PlatformFeedbackAdminListPage({
               {
                 key: "submitted_at",
                 header: t("experience.platformFeedbackAdmin.submitted"),
-                cell: (item) => formatDate(item.submitted_at),
+                cell: (item) => formatFeedbackDateTime(item.submitted_at),
               },
               {
                 key: "rating",
@@ -324,7 +324,10 @@ export function PlatformFeedbackAdminDetailPage({
                     : t("experience.platformFeedbackAdmin.no"),
                 },
                 { key: t("experience.platformFeedbackAdmin.sourceRoute"), value: feedback.source_route_path },
-                { key: t("experience.platformFeedbackAdmin.submitted"), value: formatDate(feedback.submitted_at) },
+                {
+                  key: t("experience.platformFeedbackAdmin.submitted"),
+                  value: formatFeedbackDateTime(feedback.submitted_at),
+                },
               ]}
             />
             <Inset>
@@ -353,7 +356,7 @@ export function PlatformFeedbackAdminDetailPage({
                         <Text size="sm" tone="secondary">
                           {t("experience.platformFeedbackAdmin.operatorNoteAttribution", {
                             user: note.recordedByUserId,
-                            timestamp: formatDate(note.recordedAt),
+                            timestamp: formatFeedbackDateTime(note.recordedAt),
                           })}
                         </Text>
                       </Stack>
@@ -368,7 +371,10 @@ export function PlatformFeedbackAdminDetailPage({
               items={[
                 { key: t("experience.platformFeedbackAdmin.user"), value: feedback.user_id },
                 { key: t("experience.platformFeedbackAdmin.account"), value: feedback.account_id },
-                { key: t("experience.platformFeedbackAdmin.updated"), value: formatDate(feedback.updated_at) },
+                {
+                  key: t("experience.platformFeedbackAdmin.updated"),
+                  value: formatFeedbackDateTime(feedback.updated_at),
+                },
                 {
                   key: t("experience.platformFeedbackAdmin.reviewedBy"),
                   value: feedback.reviewed_by_user_id ?? t("experience.platformFeedbackAdmin.notSet"),

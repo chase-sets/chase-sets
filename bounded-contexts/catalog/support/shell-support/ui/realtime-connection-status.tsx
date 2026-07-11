@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import { Button, ConnectionStatusIndicator, type ConnectionLiveStatus } from "@chase-sets/design-system";
 
 export type CatalogRealtimeConnectionStatusProps = Readonly<{
@@ -18,7 +18,7 @@ export function CatalogRealtimeConnectionStatus({ status, staleSince, reload }: 
       liveLabel={t("catalog.support.shellSupport.ui.realtimeConnectionStatus.live")}
       connectingLabel={t("catalog.support.shellSupport.ui.realtimeConnectionStatus.connecting")}
       staleLabel={t("catalog.support.shellSupport.ui.realtimeConnectionStatus.staleSince", {
-        value: staleSince ? staleSince.toLocaleString() : "",
+        value: staleSince ? formatDateTime(staleSince.toISOString()) : "",
       })}
       staleDescription={t("catalog.support.shellSupport.ui.realtimeConnectionStatus.staleDescription")}
       action={

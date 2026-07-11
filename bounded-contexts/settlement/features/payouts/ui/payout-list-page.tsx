@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDate, formatMoney, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -58,7 +58,7 @@ function statusLabel(status: string) {
 function estimatedArrivalLabel(row: SettlementPayoutRow) {
   if (row.completed_at) {
     return t("settlement.features.payouts.ui.payoutListPage.paid.on.date", {
-      date: new Date(row.completed_at).toLocaleDateString(),
+      date: formatDate(row.completed_at),
     });
   }
   if (row.failed_at) {
@@ -380,7 +380,7 @@ export function SettlementPayoutListPage({
             {
               key: "requested_at",
               header: t("settlement.features.payouts.ui.payoutListPage.requested.2"),
-              cell: (row) => new Date(row.requested_at).toLocaleDateString(),
+              cell: (row) => formatDate(row.requested_at),
             },
             {
               key: "actions",

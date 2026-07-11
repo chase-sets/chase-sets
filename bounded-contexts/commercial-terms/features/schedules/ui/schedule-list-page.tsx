@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatMoney, t } from "@chase-sets/localization";
 import { useLocation, useNavigate } from "react-router";
 import {
   Form,
@@ -177,12 +177,12 @@ export function ScheduleListPage({
               key: "marketplace",
               header: t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee"),
               cell: (row) =>
-                `${row.marketplace_sales_fee_percentage_bps} bps + ${formatMoney(row.marketplace_sales_fee_fixed_amount, "USD")}`,
+                `${formatBpsPercent(row.marketplace_sales_fee_percentage_bps)} + ${formatMoney(row.marketplace_sales_fee_fixed_amount, "USD")}`,
             },
             {
               key: "shippingAllowance",
               header: t("commercialTerms.features.schedules.ui.scheduleListPage.shipping.allowance"),
-              cell: (row) => `${row.shipping_allowance_percentage_bps} bps`,
+              cell: (row) => formatBpsPercent(row.shipping_allowance_percentage_bps),
             },
             {
               key: "status",

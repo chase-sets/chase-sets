@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -108,8 +108,8 @@ function actionLabel(action: string) {
   }
 }
 
-function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleString() : t("platformOperations.reportedContent.notSet");
+function formatReportDateTime(value: string | null) {
+  return value ? formatDateTime(value) : t("platformOperations.reportedContent.notSet");
 }
 
 function reasonSummary(item: Pick<ReportedContentQueueItem, "reasons">) {
@@ -195,7 +195,7 @@ export function ReportedContentAdminListPage({
             {
               key: "last_reported_at",
               header: t("platformOperations.reportedContent.lastReported"),
-              cell: (item) => formatDate(item.last_reported_at),
+              cell: (item) => formatReportDateTime(item.last_reported_at),
             },
             {
               key: "action",
@@ -261,11 +261,17 @@ export function ReportedContentAdminDetailPage({
                 value: item.target_owner_account_id ?? t("platformOperations.reportedContent.notSet"),
               },
               { key: t("platformOperations.reportedContent.reports"), value: item.report_count },
-              { key: t("platformOperations.reportedContent.firstReported"), value: formatDate(item.first_reported_at) },
-              { key: t("platformOperations.reportedContent.lastReported"), value: formatDate(item.last_reported_at) },
+              {
+                key: t("platformOperations.reportedContent.firstReported"),
+                value: formatReportDateTime(item.first_reported_at),
+              },
+              {
+                key: t("platformOperations.reportedContent.lastReported"),
+                value: formatReportDateTime(item.last_reported_at),
+              },
               {
                 key: t("platformOperations.reportedContent.autoUnlistedAt"),
-                value: formatDate(item.auto_unlisted_at),
+                value: formatReportDateTime(item.auto_unlisted_at),
               },
             ]}
           />
@@ -325,7 +331,7 @@ export function ReportedContentAdminDetailPage({
             <Text size="sm" tone="secondary">
               {t("platformOperations.reportedContent.lastAction", {
                 action: actionLabel(item.last_action),
-                timestamp: formatDate(item.last_action_at),
+                timestamp: formatReportDateTime(item.last_action_at),
               })}
             </Text>
           ) : null}
@@ -340,7 +346,7 @@ export function ReportedContentAdminDetailPage({
                   <Text size="sm" tone="secondary">
                     {t("platformOperations.reportedContent.reportAttribution", {
                       reporter: report.reporterAccountId ?? report.reporterKey,
-                      timestamp: formatDate(report.submittedAt),
+                      timestamp: formatReportDateTime(report.submittedAt),
                     })}
                   </Text>
                 </Stack>

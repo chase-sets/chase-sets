@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDate, formatMoney, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -25,17 +25,7 @@ function formatReleaseDate(value: string | null) {
     return null;
   }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return formatDate(value, { preset: "long" });
 }
 
 function browseAllHref(setPage: DiscoveryBrowseSetPage) {

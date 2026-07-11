@@ -1,4 +1,4 @@
-import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
 import { navigateAfterWrite } from "@chase-sets/http/responses";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
@@ -649,7 +649,7 @@ export function InventoryImportBatchPage({
                   <Stack gap={1}>
                     <Text weight="semibold">{row.source_filename ?? row.batch_id}</Text>
                     <Text size="sm" tone="secondary">
-                      {new Date(row.updated_at).toLocaleString()}
+                      {formatDateTime(row.updated_at)}
                     </Text>
                   </Stack>
                 ),

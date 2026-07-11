@@ -1,4 +1,10 @@
-import { formatLanguageCodeLabel, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import {
+  formatBpsPercent,
+  formatDateTime,
+  formatLanguageCodeLabel,
+  formatMoney as formatMoneyDisplay,
+  t,
+} from "@chase-sets/localization";
 import { useState } from "react";
 import {
   HiddenInput,
@@ -59,10 +65,6 @@ function statusTone(status: string) {
   }
 }
 
-function formatAllowancePercentage(bps: number) {
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
-}
-
 function renderFeeSummary(listing: MarketplaceListingListItem) {
   if (!listing.marketplace_sales_fee_unit_amount && !listing.seller_net_unit_amount) {
     return t("marketplace.features.listings.ui.listingListPage.fee.quote.unavailable");
@@ -76,7 +78,7 @@ function renderFeeSummary(listing: MarketplaceListingListItem) {
       amount: formatMoney(listing.seller_net_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingListPage.buyer.shipping.credit.summary", {
-      percentage: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+      percentage: formatBpsPercent(listing.shipping_allowance_percentage_bps),
     }),
   ];
 
@@ -94,18 +96,21 @@ function termsSource(row: MarketplaceListingFeeLockReportEntry) {
 }
 
 function formatTimestamp(value: string | null) {
-  return value ? new Date(value).toLocaleString() : t("marketplace.features.listings.ui.listingListPage.not.set");
+  return value ? formatDateTime(value) : t("marketplace.features.listings.ui.listingListPage.not.set");
 }
 
-// m108 #4271: the own-account seller-metrics read is never N-gated (see
-// listing-list-page prop doc comment), but a brand-new seller's denominator
-// is legitimately zero -- the rate column is null, not a misleading 0%.
+// The own-account seller-metrics read is never N-gated (see the prop doc
+// comment below), but a brand-new seller's denominator is legitimately
+// zero -- the rate column is null, not a misleading 0%.
 function formatBehavioralMetricRate(rate: string | null) {
   if (rate === null) {
     return t("marketplace.features.listings.ui.listingListPage.not.enough.orders.yet");
   }
 
-  return new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 }).format(Number(rate));
+  // The rate is a 0-1 fraction; one basis point is 1/10000, so this renders
+  // through the canonical percent formatter at the same 0.1% precision the
+  // page always displayed.
+  return formatBpsPercent(Number(rate) * 10_000, { maximumFractionDigits: 1 });
 }
 
 function availabilityTone(status: MarketplaceSellerListingAvailability["status"]) {
@@ -196,7 +201,7 @@ export function MarketplaceListingListPage({
   filters?: Readonly<{ status: string; search: string }>;
   bulkActionOutcomes?: readonly MarketplaceListingBulkActionOutcome[] | null;
   errorMessage?: string | null;
-  /** m108 #4271: the seller's own rolling-window behavioral metrics, own-account read only -- no display gating (a seller may always see their own raw counts). Null while unauthenticated/unavailable. */
+  /** The seller's own rolling-window behavioral metrics, own-account read only -- no display gating (a seller may always see their own raw counts). Null while unauthenticated/unavailable. */
   sellerBehavioralMetrics?: SellerBehavioralMetricsSummary | null;
 }) {
   const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(new Set());
@@ -522,7 +527,7 @@ export function MarketplaceListingListPage({
                         {row.terms_resolved_at ? (
                           <Text size="sm" tone="secondary">
                             {t("marketplace.features.listings.ui.listingListPage.terms.resolved")}
-                            {new Date(row.terms_resolved_at).toLocaleString()}
+                            {formatTimestamp(row.terms_resolved_at)}
                           </Text>
                         ) : null}
                       </Stack>

@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   HiddenInput,
@@ -25,6 +25,7 @@ import {
 } from "@chase-sets/design-system";
 import type { OfferMatchDetail } from "./contracts";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
+import { formatPriceGap } from "./price-gap";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
 
 function statusTone(status: string) {
@@ -34,32 +35,6 @@ function statusTone(status: string) {
     default:
       return "neutral";
   }
-}
-
-function formatAllowancePercentage(bps: number) {
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
-}
-
-function formatPriceGap(amount: string) {
-  const value = Number(amount);
-
-  if (Number.isNaN(value)) {
-    return t("marketplace.features.offers.ui.offerMatchDetailPage.ask.gap.unknown");
-  }
-
-  if (value > 0) {
-    return t("marketplace.features.offers.ui.offerMatchDetailPage.below.ask", {
-      amount: formatMoney(value.toFixed(2), "USD"),
-    });
-  }
-
-  if (value < 0) {
-    return t("marketplace.features.offers.ui.offerMatchDetailPage.over.ask", {
-      amount: formatMoney(Math.abs(value).toFixed(2), "USD"),
-    });
-  }
-
-  return t("marketplace.features.offers.ui.offerMatchDetailPage.meets.ask");
 }
 
 function termsSourceLabel(terms: MarketplaceListingTermsPreview) {
@@ -164,7 +139,7 @@ export function MarketplaceOfferMatchDetailPage({
                 </Text>
                 <Text tone="secondary">
                   {t("marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask", {
-                    percentage: formatAllowancePercentage(offer.offer_to_listing_price_bps),
+                    percentage: formatBpsPercent(offer.offer_to_listing_price_bps),
                     gap: formatPriceGap(offer.offer_price_gap_amount),
                   })}
                 </Text>
@@ -195,7 +170,7 @@ export function MarketplaceOfferMatchDetailPage({
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.vs.ask"),
-                    value: formatAllowancePercentage(offer.offer_to_listing_price_bps),
+                    value: formatBpsPercent(offer.offer_to_listing_price_bps),
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.ask.gap"),
@@ -239,7 +214,7 @@ export function MarketplaceOfferMatchDetailPage({
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.shipping.allowance.rate"),
-                  value: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
+                  value: formatBpsPercent(acceptanceTerms.shipping_allowance_percentage_bps),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.terms.source"),
@@ -260,7 +235,7 @@ export function MarketplaceOfferMatchDetailPage({
                   ? t(
                       "marketplace.features.offers.ui.offerMatchDetailPage.accepting.this.offer.earns.percentage.toward.shipping",
                       {
-                        percentage: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
+                        percentage: formatBpsPercent(acceptanceTerms.shipping_allowance_percentage_bps),
                       },
                     )
                   : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms"),
@@ -274,7 +249,7 @@ export function MarketplaceOfferMatchDetailPage({
               {
                 title: t("marketplace.features.offers.ui.offerMatchDetailPage.quote.time"),
                 description: acceptanceTerms
-                  ? new Date(acceptanceTerms.resolved_at).toLocaleString()
+                  ? formatDateTime(acceptanceTerms.resolved_at)
                   : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms"),
               },
             ]}

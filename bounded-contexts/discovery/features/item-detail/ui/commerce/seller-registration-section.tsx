@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatBpsPercent, formatDateTime, t } from "@chase-sets/localization";
 import { useEffect } from "react";
 import {
   AccountReputationSummary,
@@ -14,7 +14,6 @@ import {
 } from "@chase-sets/design-system";
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import {
-  formatAllowancePercentage,
   formatMoneyAmount,
   formatTermsSource,
   type MarketplaceListingTermsPreview,
@@ -73,7 +72,7 @@ export function MarketplaceSellerRegistrationSection({
   const selectedOfferQuoteSource = selectedOfferQuote
     ? formatTermsSource(selectedOfferQuote)
     : t("discovery.routes.itemDetail.standard.terms");
-  const selectedOfferQuoteTime = selectedOfferQuote ? new Date(selectedOfferQuote.resolved_at).toLocaleString() : null;
+  const selectedOfferQuoteTime = selectedOfferQuote ? formatDateTime(selectedOfferQuote.resolved_at) : null;
   const hasSelectedOfferQuote = Boolean(selectedOfferQuote);
   useEffect(() => {
     if (!selectedOffer) {
@@ -226,7 +225,7 @@ export function MarketplaceSellerRegistrationSection({
                         key: t("discovery.routes.itemDetail.shipping.allowance"),
                         value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
                           amount: formatMoneyAmount(shippingAllowanceAmount),
-                          percentage: formatAllowancePercentage(selectedOfferQuote.shipping_allowance_percentage_bps),
+                          percentage: formatBpsPercent(selectedOfferQuote.shipping_allowance_percentage_bps),
                         }),
                       },
                       {
