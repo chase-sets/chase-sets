@@ -1004,7 +1004,8 @@ describeDb("discovery projection row identity", () => {
       "rating_3_count_as_buyer": 0,
       "rating_4_count_as_buyer": 0,
       "rating_5_count_as_buyer": 0,
-      "reputation_updated_at": "2026-06-12T13:04:00.000Z"
+      "reputation_updated_at": "2026-06-12T13:04:00.000Z",
+      "created_at": "2026-06-12T12:36:00.000Z"
     }
   ],
   "marketListings": [

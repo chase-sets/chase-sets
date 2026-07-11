@@ -7,6 +7,10 @@ function isDiscoverySitemapEntityKind(value: string): value is DiscoverySitemapE
   return (DISCOVERY_SITEMAP_ENTITY_KINDS as readonly string[]).includes(value);
 }
 
+function readAccountReviewRoleFilter(value: string | undefined): "seller" | "buyer" | undefined {
+  return value === "seller" || value === "buyer" ? value : undefined;
+}
+
 export function discoveryMarketRoutes(services: DiscoveryMarketServices) {
   const app = new Hono();
 
@@ -21,7 +25,11 @@ export function discoveryMarketRoutes(services: DiscoveryMarketServices) {
   });
 
   app.get("/accounts/:slug", async (c) => {
-    const account = await services.getPublicAccountBySlug(c.req.param("slug"));
+    const account = await services.getPublicAccountBySlug(c.req.param("slug"), {
+      reviewRole: readAccountReviewRoleFilter(c.req.query("role")),
+      reviewLimit: Number(c.req.query("limit") ?? 10),
+      reviewOffset: Number(c.req.query("offset") ?? 0),
+    });
 
     if (!account) {
       return c.json({ error: { code: "not_found", message: "Account not found." } }, 404);

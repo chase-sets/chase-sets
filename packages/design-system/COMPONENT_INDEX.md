@@ -243,7 +243,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Quote` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Quote. | `No production consumer yet.` |
 | `RadioGroup` | `packages/design-system/src/components/forms/radio-group.tsx` | Purpose not documented; symbol name suggests: Radio Group. | `No production consumer yet.` |
 | `Rating` | `packages/design-system/src/components/feedback/rating.tsx` | Purpose not documented; symbol name suggests: Rating. | `bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx` |
-| `RatingDistribution` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Rating Distribution. | `bounded-contexts/marketplace/features/reviews/ui/account-review-summary-page.tsx` |
+| `RatingDistribution` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Rating Distribution. | `bounded-contexts/discovery/routes/public-account.tsx` |
 | `RatingSummary` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Rating Summary. | `bounded-contexts/discovery/routes/public-account.tsx` |
 | `RecordPage` | `packages/design-system/src/patterns/app-shells/page-layouts.tsx` | Purpose not documented; symbol name suggests: Record Page. | `No production consumer yet.` |
 | `ReferenceInfoDialog` | `packages/design-system/src/components/feedback/reference-info.tsx` | Purpose not documented; symbol name suggests: Reference Info Dialog. | `bounded-contexts/catalog/features/catalog-items/ui/catalog-item-detail-page.tsx` |
