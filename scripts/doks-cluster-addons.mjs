@@ -39,6 +39,16 @@ export const pinned = {
 
 const supportedEnvironments = new Set(["staging", "production"]);
 
+// Only the staging DOKS cluster hosts previews (platform-pr.yml deploys into
+// `chase-sets-pr-<n>` namespaces on the staging cluster's kubeconfig), so
+// only the staging install needs the DNS-01 token secret and the shared
+// `*.preview.chasesets.com` wildcard Certificate. Installing them a second
+// time onto the production cluster would double ACME issuance for no reader.
+const previewEnvironment = "staging";
+export const previewDnsTokenSecretName = "digitalocean-dns-token";
+export const previewDnsTokenSecretKey = "access-token";
+export const previewDnsTokenSecretNamespace = "cert-manager";
+
 export function loadBalancerName(environment) {
   return `chase-sets-${environment}-doks-ingress`;
 }
@@ -127,9 +137,68 @@ export function planClusterAddons(options = {}) {
         "--wait",
         "--timeout",
         issuerTimeout,
+        ...(environment === previewEnvironment ? ["--set", "previewWildcardCertificate.enabled=true"] : []),
       ],
     },
   ];
+}
+
+// Pure manifest builder: never printed or logged with a real token (the
+// caller passes it straight to kubectl's stdin, never through a command-line
+// argument), so it is safe to unit test without a live cluster or secret
+// material.
+export function buildPreviewDnsTokenSecretManifest(token) {
+  if (!token || !String(token).trim()) {
+    throw new Error(
+      `DIGITALOCEAN_ACCESS_TOKEN is required to create the ${previewDnsTokenSecretName} secret that the preview wildcard certificate's DNS-01 solver reads.`,
+    );
+  }
+
+  return {
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: {
+      name: previewDnsTokenSecretName,
+      namespace: previewDnsTokenSecretNamespace,
+      labels: {
+        "app.kubernetes.io/name": "chase-sets-doks-ingress",
+        "app.kubernetes.io/component": "preview-wildcard-dns01",
+        "app.kubernetes.io/managed-by": "doks-cluster-addons",
+      },
+    },
+    type: "Opaque",
+    data: {
+      [previewDnsTokenSecretKey]: Buffer.from(String(token), "utf8").toString("base64"),
+    },
+  };
+}
+
+// Applies the manifest by piping it to `kubectl apply -f -` stdin so the
+// token value never appears in a spawned command's argv (visible in process
+// listings) or in this planner's --dry-run output. cert-manager's namespaced
+// resource (this Secret) must exist in the `cert-manager` namespace the
+// preceding "install cert-manager" step just created.
+export function applyPreviewDnsTokenSecret(options = {}) {
+  const spawnImpl = options.spawn ?? spawn;
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+  const manifest = buildPreviewDnsTokenSecretManifest(options.token);
+  const input = `${JSON.stringify(manifest)}\n`;
+
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl(kubectlPath, ["apply", "-f", "-"], {
+      stdio: ["pipe", "inherit", "inherit"],
+      windowsHide: true,
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ name: manifest.metadata.name, namespace: manifest.metadata.namespace });
+        return;
+      }
+      reject(new Error(`${kubectlPath} apply -f - exited with code ${code ?? "unknown"}.`));
+    });
+    child.stdin.end(input);
+  });
 }
 
 function runStep(step) {
@@ -199,6 +268,17 @@ async function main(argv) {
   for (const step of steps) {
     console.log(`==> ${step.name}`);
     await runStep(step);
+
+    // The preview wildcard Certificate's DNS-01 solver reads this Secret
+    // (see infrastructure/helm/doks-ingress/templates/cluster-issuer.yaml),
+    // so it must exist in the `cert-manager` namespace this step just
+    // created and before the next step installs the ClusterIssuer that
+    // references it. Only staging hosts previews.
+    if (step.name === "install cert-manager" && options.environment === previewEnvironment) {
+      console.log("==> apply preview DNS-01 token secret");
+      const applied = await applyPreviewDnsTokenSecret({ token: process.env.DIGITALOCEAN_ACCESS_TOKEN });
+      console.log(`Applied ${applied.name} secret in namespace ${applied.namespace}.`);
+    }
   }
 
   console.log(`DOKS cluster ingress add-ons installed for ${options.environment}.`);

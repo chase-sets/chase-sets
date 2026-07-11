@@ -2600,71 +2600,71 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewPostgresTemplate).toContain(".Values.global.tolerations");
   });
 
-  it("publishes and tears down per-preview DNS pointing at the DOKS ingress load balancer", () => {
+  it("#4857: previews never publish per-preview DNS or issue their own certificate", () => {
     const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
-    const publishStep = workflowStep(deployJob, "Publish preview DNS records");
 
-    // Sourced from the DOKS_INGRESS_TARGET repository variable (never hardcoded),
-    // with a resolve-from-cluster fallback against the ingress-nginx controller.
-    expect(deployJob).toContain("DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}");
-    expect(publishStep).toContain('target="${DOKS_INGRESS_TARGET:-}"');
-    expect(publishStep).toContain("kubectl --namespace ingress-nginx get service ingress-nginx-controller");
-    expect(publishStep).toContain("{.status.loadBalancer.ingress[0].ip}");
-    expect(publishStep).toContain("node ./scripts/digitalocean-preview-cleanup-sweep.mjs apply-dns");
-    expect(publishStep).toContain('--pr-number "${{ github.event.pull_request.number }}"');
-    expect(publishStep).toContain('--target "$target"');
+    // The per-PR apex + wildcard DNS publish step and the per-PR ACME
+    // certificate wait are both gone: previews resolve through the ONE
+    // shared `*.preview.chasesets.com` wildcard DNS record and TLS
+    // certificate, bootstrapped once (docs/runbooks/doks-platform-operations.md),
+    // never per-PR. A per-PR-issuance design exhausted Let's Encrypt's
+    // 50-certificates-per-168h quota and blocked every PR for three hours.
+    expect(deployJob).not.toContain("Publish preview DNS records");
+    expect(deployJob).not.toContain("apply-dns");
+    expect(deployJob).not.toContain("Wait for preview TLS certificate");
+    expect(deployJob).not.toContain("kubectl wait --for=condition=Ready");
+    expect(deployJob).not.toContain("DOKS_INGRESS_TARGET");
 
-    // DNS must exist before the Ingress is created (ACME HTTP-01) and before the
-    // ingress-URL readiness probes, so the apex + wildcard resolve.
-    const publishIndex = deployJob.indexOf("- name: Publish preview DNS records");
-    const deployIndex = deployJob.indexOf("- name: Deploy preview Kubernetes release");
-    const waitIndex = deployJob.indexOf("- name: Wait for preview ingress URLs");
-    expect(publishIndex).toBeGreaterThan(-1);
-    expect(publishIndex).toBeLessThan(deployIndex);
-    expect(deployIndex).toBeLessThan(waitIndex);
-
-    // Teardown removes the records in the closed-PR/scheduled cleanup workflow;
-    // Terraform destroy never sees them because they are created outside Terraform.
+    // Teardown still cleans up any per-preview DNS record created before this
+    // fix (created outside Terraform, so Terraform destroy never removes it);
+    // no PR closing today creates a new one for it to find.
     const destroyStep = workflowStep(platformPreviewCleanupWorkflow, "Delete preview DNS records");
     expect(destroyStep).toContain("node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns");
     expect(destroyStep).toContain('--pr-number "${{ matrix.pr_number }}"');
 
-    // Runbook documents the per-preview DNS lifecycle.
-    expect(digitaloceanPlatformRunbook).toContain(
-      "publishes this preview's own `pr-<number>.preview.chasesets.com` apex A record and a `*.pr-<number>.preview.chasesets.com` wildcard",
-    );
+    // Runbook documents the shared preview DNS + TLS design and the one-time
+    // bootstrap commands (doks-cluster-addons.mjs + apply-shared-dns).
+    expect(digitaloceanPlatformRunbook).toContain("Preview DNS And TLS");
+    expect(digitaloceanPlatformRunbook).toContain("apply-shared-dns");
+    expect(digitaloceanPlatformRunbook).toContain("preview-wildcard-tls");
+    expect(digitaloceanPlatformRunbook).toContain("copyPreviewWildcardTlsSecret");
   });
 
-  it("blocks on the preview ACME certificate before probing https ingress URLs", () => {
+  it("#4857: preview deploy copies the shared wildcard TLS secret, then a fast presence check confirms it before probing https", () => {
     const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
-    const certStep = workflowStep(deployJob, "Wait for preview TLS certificate");
+    const verifyStep = workflowStep(deployJob, "Verify preview TLS secret");
 
-    // cert-manager's ingress-shim names the Certificate after the preview TLS
-    // secret, which the preview Helm values set to "<preview>-platform-tls".
-    expect(certStep).toContain('certificate_name="${PREVIEW_IDENTIFIER}-platform-tls"');
-    expect(certStep).toContain('namespace="$CHASE_SETS_KUBERNETES_NAMESPACE"');
-    expect(certStep).toContain('kubectl wait --for=condition=Ready "certificate/${certificate_name}"');
-    expect(certStep).toContain("--timeout=600s");
-    // Timeout surfaces a clear message and dumps cert-manager diagnostics.
-    expect(certStep).toContain('kubectl describe "certificate/${certificate_name}"');
-    expect(certStep).toContain("kubectl get certificaterequests,orders,challenges");
-    expect(certStep).toContain("kubectl describe challenges");
+    // A fast presence check (single `kubectl get`), not a poll: the deploy
+    // step already copies the shared secret and fails loudly if it is
+    // missing (copyPreviewWildcardTlsSecret in platform-kubernetes-deployment.mjs).
+    expect(verifyStep).toContain('secret_name="preview-wildcard-tls"');
+    expect(verifyStep).toContain('namespace="$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(verifyStep).toContain('kubectl get "secret/${secret_name}"');
+    expect(verifyStep).not.toContain("kubectl wait");
+    expect(verifyStep).not.toContain("--timeout=600s");
 
-    // The cert wait sits after the Helm deploy issues the Ingress and before the
+    // Sits after the Helm deploy (which performs the copy) and before the
     // https ingress-URL readiness probes, which then pass quickly.
     const deployIndex = deployJob.indexOf("- name: Deploy preview Kubernetes release");
-    const certIndex = deployJob.indexOf("- name: Wait for preview TLS certificate");
+    const verifyIndex = deployJob.indexOf("- name: Verify preview TLS secret");
     const waitIndex = deployJob.indexOf("- name: Wait for preview ingress URLs");
-    expect(certIndex).toBeGreaterThan(deployIndex);
-    expect(certIndex).toBeLessThan(waitIndex);
+    expect(verifyIndex).toBeGreaterThan(deployIndex);
+    expect(verifyIndex).toBeLessThan(waitIndex);
 
-    // The app-host https /health/ready probes remain the final end-to-end gate.
+    // The app-host https /health/ready probes remain the final end-to-end gate,
+    // now against single-label hosts.
     const waitStep = workflowStep(deployJob, "Wait for preview ingress URLs");
+    expect(waitStep).toContain('admin_domain="${PREVIEW_IDENTIFIER}-admin.preview.chasesets.com"');
+    expect(waitStep).toContain('marketplace_domain="${PREVIEW_IDENTIFIER}-marketplace.preview.chasesets.com"');
     expect(waitStep).toContain('"https://${admin_domain}/health/ready"');
     expect(waitStep).toContain('"https://${marketplace_domain}/health/ready"');
 
-    // The preview TLS certificate secret name matches the derived resource name.
-    expect(renderPlatformHelmValuesScript).toContain("secretName: `${previewIdentifier}-platform-tls`");
+    // Every preview namespace references the same shared secret name, not a
+    // per-preview derived name.
+    expect(renderPlatformHelmValuesScript).toContain(
+      'export const previewWildcardTlsSecretName = "preview-wildcard-tls"',
+    );
+    expect(renderPlatformHelmValuesScript).not.toContain("secretName: `${previewIdentifier}-platform-tls`");
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
