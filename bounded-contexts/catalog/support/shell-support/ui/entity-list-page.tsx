@@ -34,6 +34,7 @@ interface EntityListPageProps<T> {
   getRowId: (row: T) => string;
   getHref: (row: T) => string;
   createButton?: ReactNode;
+  headerActions?: ReactNode;
   search?: string;
   onSearchChange?: (value: string) => void;
   statusFilter?: string;
@@ -62,6 +63,7 @@ export function EntityListPage<T>({
   getRowId,
   getHref,
   createButton,
+  headerActions,
   search,
   onSearchChange,
   statusFilter,
@@ -132,7 +134,7 @@ export function EntityListPage<T>({
 
   return (
     <Page>
-      <PageHeader title={title} />
+      <PageHeader title={title} actions={headerActions} />
       <Stack gap={4}>
         {createButton ? <ActionBar>{createButton}</ActionBar> : null}
         {filterControls.length > 0 && (

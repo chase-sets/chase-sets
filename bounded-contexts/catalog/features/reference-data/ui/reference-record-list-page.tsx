@@ -7,6 +7,7 @@ import {
   Combobox,
   Dialog,
   Inline,
+  LinkButton,
   Select,
   Stack,
   StatusPill,
@@ -18,6 +19,7 @@ import {
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
@@ -239,6 +241,11 @@ export function ReferenceRecordListPage({
           <Button onClick={() => setShowCreate(true)}>
             {t("catalog.features.referenceData.ui.referenceRecordListPage.new.reference.record")}
           </Button>
+        }
+        headerActions={
+          <LinkButton href={toCatalogAdminHref("/reference-types")} tone="secondary">
+            {t("catalog.features.referenceData.ui.referenceRecordListPage.manage.reference.types")}
+          </LinkButton>
         }
       />
       <Dialog

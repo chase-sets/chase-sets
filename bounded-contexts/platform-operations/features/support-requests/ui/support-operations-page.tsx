@@ -33,6 +33,7 @@ type SupportOperationsPageProps = Readonly<{
   unavailableMessage?: string | null;
   escalationResult?: Readonly<{ escalated: number; skipped: number; capped: boolean; total: number }> | null;
   actionError?: string | null;
+  marketplaceOrigin?: string | null;
 }>;
 
 type SupportTone = "neutral" | "warning" | "danger";
@@ -260,7 +261,70 @@ function actionResultMessage(actionResult: string | null | undefined) {
   }
 }
 
-function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly SupportRequestListItem[] }>) {
+function orderMarketplacePathnames(orderId: string) {
+  return {
+    purchase: `/account/purchases/${orderId}`,
+    sale: `/account/sales/${orderId}`,
+  };
+}
+
+function resolveOrderMarketplaceHref(pathname: string, marketplaceOrigin: string | null | undefined) {
+  if (!marketplaceOrigin) {
+    return null;
+  }
+
+  return new URL(pathname, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();
+}
+
+function OrderMarketplaceLinks({
+  orderId,
+  marketplaceOrigin,
+}: Readonly<{ orderId: string; marketplaceOrigin?: string | null }>) {
+  const pathnames = orderMarketplacePathnames(orderId);
+  const purchaseHref = resolveOrderMarketplaceHref(pathnames.purchase, marketplaceOrigin);
+  const saleHref = resolveOrderMarketplaceHref(pathnames.sale, marketplaceOrigin);
+
+  return (
+    <Stack gap={1}>
+      <Text element="span" size="sm" wrap="anywhere">
+        {orderId}
+      </Text>
+      {purchaseHref && saleHref ? (
+        <Inline gap={1}>
+          <LinkButton
+            href={purchaseHref}
+            size="sm"
+            tone="secondary"
+            target="_blank"
+            rel="noreferrer"
+            trailingIcon="externalLink"
+          >
+            {t("support.features.supportRequests.ui.supportOperationsPage.order.viewPurchase")}
+          </LinkButton>
+          <LinkButton
+            href={saleHref}
+            size="sm"
+            tone="secondary"
+            target="_blank"
+            rel="noreferrer"
+            trailingIcon="externalLink"
+          >
+            {t("support.features.supportRequests.ui.supportOperationsPage.order.viewSale")}
+          </LinkButton>
+        </Inline>
+      ) : (
+        <Badge tone="warning">
+          {t("support.features.supportRequests.ui.supportOperationsPage.order.marketplaceLinkUnavailable")}
+        </Badge>
+      )}
+    </Stack>
+  );
+}
+
+function SupportOperationsQueue({
+  requests,
+  marketplaceOrigin,
+}: Readonly<{ requests: readonly SupportRequestListItem[]; marketplaceOrigin?: string | null }>) {
   if (requests.length === 0) {
     return (
       <EmptyState
@@ -295,7 +359,7 @@ function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly Supp
         {
           key: "order",
           header: t("support.features.supportRequests.ui.supportOperationsPage.order"),
-          cell: (request) => request.order_id,
+          cell: (request) => <OrderMarketplaceLinks orderId={request.order_id} marketplaceOrigin={marketplaceOrigin} />,
         },
         {
           key: "accounts",
@@ -347,7 +411,6 @@ function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly Supp
 function detailRows(request: SupportRequestDetail) {
   return [
     [t("support.features.supportRequests.ui.supportOperationsPage.issue"), request.flow_type],
-    [t("support.features.supportRequests.ui.supportOperationsPage.order"), request.order_id],
     [t("support.features.supportRequests.ui.supportOperationsPage.status"), request.status],
     [t("support.features.supportRequests.ui.supportOperationsPage.priority"), request.priority],
     [
@@ -393,10 +456,12 @@ export function SupportOperationsDetailPage({
   request,
   actionError,
   actionResult,
+  marketplaceOrigin,
 }: Readonly<{
   request: SupportRequestDetail;
   actionError?: string | null;
   actionResult?: string | null;
+  marketplaceOrigin?: string | null;
 }>) {
   const successMessage = actionResultMessage(actionResult);
   const canMutate = !isTerminalStatus(request.status);
@@ -441,6 +506,12 @@ export function SupportOperationsDetailPage({
       <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.detail.summary")}>
         <Surface>
           <Stack gap={3}>
+            <Cluster align="start" justify="between" gap={1}>
+              <Text size="sm" weight="semibold">
+                {t("support.features.supportRequests.ui.supportOperationsPage.order")}
+              </Text>
+              <OrderMarketplaceLinks orderId={request.order_id} marketplaceOrigin={marketplaceOrigin} />
+            </Cluster>
             {detailRows(request).map(([label, value]) => (
               <Cluster key={label} align="start" justify="between" gap={1}>
                 <Text size="sm" weight="semibold">
@@ -774,6 +845,7 @@ export function SupportOperationsPage({
   unavailableMessage,
   escalationResult,
   actionError,
+  marketplaceOrigin,
 }: SupportOperationsPageProps) {
   const pageSize = pagination?.limit ?? queue.items.length;
   const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
@@ -912,7 +984,7 @@ export function SupportOperationsPage({
               </RouterForm>
             </Cluster>
           </Surface>
-          <SupportOperationsQueue requests={queue.items} />
+          <SupportOperationsQueue requests={queue.items} marketplaceOrigin={marketplaceOrigin} />
           {showPagination ? (
             <Pagination
               page={currentPage}
