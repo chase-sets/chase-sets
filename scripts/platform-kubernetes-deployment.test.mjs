@@ -11,6 +11,9 @@ import {
   buildKubernetesRollbackTarget,
   buildNamespaceDeleteArgs,
   buildNamespaceGetArgs,
+  buildPreviewWildcardSecretApplyArgs,
+  buildPreviewWildcardSecretGetArgs,
+  copyPreviewWildcardTlsSecret,
   deployPlatformToKubernetes,
   helmReleaseExists,
   parsePlatformImageRef,
@@ -18,6 +21,7 @@ import {
   platformValuesPathForEnvironment,
   platformKubernetesWorkloads,
   rollbackPlatformOnKubernetes,
+  sanitizeCopiedSecretManifest,
   teardownPlatformKubernetesNamespace,
 } from "./platform-kubernetes-deployment.mjs";
 
@@ -35,6 +39,7 @@ function successfulSpawn(calls) {
   return (command, args, options) => {
     calls.push({ command, args, options });
     const child = new EventEmitter();
+    child.stdin = { end: () => {} };
     queueMicrotask(() => child.emit("close", 0));
     return child;
   };
@@ -47,6 +52,7 @@ function completedSpawn(calls, completions) {
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
+    child.stdin = { end: (input) => calls[calls.length - 1] && (calls[calls.length - 1].stdin = input) };
     queueMicrotask(() => {
       if (completion.stdout) {
         child.stdout.emit("data", completion.stdout);
@@ -389,11 +395,173 @@ describe("platform Kubernetes deployment", () => {
         "--set-string",
         "doksIngress.hosts[0].host=pr-123.preview.chasesets.com",
         "--set-string",
-        "doksIngress.hosts[1].host=marketplace.pr-123.preview.chasesets.com",
+        "doksIngress.hosts[1].host=pr-123-marketplace.preview.chasesets.com",
         "--set-string",
-        "doksIngress.hosts[2].host=admin.pr-123.preview.chasesets.com",
+        "doksIngress.hosts[2].host=pr-123-admin.preview.chasesets.com",
+        "--set-string",
+        "doksIngress.clusterIssuer=",
+        "--set-string",
+        "doksIngress.tls.secretName=preview-wildcard-tls",
       ]),
     );
+  });
+
+  // #4857: previews copy the ONE shared *.preview.chasesets.com wildcard TLS
+  // secret from the cert-manager namespace into their own namespace instead
+  // of asking cert-manager to issue their own certificate. A per-preview
+  // issuance design exhausted Let's Encrypt's 50-certificates-per-168h quota
+  // and blocked every PR behind "PR Required" for three hours.
+  describe("preview wildcard TLS secret copy", () => {
+    it("reads the shared secret from cert-manager and applies it into the target namespace", () => {
+      expect(buildPreviewWildcardSecretGetArgs({})).toEqual([
+        "get",
+        "secret",
+        "preview-wildcard-tls",
+        "--namespace",
+        "cert-manager",
+        "--output",
+        "json",
+      ]);
+      expect(buildPreviewWildcardSecretApplyArgs({ namespace: "chase-sets-pr-123" })).toEqual([
+        "apply",
+        "--namespace",
+        "chase-sets-pr-123",
+        "-f",
+        "-",
+      ]);
+    });
+
+    it("strips cluster/revision identity so the copy applies cleanly into a new namespace", () => {
+      const sourceSecret = {
+        apiVersion: "v1",
+        kind: "Secret",
+        metadata: {
+          name: "preview-wildcard-tls",
+          namespace: "cert-manager",
+          resourceVersion: "999",
+          uid: "abc-123",
+          creationTimestamp: "2026-07-01T00:00:00Z",
+          generation: 3,
+          ownerReferences: [{ kind: "Certificate", name: "preview-wildcard" }],
+          managedFields: [{ manager: "cert-manager" }],
+          annotations: { "kubectl.kubernetes.io/last-applied-configuration": "{}", "cert-manager.io/foo": "bar" },
+        },
+        type: "kubernetes.io/tls",
+        data: { "tls.crt": "ZmFrZQ==", "tls.key": "ZmFrZQ==" },
+      };
+
+      const sanitized = sanitizeCopiedSecretManifest(JSON.stringify(sourceSecret));
+
+      expect(sanitized).toEqual({
+        apiVersion: "v1",
+        kind: "Secret",
+        metadata: {
+          name: "preview-wildcard-tls",
+          annotations: { "cert-manager.io/foo": "bar" },
+        },
+        type: "kubernetes.io/tls",
+        data: { "tls.crt": "ZmFrZQ==", "tls.key": "ZmFrZQ==" },
+      });
+    });
+
+    it("rejects a manifest that is not a Secret", () => {
+      expect(() => sanitizeCopiedSecretManifest({ kind: "ConfigMap" })).toThrow(
+        "Expected a Kubernetes Secret manifest to copy.",
+      );
+    });
+
+    it("copies the secret with a get then an apply, piping the manifest over stdin (never a command argument)", async () => {
+      const calls = [];
+      const sourceSecret = {
+        apiVersion: "v1",
+        kind: "Secret",
+        metadata: { name: "preview-wildcard-tls", namespace: "cert-manager", resourceVersion: "1" },
+        type: "kubernetes.io/tls",
+        data: { "tls.crt": "ZmFrZQ==", "tls.key": "ZmFrZQ==" },
+      };
+
+      const result = await copyPreviewWildcardTlsSecret({
+        namespace: "chase-sets-pr-123",
+        spawn: completedSpawn(calls, [{ code: 0, stdout: JSON.stringify(sourceSecret) }, { code: 0 }]),
+      });
+
+      expect(result).toEqual({ name: "preview-wildcard-tls", namespace: "chase-sets-pr-123" });
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toMatchObject({
+        command: "kubectl",
+        args: ["get", "secret", "preview-wildcard-tls", "--namespace", "cert-manager", "--output", "json"],
+      });
+      expect(calls[1]).toMatchObject({
+        command: "kubectl",
+        args: ["apply", "--namespace", "chase-sets-pr-123", "-f", "-"],
+      });
+      // The manifest travels over stdin, never as a command-line argument
+      // (which would be visible in process listings and CI logs).
+      const appliedManifest = JSON.parse(calls[1].stdin);
+      expect(appliedManifest.metadata.namespace).toBeUndefined();
+      expect(appliedManifest.metadata.resourceVersion).toBeUndefined();
+      expect(appliedManifest.data).toEqual({ "tls.crt": "ZmFrZQ==", "tls.key": "ZmFrZQ==" });
+      expect(calls[1].args.join(" ")).not.toContain("tls.crt");
+    });
+
+    it("fails with a message pointing at the bootstrap runbook when the shared secret has not been bootstrapped yet", async () => {
+      await expect(
+        copyPreviewWildcardTlsSecret({
+          namespace: "chase-sets-pr-123",
+          spawn: completedSpawn(
+            [],
+            [{ code: 1, stderr: 'Error from server (NotFound): secrets "preview-wildcard-tls" not found' }],
+          ),
+        }),
+      ).rejects.toThrow(/doks-cluster-addons\.mjs --environment staging/);
+    });
+
+    it("runs the secret copy before the Helm upgrade for a preview deploy, and never for staging/production", async () => {
+      const previewCalls = [];
+      const previewSecret = {
+        apiVersion: "v1",
+        kind: "Secret",
+        metadata: { name: "preview-wildcard-tls", namespace: "cert-manager" },
+        type: "kubernetes.io/tls",
+        data: { "tls.crt": "ZmFrZQ==" },
+      };
+      await deployPlatformToKubernetes({
+        values: sampleValues,
+        release: "chase-sets-pr-123",
+        namespace: "chase-sets-pr-123",
+        timeout: "15m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:pr-123",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-123" },
+        spawn: completedSpawn(previewCalls, [{ code: 0, stdout: JSON.stringify(previewSecret) }]),
+      });
+
+      const commandSequence = previewCalls.map((call) => call.command);
+      expect(commandSequence.slice(0, 3)).toEqual(["kubectl", "kubectl", "helm"]);
+      expect(previewCalls[0].args).toEqual([
+        "get",
+        "secret",
+        "preview-wildcard-tls",
+        "--namespace",
+        "cert-manager",
+        "--output",
+        "json",
+      ]);
+      expect(previewCalls[1].args).toEqual(["apply", "--namespace", "chase-sets-pr-123", "-f", "-"]);
+
+      const stagingCalls = [];
+      await deployPlatformToKubernetes({
+        values: sampleValues,
+        release: "staging-platform",
+        namespace: "staging",
+        timeout: "12m",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+        spawn: successfulSpawn(stagingCalls),
+      });
+      // Staging/production never copy the preview wildcard secret; their
+      // existing per-environment cert-manager-issued certificate is untouched.
+      expect(stagingCalls.some((call) => call.args.includes("preview-wildcard-tls"))).toBe(false);
+    });
   });
 
   it("pins preview workloads to the dedicated preview node pool and keeps other environments off it", () => {
