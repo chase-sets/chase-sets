@@ -119,6 +119,20 @@ ALTER TABLE marketplace_review_eligibility_pages
 
 CREATE INDEX IF NOT EXISTS marketplace_review_eligibility_author_idx
   ON marketplace_review_eligibility_pages (author_account_id, eligible_at DESC, order_id DESC);
+
+-- Post-delivery review nudges (m108, #4270). Both columns are scoped to the
+-- eligibility row's PK (order_id, author_account_id, subject_account_id), so
+-- suspension (row DELETE) followed by restoration (fresh row INSERT) always
+-- starts a new, unnotified arm -- "restored eligibility re-arms them" falls
+-- out of the eligibility lifecycle already implemented in eligibility-sync.ts
+-- for free, with no separate cancellation bookkeeping required.
+-- The reminder-sweep index (marketplace_review_eligibility_pages_reminder_idx)
+-- is created by the 20260711_marketplace_review_nudge_reminder_index schema
+-- migration below; boot-time indexes on migration-added columns are
+-- forbidden.
+ALTER TABLE marketplace_review_eligibility_pages
+  ADD COLUMN IF NOT EXISTS opportunity_notified_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS reminder_notified_at timestamptz NULL;
 `;
 
 export const reviewSchemaMigrations: readonly BcSchemaMigration[] = [
@@ -160,6 +174,16 @@ export const reviewSchemaMigrations: readonly BcSchemaMigration[] = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_review_pages_pending_reveal_idx
   ON marketplace_review_pages (review_window_expires_at ASC, review_id ASC)
   WHERE status = 'active' AND revealed_at IS NULL`,
+    ],
+  },
+  {
+    migrationId: "20260711_marketplace_review_nudge_reminder_index",
+    description: "Add the reminder-sweep candidate index on marketplace_review_eligibility_pages (m108, #4270).",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_review_eligibility_pages_reminder_idx
+  ON marketplace_review_eligibility_pages (eligible_at ASC, order_id ASC)
+  WHERE reminder_notified_at IS NULL`,
     ],
   },
 ];

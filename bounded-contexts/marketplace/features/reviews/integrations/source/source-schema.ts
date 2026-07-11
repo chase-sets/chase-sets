@@ -30,6 +30,16 @@ CREATE TABLE IF NOT EXISTS marketplace_review_order_sources (
   ready_for_fulfillment_at timestamptz NULL
 );
 
+-- Snapshot of the buyer's shipping email captured from ordering.order.created
+-- (m108, #4270): review-opportunity/reminder notifications to the buyer ride
+-- this the same way ordering/fulfillment notification intents already do --
+-- no new cross-context email lookup, just reading a field this projection
+-- already receives on an event it already subscribes to. Sellers are
+-- notified web-only, mirroring every other seller-directed notification
+-- intent in the platform (no seller email plumbing exists anywhere yet).
+ALTER TABLE marketplace_review_order_sources
+  ADD COLUMN IF NOT EXISTS buyer_email text NULL;
+
 CREATE INDEX IF NOT EXISTS marketplace_review_order_sources_buyer_idx
   ON marketplace_review_order_sources (buyer_account_id, updated_at DESC, order_id DESC);
 

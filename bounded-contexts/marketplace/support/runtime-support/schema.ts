@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { marketplaceListingSchemaSql } from "../../features/listings/read-model/schema";
@@ -11,6 +12,10 @@ import { marketplaceSellerMetricsSummarySchemaSql } from "../../features/seller-
 
 export const marketplaceSchemaSql = [
   eventCorePostgresSchemaSql,
+  // Post-delivery review nudges (m108) ride the shared notification
+  // outbox, owned locally by this context like discovery's product-alert
+  // notifications -- see infrastructure/notification-outbox.
+  notificationOutboxSchemaSql,
   marketplaceSupplyProjectionSchemaSql,
   marketplaceListingSchemaSql,
   marketplaceOfferSchemaSql,

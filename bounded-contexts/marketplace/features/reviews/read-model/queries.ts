@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { REVIEW_WINDOW_DAYS } from "../domain/common";
+import { REVIEW_NUDGE_REMINDER_DELAY_DAYS, REVIEW_WINDOW_DAYS } from "../domain/common";
 
 export type ReviewListRow = Readonly<{
   review_id: string;
@@ -628,6 +628,55 @@ export async function getReviewOrderBuyerEmail(db: PgQueryable, orderId: string)
   );
 
   return result.rows[0]?.buyer_email ?? null;
+}
+
+export type ReviewOpportunityReminderCandidateRow = Readonly<{
+  order_id: string;
+  author_account_id: string;
+  subject_account_id: string;
+  author_role: string;
+  eligible_at: string;
+}>;
+
+/**
+ * Post-delivery review nudge reminder sweep (m108): eligibility rows
+ * old enough for a reminder, not yet reminded, still inside the submission
+ * window, and with no active review submitted yet. Mirrors the review-window
+ * expiry sweep's read-then-command pattern rather than inventing new
+ * scheduling -- the caller enqueues the reminder notification and then marks
+ * `reminder_notified_at`, which is what makes a re-run of this same query
+ * idempotent (a crash between enqueue and mark just re-selects the same row
+ * next sweep, and the notification outbox's own idempotencyKey collapses the
+ * repeat enqueue into a no-op).
+ */
+export async function listReviewOpportunityReminderCandidates(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly ReviewOpportunityReminderCandidateRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const result = await db.query<ReviewOpportunityReminderCandidateRow>(
+    `SELECT
+       eligibility.order_id,
+       eligibility.author_account_id,
+       eligibility.subject_account_id,
+       eligibility.author_role,
+       eligibility.eligible_at::text AS eligible_at
+     FROM marketplace_review_eligibility_pages AS eligibility
+     LEFT JOIN marketplace_review_pages AS active
+       ON active.order_id = eligibility.order_id
+      AND active.author_account_id = eligibility.author_account_id
+      AND active.subject_account_id = eligibility.subject_account_id
+      AND active.status = 'active'
+     WHERE eligibility.reminder_notified_at IS NULL
+       AND active.review_id IS NULL
+       AND eligibility.eligible_at + INTERVAL '${REVIEW_NUDGE_REMINDER_DELAY_DAYS} days' <= $1::timestamptz
+       AND eligibility.eligible_at + INTERVAL '${REVIEW_WINDOW_DAYS} days' > $1::timestamptz
+     ORDER BY eligibility.eligible_at ASC, eligibility.order_id ASC
+     LIMIT $2`,
+    [params.now, limit],
+  );
+
+  return result.rows;
 }
 
 /** Marks the reminder as sent so the sweep never re-selects this row. */

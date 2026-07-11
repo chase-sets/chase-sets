@@ -1,7 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { syncReviewEligibilityForOrder } from "./eligibility-sync";
+import { syncReviewEligibilityForOrder, type ReviewEligibilityNotify } from "./eligibility-sync";
 
 const ID_SUFFIX_LABEL_LENGTH = 24;
 
@@ -130,13 +130,17 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
   };
 }
 
-export function buildReviewOrderSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildReviewOrderSourceProjectionHandlers(
+  db: PgQueryable,
+  notify?: ReviewEligibilityNotify,
+): ProjectorHandlerMap {
   return {
     "ordering.order.created": async (event) => {
       const data = event.data as {
         orderId: string;
         buyerAccountId: string;
         sellerAccountId: string;
+        shippingDestinationSnapshot?: Readonly<{ email?: string | null }>;
       };
 
       await db.query(
@@ -148,20 +152,28 @@ export function buildReviewOrderSourceProjectionHandlers(db: PgQueryable): Proje
            created_at,
            updated_at,
            cancelled_at,
-           ready_for_fulfillment_at
-         ) VALUES ($1, $2, $3, 'pending-reservation', $4, $4, NULL, NULL)
+           ready_for_fulfillment_at,
+           buyer_email
+         ) VALUES ($1, $2, $3, 'pending-reservation', $4, $4, NULL, NULL, $5)
          ON CONFLICT (order_id) DO UPDATE SET
            buyer_account_id = EXCLUDED.buyer_account_id,
            seller_account_id = EXCLUDED.seller_account_id,
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at,
-           cancelled_at = EXCLUDED.cancelled_at`,
-        [data.orderId, data.buyerAccountId, data.sellerAccountId, event.timing.recordedAt],
+           cancelled_at = EXCLUDED.cancelled_at,
+           buyer_email = EXCLUDED.buyer_email`,
+        [
+          data.orderId,
+          data.buyerAccountId,
+          data.sellerAccountId,
+          event.timing.recordedAt,
+          data.shippingDestinationSnapshot?.email ?? null,
+        ],
       );
 
       // The shipment projection drops the eligibility upsert when the order
       // source row has not landed yet, so heal that race once the order shows up.
-      await syncReviewEligibilityForOrder(db, data.orderId, event.timing.recordedAt);
+      await syncReviewEligibilityForOrder(db, data.orderId, event.timing.recordedAt, notify);
     },
     "ordering.order.pending-payment-recorded": async (event) => {
       const data = event.data as {
@@ -304,7 +316,10 @@ export function buildReviewShipmentSourceProjectionHandlers(
   };
 }
 
-export function buildReviewSupportSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildReviewSupportSourceProjectionHandlers(
+  db: PgQueryable,
+  notify?: ReviewEligibilityNotify,
+): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
       const data = event.data as { supportRequestId: string; orderId: string; openedAt: string };
@@ -333,7 +348,7 @@ export function buildReviewSupportSourceProjectionHandlers(db: PgQueryable): Pro
         [data.supportRequestId, data.orderId, data.openedAt],
       );
 
-      await syncReviewEligibilityForOrder(db, data.orderId, data.openedAt);
+      await syncReviewEligibilityForOrder(db, data.orderId, data.openedAt, notify);
     },
     "support.support-request.cancelled": async (event) => {
       const data = event.data as { supportRequestId: string; orderId: string; cancelledAt: string };
@@ -361,7 +376,7 @@ export function buildReviewSupportSourceProjectionHandlers(db: PgQueryable): Pro
         [data.supportRequestId, data.orderId, data.cancelledAt],
       );
 
-      await syncReviewEligibilityForOrder(db, data.orderId, data.cancelledAt);
+      await syncReviewEligibilityForOrder(db, data.orderId, data.cancelledAt, notify);
     },
     "support.support-request.resolved": async (event) => {
       const data = event.data as {
@@ -400,7 +415,7 @@ export function buildReviewSupportSourceProjectionHandlers(db: PgQueryable): Pro
         ],
       );
 
-      await syncReviewEligibilityForOrder(db, data.orderId, data.resolution.resolvedAt);
+      await syncReviewEligibilityForOrder(db, data.orderId, data.resolution.resolvedAt, notify);
     },
   };
 }

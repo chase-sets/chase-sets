@@ -116,7 +116,8 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
           },
           "ordering.marketplace-review-order-source-projection": {
             subscriptionName: "marketplace.review-order-source-projection",
-            buildHandlers: () => buildReviewOrderSourceProjectionHandlers(services.db),
+            buildHandlers: () =>
+              buildReviewOrderSourceProjectionHandlers(services.db, { outbox: services.notificationOutbox }),
           },
           "fulfillment.marketplace-review-shipment-source-projection": {
             subscriptionName: "marketplace.review-shipment-source-projection",
@@ -127,7 +128,8 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
           },
           "platform-operations.marketplace-review-support-source-projection": {
             subscriptionName: "marketplace.review-support-source-projection",
-            buildHandlers: () => buildReviewSupportSourceProjectionHandlers(services.db),
+            buildHandlers: () =>
+              buildReviewSupportSourceProjectionHandlers(services.db, { outbox: services.notificationOutbox }),
           },
           "ordering.marketplace-seller-metrics-order-source-projection": {
             subscriptionName: "marketplace.seller-metrics-order-source-projection",

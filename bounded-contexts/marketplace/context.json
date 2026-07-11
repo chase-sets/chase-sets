@@ -357,6 +357,14 @@
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only",
       "sideEffectOnly": true
+    },
+    {
+      "projectionName": "marketplace-review-notification-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only",
+      "sideEffectOnly": true
     }
   ],
   "hostPorts": [
@@ -374,6 +382,11 @@
       "portName": "rateLimitPolicyResolver",
       "providedBy": "platform-operations",
       "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous listing-draft capture and the public standard-terms preview without Marketplace querying Platform Operations storage."
+    },
+    {
+      "portName": "notificationOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable notification outbox consumed by post-delivery review-opportunity, reminder, and reveal-notice nudges (m108, #4270) and dispatched through channel adapters."
     }
   ],
   "apiDeployables": ["platform-api"],

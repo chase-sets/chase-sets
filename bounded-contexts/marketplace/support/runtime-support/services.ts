@@ -7,6 +7,8 @@ import {
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
+import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
+import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { ListingPhotoStorage } from ".";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
@@ -20,6 +22,8 @@ export type MarketplaceServiceOptions = Readonly<{
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
+  /** Post-delivery review nudges (m108) ride this outbox. */
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type MarketplaceServices = Readonly<{
@@ -33,6 +37,7 @@ export type MarketplaceServices = Readonly<{
   projectors: readonly ProjectionHandlerSet[];
   commercialTermsResolver: CommercialTermsResolver;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
+  notificationOutbox: NotificationOutbox;
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
@@ -48,6 +53,7 @@ export function createMarketplaceServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const commercialTermsResolver = options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db);
+  const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const policies = createPolicyRuntime({ eventStore, db });
   const deps = {
     eventStore,
@@ -67,6 +73,7 @@ export function createMarketplaceServices(
     eventStore,
     checkpointStore,
     db,
+    notificationOutbox,
   });
   const sellerMetrics = createSellerMetricsRuntime({ db, policies });
 
@@ -80,6 +87,7 @@ export function createMarketplaceServices(
     projectors: [...listings.projectors, ...offers.projectors, ...reviews.projectors, ...policies.projectors],
     commercialTermsResolver,
     rateLimitPolicyResolver: options.rateLimitPolicyResolver,
+    notificationOutbox,
     pool,
     db,
   };

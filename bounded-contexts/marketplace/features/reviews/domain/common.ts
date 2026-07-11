@@ -15,6 +15,13 @@ export type ReviewRole = "buyer" | "seller";
 // in the milestone.
 export const REVIEW_WINDOW_DAYS = 60;
 
+// Post-delivery review nudge (m108): a single reminder fires this many
+// days after eligibility if the author has not submitted yet and the
+// submission window (REVIEW_WINDOW_DAYS) is still open. One reminder per
+// order per direction -- the sweep marks `reminder_notified_at` the moment it
+// enqueues, so it never fires twice for the same eligibility grant.
+export const REVIEW_NUDGE_REMINDER_DELAY_DAYS = 7;
+
 export type ReviewRevealReason = "counterpart-submitted" | "window-expired";
 
 export type ReviewSummary = Readonly<{
