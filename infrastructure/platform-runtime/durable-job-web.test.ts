@@ -120,4 +120,50 @@ describe("durable job web subscriptions", () => {
 
     subscription.close();
   });
+
+  it("reports connection open/dropped transitions without conflating them with job status", () => {
+    const states: boolean[] = [];
+    const subscription = subscribeDurableJobStatus({
+      url: "/api/platform/projections/operations/op_1/events",
+      onStatus: () => undefined,
+      onConnectionStateChange: (connected) => states.push(connected),
+      reconnectDelayMs: 500,
+    });
+
+    FakeEventSource.instances[0]?.emit("open", {});
+    expect(states).toEqual([true]);
+
+    FakeEventSource.instances[0]?.emit("status", { status: "running" }, "1");
+    expect(states).toEqual([true]);
+
+    FakeEventSource.instances[0]?.emit("error", {});
+    expect(states).toEqual([true, false]);
+
+    vi.advanceTimersByTime(500);
+    FakeEventSource.instances[1]?.emit("open", {});
+    expect(states).toEqual([true, false, true]);
+
+    subscription.close();
+  });
+
+  it("does not report a dropped connection when a terminal job closes the stream cleanly", () => {
+    const states: boolean[] = [];
+    const subscription = subscribeDurableJobStatus({
+      url: "/api/platform/projections/operations/op_1/events",
+      isTerminal: (job: { state: string }) => job.state === "succeeded",
+      onStatus: () => undefined,
+      onConnectionStateChange: (connected) => states.push(connected),
+    });
+
+    FakeEventSource.instances[0]?.emit("open", {});
+    FakeEventSource.instances[0]?.emit("status", { state: "succeeded" }, "1");
+    // The browser reports the server ending the stream as an "error" even
+    // though the job already reached a terminal state — this must not read as
+    // a dropped connection.
+    FakeEventSource.instances[0]?.emit("error", {});
+
+    expect(states).toEqual([true]);
+
+    subscription.close();
+  });
 });

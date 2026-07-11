@@ -41,6 +41,11 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.confirmRebuildGroupImpact":
     "This does not run in the browser request. A worker will replay the projection under the projection-group lease.",
   "platformOperations.projectionOperations.confirmRebuildGroupTitle": "Rebuild projection group?",
+  "platformOperations.projectionOperations.connectionConnecting": "Connecting…",
+  "platformOperations.projectionOperations.connectionLive": "Live",
+  "platformOperations.projectionOperations.connectionStaleDescription":
+    "The realtime connection for a watched operation dropped. Its state may be frozen until it reconnects.",
+  "platformOperations.projectionOperations.connectionStaleSince": "Stale since {value}",
   "platformOperations.projectionOperations.context": "Context",
   "platformOperations.projectionOperations.count": "Count",
   "platformOperations.projectionOperations.deferred": "Deferred",

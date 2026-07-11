@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
+import { useLiveConnectionStatus } from "@chase-sets/platform-runtime/live-connection-status";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   HiddenInput,
@@ -9,6 +10,7 @@ import {
   Badge,
   Button,
   Cluster,
+  ConnectionStatusIndicator,
   DataTable,
   DetailPanel,
   Dialog,
@@ -65,14 +67,17 @@ export function ProjectionOperationsPage({
   actorPermissions = [],
   wakeStatus = null,
   onOperationTerminal,
+  connectionStaleAfterMs,
 }: Readonly<{
   data: ProjectionOperationsSnapshot;
   filters: ProjectionOperationsFilters;
   actorPermissions?: readonly string[];
   wakeStatus?: WakeStatusSnapshot | null;
   onOperationTerminal?: () => void;
+  connectionStaleAfterMs?: number;
 }>) {
   const [streamedOperations, setStreamedOperations] = useState<Readonly<Record<string, ProjectionOperation>>>({});
+  const [operationConnectionState, setOperationConnectionState] = useState<Readonly<Record<string, boolean>>>({});
   const liveData = useMemo(
     () => ({ ...data, operations: mergeProjectionOperations(data.operations, streamedOperations) }),
     [data, streamedOperations],
@@ -89,6 +94,13 @@ export function ProjectionOperationsPage({
 
   useEffect(() => {
     const watchedOperationIds = watchKey ? watchKey.split("\u0000") : [];
+    // Every operation this render is watching starts "not yet connected" — a
+    // fresh subscription set replaces whatever connection state the previous
+    // set had, since these are brand new EventSource connections.
+    setOperationConnectionState(() =>
+      Object.fromEntries(watchedOperationIds.map((operationId) => [operationId, false])),
+    );
+
     const subscriptions = watchedOperationIds.map((operationId) =>
       subscribeDurableJobStatus<ProjectionOperation>({
         url: projectionOperationEventsUrl(operationId),
@@ -100,6 +112,11 @@ export function ProjectionOperationsPage({
           setStreamedOperations((current) => ({ ...current, [operation.operationId]: operation }));
           onOperationTerminal?.();
         },
+        onConnectionStateChange: (connected) => {
+          setOperationConnectionState((current) =>
+            operationId in current ? { ...current, [operationId]: connected } : current,
+          );
+        },
       }),
     );
 
@@ -109,6 +126,17 @@ export function ProjectionOperationsPage({
       }
     };
   }, [watchKey, onOperationTerminal]);
+
+  const hasWatchedOperations = operationIdsToWatch.length > 0;
+  // Any watched operation whose stream has silently dropped is enough to
+  // demote the whole indicator — a frozen row hiding behind a "connected"
+  // sibling is exactly the failure mode this pattern exists to surface.
+  const allOperationStreamsConnected = operationIdsToWatch.every(
+    (operationId) => operationConnectionState[operationId] === true,
+  );
+  const operationsConnection = useLiveConnectionStatus(!hasWatchedOperations || allOperationStreamsConnected, {
+    staleAfterMs: connectionStaleAfterMs,
+  });
 
   const blockedRows = buildBlockedRows(liveData);
   const subscriptionRows = buildProjectionSubscriptionRows(liveData);
@@ -164,6 +192,19 @@ export function ProjectionOperationsPage({
         activeWorkerCount={activeCount}
         staleWorkerCount={staleCount}
         blockedStreamCount={blockedRows.length}
+        connectionStatus={
+          hasWatchedOperations ? (
+            <ConnectionStatusIndicator
+              status={operationsConnection.status}
+              liveLabel={t(`${routeKey}.connectionLive`)}
+              connectingLabel={t(`${routeKey}.connectionConnecting`)}
+              staleLabel={t(`${routeKey}.connectionStaleSince`, {
+                value: operationsConnection.staleSince ? formatDate(operationsConnection.staleSince.toISOString()) : "",
+              })}
+              staleDescription={t(`${routeKey}.connectionStaleDescription`)}
+            />
+          ) : null
+        }
       />
 
       <ProjectionOperationFilters filters={filters} data={liveData} />
@@ -284,12 +325,14 @@ function OperationsSummary({
   activeWorkerCount,
   staleWorkerCount,
   blockedStreamCount,
+  connectionStatus,
 }: Readonly<{
   data: ProjectionOperationsSnapshot;
   attentionItems: readonly AttentionItem[];
   activeWorkerCount: number;
   staleWorkerCount: number;
   blockedStreamCount: number;
+  connectionStatus?: ReactNode;
 }>) {
   const status = resolveConsoleStatus(data, attentionItems, staleWorkerCount);
 
@@ -303,6 +346,7 @@ function OperationsSummary({
               <Badge tone={sourceTone(data.projectionStatusSource)}>
                 {t(`${routeKey}.source`, { source: data.projectionStatusSource })}
               </Badge>
+              {connectionStatus}
             </Inline>
             <Text tone="secondary">{status.detail}</Text>
           </Stack>

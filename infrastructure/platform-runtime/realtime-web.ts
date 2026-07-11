@@ -17,6 +17,11 @@ type RealtimeSubscriptionHandlers = Readonly<{
   onPatch: (patch: RealtimeProjectionPatch) => void;
   onSyncRequired: (message: RealtimeSyncRequired) => void;
   onError?: (error: Event) => void;
+  // Reports the transport's actual open/closed state — distinct from `onPatch`
+  // activity, since a healthy SSE connection can sit quiet indefinitely with no
+  // patches to deliver. Consumers that need to flip a "live"/"stale" affordance
+  // (rather than "recently changed") should watch this instead of patch timing.
+  onConnectionStateChange?: (connected: boolean) => void;
 }>;
 
 type SharedRealtimeSource = {
@@ -28,6 +33,7 @@ type SharedRealtimeSource = {
   reconnectPolicy: RealtimeReconnectPolicy;
   handlers: Set<RealtimeSubscriptionHandlers>;
   diagnostics: RealtimeSubscriptionDiagnosticEntry;
+  connected: boolean;
 };
 
 const sharedSources = new Map<string, SharedRealtimeSource>();
@@ -67,6 +73,7 @@ export function subscribeRealtimePatches(
     onPatch: (patch: RealtimeProjectionPatch) => void;
     onSyncRequired: (message: RealtimeSyncRequired) => void;
     onError?: (error: Event) => void;
+    onConnectionStateChange?: (connected: boolean) => void;
     debounceMs?: number;
     reconnectPolicy?: RealtimeReconnectPolicy;
   }>,
@@ -82,6 +89,7 @@ export function subscribeRealtimePatches(
     onPatch: options.onPatch,
     onSyncRequired: options.onSyncRequired,
     onError: options.onError,
+    onConnectionStateChange: options.onConnectionStateChange,
   };
   const sharedSource = getOrCreateSharedRealtimeSource(
     sourceKey,
@@ -91,6 +99,11 @@ export function subscribeRealtimePatches(
 
   sharedSource.handlers.add(handlers);
   sharedSource.diagnostics.subscriberCount = sharedSource.handlers.size;
+  // A handler that joins an already-connected shared source has missed the
+  // `open` event that produced that state — hand it the current value directly
+  // so a late subscriber's live/stale derivation starts correct instead of
+  // defaulting to "connecting" forever.
+  handlers.onConnectionStateChange?.(sharedSource.connected);
   if (!sharedSource.source && !sharedSource.openTimer) {
     const debounceMs = options.debounceMs ?? DEFAULT_SUBSCRIPTION_DEBOUNCE_MS;
     if (debounceMs <= 0) {
@@ -122,6 +135,17 @@ export function subscribeRealtimePatches(
       }
     },
   };
+}
+
+function setSharedRealtimeSourceConnected(sharedSource: SharedRealtimeSource, connected: boolean) {
+  if (sharedSource.connected === connected) {
+    return;
+  }
+
+  sharedSource.connected = connected;
+  for (const handler of sharedSource.handlers) {
+    handler.onConnectionStateChange?.(connected);
+  }
 }
 
 function getOrCreateSharedRealtimeSource(
@@ -198,6 +222,7 @@ function getOrCreateSharedRealtimeSource(
 
     source.addEventListener("error", (event) => {
       diagnostics.errorCount += 1;
+      setSharedRealtimeSourceConnected(sharedSource, false);
       for (const handler of handlers) {
         handler.onError?.(event);
       }
@@ -209,9 +234,11 @@ function getOrCreateSharedRealtimeSource(
       diagnostics.reconnectCount += 1;
       diagnostics.errorCount = 0;
       diagnostics.syncRequiredCount = 0;
+      setSharedRealtimeSourceConnected(sharedSource, true);
     });
   };
   const backoff = (_reason: "error" | "sync.required") => {
+    setSharedRealtimeSourceConnected(sharedSource, false);
     if (sharedSource.reconnectTimer || sharedSource.handlers.size === 0) {
       return;
     }
@@ -233,6 +260,7 @@ function getOrCreateSharedRealtimeSource(
     reconnectPolicy,
     handlers,
     diagnostics,
+    connected: false,
   };
 
   sharedSources.set(sourceKey, sharedSource);

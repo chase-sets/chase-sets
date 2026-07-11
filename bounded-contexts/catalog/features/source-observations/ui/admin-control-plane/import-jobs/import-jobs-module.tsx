@@ -4,6 +4,7 @@ import {
   Badge,
   BadgeCluster,
   Button,
+  ConnectionStatusIndicator,
   DataTable,
   EmptyState,
   KeyValueList,
@@ -231,29 +232,30 @@ export function CatalogIntegrationImportJobsModule({
       title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.title")}
       description={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.description")}
       status={
-        <BadgeCluster
-          items={[
-            {
-              key: "active",
-              tone: readModel.importJobs.activeJobCount > 0 ? "warning" : "success",
-              label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status", {
-                count: readModel.importJobs.activeJobCount,
-              }),
-            },
-            // The live indicator renders only while the bounded poll is actually
-            // refreshing (active job + visible tab), so operators can tell at a
-            // glance that the table is advancing on its own.
-            ...(live
-              ? [
-                  {
-                    key: "live",
-                    tone: "info" as const,
-                    label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.live"),
-                  },
-                ]
-              : []),
-          ]}
-        />
+        <>
+          <BadgeCluster
+            items={[
+              {
+                key: "active",
+                tone: readModel.importJobs.activeJobCount > 0 ? "warning" : "success",
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status", {
+                  count: readModel.importJobs.activeJobCount,
+                }),
+              },
+            ]}
+          />
+          {/* The live indicator renders only while the bounded poll is actually
+              refreshing (active job + visible tab), so operators can tell at a
+              glance that the table is advancing on its own. This poll-driven
+              surface never goes "stale", so it only ever passes the "live"
+              state to the shared DS pattern. */}
+          {live ? (
+            <ConnectionStatusIndicator
+              status="live"
+              liveLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.live")}
+            />
+          ) : null}
+        </>
       }
       headingLevel={2}
       density="compact"

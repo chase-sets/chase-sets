@@ -18,6 +18,11 @@ export function subscribeDurableJobStatus<TJob extends object>(
     onStatus: (job: TJob) => void;
     onTerminal?: (job: TJob) => void;
     onError?: (error: Event) => void;
+    // Reports the EventSource's actual open/closed state — distinct from
+    // `onStatus` activity, since a healthy connection can sit open indefinitely
+    // between snapshots. Does NOT fire `false` on a terminal job's intentional
+    // close (that is a clean finish, not a dropped connection).
+    onConnectionStateChange?: (connected: boolean) => void;
     isTerminal?: (job: TJob) => boolean;
     reconnectDelayMs?: number;
   }>,
@@ -63,6 +68,9 @@ export function subscribeDurableJobStatus<TJob extends object>(
       }
     };
     source = new EventSource(sourceUrl());
+    source.addEventListener("open", () => {
+      options.onConnectionStateChange?.(true);
+    });
     source.addEventListener("status", (event) => {
       lastEventId = (event as MessageEvent).lastEventId || lastEventId;
       applyJob(JSON.parse((event as MessageEvent).data) as TJob);
@@ -72,6 +80,7 @@ export function subscribeDurableJobStatus<TJob extends object>(
       const message = JSON.parse((event as MessageEvent).data) as DurableJobSyncRequiredMessage<TJob>;
       applyJob(message.snapshot);
       if (!closed && !isTerminalJob(message.snapshot, options.isTerminal)) {
+        options.onConnectionStateChange?.(false);
         closeSource();
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
@@ -87,6 +96,7 @@ export function subscribeDurableJobStatus<TJob extends object>(
         closeSource();
         return;
       }
+      options.onConnectionStateChange?.(false);
       closeSource();
       if (!closed && !reconnectTimer) {
         reconnectTimer = setTimeout(() => {

@@ -87,6 +87,7 @@ export { ImageGallery, type GalleryImage, type ImageGalleryProps } from "./image
 export {
   AddressBlock,
   ChecklistCard,
+  ConnectionStatusIndicator,
   OperationalLockBanner,
   OperationalStatusBanner,
   QuantityChecklistControl,
@@ -102,6 +103,8 @@ export {
   WorkstationLayout,
   type AddressBlockProps,
   type ChecklistCardProps,
+  type ConnectionLiveStatus,
+  type ConnectionStatusIndicatorProps,
   type OperationalLockBannerProps,
   type OperationalStatusBannerProps,
   type QuantityChecklistControlProps,

@@ -208,4 +208,64 @@ describe("realtime web subscriptions", () => {
 
     subscription.close();
   });
+
+  it("reports connection state transitions to every subscriber sharing the source", () => {
+    const firstStates: boolean[] = [];
+    const secondStates: boolean[] = [];
+    const first = subscribeRealtimePatches({
+      topics: ["public:market"],
+      onPatch: () => undefined,
+      onSyncRequired: () => undefined,
+      onConnectionStateChange: (connected) => firstStates.push(connected),
+      debounceMs: 0,
+    });
+
+    expect(firstStates).toEqual([false]);
+
+    FakeEventSource.instances[0].emit("open", {});
+    expect(firstStates).toEqual([false, true]);
+
+    const second = subscribeRealtimePatches({
+      topics: ["public:market"],
+      onPatch: () => undefined,
+      onSyncRequired: () => undefined,
+      onConnectionStateChange: (connected) => secondStates.push(connected),
+      debounceMs: 0,
+    });
+
+    // A subscriber that joins an already-open source is handed the current
+    // state immediately instead of defaulting to "connecting" until the next
+    // transition.
+    expect(secondStates).toEqual([true]);
+
+    FakeEventSource.instances[0].emit("error", {});
+    expect(firstStates).toEqual([false, true, false]);
+    expect(secondStates).toEqual([true, false]);
+
+    first.close();
+    second.close();
+  });
+
+  it("flips connection state to disconnected once a noisy source backs off", () => {
+    vi.useFakeTimers();
+    const states: boolean[] = [];
+    const subscription = subscribeRealtimePatches({
+      topics: ["public:market"],
+      onPatch: () => undefined,
+      onSyncRequired: () => undefined,
+      onConnectionStateChange: (connected) => states.push(connected),
+      debounceMs: 0,
+      reconnectPolicy: {
+        backoffMs: 25,
+        maxErrorCountBeforeBackoff: 1,
+      },
+    });
+
+    FakeEventSource.instances[0].emit("open", {});
+    FakeEventSource.instances[0].emit("error", {});
+
+    expect(states).toEqual([false, true, false]);
+
+    subscription.close();
+  });
 });

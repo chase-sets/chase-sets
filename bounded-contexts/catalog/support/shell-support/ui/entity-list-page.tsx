@@ -47,6 +47,7 @@ interface EntityListPageProps<T> {
   isRowSelectable?: (row: T, index: number) => boolean;
   bulkActionBar?: ReactNode;
   realtimeReloadActionBar?: ReactNode;
+  connectionStatus?: ReactNode;
   page?: number;
   pageSize?: number;
   onPageChange?: (page: number) => void;
@@ -76,6 +77,7 @@ export function EntityListPage<T>({
   isRowSelectable,
   bulkActionBar,
   realtimeReloadActionBar,
+  connectionStatus,
   page = 0,
   pageSize = 50,
   onPageChange,
@@ -134,7 +136,17 @@ export function EntityListPage<T>({
 
   return (
     <Page>
-      <PageHeader title={title} actions={headerActions} />
+      <PageHeader
+        title={title}
+        actions={
+          connectionStatus || headerActions ? (
+            <>
+              {connectionStatus}
+              {headerActions}
+            </>
+          ) : undefined
+        }
+      />
       <Stack gap={4}>
         {createButton ? <ActionBar>{createButton}</ActionBar> : null}
         {filterControls.length > 0 && (

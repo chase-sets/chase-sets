@@ -7,6 +7,7 @@ import { createCatalogRequestApiClient } from "../../support/request-support/api
 import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
 import { CatalogRealtimeReloadActionBar } from "../../features/catalog-items/ui/realtime-reload-action-bar";
+import { CatalogRealtimeConnectionStatus } from "../../support/shell-support/ui/realtime-connection-status";
 import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/realtime-revalidation";
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -24,6 +25,13 @@ export default function CatalogItemsRoute() {
     <CatalogItemListPage
       data={routeData.data}
       query={routeData.query}
+      connectionStatus={
+        <CatalogRealtimeConnectionStatus
+          status={realtimeReload.connectionStatus}
+          staleSince={realtimeReload.connectionStaleSince}
+          reload={realtimeReload.reload}
+        />
+      }
       realtimeReloadActionBar={
         realtimeReload.hasPendingChanges ? (
           <CatalogRealtimeReloadActionBar

@@ -4,6 +4,11 @@ export {
   type OperationalStatusBannerProps,
   type OperationalStatusBannerTone,
 } from "./operational-status-banner";
+export {
+  ConnectionStatusIndicator,
+  type ConnectionLiveStatus,
+  type ConnectionStatusIndicatorProps,
+} from "./connection-status-indicator";
 export { OperationalLockBanner, type OperationalLockBannerProps } from "./operational-lock-banner";
 export { WorkflowModule, type WorkflowModuleProps } from "./workflow-module";
 export { WorkflowActionBar, type WorkflowActionBarProps } from "./workflow-action-bar";
