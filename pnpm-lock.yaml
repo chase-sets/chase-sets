@@ -362,6 +362,9 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
+      '@chase-sets/pricing':
+        specifier: workspace:*
+        version: link:../pricing
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives

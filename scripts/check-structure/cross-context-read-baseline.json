@@ -49,6 +49,32 @@
       "sourceWakePosture": "wave-1-listened",
       "issue": "#4271",
       "migration": "m108 #4271: marketplace computes seller behavioral-metrics rates exactly once (the AC's 'compute once' requirement); this request-path call keeps that single computation authoritative for discovery's public-profile chip surface instead of duplicating the rolling-window SQL into a second discovery-owned projection. If discovery later needs the same chips at higher read volume/latency sensitivity, project only the pre-thresholded boolean chip facts (never the raw rates) into discovery's own market-account mirror, fed by a chips-changed event marketplace would need to start emitting."
+    },
+    {
+      "id": "bounded-contexts/discovery/support/route-support/item-detail/market-history-loader.ts:pricing:createPricingRequestApiClient.getProductRollupSeries#1",
+      "consumerContextName": "discovery",
+      "sourceContextName": "pricing",
+      "file": "bounded-contexts/discovery/support/route-support/item-detail/market-history-loader.ts",
+      "line": 51,
+      "clientFactory": "createPricingRequestApiClient",
+      "methodName": "getProductRollupSeries",
+      "classification": "composite-projection-servable",
+      "sourceWakePosture": "poll-only",
+      "issue": "#4307",
+      "migration": "m111 epic #4321 design pillar #1: pricing extends as the market-data authority so no bounded context duplicates its whole rollup/time-series engine; the item-detail market panel's range selector (30d/90d/1y/all, three granularities) needs arbitrary-window reads over pricing_daily_product_rollups that a Discovery-owned mirror would have to re-derive the same aggregation logic to serve. This request-path read stays until/unless the panel's read volume justifies projecting a bounded, pre-aggregated slice (e.g. only the default range) into a Discovery item-detail mirror fed by a rollup-advanced event pricing would need to start emitting."
+    },
+    {
+      "id": "bounded-contexts/discovery/support/route-support/item-detail/market-history-loader.ts:pricing:createPricingRequestApiClient.getProductMarketStatsSnapshot#1",
+      "consumerContextName": "discovery",
+      "sourceContextName": "pricing",
+      "file": "bounded-contexts/discovery/support/route-support/item-detail/market-history-loader.ts",
+      "line": 58,
+      "clientFactory": "createPricingRequestApiClient",
+      "methodName": "getProductMarketStatsSnapshot",
+      "classification": "composite-projection-servable",
+      "sourceWakePosture": "poll-only",
+      "issue": "#4307",
+      "migration": "Same posture as the getProductRollupSeries entry above: this snapshot read (last-sold, 30/90-day median+volume, current market-state) stays request-path alongside the range series it is fetched together with. A future Discovery mirror should carry both facts from the same source event if/when this read is migrated, rather than splitting them across a mirror and a request-path call."
     }
   ]
 }

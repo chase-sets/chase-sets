@@ -325,7 +325,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ThemeScope` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: Theme Scope. | `No production consumer yet.` |
 | `Thumbnail` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Thumbnail. | `No production consumer yet.` |
 | `Timeline` | `packages/design-system/src/components/data-display/timeline.tsx` | Purpose not documented; symbol name suggests: Timeline. | `No production consumer yet.` |
-| `TimeSeriesChart` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Time Series Chart. | `bounded-contexts/platform-operations/features/insights-dashboards/ui/ops-dashboard-page.tsx` |
+| `TimeSeriesChart` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Time Series Chart. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-market-panel.tsx` |
 | `toastManager` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: toast Manager. | `No production consumer yet.` |
 | `ToastProvider` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: Toast Provider. | `No production consumer yet.` |
 | `ToastRegion` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: Toast Region. | `bounded-contexts/catalog/support/shell-support/ui/toasts.tsx` |

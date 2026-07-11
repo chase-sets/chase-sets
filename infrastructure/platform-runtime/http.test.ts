@@ -31,9 +31,9 @@ import {
   resolvePostWriteTokenRequest,
   resolveRequestApiBaseUrl,
   trustForwardedHeaders,
-  verifyPlatformInternalAuthSecret,
   UnresolvedPostWriteTokenError,
 } from "./http";
+import { verifyPlatformInternalAuthSecret } from "./internal-auth";
 import { registerPostWriteConsistencyRecorder } from "./post-write-consistency";
 
 let unregisterPostWriteTelemetry: (() => void) | null = null;

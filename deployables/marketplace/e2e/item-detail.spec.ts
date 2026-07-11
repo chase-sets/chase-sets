@@ -51,5 +51,22 @@ test.describe("marketplace item detail", () => {
     // Commerce panel composition: the buy action surface hydrates and stays
     // interactive after the SSR handoff (the panel that milestone 25 decomposed).
     await expect(page.getByText(/^Buy options$/i).first()).toBeVisible();
+
+    // Market panel (m111): the Sales tab renders the price-history panel
+    // (range selector + chart/empty-state) instead of the old static
+    // "unavailable" placeholder, without erroring the hydrated tab switch.
+    // Seed data may or may not have recorded trades, so accept any of the
+    // panel's honest states rather than asserting a specific one.
+    // The DS tab strip is inert until React hydrates; a click that lands
+    // before hydration is silently dropped, so re-click until the tab
+    // actually reports selected instead of trusting the first click.
+    const salesTab = page.getByRole("tab", { name: "Sales" });
+    await expect(async () => {
+      await salesTab.click();
+      await expect(salesTab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
+    }).toPass({ timeout: 20_000 });
+    await expect(
+      page.getByText(/Time range|Select a condition|No sales recorded yet|Sales history unavailable/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
   });
 });

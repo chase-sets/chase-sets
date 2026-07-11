@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -532,5 +533,85 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     );
 
     expect(rollupsAfterSecond.rows).toEqual(rollupsAfterFirst.rows);
+  });
+
+  /**
+   * Reads the raw outbox rows for a topic (bypassing `readRealtimePatches`'s
+   * `expires_at > now()` filter): the closer's `now` param is a fixture
+   * timestamp for deterministic tests (see rollup-maintenance.ts's header),
+   * so a historical fixture `now` combined with the default 24h retention
+   * window would already read as "expired" against the sandbox Postgres
+   * server's real wall clock. Production `now` is always real time (no
+   * override), so this mismatch is test-only -- asserting on the durable
+   * outbox row directly is the correct, clock-independent check here.
+   */
+  async function readRawOutboxPatchesForTopic(
+    pool: PgTransactionalPool,
+    topic: string,
+  ): Promise<readonly RealtimeProjectionPatch[]> {
+    const result = await pool.query<{ payload_json: string }>(
+      `SELECT outbox.payload_json
+       FROM realtime_projection_outbox AS outbox
+       INNER JOIN realtime_projection_outbox_topics AS topic_row ON topic_row.outbox_id = outbox.outbox_id
+       WHERE topic_row.topic = $1
+       ORDER BY outbox.outbox_id ASC`,
+      [topic],
+    );
+    return result.rows.map((row) => JSON.parse(row.payload_json) as RealtimeProjectionPatch);
+  }
+
+  it("emits a realtime pricing.productMarketStats patch on Discovery's item: topic for products with new trade activity (#4307)", async () => {
+    const pool = pools.pricing;
+    await seedJuly1Trades(pool);
+
+    const now = "2026-07-01T20:00:00.000Z";
+    await runDailyRollupCloser(pool, { now, trailingWindowDays: 7, limit: 500 });
+
+    const patches = await readRawOutboxPatchesForTopic(pool, "item:cat_1");
+    const patchMessage = patches.find((patch) =>
+      patch.changes.some((change) => change.entity === "pricing.productMarketStats" && change.id === "cat_1:prod_1"),
+    );
+
+    expect(patchMessage).toBeDefined();
+    expect(patchMessage!.context).toBe("pricing");
+    expect(patchMessage!.topics).toEqual(["item:cat_1"]);
+    const change = patchMessage!.changes.find((entry) => entry.id === "cat_1:prod_1")!;
+    if (change.op !== "summary") {
+      throw new Error(`Expected a "summary" change, got "${change.op}".`);
+    }
+    const stats = change.value as Awaited<ReturnType<typeof getProductMarketStatsSnapshot>>;
+    expect(stats.aggregate?.lastSoldPriceAmount).toBe("30.00");
+  });
+
+  it("does not emit a realtime patch for products with no trade activity in the trailing window", async () => {
+    const pool = pools.pricing;
+    // A listing with no trades at all -- present in listActiveOrTradedProductTuples
+    // (recomputed every pass) but absent from listRecentTradeDayTuples.
+    const marketHandlers = marketInputHandlers(pool);
+    await marketHandlers["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing_untraded",
+          accountId: "seller_1",
+          catalogItemId: "cat_untraded",
+          productId: "prod_untraded",
+          priceAmount: "5.00",
+          quantityCap: 10,
+        },
+        "2026-07-01T08:00:00.000Z",
+        "marketplace.listing-listing_untraded",
+      ),
+    );
+    await marketHandlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", {}, "2026-07-01T08:05:00.000Z", "marketplace.listing-listing_untraded"),
+    );
+
+    const now = "2026-07-01T20:00:00.000Z";
+    await runDailyRollupCloser(pool, { now, trailingWindowDays: 7, limit: 500 });
+
+    const patches = await readRawOutboxPatchesForTopic(pool, "item:cat_untraded");
+
+    expect(patches).toHaveLength(0);
   });
 });

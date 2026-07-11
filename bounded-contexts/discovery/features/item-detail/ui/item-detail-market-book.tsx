@@ -26,6 +26,7 @@ import type {
   DiscoveryMarketListing,
   DiscoveryOffer,
 } from "../../../support/client-support/contracts";
+import { ItemDetailMarketPanel } from "./item-detail-market-panel";
 import {
   formatCompactProductSummary,
   formatListingAvailability,
@@ -430,9 +431,10 @@ export function ItemDetailMarketBook({
             value: "sales",
             label: t("discovery.features.itemDetail.ui.itemDetailPage.sales"),
             content: (
-              <MarketplaceEmptyState
-                title={t("discovery.features.itemDetail.ui.itemDetailPage.sales.history")}
-                description={t("discovery.features.itemDetail.ui.itemDetailPage.sales.history.unavailable")}
+              <ItemDetailMarketPanel
+                catalogItemId={data.catalog_item_id}
+                productId={selectedProductId}
+                itemTitle={data.title}
               />
             ),
           },

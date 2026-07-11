@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { pricingPriceSignalSchemaSql } from "../../features/price-signals/read-model/schema";
 import { pricingRecommendationSchemaSql } from "../../features/recommendations/read-model/schema";
 import { pricingRecommendationSourceSchemaSql } from "../../features/recommendations/integrations/source/source-schema";
@@ -8,6 +9,7 @@ import { pricingRepricingPolicySchemaSql } from "../../features/repricing-polici
 
 export const pricingSchemaSql = [
   eventCorePostgresSchemaSql,
+  realtimeOutboxSchemaSql,
   pricingRecommendationSourceSchemaSql,
   pricingPriceSignalSchemaSql,
   pricingRecommendationSchemaSql,

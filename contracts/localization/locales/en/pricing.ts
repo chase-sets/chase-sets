@@ -1,4 +1,7 @@
 export const pricingEnglishTranslations = {
+  "pricing.features.marketRollups.api.route.from.and.to.must.be.iso.calendar":
+    "from and to must be ISO calendar dates (YYYY-MM-DD).",
+  "pricing.features.marketRollups.api.route.invalid.granularity": "granularity must be daily, weekly, or monthly.",
   "pricing.features.recommendations.api.route.authentication.context.missing": "Authentication context missing.",
   "pricing.features.recommendations.api.route.authentication.context.missing.2": "Authentication context missing.",
   "pricing.features.recommendations.api.route.authentication.context.missing.3": "Authentication context missing.",
