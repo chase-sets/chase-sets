@@ -1,13 +1,11 @@
+import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  PlatformFeedbackPrompt,
-  platformFeedbackWorkflowFromSearchParams,
-} from "@chase-sets/platform-operations/server";
+import { platformFeedbackWorkflowFromSearchParams } from "@chase-sets/platform-operations/server";
 import { InventoryApiError, type InventoryItemDetail } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { InventoryItemDetailPage } from "../../features/inventory-items/ui/inventory-item-detail-page";

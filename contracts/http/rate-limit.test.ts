@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   clearRateLimitExceededCounters,
   createConfiguredInMemoryRateLimiter,
   createInMemoryRateLimiter,
+  createPolicyBackedRateLimiter,
   getRateLimitExceededCounters,
   publicClientRequestKey,
   rateLimitExceededJsonResponse,
@@ -133,5 +134,82 @@ describe("in-memory rate limiter", () => {
     expect(limiter.check("client_3")).toMatchObject({ limited: false });
 
     expect(limiter.check("client_1")).toMatchObject({ limited: false, count: 1 });
+  });
+});
+
+describe("policy-backed rate limiter", () => {
+  const defaults = { max: 2, windowMs: 60_000 };
+
+  it("behaves identically to the compiled defaults when the resolver echoes them back", async () => {
+    let now = new Date("2026-06-11T12:00:00.000Z").getTime();
+    const limiter = createPolicyBackedRateLimiter(
+      "test.surface",
+      defaults,
+      async (_surface, resolverDefaults) => resolverDefaults,
+      { keyPrefix: "test", now: () => now },
+    );
+
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, remaining: 1 });
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, remaining: 0 });
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: true, count: 3, remaining: 0 });
+
+    now += 60_001;
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, count: 1 });
+  });
+
+  it("re-resolves the rule on every check, so a revision changes enforcement without resetting counters", async () => {
+    let rule = { max: 1, windowMs: 60_000 };
+    const limiter = createPolicyBackedRateLimiter("test.surface", defaults, async () => rule, {
+      keyPrefix: "test",
+      now: () => new Date("2026-06-11T12:00:00.000Z").getTime(),
+    });
+
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, count: 1, remaining: 0 });
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: true, count: 2 });
+
+    // The operator revises the policy mid-incident: raise the ceiling.
+    rule = { max: 5, windowMs: 60_000 };
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, count: 3, remaining: 2 });
+  });
+
+  it("honors a per-surface kill switch resolved from policy", async () => {
+    const limiter = createPolicyBackedRateLimiter(
+      "test.surface",
+      defaults,
+      async () => ({ max: 1, windowMs: 60_000, disabled: true }),
+      { keyPrefix: "test" },
+    );
+
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, count: 0 });
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, count: 0 });
+  });
+
+  it("fails safe to the compiled defaults when the resolver throws (policy store unavailable)", async () => {
+    let now = new Date("2026-06-11T12:00:00.000Z").getTime();
+    const resolveRule = vi.fn(async () => {
+      throw new Error("policy store unavailable");
+    });
+    const limiter = createPolicyBackedRateLimiter("test.surface", defaults, resolveRule, {
+      keyPrefix: "test",
+      now: () => now,
+    });
+
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, remaining: 1 });
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: false, remaining: 0 });
+    await expect(limiter.check("client_1")).resolves.toMatchObject({ limited: true, count: 3 });
+    expect(resolveRule).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives two limiters independent bucket stores under a shared surface name", async () => {
+    const cart = createPolicyBackedRateLimiter("checkout.anonymous-rail-capture", defaults, async () => defaults, {
+      keyPrefix: "checkout:anonymous-cart-capture",
+    });
+    const sellList = createPolicyBackedRateLimiter("checkout.anonymous-rail-capture", defaults, async () => defaults, {
+      keyPrefix: "checkout:anonymous-sell-list-capture",
+    });
+
+    await expect(cart.check("client_1")).resolves.toMatchObject({ count: 1 });
+    await expect(cart.check("client_1")).resolves.toMatchObject({ count: 2 });
+    await expect(sellList.check("client_1")).resolves.toMatchObject({ count: 1 });
   });
 });

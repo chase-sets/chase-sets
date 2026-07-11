@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
+import { createPolicyBackedRateLimiter, type RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import { Hono } from "hono";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
@@ -13,18 +13,10 @@ import { parseGradedCardSnapshot, parseShipFromAddressSnapshot } from "./listing
 
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_SURFACE = "marketplace.anonymous-listing-draft.capture";
 const PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_MAX = 120;
-const anonymousListingDraftCaptureRateLimiter = createInMemoryRateLimiter({
-  keyPrefix: "marketplace:anonymous-listing-draft-capture",
-  max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
-  windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
-});
-const publicStandardTermsPreviewRateLimiter = createInMemoryRateLimiter({
-  keyPrefix: "marketplace:public-standard-terms-preview",
-  max: PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_MAX,
-  windowMs: PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_WINDOW_MS,
-});
+const PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_SURFACE = "marketplace.public-standard-terms-preview";
 
 function requireListingAccess(
   c: {
@@ -902,8 +894,24 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
   return app;
 }
 
-export function createPublicListingRoutes(services: MarketplaceListingServices) {
+export function createPublicListingRoutes(
+  services: MarketplaceListingServices,
+  resolveRateLimitRule?: RateLimitRuleResolver,
+) {
   const app = new Hono<MarketplaceApiEnv>();
+  const resolveRule = resolveRateLimitRule ?? (async (_surface: string, defaults) => defaults);
+  const anonymousListingDraftCaptureRateLimiter = createPolicyBackedRateLimiter(
+    ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_SURFACE,
+    { max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX, windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS },
+    resolveRule,
+    { keyPrefix: "marketplace:anonymous-listing-draft-capture" },
+  );
+  const publicStandardTermsPreviewRateLimiter = createPolicyBackedRateLimiter(
+    PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_SURFACE,
+    { max: PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_MAX, windowMs: PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_WINDOW_MS },
+    resolveRule,
+    { keyPrefix: "marketplace:public-standard-terms-preview" },
+  );
 
   app.post("/guest/listing-draft-intents", async (c) => {
     const anonymousOwnerId = requireAnonymousListingDraftOwnerId(c);
@@ -919,7 +927,7 @@ export function createPublicListingRoutes(services: MarketplaceListingServices) 
       );
     }
 
-    const rateLimit = anonymousListingDraftCaptureRateLimiter.check(c.req.raw);
+    const rateLimit = await anonymousListingDraftCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
       const response = rateLimitedResponse(
         t("marketplace.features.listings.api.route.anonymous.request.rate.limited"),
@@ -944,7 +952,7 @@ export function createPublicListingRoutes(services: MarketplaceListingServices) 
   });
 
   app.post("/terms/public-standard/listing-preview", async (c) => {
-    const rateLimit = publicStandardTermsPreviewRateLimiter.check(c.req.raw);
+    const rateLimit = await publicStandardTermsPreviewRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
       const response = rateLimitedResponse(
         t("marketplace.features.listings.api.route.public.standard.terms.preview.rate.limited"),

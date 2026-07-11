@@ -20,8 +20,11 @@ export function buildCheckoutApi(services: CheckoutServices) {
   app.route("/account", createAccountCartRoutes(services.cart, services.checkoutObservabilityTelemetry));
   app.route("/account", createAccountSellListRoutes(services.sellList, services.checkoutObservabilityTelemetry));
   app.route("/account", createAccountCheckoutSessionRoutes(services.sessions, services.checkoutObservabilityTelemetry));
-  app.route("/guest", createGuestCartRoutes(services.cart, services.checkoutObservabilityTelemetry));
-  app.route("/guest", createGuestSellListRoutes(services.sellList));
+  app.route(
+    "/guest",
+    createGuestCartRoutes(services.cart, services.checkoutObservabilityTelemetry, services.rateLimitPolicyResolver),
+  );
+  app.route("/guest", createGuestSellListRoutes(services.sellList, services.rateLimitPolicyResolver));
   app.route("/support", createCheckoutSupportLookupRoutes(services.supportLookup));
 
   return app;

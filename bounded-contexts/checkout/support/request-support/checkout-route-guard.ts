@@ -1,10 +1,12 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
+import { createPolicyBackedRateLimiter, type RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../api";
 
 export const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 export const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
+/** Shared surface key: both cart and sell-list anonymous capture tune together as one incident-response dial. */
+export const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_SURFACE = "checkout.anonymous-rail-capture";
 
 type CheckoutActor = CheckoutApiEnv["Variables"]["actor"];
 type CheckoutAccessGuardOptions = Readonly<{
@@ -19,12 +21,20 @@ function jsonErrorResponse(status: number, code: string, message: string) {
   });
 }
 
-export function createAnonymousRailCaptureRateLimiter(keyPrefix: string) {
-  return createInMemoryRateLimiter({
-    keyPrefix,
-    max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
-    windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
-  });
+/**
+ * Rate limits anonymous cart/sell-list capture. `keyPrefix` isolates the two
+ * call sites' bucket stores; both share the `ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_SURFACE`
+ * policy surface so an operator tunes (or kill-switches) them together. When
+ * `resolveRateLimitRule` is not wired (standalone/test composition without
+ * Platform Operations mounted), the compiled defaults apply unchanged.
+ */
+export function createAnonymousRailCaptureRateLimiter(keyPrefix: string, resolveRateLimitRule?: RateLimitRuleResolver) {
+  return createPolicyBackedRateLimiter(
+    ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_SURFACE,
+    { max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX, windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS },
+    resolveRateLimitRule ?? (async (_surface, defaults) => defaults),
+    { keyPrefix },
+  );
 }
 
 export function createGuestCheckoutContext(

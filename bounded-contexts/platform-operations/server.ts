@@ -19,7 +19,6 @@ export type {
 export { createExperienceRequestApiClient } from "./support/request-support/api-client";
 export { createReportedContentRequestApiClient } from "./support/request-support/reported-content-client";
 export { createRiskAlertRequestApiClient } from "./support/request-support/risk-alert-client";
-export { PlatformFeedbackPrompt } from "./features/platform-feedback/ui/platform-feedback-prompt";
 export {
   platformFeedbackPlacementContract,
   platformFeedbackPlacementContracts,
@@ -37,3 +36,7 @@ export type {
 } from "./features/platform-feedback/domain/common";
 export { createSupportRequestApiClient } from "./support/request-support/support-request-api-client";
 export type { SupportRequestDetail } from "./support/request-support/support-request-api-client";
+export {
+  createNoopRateLimitPolicyResolver,
+  createRateLimitPolicyResolver,
+} from "./features/rate-limit-policy/api/rate-limit-policy-resolver";

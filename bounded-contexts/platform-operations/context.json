@@ -10,6 +10,7 @@
     "dashboard-read-model",
     "platform-feedback",
     "platform-feedback-prompt",
+    "rate-limit-policy",
     "reported-content",
     "risk-alert",
     "support-request"
@@ -20,12 +21,13 @@
     "projection-operations",
     "insights-dashboards",
     "platform-feedback",
+    "rate-limit-policy",
     "reported-content",
     "risk-alerts",
     "support-requests"
   ],
-  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
@@ -148,6 +150,13 @@
       "ownedTables": ["support_shipment_sources"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "readAfterWriteRouteInventory": [
@@ -257,9 +266,18 @@
   ],
   "mcpCapabilities": {
     "tools": [
-      { "name": "platform-operations.get-seller-insight-summary", "ownerSlice": "insights-dashboards" },
-      { "name": "platform-operations.list-support-requests", "ownerSlice": "support-requests" },
-      { "name": "platform-operations.get-support-request", "ownerSlice": "support-requests" }
+      {
+        "name": "platform-operations.get-seller-insight-summary",
+        "ownerSlice": "insights-dashboards"
+      },
+      {
+        "name": "platform-operations.list-support-requests",
+        "ownerSlice": "support-requests"
+      },
+      {
+        "name": "platform-operations.get-support-request",
+        "ownerSlice": "support-requests"
+      }
     ],
     "resources": [
       {
@@ -416,6 +434,23 @@
           "bounded-contexts/platform-operations/support/request-support/api-clients.test.ts",
           "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
         ]
+      }
+    },
+    {
+      "id": "platform-operations.rate-limit-policy-command-snapshots",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/platform-operations/features/rate-limit-policy/api/rate-limit-policy-route.ts:POST /",
+        "api-route:bounded-contexts/platform-operations/features/rate-limit-policy/api/rate-limit-policy-route.ts:PUT /:id"
+      ],
+      "visibleDestination": {
+        "description": "The rate-limit policy create/revise routes are the shared platform-policy document commands and respond with the command-local id/version snapshot before any projection read -- no browser destination exists for this policy yet (admin UI is tracked as follow-up work), matching the checkout-processing-fee and settlement policy precedents (m110 #4286, #4287)."
+      },
+      "proof": {
+        "authoritativeResponse": "createRateLimitPolicyRoutes responds from the platform-policy runtime's createPolicyDocument/revisePolicyDocument command result, never from a projection read.",
+        "tests": ["bounded-contexts/platform-operations/features/rate-limit-policy/api/rate-limit-policy-route.test.ts"]
       }
     },
     {
@@ -632,6 +667,14 @@
         "Marketplace contextual feedback prompts"
       ]
     },
+    "rate-limit-policy": {
+      "classification": "slice",
+      "purpose": "Own the rate-limit-policy definition (per-surface overrides, incident multiplier, kill switches) and its admin-managed create/revise API on the shared platform-policy machinery.",
+      "expectedConsumers": [
+        "Internal platform-operations module composition",
+        "Checkout, Discovery, Marketplace, and Public Presence (via the rateLimitPolicyResolver host port)"
+      ]
+    },
     "reported-content": {
       "classification": "slice",
       "purpose": "Own reported-content operator queue read models and admin moderation surfaces for Marketplace reports.",
@@ -672,6 +715,11 @@
       "classification": "routes",
       "purpose": "Expose platform-operations route modules consumed by generated deployable adapters.",
       "expectedConsumers": ["Generated deployable route adapters"]
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Deployable-facing UI surface exporting the platform-feedback prompt for other contexts' marketplace routes.",
+      "expectedConsumers": ["web.ts", "inventory routes", "marketplace routes", "payments routes"]
     }
   },
   "runtimeDeployables": ["platform-worker"],

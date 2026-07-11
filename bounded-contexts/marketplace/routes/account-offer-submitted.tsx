@@ -1,3 +1,4 @@
+import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData, useLocation, useSearchParams } from "react-router";
@@ -5,10 +6,7 @@ import { classifyPostWriteDestinationResult } from "@chase-sets/http/responses";
 import { loadAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  PlatformFeedbackPrompt,
-  platformFeedbackWorkflowFromSearchParams,
-} from "@chase-sets/platform-operations/server";
+import { platformFeedbackWorkflowFromSearchParams } from "@chase-sets/platform-operations/server";
 import { MarketplaceApiError, type SubmittedOfferDetail } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
 import {

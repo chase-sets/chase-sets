@@ -55,6 +55,11 @@
       "portName": "waitlistAnalyticsRecorder",
       "providedBy": "platform-api",
       "purpose": "Operational landing-page analytics recorder for bounded waitlist event labels."
+    },
+    {
+      "portName": "rateLimitPolicyResolver",
+      "providedBy": "platform-operations",
+      "purpose": "Resolve the runtime-configurable rate-limit policy for waitlist signup submission without Public Presence querying Platform Operations storage."
     }
   ],
   "apiDeployables": ["platform-api"],

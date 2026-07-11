@@ -35,6 +35,10 @@
 
 **Risk Alert** is an operator-facing Trust & Safety queue item created when event-sourced account risk counters cross configured velocity thresholds.
 
+## Rate-Limit Policy
+
+**Rate-Limit Policy** is the platform-wide, admin-managed request-volume policy on the shared platform-policy machinery (see `infrastructure/platform-policy`). It carries per-surface overrides (max requests, window, kill switch) and a global incident multiplier that tightens or loosens every rate-limited surface at once. Surfaces register their own compiled fallback rule; unknown surfaces resolve to that fallback unchanged.
+
 - Support Request: A structured request for help with a marketplace order.
 - Support Flow: The issue-specific checklist, response options, and resolution policy for a support request.
 - Support Evidence: Structured information supplied by the buyer, seller, or platform on a support request.

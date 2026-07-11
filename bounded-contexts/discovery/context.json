@@ -399,6 +399,11 @@
       "portName": "searchTelemetry",
       "providedBy": "platform-api",
       "purpose": "Records the redaction-safe lexical, rescue, or hybrid mode used by each Discovery Search Query."
+    },
+    {
+      "portName": "rateLimitPolicyResolver",
+      "providedBy": "platform-operations",
+      "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous product-alert capture without Discovery querying Platform Operations storage."
     }
   ],
   "apiDeployables": ["platform-api"],

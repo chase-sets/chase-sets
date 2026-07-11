@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
@@ -17,9 +18,6 @@ import { recordSellListConfirmationActivity } from "./sell-list-confirmation-obs
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_SELL_LIST_LINES = 50;
-const anonymousSellListCaptureRateLimiter = createAnonymousRailCaptureRateLimiter(
-  "checkout:anonymous-sell-list-capture",
-);
 const requireSellListAccess = createCheckoutAccessGuard({
   authenticationRequiredMessage: t("checkout.features.cart.api.route.authentication.required"),
   authorizationForbiddenMessage: t("checkout.features.sellList.api.route.sell.list.review.requires.seller.account"),
@@ -594,8 +592,15 @@ export function createAccountSellListRoutes(
   return app;
 }
 
-export function createGuestSellListRoutes(services: CheckoutSellListServices) {
+export function createGuestSellListRoutes(
+  services: CheckoutSellListServices,
+  resolveRateLimitRule?: RateLimitRuleResolver,
+) {
   const app = new Hono<CheckoutApiEnv>();
+  const anonymousSellListCaptureRateLimiter = createAnonymousRailCaptureRateLimiter(
+    "checkout:anonymous-sell-list-capture",
+    resolveRateLimitRule,
+  );
 
   app.get("/sell-list", async (c) => {
     const ownerId = requireAnonymousSellListId(c);
@@ -657,7 +662,7 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
       );
     }
 
-    const rateLimit = anonymousSellListCaptureRateLimiter.check(c.req.raw);
+    const rateLimit = await anonymousSellListCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
       const response = anonymousRequestRateLimitedResponse(
         t("checkout.features.sellList.api.route.anonymous.request.rate.limited"),

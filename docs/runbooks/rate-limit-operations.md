@@ -2,6 +2,27 @@
 
 Chase Sets rate limits are enforced per API instance with in-memory buckets for the current single-instance API topology. The shared limiter exposes a storage seam through `@chase-sets/http/rate-limit`; move the same surface keys to a Postgres or Redis store before horizontally scaling the API beyond the current production gate.
 
+## Policy-Backed Surfaces (m110 #4290)
+
+Five surfaces were born as compiled constants and have been migrated onto the shared `platform-policy` machinery so they can be tuned without a deploy:
+
+- `checkout.anonymous-rail-capture` (both `checkout:anonymous-cart-capture` and `checkout:anonymous-sell-list-capture` buckets share this one policy dial)
+- `discovery.product-alert.anonymous-capture`
+- `marketplace.anonymous-listing-draft.capture`
+- `marketplace.public-standard-terms-preview`
+- `public-presence.waitlist.submit`
+
+These surfaces read a `createPolicyBackedRateLimiter` instance instead of a static `createInMemoryRateLimiter`. Platform Operations owns the single `platform-operations.rate-limits` policy document (see `bounded-contexts/platform-operations/features/rate-limit-policy`), admin-managed via `POST`/`PUT /api/platform/rate-limit-policy` (gated by the `security.manage` permission). Its value carries:
+
+- **Per-surface overrides** (`surfaces.<key>.max` / `.windowMs` / `.disabled`) -- tune or kill-switch one surface without touching any other.
+- **`incidentMultiplier`** (0.1-10, default 1) -- a single dial that divides every resolved surface's `max` at once (clamped to a minimum of 1 request). Set it above 1 during a launch wave or abuse spike to tighten everything; below 1 to loosen a specific rollout.
+
+An unset policy resolves every surface to its compiled fallback byte-for-byte, so an empty or unreachable policy table never breaks the hot path -- the resolver fails safe to compiled defaults if the policy store errors.
+
+**Propagation**: Platform Operations' own admin routes read through the push-invalidated `platform-policy` cache (a policy revision is visible immediately -- no polling). The four cross-context consumers (Checkout, Discovery, Marketplace, Public Presence) read through a `rateLimitPolicyResolver` host port that memoizes the whole policy value for ~1 second per process before re-querying -- deliberately avoiding an uncached Postgres read on every incoming request (including the flood of requests an abusive client sends specifically to defeat the limiter). Expect a revision to change enforcement on these four surfaces within about one second, not immediately and never after a deploy.
+
+The m107 surfaces below (env-only today, born before this mechanism existed) are candidates to adopt the same `createPolicyBackedRateLimiter` factory in a follow-up; env overrides remain the mechanism for them until then.
+
 ## Runtime Configuration
 
 Each surface can be tuned with environment variables:
