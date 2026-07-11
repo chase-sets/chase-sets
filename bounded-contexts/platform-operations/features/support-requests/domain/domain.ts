@@ -62,6 +62,9 @@ export type SupportRequestState = Readonly<{
   escalatedByAccountId: AccountId | null;
   escalatedByRole: SupportRequesterRole | null;
   escalationReason: string | null;
+  sellerResponseReminderSentAt: string | null;
+  supportReviewReminderSentAt: string | null;
+  autoCloseDueAt: string | null;
 }>;
 
 export const initialSupportRequestState: SupportRequestState = {
@@ -94,6 +97,9 @@ export const initialSupportRequestState: SupportRequestState = {
   escalatedByAccountId: null,
   escalatedByRole: null,
   escalationReason: null,
+  sellerResponseReminderSentAt: null,
+  supportReviewReminderSentAt: null,
+  autoCloseDueAt: null,
 };
 
 export type OpenSupportRequestCommand = Readonly<{
@@ -181,6 +187,26 @@ export type CancelSupportRequestCommand = Readonly<{
   reason: string;
 }>;
 
+/**
+ * Emitted by the deadline sweep once the acting party's response window is
+ * half elapsed. Idempotent: the decider rejects a second reminder for the
+ * same waiting period (see `sellerResponseReminderSentAt`).
+ */
+export type EmitSupportResponseReminderCommand = Readonly<{
+  type: "EmitSupportResponseReminder";
+  remindedAt: string;
+}>;
+
+/**
+ * Emitted by the deadline sweep once a `ready-for-support` case is
+ * approaching its support-review deadline. Idempotent per case (see
+ * `supportReviewReminderSentAt`).
+ */
+export type EmitSupportReviewReminderCommand = Readonly<{
+  type: "EmitSupportReviewReminder";
+  remindedAt: string;
+}>;
+
 export type SupportRequestCommand =
   | OpenSupportRequestCommand
   | SubmitSupportEvidenceCommand
@@ -190,7 +216,9 @@ export type SupportRequestCommand =
   | EscalateSupportRequestCommand
   | ResolveSupportRequestCommand
   | CloseSupportRequestCommand
-  | CancelSupportRequestCommand;
+  | CancelSupportRequestCommand
+  | EmitSupportResponseReminderCommand
+  | EmitSupportReviewReminderCommand;
 
 export type SupportRequestOpenedEvent = DomainEvent<
   "support.support-request.opened",
@@ -276,6 +304,8 @@ export type SupportRequestResolvedEvent = DomainEvent<
     sellerAccountId: AccountId;
     flowType: SupportFlowType;
     resolution: SupportResolution;
+    /** Starts the auto-close clock: `resolved` cases close automatically once this passes. */
+    autoCloseDueAt: string;
   }>
 >;
 
@@ -298,6 +328,25 @@ export type SupportRequestCancelledEvent = DomainEvent<
   }>
 >;
 
+export type SupportResponseReminderEmittedEvent = DomainEvent<
+  "support.support-request.response-reminder-emitted",
+  Readonly<{
+    supportRequestId: SupportRequestId;
+    remindedAt: string;
+    actingRole: SupportRequesterRole;
+    dueAt: string;
+  }>
+>;
+
+export type SupportReviewReminderEmittedEvent = DomainEvent<
+  "support.support-request.review-reminder-emitted",
+  Readonly<{
+    supportRequestId: SupportRequestId;
+    remindedAt: string;
+    dueAt: string;
+  }>
+>;
+
 export type SupportRequestEvent =
   | SupportRequestOpenedEvent
   | SupportEvidenceSubmittedEvent
@@ -307,7 +356,9 @@ export type SupportRequestEvent =
   | SupportRequestEscalatedEvent
   | SupportRequestResolvedEvent
   | SupportRequestClosedEvent
-  | SupportRequestCancelledEvent;
+  | SupportRequestCancelledEvent
+  | SupportResponseReminderEmittedEvent
+  | SupportReviewReminderEmittedEvent;
 
 function addHours(timestamp: string, hours: number | null) {
   if (hours === null) {
@@ -316,6 +367,15 @@ function addHours(timestamp: string, hours: number | null) {
 
   const date = new Date(timestamp);
   date.setHours(date.getHours() + hours);
+  return date.toISOString();
+}
+
+/** Resolved cases auto-close this many days after resolution, releasing settlement holds and keeping the queue clean. */
+const AUTO_CLOSE_DAYS_AFTER_RESOLUTION = 7;
+
+function autoCloseDueAtFor(resolvedAt: string): string {
+  const date = new Date(resolvedAt);
+  date.setDate(date.getDate() + AUTO_CLOSE_DAYS_AFTER_RESOLUTION);
   return date.toISOString();
 }
 
@@ -738,6 +798,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
                 resolvedByRole: response.submittedByRole,
                 resolvedAt: response.submittedAt,
               },
+              autoCloseDueAt: autoCloseDueAtFor(response.submittedAt),
             },
           },
         ];
@@ -789,6 +850,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             sellerAccountId: state.sellerAccountId!,
             flowType: state.flowType!,
             resolution,
+            autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
           },
         },
       ];
@@ -892,6 +954,7 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             sellerAccountId: state.sellerAccountId!,
             flowType: state.flowType!,
             resolution,
+            autoCloseDueAt: autoCloseDueAtFor(resolution.resolvedAt),
           },
         },
       ];
@@ -934,6 +997,45 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         },
       ];
     }
+    case "EmitSupportResponseReminder": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(
+        state.status === "waiting-on-seller",
+        "Support response reminders only apply while waiting on the seller.",
+      );
+      assert(state.sellerResponseDueAt !== null, "Support response reminder requires a response deadline.");
+      assert(state.sellerResponseReminderSentAt === null, "Support response reminder has already been emitted.");
+      return [
+        {
+          type: "support.support-request.response-reminder-emitted",
+          data: {
+            supportRequestId: state.supportRequestId,
+            remindedAt: normalizeIsoTimestamp(command.remindedAt, "Support response reminder must record a timestamp."),
+            actingRole: "seller",
+            dueAt: state.sellerResponseDueAt,
+          },
+        },
+      ];
+    }
+    case "EmitSupportReviewReminder": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(
+        state.status === "ready-for-support",
+        "Support review reminders only apply while a case is ready for support review.",
+      );
+      assert(state.supportReviewDueAt !== null, "Support review reminder requires a review deadline.");
+      assert(state.supportReviewReminderSentAt === null, "Support review reminder has already been emitted.");
+      return [
+        {
+          type: "support.support-request.review-reminder-emitted",
+          data: {
+            supportRequestId: state.supportRequestId,
+            remindedAt: normalizeIsoTimestamp(command.remindedAt, "Support review reminder must record a timestamp."),
+            dueAt: state.supportReviewDueAt,
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -972,6 +1074,9 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         escalatedByAccountId: null,
         escalatedByRole: null,
         escalationReason: null,
+        sellerResponseReminderSentAt: null,
+        supportReviewReminderSentAt: null,
+        autoCloseDueAt: null,
       };
     case "support.support-request.evidence-submitted":
       return {
@@ -1025,6 +1130,7 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         status: "resolved",
         updatedAt: event.data.resolution.resolvedAt,
         resolution: event.data.resolution,
+        autoCloseDueAt: event.data.autoCloseDueAt,
       };
     case "support.support-request.closed":
       return {
@@ -1040,6 +1146,16 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         cancellationReason: event.data.reason,
         closedAt: event.data.cancelledAt,
         updatedAt: event.data.cancelledAt,
+      };
+    case "support.support-request.response-reminder-emitted":
+      return {
+        ...state,
+        sellerResponseReminderSentAt: event.data.remindedAt,
+      };
+    case "support.support-request.review-reminder-emitted":
+      return {
+        ...state,
+        supportReviewReminderSentAt: event.data.remindedAt,
       };
     default:
       return assertNever(event);

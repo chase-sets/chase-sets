@@ -77,6 +77,7 @@ export type PlatformWorkerConfig = Readonly<{
   projectionWakeDisabledProjections: readonly string[];
   paymentReconciliationIntervalMs: number | null;
   paymentDeadlineSweepIntervalMs: number | null;
+  supportRequestDeadlineSweepIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
   googleShoppingMaintenanceIntervalMs: number | null;
@@ -420,6 +421,10 @@ export function loadConfig(): PlatformWorkerConfig {
     projectionWakeDisabledProjections: getProjectionKeyListEnv("WORKER_WAKE_DISABLED_PROJECTIONS"),
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
     paymentDeadlineSweepIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_DEADLINE_SWEEP_INTERVAL_MS", 60_000),
+    supportRequestDeadlineSweepIntervalMs: getOptionalPositiveNumberEnv(
+      "SUPPORT_REQUEST_DEADLINE_SWEEP_INTERVAL_MS",
+      300_000,
+    ),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
     googleShoppingMaintenanceIntervalMs: getOptionalPositiveNumberEnv(

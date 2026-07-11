@@ -704,4 +704,179 @@ describe("support request domain", () => {
       ).toHaveLength(1);
     });
   });
+
+  describe("deadline automation", () => {
+    it("auto-resolves with a system actor and starts the 7-day auto-close clock", () => {
+      const opened = openProductNotReceived();
+      const state = fold(opened);
+
+      const resolved = decideSupportRequest(state, {
+        type: "ResolveSupportRequest",
+        resolutionType: "full-refund",
+        summary: "Automatically resolved: the seller did not respond within the 48-hour support window.",
+        refundAmount: null,
+        resolvedByAccountId: null,
+        resolvedByRole: null,
+        resolvedAt: "2026-05-11T12:00:00.000Z",
+      });
+
+      expect(resolved[0]).toMatchObject({
+        type: "support.support-request.resolved",
+        data: {
+          resolution: {
+            resolutionType: "full-refund",
+            resolvedByAccountId: null,
+            resolvedByRole: null,
+          },
+          autoCloseDueAt: "2026-05-18T12:00:00.000Z",
+        },
+      });
+      expect(fold([...opened, ...resolved])).toMatchObject({
+        status: "resolved",
+        autoCloseDueAt: "2026-05-18T12:00:00.000Z",
+      });
+    });
+
+    it("starts the auto-close clock on offer-driven and seller-confirmed resolutions too", () => {
+      const cancelOpened = decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: "sup_cancel_close" as never,
+        orderId: "ord_01" as never,
+        orderTotalAmount: "25.00",
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        flowType: "buyer-cancel-request",
+        openedByAccountId: "acc_buyer" as never,
+        openedByRole: "buyer",
+        openedAt,
+      });
+      const confirmed = decideSupportRequest(fold(cancelOpened), {
+        type: "RecordSupportResponse",
+        responseId: "rsp_cancel_close",
+        submittedByAccountId: "acc_seller" as never,
+        submittedByRole: "seller",
+        responseType: "confirm-cancellation",
+        summary: "Seller confirms cancellation.",
+        submittedAt: "2026-05-09T13:05:00.000Z",
+      });
+      expect(confirmed[1]).toMatchObject({
+        data: { autoCloseDueAt: "2026-05-16T13:05:00.000Z" },
+      });
+
+      const offerOpened = openProductNotAsDescribed();
+      const offered = recordPartialRefundOffer(fold(offerOpened));
+      const offerState = fold([...offerOpened, ...offered]);
+      const accepted = decideSupportRequest(offerState, {
+        type: "AcceptSupportOffer",
+        offerId: "sof_01",
+        acceptedByAccountId: "acc_buyer" as never,
+        acceptedByRole: "buyer",
+        acceptedAt: "2026-05-09T14:00:00.000Z",
+      });
+      expect(accepted[1]).toMatchObject({
+        data: { autoCloseDueAt: "2026-05-16T14:00:00.000Z" },
+      });
+    });
+
+    it("emits a response reminder once while waiting on the seller, then rejects a duplicate", () => {
+      const opened = openProductNotReceived();
+      const state = fold(opened);
+
+      const reminded = decideSupportRequest(state, {
+        type: "EmitSupportResponseReminder",
+        remindedAt: "2026-05-10T00:00:00.000Z",
+      });
+
+      expect(reminded[0]).toMatchObject({
+        type: "support.support-request.response-reminder-emitted",
+        data: {
+          remindedAt: "2026-05-10T00:00:00.000Z",
+          actingRole: "seller",
+          dueAt: "2026-05-11T12:00:00.000Z",
+        },
+      });
+      const afterReminder = fold([...opened, ...reminded]);
+      expect(afterReminder.sellerResponseReminderSentAt).toBe("2026-05-10T00:00:00.000Z");
+
+      expect(() =>
+        decideSupportRequest(afterReminder, {
+          type: "EmitSupportResponseReminder",
+          remindedAt: "2026-05-10T06:00:00.000Z",
+        }),
+      ).toThrow("Support response reminder has already been emitted.");
+    });
+
+    it("rejects a response reminder once the case is no longer waiting on the seller", () => {
+      const opened = openProductNotReceived();
+      const state = fold(opened);
+      const resolved = decideSupportRequest(state, {
+        type: "ResolveSupportRequest",
+        resolutionType: "full-refund",
+        summary: "Automatic resolution.",
+        refundAmount: null,
+        resolvedByAccountId: null,
+        resolvedByRole: null,
+        resolvedAt: "2026-05-11T12:00:00.000Z",
+      });
+      const afterResolution = fold([...opened, ...resolved]);
+
+      expect(() =>
+        decideSupportRequest(afterResolution, {
+          type: "EmitSupportResponseReminder",
+          remindedAt: "2026-05-11T13:00:00.000Z",
+        }),
+      ).toThrow("Support response reminders only apply while waiting on the seller.");
+    });
+
+    it("emits a support-review reminder once while ready for support, then rejects a duplicate", () => {
+      const opened = decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: "sup_auth_review" as never,
+        orderId: "ord_01" as never,
+        orderTotalAmount: "25.00",
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        flowType: "authenticity-concern",
+        openedByAccountId: "acc_buyer" as never,
+        openedByRole: "buyer",
+        openedAt,
+      });
+      const state = fold(opened);
+      expect(state.status).toBe("ready-for-support");
+
+      const reminded = decideSupportRequest(state, {
+        type: "EmitSupportReviewReminder",
+        remindedAt: "2026-05-09T18:00:00.000Z",
+      });
+
+      expect(reminded[0]).toMatchObject({
+        type: "support.support-request.review-reminder-emitted",
+        data: {
+          remindedAt: "2026-05-09T18:00:00.000Z",
+          dueAt: "2026-05-10T00:00:00.000Z",
+        },
+      });
+      const afterReminder = fold([...opened, ...reminded]);
+      expect(afterReminder.supportReviewReminderSentAt).toBe("2026-05-09T18:00:00.000Z");
+
+      expect(() =>
+        decideSupportRequest(afterReminder, {
+          type: "EmitSupportReviewReminder",
+          remindedAt: "2026-05-09T19:00:00.000Z",
+        }),
+      ).toThrow("Support review reminder has already been emitted.");
+    });
+
+    it("rejects a support-review reminder once the case is no longer ready for support", () => {
+      const opened = openProductNotReceived();
+      const state = fold(opened);
+
+      expect(() =>
+        decideSupportRequest(state, {
+          type: "EmitSupportReviewReminder",
+          remindedAt: "2026-05-09T18:00:00.000Z",
+        }),
+      ).toThrow("Support review reminders only apply while a case is ready for support review.");
+    });
+  });
 });

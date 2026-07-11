@@ -17,4 +17,13 @@ export const platformOperationsUnloggedProjectionSchemaMigrations: readonly BcSc
       "ALTER TABLE support_shipment_sources SET UNLOGGED;",
     ],
   },
+  {
+    migrationId: "20260711_support_request_auto_close_sweep_index",
+    description: "Index resolved support requests by auto-close deadline for the deadline sweep.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS support_request_pages_auto_close_sweep_idx
+  ON support_request_pages (auto_close_due_at)
+  WHERE status = 'resolved'`,
+    ],
+  },
 ];

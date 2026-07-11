@@ -255,6 +255,137 @@ export async function getSupportOperationsRequest(
   return result.rows[0] ?? null;
 }
 
+export type SupportRequestSweepCandidateRow = Readonly<{
+  support_request_id: string;
+  flow_type: string;
+  opened_at: string;
+}>;
+
+export type SupportRequestReviewReminderCandidateRow = Readonly<{
+  support_request_id: string;
+  flow_type: string;
+  support_review_due_at: string;
+}>;
+
+function normalizeSweepLimit(limit: number | undefined) {
+  return Math.max(1, Math.min(limit ?? 100, 500));
+}
+
+/**
+ * Cases still `waiting-on-seller` whose seller-response deadline has passed:
+ * the deadline sweep's silence candidates.
+ */
+export async function listSupportRequestsPastSellerResponseDeadline(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly SupportRequestSweepCandidateRow[]> {
+  const result = await db.query<SupportRequestSweepCandidateRow>(
+    `SELECT support_request_id, flow_type, opened_at::text AS opened_at
+     FROM support_request_pages
+     WHERE status = 'waiting-on-seller'
+       AND seller_response_due_at IS NOT NULL
+       AND seller_response_due_at <= $1::timestamptz
+     ORDER BY seller_response_due_at ASC, support_request_id ASC
+     LIMIT $2`,
+    [params.now, normalizeSweepLimit(params.limit)],
+  );
+  return result.rows;
+}
+
+/**
+ * Cases still `waiting-on-seller`, not yet at their deadline, that have not
+ * been reminded yet. The caller derives the halfway threshold from
+ * `opened_at` and the flow's `sellerResponseHours`.
+ */
+export async function listSupportRequestsNeedingResponseReminder(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly SupportRequestSweepCandidateRow[]> {
+  const result = await db.query<SupportRequestSweepCandidateRow>(
+    `SELECT support_request_id, flow_type, opened_at::text AS opened_at
+     FROM support_request_pages
+     WHERE status = 'waiting-on-seller'
+       AND seller_response_reminder_sent_at IS NULL
+       AND seller_response_due_at IS NOT NULL
+       AND seller_response_due_at > $1::timestamptz
+     ORDER BY seller_response_due_at ASC, support_request_id ASC
+     LIMIT $2`,
+    [params.now, normalizeSweepLimit(params.limit)],
+  );
+  return result.rows;
+}
+
+/**
+ * Cases `ready-for-support`, not yet at their support-review deadline, that
+ * have not been reminded yet. The caller derives the approaching threshold
+ * from `support_review_due_at` and the flow's `supportReviewHours`.
+ */
+export async function listSupportRequestsNeedingReviewReminder(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly SupportRequestReviewReminderCandidateRow[]> {
+  const result = await db.query<SupportRequestReviewReminderCandidateRow>(
+    `SELECT support_request_id, flow_type, support_review_due_at::text AS support_review_due_at
+     FROM support_request_pages
+     WHERE status = 'ready-for-support'
+       AND support_review_reminder_sent_at IS NULL
+       AND support_review_due_at IS NOT NULL
+       AND support_review_due_at > $1::timestamptz
+     ORDER BY support_review_due_at ASC, support_request_id ASC
+     LIMIT $2`,
+    [params.now, normalizeSweepLimit(params.limit)],
+  );
+  return result.rows;
+}
+
+/**
+ * Open cases outside `waiting-on-seller` (contested/open/waiting-on-buyer)
+ * whose seller-response or support-review deadline has passed. These
+ * escalate rather than auto-resolve because the sweep cannot safely infer an
+ * outcome once a case has diverged from the silence path.
+ */
+export async function listSupportRequestsOverdueForEscalation(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly Pick<SupportRequestSweepCandidateRow, "support_request_id">[]> {
+  const result = await db.query<Pick<SupportRequestSweepCandidateRow, "support_request_id">>(
+    `SELECT support_request_id
+     FROM support_request_pages
+     WHERE status NOT IN ('waiting-on-seller', 'ready-for-support', 'resolved', 'closed', 'cancelled')
+       AND (
+         seller_response_due_at <= $1::timestamptz
+         OR support_review_due_at <= $1::timestamptz
+       )
+     ORDER BY
+       LEAST(
+         COALESCE(seller_response_due_at, 'infinity'::timestamptz),
+         COALESCE(support_review_due_at, 'infinity'::timestamptz)
+       ) ASC,
+       support_request_id ASC
+     LIMIT $2`,
+    [params.now, normalizeSweepLimit(params.limit)],
+  );
+  return result.rows;
+}
+
+/** Resolved cases whose 7-day auto-close clock has elapsed. */
+export async function listSupportRequestsReadyForAutoClose(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly Pick<SupportRequestSweepCandidateRow, "support_request_id">[]> {
+  const result = await db.query<Pick<SupportRequestSweepCandidateRow, "support_request_id">>(
+    `SELECT support_request_id
+     FROM support_request_pages
+     WHERE status = 'resolved'
+       AND auto_close_due_at IS NOT NULL
+       AND auto_close_due_at <= $1::timestamptz
+     ORDER BY auto_close_due_at ASC, support_request_id ASC
+     LIMIT $2`,
+    [params.now, normalizeSweepLimit(params.limit)],
+  );
+  return result.rows;
+}
+
 export async function findOpenSupportRequestForOrderAndFlow(
   db: PgQueryable,
   params: Readonly<{ orderId: string; flowType: string }>,

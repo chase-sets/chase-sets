@@ -217,15 +217,17 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
       const data = event.data as {
         supportRequestId: string;
         resolution: SupportResolution;
+        autoCloseDueAt: string;
       };
 
       await db.query(
         `UPDATE support_request_pages
          SET status = 'resolved',
              updated_at = $2,
-             resolution = $3::jsonb
+             resolution = $3::jsonb,
+             auto_close_due_at = $4
          WHERE support_request_id = $1`,
-        [data.supportRequestId, data.resolution.resolvedAt, JSON.stringify(data.resolution)],
+        [data.supportRequestId, data.resolution.resolvedAt, JSON.stringify(data.resolution), data.autoCloseDueAt],
       );
     },
     "support.support-request.closed": async (event) => {
@@ -258,6 +260,32 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
              cancellation_reason = $3
          WHERE support_request_id = $1`,
         [data.supportRequestId, data.cancelledAt, data.reason],
+      );
+    },
+    "support.support-request.response-reminder-emitted": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        remindedAt: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET seller_response_reminder_sent_at = $2
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.remindedAt],
+      );
+    },
+    "support.support-request.review-reminder-emitted": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        remindedAt: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET support_review_reminder_sent_at = $2
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.remindedAt],
       );
     },
   };
