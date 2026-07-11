@@ -7,6 +7,7 @@ export type SettlementPayoutRow = Readonly<{
   currency_code: string;
   destination_reference: string | null;
   note: string | null;
+  display_reference: string;
   status: string;
   provider_transfer_reference: string | null;
   provider_payout_reference: string | null;
@@ -81,6 +82,7 @@ const payoutSelect = `
     currency_code,
     destination_reference,
     note,
+    display_reference,
     status,
     provider_transfer_reference,
     provider_payout_reference,

@@ -1,5 +1,10 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
+
+const settlementPayoutDisplayReferenceUniqueIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS settlement_payout_pages_display_reference_key
+  ON settlement_payout_pages (display_reference)
+  WHERE display_reference <> '';`;
 
 export const settlementPayoutSchemaSql = `
 CREATE TABLE IF NOT EXISTS settlement_payout_pages (
@@ -9,6 +14,7 @@ CREATE TABLE IF NOT EXISTS settlement_payout_pages (
   currency_code text NOT NULL,
   destination_reference text NULL,
   note text NULL,
+  display_reference text NOT NULL DEFAULT '',
   status text NOT NULL,
   provider_transfer_reference text NULL,
   provider_payout_reference text NULL,
@@ -32,9 +38,8 @@ CREATE TABLE IF NOT EXISTS settlement_payout_pages (
 CREATE INDEX IF NOT EXISTS settlement_payout_pages_account_idx
   ON settlement_payout_pages (account_id, updated_at DESC, payout_id DESC);
 
-CREATE INDEX IF NOT EXISTS settlement_payout_pages_provider_payout_idx
-  ON settlement_payout_pages (provider_payout_reference)
-  WHERE provider_payout_reference IS NOT NULL;
+-- settlement_payout_pages_provider_payout_idx moved to the schemaMigrations ledger
+-- (boot-time indexes on migration-added columns are forbidden by the structure gate).
 
 CREATE TABLE IF NOT EXISTS settlement_money_movement_webhook_events (
   provider_event_id text PRIMARY KEY,
@@ -128,6 +133,9 @@ ALTER TABLE settlement_payout_pages
 ALTER TABLE settlement_payout_pages
   ADD COLUMN IF NOT EXISTS retry_reason text NULL;
 
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS display_reference text NOT NULL DEFAULT '';
+
 ALTER TABLE settlement_money_movement_webhook_events
   ADD COLUMN IF NOT EXISTS event_kind text NULL;
 
@@ -161,3 +169,24 @@ ${durableJobWorkUnitSchemaSql({
   workUnitsTable: "settlement_payout_reconciliation_work_units",
 })}
 `;
+
+export const settlementPayoutSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260711_settlement_payout_display_reference_unique_idx",
+    description:
+      "Add the support-safe payout display reference unique index outside boot-time schema SQL. Rows written " +
+      "before this migration ran keep the empty-string default and are excluded from the uniqueness check; the " +
+      "projector always populates a real reference for every payout it creates.",
+    statements: [`SET lock_timeout = '5s'`, settlementPayoutDisplayReferenceUniqueIndexSql],
+  },
+  {
+    migrationId: "20260711_settlement_payout_provider_reference_idx",
+    description: "Recreate the provider payout reference lookup index through the ledger.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_payout_pages_provider_payout_idx
+  ON settlement_payout_pages (provider_payout_reference)
+  WHERE provider_payout_reference IS NOT NULL`,
+    ],
+  },
+];

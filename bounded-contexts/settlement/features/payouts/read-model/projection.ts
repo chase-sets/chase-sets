@@ -1,5 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PayoutId } from "@chase-sets/primitives/typed-ids";
+import { withPayoutDisplayReference } from "./display-reference";
 
 export function buildPayoutProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -14,56 +16,61 @@ export function buildPayoutProjectionHandlers(db: PgQueryable): ProjectorHandler
         requestedAt: string;
       };
 
-      await db.query(
-        `INSERT INTO settlement_payout_pages (
-           payout_id,
-           account_id,
-           amount,
-           currency_code,
-           destination_reference,
-           note,
-           status,
-           provider_transfer_reference,
-           provider_payout_reference,
-           provider_status,
-           provider_failure_code,
-           provider_failure_message,
-           requested_at,
-           updated_at,
-           sent_at,
-           completed_at,
-           failed_at,
-           failure_reason,
-           last_provider_event_at,
-           last_reconciled_at,
-           retry_count,
-           next_retry_at,
-           retry_reason,
-           last_stream_version
-         ) VALUES (
-           $1, $2, $3, $4, $5, $6, 'requested', NULL, NULL, NULL, NULL, NULL, $7, $7, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, $8
-         )
-         ON CONFLICT (payout_id) DO UPDATE
-         SET account_id = EXCLUDED.account_id,
-             amount = EXCLUDED.amount,
-             currency_code = EXCLUDED.currency_code,
-             destination_reference = EXCLUDED.destination_reference,
-             note = EXCLUDED.note,
-             status = EXCLUDED.status,
-             requested_at = EXCLUDED.requested_at,
-             updated_at = EXCLUDED.updated_at,
-             last_stream_version = EXCLUDED.last_stream_version
-         WHERE settlement_payout_pages.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.payoutId,
-          data.accountId,
-          data.amount,
-          data.currencyCode,
-          data.destinationReference,
-          data.note,
-          data.requestedAt,
-          event.streamVersion,
-        ],
+      await withPayoutDisplayReference(data.payoutId as PayoutId, (displayReference) =>
+        db.query(
+          `INSERT INTO settlement_payout_pages (
+             payout_id,
+             account_id,
+             amount,
+             currency_code,
+             destination_reference,
+             note,
+             display_reference,
+             status,
+             provider_transfer_reference,
+             provider_payout_reference,
+             provider_status,
+             provider_failure_code,
+             provider_failure_message,
+             requested_at,
+             updated_at,
+             sent_at,
+             completed_at,
+             failed_at,
+             failure_reason,
+             last_provider_event_at,
+             last_reconciled_at,
+             retry_count,
+             next_retry_at,
+             retry_reason,
+             last_stream_version
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, 'requested', NULL, NULL, NULL, NULL, NULL, $8, $8, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, $9
+           )
+           ON CONFLICT (payout_id) DO UPDATE
+           SET account_id = EXCLUDED.account_id,
+               amount = EXCLUDED.amount,
+               currency_code = EXCLUDED.currency_code,
+               destination_reference = EXCLUDED.destination_reference,
+               note = EXCLUDED.note,
+               display_reference = EXCLUDED.display_reference,
+               status = EXCLUDED.status,
+               requested_at = EXCLUDED.requested_at,
+               updated_at = EXCLUDED.updated_at,
+               last_stream_version = EXCLUDED.last_stream_version
+           WHERE settlement_payout_pages.last_stream_version < EXCLUDED.last_stream_version`,
+          [
+            data.payoutId,
+            data.accountId,
+            data.amount,
+            data.currencyCode,
+            data.destinationReference,
+            data.note,
+            displayReference,
+            data.requestedAt,
+            event.streamVersion,
+          ],
+        ),
       );
     },
     "settlement.payout.provider-references-recorded": async (event) => {

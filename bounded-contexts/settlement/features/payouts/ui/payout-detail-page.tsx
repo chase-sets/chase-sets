@@ -51,7 +51,7 @@ export function SettlementPayoutDetailPage({
       <PageHeader
         eyebrow={t("settlement.features.payouts.ui.payoutDetailPage.settlement")}
         title={t("settlement.features.payouts.ui.payoutDetailPage.payout.title", {
-          payoutId: payout.payout_id,
+          payoutReference: payout.display_reference,
         })}
         description={formatMoney(payout.amount, payout.currency_code)}
         actions={

@@ -30,6 +30,7 @@ import {
   hasProcessedProviderWebhookEvent as hasProcessedProviderWebhookInboxEvent,
   recordProviderWebhookEvent as recordProviderWebhookInboxEvent,
 } from "@chase-sets/provider-webhook-inbox";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -682,7 +683,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             fundsStatus: "available",
             payoutId: payout.payout_id as PayoutId,
             description:
-              params.failureReason ?? params.providerFailureMessage ?? `Reversed failed payout ${payout.payout_id}`,
+              params.failureReason ??
+              params.providerFailureMessage ??
+              `Reversed failed payout ${deriveDisplayReferenceOrRaw(payout.payout_id as PayoutId)}`,
             postedAt: failedAt,
           },
           context,
@@ -698,7 +701,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         payoutId: payout.payout_id,
         amount: payout.amount,
         currencyCode: payout.currency_code,
-        reason: params.failureReason ?? params.providerFailureMessage ?? `Reversed failed payout ${payout.payout_id}`,
+        reason:
+          params.failureReason ??
+          params.providerFailureMessage ??
+          `Reversed failed payout ${deriveDisplayReferenceOrRaw(payout.payout_id as PayoutId)}`,
       });
     }
 
@@ -1237,7 +1243,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           occurred_at: payout.requested_at,
           kind: "payout-requested",
           label: "Payout requested",
-          reference: payout.payout_id,
+          reference: payout.display_reference,
           amount: payout.amount,
           currency_code: payout.currency_code,
         },
@@ -1610,7 +1616,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             currencyCode,
             fundsStatus: "available",
             payoutId,
-            description: params.note ?? `Payout ${payoutId}`,
+            description: params.note ?? `Payout ${deriveDisplayReferenceOrRaw(payoutId)}`,
             postedAt: requestedAt,
           },
           context,

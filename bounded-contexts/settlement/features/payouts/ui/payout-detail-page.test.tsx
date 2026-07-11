@@ -13,6 +13,7 @@ function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutR
     currency_code: "usd",
     destination_reference: null,
     note: null,
+    display_reference: "PYO-TEST1234",
     status: "failed",
     provider_transfer_reference: "tr_test",
     provider_payout_reference: "po_test",
@@ -40,6 +41,7 @@ describe("payout detail recovery paths", () => {
       <SettlementPayoutDetailPage backHref="/account/payouts" payout={payout()} showSupportDetails={false} />,
     );
 
+    expect(html).toContain("Payout PYO-TEST1234");
     expect(html).toContain("Payout account needs review");
     expect(html).toContain("Review payout details");
     expect(html).toContain("Contact support");
