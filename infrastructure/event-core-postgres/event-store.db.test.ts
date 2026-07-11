@@ -499,6 +499,140 @@ describeDb("postgres event store real database integration", () => {
     }
   });
 
+  it("commits sibling streams even when one stream conflicts in an independent multi-stream append", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-07-09T12:00:00.000Z" as never,
+      createEventId,
+    });
+
+    await store.appendToStream({
+      streamId: "marketplace.listing-lst_conflict",
+      expectedVersion: "no_stream",
+      context: eventContext("tenant_a"),
+      events: [eventToStore("marketplace.listing.created", { listingId: "lst_conflict" })],
+    });
+
+    const results = await store.appendToStreamsIndependently!([
+      {
+        streamId: "marketplace.listing-lst_conflict",
+        expectedVersion: 5, // stale -- real current version is 1
+        context: eventContext("tenant_a"),
+        events: [eventToStore("marketplace.listing.price-updated", { priceAmount: "9.99" })],
+      },
+      {
+        streamId: "marketplace.listing-lst_sibling",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [eventToStore("marketplace.listing.created", { listingId: "lst_sibling" })],
+      },
+    ]);
+
+    expect(results).toMatchObject([
+      {
+        streamId: "marketplace.listing-lst_conflict",
+        outcome: "conflict",
+        storedEvents: [],
+        error: { code: "concurrency_conflict" },
+      },
+      { streamId: "marketplace.listing-lst_sibling", outcome: "appended" },
+    ]);
+
+    // The conflicting stream stays at its pre-batch version; the sibling committed.
+    await expect(store.readStream({ streamId: "marketplace.listing-lst_conflict", limit: 10 })).resolves.toHaveLength(
+      1,
+    );
+    await expect(store.readStream({ streamId: "marketplace.listing-lst_sibling", limit: 10 })).resolves.toHaveLength(1);
+  });
+
+  it("appends every stream in a chunk through one multi-row INSERT with contiguous global positions", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-07-09T12:00:00.000Z" as never,
+      createEventId,
+    });
+
+    const results = await store.appendToStreamsIndependently!([
+      {
+        streamId: "marketplace.listing-lst_chunk_1",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [eventToStore("marketplace.listing.created", { listingId: "lst_chunk_1" })],
+      },
+      {
+        streamId: "marketplace.listing-lst_chunk_2",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [eventToStore("marketplace.listing.created", { listingId: "lst_chunk_2" })],
+      },
+      {
+        streamId: "marketplace.listing-lst_chunk_3",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [eventToStore("marketplace.listing.created", { listingId: "lst_chunk_3" })],
+      },
+    ]);
+
+    expect(results.every((result) => result.outcome === "appended")).toBe(true);
+
+    const allEvents = await store.readAll({ limit: 10 });
+    expect(allEvents.map((event) => event.globalPosition)).toEqual(["1", "2", "3"]);
+    expect(allEvents.map((event) => event.streamId)).toEqual([
+      "marketplace.listing-lst_chunk_1",
+      "marketplace.listing-lst_chunk_2",
+      "marketplace.listing-lst_chunk_3",
+    ]);
+    expect(allEvents.every((event) => event.streamVersion === 1)).toBe(true);
+
+    // A single-append shape check: independent-append results carry the same StoredEvent shape.
+    const single = await store.readStream({ streamId: "marketplace.listing-lst_chunk_1", limit: 10 });
+    expect(results[0]?.storedEvents[0]).toEqual(single[0]);
+  });
+
+  it("acquires the store-wide advisory lock exactly once per independent-append chunk", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-07-09T12:00:00.000Z" as never,
+      createEventId,
+    });
+
+    const lockClient = await beginGlobalAppendLock(schema.pool);
+    let lockClientReleased = false;
+    const chunkAppend = store.appendToStreamsIndependently!([
+      {
+        streamId: "marketplace.listing-lst_lock_1",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [eventToStore("marketplace.listing.created", { listingId: "lst_lock_1" })],
+      },
+      {
+        streamId: "marketplace.listing-lst_lock_2",
+        expectedVersion: "no_stream",
+        context: eventContext("tenant_a"),
+        events: [eventToStore("marketplace.listing.created", { listingId: "lst_lock_2" })],
+      },
+    ]);
+
+    try {
+      // The chunk's SELECT ... FOR UPDATE pre-checks can run before the shared
+      // advisory lock, but the INSERT that finally commits the chunk cannot
+      // proceed while another session holds the store-wide advisory lock.
+      await expect(hasSettledWithin(chunkAppend, 50)).resolves.toBe(false);
+
+      await lockClient.query("COMMIT");
+      lockClient.release();
+      lockClientReleased = true;
+
+      const results = await chunkAppend;
+      expect(results.every((result) => result.outcome === "appended")).toBe(true);
+    } finally {
+      if (!lockClientReleased) {
+        await lockClient.query("ROLLBACK").catch(() => undefined);
+        lockClient.release();
+      }
+    }
+  });
+
   it("preserves projection-critical checkout and identity events through bulk appends", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,

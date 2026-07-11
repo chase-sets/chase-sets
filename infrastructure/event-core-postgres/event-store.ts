@@ -5,12 +5,14 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { EventId } from "@chase-sets/primitives/typed-ids";
 import {
   createEventStoreError,
+  type AppendToStreamsIndependentResult,
+  type AppendToStreamsIndependentlyOptions,
   type AppendToStreamsResult,
   type EventStoreError,
   type EventStore,
 } from "@chase-sets/event-core/event-store";
 import { ZERO_GLOBAL_POSITION, globalPositionFromBigInt, parseGlobalPosition } from "@chase-sets/event-core/storage";
-import { observeEventStoreOperation } from "@chase-sets/observability";
+import { observeEventStoreOperation, recordEventStoreAppendAdvisoryLockHold } from "@chase-sets/observability";
 import type {
   AppendToStreamInput,
   EventRecordToStore,
@@ -318,6 +320,93 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         },
       );
     },
+    appendToStreamsIndependently: async (inputs, options) => {
+      const appendInputs = inputs.filter((input) => input.events.length > 0);
+      if (appendInputs.length === 0) {
+        return inputs.map((input) => ({
+          streamId: input.streamId,
+          outcome: "no_op" as const,
+          storedEvents: [],
+        }));
+      }
+
+      const uniqueStreamIds = new Set(appendInputs.map((input) => input.streamId));
+      if (uniqueStreamIds.size !== appendInputs.length) {
+        throw new Error("appendToStreamsIndependently does not support the same stream id more than once per batch.");
+      }
+
+      assertEventPayloadSizes(appendInputs);
+
+      return observeEventStoreOperation(
+        "append_to_streams_independently",
+        {
+          event_count: appendInputs.reduce((count, input) => count + input.events.length, 0),
+          event_type: "multiple",
+        },
+        async () => {
+          const telemetry = options?.telemetry;
+          const lockTiming: { acquiredAtMs: number | null } = { acquiredAtMs: null };
+          let transactionOutcome: "committed" | "rolled_back" = "rolled_back";
+
+          try {
+            const results = await withPgTransaction(
+              pool,
+              async (client) =>
+                appendEventsToStreamsIndependently({
+                  client,
+                  inputs,
+                  now,
+                  createEventId,
+                  upsertStreamSql,
+                  readCurrentVersionSql,
+                  eventsTable,
+                  readEventsByIdsSql,
+                  updateStreamVersionSql,
+                  onAdvisoryLockAcquired: () => {
+                    lockTiming.acquiredAtMs ??= Date.now();
+                  },
+                }),
+              {
+                afterCommit: wakeNotifications
+                  ? async (client, committedResults) => {
+                      const inputsByStreamId = new Map(inputs.map((input) => [input.streamId, input] as const));
+                      for (const result of committedResults) {
+                        if (result.outcome !== "appended" || result.storedEvents.length === 0) {
+                          continue;
+                        }
+                        const input = inputsByStreamId.get(result.streamId);
+                        if (!input) {
+                          continue;
+                        }
+                        await emitEventStoreWakeNotificationAfterCommit({
+                          client,
+                          config: wakeNotifications,
+                          input,
+                          storedEvents: result.storedEvents,
+                          emittedAt: now(),
+                        });
+                      }
+                    }
+                  : undefined,
+              },
+            );
+            transactionOutcome = "committed";
+            return results;
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to append events to Postgres event store.");
+          } finally {
+            if (lockTiming.acquiredAtMs !== null) {
+              recordEventStoreAppendAdvisoryLockHold({
+                durationMs: Date.now() - lockTiming.acquiredAtMs,
+                outcome: transactionOutcome,
+                holderKind: telemetry?.holderKind ?? "bulk_chunk_append",
+                sourceContextName: telemetry?.sourceContextName,
+              });
+            }
+          }
+        },
+      );
+    },
 
     readStream: async (input: ReadStreamInput) => {
       const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
@@ -384,6 +473,11 @@ type AppendInTransactionArgs = Readonly<{
 type AppendStreamsInTransactionArgs = Omit<AppendInTransactionArgs, "input"> &
   Readonly<{
     inputs: readonly AppendToStreamInput[];
+  }>;
+
+type AppendStreamsIndependentlyInTransactionArgs = AppendStreamsInTransactionArgs &
+  Readonly<{
+    onAdvisoryLockAcquired: () => void;
   }>;
 
 type ReadAllQueryInput = Readonly<{
@@ -580,6 +674,180 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
   }
 
   return results;
+}
+
+type PendingIndependentStreamAppend = Readonly<{
+  streamId: string;
+  currentVersion: number;
+  eventCandidates: AppendEventCandidate[];
+  existingEventsById: Map<string, StoredEvent>;
+}>;
+
+/**
+ * The chunk primitive: validates every stream's expected version up front
+ * (per-stream `FOR UPDATE`, same as `appendEventsToStream`), excludes any
+ * stream that fails validation from the batch WITHOUT aborting the others,
+ * then performs exactly one multi-row INSERT across every stream that
+ * passed -- extending the single-stream multi-row insert (m106's
+ * batch-apply work) to the multi-stream case. The store-wide advisory lock is
+ * acquired at most once per call, right before that single INSERT, so a
+ * chunk of K streams holds the lock for one bounded window instead of K
+ * separate windows.
+ */
+async function appendEventsToStreamsIndependently(
+  args: AppendStreamsIndependentlyInTransactionArgs,
+): Promise<readonly AppendToStreamsIndependentResult[]> {
+  const now = args.now();
+  const results: AppendToStreamsIndependentResult[] = [];
+  const pendingStreams: PendingIndependentStreamAppend[] = [];
+  const combinedEventsToInsert: AppendEventToInsert[] = [];
+
+  for (const input of args.inputs) {
+    if (input.events.length === 0) {
+      results.push({ streamId: input.streamId, outcome: "no_op", storedEvents: [] });
+      continue;
+    }
+
+    await args.client.query(args.upsertStreamSql, [input.streamId, now]);
+
+    const streamVersionResult = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [
+      input.streamId,
+    ]);
+
+    if (streamVersionResult.rows.length !== 1) {
+      results.push({
+        streamId: input.streamId,
+        outcome: "conflict",
+        storedEvents: [],
+        error: createEventStoreError("infrastructure_failure", "Stream row not found", {
+          streamId: input.streamId,
+        }),
+      });
+      continue;
+    }
+
+    const currentVersion = toNumber(streamVersionResult.rows[0].current_version);
+
+    try {
+      assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion);
+    } catch (error) {
+      results.push({
+        streamId: input.streamId,
+        outcome: "conflict",
+        storedEvents: [],
+        error: isEventStoreError(error)
+          ? error
+          : createEventStoreError("infrastructure_failure", "Failed to validate expected stream version.", {
+              streamId: input.streamId,
+              cause: error instanceof Error ? error.message : String(error),
+            }),
+      });
+      continue;
+    }
+
+    const eventCandidates: AppendEventCandidate[] = input.events.map((event) => ({
+      streamId: input.streamId,
+      event,
+      context: input.context,
+      now,
+      eventId: event.eventId ?? args.createEventId(),
+    }));
+    const existingEventsById = await readExistingEventsById(args.client, args.readEventsByIdsSql, eventCandidates);
+    const plannedEventsById = new Map<string, AppendEventToInsert>();
+    let nextVersion = currentVersion;
+
+    for (const candidate of eventCandidates) {
+      const existingEvent = existingEventsById.get(candidate.eventId);
+      if (existingEvent) {
+        assertIdempotentEventMatch(existingEvent, candidate);
+        nextVersion = Math.max(nextVersion, existingEvent.streamVersion);
+        continue;
+      }
+
+      const plannedEvent = plannedEventsById.get(candidate.eventId);
+      if (plannedEvent) {
+        assertDuplicateEventIdInAppendMatches(plannedEvent, candidate);
+        continue;
+      }
+
+      nextVersion += 1;
+      const eventToInsert = { ...candidate, streamVersion: nextVersion };
+      plannedEventsById.set(candidate.eventId, eventToInsert);
+      combinedEventsToInsert.push(eventToInsert);
+    }
+
+    pendingStreams.push({ streamId: input.streamId, currentVersion, eventCandidates, existingEventsById });
+  }
+
+  const insertedEventsById = new Map<string, StoredEvent>();
+  if (combinedEventsToInsert.length > 0) {
+    // One advisory-lock acquisition, one multi-row INSERT, for every stream
+    // in this chunk that passed its expected-version check above -- streams
+    // excluded above never reach this INSERT, so their conflict never rolls
+    // back a sibling stream's events.
+    args.onAdvisoryLockAcquired();
+    await args.client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    const insertResult = await args.client.query<DbEventRow>(
+      buildInsertEventsSql(args.eventsTable, combinedEventsToInsert.length),
+      buildInsertEventsParams(combinedEventsToInsert),
+    );
+
+    for (const row of insertResult.rows) {
+      const storedEvent = mapDbEventRow(row);
+      insertedEventsById.set(storedEvent.eventId, storedEvent);
+    }
+
+    if (insertedEventsById.size !== combinedEventsToInsert.length) {
+      const missingEvents = combinedEventsToInsert.filter((event) => !insertedEventsById.has(event.eventId));
+      const eventsConflictingDuringInsert = await readExistingEventsById(
+        args.client,
+        args.readEventsByIdsSql,
+        missingEvents,
+      );
+
+      for (const missingEvent of missingEvents) {
+        const existingEvent = eventsConflictingDuringInsert.get(missingEvent.eventId);
+        if (!existingEvent) {
+          throw createEventStoreError(
+            "infrastructure_failure",
+            "Failed to insert event row into Postgres event store.",
+          );
+        }
+
+        assertIdempotentEventMatch(existingEvent, missingEvent);
+        insertedEventsById.set(missingEvent.eventId, existingEvent);
+      }
+    }
+  }
+
+  for (const pendingStream of pendingStreams) {
+    const storedEvents = pendingStream.eventCandidates.map((candidate) => {
+      const storedEvent =
+        pendingStream.existingEventsById.get(candidate.eventId) ?? insertedEventsById.get(candidate.eventId);
+      if (!storedEvent) {
+        throw createEventStoreError("infrastructure_failure", "Failed to insert event row into Postgres event store.");
+      }
+      return storedEvent;
+    });
+    const updatedStreamVersion = storedEvents.reduce(
+      (version, event) => Math.max(version, event.streamVersion),
+      pendingStream.currentVersion,
+    );
+
+    await args.client.query(args.updateStreamVersionSql, [pendingStream.streamId, updatedStreamVersion, now]);
+    results.push({ streamId: pendingStream.streamId, outcome: "appended", storedEvents });
+  }
+
+  const resultsByStreamId = new Map(results.map((result) => [result.streamId, result] as const));
+  return args.inputs.map((input) => {
+    const result = resultsByStreamId.get(input.streamId);
+    if (!result) {
+      throw createEventStoreError("infrastructure_failure", "Missing independent append result for stream.", {
+        streamId: input.streamId,
+      });
+    }
+    return result;
+  });
 }
 
 type AppendEventCandidate = Readonly<{

@@ -8,6 +8,7 @@
     "./api": "./api.ts",
     "./agent-guardrails": "./agent-guardrails.ts",
     "./auth": "./auth.ts",
+    "./bulk-append-lane": "./bulk-append-lane.ts",
     "./context-pools": "./context-pools.ts",
     "./config-schema": "./config-schema.ts",
     "./control-plane": "./control-plane.ts",
@@ -54,9 +55,9 @@
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts",
-    "test:unit": "vitest run --config ./vitest.config.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts",
-    "test:fast": "vitest run --config ./vitest.config.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts",
-    "test:db": "vitest run --config ./vitest.config.ts realtime.db.test.ts retention-sweep.db.test.ts concurrency.db.test.ts agent-guardrails.db.test.ts"
+    "test:unit": "vitest run --config ./vitest.config.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts",
+    "test:fast": "vitest run --config ./vitest.config.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts",
+    "test:db": "vitest run --config ./vitest.config.ts realtime.db.test.ts retention-sweep.db.test.ts concurrency.db.test.ts agent-guardrails.db.test.ts bulk-append-lane.db.test.ts"
   },
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
