@@ -6,8 +6,11 @@ import {
   buildDiagnosticsCommands,
   buildHelmRollbackArgs,
   buildHelmStatusArgs,
+  buildHelmUninstallArgs,
   buildHelmUpgradeArgs,
   buildKubernetesRollbackTarget,
+  buildNamespaceDeleteArgs,
+  buildNamespaceGetArgs,
   deployPlatformToKubernetes,
   helmReleaseExists,
   parsePlatformImageRef,
@@ -15,6 +18,7 @@ import {
   platformValuesPathForEnvironment,
   platformKubernetesWorkloads,
   rollbackPlatformOnKubernetes,
+  teardownPlatformKubernetesNamespace,
 } from "./platform-kubernetes-deployment.mjs";
 
 const sampleValues = {
@@ -637,6 +641,106 @@ describe("platform Kubernetes deployment", () => {
         spawn: completedSpawn([], [{ code: 1, stderr: "Error: Kubernetes cluster unreachable" }]),
       }),
     ).rejects.toThrow("helm status proof --namespace production exited with code 1");
+  });
+
+  it("builds Helm uninstall, namespace delete, and namespace get arguments", () => {
+    expect(
+      buildHelmUninstallArgs({ release: "chase-sets-pr-42", namespace: "chase-sets-pr-42", timeout: "5m" }),
+    ).toEqual(["uninstall", "chase-sets-pr-42", "--namespace", "chase-sets-pr-42", "--wait", "--timeout", "5m"]);
+    expect(buildNamespaceDeleteArgs({ namespace: "chase-sets-pr-42", timeout: "5m" })).toEqual([
+      "delete",
+      "namespace",
+      "chase-sets-pr-42",
+      "--ignore-not-found",
+      "--wait=true",
+      "--timeout=5m",
+    ]);
+    expect(buildNamespaceGetArgs({ namespace: "chase-sets-pr-42" })).toEqual([
+      "get",
+      "namespace",
+      "chase-sets-pr-42",
+      "--output",
+      "name",
+    ]);
+  });
+
+  it("tears down a preview namespace by uninstalling the Helm release then deleting the namespace", async () => {
+    const calls = [];
+    const result = await teardownPlatformKubernetesNamespace({
+      release: "chase-sets-pr-42",
+      namespace: "chase-sets-pr-42",
+      timeout: "5m",
+      spawn: completedSpawn(calls, [
+        { code: 0, stdout: '{"name":"chase-sets-pr-42"}' }, // helm status
+        { code: 0 }, // helm uninstall
+        { code: 0 }, // kubectl delete namespace
+        { code: 1, stderr: 'Error from server (NotFound): namespaces "chase-sets-pr-42" not found' }, // kubectl get namespace
+      ]),
+    });
+
+    expect(calls.map((call) => [call.command, call.args[0]])).toEqual([
+      ["helm", "status"],
+      ["helm", "uninstall"],
+      ["kubectl", "delete"],
+      ["kubectl", "get"],
+    ]);
+    expect(result).toMatchObject({
+      action: "teardown",
+      release: "chase-sets-pr-42",
+      namespace: "chase-sets-pr-42",
+      result: "success",
+      releaseUninstalled: true,
+    });
+  });
+
+  it("tears down a preview namespace without uninstalling a Helm release that never deployed", async () => {
+    const calls = [];
+    const result = await teardownPlatformKubernetesNamespace({
+      release: "chase-sets-pr-43",
+      namespace: "chase-sets-pr-43",
+      timeout: "5m",
+      spawn: completedSpawn(calls, [
+        { code: 1, stderr: "Error: release: not found" }, // helm status
+        { code: 0 }, // kubectl delete namespace
+        { code: 1, stderr: 'Error from server (NotFound): namespaces "chase-sets-pr-43" not found' }, // kubectl get namespace
+      ]),
+    });
+
+    expect(calls.map((call) => [call.command, call.args[0]])).toEqual([
+      ["helm", "status"],
+      ["kubectl", "delete"],
+      ["kubectl", "get"],
+    ]);
+    expect(result).toMatchObject({ result: "success", releaseUninstalled: false });
+  });
+
+  it("fails a teardown run instead of reporting success when the namespace survives the delete", async () => {
+    await expect(
+      teardownPlatformKubernetesNamespace({
+        release: "chase-sets-pr-44",
+        namespace: "chase-sets-pr-44",
+        timeout: "5m",
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 1, stderr: "Error: release: not found" }, // helm status
+            { code: 0 }, // kubectl delete namespace
+            { code: 0, stdout: "namespace/chase-sets-pr-44" }, // kubectl get namespace: still present
+          ],
+        ),
+      }),
+    ).rejects.toThrow("Preview namespace chase-sets-pr-44 still exists after kubectl delete namespace completed");
+  });
+
+  it("refuses to tear down a namespace that is not a preview namespace", async () => {
+    await expect(
+      teardownPlatformKubernetesNamespace({
+        release: "chase-sets-platform",
+        namespace: "chase-sets-platform",
+        timeout: "5m",
+        spawn: successfulSpawn([]),
+      }),
+    ).rejects.toThrow('Refusing to tear down non-preview namespace "chase-sets-platform"');
   });
 
   it("builds kubectl diagnostics without requiring App Platform state", () => {

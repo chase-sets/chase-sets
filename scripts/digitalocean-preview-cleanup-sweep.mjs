@@ -67,6 +67,36 @@ export function previewDatabaseClusterNameForPrNumber(prNumber) {
   return `chase-sets-pr-${prNumber}-postgres`;
 }
 
+// The Kubernetes preview path (#4656) creates the preview's namespace with
+// Helm (`--create-namespace`), never Terraform, so nothing in Terraform
+// state ever names it. A merged/closed PR's namespace can therefore only be
+// found by asking the live staging DOKS cluster which `chase-sets-pr-*`
+// namespaces currently exist, independent of whatever Terraform state, live
+// database clusters, or DNS records also do or don't exist for that PR.
+export function previewPrNumberFromNamespaceName(name) {
+  const match = String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .match(/^chase-sets-pr-(\d+)$/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+export function selectPreviewNamespaceTargets(namespaces) {
+  const prNumbers = new Set();
+
+  for (const namespace of Array.isArray(namespaces) ? namespaces : []) {
+    const name = typeof namespace === "string" ? namespace : (namespace?.metadata?.name ?? namespace?.name ?? "");
+    const prNumber = previewPrNumberFromNamespaceName(name);
+    if (prNumber) {
+      prNumbers.add(prNumber);
+    }
+  }
+
+  return [...prNumbers]
+    .sort((left, right) => left - right)
+    .map((prNumber) => ({ prNumber, namespace: `chase-sets-pr-${prNumber}` }));
+}
+
 export function previewPrNumberFromDatabaseClusterName(name) {
   const normalized = String(name ?? "")
     .trim()
@@ -233,6 +263,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     stateCandidates: [],
     databaseClusterCandidates: [],
     dnsRecordCandidates: [],
+    namespaceCandidates: [],
     candidates: [],
     targets: [],
     result: "failure",
@@ -251,6 +282,8 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     (() => commandJson("doctl", ["databases", "list", "--output", "json"], dependencies));
   const listDomains = listPreviewDomains(dependencies);
   const listDomainRecords = listPreviewDomainRecords(dependencies);
+  const listNamespaces =
+    dependencies.listNamespaces ?? (() => commandJson("kubectl", ["get", "namespaces", "-o", "json"], dependencies));
   const fetchPullRequest =
     dependencies.fetchPullRequest ??
     ((prNumber) =>
@@ -260,7 +293,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
         prNumber,
       }));
 
-  const record = { ...baseRecord, dnsRecordCandidates: [], errors: [], warnings: [] };
+  const record = { ...baseRecord, dnsRecordCandidates: [], namespaceCandidates: [], errors: [], warnings: [] };
   try {
     const listed = await awsJson([
       "s3api",
@@ -304,6 +337,22 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
     record.warnings.push(describeError(error));
   }
 
+  // A closed PR's namespace is the leak this sweep exists to catch (#4778):
+  // Terraform never created it, so it never appears in Terraform state, and
+  // it can outlive its database cluster and DNS records once those are
+  // cleaned up by an earlier partial run. Ask the live cluster directly.
+  // Listing failure (e.g. no kubeconfig configured for this run) only
+  // degrades this one candidate source to a warning; state/cluster/DNS-backed
+  // reconciliation still proceeds.
+  try {
+    record.namespaceCandidates = selectPreviewNamespaceTargets(await listNamespaces());
+  } catch (error) {
+    record.warnings.push(
+      "Preview namespace listing failed; state, cluster, and DNS cleanup targets were still evaluated.",
+    );
+    record.warnings.push(describeError(error));
+  }
+
   record.candidates = combinePreviewCleanupCandidates(record.stateCandidates, record.databaseClusterCandidates);
 
   for (const dnsCandidate of record.dnsRecordCandidates) {
@@ -316,6 +365,20 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
         stateKey: null,
         databaseClusters: [],
         dnsRecords: dnsCandidate.records,
+      });
+    }
+  }
+
+  for (const namespaceCandidate of record.namespaceCandidates) {
+    const existing = record.candidates.find((candidate) => candidate.prNumber === namespaceCandidate.prNumber);
+    if (existing) {
+      existing.namespace = namespaceCandidate.namespace;
+    } else {
+      record.candidates.push({
+        prNumber: namespaceCandidate.prNumber,
+        stateKey: null,
+        databaseClusters: [],
+        namespace: namespaceCandidate.namespace,
       });
     }
   }

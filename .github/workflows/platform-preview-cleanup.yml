@@ -46,10 +46,72 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: github.event_name == 'schedule'
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
       - uses: ./.github/actions/setup-pnpm-workspace
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The straggler sweep (schedule runs) must reconcile live chase-sets-pr-*
+      # namespaces in the staging DOKS cluster: the Kubernetes preview path
+      # creates namespaces with Helm, never Terraform, so Terraform state,
+      # database cluster, and DNS listings alone can never see a namespace
+      # that outlived all three. This is best-effort (continue-on-error): if
+      # kubeconfig setup fails, the sweep still runs on state/cluster/DNS
+      # candidates and the script degrades the missing namespace listing to a
+      # warning rather than failing the whole discovery run.
+      - name: Configure staging Kubernetes context for preview sweep
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        working-directory: infrastructure/digitalocean/doks
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-preview-sweep.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure staging Kubernetes context for the preview sweep." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Staging Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured staging Kubernetes context for preview sweep: ${current_context}"
 
       - name: Resolve cleanup targets
         id: targets
@@ -123,6 +185,7 @@ jobs:
           console.log(`- Result: ${record.result}`);
           console.log(`- Candidate preview states: ${record.stateCandidates?.length ?? 0}`);
           console.log(`- Candidate preview database clusters: ${record.databaseClusterCandidates?.length ?? 0}`);
+          console.log(`- Candidate preview namespaces: ${record.namespaceCandidates?.length ?? 0}`);
           console.log(`- Closed PR cleanup targets: ${record.targets?.length ?? 0}`);
           if (record.targets?.length) {
             console.log("");
@@ -131,7 +194,8 @@ jobs:
               const stateKey = target.stateKey ?? "no Terraform state key";
               const clusters = (target.databaseClusters ?? []).map((cluster) => cluster.clusterName).join(", ");
               const clusterSummary = clusters ? `; database clusters: ${clusters}` : "";
-              console.log(`- PR #${target.prNumber}: ${stateKey}${clusterSummary}`);
+              const namespaceSummary = target.namespace ? `; namespace: ${target.namespace}` : "";
+              console.log(`- PR #${target.prNumber}: ${stateKey}${clusterSummary}${namespaceSummary}`);
             }
           }
           if (record.errors?.length) {
@@ -230,6 +294,75 @@ jobs:
         run: |
           node scripts/digitalocean-preview-cleanup-sweep.mjs destroy-dns \
             --pr-number "${{ matrix.pr_number }}"
+
+      # The Kubernetes preview path creates the preview's namespace with Helm
+      # (`--create-namespace`), so Terraform never manages it and Terraform
+      # destroy below never removes it. This is the #4778 root cause: every
+      # cleanup run before this step destroyed only Terraform-managed DO
+      # resources and reported success while the namespace, its workloads,
+      # and its in-cluster Postgres persisted on the staging node forever.
+      - name: Configure preview Kubernetes context
+        if: always()
+        working-directory: infrastructure/digitalocean/doks
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-preview-cleanup.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure preview Kubernetes context for cleanup." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Preview cleanup Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured preview Kubernetes context: ${current_context}"
+
+      # Required step: helm-uninstalls the release (best effort) and then
+      # unconditionally deletes the namespace, which removes every workload,
+      # Secret, and the in-cluster Postgres PVC regardless of Helm tracking.
+      # `teardown` verifies the namespace is actually gone afterward and
+      # throws if it survives, so this step — and therefore the run — FAILS
+      # rather than reporting green when the delete silently no-ops. Do not
+      # add `|| true` or `continue-on-error` here: a leaked namespace must
+      # fail the run (see scripts/platform-preview-cleanup-namespace-guard.test.mjs).
+      - name: Delete preview Kubernetes namespace
+        if: always()
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- teardown \
+            --namespace "chase-sets-pr-${{ matrix.pr_number }}" \
+            --release "chase-sets-pr-${{ matrix.pr_number }}" \
+            --timeout 5m
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform
