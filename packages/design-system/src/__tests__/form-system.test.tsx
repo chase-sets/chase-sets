@@ -607,16 +607,40 @@ describe("form system", () => {
     expect(document.activeElement).toBe(screen.getByLabelText("Email"));
   });
 
-  it("hides decorative currency prefixes while naming the currency", () => {
-    const { container } = render(<CurrencyInput id="price" label="Price" />);
+  it("hides decorative currency prefixes while naming the currency, derived from currencyCode", () => {
+    const { container } = render(<CurrencyInput id="price" label="Price" currencyCode="USD" />);
 
     const input = screen.getByRole("spinbutton", { name: "Price" });
     expect(input).toBeTruthy();
-    expect(screen.getByRole("spinbutton", { description: /US dollars/ })).toBe(input);
+    expect(screen.getByRole("spinbutton", { description: /US Dollar/ })).toBe(input);
 
     const prefix = container.querySelector("span[aria-hidden='true']");
 
     expect(prefix?.textContent).toBe("$");
+  });
+
+  it("derives the currency symbol and accessible name from a different currencyCode — no hardcoded dollar", () => {
+    const { container } = render(<CurrencyInput id="price-eur" label="Price" currencyCode="eur" />);
+
+    expect(screen.getByRole("spinbutton", { description: /Euro/ })).toBeTruthy();
+    const prefix = container.querySelector("span[aria-hidden='true']");
+    expect(prefix?.textContent).toBe("€");
+  });
+
+  it("emits a canonical decimal-string amount, never a bare float, on value change", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    render(<CurrencyInput label="Amount" currencyCode="USD" onValueChange={onValueChange} />);
+
+    const input = screen.getByRole("spinbutton", { name: "Amount" });
+    await user.click(input);
+    await user.keyboard("19.99");
+    await user.tab();
+
+    const emittedValues = onValueChange.mock.calls.map((call) => call[0]);
+    expect(emittedValues.some((value) => value === "19.99")).toBe(true);
+    expect(emittedValues.every((value) => value === null || /^-?\d+\.\d{2}$/.test(value))).toBe(true);
   });
 
   it("normalizes server errors and drives controlled form state", () => {

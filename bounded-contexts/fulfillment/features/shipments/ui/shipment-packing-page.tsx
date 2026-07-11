@@ -10,7 +10,7 @@ import {
   ChecklistCard,
   LinkButton,
   MarketplaceNotice,
-  NumberInput,
+  NumberField,
   OperationalLockBanner,
   OperationalStatusBanner,
   Page,
@@ -646,12 +646,12 @@ export function FulfillmentShipmentPackingPage({
                   >
                     {t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip")}
                   </LinkButton>
-                  <NumberInput
+                  <NumberField
                     label={t("fulfillment.features.shipments.ui.shipmentPackingPage.package.count")}
                     form="complete-packing-form"
                     name="packageCount"
                     required
-                    min="1"
+                    min={1}
                     defaultValue={shipment.package_count ?? 1}
                   />
                   <Button

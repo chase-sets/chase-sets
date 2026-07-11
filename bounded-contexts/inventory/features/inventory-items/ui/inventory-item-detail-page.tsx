@@ -15,7 +15,7 @@ import {
   Stack,
   Text,
   TextInput,
-  NumberInput,
+  NumberField,
   ProductOptions,
   Textarea,
   productOptionsFromSummary,
@@ -240,7 +240,7 @@ export function InventoryItemDetailPage({
           <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="adjust-item" />
-              <NumberInput
+              <NumberField
                 label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.quantity.delta")}
                 name="quantityDelta"
                 required
@@ -264,11 +264,11 @@ export function InventoryItemDetailPage({
           <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-hold" />
-              <NumberInput
+              <NumberField
                 label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.quantity")}
                 name="quantity"
                 required
-                min="1"
+                min={1}
               />
               <TextInput
                 label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.reason.2")}

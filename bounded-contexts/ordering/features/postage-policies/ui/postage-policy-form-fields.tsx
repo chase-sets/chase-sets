@@ -1,4 +1,4 @@
-import { Grid, Checkbox, NumberInput, PageSection, Stack, TextInput } from "@chase-sets/design-system";
+import { Grid, Checkbox, NumberField, PageSection, Stack, TextInput } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import { defaultPostagePolicy, type PostagePolicy } from "@chase-sets/product-measures";
 
@@ -53,74 +53,66 @@ export function PostagePolicyFormFields({ policy = defaultPostagePolicy }: { pol
         required
       />
       <Grid columns={{ base: 1, md: 2 }} gap={3}>
-        <NumberInput
+        <NumberField
           label={t("ordering.features.postagePolicies.ui.form.max.letter.units")}
           name="maxLetterUnits"
-          min="1"
-          defaultValue={String(policy.maxLetterUnits)}
+          min={1}
+          defaultValue={policy.maxLetterUnits}
           required
         />
-        <NumberInput
+        <NumberField
           label={t("ordering.features.postagePolicies.ui.form.max.letter.weight.oz")}
           name="maxLetterWeightOunces"
-          min="0.01"
-          step="0.01"
-          defaultValue={String(policy.maxLetterWeightOunces)}
+          min={0.01}
+          step={0.01}
+          defaultValue={policy.maxLetterWeightOunces}
           required
         />
-        <NumberInput
+        <NumberField
           label={t("ordering.features.postagePolicies.ui.form.max.letter.thickness.in")}
           name="maxLetterThicknessInches"
-          min="0.01"
-          step="0.001"
-          defaultValue={String(policy.maxLetterThicknessInches)}
+          min={0.01}
+          step={0.001}
+          defaultValue={policy.maxLetterThicknessInches}
           required
         />
-        <NumberInput
+        <NumberField
           label={t("ordering.features.postagePolicies.ui.form.max.letter.declared.value")}
           name="maxLetterDeclaredValueAmount"
-          min="0"
-          step="0.01"
-          defaultValue={String(policy.maxLetterDeclaredValueAmount)}
+          min={0}
+          step={0.01}
+          defaultValue={policy.maxLetterDeclaredValueAmount}
           required
         />
-        <NumberInput
+        <NumberField
           label={t("ordering.features.postagePolicies.ui.form.letter.envelope.weight.oz")}
           name="letterEnvelopeWeightOunces"
-          min="0"
-          step="0.01"
-          defaultValue={String(policy.letterEnvelopeWeightOunces)}
+          min={0}
+          step={0.01}
+          defaultValue={policy.letterEnvelopeWeightOunces}
           required
         />
-        <NumberInput
+        <NumberField
           label={t("ordering.features.postagePolicies.ui.form.parcel.packaging.weight.oz")}
           name="parcelPackagingWeightOunces"
-          min="0"
-          step="0.01"
-          defaultValue={String(policy.parcelPackagingWeightOunces)}
+          min={0}
+          step={0.01}
+          defaultValue={policy.parcelPackagingWeightOunces}
           required
         />
-        <NumberInput
+        <NumberField
           label={t("ordering.features.postagePolicies.ui.form.signature.declared.value")}
           name="signatureRequiredDeclaredValueAmount"
-          min="0"
-          step="0.01"
-          defaultValue={
-            policy.signatureRequiredDeclaredValueAmount == null
-              ? ""
-              : String(policy.signatureRequiredDeclaredValueAmount)
-          }
+          min={0}
+          step={0.01}
+          defaultValue={policy.signatureRequiredDeclaredValueAmount ?? undefined}
         />
-        <NumberInput
+        <NumberField
           label={t("ordering.features.postagePolicies.ui.form.insurance.declared.value")}
           name="insuranceRequiredDeclaredValueAmount"
-          min="0"
-          step="0.01"
-          defaultValue={
-            policy.insuranceRequiredDeclaredValueAmount == null
-              ? ""
-              : String(policy.insuranceRequiredDeclaredValueAmount)
-          }
+          min={0}
+          step={0.01}
+          defaultValue={policy.insuranceRequiredDeclaredValueAmount ?? undefined}
         />
       </Grid>
 

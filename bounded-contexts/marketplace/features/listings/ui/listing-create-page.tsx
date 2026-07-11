@@ -21,7 +21,8 @@ import {
   Stack,
   Text,
   TextInput,
-  NumberInput,
+  CurrencyInput,
+  NumberField,
   NativeSelect,
 } from "@chase-sets/design-system";
 import {
@@ -321,19 +322,19 @@ export function MarketplaceListingCreatePage({
                   ) : null}
                   {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
                   <Grid columns={{ base: 1, md: 2 }} gap={3}>
-                    <TextInput
+                    <CurrencyInput
                       label={t("marketplace.features.listings.ui.listingCreatePage.price")}
                       name="priceAmount"
+                      currencyCode="USD"
                       placeholder="24.99"
-                      inputMode="decimal"
-                      defaultValue={createForm?.priceAmount ?? ""}
+                      defaultValue={createForm?.priceAmount ?? undefined}
                       required
                     />
-                    <NumberInput
+                    <NumberField
                       label={t("marketplace.features.listings.ui.listingCreatePage.quantity.cap")}
                       name="quantityCap"
-                      min="1"
-                      defaultValue={createForm?.quantityCap ?? "1"}
+                      min={1}
+                      defaultValue={createForm?.quantityCap ? Number(createForm.quantityCap) : 1}
                       required
                     />
                   </Grid>
@@ -449,23 +450,29 @@ export function MarketplaceListingCreatePage({
                           </Text>
                         )}
                         <Inline>
-                          <NumberInput
+                          <NumberField
                             label={t("marketplace.features.listings.ui.listingCreatePage.limit.per.order")}
                             name="maxUnitsPerOrder"
-                            min="1"
-                            defaultValue={createForm?.maxUnitsPerOrder ?? ""}
+                            min={1}
+                            defaultValue={
+                              createForm?.maxUnitsPerOrder ? Number(createForm.maxUnitsPerOrder) : undefined
+                            }
                           />
-                          <NumberInput
+                          <NumberField
                             label={t("marketplace.features.listings.ui.listingCreatePage.limit.per.day")}
                             name="maxUnitsPerDay"
-                            min="1"
-                            defaultValue={createForm?.maxUnitsPerDay ?? ""}
+                            min={1}
+                            defaultValue={createForm?.maxUnitsPerDay ? Number(createForm.maxUnitsPerDay) : undefined}
                           />
-                          <NumberInput
+                          <NumberField
                             label={t("marketplace.features.listings.ui.listingCreatePage.limit.per.customer")}
                             name="maxUnitsPerCustomerAccount"
-                            min="1"
-                            defaultValue={createForm?.maxUnitsPerCustomerAccount ?? ""}
+                            min={1}
+                            defaultValue={
+                              createForm?.maxUnitsPerCustomerAccount
+                                ? Number(createForm.maxUnitsPerCustomerAccount)
+                                : undefined
+                            }
                           />
                         </Inline>
                         <Text size="sm" tone="secondary">

@@ -18,7 +18,7 @@ import {
   Stack,
   Text,
   TextInput,
-  NumberInput,
+  NumberField,
   NativeSelect,
   ProductOptions,
   productOptionsFromSummary,
@@ -294,11 +294,11 @@ export function InventoryItemListPage({
                   }))}
                 />
                 <Grid columns={{ base: 1, md: 2 }} gap={3}>
-                  <NumberInput
+                  <NumberField
                     label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity")}
                     name="totalQuantity"
                     required
-                    min="1"
+                    min={1}
                   />
                   <TextInput
                     label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost")}

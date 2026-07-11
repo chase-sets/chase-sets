@@ -12,6 +12,7 @@ import {
   Grid,
   Inline,
   NativeSelect,
+  NumberField,
   Page,
   PageHeader,
   PageSection,
@@ -98,11 +99,10 @@ function PromoBarMessageFields({ message }: { message?: PromoBarMessage }) {
         name="description"
         defaultValue={message?.description ?? ""}
       />
-      <TextInput
+      <NumberField
         label={t("publicPresence.promoBar.field.displayOrder")}
         name="displayOrder"
-        type="number"
-        defaultValue={String(message?.display_order ?? 100)}
+        defaultValue={message?.display_order ?? 100}
       />
       <TextInput
         label={t("publicPresence.promoBar.field.startsAt")}

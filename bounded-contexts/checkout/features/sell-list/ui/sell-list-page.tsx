@@ -867,7 +867,8 @@ function ProductLineRow({
               form="sell-list-checkout-form"
               label={t("checkout.features.sellList.ui.sellListPage.listing.price")}
               name={`priceAmount:${line.line_id}`}
-              defaultValue={defaultPrice}
+              currencyCode="USD"
+              defaultValue={defaultPrice || undefined}
               min="0.01"
               step="0.01"
               required={Boolean(defaultInventoryItem)}

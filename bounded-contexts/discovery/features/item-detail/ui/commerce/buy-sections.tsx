@@ -8,7 +8,7 @@ import {
   FormPanel,
   type FormPanelVariant,
   LinkButton,
-  NumberInput,
+  NumberField,
   ProductOptions,
   Stack,
   Text,
@@ -151,6 +151,7 @@ export function ProductAlertCreationSection({
           <CurrencyInput
             label={isListingAlert ? "Maximum listing price" : "Minimum offer price"}
             name="thresholdAmount"
+            currencyCode="USD"
             placeholder={isListingAlert ? "25.00" : "15.00"}
             min="0"
             step="0.01"
@@ -271,12 +272,13 @@ export function MarketplaceOfferSubmissionSection({
         <CurrencyInput
           label={t("discovery.routes.itemDetail.offer.price")}
           name="priceAmount"
+          currencyCode="USD"
           placeholder="24.99"
           min="0"
           step="0.01"
           required
         />
-        <NumberInput label={t("discovery.routes.itemDetail.quantity")} name="quantityRequested" min="1" required />
+        <NumberField label={t("discovery.routes.itemDetail.quantity")} name="quantityRequested" min={1} required />
         {actions !== undefined ? actions : defaultActions}
       </Stack>
     </Form>

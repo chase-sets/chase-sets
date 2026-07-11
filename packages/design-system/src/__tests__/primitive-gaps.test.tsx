@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { QuantityStepper } from "../components/forms";
-import { CurrencyInput, NumberInput } from "../components/forms";
+import { CurrencyInput } from "../components/forms";
 import { ChaseRoot } from "../theme/provider";
 import { Image } from "../components/data-display";
 import {
@@ -704,25 +704,24 @@ describe("QuantityStepper primitive", () => {
   });
 });
 
-describe("Native number-spinner suppression", () => {
-  it("NumberInput renders type=number so the global CSS rule applies", () => {
+describe("Single numeric-input engine — no bare native number spinners (#3846)", () => {
+  it("CurrencyInput builds on the Base UI Number Field: the visible control is type=text with role=spinbutton", () => {
     const markup = renderToString(
       <ChaseRoot>
-        <NumberInput label="Price" />
+        <CurrencyInput label="Amount" currencyCode="USD" />
       </ChaseRoot>,
     );
 
-    expect(markup).toContain('type="number"');
-  });
-
-  it("CurrencyInput renders type=number so the global CSS rule applies", () => {
-    const markup = renderToString(
-      <ChaseRoot>
-        <CurrencyInput label="Amount" />
-      </ChaseRoot>,
-    );
-
-    expect(markup).toContain('type="number"');
+    // Base UI's NumberField.Input renders a text input with role="spinbutton" —
+    // the visible, interactive control never has type="number", so there is no
+    // wheel-scrub, no native "e"/"+" grammar, and no OS-native spinner chevron
+    // to suppress. Base UI's Root also renders one companion `type="number"`
+    // input for native HTML form constraint validation (min/max/step/required);
+    // it is unconditionally `aria-hidden` and `tabindex="-1"` — never focusable,
+    // never rendered to assistive tech, never the element a user interacts with.
+    expect(markup).toContain('role="spinbutton"');
+    expect(markup).toContain('type="text"');
+    expect(markup).toMatch(/aria-hidden="true"[^>]*type="number"|type="number"[^>]*aria-hidden="true"/);
   });
 
   it("QuantityStepper exposes role=spinbutton (Base UI renders type=text with spinbutton role)", () => {
@@ -732,9 +731,6 @@ describe("Native number-spinner suppression", () => {
       </ChaseRoot>,
     );
 
-    // Base UI NumberField.Input renders type="text" with role="spinbutton" —
-    // native spinner chevrons are not emitted, so suppression is not needed for this input.
-    // The global CSS rule covers NumberInput and CurrencyInput (type="number").
     const spinbutton = screen.getByRole("spinbutton");
     expect(spinbutton.getAttribute("inputmode")).toBe("numeric");
   });

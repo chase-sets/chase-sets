@@ -86,7 +86,6 @@ const canonicalReserveZeroConsumerExports = [
   "NavigationMenu",
   "NavRail",
   "normalizeFormErrors",
-  "NumberField",
   "packingSlipPrintStyles",
   "Popover",
   "ProductCard",
