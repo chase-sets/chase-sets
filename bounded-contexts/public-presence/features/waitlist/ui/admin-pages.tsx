@@ -41,6 +41,11 @@ const interestItems = [
   { value: "efficient-shipping", label: t("publicPresence.waitlist.interest.efficientShipping") },
 ];
 
+const sortItems = [
+  { value: "updated", label: t("publicPresence.admin.sort.updated") },
+  { value: "referrals", label: t("publicPresence.admin.sort.referrals") },
+];
+
 function roleLabel(value: string) {
   return roleItems.find((item) => item.value === value)?.label ?? value;
 }
@@ -61,7 +66,7 @@ export function WaitlistAdminPage({
 }: {
   signups: ListResponse<WaitlistSignupListItem>;
   metrics: WaitlistMetrics;
-  filters: Readonly<{ role: string; interest: string; search: string }>;
+  filters: Readonly<{ role: string; interest: string; search: string; sort: string }>;
   exportHref: string;
 }) {
   return (
@@ -84,7 +89,7 @@ export function WaitlistAdminPage({
       </StatGrid>
       <PageSection title={t("publicPresence.admin.filters")}>
         <Form spacing="none" method="get">
-          <Grid columns={{ base: 1, md: 4 }} gap={3}>
+          <Grid columns={{ base: 1, md: 4, lg: 5 }} gap={3}>
             <SearchInput label={t("publicPresence.admin.search")} name="search" defaultValue={filters.search} />
             <NativeSelect
               label={t("publicPresence.admin.role")}
@@ -97,6 +102,12 @@ export function WaitlistAdminPage({
               name="interest"
               defaultValue={filters.interest}
               items={interestItems}
+            />
+            <NativeSelect
+              label={t("publicPresence.admin.sort")}
+              name="sort"
+              defaultValue={filters.sort}
+              items={sortItems}
             />
             <Stack gap={1}>
               <Button type="submit" leadingIcon="filter">
@@ -136,6 +147,16 @@ export function WaitlistAdminPage({
                   ))}
                 </Inline>
               ),
+            },
+            {
+              key: "referral_count",
+              header: t("publicPresence.admin.referrals"),
+              cell: (item) => (item.referral_count > 0 ? <Badge tone="success">{item.referral_count}</Badge> : "0"),
+            },
+            {
+              key: "referred_by_signup_id",
+              header: t("publicPresence.admin.referred"),
+              cell: (item) => (item.referred_by_signup_id ? t("publicPresence.admin.referred.yes") : ""),
             },
             {
               key: "source",

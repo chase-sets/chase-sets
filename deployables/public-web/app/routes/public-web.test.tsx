@@ -20,6 +20,7 @@ describe("public web deployable", () => {
     expect(new Set(routeRecords.map((routeRecord) => routeRecord.contextName))).toEqual(new Set(["public-presence"]));
     expect(routePaths).toEqual([
       "",
+      "welcome",
       "faq",
       "contact",
       "terms",

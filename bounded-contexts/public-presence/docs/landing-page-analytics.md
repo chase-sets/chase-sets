@@ -15,9 +15,12 @@ Current event names:
 - `waitlist_form_submitted`
 - `waitlist_signup_succeeded`
 - `waitlist_signup_failed`
+- `waitlist_signup_attributed`
 - `waitlist_role_selected`
 - `waitlist_interest_selected`
 - `waitlist_marketing_consent_checked`
+- `referral_link_copied`
+- `referral_share_clicked`
 - `policy_link_clicked`
 
 Event details include:
@@ -38,6 +41,8 @@ Primary funnel metrics:
 - Mobile sticky CTA click to form submission.
 - Optional marketing consent checked to submitted signup (final-CTA variant only; early-access consent is implied and untracked as a discrete opt-in).
 - Submitted signup to succeeded or failed action result.
+- Successful signup to referral link copy or share click on the post-signup success page (`/welcome`).
+- Referred-signup rate: `waitlist_signup_attributed` fires only when a successful signup carried a well-formed, non-self `?ref=` referral code; it never carries the referring or referred signup id (see privacy rule below), so it is a rate signal, not an attribution graph. The durable referred-by fact lives in the waitlist read model, queried by admins in the Waitlist review page.
 
 First experiments to run:
 

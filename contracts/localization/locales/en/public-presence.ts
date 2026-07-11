@@ -12,9 +12,15 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.admin.filters": "Filters",
   "publicPresence.admin.interest": "Interest",
   "publicPresence.admin.interests": "Interests",
+  "publicPresence.admin.referrals": "Referrals",
+  "publicPresence.admin.referred": "Referred",
+  "publicPresence.admin.referred.yes": "Yes",
   "publicPresence.admin.role": "Role",
   "publicPresence.admin.search": "Search email",
   "publicPresence.admin.signups": "Signups",
+  "publicPresence.admin.sort": "Sort by",
+  "publicPresence.admin.sort.referrals": "Most referrals",
+  "publicPresence.admin.sort.updated": "Recently updated",
   "publicPresence.admin.source": "Source",
   "publicPresence.admin.title": "Waitlist",
   "publicPresence.admin.total": "Total",
@@ -413,6 +419,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.terms.meta.description":
     "Read the Chase Sets terms of service for public-site access and marketplace workflows.",
   "publicPresence.routes.terms.meta.title": "Terms | Chase Sets",
+  "publicPresence.routes.welcome.meta.title": "You're on the list | Chase Sets",
   "publicPresence.waitlist.badge": "Early access",
   "publicPresence.waitlist.compactDescription": "Prelaunch only. No buying, listing, or payment required.",
   "publicPresence.waitlist.compactTitle": "Request early access",
@@ -471,4 +478,28 @@ export const publicPresenceEnglishTranslations = {
     "Checkout, fee-lock, order processing, return, and payout terms are visible before live payments.",
   "publicPresence.waitlist.trust.support": "Support contact is visible for prelaunch questions.",
   "publicPresence.waitlist.trust.title": "Before launch",
+  "publicPresence.welcome.backHome": "Back to Chase Sets",
+  "publicPresence.welcome.eyebrow": "You're in",
+  "publicPresence.welcome.referral.copiedAction": "Copied",
+  "publicPresence.welcome.referral.copyAction": "Copy link",
+  "publicPresence.welcome.referral.description":
+    "Invite {goal} sellers or buyers with your personal link and lock in Founding Account status.",
+  "publicPresence.welcome.referral.linkLabel": "Your referral link",
+  "publicPresence.welcome.referral.progress.complete":
+    "Founding Account status locked in. Thank you for spreading the word.",
+  "publicPresence.welcome.referral.progress.description":
+    "Founding Account status locks in once {goal} qualified signups join through your link.",
+  "publicPresence.welcome.referral.progress.label": "Sellers and buyers invited",
+  "publicPresence.welcome.referral.progress.value": "{count} of {goal}",
+  "publicPresence.welcome.referral.share.discord": "Share on Discord",
+  "publicPresence.welcome.referral.share.message":
+    "Sellers keep 100% of the sale on Chase Sets right now: 0% beta fees, no separate seller processing fee. Join me: {link}",
+  "publicPresence.welcome.referral.share.title": "Share your link",
+  "publicPresence.welcome.referral.share.x": "Share on X",
+  "publicPresence.welcome.referral.title": "Move up the list",
+  "publicPresence.welcome.whatNext.point.discord": "Founders circle Discord access follows the first invite waves.",
+  "publicPresence.welcome.whatNext.point.email": "Invite and Founding Account emails go to the address you gave us.",
+  "publicPresence.welcome.whatNext.point.review":
+    "We review signups by role, interest, and referral activity as beta invite waves open.",
+  "publicPresence.welcome.whatNext.title": "What happens next",
 } as const;

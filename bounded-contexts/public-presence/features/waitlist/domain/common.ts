@@ -88,3 +88,27 @@ export function stableWaitlistSignupId(email: string): string {
   }
   return `wls_${hash.toString(36)}`;
 }
+
+/**
+ * Referral count a signup must reach through its own share link before the
+ * "move up the list" founding-status mechanic is considered satisfied. Not a
+ * binding queue position, only an invite-prioritization input.
+ */
+export const WAITLIST_REFERRAL_GOAL = 3;
+
+const waitlistSignupIdPattern = /^wls_[0-9a-z]+$/;
+
+/**
+ * Normalizes an inbound `?ref=` referral code into a candidate waitlist
+ * signup id. Referral codes derive directly from the referring signup's
+ * stable id (no new identity surface); anything that does not match the
+ * shape is treated as absent rather than rejecting the signup.
+ */
+export function normalizeReferralCode(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim().toLowerCase();
+  return waitlistSignupIdPattern.test(trimmed) ? trimmed : null;
+}

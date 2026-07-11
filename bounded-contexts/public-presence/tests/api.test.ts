@@ -24,6 +24,7 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
       sell_count: 0,
       both_count: 0,
     })),
+    getWaitlistReferralSummary: vi.fn(async () => ({ referralCount: 0, referralGoal: 3 })),
     projectors: [],
   } satisfies WaitlistServices;
 
@@ -227,7 +228,53 @@ describe("public presence API", () => {
       role: "both",
       interest: "low-sales-fees",
       search: "todd",
+      sort: undefined,
     });
+  });
+
+  it("passes an admin sort selection through to the read model", async () => {
+    const services = createServices();
+    const app = adminAppFor(services);
+
+    const list = await app.request("/waitlist?sort=referrals");
+    const exportResponse = await app.request("/waitlist/export?sort=referrals");
+
+    expect(list.status).toBe(200);
+    expect(exportResponse.status).toBe(200);
+    expect(services.listWaitlistSignups).toHaveBeenCalledWith(expect.objectContaining({ sort: "referrals" }));
+  });
+
+  it("attributes a signup submitted with a referral code", async () => {
+    const submitWaitlistSignup = vi.fn(async () => ({ signupId: "wls_referred", version: 1 }));
+    const app = publicAppFor(createServices({ submitWaitlistSignup }));
+    const response = await app.request("/waitlist", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.20",
+      },
+      body: JSON.stringify({ ...validSignup, referredBySignupId: "wls_referrer" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(submitWaitlistSignup).toHaveBeenCalledWith(
+      expect.objectContaining({ referredBySignupId: "wls_referrer" }),
+      expect.anything(),
+    );
+  });
+
+  it("returns a referral summary for a well-formed signup id and rejects malformed ids", async () => {
+    const getWaitlistReferralSummary = vi.fn(async () => ({ referralCount: 2, referralGoal: 3 }));
+    const app = publicAppFor(createServices({ getWaitlistReferralSummary }));
+
+    const valid = await app.request("/waitlist/wls_public/referral-summary");
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toEqual({ referralCount: 2, referralGoal: 3 });
+    expect(getWaitlistReferralSummary).toHaveBeenCalledWith("wls_public");
+
+    const malformed = await app.request("/waitlist/not-a-signup-id/referral-summary");
+    expect(malformed.status).toBe(400);
+    expect(getWaitlistReferralSummary).toHaveBeenCalledTimes(1);
   });
 
   it("exposes active promo bar messages publicly", async () => {

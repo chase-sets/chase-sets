@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   PublicPresenceApiError,
   createPublicPresenceRequestApiClient,
@@ -45,6 +45,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
       utmCampaign: url.searchParams.get("utm_campaign"),
       utmContent: url.searchParams.get("utm_content"),
       utmTerm: url.searchParams.get("utm_term"),
+      // Raw referral code from an inbound `?ref=` link; the domain command
+      // is the sole validator (shape check, self-referral guard), so the
+      // route stays composition-only and just forwards what it received.
+      referredBySignupId: url.searchParams.get("ref"),
     },
   };
 }
@@ -60,6 +64,7 @@ export async function action({ request }: ActionFunctionArgs) {
       role: String(formData.get("role") ?? "both") as SubmitWaitlistSignupRequest["role"],
       interests: formData.getAll("interests").map(String) as SubmitWaitlistSignupRequest["interests"],
       marketingConsent: marketingConsent === "yes" || marketingConsent === "on",
+      referredBySignupId: optional(formData.get("referredBySignupId")),
       website: optional(formData.get("website")),
       source: {
         pagePath: String(formData.get("pagePath") ?? "/"),
@@ -71,7 +76,21 @@ export async function action({ request }: ActionFunctionArgs) {
         utmTerm: optional(formData.get("utmTerm")),
       },
     });
-    return { status: "joined" as const, id: result.id, version: result.version };
+    // Land signers-up on a dedicated success page (with their referral link
+    // and "move up the list" progress) instead of an inline banner. The
+    // commit receipt travels in the redirect query string; the welcome page
+    // needs no projection read to render its primary confirmation.
+    const welcomeUrl = new URL("/welcome", request.url);
+    welcomeUrl.searchParams.set("signup", result.id);
+    welcomeUrl.searchParams.set("fresh", "1");
+    if (optional(formData.get("referredBySignupId"))) {
+      // Coarse hint only (never the code itself) so the success page fires
+      // waitlist_signup_attributed once; a malformed/self-referral code that
+      // the domain drops server-side still sets this hint, which is an
+      // accepted directional-analytics approximation, not durable truth.
+      welcomeUrl.searchParams.set("attributed", "1");
+    }
+    return redirect(`${welcomeUrl.pathname}${welcomeUrl.search}`);
   } catch (error) {
     return { status: "error" as const, message: actionErrorMessage(error) };
   }

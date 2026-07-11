@@ -2,6 +2,7 @@ import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/resp
 import type {
   SubmitWaitlistSignupRequest,
   WaitlistMetrics,
+  WaitlistReferralSummary,
   WaitlistSignupListItem,
 } from "./features/waitlist/api/contracts";
 import type { PromoBarMessage, SavePromoBarMessageRequest } from "./features/promo-bar/api/contracts";
@@ -11,6 +12,7 @@ const DEFAULT_BASE_URL = "/api/public-presence";
 export type {
   SubmitWaitlistSignupRequest,
   WaitlistMetrics,
+  WaitlistReferralSummary,
   WaitlistSignupListItem,
 } from "./features/waitlist/api/contracts";
 export type {
@@ -79,6 +81,11 @@ export function createPublicPresenceApiClient({
     },
     async getWaitlistMetrics(): Promise<WaitlistMetrics> {
       return parseJsonResponse(await configuredFetch(`${baseUrl}/admin/waitlist/metrics`));
+    },
+    async getWaitlistReferralSummary(signupId: string): Promise<WaitlistReferralSummary> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/waitlist/${encodeURIComponent(signupId)}/referral-summary`),
+      );
     },
     async listActivePromoBarMessages(): Promise<ListResponse<PromoBarMessage>> {
       return parseJsonResponse(await configuredFetch(`${baseUrl}/promo-bar-messages`));

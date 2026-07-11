@@ -20,6 +20,13 @@ const waitlistSignupRateLimiter = createInMemoryRateLimiter({
   max: RATE_LIMIT_MAX,
   windowMs: RATE_LIMIT_WINDOW_MS,
 });
+const REFERRAL_SUMMARY_RATE_LIMIT_MAX = 60;
+const waitlistReferralSummaryRateLimiter = createInMemoryRateLimiter({
+  keyPrefix: "public-presence:waitlist-referral-summary",
+  max: REFERRAL_SUMMARY_RATE_LIMIT_MAX,
+  windowMs: RATE_LIMIT_WINDOW_MS,
+});
+const waitlistSignupIdPattern = /^wls_[0-9a-z]+$/;
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("publicPresence.api.request.failed");
@@ -27,6 +34,10 @@ function errorMessage(error: unknown) {
 
 function isRateLimited(request: Request) {
   return waitlistSignupRateLimiter.check(request).limited;
+}
+
+function isReferralSummaryRateLimited(request: Request) {
+  return waitlistReferralSummaryRateLimiter.check(request).limited;
 }
 
 function publicEventStoreContext(): EventStoreContext {
@@ -116,6 +127,7 @@ export function createPublicWaitlistRoutes(services: WaitlistServices) {
           role: String(body.role ?? ""),
           interests: Array.isArray(body.interests) ? body.interests.map(String) : [],
           marketingConsent: Boolean(body.marketingConsent),
+          referredBySignupId: typeof body.referredBySignupId === "string" ? body.referredBySignupId : null,
           source: {
             pagePath: String(body.source?.pagePath ?? "/"),
             referrer: typeof body.source?.referrer === "string" ? body.source.referrer : null,
@@ -133,6 +145,19 @@ export function createPublicWaitlistRoutes(services: WaitlistServices) {
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
+  });
+
+  app.get("/waitlist/:signupId/referral-summary", async (c) => {
+    if (isReferralSummaryRateLimited(c.req.raw)) {
+      return c.json({ error: { code: "rate_limited", message: t("publicPresence.api.rate.limited") } }, 429);
+    }
+
+    const signupId = c.req.param("signupId");
+    if (!waitlistSignupIdPattern.test(signupId)) {
+      return c.json({ error: { code: "validation_failed", message: t("publicPresence.api.request.failed") } }, 400);
+    }
+
+    return c.json(await services.getWaitlistReferralSummary(signupId));
   });
 
   return app;
@@ -165,6 +190,7 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
       role: c.req.query("role"),
       interest: c.req.query("interest"),
       search: c.req.query("search"),
+      sort: c.req.query("sort"),
     });
 
     return c.json({
@@ -195,6 +221,7 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
       role: c.req.query("role"),
       interest: c.req.query("interest"),
       search: c.req.query("search"),
+      sort: c.req.query("sort"),
     });
     const rows = [
       [
@@ -206,6 +233,8 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
         "utm_source",
         "utm_medium",
         "utm_campaign",
+        "referred_by_signup_id",
+        "referral_count",
         "submitted_at",
         "updated_at",
       ],
@@ -218,6 +247,8 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
         item.utm_source,
         item.utm_medium,
         item.utm_campaign,
+        item.referred_by_signup_id,
+        item.referral_count,
         item.submitted_at,
         item.updated_at,
       ]),

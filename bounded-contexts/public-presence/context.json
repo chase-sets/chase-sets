@@ -143,15 +143,16 @@
         "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx"
       ],
       "visibleDestination": {
-        "routeId": "home",
-        "description": "The public waitlist form stays on the landing page and renders the joined success state from the command response, which includes the committed waitlist signup id and version instead of reading the admin waitlist projection."
+        "routeId": "welcome",
+        "description": "The waitlist form redirects from the landing page to the dedicated /welcome success page (#3956). The committed waitlist signup id travels in the redirect's own query string, so the destination route's primary confirmation, referral link, and share affordances render without reading the admin waitlist projection. Only the supplementary referral-progress count is a separate, eventually-consistent client fetch (see the waitlist-referral-summary-read entry)."
       },
       "proof": {
-        "authoritativeResponse": "submitWaitlistSignup returns the committed signup id/version, the public API returns that receipt with status=joined, and the home route action forwards the receipt to the same-page success banner.",
+        "authoritativeResponse": "submitWaitlistSignup returns the committed signup id/version, the public API returns that receipt with status=joined, and the home route action redirects to /welcome?signup=<id> carrying that receipt in the URL instead of same-page actionData.",
         "tests": [
           "bounded-contexts/public-presence/tests/api.test.ts proves POST /waitlist returns the committed id/version receipt.",
-          "bounded-contexts/public-presence/tests/home-route.test.ts proves the home action returns the receipt as the same-page success snapshot.",
-          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx proves the waitlist form posts through the Public Presence route action."
+          "bounded-contexts/public-presence/tests/home-route.test.ts proves the home action redirects to /welcome with the committed signup id on success and still returns the same-page error snapshot on failure.",
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx proves the waitlist form posts through the Public Presence route action.",
+          "bounded-contexts/public-presence/tests/welcome-route.test.ts proves the welcome route renders the referral link and progress mechanic from the redirect-carried signup id."
         ]
       }
     },
@@ -214,6 +215,14 @@
           "routePath": "",
           "fileExport": "./routes/marketplace/home",
           "routeType": "index",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "welcome",
+          "routePath": "welcome",
+          "fileExport": "./routes/marketplace/welcome",
+          "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
         },

@@ -89,7 +89,7 @@ describe("public presence home route", () => {
     });
   });
 
-  it("returns the waitlist command receipt as the same-page success snapshot", async () => {
+  it("redirects to the welcome success page carrying the committed signup id on success", async () => {
     const fetch = vi.fn(
       async () =>
         new Response(JSON.stringify({ id: "wls_public", version: 3, status: "joined" }), {
@@ -99,7 +99,7 @@ describe("public presence home route", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    const result = await action({
+    const result = (await action({
       request: new Request("https://chasesets.test/?index", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -113,12 +113,96 @@ describe("public presence home route", () => {
       }),
       params: {},
       context: undefined,
-    } as never);
+    } as never)) as Response;
 
-    expect(result).toEqual({ status: "joined", id: "wls_public", version: 3 });
+    expect(result).toBeInstanceOf(Response);
+    expect(result.status).toBe(302);
+    const location = new URL(result.headers.get("Location") ?? "", "https://chasesets.test");
+    expect(location.pathname).toBe("/welcome");
+    expect(location.searchParams.get("signup")).toBe("wls_public");
+    expect(location.searchParams.get("fresh")).toBe("1");
+    expect(location.searchParams.has("attributed")).toBe(false);
     expect(fetch).toHaveBeenCalledWith(
       "https://chasesets.test/api/public-presence/waitlist",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("marks the welcome redirect as attributed when a referral code was submitted", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "wls_public", version: 1, status: "joined" }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const result = (await action({
+      request: new Request("https://chasesets.test/?index", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          email: "referred@example.com",
+          role: "sell",
+          interests: "low-sales-fees",
+          referredBySignupId: "wls_referrer",
+          pagePath: "/",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    const location = new URL(result.headers.get("Location") ?? "", "https://chasesets.test");
+    expect(location.searchParams.get("attributed")).toBe("1");
+  });
+
+  it("stays on the landing page and returns the error snapshot on failure", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { message: "Enter a valid email address." } }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await action({
+      request: new Request("https://chasesets.test/?index", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          email: "not-an-email",
+          role: "both",
+          interests: "low-sales-fees",
+          pagePath: "/",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({ status: "error", message: "Enter a valid email address." });
+  });
+
+  it("carries the ?ref= referral code from the loader into the hidden form source", async () => {
+    const data = await loader({
+      request: new Request("https://chasesets.test/?ref=wls_abc123"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(data.source.referredBySignupId).toBe("wls_abc123");
+  });
+
+  it("returns null when no ?ref= is present", async () => {
+    const data = await loader({
+      request: new Request("https://chasesets.test/"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(data.source.referredBySignupId).toBeNull();
   });
 });

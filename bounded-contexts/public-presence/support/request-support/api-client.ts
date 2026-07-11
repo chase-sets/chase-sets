@@ -7,6 +7,7 @@ export type {
   SavePromoBarMessageRequest,
   SubmitWaitlistSignupRequest,
   WaitlistMetrics,
+  WaitlistReferralSummary,
   WaitlistSignupListItem,
 } from "../../client";
 import { createPublicPresenceApiClient } from "../../client";
