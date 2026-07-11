@@ -432,6 +432,99 @@ describe("marketplace listing runtime", () => {
     });
   });
 
+  it("suppresses the price-updated event when a recommendation resubmits the current price (no-op)", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                product_measure_snapshot: productMeasureSnapshot,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return {
+            rows: [{ quantity_cap: "0" }],
+          };
+        }
+
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "1.00",
+          sellerNetUnitAmount: "19.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        })),
+      } as never,
+    });
+
+    await services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "20.00",
+        quantityCap: 1,
+        listingIdOverride: "lst_seed_1" as never,
+      },
+      context,
+    );
+
+    // Mirrors what pricing's applyRecommendations does per row: preview the fee quote for the
+    // recommended price, then submit UpdateListingPrice. When the recommendation reproduces the
+    // current price (e.g. a bulk-price file with mostly unchanged rows), the domain suppresses
+    // the event and the version stays unchanged — the write is free.
+    const preview = await services.previewListingTerms({
+      accountId: "acc_seller",
+      priceAmount: "20.00",
+    });
+
+    await expect(
+      services.updateListingPrice(
+        {
+          accountId: "acc_seller",
+          listingId: "lst_seed_1",
+          priceAmount: "20.00",
+          feeQuoteFingerprint: preview.fee_quote_fingerprint,
+        },
+        context,
+      ),
+    ).resolves.toEqual({
+      listingId: "lst_seed_1",
+      version: 1,
+    });
+
+    const streamEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_seed_1" });
+    expect(streamEvents.map((event) => event.eventType)).toEqual(["marketplace.listing.created"]);
+  });
+
   it("rejects publication when inventory supply lacks a resolved shipping measure", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {

@@ -1,6 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import { moneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
@@ -37,6 +38,57 @@ function normalizePercentageBps(value: number, fieldName: string): number {
   assert(Number.isInteger(value), `${fieldName} must be a whole number of basis points.`);
   assert(value >= 0, `${fieldName} must be zero or greater.`);
   return value;
+}
+
+/**
+ * Fields that define whether a price/terms update actually changes anything observable.
+ * `termsResolvedAt` and `feeQuoteFingerprint` are deliberately excluded: `termsResolvedAt` is a
+ * fresh resolution timestamp on every quote (never equal across two calls) and
+ * `feeQuoteFingerprint` is a pure function of these same fields, so it adds no information.
+ * Comparing this narrower surface is what makes repeat submissions of an unchanged price free.
+ */
+type ListingFeeTermsSurface = Readonly<{
+  marketplaceSalesFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps: number;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+}>;
+
+/**
+ * Money amounts are decimal strings that are not guaranteed to be in canonical form (e.g. "145.0"
+ * vs "145.00" represent the same value). Compare by cents, not raw string equality, so equivalent
+ * amounts are treated as unchanged regardless of how the caller formatted them.
+ */
+function isMoneyAmountUnchanged(current: string | null, next: string): boolean {
+  return current !== null && moneyToCents(current) === moneyToCents(next);
+}
+
+function isListingFeeTermsSurfaceUnchanged(state: MarketplaceListingState, next: ListingFeeTermsSurface): boolean {
+  return (
+    isMoneyAmountUnchanged(state.marketplaceSalesFeeUnitAmount, next.marketplaceSalesFeeUnitAmount) &&
+    isMoneyAmountUnchanged(state.sellerNetUnitAmount, next.sellerNetUnitAmount) &&
+    state.shippingAllowancePercentageBps === next.shippingAllowancePercentageBps &&
+    state.termsScheduleId === next.termsScheduleId &&
+    state.termsAgreementId === next.termsAgreementId
+  );
+}
+
+type ListingPriceSurface = ListingFeeTermsSurface & Readonly<{ priceAmount: string }>;
+
+function isListingPriceSurfaceUnchanged(state: MarketplaceListingState, next: ListingPriceSurface): boolean {
+  return isMoneyAmountUnchanged(state.priceAmount, next.priceAmount) && isListingFeeTermsSurfaceUnchanged(state, next);
+}
+
+function isPurchaseLimitsUnchanged(
+  current: MarketplaceListingPurchaseLimits,
+  next: MarketplaceListingPurchaseLimits,
+): boolean {
+  return (
+    current.maxUnitsPerOrder === next.maxUnitsPerOrder &&
+    current.maxUnitsPerDay === next.maxUnitsPerDay &&
+    current.maxUnitsPerCustomerAccount === next.maxUnitsPerCustomerAccount
+  );
 }
 
 export type ListingStatus = "draft" | "active" | "paused" | "withdrawn";
@@ -484,84 +536,85 @@ export const decideMarketplaceListing: AggregateDecider<
           },
         },
       ];
-    case "UpdateListingPrice":
+    case "UpdateListingPrice": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
-      return [
-        {
-          type: "marketplace.listing.price-updated",
-          data: {
-            priceAmount: normalizeMoneyAmount(command.priceAmount),
-            marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
-              fieldName: "Marketplace sales fee unit amount",
-              allowZero: true,
-            }),
-            sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
-              fieldName: "Seller net unit amount",
-              allowZero: true,
-            }),
-            shippingAllowancePercentageBps: normalizePercentageBps(
-              command.shippingAllowancePercentageBps ?? 500,
-              "Shipping allowance percentage",
-            ),
-            termsScheduleId: command.termsScheduleId?.trim() ?? null,
-            termsAgreementId: command.termsAgreementId?.trim() ?? null,
-            termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
-            feeQuoteFingerprint: normalizeRequiredText(
-              command.feeQuoteFingerprint,
-              "Fee quote fingerprint is required.",
-            ),
-          },
-        },
-      ];
-    case "UpdateListingQuantityCap":
+      const data = {
+        priceAmount: normalizeMoneyAmount(command.priceAmount),
+        marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
+          fieldName: "Marketplace sales fee unit amount",
+          allowZero: true,
+        }),
+        sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
+          fieldName: "Seller net unit amount",
+          allowZero: true,
+        }),
+        shippingAllowancePercentageBps: normalizePercentageBps(
+          command.shippingAllowancePercentageBps ?? 500,
+          "Shipping allowance percentage",
+        ),
+        termsScheduleId: command.termsScheduleId?.trim() ?? null,
+        termsAgreementId: command.termsAgreementId?.trim() ?? null,
+        termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
+        feeQuoteFingerprint: normalizeRequiredText(command.feeQuoteFingerprint, "Fee quote fingerprint is required."),
+      };
+
+      if (isListingPriceSurfaceUnchanged(state, data)) {
+        return [];
+      }
+
+      return [{ type: "marketplace.listing.price-updated", data }];
+    }
+    case "UpdateListingQuantityCap": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
-      return [
-        {
-          type: "marketplace.listing.quantity-cap-updated",
-          data: {
-            quantityCap: ensurePositiveInteger(
-              command.quantityCap,
-              "Listing quantity cap must be a positive whole number.",
-            ),
-            purchaseLimits: normalizePurchaseLimits(
-              command.purchaseLimits ?? state.purchaseLimits,
-              command.quantityCap,
-            ),
-            marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
-              fieldName: "Marketplace sales fee unit amount",
-              allowZero: true,
-            }),
-            sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
-              fieldName: "Seller net unit amount",
-              allowZero: true,
-            }),
-            shippingAllowancePercentageBps: normalizePercentageBps(
-              command.shippingAllowancePercentageBps ?? 500,
-              "Shipping allowance percentage",
-            ),
-            termsScheduleId: command.termsScheduleId?.trim() ?? null,
-            termsAgreementId: command.termsAgreementId?.trim() ?? null,
-            termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
-            feeQuoteFingerprint: normalizeRequiredText(
-              command.feeQuoteFingerprint,
-              "Fee quote fingerprint is required.",
-            ),
-          },
-        },
-      ];
-    case "UpdateListingPurchaseLimits":
+      const quantityCap = ensurePositiveInteger(
+        command.quantityCap,
+        "Listing quantity cap must be a positive whole number.",
+      );
+      const purchaseLimits = normalizePurchaseLimits(command.purchaseLimits ?? state.purchaseLimits, quantityCap);
+      const data = {
+        quantityCap,
+        purchaseLimits,
+        marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
+          fieldName: "Marketplace sales fee unit amount",
+          allowZero: true,
+        }),
+        sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
+          fieldName: "Seller net unit amount",
+          allowZero: true,
+        }),
+        shippingAllowancePercentageBps: normalizePercentageBps(
+          command.shippingAllowancePercentageBps ?? 500,
+          "Shipping allowance percentage",
+        ),
+        termsScheduleId: command.termsScheduleId?.trim() ?? null,
+        termsAgreementId: command.termsAgreementId?.trim() ?? null,
+        termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
+        feeQuoteFingerprint: normalizeRequiredText(command.feeQuoteFingerprint, "Fee quote fingerprint is required."),
+      };
+
+      if (
+        state.quantityCap === quantityCap &&
+        isPurchaseLimitsUnchanged(state.purchaseLimits, purchaseLimits) &&
+        isListingFeeTermsSurfaceUnchanged(state, data)
+      ) {
+        return [];
+      }
+
+      return [{ type: "marketplace.listing.quantity-cap-updated", data }];
+    }
+    case "UpdateListingPurchaseLimits": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
-      return [
-        {
-          type: "marketplace.listing.purchase-limits-updated",
-          data: {
-            purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, state.quantityCap),
-          },
-        },
-      ];
+      const purchaseLimits = normalizePurchaseLimits(command.purchaseLimits, state.quantityCap);
+
+      if (isPurchaseLimitsUnchanged(state.purchaseLimits, purchaseLimits)) {
+        return [];
+      }
+
+      return [{ type: "marketplace.listing.purchase-limits-updated", data: { purchaseLimits } }];
+    }
     case "AddListingPhotos":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");

@@ -399,4 +399,45 @@ describe("marketplace listing detail route", () => {
       error: "Fee quote is stale. Refresh the fee preview before continuing.",
     });
   });
+
+  it("redirects without a post-write token when a no-op price update commits no new events", async () => {
+    const store = createTestPostWriteTokenStore();
+    restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        // The domain suppresses the price-updated event when the commanded price matches
+        // current state, so the API responds with success and the unchanged version but no
+        // commit receipt (no new events were appended).
+        return Promise.resolve(jsonResponse({ id: "lst_1", version: 7, status: "price-updated" }));
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "update-price");
+    form.set("priceAmount", "20.00");
+    form.set("feeQuoteFingerprint", "current-fingerprint");
+
+    const result = await listingAction({
+      request: new Request("http://localhost/account/listings/lst_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
+
+    const location = (result as Response).headers.get("Location") ?? "";
+    expect(location).toBe("/account/listings/lst_1?feedbackWorkflow=listing-update");
+    expect(location).not.toContain("postWriteToken=");
+    expect(location).not.toContain("afterWrite=");
+    expect(store.storeCalls).toHaveLength(0);
+  });
 });
