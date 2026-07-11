@@ -16,8 +16,8 @@ import {
 } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { InventoryItemListPage } from "../../features/inventory-items/ui/inventory-item-list-page";
+import { inventoryItemPageQuery } from "../../support/request-support/list-pagination";
 
-const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const ACCOUNT_INVENTORY_READ_TIMEOUT_MS = 10_000;
 const TEMPORARY_INVENTORY_ITEMS_LOAD_ERROR =
   "Inventory items are taking longer than expected. Reload this page in a moment.";
@@ -80,6 +80,14 @@ function emptyListResponse<T>(): ListResponse<T> {
   return { items: [], total: 0, count: 0 };
 }
 
+function pageBoundsFromQuery(query: string): { limit: number; offset: number } {
+  const searchParams = new URLSearchParams(query);
+  return {
+    limit: Number(searchParams.get("limit")) || 100,
+    offset: Number(searchParams.get("offset")) || 0,
+  };
+}
+
 function isTemporaryInventoryReadError(error: unknown) {
   if (error instanceof InventoryApiError) {
     return error.status === 408 || error.status === 429 || error.status >= 500;
@@ -89,19 +97,20 @@ function isTemporaryInventoryReadError(error: unknown) {
   return name === "AbortError" || name === "TimeoutError";
 }
 
-async function loadAccountInventoryReadModels(api: ReturnType<typeof createInventoryRequestApiClient>) {
-  const [itemsRead, locationsRead] = await Promise.allSettled([
-    api.listItems(DEFAULT_ITEM_QUERY),
-    api.listStorageLocations(),
-  ]);
+async function loadAccountInventoryReadModels(
+  api: ReturnType<typeof createInventoryRequestApiClient>,
+  itemsQuery: string,
+) {
+  const [itemsRead, locationsRead] = await Promise.allSettled([api.listItems(itemsQuery), api.listStorageLocations()]);
   const loadErrors: string[] = [];
-  let items: ListResponse<InventoryItemListItem>;
+  let items: ListResponse<InventoryItemListItem> & { limit: number; offset: number };
   let locations: ListResponse<InventoryStorageLocation>;
+  const { limit: fallbackLimit, offset: fallbackOffset } = pageBoundsFromQuery(itemsQuery);
 
   if (itemsRead.status === "fulfilled") {
     items = itemsRead.value;
   } else if (isTemporaryInventoryReadError(itemsRead.reason)) {
-    items = emptyListResponse();
+    items = { ...emptyListResponse(), limit: fallbackLimit, offset: fallbackOffset };
     loadErrors.push(TEMPORARY_INVENTORY_ITEMS_LOAD_ERROR);
   } else {
     throw itemsRead.reason;
@@ -133,7 +142,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     recoverTransportErrorsAsGatewayTimeout: true,
   });
   const url = new URL(request.url);
-  const readModels = await loadAccountInventoryReadModels(api);
+  const readModels = await loadAccountInventoryReadModels(api, inventoryItemPageQuery(request));
 
   return {
     ...readModels,
@@ -205,9 +214,12 @@ export default function MarketplaceInventoryRoute() {
   const feedbackWorkflow = platformFeedbackWorkflowFromSearchParams("inventory-list", searchParams);
   const feedbackEntityId = searchParams.get("feedbackEntityId");
 
+  const items = data.items as ListResponse<InventoryItemListItem> & { limit: number; offset: number };
+
   return (
     <InventoryItemListPage
-      data={data.items as ListResponse<InventoryItemListItem>}
+      data={items}
+      pagination={{ limit: items.limit, offset: items.offset, total: items.total }}
       locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
       createItemDraft={data.createItemDraft}
       currentPath={`${location.pathname}${location.search}`}

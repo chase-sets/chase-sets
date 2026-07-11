@@ -100,3 +100,8 @@ export interface SaleListItem extends OrderingOrderProjection {}
 export interface SaleDetail extends OrderingOrderProjectionDetail {
   reviewOpportunity?: OrderingOrderReviewOpportunity | null;
 }
+
+export interface OrderListSummary {
+  total_quantity: number;
+  pending_count: number;
+}

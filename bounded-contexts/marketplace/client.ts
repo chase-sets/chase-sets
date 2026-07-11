@@ -12,6 +12,7 @@ export type {
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
+  MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
@@ -36,6 +37,7 @@ import type {
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
+  MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
@@ -207,7 +209,13 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listSellerListings(query = ""): Promise<ListResponse<MarketplaceListingListItem>> {
+    async listSellerListings(query = ""): Promise<
+      ListResponse<MarketplaceListingListItem> & {
+        limit: number;
+        offset: number;
+        statusCounts: MarketplaceSellerListingStatusCounts;
+      }
+    > {
       return parseJsonResponse(
         await client.account.listings.$get({
           query: queryFromString(query),

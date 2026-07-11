@@ -210,7 +210,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async listItems(query = ""): Promise<ListResponse<InventoryItemListItem>> {
+    async listItems(query = ""): Promise<ListResponse<InventoryItemListItem> & { limit: number; offset: number }> {
       return parseJsonResponse(
         await client.items.$get({
           query: Object.fromEntries(new URLSearchParams(query)),

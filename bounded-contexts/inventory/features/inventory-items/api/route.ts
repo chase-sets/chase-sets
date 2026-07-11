@@ -68,6 +68,8 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
       items: result.items,
       total: result.total,
       count: result.items.length,
+      limit,
+      offset,
     });
   });
 

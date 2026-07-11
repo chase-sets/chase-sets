@@ -49,6 +49,7 @@ import {
   getMarketSummaryForItem,
   getSellerListing,
   getSellerListingAvailability,
+  getSellerListingStatusCounts,
   hasSellerSupplyLocationNamed,
   listActiveListingsForInventoryItem,
   listItemListings,
@@ -249,6 +250,7 @@ export type MarketplaceListingServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; status: "available" }>;
   listSellerListings: (params: Parameters<typeof listSellerListings>[1]) => ReturnType<typeof listSellerListings>;
+  getSellerListingStatusCounts: (accountId: string) => ReturnType<typeof getSellerListingStatusCounts>;
   listSellerInventoryItemSupply: (
     params: Parameters<typeof listSellerInventoryItemSupply>[1],
   ) => ReturnType<typeof listSellerInventoryItemSupply>;
@@ -1145,6 +1147,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       };
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),
+    getSellerListingStatusCounts: (accountId) => getSellerListingStatusCounts(deps.db, accountId),
     listSellerInventoryItemSupply: (params) => listSellerInventoryItemSupply(deps.db, params),
     hasSellerSupplyLocationNamed: (params) => hasSellerSupplyLocationNamed(deps.db, params),
     getSellerListing: (listingId, accountId) => getSellerListing(deps.db, listingId, accountId),

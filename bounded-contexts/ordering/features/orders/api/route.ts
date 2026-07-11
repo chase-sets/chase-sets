@@ -251,16 +251,22 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listPurchases({
-      buyerAccountId: access.actor.accountId,
-      limit,
-      offset,
-    });
+    const [result, summary] = await Promise.all([
+      services.listPurchases({
+        buyerAccountId: access.actor.accountId,
+        limit,
+        offset,
+      }),
+      services.getPurchaseListSummary(access.actor.accountId),
+    ]);
 
     return c.json({
       items: result.items,
       total: result.total,
       count: result.items.length,
+      limit,
+      offset,
+      summary,
     });
   });
 
@@ -334,16 +340,22 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listSales({
-      sellerAccountId: access.actor.accountId,
-      limit,
-      offset,
-    });
+    const [result, summary] = await Promise.all([
+      services.listSales({
+        sellerAccountId: access.actor.accountId,
+        limit,
+        offset,
+      }),
+      services.getSaleListSummary(access.actor.accountId),
+    ]);
 
     return c.json({
       items: result.items,
       total: result.total,
       count: result.items.length,
+      limit,
+      offset,
+      summary,
     });
   });
 

@@ -19,6 +19,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  Pagination,
   PriceBreakdown,
   ProgressiveDisclosure,
   ProductOptions,
@@ -34,6 +35,7 @@ import type {
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
+  MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
 } from "./contracts";
 
@@ -261,6 +263,17 @@ function normalizeSelections(schema: ProductSchema, current: Record<string, stri
   return next;
 }
 
+function navigateToListingListPage(page: number, pageSize: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("limit", String(pageSize));
+  url.searchParams.set("offset", String((page - 1) * pageSize));
+  window.location.assign(`${url.pathname}${url.search}${url.hash}`);
+}
+
 function selectedOptionEntries(schema: ProductSchema, selections: Record<string, string>) {
   return getOrderedDimensions(schema)
     .map((dimension) => {
@@ -273,6 +286,8 @@ function selectedOptionEntries(schema: ProductSchema, selections: Record<string,
 
 export function MarketplaceListingListPage({
   data,
+  statusCounts,
+  pagination,
   feeLockReport,
   listingAvailability,
   inventoryItems,
@@ -283,6 +298,8 @@ export function MarketplaceListingListPage({
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
 }: {
   data: { items: readonly MarketplaceListingListItem[] };
+  statusCounts?: MarketplaceSellerListingStatusCounts;
+  pagination?: Readonly<{ limit: number; offset: number; total: number }>;
   feeLockReport?: { items: readonly MarketplaceListingFeeLockReportEntry[] };
   listingAvailability: MarketplaceSellerListingAvailability;
   inventoryItems: readonly MarketplaceListingInventoryItemOption[];
@@ -310,13 +327,21 @@ export function MarketplaceListingListPage({
   const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
   const [catalogLookupPending, setCatalogLookupPending] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
-  const activeListings = data.items.filter((item) => item.status === "active").length;
-  const draftListings = data.items.filter((item) => item.status === "draft").length;
-  const pausedListings = data.items.filter((item) => item.status === "paused").length;
+  const activeListings = statusCounts
+    ? statusCounts.active
+    : data.items.filter((item) => item.status === "active").length;
+  const draftListings = statusCounts ? statusCounts.draft : data.items.filter((item) => item.status === "draft").length;
+  const pausedListings = statusCounts
+    ? statusCounts.paused
+    : data.items.filter((item) => item.status === "paused").length;
   const pausedListingDetail = t("marketplace.features.listings.ui.listingListPage.paused.listings.detail", {
     count: pausedListings,
     label: pausedListings === 1 ? "listing" : "listings",
   });
+  const pageSize = pagination?.limit ?? data.items.length;
+  const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
+  const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
+  const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
   const activeProductDimensions = catalogItem?.product_schema
     ? getOrderedDimensions(catalogItem.product_schema).filter((dimension) =>
         isDimensionActive(dimension, selectedOptions),
@@ -851,6 +876,13 @@ export function MarketplaceListingListPage({
             "marketplace.features.listings.ui.listingListPage.create.a.listing.from.available.inventory",
           )}
         />
+        {showPagination ? (
+          <Pagination
+            page={currentPage}
+            totalPages={totalPages}
+            onPageChange={(page) => navigateToListingListPage(page, pageSize)}
+          />
+        ) : null}
       </PageSection>
 
       <PageSection title={t("marketplace.features.listings.ui.listingListPage.fee.lock.report")}>

@@ -13,6 +13,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  Pagination,
   Stack,
   Text,
   TextInput,
@@ -52,6 +53,17 @@ function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {
   return [item.title, item.subtitle].filter(Boolean).join(" - ");
 }
 
+function navigateToInventoryItemListPage(page: number, pageSize: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("limit", String(pageSize));
+  url.searchParams.set("offset", String((page - 1) * pageSize));
+  window.location.assign(`${url.pathname}${url.search}${url.hash}`);
+}
+
 function getOrderedDimensions(schema: InventoryProductSchema) {
   return schema.canonicalDimensionOrder
     .map((entry) => schema.dimensions.find((dimension) => dimension.dimensionId === entry.dimensionId))
@@ -64,6 +76,7 @@ function selectedOptionssFromEntries(entries: readonly { dimensionId: string; op
 
 export function InventoryItemListPage({
   data,
+  pagination,
   locations,
   errorMessage,
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
@@ -72,6 +85,7 @@ export function InventoryItemListPage({
   currentPath,
 }: {
   data: { items: readonly InventoryItemListItem[] };
+  pagination?: Readonly<{ limit: number; offset: number; total: number }>;
   locations: readonly InventoryStorageLocation[];
   errorMessage?: string | null;
   catalogItemApiBaseUrl?: string;
@@ -83,6 +97,10 @@ export function InventoryItemListPage({
   } | null;
   currentPath?: string | null;
 }) {
+  const pageSize = pagination?.limit ?? data.items.length;
+  const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
+  const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
+  const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
   const [initialCatalogItemId] = useState(() => createItemDraft?.catalogItemId?.trim() ?? "");
   const [initialSelectedOptionss] = useState(() => selectedOptionssFromEntries(createItemDraft?.selectedOptions ?? []));
   const [catalogItemSearch, setCatalogItemSearch] = useState(initialCatalogItemId);
@@ -449,6 +467,13 @@ export function InventoryItemListPage({
             "inventory.features.inventoryItems.ui.inventoryItemListPage.create.your.first.inventory.item.to",
           )}
         />
+        {showPagination ? (
+          <Pagination
+            page={currentPage}
+            totalPages={totalPages}
+            onPageChange={(page) => navigateToInventoryItemListPage(page, pageSize)}
+          />
+        ) : null}
       </PageSection>
     </Page>
   );

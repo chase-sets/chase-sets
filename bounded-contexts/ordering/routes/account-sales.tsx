@@ -9,8 +9,8 @@ import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/po
 import { type SaleListItem } from "../support/request-support/api-client";
 import { createOrderingRequestApiClient } from "../support/request-support/api-client";
 import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
+import { orderListPageQuery } from "../support/request-support/list-pagination";
 
-const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountSales.review.sales.created.by.checkout.and");
 
 function salesPreparingResponse() {
@@ -33,7 +33,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createOrderingRequestApiClient(resolvedRequest);
   const salesRead = await loadAfterWrite({
     request: resolvedRequest,
-    load: () => api.listSales(DEFAULT_ORDER_QUERY),
+    load: () => api.listSales(orderListPageQuery(resolvedRequest)),
     isNotFound: () => false,
   });
   if (salesRead.kind === "pending") {
@@ -56,6 +56,11 @@ export const meta: MetaFunction = () =>
 
 export default function OrderingAccountSalesRoute() {
   const data = useLoaderData<typeof loader>();
+  const sales = data.sales as ListResponse<SaleListItem> & {
+    limit: number;
+    offset: number;
+    summary: { total_quantity: number; pending_count: number };
+  };
 
   return (
     <OrderingOrderListPage
@@ -64,7 +69,10 @@ export default function OrderingAccountSalesRoute() {
       emptyTitle={t("ordering.routes.accountSales.no.sales.yet")}
       emptyDescription={t("ordering.routes.accountSales.accepted.offers.and.checkout.activity.create")}
       orderDetailBasePath="/account/sales"
-      orders={(data.sales as ListResponse<SaleListItem>).items}
+      orders={sales.items}
+      total={sales.total}
+      summary={sales.summary}
+      pagination={{ limit: sales.limit, offset: sales.offset, total: sales.total }}
     />
   );
 }
