@@ -111,6 +111,7 @@ export type FulfillmentShipmentListRow = Readonly<{
   shipping_plan_snapshot: PackagePlan | null;
   shipping_method: string | null;
   carrier_name: string | null;
+  display_reference: string;
   label_reference: string | null;
   label_document_url: string | null;
   tracking_identifier: string | null;
@@ -438,6 +439,7 @@ const baseShipmentSelect = `
     page.shipping_plan_snapshot,
     page.shipping_method,
     page.carrier_name,
+    page.display_reference,
     page.label_reference,
     page.label_document_url,
     page.tracking_identifier,

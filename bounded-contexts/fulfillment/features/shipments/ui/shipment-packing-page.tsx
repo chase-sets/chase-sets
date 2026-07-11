@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { t } from "@chase-sets/localization";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
+import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import {
   Form,
   AddressBlock,
@@ -282,7 +284,7 @@ export function FulfillmentShipmentPackingPage({
   )}&format=letter`;
   const destinationLines = useMemo(() => addressLines(shipment.shipping_destination_snapshot), [shipment]);
   const buyerLabel = shipment.buyer_display_name ?? shipment.buyer_account_id;
-  const orderReference = shortReference(shipment.order_id);
+  const orderReference = deriveDisplayReferenceOrRaw(shipment.order_id as OrderId);
 
   useEffect(() => {
     setPackedQuantities(initialPackedQuantities(shipment.lines));
@@ -437,6 +439,10 @@ export function FulfillmentShipmentPackingPage({
         title={t("fulfillment.features.shipments.ui.shipmentPackingPage.fulfillment.summary")}
         items={[
           {
+            label: t("fulfillment.features.shipments.ui.shipmentPackingPage.shipment.reference.label"),
+            value: shipment.display_reference,
+          },
+          {
             label: t("fulfillment.features.shipments.ui.shipmentPackingPage.status"),
             value: <Badge tone={statusTone(shipment.status)}>{statusLabel(shipment.status)}</Badge>,
           },
@@ -487,7 +493,7 @@ export function FulfillmentShipmentPackingPage({
         eyebrow={t("fulfillment.features.shipments.ui.shipmentPackingPage.seller")}
         title={t("fulfillment.features.shipments.ui.shipmentPackingPage.title")}
         description={t("fulfillment.features.shipments.ui.shipmentPackingPage.description", {
-          orderId: orderReference,
+          orderReference,
           buyer: buyerLabel,
         })}
         actions={
@@ -669,12 +675,6 @@ export function FulfillmentShipmentPackingPage({
           </Stack>
         }
       />
-
-      <Text size="sm" tone="secondary">
-        {t("fulfillment.features.shipments.ui.shipmentPackingPage.full.order.reference", {
-          orderId: shipment.order_id,
-        })}
-      </Text>
     </Page>
   );
 }

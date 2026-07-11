@@ -20,8 +20,9 @@ export interface PackingSlipPrintLine {
 
 export interface PackingSlipPrintSlip {
   id: string;
-  orderId: ReactNode;
+  orderReference: ReactNode;
   referenceLabel: ReactNode;
+  referenceValue: ReactNode;
   shipToTitle: ReactNode;
   shipToLines: readonly ReactNode[];
   shipFromTitle?: ReactNode;
@@ -517,12 +518,12 @@ export function PackingSlipPrintDocument({ format, toolbar, slips, labels }: Pac
               <div>
                 <h1 className="fulfillment-packing-slip__title">{labels.packingSlip}</h1>
                 <div className="fulfillment-packing-slip__meta-line">
-                  {labels.order}: {slip.orderId}
+                  {labels.order}: {slip.orderReference}
                 </div>
               </div>
               <div className="fulfillment-packing-slip__reference">
                 <div>{slip.referenceLabel}</div>
-                <div>{slip.id}</div>
+                <div>{slip.referenceValue}</div>
               </div>
             </header>
 

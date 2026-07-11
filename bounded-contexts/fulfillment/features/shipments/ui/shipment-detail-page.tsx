@@ -1,5 +1,7 @@
 import { formatMoney, t } from "@chase-sets/localization";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { centsToMoneyAmount } from "@chase-sets/primitives/money";
+import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import {
   HiddenInput,
   Form,
@@ -162,6 +164,7 @@ export function FulfillmentShipmentDetailPage({
       : (shipment.buyer_display_name ?? shipment.buyer_account_id);
   const recipientSnapshot = shipment.shipping_destination_snapshot;
   const senderSnapshot = shipment.shipping_origin_snapshot;
+  const orderReference = deriveDisplayReferenceOrRaw(shipment.order_id as OrderId);
   const packingSlipHref = `/account/sales/shipments/packing-slips?shipmentIds=${encodeURIComponent(shipment.shipment_id)}&format=letter`;
   const packingFlowHref = `/account/sales/shipments/${shipment.shipment_id}/packing`;
   const letterMailpiece = isLetterMailpiece(shipment);
@@ -175,9 +178,11 @@ export function FulfillmentShipmentDetailPage({
             ? t("fulfillment.features.shipments.ui.shipmentDetailPage.buyer")
             : t("fulfillment.features.shipments.ui.shipmentDetailPage.seller")
         }
-        title={t("fulfillment.features.shipments.ui.shipmentDetailPage.shipment")}
+        title={t("fulfillment.features.shipments.ui.shipmentDetailPage.shipment", {
+          shipmentReference: shipment.display_reference,
+        })}
         description={t("fulfillment.features.shipments.ui.shipmentDetailPage.order.with.counterpart", {
-          orderId: shipment.order_id,
+          orderReference,
           counterpart: counterpartLabel,
         })}
         actions={
@@ -263,6 +268,12 @@ export function FulfillmentShipmentDetailPage({
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status"),
                 value: shipment.label_status,
+              },
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.label.reference"),
+                value:
+                  shipment.label_reference ??
+                  t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
               },
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider"),

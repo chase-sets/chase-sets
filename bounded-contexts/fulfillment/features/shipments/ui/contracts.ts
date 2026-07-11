@@ -68,6 +68,7 @@ export interface FulfillmentShipmentListItem {
   shipping_plan_snapshot: PackagePlan | null;
   shipping_method: string | null;
   carrier_name: string | null;
+  display_reference: string;
   label_reference: string | null;
   label_document_url: string | null;
   tracking_identifier: string | null;

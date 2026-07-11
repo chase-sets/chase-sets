@@ -9,6 +9,7 @@ import type { FulfillmentPackingSlip } from "./contracts";
 const slip: FulfillmentPackingSlip = {
   shipment_id: "shp_1",
   order_id: "ord_1",
+  display_reference: "shp_1",
   buyer_account_id: "acc_buyer",
   buyer_display_name: "Buyer",
   seller_account_id: "acc_seller",

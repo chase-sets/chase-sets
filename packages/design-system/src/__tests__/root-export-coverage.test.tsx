@@ -309,8 +309,9 @@ describe("root export coverage smoke tests", () => {
           slips={[
             {
               id: "ship_123",
-              orderId: "order_789",
+              orderReference: "order_789",
               referenceLabel: "Shipment",
+              referenceValue: "ship_123",
               shipToTitle: "Ship to",
               shipToLines: ["Avery Buyer", "100 Market St"],
               shipFromTitle: "Ship from",

@@ -38,6 +38,15 @@ describe("fulfillment shipment schema", () => {
           ),
         ],
       }),
+      expect.objectContaining({
+        migrationId: "20260711_fulfillment_shipment_display_reference_unique_idx",
+        statements: [
+          expect.stringContaining("SET lock_timeout"),
+          expect.stringContaining(
+            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_shipment_pages_display_reference_key",
+          ),
+        ],
+      }),
     ]);
   });
 

@@ -1,4 +1,4 @@
-import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { t } from "@chase-sets/localization";
 import type {
@@ -9,6 +9,10 @@ import type {
 
 function orderReferenceOrRaw(orderId: string): string {
   return deriveDisplayReferenceOrRaw(orderId as OrderId);
+}
+
+function shipmentReferenceOrRaw(shipmentId: string): string {
+  return deriveDisplayReferenceOrRaw(shipmentId as ShipmentId);
 }
 
 export type OrderCreatedNotificationInput = Readonly<{
@@ -212,7 +216,9 @@ export function mapRestockDecisionPendingToNotification(
 }
 
 export function mapShipmentDeliveredToNotification(input: ShipmentDeliveredNotificationInput): NotificationMessage {
-  const title = `Shipment delivered for order ${input.orderId}`;
+  const orderReference = orderReferenceOrRaw(input.orderId);
+  const shipmentReference = shipmentReferenceOrRaw(input.shipmentId);
+  const title = `Shipment ${shipmentReference} delivered for order ${orderReference}`;
   const body = `Tracking ${input.trackingNumber} is marked delivered.`;
   const actionHref = `/account/shipments/${input.shipmentId}`;
   const webChannel: WebNotificationChannel = {
@@ -241,7 +247,8 @@ export function mapShipmentDeliveredToNotification(input: ShipmentDeliveredNotif
     templateVersion: 1,
     locale: "en",
     templateData: {
-      orderId: input.orderId,
+      orderReference,
+      shipmentReference,
       trackingNumber: input.trackingNumber,
       shipmentId: input.shipmentId,
     },

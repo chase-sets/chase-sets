@@ -122,7 +122,7 @@ function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): reado
   if (message.templateId === "shipment_delivered") {
     return [
       "Your Chase Sets shipment has been delivered.",
-      `Order ID: ${String(message.templateData.orderId ?? "")}`,
+      `Order reference: ${String(message.templateData.orderReference ?? "")}`,
       `Tracking number: ${String(message.templateData.trackingNumber ?? "")}`,
       "",
       "Chase Sets",

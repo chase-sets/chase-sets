@@ -1,4 +1,6 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
+import type { OrderId } from "@chase-sets/primitives/typed-ids";
 
 export type ShipmentDeliveredEmailIntentInput = Readonly<{
   buyerEmail: string;
@@ -10,15 +12,17 @@ export type ShipmentDeliveredEmailIntentInput = Readonly<{
 export function mapShipmentDeliveredToTransactionalEmail(
   input: ShipmentDeliveredEmailIntentInput,
 ): NotificationMessage {
+  const orderReference = deriveDisplayReferenceOrRaw(input.orderId as OrderId);
+
   return createTransactionalEmailNotificationMessage({
     messageType: "fulfillment.shipment.delivered",
     criticality: "operational",
     to: [{ email: input.buyerEmail }],
-    subject: `Shipment delivered for order ${input.orderId}`,
+    subject: `Shipment delivered for order ${orderReference}`,
     templateId: "shipment_delivered",
     templateVersion: 1,
     locale: "en",
-    templateData: { orderId: input.orderId, trackingNumber: input.trackingNumber },
+    templateData: { orderReference, trackingNumber: input.trackingNumber },
     idempotencyKey: `fulfillment:shipment_delivered:${input.orderId}:${input.trackingNumber}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },

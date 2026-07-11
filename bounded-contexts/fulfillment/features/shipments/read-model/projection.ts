@@ -1,5 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { ShipmentId } from "@chase-sets/primitives/typed-ids";
+import { withShipmentDisplayReference } from "./display-reference";
 
 export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   function labelStatusFromRefundStatus(refundStatus: string) {
@@ -42,8 +44,9 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
         createdAt: string;
       };
 
-      await db.query(
-        `INSERT INTO fulfillment_shipment_pages (
+      await withShipmentDisplayReference(data.shipmentId as ShipmentId, (displayReference) =>
+        db.query(
+          `INSERT INTO fulfillment_shipment_pages (
            shipment_id,
            order_id,
            buyer_account_id,
@@ -54,6 +57,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
            shipping_plan_snapshot,
            shipping_method,
            carrier_name,
+           display_reference,
            label_reference,
            label_document_url,
            tracking_identifier,
@@ -87,7 +91,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
            returned_at,
            exception_raised_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $9, $9, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, $9, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $10, $10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
@@ -97,18 +101,21 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
              shipping_origin_snapshot = EXCLUDED.shipping_origin_snapshot,
              shipping_plan_snapshot = EXCLUDED.shipping_plan_snapshot,
+             display_reference = EXCLUDED.display_reference,
              updated_at = EXCLUDED.updated_at`,
-        [
-          data.shipmentId,
-          data.orderId,
-          data.buyerAccountId,
-          data.sellerAccountId,
-          data.shippingOption,
-          JSON.stringify(data.shippingDestinationSnapshot),
-          JSON.stringify(data.shippingOriginSnapshot),
-          JSON.stringify(data.shippingPlanSnapshot ?? {}),
-          data.createdAt,
-        ],
+          [
+            data.shipmentId,
+            data.orderId,
+            data.buyerAccountId,
+            data.sellerAccountId,
+            data.shippingOption,
+            JSON.stringify(data.shippingDestinationSnapshot),
+            JSON.stringify(data.shippingOriginSnapshot),
+            JSON.stringify(data.shippingPlanSnapshot ?? {}),
+            displayReference,
+            data.createdAt,
+          ],
+        ),
       );
 
       await db.query(`DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`, [data.shipmentId]);

@@ -61,6 +61,10 @@ const fulfillmentShipmentPostageLabelProviderUniqueIndexSql = `CREATE UNIQUE IND
   ON fulfillment_shipment_pages (postage_provider_name, postage_provider_label_id)
   WHERE postage_provider_label_id IS NOT NULL;`;
 
+const fulfillmentShipmentDisplayReferenceUniqueIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_shipment_pages_display_reference_key
+  ON fulfillment_shipment_pages (display_reference)
+  WHERE display_reference <> '';`;
+
 export const fulfillmentShipmentSchemaSql = `
 CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   shipment_id text PRIMARY KEY,
@@ -73,6 +77,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   shipping_plan_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   shipping_method text NULL,
   carrier_name text NULL,
+  display_reference text NOT NULL DEFAULT '',
   label_reference text NULL,
   label_document_url text NULL,
   tracking_identifier text NULL,
@@ -160,7 +165,8 @@ ALTER TABLE IF EXISTS fulfillment_shipment_pages
   ADD COLUMN IF NOT EXISTS label_refund_reference text NULL,
   ADD COLUMN IF NOT EXISTS packing_started_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS label_voided_at timestamptz NULL,
-  ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS display_reference text NOT NULL DEFAULT '';
 
 ALTER TABLE IF EXISTS fulfillment_shipment_line_pages
   ADD COLUMN IF NOT EXISTS packing_confirmed_quantity integer NOT NULL DEFAULT 0,
@@ -248,5 +254,13 @@ export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] =
       fulfillmentShipmentPostageLabelDuplicateBackfillSql,
       fulfillmentShipmentPostageLabelProviderUniqueIndexSql,
     ],
+  },
+  {
+    migrationId: "20260711_fulfillment_shipment_display_reference_unique_idx",
+    description:
+      "Add the support-safe shipment display reference unique index outside boot-time schema SQL. Rows written " +
+      "before this migration ran keep the empty-string default and are excluded from the uniqueness check; the " +
+      "projector always populates a real reference for every shipment it creates.",
+    statements: [`SET lock_timeout = '5s'`, fulfillmentShipmentDisplayReferenceUniqueIndexSql],
   },
 ];

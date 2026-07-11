@@ -83,6 +83,7 @@ function createServices(): FulfillmentShipmentServices {
         shipmentIds.map((shipmentId) => ({
           shipment_id: shipmentId,
           order_id: "ord_1",
+          display_reference: shipmentId,
           buyer_account_id: "acc_buyer",
           buyer_display_name: "Buyer",
           seller_account_id: "acc_seller",
