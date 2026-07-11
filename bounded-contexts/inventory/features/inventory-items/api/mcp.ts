@@ -7,6 +7,7 @@ import {
   type McpResourceHandler,
   type McpToolHandler,
 } from "@chase-sets/platform-runtime/mcp";
+import type { StorageLocationServices } from "../../storage-locations/api/runtime";
 import type { InventoryItemServices } from "./runtime";
 
 export type InventoryItemMcpHandlers = Readonly<{
@@ -78,6 +79,49 @@ function readAvailability(args: Readonly<Record<string, unknown>>) {
   return availability;
 }
 
+/**
+ * Resolves a storage location natural-key input (`nameKey`) to its canonical
+ * `loc_` id when the caller did not supply the id directly (`idKey`). Storage
+ * location names are not database-unique, so an ambiguous name returns a
+ * structured list of candidates instead of guessing -- the agent must either
+ * pick a more specific name or fall back to the id from a prior `list` call.
+ */
+async function resolveStorageLocationId(
+  storageLocations: Pick<StorageLocationServices, "listStorageLocations">,
+  accountId: string,
+  args: Readonly<Record<string, unknown>>,
+  options: Readonly<{ idKey: string; nameKey: string; includeArchived: boolean }>,
+): Promise<string | null> {
+  const id = readOptionalMcpTypedIdArgument(args, options.idKey, "loc");
+  if (id) {
+    return id;
+  }
+
+  const name = readMcpStringArgument(args, options.nameKey);
+  if (!name) {
+    return null;
+  }
+
+  const locations = await storageLocations.listStorageLocations({
+    accountId,
+    includeArchived: options.includeArchived,
+  });
+  const normalizedName = name.trim().toLocaleLowerCase("en-US");
+  const matches = locations.filter((location) => location.name.trim().toLocaleLowerCase("en-US") === normalizedName);
+
+  if (matches.length === 0) {
+    throw new Error(`No storage location named "${name}" was found for this account.`);
+  }
+  if (matches.length > 1) {
+    const candidates = matches.map((location) => `${location.storage_location_id} (${location.name})`).join(", ");
+    throw new Error(
+      `Multiple storage locations are named "${name}": ${candidates}. Provide ${options.idKey} to disambiguate.`,
+    );
+  }
+
+  return matches[0].storage_location_id;
+}
+
 function itemUriParts(uri: string): Readonly<{ accountId: string; itemId: string }> | null {
   const match = /^chase-sets:\/\/inventory\/([^/]+)\/items\/([^/]+)$/.exec(uri);
   if (!match) {
@@ -107,7 +151,10 @@ function itemReceipt(
   };
 }
 
-export function createInventoryItemMcpHandlers(services: InventoryItemServices): InventoryItemMcpHandlers {
+export function createInventoryItemMcpHandlers(
+  services: InventoryItemServices,
+  storageLocations: Pick<StorageLocationServices, "listStorageLocations">,
+): InventoryItemMcpHandlers {
   const listItems: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
@@ -117,7 +164,14 @@ export function createInventoryItemMcpHandlers(services: InventoryItemServices):
       offset: readOptionalNonNegativeInteger(args, "offset", 0),
       catalogItemId: readOptionalMcpTypedIdArgument(args, "catalogItemId", "cat"),
       productId: readMcpStringArgument(args, "productId"),
-      storageLocationId: readOptionalMcpTypedIdArgument(args, "storageLocationId", "loc"),
+      storageLocationId: await resolveStorageLocationId(storageLocations, scopedActor.accountId, args, {
+        idKey: "storageLocationId",
+        nameKey: "storageLocationName",
+        // Archived locations still legitimately contain items (a location is
+        // archived, not deleted), so a name filter here should not silently
+        // exclude a match the way a "default for new stock" resolution would.
+        includeArchived: true,
+      }),
       availability: readAvailability(args),
     });
 

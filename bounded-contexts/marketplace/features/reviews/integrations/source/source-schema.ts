@@ -9,6 +9,16 @@ CREATE TABLE IF NOT EXISTS marketplace_review_account_sources (
 CREATE INDEX IF NOT EXISTS marketplace_review_account_sources_status_idx
   ON marketplace_review_account_sources (status, updated_at DESC, account_id ASC);
 
+-- Mirrors discovery's account seller slug (same deterministic
+-- displayName+accountId derivation, computed independently -- see the
+-- source-projection.ts comment) so the reputation MCP tools can resolve
+-- subjectAccountSlug without a cross-context runtime dependency.
+ALTER TABLE marketplace_review_account_sources
+  ADD COLUMN IF NOT EXISTS slug text NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS marketplace_review_account_sources_slug_idx
+  ON marketplace_review_account_sources (slug) WHERE slug IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS marketplace_review_order_sources (
   order_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,

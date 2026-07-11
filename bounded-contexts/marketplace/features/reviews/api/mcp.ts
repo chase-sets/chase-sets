@@ -21,6 +21,36 @@ function readRequiredString(args: Readonly<Record<string, unknown>>, key: string
   return value;
 }
 
+/**
+ * Resolves the subject account for a reputation read: `subjectAccountId`
+ * (ULID) wins when both are given so existing agent integrations keep
+ * working unchanged; `subjectAccountSlug` is the natural-key alternative
+ * resolved through the reviews context's own slug mirror
+ * (`services.resolveAccountIdBySlug`). Falls back to `fallbackAccountId`
+ * (the actor's own account) when neither is supplied.
+ */
+async function resolveSubjectAccountId(
+  services: ReviewServices,
+  args: Readonly<Record<string, unknown>>,
+  fallbackAccountId: string,
+): Promise<string> {
+  const subjectAccountId = readOptionalMcpTypedIdArgument(args, "subjectAccountId", "acc");
+  if (subjectAccountId) {
+    return subjectAccountId;
+  }
+
+  const subjectAccountSlug = readMcpStringArgument(args, "subjectAccountSlug");
+  if (subjectAccountSlug) {
+    const resolvedAccountId = await services.resolveAccountIdBySlug(subjectAccountSlug);
+    if (!resolvedAccountId) {
+      throw new Error(`No account found for subjectAccountSlug "${subjectAccountSlug}".`);
+    }
+    return resolvedAccountId;
+  }
+
+  return fallbackAccountId;
+}
+
 function readOptionalPositiveInteger(args: Readonly<Record<string, unknown>>, key: string, fallback: number) {
   const raw = args[key];
   if (raw === null || raw === undefined || raw === "") {
@@ -77,7 +107,7 @@ export function createMarketplaceReviewMcpHandlers(services: ReviewServices): Ma
   const getReputationSummary: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
     ensureMcpActorAccount(actor, accountId);
-    const subjectAccountId = readOptionalMcpTypedIdArgument(args, "subjectAccountId", "acc") ?? accountId;
+    const subjectAccountId = await resolveSubjectAccountId(services, args, accountId);
     // `summary` carries both the as-seller and as-buyer dimensions (m108
     // role-split) in one payload; callers pick the role-appropriate fields.
     const summary = await services.getPublicAccountSummary(subjectAccountId);
@@ -113,7 +143,7 @@ export function createMarketplaceReviewMcpHandlers(services: ReviewServices): Ma
     }
 
     if (side === "public") {
-      const subjectAccountId = readOptionalMcpTypedIdArgument(args, "subjectAccountId", "acc") ?? accountId;
+      const subjectAccountId = await resolveSubjectAccountId(services, args, accountId);
       const response = await services.listPublicAccountReviews({ accountId: subjectAccountId, role, limit, offset });
       return { accountId, subjectAccountId, side, ...response, count: response.items.length };
     }

@@ -46,8 +46,8 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
   createServices: (pool, ports, options) => createInventoryServices(pool, ports, options),
   buildApis: (services) => [buildInventoryApi(services)],
   buildMcpHandlers: (services) => {
-    const importBatches = createInventoryImportBatchMcpHandlers(services.importBatches);
-    const items = createInventoryItemMcpHandlers(services.items);
+    const importBatches = createInventoryImportBatchMcpHandlers(services.importBatches, services.storageLocations);
+    const items = createInventoryItemMcpHandlers(services.items, services.storageLocations);
 
     return {
       toolHandlers: {

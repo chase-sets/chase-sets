@@ -3,6 +3,52 @@ import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { syncReviewEligibilityForOrder } from "./eligibility-sync";
 
+const ID_SUFFIX_LABEL_LENGTH = 24;
+
+/**
+ * Slugifies a display name into a marketplace-safe, ASCII, kebab-case label.
+ * Kept local to the reviews source integration (single-slice usage): the
+ * algorithm mirrors discovery's `createMarketplaceSlug` (and checkout's
+ * `createSellerSlug`) so a seller resolves to the same public slug across
+ * read models, but the helper is intentionally not shared across contexts --
+ * reviews only subscribes to the identity events it already consumes here,
+ * rather than adding a cross-context runtime dependency on discovery just to
+ * resolve `subjectAccountSlug`.
+ */
+function createSlugBase(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/&/g, " and ")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
+function hashId(id: string): string {
+  let hash = 0x811c9dc5;
+
+  for (const character of id) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  return hash.toString(36);
+}
+
+function compactIdSuffix(id: string): string {
+  const suffix = createSlugBase(id).slice(-ID_SUFFIX_LABEL_LENGTH).replace(/^-+/, "");
+
+  return `${suffix || "item"}-${hashId(id)}`;
+}
+
+function createReviewAccountSlug(displayName: string, accountId: string): string {
+  const base = createSlugBase(displayName) || "marketplace";
+
+  return `${base}-${compactIdSuffix(accountId)}`;
+}
+
 export function buildReviewAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
@@ -10,41 +56,48 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
         accountId: string;
         displayName: string;
       };
+      const slug = createReviewAccountSlug(displayName, accountId);
 
       await db.query(
         `INSERT INTO marketplace_review_account_sources (
            account_id,
            display_name,
+           slug,
            status,
            updated_at
-         ) VALUES ($1, $2, 'active', $3)
+         ) VALUES ($1, $2, $3, 'active', $4)
          ON CONFLICT (account_id) DO UPDATE SET
            display_name = EXCLUDED.display_name,
+           slug = EXCLUDED.slug,
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at`,
-        [accountId, displayName, event.timing.recordedAt],
+        [accountId, displayName, slug, event.timing.recordedAt],
       );
     },
     "identity.account.profile-updated": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
       const { displayName } = event.data as { displayName: string };
+      const slug = createReviewAccountSlug(displayName, accountId);
 
       await db.query(
         `INSERT INTO marketplace_review_account_sources (
            account_id,
            display_name,
+           slug,
            status,
            updated_at
          ) VALUES (
            $1,
            $2,
+           $3,
            COALESCE((SELECT status FROM marketplace_review_account_sources WHERE account_id = $1), 'active'),
-           $3
+           $4
          )
          ON CONFLICT (account_id) DO UPDATE SET
            display_name = EXCLUDED.display_name,
+           slug = EXCLUDED.slug,
            updated_at = EXCLUDED.updated_at`,
-        [accountId, displayName, event.timing.recordedAt],
+        [accountId, displayName, slug, event.timing.recordedAt],
       );
     },
     "identity.account.suspended": async (event) => {

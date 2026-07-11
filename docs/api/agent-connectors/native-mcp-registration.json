@@ -124,7 +124,7 @@
         "properties": {
           "query": {
             "type": "string",
-            "description": "Marketplace search term."
+            "description": "Marketplace search term. Accepts free text or a structured \"<setCode> <collectorNumber>[/<total>]\" natural key (for example \"SV04 123/182\", \"sv04 123\", \"OP01-001\") -- structured natural keys resolve through an exact set-code + collector-number lookup before falling back to full-text search."
           },
           "search": {
             "type": "string",
@@ -257,7 +257,8 @@
       "idempotency_key": "not-applicable",
       "dry_run_supported": false,
       "expected_usage": [
-        "Use to compare public marketplace options without exposing account-private data."
+        "Use to compare public marketplace options without exposing account-private data.",
+        "Use a \"<setCode> <collectorNumber>\" query (e.g. \"SV04 123/182\") instead of a full-text guess when the agent already has the set code and collector number."
       ]
     },
     {
@@ -681,7 +682,11 @@
           },
           "storageLocationId": {
             "type": "string",
-            "description": "Optional storage location filter."
+            "description": "Optional storage location filter (ULID). Alternative to storageLocationName."
+          },
+          "storageLocationName": {
+            "type": "string",
+            "description": "Optional storage location filter by exact name (case-insensitive). Alternative to storageLocationId; if the name matches more than one location, the tool returns a disambiguation error listing the candidate ids."
           },
           "status": {
             "type": "string",
@@ -993,7 +998,11 @@
           },
           "defaultStorageLocationId": {
             "type": "string",
-            "description": "Default Inventory Storage Location for rows that omit one."
+            "description": "Default Inventory Storage Location (ULID) for rows that omit one. Alternative to defaultStorageLocationName."
+          },
+          "defaultStorageLocationName": {
+            "type": "string",
+            "description": "Default Inventory Storage Location name (case-insensitive, active locations only) for rows that omit one. Alternative to defaultStorageLocationId; if the name matches more than one active location, the tool returns a disambiguation error listing the candidate ids."
           },
           "sourceFilename": {
             "type": "string",
@@ -1001,7 +1010,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -1402,7 +1411,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -1617,7 +1626,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -1892,7 +1901,11 @@
           },
           "subjectAccountId": {
             "type": "string",
-            "description": "Account whose reputation summary should be read."
+            "description": "Account whose reputation summary should be read (ULID). Alternative to subjectAccountSlug."
+          },
+          "subjectAccountSlug": {
+            "type": "string",
+            "description": "Public seller slug for the account whose reputation summary should be read (from a search result, listing, or order's seller reference). Alternative to subjectAccountId; if both are given, subjectAccountId wins."
           }
         }
       },
@@ -1938,7 +1951,11 @@
           },
           "subjectAccountId": {
             "type": "string",
-            "description": "Reviewed account for public review reads."
+            "description": "Reviewed account for public review reads (ULID). Alternative to subjectAccountSlug."
+          },
+          "subjectAccountSlug": {
+            "type": "string",
+            "description": "Public seller slug for the reviewed account, for public review reads. Alternative to subjectAccountId; if both are given, subjectAccountId wins."
           },
           "limit": {
             "type": "integer",
@@ -2101,7 +2118,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -2315,7 +2332,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -2454,7 +2471,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -2561,7 +2578,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -2663,7 +2680,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -2766,7 +2783,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -2878,7 +2895,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -2986,7 +3003,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -3366,7 +3383,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -3527,7 +3544,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -3631,7 +3648,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -3736,7 +3753,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -3877,7 +3894,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -4203,7 +4220,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -4990,7 +5007,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -5047,7 +5064,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -5506,7 +5523,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -5649,7 +5666,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
@@ -5786,7 +5803,7 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable key supplied by the agent host."
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
           },
           "confirmationText": {
             "type": "string",
