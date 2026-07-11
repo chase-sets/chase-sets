@@ -46,6 +46,9 @@ export function ReviewDetailPage({ backHref, review }: { backHref: string; revie
                 {review.subject_display_name ?? review.subject_account_id}
               </Text>
               <Badge tone={statusTone(review.status)}>{review.status}</Badge>
+              {review.resolution_context === "resolved-via-refund" ? (
+                <Badge tone="neutral">{t("reputation.features.reviews.ui.reviewDetailPage.resolved.via.refund")}</Badge>
+              ) : null}
             </Stack>
           }
           verified

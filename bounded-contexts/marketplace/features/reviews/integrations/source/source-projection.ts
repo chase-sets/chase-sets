@@ -1,6 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { syncReviewEligibilityForOrder } from "./eligibility-sync";
 
 export function buildReviewAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -107,7 +108,7 @@ export function buildReviewOrderSourceProjectionHandlers(db: PgQueryable): Proje
 
       // The shipment projection drops the eligibility upsert when the order
       // source row has not landed yet, so heal that race once the order shows up.
-      await restoreEligibilityIfDelivered(db, data.orderId, event.timing.recordedAt);
+      await syncReviewEligibilityForOrder(db, data.orderId, event.timing.recordedAt);
     },
     "ordering.order.pending-payment-recorded": async (event) => {
       const data = event.data as {
@@ -250,72 +251,103 @@ export function buildReviewShipmentSourceProjectionHandlers(
   };
 }
 
-async function restoreEligibilityIfDelivered(db: PgQueryable, orderId: string, eligibleAt: string) {
-  const result = await db.query<{
-    buyer_account_id: string;
-    seller_account_id: string;
-    delivered_at: string;
-  }>(
-    `SELECT
-       order_source.buyer_account_id,
-       order_source.seller_account_id,
-       shipment_source.delivered_at::text AS delivered_at
-     FROM marketplace_review_order_sources order_source
-     JOIN marketplace_review_shipment_sources shipment_source
-       ON shipment_source.order_id = order_source.order_id
-      AND shipment_source.status = 'delivered'
-     WHERE order_source.order_id = $1
-     ORDER BY shipment_source.delivered_at ASC
-     LIMIT 1`,
-    [orderId],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    return;
-  }
-  const restoredAt = row.delivered_at ?? eligibleAt;
-
-  await db.query(
-    `INSERT INTO marketplace_review_eligibility_pages (
-       order_id,
-       author_account_id,
-       subject_account_id,
-       author_role,
-       eligible_at,
-       updated_at
-     ) VALUES
-       ($1, $2, $3, 'buyer', $4, $5),
-       ($1, $3, $2, 'seller', $4, $5)
-     ON CONFLICT (order_id, author_account_id, subject_account_id) DO UPDATE
-     SET eligible_at = EXCLUDED.eligible_at,
-         updated_at = EXCLUDED.updated_at`,
-    [orderId, row.buyer_account_id, row.seller_account_id, restoredAt, eligibleAt],
-  );
-}
-
 export function buildReviewSupportSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
-      const data = event.data as { orderId: string };
+      const data = event.data as { supportRequestId: string; orderId: string; openedAt: string };
 
       await db.query(
-        `DELETE FROM marketplace_review_eligibility_pages
-         WHERE order_id = $1`,
-        [data.orderId],
+        `INSERT INTO marketplace_review_support_request_sources (
+           support_request_id,
+           order_id,
+           status,
+           resolution_type,
+           flow_type,
+           opened_at,
+           updated_at,
+           cancelled_at,
+           resolved_at
+         ) VALUES ($1, $2, 'open', NULL, NULL, $3, $3, NULL, NULL)
+         ON CONFLICT (support_request_id) DO UPDATE
+         SET order_id = EXCLUDED.order_id,
+             status = EXCLUDED.status,
+             resolution_type = EXCLUDED.resolution_type,
+             flow_type = EXCLUDED.flow_type,
+             opened_at = COALESCE(marketplace_review_support_request_sources.opened_at, EXCLUDED.opened_at),
+             updated_at = EXCLUDED.updated_at,
+             cancelled_at = EXCLUDED.cancelled_at,
+             resolved_at = EXCLUDED.resolved_at`,
+        [data.supportRequestId, data.orderId, data.openedAt],
       );
+
+      await syncReviewEligibilityForOrder(db, data.orderId, data.openedAt);
     },
     "support.support-request.cancelled": async (event) => {
-      const data = event.data as { orderId: string; cancelledAt: string };
-      await restoreEligibilityIfDelivered(db, data.orderId, data.cancelledAt);
+      const data = event.data as { supportRequestId: string; orderId: string; cancelledAt: string };
+
+      await db.query(
+        `INSERT INTO marketplace_review_support_request_sources (
+           support_request_id,
+           order_id,
+           status,
+           resolution_type,
+           flow_type,
+           opened_at,
+           updated_at,
+           cancelled_at,
+           resolved_at
+         ) VALUES ($1, $2, 'cancelled', NULL, NULL, NULL, $3, $3, NULL)
+         ON CONFLICT (support_request_id) DO UPDATE
+         SET order_id = EXCLUDED.order_id,
+             status = EXCLUDED.status,
+             resolution_type = EXCLUDED.resolution_type,
+             flow_type = EXCLUDED.flow_type,
+             updated_at = EXCLUDED.updated_at,
+             cancelled_at = EXCLUDED.cancelled_at,
+             resolved_at = EXCLUDED.resolved_at`,
+        [data.supportRequestId, data.orderId, data.cancelledAt],
+      );
+
+      await syncReviewEligibilityForOrder(db, data.orderId, data.cancelledAt);
     },
     "support.support-request.resolved": async (event) => {
       const data = event.data as {
+        supportRequestId: string;
         orderId: string;
+        flowType?: string | null;
         resolution: { resolutionType: string; resolvedAt: string };
       };
-      if (data.resolution.resolutionType === "no-action" || data.resolution.resolutionType === "support-reviewed") {
-        await restoreEligibilityIfDelivered(db, data.orderId, data.resolution.resolvedAt);
-      }
+
+      await db.query(
+        `INSERT INTO marketplace_review_support_request_sources (
+           support_request_id,
+           order_id,
+           status,
+           resolution_type,
+           flow_type,
+           opened_at,
+           updated_at,
+           cancelled_at,
+           resolved_at
+         ) VALUES ($1, $2, 'resolved', $3, $4, NULL, $5, NULL, $5)
+         ON CONFLICT (support_request_id) DO UPDATE
+         SET order_id = EXCLUDED.order_id,
+             status = EXCLUDED.status,
+             resolution_type = EXCLUDED.resolution_type,
+             flow_type = EXCLUDED.flow_type,
+             updated_at = EXCLUDED.updated_at,
+             cancelled_at = EXCLUDED.cancelled_at,
+             resolved_at = EXCLUDED.resolved_at`,
+        [
+          data.supportRequestId,
+          data.orderId,
+          data.resolution.resolutionType,
+          data.flowType ?? null,
+          data.resolution.resolvedAt,
+        ],
+      );
+
+      await syncReviewEligibilityForOrder(db, data.orderId, data.resolution.resolvedAt);
     },
   };
 }

@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/reviews/tests/review-eligibility-sql.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/reviews/tests/review-eligibility-sql.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
+  },
+  "chaseSets": {
+    "testProfile": "db"
   },
   "exports": {
     ".": "./index.ts",
@@ -18,6 +23,7 @@
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
@@ -32,6 +38,7 @@
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/product-selection": "workspace:*",
+    "@chase-sets/review-eligibility": "workspace:*",
     "hono": "^4.12.12",
     "sharp": "^0.34.5",
     "zod": "^4.4.3"

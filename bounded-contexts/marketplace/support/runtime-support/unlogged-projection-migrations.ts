@@ -28,4 +28,9 @@ export const marketplaceUnloggedProjectionSchemaMigrations: readonly BcSchemaMig
       "ALTER TABLE marketplace_supply_locations SET UNLOGGED;",
     ],
   },
+  {
+    migrationId: "20260710_marketplace_review_support_request_sources_unlogged",
+    description: "Store the replayable marketplace review support-request source projection as an unlogged table.",
+    statements: ["SET lock_timeout = '5s';", "ALTER TABLE marketplace_review_support_request_sources SET UNLOGGED;"],
+  },
 ];

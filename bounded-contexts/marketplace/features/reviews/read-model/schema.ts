@@ -10,10 +10,17 @@ CREATE TABLE IF NOT EXISTS marketplace_review_pages (
   rating integer NOT NULL,
   feedback text NULL,
   status text NOT NULL,
+  resolution_context text NULL,
   submitted_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   withdrawn_at timestamptz NULL
 );
+
+-- Neutral display marker for reviews unlocked by a refund-class support
+-- resolution ("resolved via refund"). Display-only: summary math never reads
+-- it — a review is a review.
+ALTER TABLE marketplace_review_pages
+  ADD COLUMN IF NOT EXISTS resolution_context text NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS marketplace_active_review_direction_idx
   ON marketplace_review_pages (order_id, author_account_id, subject_account_id)
@@ -70,10 +77,14 @@ CREATE TABLE IF NOT EXISTS marketplace_review_eligibility_pages (
   author_account_id text NOT NULL,
   subject_account_id text NOT NULL,
   author_role text NOT NULL,
+  resolution_context text NULL,
   eligible_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   PRIMARY KEY (order_id, author_account_id, subject_account_id)
 );
+
+ALTER TABLE marketplace_review_eligibility_pages
+  ADD COLUMN IF NOT EXISTS resolution_context text NULL;
 
 CREATE INDEX IF NOT EXISTS marketplace_review_eligibility_author_idx
   ON marketplace_review_eligibility_pages (author_account_id, eligible_at DESC, order_id DESC);

@@ -11,6 +11,7 @@ export type ReviewListRow = Readonly<{
   rating: number;
   feedback: string | null;
   status: string;
+  resolution_context: string | null;
   submitted_at: string;
   updated_at: string;
   withdrawn_at: string | null;
@@ -53,6 +54,7 @@ export type ReviewEligibilityRow = Readonly<{
   author_account_id: string;
   subject_account_id: string;
   author_role: string;
+  resolution_context: string | null;
   eligible_at: string;
 }>;
 
@@ -77,6 +79,7 @@ const baseReviewSelect = `
     page.rating,
     page.feedback,
     page.status,
+    page.resolution_context,
     page.submitted_at,
     page.updated_at,
     page.withdrawn_at
@@ -284,6 +287,7 @@ export async function getReviewEligibility(
        author_account_id,
        subject_account_id,
        author_role,
+       resolution_context,
        eligible_at
      FROM marketplace_review_eligibility_pages
      WHERE order_id = $1

@@ -11,6 +11,7 @@ import {
   type ReviewRole,
   type ReviewStatus,
 } from "./common";
+import { normalizeResolutionContext, type ReviewResolutionContext } from "@chase-sets/review-eligibility";
 
 export type ReviewState = Readonly<{
   reviewId: ReviewId | null;
@@ -21,6 +22,7 @@ export type ReviewState = Readonly<{
   rating: number | null;
   feedback: string | null;
   status: ReviewStatus | null;
+  resolutionContext: ReviewResolutionContext | null;
   submittedAt: string | null;
   updatedAt: string | null;
   withdrawnAt: string | null;
@@ -35,6 +37,7 @@ export const initialReviewState: ReviewState = {
   rating: null,
   feedback: null,
   status: null,
+  resolutionContext: null,
   submittedAt: null,
   updatedAt: null,
   withdrawnAt: null,
@@ -49,6 +52,9 @@ export type SubmitReviewCommand = Readonly<{
   authorRole: ReviewRole;
   rating: number;
   feedback?: string | null;
+  // Neutral display marker copied from the review-eligibility row when the
+  // transaction was unlocked by a refund-class support resolution.
+  resolutionContext?: string | null;
   submittedAt: string;
 }>;
 
@@ -76,6 +82,7 @@ export type ReviewSubmittedEvent = DomainEvent<
     authorRole: ReviewRole;
     rating: number;
     feedback: string | null;
+    resolutionContext: ReviewResolutionContext | null;
     submittedAt: string;
   }>
 >;
@@ -117,6 +124,7 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
             authorRole: normalizeReviewRole(command.authorRole),
             rating: normalizeRating(command.rating),
             feedback: normalizeFeedback(command.feedback),
+            resolutionContext: normalizeResolutionContext(command.resolutionContext),
             submittedAt: ensureIsoTimestamp(command.submittedAt, "Review submission must record a timestamp."),
           },
         },
@@ -167,6 +175,8 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         authorRole: normalizeReviewRole(event.data.authorRole),
         rating: normalizeRating(event.data.rating),
         feedback: normalizeFeedback(event.data.feedback),
+        // Events persisted before the marker existed replay with undefined.
+        resolutionContext: normalizeResolutionContext(event.data.resolutionContext ?? null),
         status: "active",
         submittedAt: event.data.submittedAt,
         updatedAt: event.data.submittedAt,

@@ -15,6 +15,7 @@ import {
   ReputationDomainError,
   type ReviewRole,
 } from "../domain/common";
+import { syncReviewEligibilityForOrder } from "../integrations/source/eligibility-sync";
 import { buildReviewProjectionHandlers } from "../read-model/projection";
 import {
   findActiveReviewForDirection,
@@ -117,43 +118,11 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
         return;
       }
 
-      const orderResult = await deps.db.query<{
-        buyer_account_id: string;
-        seller_account_id: string;
-      }>(
-        `SELECT buyer_account_id, seller_account_id
-         FROM marketplace_review_order_sources
-         WHERE order_id = $1`,
-        [orderId],
-      );
-      const order = orderResult.rows[0];
-      if (!order) {
-        return;
-      }
-
-      const upsertEligibility = async (authorAccountId: string, subjectAccountId: string, authorRole: ReviewRole) => {
-        await deps.db.query(
-          `INSERT INTO marketplace_review_eligibility_pages (
-             order_id,
-             author_account_id,
-             subject_account_id,
-             author_role,
-             eligible_at,
-             updated_at
-           ) VALUES ($1, $2, $3, $4, $5, $5)
-           ON CONFLICT (order_id, author_account_id, subject_account_id) DO UPDATE
-           SET author_role = EXCLUDED.author_role,
-               eligible_at = LEAST(
-                 marketplace_review_eligibility_pages.eligible_at,
-                 EXCLUDED.eligible_at
-               ),
-               updated_at = EXCLUDED.updated_at`,
-          [orderId, authorAccountId, subjectAccountId, authorRole, params.deliveredAt],
-        );
-      };
-
-      await upsertEligibility(order.buyer_account_id, order.seller_account_id, "buyer");
-      await upsertEligibility(order.seller_account_id, order.buyer_account_id, "seller");
+      // Delivery is one input to the eligibility matrix, not an unconditional
+      // grant: the sync consults support-request history so, for example, the
+      // delivered return leg of a return-for-refund never re-opens the
+      // seller→buyer direction.
+      await syncReviewEligibilityForOrder(deps.db, orderId, params.deliveredAt);
     },
     async submitReview(params, context) {
       const orderId = normalizeRequiredText(params.orderId, "Order is required.") as OrderId;
@@ -196,6 +165,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
           authorRole: inferAuthorRoleFromEligibility(eligibility.author_role),
           rating: normalizeRating(params.rating),
           feedback: params.feedback ?? null,
+          resolutionContext: eligibility.resolution_context,
           submittedAt,
         },
         context,
