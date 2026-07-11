@@ -1,4 +1,12 @@
 export const platformOperationsEnglishTranslations = {
+  "platformOperations.features.rateLimitPolicy.api.route.authentication.context.missing":
+    "Authentication context missing.",
+  "platformOperations.features.rateLimitPolicy.api.route.authentication.context.missing.2":
+    "Authentication context missing.",
+  "platformOperations.features.rateLimitPolicy.api.route.authentication.required": "Authentication required.",
+  "platformOperations.features.rateLimitPolicy.api.route.document.not.found": "Policy document not found.",
+  "platformOperations.features.rateLimitPolicy.api.route.forbidden": "Forbidden.",
+  "platformOperations.features.rateLimitPolicy.api.route.request.failed": "Request failed.",
   "platformOperations.projectionOperations.actions": "Actions",
   "platformOperations.projectionOperations.activeWorkers": "Active workers",
   "platformOperations.projectionOperations.activeWorkerSummary": "{active} / {stale} stale",

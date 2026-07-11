@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { CheckoutApiEnv } from "../../../api";
 import {
@@ -16,7 +17,6 @@ import type { CheckoutCartServices } from "./runtime";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_CART_LINES = 50;
-const anonymousCartCaptureRateLimiter = createAnonymousRailCaptureRateLimiter("checkout:anonymous-cart-capture");
 const requireCartAccess = createCheckoutAccessGuard({
   authenticationRequiredMessage: t("checkout.features.cart.api.route.authentication.required"),
   authorizationForbiddenMessage: t("checkout.features.cart.api.route.forbidden"),
@@ -420,8 +420,13 @@ function requireAnonymousCartId(c: { req: { header: (name: string) => string | u
 export function createGuestCartRoutes(
   services: CheckoutCartServices,
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
+  resolveRateLimitRule?: RateLimitRuleResolver,
 ) {
   const app = new Hono<CheckoutApiEnv>();
+  const anonymousCartCaptureRateLimiter = createAnonymousRailCaptureRateLimiter(
+    "checkout:anonymous-cart-capture",
+    resolveRateLimitRule,
+  );
 
   app.get("/cart", async (c) => {
     const ownerId = requireAnonymousCartId(c);
@@ -474,7 +479,7 @@ export function createGuestCartRoutes(
       );
     }
 
-    const rateLimit = anonymousCartCaptureRateLimiter.check(c.req.raw);
+    const rateLimit = await anonymousCartCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
       const response = anonymousRequestRateLimitedResponse(
         t("checkout.features.cart.api.route.anonymous.request.rate.limited"),
@@ -525,7 +530,7 @@ export function createGuestCartRoutes(
       );
     }
 
-    const rateLimit = anonymousCartCaptureRateLimiter.check(c.req.raw);
+    const rateLimit = await anonymousCartCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
       const response = anonymousRequestRateLimitedResponse(
         t("checkout.features.cart.api.route.anonymous.request.rate.limited"),

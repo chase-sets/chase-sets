@@ -6,6 +6,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createDiscoveryBrowseRuntime, type DiscoveryBrowseServices } from "../../features/browse/api/runtime";
@@ -56,6 +57,7 @@ export type DiscoveryHostPorts = Readonly<{
   searchTelemetry?: Readonly<{
     recordRetrievalMode: (mode: DiscoveryRetrievalMode) => void;
   }>;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
 }>;
 
 export type DiscoveryServices = Readonly<{
@@ -66,6 +68,7 @@ export type DiscoveryServices = Readonly<{
   productAlerts: ProductAlertServices;
   searchEmbeddings?: DiscoverySearchEmbeddingEnrichment;
   notificationOutbox: NotificationOutbox;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
   projectors: readonly ProjectionHandlerSet[];
   db: PgQueryable;
   pool: PgTransactionalPool;
@@ -141,6 +144,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
     productAlerts,
     ...(searchEmbeddings ? { searchEmbeddings } : {}),
     notificationOutbox,
+    rateLimitPolicyResolver: ports.rateLimitPolicyResolver,
     projectors: [
       ...items.projectors,
       ...googleShoppingProjectors,

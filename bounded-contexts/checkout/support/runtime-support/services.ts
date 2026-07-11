@@ -7,6 +7,7 @@ import {
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { createCheckoutCommercialTermsResolver } from "../../api";
 import { createCheckoutCartRuntime } from "../../features/cart/api/runtime";
 import { createCheckoutSellListRuntime } from "../../features/sell-list/api/runtime";
@@ -19,6 +20,7 @@ export type CheckoutHostPorts = Readonly<{
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
   commercialTermsResolver?: CheckoutCommercialTermsResolver;
   addressVerificationProvider?: PostageLabelProvider | null;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
 }>;
 
 export type CheckoutServices = Readonly<{
@@ -27,6 +29,7 @@ export type CheckoutServices = Readonly<{
   sessions: ReturnType<typeof createCheckoutSessionRuntime>;
   supportLookup: ReturnType<typeof createCheckoutSupportLookupRuntime>;
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -57,6 +60,7 @@ export function createCheckoutServices(pool: PgTransactionalPool, ports: Checkou
     sessions,
     supportLookup,
     checkoutObservabilityTelemetry: ports.checkoutObservabilityTelemetry,
+    rateLimitPolicyResolver: ports.rateLimitPolicyResolver,
     projectors: [...cart.projectors, ...sellList.projectors, ...sessions.projectors],
     pool,
     db,

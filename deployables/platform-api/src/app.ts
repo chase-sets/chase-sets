@@ -23,6 +23,7 @@ import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server"
 import { createOrderingUcpHandlers } from "@chase-sets/ordering/server";
 import { createPaymentsUcpHandoff, type UcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import { marketplaceRealtimeManifest, marketplaceRealtimeTopicPolicyManifest } from "@chase-sets/marketplace/server";
+import { createRateLimitPolicyResolver } from "@chase-sets/platform-operations/server";
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
@@ -127,6 +128,7 @@ export function createPlatformApiHost(
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const settlementPool = getPlatformApiPool(options.pools.settlement);
+  const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
   const commercialTermsResolver = commercialTermsPool
     ? createCommercialTermsResolver({
         db: commercialTermsPool,
@@ -141,6 +143,9 @@ export function createPlatformApiHost(
     : undefined;
   const authenticityFeePolicyResolver = commercialTermsPool
     ? createAuthenticityFeePolicyResolver(commercialTermsPool)
+    : undefined;
+  const rateLimitPolicyResolver = platformOperationsPool
+    ? createRateLimitPolicyResolver(platformOperationsPool)
     : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
     const marketplaceServices = runtime?.services.marketplace as
@@ -167,6 +172,7 @@ export function createPlatformApiHost(
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
+      ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
       draftListingCreator,
     },
   });

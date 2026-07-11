@@ -21,7 +21,7 @@ export function buildMarketplaceApi(services: MarketplaceServices) {
   app.route("/account", createAccountSubmittedOfferRoutes(services.offers));
   app.route("/account", createAccountListingRoutes(services.listings));
   app.route("/account", createAccountOfferMatchRoutes(services.offers));
-  app.route("/", createPublicListingRoutes(services.listings));
+  app.route("/", createPublicListingRoutes(services.listings, services.rateLimitPolicyResolver));
   app.route("/", createMarketplaceReportRoutes(services.reports));
 
   return app;

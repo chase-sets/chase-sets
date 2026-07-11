@@ -1,3 +1,4 @@
+import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/web";
 import { t } from "@chase-sets/localization";
 import { useRef, useState, type FormEvent } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
@@ -32,10 +33,7 @@ import {
 } from "@chase-sets/auth/server";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "@chase-sets/auth/web";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import {
-  PlatformFeedbackPrompt,
-  shouldShowCheckoutPaymentFeedbackPrompt,
-} from "@chase-sets/platform-operations/server";
+import { shouldShowCheckoutPaymentFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import { createPaymentsRequestApiClient, PaymentsApiError } from "../../support/request-support/api-client";
 import type { PaymentsAccountOrderInput } from "../../support/request-support/api-client";
 import type {

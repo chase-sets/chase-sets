@@ -14,7 +14,8 @@
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
-    "./server": "./server.ts"
+    "./server": "./server.ts",
+    "./web": "./web.ts"
   },
   "types": "./index.ts",
   "dependencies": {
@@ -28,6 +29,7 @@
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/notification-outbox": "workspace:*",
     "@chase-sets/outbound-messaging": "workspace:*",
+    "@chase-sets/platform-policy": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "hono": "^4.12.12",

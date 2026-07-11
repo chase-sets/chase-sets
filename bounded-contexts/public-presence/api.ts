@@ -2,7 +2,11 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
+import {
+  createInMemoryRateLimiter,
+  createPolicyBackedRateLimiter,
+  type RateLimitRuleResolver,
+} from "@chase-sets/http/rate-limit";
 import type { PublicPresenceServices } from "./support/runtime-support/services";
 import type { PromoBarMessageTone } from "./features/promo-bar/api/contracts";
 import type { PromoBarServices } from "./features/promo-bar/api/runtime";
@@ -15,11 +19,7 @@ export { createWaitlistAnalyticsRoutes } from "./features/waitlist/api/analytics
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 20;
-const waitlistSignupRateLimiter = createInMemoryRateLimiter({
-  keyPrefix: "public-presence:waitlist",
-  max: RATE_LIMIT_MAX,
-  windowMs: RATE_LIMIT_WINDOW_MS,
-});
+const WAITLIST_SIGNUP_RATE_LIMIT_SURFACE = "public-presence.waitlist.submit";
 const REFERRAL_SUMMARY_RATE_LIMIT_MAX = 60;
 const waitlistReferralSummaryRateLimiter = createInMemoryRateLimiter({
   keyPrefix: "public-presence:waitlist-referral-summary",
@@ -30,10 +30,6 @@ const waitlistSignupIdPattern = /^wls_[0-9a-z]+$/;
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("publicPresence.api.request.failed");
-}
-
-function isRateLimited(request: Request) {
-  return waitlistSignupRateLimiter.check(request).limited;
 }
 
 function isReferralSummaryRateLimited(request: Request) {
@@ -107,11 +103,18 @@ function csvCell(value: unknown) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-export function createPublicWaitlistRoutes(services: WaitlistServices) {
+export function createPublicWaitlistRoutes(services: WaitlistServices, resolveRateLimitRule?: RateLimitRuleResolver) {
   const app = new Hono<PublicPresenceApiEnv>();
+  const waitlistSignupRateLimiter = createPolicyBackedRateLimiter(
+    WAITLIST_SIGNUP_RATE_LIMIT_SURFACE,
+    { max: RATE_LIMIT_MAX, windowMs: RATE_LIMIT_WINDOW_MS },
+    resolveRateLimitRule ?? (async (_surface, defaults) => defaults),
+    { keyPrefix: "public-presence:waitlist" },
+  );
 
   app.post("/waitlist", async (c) => {
-    if (isRateLimited(c.req.raw)) {
+    const rateLimit = await waitlistSignupRateLimiter.check(c.req.raw);
+    if (rateLimit.limited) {
       return c.json({ error: { code: "rate_limited", message: t("publicPresence.api.rate.limited") } }, 429);
     }
 
@@ -361,7 +364,7 @@ export function createAdminPromoBarRoutes(services: PromoBarServices) {
 export function buildPublicPresencePublicApi(services: PublicPresenceServices) {
   const app = new Hono<PublicPresenceApiEnv>();
   app.route("/", createWaitlistAnalyticsRoutes(services.waitlistAnalyticsRecorder));
-  app.route("/", createPublicWaitlistRoutes(services.waitlist));
+  app.route("/", createPublicWaitlistRoutes(services.waitlist, services.rateLimitPolicyResolver));
   app.route("/", createPublicPromoBarRoutes(services.promoBar));
   return app;
 }

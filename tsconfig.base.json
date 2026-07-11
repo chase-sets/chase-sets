@@ -546,6 +546,9 @@
       "@chase-sets/platform-operations/server": [
         "./bounded-contexts/platform-operations/server.ts"
       ],
+      "@chase-sets/platform-operations/web": [
+        "./bounded-contexts/platform-operations/web.ts"
+      ],
       "@chase-sets/platform-policy": [
         "./infrastructure/platform-policy/index.ts"
       ],

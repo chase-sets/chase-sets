@@ -43,66 +43,90 @@ export function publicClientRequestKey(request: Request) {
   );
 }
 
-export function createInMemoryRateLimiter(options: InMemoryRateLimiterOptions) {
-  const buckets = new Map<string, Bucket>();
-  const now = options.now ?? Date.now;
-  const keyPrefix = options.keyPrefix?.trim() ?? "";
-  const maxBuckets = Math.max(options.maxBuckets ?? 10_000, 1);
+function normalizedBucketKey(keyPrefix: string, requestOrKey: Request | string) {
+  const key = typeof requestOrKey === "string" ? requestOrKey.trim() : publicClientRequestKey(requestOrKey);
+  return `${keyPrefix}${keyPrefix ? ":" : ""}${key || "local"}`;
+}
 
-  function normalizedKey(requestOrKey: Request | string) {
-    const key = typeof requestOrKey === "string" ? requestOrKey.trim() : publicClientRequestKey(requestOrKey);
-    return `${keyPrefix}${keyPrefix ? ":" : ""}${key || "local"}`;
+function evictIfFull(buckets: Map<string, Bucket>, maxBuckets: number, checkedAt: number) {
+  if (buckets.size < maxBuckets) {
+    return;
   }
+  for (const [bucketKey, bucket] of buckets) {
+    if (bucket.resetAt <= checkedAt || buckets.size >= maxBuckets) {
+      buckets.delete(bucketKey);
+    }
+    if (buckets.size < maxBuckets) {
+      break;
+    }
+  }
+}
 
-  function unlimitedDecision(requestOrKey: Request | string, checkedAt: number): RateLimitDecision {
+/**
+ * The pure bucket-decision core shared by both the static-rule limiter
+ * (`createInMemoryRateLimiter`) and the policy-backed limiter
+ * (`createPolicyBackedRateLimiter`): given the current bucket store, a rule
+ * (static or freshly resolved from policy), and the request key, compute the
+ * decision and mutate the bucket store in place. Keeping this logic in one
+ * place means a policy-driven rule change is evaluated with exactly the same
+ * counting semantics as an env-driven one.
+ */
+function decideBucket(
+  buckets: Map<string, Bucket>,
+  rule: RateLimitRule,
+  params: Readonly<{ key: string; checkedAt: number; increment: boolean; maxBuckets: number }>,
+): RateLimitDecision {
+  const { key, checkedAt, increment, maxBuckets } = params;
+  if (rule.disabled) {
     return {
       limited: false,
-      key: normalizedKey(requestOrKey),
+      key,
       count: 0,
-      limit: options.max,
-      remaining: options.max,
+      limit: rule.max,
+      remaining: rule.max,
       resetAt: checkedAt,
       retryAfterSeconds: 0,
     };
   }
 
+  const current = buckets.get(key);
+  if (increment && !current) {
+    evictIfFull(buckets, maxBuckets, checkedAt);
+  }
+
+  const bucket = !current || current.resetAt <= checkedAt ? { count: 0, resetAt: checkedAt + rule.windowMs } : current;
+
+  if (increment) {
+    bucket.count += 1;
+    buckets.set(key, bucket);
+  }
+
+  const limited = increment ? bucket.count > rule.max : bucket.count >= rule.max;
+  return {
+    limited,
+    key,
+    count: bucket.count,
+    limit: rule.max,
+    remaining: Math.max(rule.max - bucket.count, 0),
+    resetAt: bucket.resetAt,
+    retryAfterSeconds: Math.max(Math.ceil((bucket.resetAt - checkedAt) / 1000), 1),
+  };
+}
+
+export function createInMemoryRateLimiter(options: InMemoryRateLimiterOptions) {
+  const buckets = new Map<string, Bucket>();
+  const now = options.now ?? Date.now;
+  const keyPrefix = options.keyPrefix?.trim() ?? "";
+  const maxBuckets = Math.max(options.maxBuckets ?? 10_000, 1);
+  const rule: RateLimitRule = { max: options.max, windowMs: options.windowMs, disabled: options.disabled };
+
   function decide(requestOrKey: Request | string, increment: boolean): RateLimitDecision {
-    const checkedAt = now();
-    if (options.disabled) {
-      return unlimitedDecision(requestOrKey, checkedAt);
-    }
-
-    const key = normalizedKey(requestOrKey);
-    const current = buckets.get(key);
-    if (increment && !current && buckets.size >= maxBuckets) {
-      for (const [bucketKey, bucket] of buckets) {
-        if (bucket.resetAt <= checkedAt || buckets.size >= maxBuckets) {
-          buckets.delete(bucketKey);
-        }
-        if (buckets.size < maxBuckets) {
-          break;
-        }
-      }
-    }
-
-    const bucket =
-      !current || current.resetAt <= checkedAt ? { count: 0, resetAt: checkedAt + options.windowMs } : current;
-
-    if (increment) {
-      bucket.count += 1;
-      buckets.set(key, bucket);
-    }
-
-    const limited = increment ? bucket.count > options.max : bucket.count >= options.max;
-    return {
-      limited,
-      key,
-      count: bucket.count,
-      limit: options.max,
-      remaining: Math.max(options.max - bucket.count, 0),
-      resetAt: bucket.resetAt,
-      retryAfterSeconds: Math.max(Math.ceil((bucket.resetAt - checkedAt) / 1000), 1),
-    };
+    return decideBucket(buckets, rule, {
+      key: normalizedBucketKey(keyPrefix, requestOrKey),
+      checkedAt: now(),
+      increment,
+      maxBuckets,
+    });
   }
 
   return {
@@ -115,6 +139,75 @@ export function createInMemoryRateLimiter(options: InMemoryRateLimiterOptions) {
     clear() {
       buckets.clear();
     },
+  };
+}
+
+/**
+ * A rule resolver bound to one surface: given the surface's compiled
+ * fallback rule, returns the effective rule for right now (policy override,
+ * global incident multiplier applied, or the fallback itself). Implementations
+ * MUST fail safe -- a resolver that throws (policy store unavailable) is
+ * treated by `createPolicyBackedRateLimiter` as "use the compiled fallback",
+ * never as "allow everything" or "reject everything".
+ */
+export type RateLimitRuleResolver = (surface: string, defaults: RateLimitRule) => Promise<RateLimitRule>;
+
+export type PolicyBackedRateLimiter = Readonly<{
+  peek: (requestOrKey: Request | string) => Promise<RateLimitDecision>;
+  check: (requestOrKey: Request | string) => Promise<RateLimitDecision>;
+  clear: () => void;
+}>;
+
+export type CreatePolicyBackedRateLimiterOptions = Readonly<{
+  /** Bucket-key namespace; distinct from `surface` so two limiters can share one policy dial with isolated bucket stores. Defaults to `surface`. */
+  keyPrefix?: string;
+  maxBuckets?: number;
+  now?: () => number;
+}>;
+
+/**
+ * A rate limiter whose effective rule is resolved per-check from
+ * `resolveRule` (typically backed by a platform-policy document) instead of
+ * being fixed at construction time. The bucket store itself is a long-lived,
+ * in-process `Map` exactly like `createInMemoryRateLimiter` -- only the rule
+ * (max/windowMs/disabled) is re-resolved on every call, so a policy revision
+ * changes enforcement on the very next request without resetting existing
+ * counters or restarting the process.
+ */
+export function createPolicyBackedRateLimiter(
+  surface: string,
+  defaults: RateLimitRule,
+  resolveRule: RateLimitRuleResolver,
+  options: CreatePolicyBackedRateLimiterOptions = {},
+): PolicyBackedRateLimiter {
+  const buckets = new Map<string, Bucket>();
+  const now = options.now ?? Date.now;
+  const keyPrefix = (options.keyPrefix ?? surface).trim();
+  const maxBuckets = Math.max(options.maxBuckets ?? 10_000, 1);
+
+  async function currentRule(): Promise<RateLimitRule> {
+    try {
+      return await resolveRule(surface, defaults);
+    } catch {
+      // Fail safe: an unavailable policy store must never disable rate limiting.
+      return defaults;
+    }
+  }
+
+  async function decide(requestOrKey: Request | string, increment: boolean): Promise<RateLimitDecision> {
+    const rule = await currentRule();
+    return decideBucket(buckets, rule, {
+      key: normalizedBucketKey(keyPrefix, requestOrKey),
+      checkedAt: now(),
+      increment,
+      maxBuckets,
+    });
+  }
+
+  return {
+    peek: (requestOrKey) => decide(requestOrKey, false),
+    check: (requestOrKey) => decide(requestOrKey, true),
+    clear: () => buckets.clear(),
   };
 }
 

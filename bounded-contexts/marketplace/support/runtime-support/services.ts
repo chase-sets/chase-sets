@@ -6,6 +6,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import type { ListingPhotoStorage } from ".";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
@@ -16,6 +17,7 @@ import { createReviewRuntime } from "../../features/reviews/api/runtime";
 export type MarketplaceServiceOptions = Readonly<{
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
 }>;
 
 export type MarketplaceServices = Readonly<{
@@ -25,6 +27,7 @@ export type MarketplaceServices = Readonly<{
   reviews: ReturnType<typeof createReviewRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   commercialTermsResolver: CommercialTermsResolver;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
@@ -65,6 +68,7 @@ export function createMarketplaceServices(
     reviews,
     projectors: [...listings.projectors, ...offers.projectors, ...reviews.projectors],
     commercialTermsResolver,
+    rateLimitPolicyResolver: options.rateLimitPolicyResolver,
     pool,
     db,
   };

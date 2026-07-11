@@ -14,7 +14,7 @@ export function buildDiscoveryApi(services: DiscoveryServices) {
   const app = new Hono<DiscoveryApiEnv>();
 
   app.route("/account", createProductAlertRoutes(services.productAlerts));
-  app.route("/guest", createGuestProductAlertRoutes(services.productAlerts));
+  app.route("/guest", createGuestProductAlertRoutes(services.productAlerts, services.rateLimitPolicyResolver));
   app.route("/items", discoveryItemRoutes(services.items));
   app.route("/categories", discoveryCategoryRoutes(services.categories));
   app.route("/sets", discoveryBrowseRoutes(services.browse));

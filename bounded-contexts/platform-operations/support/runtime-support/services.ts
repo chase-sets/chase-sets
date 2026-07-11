@@ -8,6 +8,7 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
 import { createDashboardQueryService } from "../../features/insights-dashboards/read-model/queries";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
@@ -25,6 +26,8 @@ export type PlatformOperationsServices = Readonly<{
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (currently just the rate-limit policy). */
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -54,6 +57,7 @@ export function createPlatformOperationsServices(
     db,
     notificationOutbox,
   });
+  const policies = createPolicyRuntime({ eventStore, db });
 
   return {
     db: pool,
@@ -62,11 +66,13 @@ export function createPlatformOperationsServices(
     reportedContent,
     riskAlerts,
     supportRequests,
+    policies,
     projectors: [
       ...platformFeedback.projectors,
       ...reportedContent.projectors,
       ...riskAlerts.projectors,
       ...supportRequests.projectors,
+      ...policies.projectors,
     ],
   };
 }

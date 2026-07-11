@@ -267,6 +267,11 @@
       "portName": "addressVerificationProvider",
       "providedBy": "platform-api",
       "purpose": "Verifies buyer-entered shipping addresses through the configured postage provider before checkout commits address snapshots."
+    },
+    {
+      "portName": "rateLimitPolicyResolver",
+      "providedBy": "platform-operations",
+      "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous cart/sell-list capture without Checkout querying Platform Operations storage."
     }
   ],
   "apiDeployables": ["platform-api"],

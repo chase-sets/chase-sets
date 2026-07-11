@@ -125,14 +125,10 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("@chase-sets/platform-operations/server", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/platform-operations/server")>(
-    "@chase-sets/platform-operations/server",
-  );
+vi.mock("@chase-sets/platform-operations/web", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
 
   return {
-    ...actual,
     PlatformFeedbackPrompt: (props: unknown) => {
       platformFeedbackPromptProps.calls.push(props);
       return React.createElement("section", { "data-testid": "platform-feedback-prompt" });

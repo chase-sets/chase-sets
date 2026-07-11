@@ -8,6 +8,7 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { createPromoBarRuntime } from "../../features/promo-bar/api/runtime";
 import { noopWaitlistAnalyticsRecorder, type WaitlistAnalyticsRecorder } from "../../features/waitlist/api/analytics";
 import { createWaitlistRuntime } from "../../features/waitlist/api/runtime";
@@ -15,6 +16,7 @@ import { createWaitlistRuntime } from "../../features/waitlist/api/runtime";
 export type PublicPresenceHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
   waitlistAnalyticsRecorder?: WaitlistAnalyticsRecorder;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
 }>;
 
 export type PublicPresenceServices = Readonly<{
@@ -22,6 +24,7 @@ export type PublicPresenceServices = Readonly<{
   promoBar: ReturnType<typeof createPromoBarRuntime>;
   waitlistAnalyticsRecorder: WaitlistAnalyticsRecorder;
   notificationOutbox: NotificationOutbox;
+  rateLimitPolicyResolver?: RateLimitRuleResolver;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -52,6 +55,7 @@ export function createPublicPresenceServices(
     promoBar,
     waitlistAnalyticsRecorder,
     notificationOutbox,
+    rateLimitPolicyResolver: ports.rateLimitPolicyResolver,
     projectors: [...waitlist.projectors],
     pool,
     db,

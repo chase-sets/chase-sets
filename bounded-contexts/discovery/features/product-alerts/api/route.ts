@@ -1,16 +1,12 @@
 import { t } from "@chase-sets/localization";
-import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
+import { createPolicyBackedRateLimiter, type RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { Hono, type Context } from "hono";
 import type { DiscoveryApiEnv } from "../../../api";
 import type { ProductAlertServices } from "./runtime";
 
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
-const anonymousProductAlertCaptureRateLimiter = createInMemoryRateLimiter({
-  keyPrefix: "discovery:anonymous-product-alert-capture",
-  max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
-  windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
-});
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_SURFACE = "discovery.product-alert.anonymous-capture";
 
 function requireProductAlertAccess(c: { get(key: "actor"): DiscoveryApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -219,8 +215,17 @@ export function createProductAlertRoutes(services: ProductAlertServices) {
   return app;
 }
 
-export function createGuestProductAlertRoutes(services: ProductAlertServices) {
+export function createGuestProductAlertRoutes(
+  services: ProductAlertServices,
+  resolveRateLimitRule?: RateLimitRuleResolver,
+) {
   const app = new Hono<DiscoveryApiEnv>();
+  const anonymousProductAlertCaptureRateLimiter = createPolicyBackedRateLimiter(
+    ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_SURFACE,
+    { max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX, windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS },
+    resolveRateLimitRule ?? (async (_surface, defaults) => defaults),
+    { keyPrefix: "discovery:anonymous-product-alert-capture" },
+  );
 
   app.post("/product-alert-intents", async (c) => {
     const anonymousOwnerId = requireAnonymousProductAlertOwnerId(c);
@@ -236,7 +241,7 @@ export function createGuestProductAlertRoutes(services: ProductAlertServices) {
       );
     }
 
-    const rateLimit = anonymousProductAlertCaptureRateLimiter.check(c.req.raw);
+    const rateLimit = await anonymousProductAlertCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
       const response = anonymousRequestRateLimitedResponse(rateLimit.retryAfterSeconds);
       return c.json(response.body, 429, response.headers);
