@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 356
-- Source modules covered: 122
+- Runtime exports indexed: 357
+- Source modules covered: 123
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -230,6 +230,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ProductMediaModule` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Product Media Module. | `No production consumer yet.` |
 | `ProductOptions` | `packages/design-system/src/components/data-display/product-options.tsx` | Purpose not documented; symbol name suggests: Product Options. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
 | `productOptionsFromSummary` | `packages/design-system/src/components/data-display/product-options.tsx` | Purpose not documented; symbol name suggests: product Options From Summary. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
+| `ProductSelectionFields` | `packages/design-system/src/components/forms/product-selection-fields.tsx` | Renders one `NativeSelect` per active product-schema dimension - the "choose condition, grading company, grade, ..." step of a catalog-item picker. | `bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx` |
 | `Progress` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Progress. | `No production consumer yet.` |
 | `ProgressBar` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Progress Bar. | `No production consumer yet.` |
 | `ProgressiveDisclosure` | `packages/design-system/src/components/feedback/disclosure.tsx` | Purpose not documented; symbol name suggests: Progressive Disclosure. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |

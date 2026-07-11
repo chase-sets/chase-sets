@@ -52,6 +52,7 @@
     "./popover": "./src/components/feedback/popover.tsx",
     "./print": "./src/components/print/index.ts",
     "./product-options": "./src/components/data-display/product-options.tsx",
+    "./product-selection-fields": "./src/components/forms/product-selection-fields.tsx",
     "./react-router": "./src/components/forms/router-form.tsx",
     "./radio-group": "./src/components/forms/radio-group.tsx",
     "./segmented-control": "./src/components/actions/segmented-control.tsx",

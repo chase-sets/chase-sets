@@ -169,10 +169,12 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.buyer.shipping.credit.summary":
     "Buyer shipping credit {percentage}",
   "marketplace.features.listings.ui.listingListPage.cap": "Cap",
-  "marketplace.features.listings.ui.listingListPage.catalog.item.id": "Catalog item ID",
+  "marketplace.features.listings.ui.listingListPage.catalog.item": "Catalog item",
   "marketplace.features.listings.ui.listingListPage.catalog.item.lookup.failed": "Catalog item lookup failed.",
   "marketplace.features.listings.ui.listingListPage.choose.a.product.price.and.quantity":
     "Choose a product, price, and quantity. Inventory stock is created automatically.",
+  "marketplace.features.listings.ui.listingListPage.choose.the.visible.catalog.item":
+    "Choose the catalog item from the visible search results.",
   "marketplace.features.listings.ui.listingListPage.choose.photos": "or choose JPEG, PNG, or WebP files",
   "marketplace.features.listings.ui.listingListPage.create.a.listing.from.available.inventory":
     "Create a listing from available inventory to start publishing market supply.",
@@ -207,7 +209,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.location.unavailable": "Location unavailable",
   "marketplace.features.listings.ui.listingListPage.locations": "Locations",
   "marketplace.features.listings.ui.listingListPage.locked.fee": "Locked Fee",
-  "marketplace.features.listings.ui.listingListPage.loading.catalog.item": "Loading catalog item...",
+  "marketplace.features.listings.ui.listingListPage.no.active.catalog.items.matched":
+    "No active catalog items matched that search.",
   "marketplace.features.listings.ui.listingListPage.no.advanced.inventory.available":
     "No existing advanced inventory is available for this account.",
   "marketplace.features.listings.ui.listingListPage.no.fee.locks": "No fee locks",
@@ -254,7 +257,12 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.shipping.measure.missing": "Shipping measure missing",
   "marketplace.features.listings.ui.listingListPage.source.unavailable": "Source unavailable",
   "marketplace.features.listings.ui.listingListPage.status": "Status",
+  "marketplace.features.listings.ui.listingListPage.search.by.title.or.paste.catalog":
+    "Search by title or paste a catalog item ID, then select the matching item.",
+  "marketplace.features.listings.ui.listingListPage.search.catalog": "Search catalog",
   "marketplace.features.listings.ui.listingListPage.search.or.paste.catalog.item": "Search or paste a catalog item ID",
+  "marketplace.features.listings.ui.listingListPage.searching.catalog.items": "Searching catalog items...",
+  "marketplace.features.listings.ui.listingListPage.select.a.catalog.item": "Select a catalog item",
   "marketplace.features.listings.ui.listingListPage.ship.from": "Ship from",
   "marketplace.features.listings.ui.listingListPage.ship.from.city": "City",
   "marketplace.features.listings.ui.listingListPage.ship.from.country": "Country",

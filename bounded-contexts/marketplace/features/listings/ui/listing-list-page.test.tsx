@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarketplaceListingListPage } from "./listing-list-page";
@@ -60,6 +60,15 @@ const acerolaProductSchema = {
   ],
 };
 
+function stubSearchFetch(items: readonly Record<string, unknown>[]) {
+  return vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ items }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -89,21 +98,71 @@ describe("marketplace listing form migration smoke", () => {
     expect(markup).toContain('value="create-listing"');
   });
 
+  it("renders catalog item creation as a visible search and selection flow, not a raw ID field", () => {
+    const markup = renderToString(
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        inventoryItems={[]}
+        hasListingStockLocation
+      />,
+    );
+
+    expect(markup).toContain("Search catalog");
+    expect(markup).toMatch(/<select[^>]*name="catalogItemId"/);
+    expect(markup).not.toMatch(/<input[^>]*name="catalogItemId"/);
+  });
+
+  it("finds a catalog item by title search and lets the seller select it without an ID", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubSearchFetch([
+        {
+          catalog_item_id: "cat_acerola",
+          title: "Acerola's Mischief",
+          subtitle: "Base Set",
+          product_schema: acerolaProductSchema,
+        },
+      ]),
+    );
+
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        inventoryItems={[]}
+        hasListingStockLocation={false}
+        catalogItemApiBaseUrl="/catalog-items"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Search catalog"), { target: { value: "Acerola" } });
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const requestedUrl = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(requestedUrl).toContain("/catalog-items?");
+    expect(requestedUrl).toContain("search=Acerola");
+
+    const catalogItemSelect = (await screen.findByLabelText("Catalog item")) as HTMLSelectElement;
+    expect(catalogItemSelect.querySelector('option[value="cat_acerola"]')).toBeTruthy();
+
+    fireEvent.change(catalogItemSelect, { target: { value: "cat_acerola" } });
+
+    await screen.findByText("Acerola's Mischief");
+    expect(screen.getByLabelText("Form")).toBeTruthy();
+  });
+
   it("preserves claimed draft product options without posting inactive dimensions", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            title: "Acerola's Mischief",
-            product_schema: acerolaProductSchema,
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        ),
-      ),
+      stubSearchFetch([
+        {
+          catalog_item_id: "cat_acerola",
+          title: "Acerola's Mischief",
+          subtitle: null,
+          product_schema: acerolaProductSchema,
+        },
+      ]),
     );
 
     const { container } = render(

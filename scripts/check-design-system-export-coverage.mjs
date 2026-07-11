@@ -205,6 +205,7 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "ProductMediaImage",
   "ProductMediaModule",
   "ProductOptions",
+  "ProductSelectionFields",
   "Progress",
   "ProgressBar",
   "ProgressTrack",
