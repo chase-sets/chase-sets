@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { randomInt } from "node:crypto";
-import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
+import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { mapPhoneCodeRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
 import { normalizeAuthPhoneNumber } from "../auth-support/identity-projection";
 import { consumePhoneCodeToken, insertPhoneCodeToken } from "../auth-support/store";
@@ -43,7 +43,7 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
 
     const tokenId = createId("cmd");
     const code = createPhoneCode();
-    const expiresAt = createExpiryTimestamp(AUTH_MAGIC_LINK_TTL_MS);
+    const expiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).magicLinkTtlMs);
 
     await insertPhoneCodeToken(services.db, {
       tokenId,

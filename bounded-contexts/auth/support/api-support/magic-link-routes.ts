@@ -6,7 +6,7 @@ import {
 import { t } from "@chase-sets/localization";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
+import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { consumeMagicLinkToken, insertMagicLinkToken } from "../auth-support/store";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
@@ -80,7 +80,7 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
 
     const tokenId = createId("cmd");
     const token = services.auth.issueOpaqueToken("magic");
-    const expiresAt = createExpiryTimestamp(AUTH_MAGIC_LINK_TTL_MS);
+    const expiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).magicLinkTtlMs);
 
     await insertMagicLinkToken(services.db, {
       tokenId,

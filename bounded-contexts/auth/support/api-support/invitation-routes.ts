@@ -6,7 +6,7 @@ import {
 import { t } from "@chase-sets/localization";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { AUTH_MAGIC_LINK_TTL_MS } from "../../features/sessions/domain/auth-flow";
+import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
 import { mapInvitationAcceptanceLinkRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { upsertPasswordCredential } from "../auth-support/store";
@@ -47,8 +47,8 @@ function safeLandingPath(value: unknown) {
   return path.startsWith("/") && !path.startsWith("//") ? path : "/invitations/accept";
 }
 
-function invitationTokenExpiresAt(invitationExpiresAt: string) {
-  return new Date(Math.min(Date.now() + AUTH_MAGIC_LINK_TTL_MS, Date.parse(invitationExpiresAt))).toISOString();
+function invitationTokenExpiresAt(invitationExpiresAt: string, magicLinkTtlMs: number) {
+  return new Date(Math.min(Date.now() + magicLinkTtlMs, Date.parse(invitationExpiresAt))).toISOString();
 }
 
 function buildInvitationAcceptanceLink(
@@ -118,7 +118,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
 
     const token = services.auth.issueOpaqueToken("invite");
     const tokenId = createId("cmd");
-    const expiresAt = invitationTokenExpiresAt(invitation.expires_at);
+    const expiresAt = invitationTokenExpiresAt(invitation.expires_at, authSecurityLifetimesOf(services).magicLinkTtlMs);
     let issued: Awaited<ReturnType<typeof identityMutations.issueInvitationAcceptanceToken>>;
     try {
       issued = await identityMutations.issueInvitationAcceptanceToken({

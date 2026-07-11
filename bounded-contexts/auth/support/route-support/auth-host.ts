@@ -362,7 +362,7 @@ export function completeBrowserAuthentication(
   const successPath = getSafeReturnTo(request, options.defaultSuccessPath);
 
   if (result.type === "account-selection-required") {
-    appendAccountSelectionCookie(headers, result.selectionToken, request);
+    appendAccountSelectionCookie(headers, result.selectionToken, result.selectionExpiresAt, request);
     const scopedSuccessPath = applyScopedContinuationPath(successPath, options.freshWriteSource, {
       scopePath: options.defaultSuccessPath,
     });
@@ -372,7 +372,7 @@ export function completeBrowserAuthentication(
     );
   }
 
-  appendSessionCookie(headers, result.sessionToken, request);
+  appendSessionCookie(headers, result.sessionToken, result.session.expires_at, request);
   return createScopedContinuationRedirect(successPath, headers, options.freshWriteSource, {
     scopePath: options.defaultSuccessPath,
   });

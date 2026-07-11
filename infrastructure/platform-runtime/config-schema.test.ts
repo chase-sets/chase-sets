@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   PLATFORM_DATA_PROFILES,
   getBooleanEnv,
+  getBoundedDurationEnv,
   getReadConsistencyExactDependencyModeEnv,
   loadPoolConfig,
   loadDeploymentEnvironment,
@@ -60,6 +61,48 @@ describe("platform runtime config schema", () => {
       "scenario-seed",
       "representative-commerce-state",
     ]);
+  });
+
+  it("returns the compiled default when a bounded duration env var is unset", () => {
+    expect(
+      getBoundedDurationEnv("PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS", 900_000, {
+        minMs: 300_000,
+        maxMs: 3_600_000,
+      }),
+    ).toBe(900_000);
+  });
+
+  it("loads a bounded duration env var within bounds", () => {
+    process.env.PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS = "600000";
+
+    expect(
+      getBoundedDurationEnv("PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS", 900_000, {
+        minMs: 300_000,
+        maxMs: 3_600_000,
+      }),
+    ).toBe(600_000);
+  });
+
+  it("fails closed at boot when a bounded duration env var is out of bounds", () => {
+    process.env.PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS = "60000";
+
+    expect(() =>
+      getBoundedDurationEnv("PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS", 900_000, {
+        minMs: 300_000,
+        maxMs: 3_600_000,
+      }),
+    ).toThrow("PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS must be between 300000ms and 3600000ms, got 60000ms.");
+  });
+
+  it("fails closed at boot when a bounded duration env var is not a positive number", () => {
+    process.env.PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS = "not-a-number";
+
+    expect(() =>
+      getBoundedDurationEnv("PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS", 900_000, {
+        minMs: 300_000,
+        maxMs: 3_600_000,
+      }),
+    ).toThrow("PLATFORM_RUNTIME_CONFIG_SCHEMA_TEST_DURATION_MS must be a positive number of milliseconds.");
   });
 
   it("loads the optional idle-in-transaction pool timeout", () => {

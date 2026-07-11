@@ -179,6 +179,11 @@
       "portName": "registrationAdmission",
       "providedBy": "platform-api",
       "purpose": "Registration admission and disposable-email screening policy used by Auth-owned registration journeys."
+    },
+    {
+      "portName": "securityLifetimes",
+      "providedBy": "platform-api",
+      "purpose": "Bounds-validated, env-configurable session/token lifetimes (issue #4292): session, account-selection, magic-link, challenge, social-login-state, guest-checkout, and UCP OAuth TTLs. Env-tier by design, never admin-policy-editable."
     }
   ],
   "apiDeployables": ["platform-api"],

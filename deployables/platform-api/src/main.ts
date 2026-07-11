@@ -277,6 +277,7 @@ const runtime = createPlatformApiHost({
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
+    securityLifetimes: config.authSecurityLifetimes,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
       recordRetrievalMode: (retrievalMode: "lexical" | "rescue" | "hybrid" | "structured") =>

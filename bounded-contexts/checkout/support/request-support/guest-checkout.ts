@@ -74,8 +74,18 @@ export function appendAnonymousSellListCookie(headers: Headers, anonymousSellLis
   );
 }
 
-export function appendGuestCheckoutCookie(headers: Headers, guestToken: string, request?: Request) {
-  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, guestToken, ONE_DAY_SECONDS, request));
+/**
+ * Max-Age tracks the auth-issued guest checkout token's `expiresAt` (the
+ * server-side TTL is env-configurable) rather than a second, locally
+ * hardcoded duration, so the cookie can never outlive -- or diverge from --
+ * the token it carries. Falls back to the prior default when no `expiresAt`
+ * is supplied, matching prior behavior exactly.
+ */
+export function appendGuestCheckoutCookie(headers: Headers, guestToken: string, request?: Request, expiresAt?: string) {
+  const maxAgeSeconds = expiresAt
+    ? Math.max(Math.ceil((Date.parse(expiresAt) - Date.now()) / 1000), 0)
+    : ONE_DAY_SECONDS;
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, guestToken, maxAgeSeconds, request));
 }
 
 export function appendClearedAnonymousCartCookie(headers: Headers, request?: Request) {
