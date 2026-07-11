@@ -37,6 +37,7 @@ import type {
 import type { DiscoveryBulkCartPreview } from "../read-model/queries";
 import { imageVariantSrcSet } from "../../../support/client-support/assets";
 import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
+import { productAlertSettingsHref } from "./product-alert-settings-link";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
 const FACET_OPTION_SEARCH_THRESHOLD = 8;
@@ -748,7 +749,7 @@ export function SearchPage({
               </LinkButton>
             }
             savedSearchAction={
-              <LinkButton href="/account/saved-searches" tone="secondary">
+              <LinkButton href={productAlertSettingsHref} tone="secondary">
                 {t("discovery.features.search.ui.searchPage.save.search")}
               </LinkButton>
             }
@@ -877,7 +878,7 @@ export function SearchPage({
                 title={t("discovery.features.search.ui.searchPage.save.this.search")}
                 description={t("discovery.features.search.ui.searchPage.get.alerts.when.supply.matches")}
                 action={
-                  <LinkButton href="/account/saved-searches" tone="secondary" size="sm">
+                  <LinkButton href={productAlertSettingsHref} tone="secondary" size="sm">
                     {t("discovery.features.search.ui.searchPage.save.search")}
                   </LinkButton>
                 }

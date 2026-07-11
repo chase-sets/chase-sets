@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchPage } from "./search-page";
+import { productAlertSettingsHref } from "./product-alert-settings-link";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
 
@@ -737,5 +740,144 @@ describe("SearchPage", () => {
 
     expect(screen.getByText("Could not add matching products")).toBeTruthy();
     expect(screen.getByText("We could not add matching products to Buy Cart. Try again.")).toBeTruthy();
+  });
+});
+
+// Regression coverage for #3809: /search previously shipped save-search CTAs that linked to
+// `/account/saved-searches`, a route no bounded context registers. These tests read the real
+// `deployableContributions` manifests (the same route registry the marketplace-web shell is
+// generated from) so a future dead link on this page fails a unit test instead of shipping a 404.
+type ManifestRouteContribution = Readonly<{
+  deployable: string;
+  routes: ReadonlyArray<{ routePath: string }>;
+}>;
+
+function readMarketplaceWebRoutePatterns(): ReadonlySet<string> {
+  const boundedContextsRoot = join(__dirname, "..", "..", "..", "..");
+  const contextDirNames = readdirSync(boundedContextsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+
+  const routePatterns = new Set<string>();
+
+  for (const contextDirName of contextDirNames) {
+    const manifestPath = join(boundedContextsRoot, contextDirName, "context.json");
+    let manifest: { deployableContributions?: ReadonlyArray<ManifestRouteContribution> };
+
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    } catch {
+      continue;
+    }
+
+    for (const contribution of manifest.deployableContributions ?? []) {
+      if (contribution.deployable !== "marketplace-web") {
+        continue;
+      }
+      for (const route of contribution.routes) {
+        routePatterns.add(`/${route.routePath.replace(/^\//, "")}`);
+      }
+    }
+  }
+
+  return routePatterns;
+}
+
+function matchesRegisteredRoute(pathname: string, routePatterns: ReadonlySet<string>): boolean {
+  const pathSegments = pathname.split("/").filter(Boolean);
+
+  for (const pattern of routePatterns) {
+    const patternSegments = pattern.split("/").filter(Boolean);
+    if (patternSegments.length !== pathSegments.length) {
+      continue;
+    }
+    if (patternSegments.every((segment, index) => segment.startsWith(":") || segment === pathSegments[index])) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function renderedLinkPathnames(): string[] {
+  return Array.from(document.querySelectorAll("a[href]"))
+    .map((anchor) => anchor.getAttribute("href") ?? "")
+    .filter((href) => href.startsWith("/"))
+    .map((href) => href.split("?")[0] ?? href);
+}
+
+describe("SearchPage route registrations", () => {
+  it("keeps every link on a focused result set pointed at a route registered for marketplace-web", () => {
+    const routePatterns = readMarketplaceWebRoutePatterns();
+
+    renderSearchPage({
+      committedSearch: "abra",
+      data: { ...searchResponse, items: [standardAbraSearchResult, reverseAbraSearchResult] },
+      bulkAdd: {
+        status: "idle",
+        data: {
+          status: "bulk-added",
+          preview: {
+            eligibleCount: 1,
+            skippedCount: 0,
+            totalMatches: 1,
+            limit: 50,
+            overLimit: false,
+            lines: [],
+            skippedItems: [],
+          },
+          addedLineCount: 1,
+          mergedLineCount: 0,
+          failedLineCount: 0,
+          requestedLineCount: 1,
+        },
+        onPreview: vi.fn(),
+        onCommit: vi.fn(),
+      },
+    });
+
+    const pathnames = renderedLinkPathnames();
+    expect(pathnames.length).toBeGreaterThan(0);
+
+    for (const pathname of pathnames) {
+      expect(matchesRegisteredRoute(pathname, routePatterns), `expected ${pathname} to be a registered route`).toBe(
+        true,
+      );
+    }
+  });
+
+  it("keeps every link on the zero-results recovery state pointed at a registered route", () => {
+    const routePatterns = readMarketplaceWebRoutePatterns();
+
+    renderSearchPage({
+      committedSearch: "electric mascot",
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+    });
+
+    const pathnames = renderedLinkPathnames();
+    expect(pathnames.length).toBeGreaterThan(0);
+
+    for (const pathname of pathnames) {
+      expect(matchesRegisteredRoute(pathname, routePatterns), `expected ${pathname} to be a registered route`).toBe(
+        true,
+      );
+    }
+  });
+
+  it("sends the zero-results save-search CTA to the working product-alerts settings surface, not the dead /account/saved-searches route", () => {
+    renderSearchPage({
+      committedSearch: "electric mascot",
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+    });
+
+    const saveSearchLink = screen.getByRole("link", { name: "Save search" });
+    expect(saveSearchLink.getAttribute("href")).toBe(productAlertSettingsHref);
+  });
+
+  it("sends the focused-results save-search prompt to the working product-alerts settings surface, not the dead /account/saved-searches route", () => {
+    renderSearchPage({ committedSearch: "abra" });
+
+    const saveSearchLink = screen.getByRole("link", { name: "Save search" });
+    expect(saveSearchLink.getAttribute("href")).toBe(productAlertSettingsHref);
   });
 });
