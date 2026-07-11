@@ -9,20 +9,25 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, ReviewId } from "@chase-sets/primitives/typed-ids";
 import {
+  addReviewWindowDays,
   assert,
   normalizeRating,
   normalizeRequiredText,
   ReputationDomainError,
+  REVIEW_WINDOW_DAYS,
   type ReviewRole,
 } from "../domain/common";
 import { syncReviewEligibilityForOrder } from "../integrations/source/eligibility-sync";
 import { buildReviewProjectionHandlers } from "../read-model/projection";
 import {
   findActiveReviewForDirection,
+  findPendingCounterpartReview,
   getAccountReview,
   getOrderReviewOpportunity,
   getPublicAccountSummary,
   getReviewEligibility,
+  listPendingCounterpartPairs,
+  listPendingReviewsPastWindow,
   listPublicAccountReviews,
   listReceivedReviews,
   listWrittenReviews,
@@ -40,6 +45,11 @@ type ReviewRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
+}>;
+
+export type ReviewWindowSweepResult = Readonly<{
+  counterpartPairsRevealed: number;
+  windowExpiredRevealed: number;
 }>;
 
 export type ReviewServices = Readonly<{
@@ -79,6 +89,18 @@ export type ReviewServices = Readonly<{
   getPublicAccountSummary: (accountId: string) => ReturnType<typeof getPublicAccountSummary>;
   getOrderReviewOpportunity: (orderId: string, authorAccountId: string) => ReturnType<typeof getOrderReviewOpportunity>;
   recordDeliveredShipmentReviewEligibility: (params: { shipmentId: string; deliveredAt: string }) => Promise<void>;
+  /**
+   * Double-blind reveal expiry sweep (m108). Self-heals any pending
+   * review pair whose counterpart-submission reveal was missed by the
+   * submission-time check (a narrow concurrent-submission race), then reveals
+   * every singleton review whose submission window has elapsed with no
+   * counterpart. Idempotent and safe to run concurrently: `RevealReview` is a
+   * no-op once a review is already revealed or withdrawn.
+   */
+  sweepReviewWindowExpirations: (
+    params: Readonly<{ now?: string; limit?: number }>,
+    context: EventStoreContext,
+  ) => Promise<ReviewWindowSweepResult>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -92,6 +114,11 @@ async function requireOwnedReview(db: PgQueryable, reviewId: string, authorAccou
     throw new ReputationDomainError("Review not found.");
   }
   return review;
+}
+
+/** eligible_at + REVIEW_WINDOW_DAYS: both the submission deadline and the expiry sweep's singleton-reveal deadline. */
+function computeReviewWindowExpiresAt(eligibleAt: string): string {
+  return addReviewWindowDays(eligibleAt, REVIEW_WINDOW_DAYS);
 }
 
 export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
@@ -143,6 +170,14 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
         throw new ReputationDomainError("This transaction is not eligible for review yet.");
       }
 
+      const submittedAt = new Date().toISOString();
+      const reviewWindowExpiresAt = computeReviewWindowExpiresAt(eligibility.eligible_at);
+      if (Date.parse(submittedAt) >= Date.parse(reviewWindowExpiresAt)) {
+        // Route-layer enforcement of the same deadline the domain decider
+        // re-asserts below -- belt and suspenders, one shared computation.
+        throw new ReputationDomainError("This transaction's review window has closed.");
+      }
+
       const existingReview = await findActiveReviewForDirection(deps.db, {
         orderId,
         authorAccountId,
@@ -153,7 +188,6 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       }
 
       const reviewId = createId("rev") as ReviewId;
-      const submittedAt = new Date().toISOString();
       const result = await commandHandler({
         streamId: `marketplace.review-${reviewId}`,
         command: {
@@ -167,9 +201,34 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
           feedback: params.feedback ?? null,
           resolutionContext: eligibility.resolution_context,
           submittedAt,
+          reviewWindowExpiresAt,
         },
         context,
       });
+
+      // Double-blind reveal (m108): if the counterpart review for this
+      // order already submitted and is still pending, reveal both now rather
+      // than waiting on the expiry sweep. A genuinely concurrent double
+      // submission (neither side's read-model row visible to the other yet)
+      // is self-healed by the sweep's pair pass.
+      const counterpart = await findPendingCounterpartReview(deps.db, {
+        orderId,
+        counterpartAuthorAccountId: subjectAccountId,
+        counterpartSubjectAccountId: authorAccountId,
+      });
+      if (counterpart) {
+        const revealedAt = new Date().toISOString();
+        await commandHandler({
+          streamId: `marketplace.review-${reviewId}`,
+          command: { type: "RevealReview", revealedAt, reason: "counterpart-submitted" },
+          context,
+        });
+        await commandHandler({
+          streamId: `marketplace.review-${counterpart.review_id}`,
+          command: { type: "RevealReview", revealedAt, reason: "counterpart-submitted" },
+          context,
+        });
+      }
 
       return { reviewId, version: result.version };
     },
@@ -177,6 +236,9 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       const review = await requireOwnedReview(deps.db, params.reviewId, params.authorAccountId);
       if (review.status !== "active") {
         throw new ReputationDomainError("Only active reviews can be updated.");
+      }
+      if (review.revealed_at !== null) {
+        throw new ReputationDomainError("Reviews cannot be edited after they are revealed.");
       }
 
       const result = await commandHandler({
@@ -194,6 +256,9 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     },
     async withdrawReview(params, context) {
       const review = await requireOwnedReview(deps.db, params.reviewId, params.authorAccountId);
+      if (review.status === "active" && review.revealed_at !== null) {
+        throw new ReputationDomainError("Reviews cannot be withdrawn after they are revealed.");
+      }
 
       const result = await commandHandler({
         streamId: `marketplace.review-${review.review_id}`,
@@ -205,6 +270,48 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       });
 
       return { reviewId: review.review_id, version: result.version };
+    },
+    async sweepReviewWindowExpirations(params, context) {
+      const now = params.now ?? new Date().toISOString();
+      const limit = params.limit ?? 100;
+      let counterpartPairsRevealed = 0;
+      let windowExpiredRevealed = 0;
+
+      // 1. Self-heal any pending pair the submission-time check missed (a
+      // narrow concurrent-submission race): reveal both sides together.
+      const pairs = await listPendingCounterpartPairs(deps.db, { limit });
+      for (const pair of pairs) {
+        const revealedAt = new Date().toISOString();
+        const first = await commandHandler({
+          streamId: `marketplace.review-${pair.review_id}`,
+          command: { type: "RevealReview", revealedAt, reason: "counterpart-submitted" },
+          context,
+        });
+        const second = await commandHandler({
+          streamId: `marketplace.review-${pair.counterpart_review_id}`,
+          command: { type: "RevealReview", revealedAt, reason: "counterpart-submitted" },
+          context,
+        });
+        if (first.newEvents.length > 0 || second.newEvents.length > 0) {
+          counterpartPairsRevealed += 1;
+        }
+      }
+
+      // 2. Reveal singleton reviews whose submission window elapsed with no
+      // counterpart ever submitting.
+      const expired = await listPendingReviewsPastWindow(deps.db, { now, limit });
+      for (const candidate of expired) {
+        const result = await commandHandler({
+          streamId: `marketplace.review-${candidate.review_id}`,
+          command: { type: "RevealReview", revealedAt: now, reason: "window-expired" },
+          context,
+        });
+        if (result.newEvents.length > 0) {
+          windowExpiredRevealed += 1;
+        }
+      }
+
+      return { counterpartPairsRevealed, windowExpiredRevealed };
     },
     listPublicAccountReviews: (params) => listPublicAccountReviews(deps.db, params),
     listWrittenReviews: (params) => listWrittenReviews(deps.db, params),

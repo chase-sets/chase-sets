@@ -113,7 +113,12 @@
       "sourceContextName": "marketplace",
       "projectionName": "marketplace-identity-account-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
+      "eventTypes": [
+        "marketplace.review.submitted",
+        "marketplace.review.updated",
+        "marketplace.review.withdrawn",
+        "marketplace.review.revealed"
+      ],
       "streamPrefixes": ["marketplace.review-"],
       "order": 40,
       "projectionHandlerSetNames": ["marketplace-identity-account-projection"]

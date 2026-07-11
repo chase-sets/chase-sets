@@ -18,6 +18,8 @@ const review = {
   submitted_at: "2026-04-02T00:00:00.000Z",
   updated_at: "2026-04-02T00:00:00.000Z",
   withdrawn_at: null,
+  revealed_at: "2026-04-05T00:00:00.000Z",
+  reveal_reason: "counterpart-submitted",
 } satisfies ReviewDetail;
 
 describe("review detail page", () => {
@@ -41,5 +43,28 @@ describe("review detail page", () => {
     );
 
     expect(markup).toContain("Resolved via refund");
+  });
+
+  it("redacts rating and feedback for a not-yet-revealed review viewed by the subject (m108 #4267)", () => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        review={{ ...review, rating: null, feedback: null, revealed_at: null, reveal_reason: null }}
+      />,
+    );
+
+    expect(markup).not.toContain("Prompt payment and clear communication.");
+    expect(markup).not.toContain("Review author:");
+  });
+
+  it("shows the pending-reveal badge for the author's own pending review", () => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/written"
+        review={{ ...review, revealed_at: null, reveal_reason: null }}
+      />,
+    );
+
+    expect(markup).toContain("Prompt payment and clear communication.");
   });
 });

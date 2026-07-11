@@ -59,6 +59,11 @@ CREATE TABLE IF NOT EXISTS marketplace_account_reviews (
 ALTER TABLE marketplace_account_reviews
   ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '';
 
+-- Double-blind reveal (m108): a review contributes to
+-- marketplace_account_pages reputation counters only once revealed_at is set.
+ALTER TABLE marketplace_account_reviews
+  ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS marketplace_account_reviews_subject_idx
   ON marketplace_account_reviews (subject_account_id, status);
 
@@ -200,6 +205,19 @@ export const marketplaceSupplyProjectionSchemaMigrations: readonly BcSchemaMigra
   DROP COLUMN IF EXISTS rating_3_count,
   DROP COLUMN IF EXISTS rating_4_count,
   DROP COLUMN IF EXISTS rating_5_count`,
+    ],
+  },
+  {
+    migrationId: "20260711_marketplace_account_reviews_reveal",
+    description:
+      "Add the revealed_at gate to marketplace_account_reviews and mark every existing (pre-launch) row revealed (m108).",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE marketplace_account_reviews ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL`,
+      `UPDATE marketplace_account_reviews
+   SET revealed_at = updated_at
+   WHERE status = 'active'
+     AND revealed_at IS NULL`,
     ],
   },
 ];

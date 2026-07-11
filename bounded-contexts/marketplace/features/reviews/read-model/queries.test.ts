@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  findPendingCounterpartReview,
   getAccountReview,
   getOrderReviewOpportunity,
+  listPendingReviewsPastWindow,
   listPublicAccountReviews,
   listReceivedReviews,
   listWrittenReviews,
@@ -24,6 +26,8 @@ function reviewRow(overrides: Partial<ReviewListRow> = {}): ReviewListRow {
     submitted_at: "2026-04-02T00:00:00.000Z",
     updated_at: "2026-04-02T00:00:00.000Z",
     withdrawn_at: null,
+    revealed_at: "2026-04-02T00:00:00.000Z",
+    reveal_reason: "counterpart-submitted",
     ...overrides,
   };
 }
@@ -202,5 +206,40 @@ describe("marketplace review queries", () => {
 
     const sql = vi.mocked(db.query).mock.calls[0]?.[0] ?? "";
     expect(sql).toContain("AND (page.author_account_id = $2 OR page.subject_account_id = $2)");
+    expect(sql).toContain("page.subject_account_id = $2 THEN NULL");
+  });
+
+  it("finds a not-yet-revealed counterpart review for the same order", async () => {
+    const db = {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        expect(sql).toContain("AND status = 'active'");
+        expect(sql).toContain("AND revealed_at IS NULL");
+        expect(params).toEqual(["ord_1", "acc_seller", "acc_buyer"]);
+        return { rows: [{ review_id: "rev_counterpart" }] };
+      }),
+    };
+
+    const result = await findPendingCounterpartReview(db as never, {
+      orderId: "ord_1",
+      counterpartAuthorAccountId: "acc_seller",
+      counterpartSubjectAccountId: "acc_buyer",
+    });
+
+    expect(result).toEqual({ review_id: "rev_counterpart" });
+  });
+
+  it("lists hidden reviews whose window has elapsed for the expiry sweep", async () => {
+    const db = {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        expect(sql).toContain("AND revealed_at IS NULL");
+        expect(sql).toContain("review_window_expires_at <= $1");
+        expect(params).toEqual(["2026-06-01T00:00:00.000Z", 100]);
+        return { rows: [{ review_id: "rev_expired" }] };
+      }),
+    };
+
+    const result = await listPendingReviewsPastWindow(db as never, { now: "2026-06-01T00:00:00.000Z" });
+
+    expect(result).toEqual([{ review_id: "rev_expired" }]);
   });
 });

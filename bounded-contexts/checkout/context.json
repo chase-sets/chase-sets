@@ -64,7 +64,12 @@
       "sourceContextName": "marketplace",
       "projectionName": "checkout-seller-accounts-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
+      "eventTypes": [
+        "marketplace.review.submitted",
+        "marketplace.review.updated",
+        "marketplace.review.withdrawn",
+        "marketplace.review.revealed"
+      ],
       "order": 22,
       "projectionHandlerSetNames": ["checkout.marketplace-review-seller-options-projection"]
     },

@@ -54,6 +54,7 @@ async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, u
      FROM marketplace_review_pages
      WHERE subject_account_id = $1
        AND status = 'active'
+       AND revealed_at IS NOT NULL
      ON CONFLICT (account_id) DO UPDATE
      SET average_rating_as_seller = EXCLUDED.average_rating_as_seller,
          review_count_as_seller = EXCLUDED.review_count_as_seller,
@@ -87,6 +88,7 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
         feedback: string | null;
         resolutionContext?: string | null;
         submittedAt: string;
+        reviewWindowExpiresAt?: string | null;
       };
 
       await db.query(
@@ -102,9 +104,12 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
            resolution_context,
            submitted_at,
            updated_at,
-           withdrawn_at
+           withdrawn_at,
+           revealed_at,
+           review_window_expires_at,
+           reveal_reason
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $9, NULL
+           $1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $9, NULL, NULL, $10, NULL
          )
          ON CONFLICT (review_id) DO UPDATE
          SET rating = EXCLUDED.rating,
@@ -123,9 +128,14 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
           data.feedback,
           data.resolutionContext ?? null,
           data.submittedAt,
+          data.reviewWindowExpiresAt ?? null,
         ],
       );
 
+      // Hidden until reveal: the summary recompute is a harmless no-op right
+      // now (the row is excluded by `revealed_at IS NOT NULL`), but keeping
+      // the call means a replay that revealed this review earlier in the
+      // stream still converges to the same summary.
       await refreshReviewSummary(db, data.subjectAccountId, data.submittedAt);
     },
     "marketplace.review.updated": async (event) => {
@@ -175,6 +185,31 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
       }
 
       await refreshReviewSummary(db, subjectAccountId, data.withdrawnAt);
+    },
+    "marketplace.review.revealed": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        revealedAt: string;
+        reason: string;
+      };
+
+      const subjectResult = await db.query<{ subject_account_id: string }>(
+        `UPDATE marketplace_review_pages
+         SET revealed_at = $2,
+             reveal_reason = $3,
+             updated_at = $2
+         WHERE review_id = $1
+           AND revealed_at IS NULL
+         RETURNING subject_account_id`,
+        [data.reviewId, data.revealedAt, data.reason],
+      );
+
+      const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
+      if (!subjectAccountId) {
+        return;
+      }
+
+      await refreshReviewSummary(db, subjectAccountId, data.revealedAt);
     },
   };
 }

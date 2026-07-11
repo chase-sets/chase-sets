@@ -56,6 +56,11 @@ ALTER TABLE discovery_market_account_reviews
   ADD COLUMN IF NOT EXISTS feedback text NULL,
   ADD COLUMN IF NOT EXISTS submitted_at timestamptz NULL;
 
+-- Double-blind reveal (m108): a review contributes to
+-- discovery_market_accounts reputation counters only once revealed_at is set.
+ALTER TABLE discovery_market_account_reviews
+  ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS discovery_market_account_reviews_subject_idx
   ON discovery_market_account_reviews (subject_account_id, status);
 
@@ -256,6 +261,19 @@ export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
   DROP COLUMN IF EXISTS rating_3_count,
   DROP COLUMN IF EXISTS rating_4_count,
   DROP COLUMN IF EXISTS rating_5_count`,
+    ],
+  },
+  {
+    migrationId: "20260711_discovery_market_account_reviews_reveal",
+    description:
+      "Add the revealed_at gate to discovery_market_account_reviews and mark every existing (pre-launch) row revealed (m108).",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE discovery_market_account_reviews ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL`,
+      `UPDATE discovery_market_account_reviews
+   SET revealed_at = updated_at
+   WHERE status = 'active'
+     AND revealed_at IS NULL`,
     ],
   },
 ];

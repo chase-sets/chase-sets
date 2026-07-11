@@ -6,13 +6,17 @@ export interface ReviewListItem {
   subject_account_id: string;
   subject_display_name: string | null;
   author_role: string;
-  rating: number;
+  // Double-blind reveal (m108): null when the row is redacted for the
+  // subject's own "received reviews" view of a not-yet-revealed review.
+  rating: number | null;
   feedback: string | null;
   status: string;
   resolution_context: string | null;
   submitted_at: string;
   updated_at: string;
   withdrawn_at: string | null;
+  revealed_at: string | null;
+  reveal_reason: string | null;
 }
 
 export interface ReviewDetail extends ReviewListItem {}
@@ -24,6 +28,10 @@ export interface ReviewOpportunity {
   author_role: string;
   eligible_at: string;
   active_review_id: string | null;
+  // Double-blind reveal (m108): true once the submission window has
+  // elapsed with no review submitted yet.
+  window_expired: boolean;
+  window_expires_at: string;
 }
 
 export interface ReviewSummary {

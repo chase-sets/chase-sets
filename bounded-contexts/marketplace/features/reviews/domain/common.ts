@@ -3,6 +3,20 @@ import type { AccountId, OrderId, ReviewId } from "@chase-sets/primitives/typed-
 export type ReviewStatus = "active" | "withdrawn";
 export type ReviewRole = "buyer" | "seller";
 
+// Double-blind reveal window (m108): a submitted review stays hidden
+// (excluded from public lists, summaries, and every downstream reputation
+// aggregate) until EITHER the counterpart review for the same order submits
+// OR this many days elapse from the review's own submission-eligibility
+// deadline -- whichever comes first. The same duration gates submission
+// itself: eligibility captured more than this many days ago can no longer be
+// used to submit a new review ("review window closed"). A documented domain
+// constant, not a platform-policy value: the acceptance criteria do not ask
+// for runtime configurability, and this is already the largest domain change
+// in the milestone.
+export const REVIEW_WINDOW_DAYS = 60;
+
+export type ReviewRevealReason = "counterpart-submitted" | "window-expired";
+
 export type ReviewSummary = Readonly<{
   accountId: AccountId;
   averageRating: string | null;
@@ -82,6 +96,24 @@ export function normalizeReviewRole(value: string): ReviewRole {
     default:
       throw new ReputationDomainError("Review role is not supported.");
   }
+}
+
+export function normalizeRevealReason(value: string): ReviewRevealReason {
+  switch (value.trim()) {
+    case "counterpart-submitted":
+      return "counterpart-submitted";
+    case "window-expired":
+      return "window-expired";
+    default:
+      throw new ReputationDomainError("Review reveal reason is not supported.");
+  }
+}
+
+/** Adds `days` whole days to an ISO timestamp, returning an ISO timestamp. */
+export function addReviewWindowDays(timestamp: string, days: number): string {
+  const date = new Date(timestamp);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
 }
 
 export function normalizeRating(value: number): number {

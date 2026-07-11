@@ -139,7 +139,7 @@ describe("marketplace review runtime", () => {
                 author_account_id: "acc_seller",
                 subject_account_id: "acc_buyer",
                 author_role: "seller",
-                eligible_at: "2026-04-02T00:00:00.000Z",
+                eligible_at: new Date().toISOString(),
               },
             ],
           };
@@ -202,7 +202,7 @@ describe("marketplace review runtime", () => {
                 subject_account_id: "acc_seller",
                 author_role: "buyer",
                 resolution_context: "resolved-via-refund",
-                eligible_at: "2026-04-02T00:00:00.000Z",
+                eligible_at: new Date().toISOString(),
               },
             ],
           };
@@ -238,5 +238,227 @@ describe("marketplace review runtime", () => {
       authorRole: "buyer",
       resolutionContext: "resolved-via-refund",
     });
+  });
+
+  it("rejects submission once the review window has closed", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                author_account_id: "acc_buyer",
+                subject_account_id: "acc_seller",
+                author_role: "buyer",
+                eligible_at: "2020-01-01T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createReviewRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      runtime.submitReview(
+        { orderId: "ord_1", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
+        context,
+      ),
+    ).rejects.toThrow("This transaction's review window has closed.");
+    expect(allEvents).toHaveLength(0);
+  });
+
+  it("reveals both reviews when the counterpart is already pending", async () => {
+    let counterpartReviewId: string | null = null;
+    const db = {
+      query: vi.fn(),
+    };
+    // Eligibility mock alternates per call: first call resolves the
+    // buyer-authored direction, second call resolves the seller-authored one.
+    let eligibilityCallCount = 0;
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
+        eligibilityCallCount += 1;
+        return eligibilityCallCount === 1
+          ? {
+              rows: [
+                {
+                  order_id: "ord_1",
+                  author_account_id: "acc_buyer",
+                  subject_account_id: "acc_seller",
+                  author_role: "buyer",
+                  eligible_at: new Date().toISOString(),
+                },
+              ],
+            }
+          : {
+              rows: [
+                {
+                  order_id: "ord_1",
+                  author_account_id: "acc_seller",
+                  subject_account_id: "acc_buyer",
+                  author_role: "seller",
+                  eligible_at: new Date().toISOString(),
+                },
+              ],
+            };
+      }
+      if (sql.includes("AND status = 'active'") && sql.includes("AND revealed_at IS NULL") && sql.includes("LIMIT 1")) {
+        return counterpartReviewId ? { rows: [{ review_id: counterpartReviewId }] } : { rows: [] };
+      }
+      if (sql.includes("FROM marketplace_review_pages")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createReviewRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    const first = await runtime.submitReview(
+      { orderId: "ord_1", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
+      context,
+    );
+    counterpartReviewId = first.reviewId;
+
+    const second = await runtime.submitReview(
+      { orderId: "ord_1", authorAccountId: "acc_seller", subjectAccountId: "acc_buyer", rating: 4 },
+      {
+        ...context,
+        audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+      },
+    );
+
+    const revealedEvents = allEvents.filter((event) => event.eventType === "marketplace.review.revealed");
+    expect(revealedEvents).toHaveLength(2);
+    const revealedStreamIds = revealedEvents.map((event) => event.streamId).sort();
+    expect(revealedStreamIds).toEqual(
+      [`marketplace.review-${first.reviewId}`, `marketplace.review-${second.reviewId}`].sort(),
+    );
+    expect(
+      revealedEvents.every((event) => (event.payload as { reason: string }).reason === "counterpart-submitted"),
+    ).toBe(true);
+  });
+
+  it("blocks updating or withdrawing a revealed review", async () => {
+    const db = {
+      query: vi.fn(async (_sql: string, params?: readonly unknown[]) => {
+        if (params?.[1] === "acc_buyer") {
+          return {
+            rows: [
+              {
+                review_id: "rev_1",
+                author_account_id: "acc_buyer",
+                subject_account_id: "acc_seller",
+                status: "active",
+                revealed_at: "2026-04-05T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createReviewRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      runtime.updateReview({ reviewId: "rev_1", authorAccountId: "acc_buyer", rating: 1 }, context),
+    ).rejects.toThrow("Reviews cannot be edited after they are revealed.");
+    await expect(runtime.withdrawReview({ reviewId: "rev_1", authorAccountId: "acc_buyer" }, context)).rejects.toThrow(
+      "Reviews cannot be withdrawn after they are revealed.",
+    );
+  });
+
+  it("sweeps window-expired singleton reviews and pending counterpart pairs", async () => {
+    let eligibilityCallCount = 0;
+    const db = { query: vi.fn() };
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
+        eligibilityCallCount += 1;
+        const directions = [
+          { orderId: "ord_pair", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", authorRole: "buyer" },
+          { orderId: "ord_pair", authorAccountId: "acc_seller", subjectAccountId: "acc_buyer", authorRole: "seller" },
+          {
+            orderId: "ord_singleton",
+            authorAccountId: "acc_buyer_2",
+            subjectAccountId: "acc_seller_2",
+            authorRole: "buyer",
+          },
+        ];
+        const direction = directions[eligibilityCallCount - 1]!;
+        return {
+          rows: [
+            {
+              order_id: direction.orderId,
+              author_account_id: direction.authorAccountId,
+              subject_account_id: direction.subjectAccountId,
+              author_role: direction.authorRole,
+              eligible_at: new Date().toISOString(),
+            },
+          ],
+        };
+      }
+      // No counterpart is visible at submission time for any of these -- the
+      // sweep is what reveals them, not the same-request fast path.
+      return { rows: [] };
+    });
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createReviewRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    const pairA = await runtime.submitReview(
+      { orderId: "ord_pair", authorAccountId: "acc_buyer", subjectAccountId: "acc_seller", rating: 5 },
+      context,
+    );
+    const pairB = await runtime.submitReview(
+      { orderId: "ord_pair", authorAccountId: "acc_seller", subjectAccountId: "acc_buyer", rating: 4 },
+      { ...context, audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never } },
+    );
+    const singleton = await runtime.submitReview(
+      {
+        orderId: "ord_singleton",
+        authorAccountId: "acc_buyer_2",
+        subjectAccountId: "acc_seller_2",
+        rating: 3,
+      },
+      { ...context, audit: { performedByUserId: "usr_buyer_2" as never, forAccountId: "acc_buyer_2" as never } },
+    );
+
+    // Now point the sweep's own read-model queries at the three streams just created.
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("a.review_id AS review_id, b.review_id AS counterpart_review_id")) {
+        return { rows: [{ review_id: pairA.reviewId, counterpart_review_id: pairB.reviewId }] };
+      }
+      if (sql.includes("review_window_expires_at <= $1")) {
+        return { rows: [{ review_id: singleton.reviewId }] };
+      }
+      return { rows: [] };
+    });
+
+    const result = await runtime.sweepReviewWindowExpirations({ now: "2026-06-01T00:00:00.000Z" }, context);
+
+    expect(result).toEqual({ counterpartPairsRevealed: 1, windowExpiredRevealed: 1 });
+    const revealedEvents = allEvents.filter((event) => event.eventType === "marketplace.review.revealed");
+    expect(revealedEvents).toHaveLength(3);
+    const reasons = revealedEvents.map((event) => (event.payload as { reason: string }).reason).sort();
+    expect(reasons).toEqual(["counterpart-submitted", "counterpart-submitted", "window-expired"]);
   });
 });

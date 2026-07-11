@@ -79,6 +79,12 @@ ALTER TABLE settlement_account_review_sources
   ADD COLUMN IF NOT EXISTS order_id text NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '';
 
+-- Double-blind reveal (m108): a review contributes to the payout-risk
+-- review_count/average_rating inputs only once revealed_at is set. A hidden
+-- (unrevealed) review must never move payout risk or the clearance tier.
+ALTER TABLE settlement_account_review_sources
+  ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL;
+
 CREATE TABLE IF NOT EXISTS settlement_order_trust_signal_sources (
   order_id text PRIMARY KEY,
   seller_account_id text NOT NULL,
@@ -243,6 +249,19 @@ export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigra
       `UPDATE settlement_account_risk_sources SET velocity_alert_flags = '[]'::jsonb WHERE velocity_alert_flags IS NULL`,
       `ALTER TABLE settlement_account_risk_sources ALTER COLUMN velocity_alert_flags SET DEFAULT '[]'::jsonb`,
       `ALTER TABLE settlement_account_risk_sources ALTER COLUMN velocity_alert_flags SET NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260711_settlement_account_review_sources_reveal",
+    description:
+      "Add the revealed_at gate to settlement_account_review_sources and mark every existing (pre-launch) row revealed (m108).",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE settlement_account_review_sources ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL`,
+      `UPDATE settlement_account_review_sources
+   SET revealed_at = updated_at
+   WHERE status = 'active'
+     AND revealed_at IS NULL`,
     ],
   },
 ] as const;

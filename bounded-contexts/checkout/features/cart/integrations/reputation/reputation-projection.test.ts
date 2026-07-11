@@ -10,6 +10,7 @@ type ReviewRow = {
   rating: number;
   status: string;
   last_stream_version: number;
+  revealed_at: string | null;
 };
 type SellerAccountRow = {
   account_id: string;
@@ -44,9 +45,14 @@ class ReputationProjectionDb implements PgQueryable {
   private recompute(accountId: string): void {
     // Checkout only ever surfaces as-seller reputation: a review authored by a
     // buyer (author_role = 'buyer') is about the subject acting as a seller.
+    // Double-blind reveal (m108 #4267): a hidden (not yet revealed) review
+    // contributes nothing until revealed_at is set.
     const active = [...this.reviews.values()].filter(
       (review) =>
-        review.subject_account_id === accountId && review.status === "active" && review.author_role === "buyer",
+        review.subject_account_id === accountId &&
+        review.status === "active" &&
+        review.author_role === "buyer" &&
+        review.revealed_at !== null,
     );
     const count = active.length;
     const average =
@@ -85,9 +91,23 @@ class ReputationProjectionDb implements PgQueryable {
           rating,
           status: "active",
           last_stream_version: streamVersion,
+          revealed_at: null,
         });
       }
       return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("UPDATE checkout_seller_account_reviews") && sql.includes("revealed_at = $2")) {
+      const reviewId = String(values[0]);
+      const revealedAt = String(values[1]);
+      const streamVersion = Number(values[2]);
+      const existing = this.reviews.get(reviewId);
+      if (existing && existing.revealed_at === null && existing.last_stream_version < streamVersion) {
+        existing.revealed_at = revealedAt;
+        existing.last_stream_version = streamVersion;
+        return { rows: [{ subject_account_id: existing.subject_account_id }] as Row[], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
     }
 
     if (sql.includes("UPDATE checkout_seller_account_reviews") && sql.includes("rating = $2")) {
@@ -148,6 +168,45 @@ function event(type: string, streamVersion: number, data: Record<string, unknown
 }
 
 describe("checkout reputation seller-reviews projection", () => {
+  it("hides a submitted review from the aggregate until it is revealed (m108 #4267)", async () => {
+    const db = new ReputationProjectionDb();
+    db.seedAccount({ account_id: "acc_seller" });
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
+
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
+        reviewId: "rev_1",
+        subjectAccountId: "acc_seller",
+        authorRole: "buyer",
+        rating: 5,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+
+    expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: null, review_count: 0 });
+
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 2, {
+        reviewId: "rev_1",
+        revealedAt: "2026-06-18T00:00:00.000Z",
+        reason: "counterpart-submitted",
+      }),
+    );
+
+    expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 5, review_count: 1 });
+
+    // Idempotent / stream-ordering guard: an already-revealed review ignores a
+    // later reveal attempt with an equal-or-lower stream version.
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 2, {
+        reviewId: "rev_1",
+        revealedAt: "2026-06-19T00:00:00.000Z",
+        reason: "window-expired",
+      }),
+    );
+    expect(db.reviews.get("rev_1")?.revealed_at).toBe("2026-06-18T00:00:00.000Z");
+  });
+
   it("recomputes average_rating and review_count on review.submitted", async () => {
     const db = new ReputationProjectionDb();
     db.seedAccount({ account_id: "acc_seller" });
@@ -169,6 +228,20 @@ describe("checkout reputation seller-reviews projection", () => {
         authorRole: "buyer",
         rating: 4,
         submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 2, {
+        reviewId: "rev_1",
+        revealedAt: "2026-06-17T01:00:00.000Z",
+        reason: "counterpart-submitted",
+      }),
+    );
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 2, {
+        reviewId: "rev_2",
+        revealedAt: "2026-06-17T01:00:00.000Z",
+        reason: "counterpart-submitted",
       }),
     );
 
@@ -200,6 +273,20 @@ describe("checkout reputation seller-reviews projection", () => {
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
     );
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 2, {
+        reviewId: "rev_seller_1",
+        revealedAt: "2026-06-17T01:00:00.000Z",
+        reason: "counterpart-submitted",
+      }),
+    );
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 2, {
+        reviewId: "rev_seller_2",
+        revealedAt: "2026-06-17T01:00:00.000Z",
+        reason: "counterpart-submitted",
+      }),
+    );
     // 10 reviews earned as a buyer (authored by sellers) must NOT blend in.
     for (let index = 0; index < 10; index += 1) {
       await handlers["marketplace.review.submitted"]!(
@@ -209,6 +296,13 @@ describe("checkout reputation seller-reviews projection", () => {
           authorRole: "seller",
           rating: 1,
           submittedAt: "2026-06-17T00:00:00.000Z",
+        }),
+      );
+      await handlers["marketplace.review.revealed"]!(
+        event("marketplace.review.revealed", 2, {
+          reviewId: `rev_buyer_${index}`,
+          revealedAt: "2026-06-17T01:00:00.000Z",
+          reason: "counterpart-submitted",
         }),
       );
     }
@@ -240,11 +334,26 @@ describe("checkout reputation seller-reviews projection", () => {
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
     );
+    // Updates only happen pre-reveal in the real domain.
     await handlers["marketplace.review.updated"]!(
       event("marketplace.review.updated", 2, {
         reviewId: "rev_2",
         rating: 4,
         updatedAt: "2026-06-17T01:00:00.000Z",
+      }),
+    );
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 3, {
+        reviewId: "rev_1",
+        revealedAt: "2026-06-17T02:00:00.000Z",
+        reason: "counterpart-submitted",
+      }),
+    );
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 3, {
+        reviewId: "rev_2",
+        revealedAt: "2026-06-17T02:00:00.000Z",
+        reason: "counterpart-submitted",
       }),
     );
 
@@ -297,6 +406,13 @@ describe("checkout reputation seller-reviews projection", () => {
 
     await handlers["marketplace.review.submitted"]!(submit);
     await handlers["marketplace.review.updated"]!(update);
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 3, {
+        reviewId: "rev_1",
+        revealedAt: "2026-06-17T02:00:00.000Z",
+        reason: "counterpart-submitted",
+      }),
+    );
 
     expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 5, review_count: 1 });
 
@@ -318,6 +434,13 @@ describe("checkout reputation seller-reviews projection", () => {
         authorRole: "buyer",
         rating: 4,
         submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+    await handlers["marketplace.review.revealed"]!(
+      event("marketplace.review.revealed", 2, {
+        reviewId: "rev_1",
+        revealedAt: "2026-06-17T01:00:00.000Z",
+        reason: "counterpart-submitted",
       }),
     );
 

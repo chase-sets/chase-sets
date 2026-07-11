@@ -1072,7 +1072,8 @@ describeDb("discovery projection row identity", () => {
       "feedback": "Packed well after update.",
       "status": "withdrawn",
       "submitted_at": "2026-06-12T13:02:00.000Z",
-      "updated_at": "2026-06-12T13:04:00.000Z"
+      "updated_at": "2026-06-12T13:04:00.000Z",
+      "revealed_at": null
     }
   ]
 }`),
