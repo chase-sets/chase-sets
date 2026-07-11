@@ -4,12 +4,13 @@ import { commercialTermsAgreementPolicyKey } from "../../../support/runtime-supp
 
 /**
  * Agreements read against the shared `platform_policy_documents` /
- * `platform_policy_document_history` tables instead of a bespoke
- * `commercial_terms_agreement_pages` projection. Row
- * shapes below are unchanged from the pre-convergence bespoke projection;
- * the targeting field (`account_id`) and fee terms are extracted out of the
- * opaque `value` jsonb column set by `terms-policy.ts`'s agreement policy
- * value shape.
+ * `platform_policy_document_history` tables instead of the bespoke,
+ * now-dropped per-agreement read-model table that preceded the
+ * platform-policy convergence (retirement migration:
+ * `unlogged-projection-migrations.ts`). Row shapes below are unchanged from
+ * the pre-convergence bespoke projection; the targeting field (`account_id`)
+ * and fee terms are extracted out of the opaque `value` jsonb column set by
+ * `terms-policy.ts`'s agreement policy value shape.
  */
 
 export type CommercialAgreementRow = Readonly<{
