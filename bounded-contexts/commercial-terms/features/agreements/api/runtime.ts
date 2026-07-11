@@ -2,7 +2,11 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CommercialTermsPolicyRuntime } from "../../../support/runtime-support/policy-runtime";
 import { commercialTermsAgreementPolicy } from "../../../support/runtime-support/terms-policy";
-import { CommercialTermsDomainError, type CommercialTermsStatus } from "../../../support/runtime-support/common";
+import {
+  CommercialTermsDomainError,
+  DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+  type CommercialTermsStatus,
+} from "../../../support/runtime-support/common";
 import { getAgreement, getCommercialTermsAccountReference, listAgreements } from "../read-model/queries";
 import { normalizeAgreementAccountIdText } from "./account-id";
 
@@ -79,7 +83,8 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
             accountId,
             marketplaceSalesFeePercentageBps: params.marketplaceSalesFeePercentageBps,
             marketplaceSalesFeeFixedAmount: params.marketplaceSalesFeeFixedAmount,
-            shippingAllowancePercentageBps: params.shippingAllowancePercentageBps ?? 500,
+            shippingAllowancePercentageBps:
+              params.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
           },
           status: params.status,
           effectiveFrom: params.effectiveFrom,

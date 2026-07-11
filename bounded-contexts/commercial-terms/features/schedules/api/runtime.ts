@@ -4,6 +4,7 @@ import type { CommercialTermsPolicyRuntime } from "../../../support/runtime-supp
 import { commercialTermsSchedulePolicy } from "../../../support/runtime-support/terms-policy";
 import {
   CommercialTermsDomainError,
+  DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   type CommercialAccountType,
   type CommercialTermsStatus,
 } from "../../../support/runtime-support/common";
@@ -73,7 +74,8 @@ export function createScheduleRuntime(deps: ScheduleRuntimeDeps): ScheduleServic
             accountType: params.accountType,
             marketplaceSalesFeePercentageBps: params.marketplaceSalesFeePercentageBps,
             marketplaceSalesFeeFixedAmount: params.marketplaceSalesFeeFixedAmount,
-            shippingAllowancePercentageBps: params.shippingAllowancePercentageBps ?? 500,
+            shippingAllowancePercentageBps:
+              params.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
           },
           status: params.status,
           effectiveFrom: params.effectiveFrom,

@@ -34,6 +34,7 @@
     "@chase-sets/inventory": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/platform-operations": "workspace:*",
+    "@chase-sets/platform-policy": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/product-measures": "workspace:*",

@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CommercialTermsApiEnv } from "../../../api";
-import { normalizeCommercialTermsStatus } from "../../../support/runtime-support/common";
+import {
+  DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+  normalizeCommercialTermsStatus,
+} from "../../../support/runtime-support/common";
 import type { AgreementServices } from "./runtime";
 
 function requireAccess(
@@ -57,7 +60,9 @@ function agreementCommandBody(body: Record<string, unknown>) {
     label: String(body.label ?? ""),
     marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
     marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
-    shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
+    shippingAllowancePercentageBps: Number(
+      body.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+    ),
     status: normalizeCommercialTermsStatus(String(body.status ?? "active")),
     effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
     effectiveUntil:

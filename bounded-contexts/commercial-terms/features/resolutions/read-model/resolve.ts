@@ -3,6 +3,7 @@ import { recordPlatformPostWriteConsistencyEvent } from "@chase-sets/platform-ru
 import {
   applyFeeFormula,
   assert,
+  DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   normalizeMoneyAmount,
   subtractMoneyAmounts,
   type CommercialAccountType,
@@ -231,7 +232,9 @@ async function resolveTerms(
     marketplaceSalesFeeUnitAmount,
     sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
     shippingAllowancePercentageBps:
-      agreement?.shipping_allowance_percentage_bps ?? schedule?.shipping_allowance_percentage_bps ?? 500,
+      agreement?.shipping_allowance_percentage_bps ??
+      schedule?.shipping_allowance_percentage_bps ??
+      DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
     scheduleId: schedule?.schedule_id ?? null,
     agreementId: agreement?.agreement_id ?? null,
     resolvedAt: effectiveAt,
@@ -296,7 +299,7 @@ export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
       basisAmount: amount,
       marketplaceSalesFeeUnitAmount: "0.00",
       sellerNetUnitAmount: amount,
-      shippingAllowancePercentageBps: 500,
+      shippingAllowancePercentageBps: DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
       scheduleId: null,
       agreementId: null,
       resolvedAt: params.effectiveAt ?? new Date().toISOString(),
@@ -317,7 +320,7 @@ export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
         basisAmount: amount,
         marketplaceSalesFeeUnitAmount: "0.00",
         sellerNetUnitAmount: amount,
-        shippingAllowancePercentageBps: 500,
+        shippingAllowancePercentageBps: DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
         scheduleId: "noop_public_standard",
         scheduleLabel: "Standard seller terms",
         scheduleUpdatedAt: params.effectiveAt ?? new Date().toISOString(),

@@ -14,7 +14,7 @@ import {
   commercialTermsAgreementPolicy,
   commercialTermsSchedulePolicy,
 } from "./terms-policy";
-import type { CommercialAccountType } from "./common";
+import { DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS, type CommercialAccountType } from "./common";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 function createSeedContext() {
@@ -78,7 +78,7 @@ export async function seedCommercialTermsDatabase(
         accountId: identitySeedIds.demo.accountId,
         marketplaceSalesFeePercentageBps: 700,
         marketplaceSalesFeeFixedAmount: "0.05",
-        shippingAllowancePercentageBps: 500,
+        shippingAllowancePercentageBps: DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
       },
       status: "active",
       effectiveFrom,
