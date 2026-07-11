@@ -1,4 +1,6 @@
 import { t } from "@chase-sets/localization";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
+import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { PackingSlipPrintDocument, type PackingSlipPrintSlip } from "@chase-sets/design-system";
 import type { FulfillmentPackingSlip, FulfillmentPackingSlipFormat } from "./contracts";
 
@@ -16,8 +18,9 @@ function formatAddress(address: FulfillmentPackingSlip["shipping_destination_sna
 function mapPackingSlip(slip: FulfillmentPackingSlip): PackingSlipPrintSlip {
   return {
     id: slip.shipment_id,
-    orderId: slip.order_id,
+    orderReference: deriveDisplayReferenceOrRaw(slip.order_id as OrderId),
     referenceLabel: t("fulfillment.features.shipments.ui.packingSlipPage.shipment"),
+    referenceValue: slip.display_reference,
     shipToTitle: t("fulfillment.features.shipments.ui.packingSlipPage.ship.to"),
     shipToLines: formatAddress(slip.shipping_destination_snapshot),
     shipFromTitle: t("fulfillment.features.shipments.ui.packingSlipPage.ship.from"),

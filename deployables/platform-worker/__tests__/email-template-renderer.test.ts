@@ -103,6 +103,21 @@ describe("platform email template renderer", () => {
     expect(rendered.textBody).toContain("Amount: 20.00 USD");
   });
 
+  it("renders shipment delivered copy with the support-safe order reference, never the raw ULID", () => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Shipment delivered for order ORD-E6K7M8N9",
+        templateId: "shipment_delivered",
+        templateData: { orderReference: "ORD-E6K7M8N9", trackingNumber: "940000000000000000" },
+      }),
+    );
+
+    expect(rendered.textBody).toContain("Order reference: ORD-E6K7M8N9");
+    expect(rendered.textBody).toContain("Tracking number: 940000000000000000");
+    expect(rendered.textBody).not.toContain("ord_01");
+    expect(rendered.htmlBody).toContain("Shipment delivered for order ORD-E6K7M8N9");
+  });
+
   it("renders auth magic links as absolute sign-in URLs", () => {
     const rendered = platformEmailTemplateRenderer.render(
       message({

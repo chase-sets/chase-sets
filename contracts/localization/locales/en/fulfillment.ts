@@ -48,10 +48,9 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentPackingPage.continue.to.label": "Continue to label",
   "fulfillment.features.shipments.ui.shipmentPackingPage.copy.address": "Copy",
   "fulfillment.features.shipments.ui.shipmentPackingPage.copy.reference": "Copy",
-  "fulfillment.features.shipments.ui.shipmentPackingPage.description": "Order {orderId} for {buyer}.",
+  "fulfillment.features.shipments.ui.shipmentPackingPage.description": "Order {orderReference} for {buyer}.",
   "fulfillment.features.shipments.ui.shipmentPackingPage.error": "Packing could not be updated",
   "fulfillment.features.shipments.ui.shipmentPackingPage.fulfillment.summary": "Fulfillment summary",
-  "fulfillment.features.shipments.ui.shipmentPackingPage.full.order.reference": "Full order reference: {orderId}",
   "fulfillment.features.shipments.ui.shipmentPackingPage.item": "item",
   "fulfillment.features.shipments.ui.shipmentPackingPage.item.checklist": "Item checklist",
   "fulfillment.features.shipments.ui.shipmentPackingPage.item.checklist.description":
@@ -106,6 +105,7 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentPackingPage.saving": "Saving",
   "fulfillment.features.shipments.ui.shipmentPackingPage.seller": "Seller",
   "fulfillment.features.shipments.ui.shipmentPackingPage.shipment.details": "Shipment details",
+  "fulfillment.features.shipments.ui.shipmentPackingPage.shipment.reference.label": "Shipment",
   "fulfillment.features.shipments.ui.shipmentPackingPage.ship.to": "Ship to",
   "fulfillment.features.shipments.ui.shipmentPackingPage.shipping.option": "Shipping option",
   "fulfillment.features.shipments.ui.shipmentPackingPage.standard": "Standard",
@@ -177,6 +177,7 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentDetailPage.insurance.reasons": "Insurance reasons",
   "fulfillment.features.shipments.ui.shipmentDetailPage.insurance.required": "Insurance required",
   "fulfillment.features.shipments.ui.shipmentDetailPage.insured.value": "Insured value",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.label.reference": "Label reference",
   "fulfillment.features.shipments.ui.shipmentDetailPage.label.status": "Label status: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece": "Letter Mailpiece",
   "fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece.description":
@@ -273,11 +274,12 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentListPage.open.shipment": "Open shipment",
   "fulfillment.features.shipments.ui.shipmentListPage.order": "Order ",
   "fulfillment.features.shipments.ui.shipmentListPage.quantity": "Quantity: ",
-  "fulfillment.features.shipments.ui.shipmentListPage.shipment": "Shipment ",
+  "fulfillment.features.shipments.ui.shipmentListPage.shipment": "Shipment {reference}",
   "fulfillment.features.shipments.ui.shipmentListPage.shipments": "Shipments",
   "fulfillment.features.shipments.ui.shipmentListPage.track.the.post.payment.shipping.workflow":
     "Track the post-payment shipping workflow from package prep through delivery or exception handling.",
   "fulfillment.features.shipments.ui.shipmentListPage.tracking": "Tracking: ",
+  "fulfillment.features.shipments.ui.shipmentListPage.tracking.title": "Tracking {trackingIdentifier}",
   "fulfillment.routes.marketplace.accountSaleShipment.request.failed": "Request failed.",
   "fulfillment.routes.marketplace.accountSaleShipment.sale.shipment.marketplace": "Sale Shipment | Marketplace",
   "fulfillment.routes.marketplace.accountSaleShipment.shipment.not.found": "Shipment not found.",
@@ -298,8 +300,9 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.routes.marketplace.accountShipments.shipments.appear.here.once.a.paid":
     "Shipments appear here once a paid order moves into fulfillment.",
   "fulfillment.routes.marketplace.accountShipments.shipments.marketplace": "Shipments | Marketplace",
-  "fulfillment.features.shipments.ui.shipmentDetailPage.order.with.counterpart": "With {counterpart}",
-  "fulfillment.features.shipments.ui.shipmentDetailPage.shipment": "Shipment",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.order.with.counterpart":
+    "Order {orderReference} with {counterpart}",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.shipment": "Shipment {shipmentReference}",
   "fulfillment.features.shipments.ui.shipmentDetailPage.refund.reference": " ({reference})",
   "fulfillment.features.shipments.ui.shipmentDetailPage.shipment.title": "Shipment {shipmentId}",
   "fulfillment.features.shipments.ui.shipmentDetailPage.override.reason": "Override reason",

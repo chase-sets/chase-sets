@@ -34,10 +34,14 @@ function statusTone(status: string) {
 
 function shipmentTitle(shipment: FulfillmentShipmentListItem) {
   if (shipment.tracking_identifier) {
-    return `Tracking ${shipment.tracking_identifier}`;
+    return t("fulfillment.features.shipments.ui.shipmentListPage.tracking.title", {
+      trackingIdentifier: shipment.tracking_identifier,
+    });
   }
 
-  return "Shipment details";
+  return t("fulfillment.features.shipments.ui.shipmentListPage.shipment", {
+    reference: shipment.display_reference,
+  });
 }
 
 export function FulfillmentShipmentListPage({
