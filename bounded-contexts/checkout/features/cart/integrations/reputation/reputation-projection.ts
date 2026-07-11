@@ -48,6 +48,7 @@ async function refreshCheckoutSellerAccountReputation(
      WHERE subject_account_id = $1
        AND status = 'active'
        AND author_role = 'buyer'
+       AND revealed_at IS NOT NULL
      ON CONFLICT (account_id) DO UPDATE SET
        average_rating = EXCLUDED.average_rating,
        review_count = EXCLUDED.review_count,
@@ -149,6 +150,28 @@ export function buildCheckoutReputationSellerReviewsProjectionHandlers(db: PgQue
       const subjectAccountId = withdrawn.rows[0]?.subject_account_id;
       if (subjectAccountId) {
         await refreshCheckoutSellerAccountReputation(db, subjectAccountId, data.withdrawnAt);
+      }
+    },
+    "marketplace.review.revealed": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        revealedAt: string;
+      };
+
+      const revealed = await db.query<{ subject_account_id: string }>(
+        `UPDATE checkout_seller_account_reviews
+         SET revealed_at = $2,
+             last_stream_version = $3
+         WHERE review_id = $1
+           AND revealed_at IS NULL
+           AND last_stream_version < $3
+         RETURNING subject_account_id`,
+        [data.reviewId, data.revealedAt, event.streamVersion],
+      );
+
+      const subjectAccountId = revealed.rows[0]?.subject_account_id;
+      if (subjectAccountId) {
+        await refreshCheckoutSellerAccountReputation(db, subjectAccountId, data.revealedAt);
       }
     },
   };

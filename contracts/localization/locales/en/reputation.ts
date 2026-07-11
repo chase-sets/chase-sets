@@ -36,11 +36,15 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewDetailPage.back": "Back",
   "reputation.features.reviews.ui.reviewDetailPage.feedback": "Feedback",
   "reputation.features.reviews.ui.reviewDetailPage.no.written.feedback": "No written feedback.",
+  "reputation.features.reviews.ui.reviewDetailPage.pending.reveal": "Pending reveal",
   "reputation.features.reviews.ui.reviewDetailPage.rating": "Rating: ",
   "reputation.features.reviews.ui.reviewDetailPage.resolved.via.refund": "Resolved via refund",
   "reputation.features.reviews.ui.reviewDetailPage.review": "Review",
   "reputation.features.reviews.ui.reviewDetailPage.review.author": "Review author: ",
   "reputation.features.reviews.ui.reviewDetailPage.review.details": "Review details",
+  "reputation.features.reviews.ui.reviewDetailPage.review.pending.title": "A review is pending",
+  "reputation.features.reviews.ui.reviewDetailPage.review.pending.description":
+    "This review is hidden until both sides have reviewed or the submission window closes. Content will appear once revealed.",
   "reputation.features.reviews.ui.reviewDetailPage.verified.order.feedback":
     "Verified order feedback and marketplace trust signals.",
   "reputation.features.reviews.ui.reviewDetailPage.reviewed.account": "Reviewed account: ",
@@ -53,8 +57,12 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewListPage.no.written.feedback": "No written feedback.",
   "reputation.features.reviews.ui.reviewListPage.open.review": "Open review",
   "reputation.features.reviews.ui.reviewListPage.order": "Order ",
+  "reputation.features.reviews.ui.reviewListPage.pending.reveal": "Pending reveal",
   "reputation.features.reviews.ui.reviewListPage.resolved.via.refund": "Resolved via refund",
   "reputation.features.reviews.ui.reviewListPage.review.author": "Review author: ",
+  "reputation.features.reviews.ui.reviewListPage.review.pending.title": "A review is pending",
+  "reputation.features.reviews.ui.reviewListPage.review.pending.description":
+    "This review is hidden until both sides have reviewed or the submission window closes.",
   "reputation.features.reviews.ui.reviewListPage.reviewed.account": "Reviewed account: ",
   "reputation.features.reviews.ui.reviewListPage.verified.order": "Verified order",
   "reputation.features.reviews.ui.reviewListPage.reviews": "Reviews",
@@ -69,6 +77,9 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewSubmissionPage.reviews": "Reviews",
   "reputation.features.reviews.ui.reviewSubmissionPage.reviews.open.only.after.the.order":
     "Reviews open only after the order has been verified by delivery.",
+  "reputation.features.reviews.ui.reviewSubmissionPage.review.window.closed.title": "Review window closed",
+  "reputation.features.reviews.ui.reviewSubmissionPage.review.window.closed.description":
+    "The submission window for this transaction has closed, so a new review can no longer be submitted.",
   "reputation.features.reviews.ui.reviewSubmissionPage.submit.account.review": "Submit account review",
   "reputation.features.reviews.ui.reviewSubmissionPage.submitting.review": "Submitting review...",
   "reputation.features.reviews.ui.reviewSubmissionPage.tell.the.account.what.went.well":

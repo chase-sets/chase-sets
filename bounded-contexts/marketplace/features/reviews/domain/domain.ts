@@ -6,8 +6,10 @@ import {
   ensureIsoTimestamp,
   normalizeFeedback,
   normalizeRating,
+  normalizeRevealReason,
   normalizeReviewRole,
   normalizeReviewStatus,
+  type ReviewRevealReason,
   type ReviewRole,
   type ReviewStatus,
 } from "./common";
@@ -26,6 +28,13 @@ export type ReviewState = Readonly<{
   submittedAt: string | null;
   updatedAt: string | null;
   withdrawnAt: string | null;
+  // Double-blind reveal (m108). `reviewWindowExpiresAt` is captured at
+  // submission from the eligibility deadline and never changes; it is both
+  // the domain-enforced submission deadline and the expiry sweep's reveal
+  // deadline for a review whose counterpart never submits.
+  revealedAt: string | null;
+  revealReason: ReviewRevealReason | null;
+  reviewWindowExpiresAt: string | null;
 }>;
 
 export const initialReviewState: ReviewState = {
@@ -41,6 +50,9 @@ export const initialReviewState: ReviewState = {
   submittedAt: null,
   updatedAt: null,
   withdrawnAt: null,
+  revealedAt: null,
+  revealReason: null,
+  reviewWindowExpiresAt: null,
 };
 
 export type SubmitReviewCommand = Readonly<{
@@ -56,6 +68,11 @@ export type SubmitReviewCommand = Readonly<{
   // transaction was unlocked by a refund-class support resolution.
   resolutionContext?: string | null;
   submittedAt: string;
+  // The submission-eligibility deadline (eligible_at + REVIEW_WINDOW_DAYS),
+  // computed by the runtime from the eligibility row. Rejected here too (not
+  // just at the runtime boundary) so the domain invariant holds regardless of
+  // caller: a review cannot be submitted once its window has closed.
+  reviewWindowExpiresAt: string;
 }>;
 
 export type UpdateReviewCommand = Readonly<{
@@ -70,7 +87,21 @@ export type WithdrawReviewCommand = Readonly<{
   withdrawnAt: string;
 }>;
 
-export type ReviewCommand = SubmitReviewCommand | UpdateReviewCommand | WithdrawReviewCommand;
+/**
+ * Reveals a hidden review, either because the counterpart review for the
+ * same order just submitted (both directions reveal together) or because the
+ * submission window elapsed with no counterpart (this review reveals alone).
+ * Idempotent: revealing an already-revealed review is a no-op, so the
+ * counterpart-submission callback and the expiry sweep can never race into a
+ * duplicate reveal.
+ */
+export type RevealReviewCommand = Readonly<{
+  type: "RevealReview";
+  revealedAt: string;
+  reason: ReviewRevealReason;
+}>;
+
+export type ReviewCommand = SubmitReviewCommand | UpdateReviewCommand | WithdrawReviewCommand | RevealReviewCommand;
 
 export type ReviewSubmittedEvent = DomainEvent<
   "marketplace.review.submitted",
@@ -84,6 +115,7 @@ export type ReviewSubmittedEvent = DomainEvent<
     feedback: string | null;
     resolutionContext: ReviewResolutionContext | null;
     submittedAt: string;
+    reviewWindowExpiresAt: string;
   }>
 >;
 
@@ -105,13 +137,32 @@ export type ReviewWithdrawnEvent = DomainEvent<
   }>
 >;
 
-export type ReviewEvent = ReviewSubmittedEvent | ReviewUpdatedEvent | ReviewWithdrawnEvent;
+export type ReviewRevealedEvent = DomainEvent<
+  "marketplace.review.revealed",
+  Readonly<{
+    reviewId: ReviewId;
+    revealedAt: string;
+    reason: ReviewRevealReason;
+  }>
+>;
+
+export type ReviewEvent = ReviewSubmittedEvent | ReviewUpdatedEvent | ReviewWithdrawnEvent | ReviewRevealedEvent;
 
 export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEvent> = (state, command) => {
   switch (command.type) {
-    case "SubmitReview":
+    case "SubmitReview": {
       assert(state.reviewId === null, "Review has already been submitted.");
       assert(command.authorAccountId !== command.subjectAccountId, "Accounts cannot review themselves.");
+
+      const submittedAt = ensureIsoTimestamp(command.submittedAt, "Review submission must record a timestamp.");
+      const reviewWindowExpiresAt = ensureIsoTimestamp(
+        command.reviewWindowExpiresAt,
+        "Review submission must record a review window deadline.",
+      );
+      assert(
+        Date.parse(submittedAt) < Date.parse(reviewWindowExpiresAt),
+        "This transaction's review window has closed.",
+      );
 
       return [
         {
@@ -125,13 +176,16 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
             rating: normalizeRating(command.rating),
             feedback: normalizeFeedback(command.feedback),
             resolutionContext: normalizeResolutionContext(command.resolutionContext),
-            submittedAt: ensureIsoTimestamp(command.submittedAt, "Review submission must record a timestamp."),
+            submittedAt,
+            reviewWindowExpiresAt,
           },
         },
       ];
+    }
     case "UpdateReview":
       assert(state.reviewId !== null, "Review must be submitted first.");
-      assert(state.status === "active", "Only active reviews can be updated.");
+      assert(state.status !== "withdrawn", "Withdrawn reviews cannot be updated.");
+      assert(state.revealedAt === null, "Reviews cannot be edited after they are revealed.");
 
       return [
         {
@@ -149,6 +203,7 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
       if (state.status === "withdrawn") {
         return [];
       }
+      assert(state.revealedAt === null, "Reviews cannot be withdrawn after they are revealed.");
 
       return [
         {
@@ -159,6 +214,26 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
           },
         },
       ];
+    case "RevealReview": {
+      assert(state.reviewId !== null, "Review must be submitted first.");
+      if (state.status === "withdrawn" || state.revealedAt !== null) {
+        // Withdrawn: nothing to reveal. Already revealed: idempotent no-op so
+        // the counterpart-submission callback and the expiry sweep can never
+        // race into a duplicate reveal event.
+        return [];
+      }
+
+      return [
+        {
+          type: "marketplace.review.revealed",
+          data: {
+            reviewId: state.reviewId,
+            revealedAt: ensureIsoTimestamp(command.revealedAt, "Review reveal must record a timestamp."),
+            reason: normalizeRevealReason(command.reason),
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -166,7 +241,16 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
 
 export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, event) => {
   switch (event.type) {
-    case "marketplace.review.submitted":
+    case "marketplace.review.submitted": {
+      // Events persisted before the reveal window existed (pre-launch, m108)
+      // replay with reviewWindowExpiresAt undefined. Treat those as
+      // already revealed at submission so a full projection replay converges
+      // on the same outcome as the one-time read-model migration: every
+      // pre-launch review is revealed (AC: "existing reviews migrate
+      // cleanly").
+      const reviewWindowExpiresAt = event.data.reviewWindowExpiresAt ?? null;
+      const isPreReveal = reviewWindowExpiresAt !== null;
+
       return {
         reviewId: event.data.reviewId,
         orderId: event.data.orderId,
@@ -181,7 +265,11 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         submittedAt: event.data.submittedAt,
         updatedAt: event.data.submittedAt,
         withdrawnAt: null,
+        revealedAt: isPreReveal ? null : event.data.submittedAt,
+        revealReason: isPreReveal ? null : "window-expired",
+        reviewWindowExpiresAt,
       };
+    }
     case "marketplace.review.updated":
       return {
         ...state,
@@ -195,6 +283,13 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         status: normalizeReviewStatus("withdrawn"),
         withdrawnAt: event.data.withdrawnAt,
         updatedAt: event.data.withdrawnAt,
+      };
+    case "marketplace.review.revealed":
+      return {
+        ...state,
+        revealedAt: event.data.revealedAt,
+        revealReason: normalizeRevealReason(event.data.reason),
+        updatedAt: event.data.revealedAt,
       };
     default:
       return assertNever(event);

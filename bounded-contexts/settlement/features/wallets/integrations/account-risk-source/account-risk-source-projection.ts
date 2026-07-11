@@ -365,6 +365,7 @@ async function refreshAccountReviews(db: PgQueryable, accountId: string, updated
      WHERE subject_account_id = $1
        AND status = 'active'
        AND author_role = 'buyer'
+       AND revealed_at IS NOT NULL
      ON CONFLICT (account_id) DO UPDATE SET
        review_count = EXCLUDED.review_count,
        average_rating = EXCLUDED.average_rating,
@@ -615,6 +616,21 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
       const accountId = result.rows[0]?.subject_account_id;
       if (accountId) {
         await refreshAccountReviews(db, accountId, data.withdrawnAt);
+      }
+    },
+    "marketplace.review.revealed": async (event) => {
+      const data = event.data as { reviewId: string; revealedAt: string };
+      const result = await db.query<{ subject_account_id: string }>(
+        `UPDATE settlement_account_review_sources
+         SET revealed_at = $2
+         WHERE review_id = $1
+           AND revealed_at IS NULL
+         RETURNING subject_account_id`,
+        [data.reviewId, data.revealedAt],
+      );
+      const accountId = result.rows[0]?.subject_account_id;
+      if (accountId) {
+        await refreshAccountReviews(db, accountId, data.revealedAt);
       }
     },
   };

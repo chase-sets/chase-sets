@@ -110,4 +110,52 @@ describe("marketplace review projection", () => {
     const pageInsert = queries.find((query) => query.sql.includes("INSERT INTO marketplace_review_pages"));
     expect(pageInsert?.params).toContain(null);
   });
+
+  it("hides a submitted review from the summary until it is revealed", async () => {
+    const queries: { sql: string; params: readonly unknown[] }[] = [];
+    const db = {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        queries.push({ sql, params: params ?? [] });
+        if (sql.includes("RETURNING subject_account_id")) {
+          return { rows: [{ subject_account_id: "acc_seller" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildReviewProjectionHandlers(db as never);
+
+    await handlers["marketplace.review.submitted"]?.({
+      data: {
+        reviewId: "rev_1",
+        orderId: "ord_1",
+        authorAccountId: "acc_buyer",
+        subjectAccountId: "acc_seller",
+        authorRole: "buyer",
+        rating: 5,
+        feedback: "Fast shipping.",
+        submittedAt: "2026-04-02T00:00:00.000Z",
+        reviewWindowExpiresAt: "2026-06-01T00:00:00.000Z",
+      },
+    } as never);
+
+    const summaryRefreshes = queries.filter((query) =>
+      query.sql.includes("INSERT INTO marketplace_review_summary_pages"),
+    );
+    expect(summaryRefreshes).toHaveLength(1);
+    expect(summaryRefreshes[0]?.sql).toContain("AND revealed_at IS NOT NULL");
+
+    await handlers["marketplace.review.revealed"]?.({
+      data: { reviewId: "rev_1", revealedAt: "2026-04-05T00:00:00.000Z", reason: "counterpart-submitted" },
+    } as never);
+
+    const revealUpdate = queries.find(
+      (query) => query.sql.includes("UPDATE marketplace_review_pages") && query.sql.includes("revealed_at = $2"),
+    );
+    expect(revealUpdate?.params).toEqual(["rev_1", "2026-04-05T00:00:00.000Z", "counterpart-submitted"]);
+
+    const summaryRefreshesAfterReveal = queries.filter((query) =>
+      query.sql.includes("INSERT INTO marketplace_review_summary_pages"),
+    );
+    expect(summaryRefreshesAfterReveal).toHaveLength(2);
+  });
 });

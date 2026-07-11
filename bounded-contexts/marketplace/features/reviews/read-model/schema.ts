@@ -22,10 +22,25 @@ CREATE TABLE IF NOT EXISTS marketplace_review_pages (
 ALTER TABLE marketplace_review_pages
   ADD COLUMN IF NOT EXISTS resolution_context text NULL;
 
+-- Double-blind reveal (m108). revealed_at IS NULL means the review is
+-- hidden: excluded from public lists, summaries, and every downstream
+-- reputation aggregate. review_window_expires_at is captured at submission
+-- (eligible_at + REVIEW_WINDOW_DAYS) and never changes; it is the deadline
+-- the expiry sweep reveals a singleton review by when its counterpart never
+-- submits. reveal_reason is display-only ("counterpart-submitted" vs.
+-- "window-expired").
+ALTER TABLE marketplace_review_pages
+  ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS review_window_expires_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS reveal_reason text NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS marketplace_active_review_direction_idx
   ON marketplace_review_pages (order_id, author_account_id, subject_account_id)
   WHERE status = 'active';
 
+-- The expiry-sweep index (marketplace_review_pages_pending_reveal_idx) is
+-- created by the 20260711_marketplace_review_window_reveal schema migration
+-- below; boot-time indexes on migration-added columns are forbidden.
 CREATE INDEX IF NOT EXISTS marketplace_review_pages_author_idx
   ON marketplace_review_pages (author_account_id, updated_at DESC, review_id DESC);
 
@@ -105,6 +120,30 @@ export const reviewSchemaMigrations: readonly BcSchemaMigration[] = [
   DROP COLUMN IF EXISTS rating_3_count,
   DROP COLUMN IF EXISTS rating_4_count,
   DROP COLUMN IF EXISTS rating_5_count`,
+    ],
+  },
+  {
+    migrationId: "20260711_marketplace_review_window_reveal",
+    description:
+      "Add double-blind reveal columns to marketplace_review_pages and migrate every existing (pre-launch) review to revealed (m108).",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      `ALTER TABLE marketplace_review_pages
+  ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS review_window_expires_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS reveal_reason text NULL`,
+      // Every review that predates the reveal window is treated as revealed:
+      // it already published under the old immediate-publication behavior, so
+      // there is nothing left to hide.
+      `UPDATE marketplace_review_pages
+   SET revealed_at = submitted_at,
+       review_window_expires_at = COALESCE(review_window_expires_at, submitted_at),
+       reveal_reason = 'window-expired'
+   WHERE status = 'active'
+     AND revealed_at IS NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_review_pages_pending_reveal_idx
+  ON marketplace_review_pages (review_window_expires_at ASC, review_id ASC)
+  WHERE status = 'active' AND revealed_at IS NULL`,
     ],
   },
 ];

@@ -55,6 +55,22 @@ function reviewWithdrawnEvent(data: { reviewId: string; withdrawnAt: string }): 
   };
 }
 
+function reviewRevealedEvent(data: { reviewId: string; revealedAt: string }): TransportEvent {
+  return {
+    id: "evt_3" as never,
+    type: "marketplace.review.revealed",
+    streamId: `marketplace.review-${data.reviewId}` as never,
+    streamVersion: 2 as never,
+    globalPosition: 2 as never,
+    tenantId: "tnt_test" as never,
+    data: { reviewId: data.reviewId, revealedAt: data.revealedAt, reason: "counterpart-submitted" } as never,
+    metadata: {},
+    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+    trace: {},
+    timing: { occurredAt: data.revealedAt as never, recordedAt: data.revealedAt as never },
+  };
+}
+
 describeDb("settlement account risk source review-role SQL persistence boundary", () => {
   let pool: PgTransactionalPool;
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
@@ -93,6 +109,16 @@ describeDb("settlement account risk source review-role SQL persistence boundary"
       }),
     );
 
+    // Double-blind reveal (m108 #4267): hidden until revealed -- must not move
+    // payout risk before reveal.
+    await expect(getRisk("acc_seller")).resolves.toEqual(
+      expect.objectContaining({ review_count: 0, average_rating: null }),
+    );
+
+    await handlers["marketplace.review.revealed"]!(
+      reviewRevealedEvent({ reviewId: "rev_1", revealedAt: "2026-07-09T00:00:00.000Z" }),
+    );
+
     await expect(getRisk("acc_seller")).resolves.toEqual(
       expect.objectContaining({ review_count: 1, average_rating: "5.00" }),
     );
@@ -115,6 +141,11 @@ describeDb("settlement account risk source review-role SQL persistence boundary"
         rating: 5,
         submittedAt: "2026-07-08T00:00:00.000Z",
       }),
+    );
+    // Reveal it too: the exclusion below must be because of the author_role
+    // filter, not merely because the review is still hidden.
+    await handlers["marketplace.review.revealed"]!(
+      reviewRevealedEvent({ reviewId: "rev_2", revealedAt: "2026-07-09T00:00:00.000Z" }),
     );
 
     await expect(getRisk("acc_buyer")).resolves.toEqual(
@@ -143,6 +174,9 @@ describeDb("settlement account risk source review-role SQL persistence boundary"
         submittedAt: "2026-07-08T00:00:00.000Z",
       }),
     );
+    await handlers["marketplace.review.revealed"]!(
+      reviewRevealedEvent({ reviewId: "rev_3", revealedAt: "2026-07-09T00:00:00.000Z" }),
+    );
 
     await expect(getRisk("acc_mixed")).resolves.toEqual(
       expect.objectContaining({ review_count: 0, average_rating: null }),
@@ -164,6 +198,9 @@ describeDb("settlement account risk source review-role SQL persistence boundary"
         submittedAt: "2026-07-08T00:00:00.000Z",
       }),
     );
+    await handlers["marketplace.review.revealed"]!(
+      reviewRevealedEvent({ reviewId: "rev_4", revealedAt: "2026-07-09T00:00:00.000Z" }),
+    );
 
     await expect(getRisk("acc_seller")).resolves.toEqual(
       expect.objectContaining({ review_count: 0, average_rating: null }),
@@ -184,6 +221,9 @@ describeDb("settlement account risk source review-role SQL persistence boundary"
         rating: 2,
         submittedAt: "2026-07-08T00:00:00.000Z",
       }),
+    );
+    await handlers["marketplace.review.revealed"]!(
+      reviewRevealedEvent({ reviewId: "rev_5", revealedAt: "2026-07-08T12:00:00.000Z" }),
     );
     await expect(getRisk("acc_seller")).resolves.toEqual(expect.objectContaining({ review_count: 1 }));
 

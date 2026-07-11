@@ -65,6 +65,7 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
      FROM marketplace_account_reviews
      WHERE subject_account_id = $1
        AND status = 'active'
+       AND revealed_at IS NOT NULL
      ON CONFLICT (account_id) DO UPDATE SET
        average_rating_as_seller = EXCLUDED.average_rating_as_seller,
        review_count_as_seller = EXCLUDED.review_count_as_seller,
@@ -282,6 +283,24 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
       const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
       if (subjectAccountId) {
         await refreshMarketplaceAccountReputation(db, subjectAccountId, data.withdrawnAt);
+      }
+    },
+    "marketplace.review.revealed": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        revealedAt: string;
+      };
+      const subjectResult = await db.query<{ subject_account_id: string }>(
+        `UPDATE marketplace_account_reviews
+         SET revealed_at = $2
+         WHERE review_id = $1
+           AND revealed_at IS NULL
+         RETURNING subject_account_id`,
+        [data.reviewId, data.revealedAt],
+      );
+      const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
+      if (subjectAccountId) {
+        await refreshMarketplaceAccountReputation(db, subjectAccountId, data.revealedAt);
       }
     },
   };

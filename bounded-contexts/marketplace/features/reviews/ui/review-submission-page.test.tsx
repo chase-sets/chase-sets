@@ -9,6 +9,8 @@ const opportunity = {
   author_role: "seller",
   eligible_at: "2026-04-02T00:00:00.000Z",
   active_review_id: null,
+  window_expired: false,
+  window_expires_at: "2026-06-01T00:00:00.000Z",
 };
 
 describe("review submission page", () => {
@@ -35,5 +37,14 @@ describe("review submission page", () => {
 
     expect(markup).toContain("Review could not be submitted.");
     expect(markup).toContain("Quick payer.");
+  });
+
+  it("shows the review-window-closed state instead of the form once the window has expired (m108 #4267)", () => {
+    const markup = renderToString(
+      <ReviewSubmissionPage backHref="/account/sales/ord_1" opportunity={{ ...opportunity, window_expired: true }} />,
+    );
+
+    expect(markup).not.toContain("Submit account review");
+    expect(markup).toContain("Review window closed");
   });
 });

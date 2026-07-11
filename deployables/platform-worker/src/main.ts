@@ -1242,6 +1242,7 @@ function createScheduledJobRunners(
     | "paymentReconciliationIntervalMs"
     | "paymentDeadlineSweepIntervalMs"
     | "supportRequestDeadlineSweepIntervalMs"
+    | "reviewWindowSweepIntervalMs"
     | "sellerFundsReleaseIntervalMs"
     | "payoutReconciliationIntervalMs"
     | "googleMerchant"
@@ -1281,6 +1282,14 @@ function createScheduledJobRunners(
             returnRefundsReleased: number;
           }>;
         };
+      }
+    | undefined;
+  const marketplaceReviews = (services.marketplace as { reviews?: unknown } | undefined)?.reviews as
+    | {
+        sweepReviewWindowExpirations?: (
+          params: { now?: string; limit?: number },
+          context: typeof SYSTEM_CONTEXT,
+        ) => Promise<{ counterpartPairsRevealed: number; windowExpiredRevealed: number }>;
       }
     | undefined;
   const settlement = services.settlement as SettlementServices | undefined;
@@ -1392,6 +1401,25 @@ function createScheduledJobRunners(
             result.reviewRemindersEmitted +
             result.returnRefundsReleased
           );
+        },
+      ),
+    );
+  }
+
+  const sweepReviewWindowExpirations = marketplaceReviews?.sweepReviewWindowExpirations;
+  if (sweepReviewWindowExpirations && input.reviewWindowSweepIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "marketplace.review-window-sweep",
+        input.reviewWindowSweepIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await sweepReviewWindowExpirations({ limit: 100 }, SYSTEM_CONTEXT);
+          logger.info("Marketplace review-window reveal sweep completed.", {
+            type: "marketplace.review-window-sweep",
+            result,
+          });
+          return result.counterpartPairsRevealed + result.windowExpiredRevealed;
         },
       ),
     );

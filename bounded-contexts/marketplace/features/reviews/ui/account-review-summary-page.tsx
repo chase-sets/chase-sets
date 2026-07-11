@@ -120,18 +120,24 @@ export function ReviewSummaryPage({
               )}
             />
           ) : (
-            reviews.map((review) => (
-              <ReviewCard
-                key={review.review_id}
-                author={review.author_display_name ?? review.author_account_id}
-                rating={review.rating}
-                body={
-                  review.feedback ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.no.written.feedback")
-                }
-                meta="Verified order"
-                verified
-              />
-            ))
+            // listAccountReviews (the public, revealed-only list) never returns
+            // a redacted row, but the shared ReviewListItem type allows
+            // rating === null (m108 double-blind reveal), so this guard keeps
+            // the component honest without assuming that invariant.
+            reviews
+              .filter((review): review is typeof review & { rating: number } => review.rating !== null)
+              .map((review) => (
+                <ReviewCard
+                  key={review.review_id}
+                  author={review.author_display_name ?? review.author_account_id}
+                  rating={review.rating}
+                  body={
+                    review.feedback ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.no.written.feedback")
+                  }
+                  meta="Verified order"
+                  verified
+                />
+              ))
           )}
         </Stack>
       </PageSection>

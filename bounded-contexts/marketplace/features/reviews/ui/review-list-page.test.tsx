@@ -19,6 +19,8 @@ const reviews = [
     submitted_at: "2026-04-02T00:00:00.000Z",
     updated_at: "2026-04-02T00:00:00.000Z",
     withdrawn_at: null,
+    revealed_at: "2026-04-05T00:00:00.000Z",
+    reveal_reason: "counterpart-submitted",
   },
 ] satisfies ReviewListItem[];
 
@@ -55,5 +57,21 @@ describe("review list page", () => {
     );
 
     expect(markup).toContain("Resolved via refund");
+  });
+
+  it("shows a pending placeholder without content for a redacted (not-yet-revealed) review (m108 #4267)", () => {
+    const markup = renderToString(
+      <ReviewListPage
+        title="Reviews"
+        eyebrow="Reviews"
+        emptyTitle="No reviews"
+        emptyDescription="Nothing yet."
+        reviewDetailBasePath="/account/reviews"
+        reviews={[{ ...reviews[0]!, rating: null, feedback: null, revealed_at: null, reveal_reason: null }]}
+      />,
+    );
+
+    expect(markup).not.toContain("Packed carefully.");
+    expect(markup).not.toContain("Review author:");
   });
 });

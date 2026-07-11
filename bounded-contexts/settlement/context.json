@@ -93,7 +93,8 @@
         "marketplace.listing.created",
         "marketplace.review.submitted",
         "marketplace.review.updated",
-        "marketplace.review.withdrawn"
+        "marketplace.review.withdrawn",
+        "marketplace.review.revealed"
       ],
       "order": 70,
       "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]

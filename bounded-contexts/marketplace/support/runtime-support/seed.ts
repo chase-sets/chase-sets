@@ -19,7 +19,7 @@ import {
   createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
-import type { ReviewRole } from "../../features/reviews/domain/common";
+import { addReviewWindowDays, REVIEW_WINDOW_DAYS, type ReviewRole } from "../../features/reviews/domain/common";
 import { requiresListingPhotoEvidence, type MarketplaceListingState } from "../../features/listings/domain/domain";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
@@ -899,6 +899,7 @@ export async function seedReputationData(
       rating: 4,
       feedback: "Packed well and shipped exactly as described.",
       submittedAt: "2026-03-23T09:00:00.000Z",
+      reviewWindowExpiresAt: addReviewWindowDays(buyerToSellerOpportunity.eligible_at, REVIEW_WINDOW_DAYS),
     },
     context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
   });
@@ -909,6 +910,18 @@ export async function seedReputationData(
       rating: 5,
       feedback: "Packed well, shipped quickly, and matched the listing.",
       updatedAt: "2026-03-23T10:00:00.000Z",
+    },
+    context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
+  });
+  // No counterpart seller-to-buyer review is seeded for this direction, so
+  // reveal it directly (m108 double-blind reveal): a staging seed review
+  // should be visible, not stuck hidden until a 60-day sweep.
+  await services.reviews.commandHandler({
+    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
+    command: {
+      type: "RevealReview",
+      revealedAt: "2026-03-23T10:05:00.000Z",
+      reason: "window-expired",
     },
     context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
   });
@@ -925,6 +938,7 @@ export async function seedReputationData(
       rating: 3,
       feedback: "Responsive but asked for extra packing photos.",
       submittedAt: "2026-03-23T09:15:00.000Z",
+      reviewWindowExpiresAt: addReviewWindowDays(sellerToBuyerOpportunity.eligible_at, REVIEW_WINDOW_DAYS),
     },
     context: createReputationSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
   });

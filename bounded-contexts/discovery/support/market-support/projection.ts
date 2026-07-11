@@ -1442,6 +1442,30 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshAccountReputation(db, subjectAccountId, data.withdrawnAt);
       await emitAccountReputationPatches(db, event, subjectAccountId);
     },
+    "marketplace.review.revealed": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        revealedAt: string;
+      };
+      // Raw SQL (not the updateRow helper): the idempotency guard needs
+      // "revealed_at IS NULL", which updateRow's `where` equality cannot
+      // express (a NULL-valued `=` comparison never matches in Postgres).
+      const subjectResult = await db.query<{ subject_account_id: string }>(
+        `UPDATE discovery_market_account_reviews
+         SET revealed_at = $2
+         WHERE review_id = $1
+           AND revealed_at IS NULL
+         RETURNING subject_account_id`,
+        [data.reviewId, data.revealedAt],
+      );
+      const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
+      if (typeof subjectAccountId !== "string") {
+        return;
+      }
+
+      await refreshAccountReputation(db, subjectAccountId, data.revealedAt);
+      await emitAccountReputationPatches(db, event, subjectAccountId);
+    },
   };
 }
 
@@ -1497,6 +1521,7 @@ async function refreshAccountReputation(db: PgQueryable, accountId: string, upda
      FROM discovery_market_account_reviews
      WHERE subject_account_id = $1
        AND status = 'active'
+       AND revealed_at IS NOT NULL
      ON CONFLICT (account_id) DO UPDATE SET
        average_rating_as_seller = EXCLUDED.average_rating_as_seller,
        review_count_as_seller = EXCLUDED.review_count_as_seller,

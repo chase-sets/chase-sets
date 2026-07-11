@@ -8,6 +8,7 @@ import {
   Card,
   DetailConfidenceModule,
   LinkButton,
+  MarketplaceEmptyState,
   MarketplaceNotice,
   Page,
   PageHeader,
@@ -104,43 +105,52 @@ export function ReviewSubmissionPage({
       </PageSection>
 
       <PageSection title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}>
-        <Card>
-          <Stack gap={3}>
-            {errorMessage ? (
-              <MarketplaceNotice
-                tone="danger"
-                title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}
-                description={errorMessage}
-              />
-            ) : null}
-            <Form spacing="none" method="post">
-              <Stack gap={3}>
-                <HiddenInput type="hidden" name="rating" value={rating} />
-                <Stack gap={1}>
-                  <Text weight="semibold">{t("reputation.features.reviews.ui.reviewSubmissionPage.rating")}</Text>
-                  <Rating
-                    interactive
-                    label={t("reputation.features.reviews.ui.reviewSubmissionPage.review.rating")}
-                    value={rating}
-                    onValueChange={setRating}
-                  />
-                </Stack>
-                <Textarea
-                  name="feedback"
-                  label={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback")}
-                  defaultValue={defaultFeedback}
-                  rows={5}
-                  description={t("reputation.features.reviews.ui.reviewSubmissionPage.tell.the.account.what.went.well")}
+        {opportunity.window_expired ? (
+          <MarketplaceEmptyState
+            title={t("reputation.features.reviews.ui.reviewSubmissionPage.review.window.closed.title")}
+            description={t("reputation.features.reviews.ui.reviewSubmissionPage.review.window.closed.description")}
+          />
+        ) : (
+          <Card>
+            <Stack gap={3}>
+              {errorMessage ? (
+                <MarketplaceNotice
+                  tone="danger"
+                  title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}
+                  description={errorMessage}
                 />
-                <Button type="submit">
-                  {isSubmitting
-                    ? t("reputation.features.reviews.ui.reviewSubmissionPage.submitting.review")
-                    : t("reputation.features.reviews.ui.reviewSubmissionPage.submit.account.review")}
-                </Button>
-              </Stack>
-            </Form>
-          </Stack>
-        </Card>
+              ) : null}
+              <Form spacing="none" method="post">
+                <Stack gap={3}>
+                  <HiddenInput type="hidden" name="rating" value={rating} />
+                  <Stack gap={1}>
+                    <Text weight="semibold">{t("reputation.features.reviews.ui.reviewSubmissionPage.rating")}</Text>
+                    <Rating
+                      interactive
+                      label={t("reputation.features.reviews.ui.reviewSubmissionPage.review.rating")}
+                      value={rating}
+                      onValueChange={setRating}
+                    />
+                  </Stack>
+                  <Textarea
+                    name="feedback"
+                    label={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback")}
+                    defaultValue={defaultFeedback}
+                    rows={5}
+                    description={t(
+                      "reputation.features.reviews.ui.reviewSubmissionPage.tell.the.account.what.went.well",
+                    )}
+                  />
+                  <Button type="submit">
+                    {isSubmitting
+                      ? t("reputation.features.reviews.ui.reviewSubmissionPage.submitting.review")
+                      : t("reputation.features.reviews.ui.reviewSubmissionPage.submit.account.review")}
+                  </Button>
+                </Stack>
+              </Form>
+            </Stack>
+          </Card>
+        )}
       </PageSection>
     </Page>
   );

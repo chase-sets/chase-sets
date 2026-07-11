@@ -78,6 +78,7 @@ export type PlatformWorkerConfig = Readonly<{
   paymentReconciliationIntervalMs: number | null;
   paymentDeadlineSweepIntervalMs: number | null;
   supportRequestDeadlineSweepIntervalMs: number | null;
+  reviewWindowSweepIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
   googleShoppingMaintenanceIntervalMs: number | null;
@@ -425,6 +426,11 @@ export function loadConfig(): PlatformWorkerConfig {
       "SUPPORT_REQUEST_DEADLINE_SWEEP_INTERVAL_MS",
       300_000,
     ),
+    // Double-blind reveal expiry sweep (m108): shares the support-request
+    // sweep's 5-minute default cadence -- frequent enough that a missed
+    // same-request counterpart-reveal race self-heals promptly, cheap enough
+    // (bounded candidate queries) to run that often.
+    reviewWindowSweepIntervalMs: getOptionalPositiveNumberEnv("REVIEW_WINDOW_SWEEP_INTERVAL_MS", 300_000),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
     googleShoppingMaintenanceIntervalMs: getOptionalPositiveNumberEnv(
