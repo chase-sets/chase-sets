@@ -285,10 +285,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # The Kubernetes preview path publishes per-preview DNS (the
-      # `pr-<n>.preview` apex + `*.pr-<n>.preview` wildcard) outside Terraform,
-      # so Terraform destroy never removes them. Delete them here so a closed PR
-      # leaves no dangling records pointing at the DOKS ingress load balancer.
+      # #4857 replaced per-preview DNS (the `pr-<n>.preview` apex +
+      # `*.pr-<n>.preview` wildcard) with a single shared `*.preview.chasesets.com`
+      # record, so no PR closing today creates new records here to delete. This
+      # step stays a no-op-safe cleanup for any leftover per-preview record
+      # created before that fix (created outside Terraform, so Terraform destroy
+      # never removes it) until the backlog of such PRs is fully drained.
       - name: Delete preview DNS records
         if: always()
         run: |
