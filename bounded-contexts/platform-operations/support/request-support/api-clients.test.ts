@@ -89,7 +89,7 @@ describe("platform operations request API clients", () => {
         });
       }
       if (url.endsWith("/ops/escalate-overdue")) {
-        return jsonResponse({ escalated: 2, skipped: 1 });
+        return jsonResponse({ escalated: 2, skipped: 1, capped: false, total: 2 });
       }
       if (url.includes("/ops/sup_1/")) {
         const status = url.endsWith("/evidence")
@@ -125,6 +125,8 @@ describe("platform operations request API clients", () => {
     await expect(client.escalateOverdueSupportRequests({ limit: 25 })).resolves.toEqual({
       escalated: 2,
       skipped: 1,
+      capped: false,
+      total: 2,
     });
     await expect(client.recordSupportOperationsNote("sup_1", { summary: "Operator note" })).resolves.toEqual({
       id: "sup_1",

@@ -143,6 +143,9 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
     const result = await services.listSupportOperationsQueue({
       limit: Number(c.req.query("limit") ?? 50),
       offset: Number(c.req.query("offset") ?? 0),
+      status: c.req.query("status") || undefined,
+      priority: c.req.query("priority") || undefined,
+      search: c.req.query("search") || undefined,
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });

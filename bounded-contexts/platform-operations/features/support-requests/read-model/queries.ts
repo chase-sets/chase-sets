@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type {
   SupportChecklistItem,
   SupportEvidence,
@@ -178,6 +178,17 @@ export async function listSellerSupportRequests(
   };
 }
 
+const SUPPORT_OPERATIONS_QUEUE_STATUSES = new Set([
+  "open",
+  "waiting-on-buyer",
+  "waiting-on-seller",
+  "ready-for-support",
+  "resolved",
+  "closed",
+  "cancelled",
+]);
+const SUPPORT_OPERATIONS_QUEUE_PRIORITIES = new Set(["normal", "urgent"]);
+
 export async function listSupportOperationsQueue(
   db: PgQueryable,
   params: Readonly<{
@@ -185,12 +196,45 @@ export async function listSupportOperationsQueue(
     now?: string;
     limit?: number;
     offset?: number;
+    status?: string;
+    priority?: string;
+    search?: string;
   }>,
 ): Promise<{ items: SupportRequestListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
   const now = params.now ?? new Date().toISOString();
-  const accountFilter = params.accountId ? "AND (buyer_account_id = $2 OR seller_account_id = $2)" : "";
-  const values = params.accountId ? [now, params.accountId] : [now];
+  const values: unknown[] = [now];
+  const conditions: string[] = [];
+
+  if (params.accountId) {
+    values.push(params.accountId);
+    conditions.push(`(buyer_account_id = $${values.length} OR seller_account_id = $${values.length})`);
+  }
+
+  const status = params.status && SUPPORT_OPERATIONS_QUEUE_STATUSES.has(params.status) ? params.status : null;
+  if (status) {
+    values.push(status);
+    conditions.push(`status = $${values.length}`);
+  }
+
+  const priority = params.priority && SUPPORT_OPERATIONS_QUEUE_PRIORITIES.has(params.priority) ? params.priority : null;
+  if (priority) {
+    values.push(priority);
+    conditions.push(`priority = $${values.length}`);
+  }
+
+  const search = params.search?.trim() ? params.search.trim() : null;
+  if (search) {
+    values.push(`%${escapeLikePattern(search)}%`);
+    conditions.push(`(
+        support_request_id ILIKE $${values.length} ESCAPE '\\'
+        OR order_id ILIKE $${values.length} ESCAPE '\\'
+        OR buyer_account_id ILIKE $${values.length} ESCAPE '\\'
+        OR seller_account_id ILIKE $${values.length} ESCAPE '\\'
+      )`);
+  }
+
+  const extraFilterSql = conditions.map((condition) => `AND ${condition}`).join("\n       ");
   const limitParam = values.length + 1;
   const offsetParam = values.length + 2;
   // A resolved (even closed) `return-for-refund` case whose seller disputed
@@ -213,13 +257,13 @@ export async function listSupportOperationsQueue(
       `SELECT COUNT(*) AS count
        FROM support_request_pages
        WHERE ${activeStatusPredicate}
-         ${accountFilter}`,
+         ${extraFilterSql}`,
       values,
     ),
     db.query<SupportRequestListRow>(
       `${listSelect}
        WHERE ${activeStatusPredicate}
-         ${accountFilter}
+         ${extraFilterSql}
        ORDER BY
          CASE WHEN priority = 'urgent' THEN 0 ELSE 1 END,
          LEAST(

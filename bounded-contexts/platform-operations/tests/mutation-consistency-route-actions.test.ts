@@ -214,8 +214,8 @@ describe("platform operations mutation consistency route actions", () => {
     expect(response.headers.get("Location")).toContain("/support/platform-feedback/pfb_1?afterWrite=");
   });
 
-  it("redirects support operations with the escalation snapshot counts", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ escalated: 2, skipped: 1 }));
+  it("redirects support operations with the escalation snapshot counts, including whether the sweep was capped", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ escalated: 2, skipped: 1, capped: true, total: 120 }));
     vi.stubGlobal("fetch", fetchMock);
     const form = new URLSearchParams({ intent: "escalate-overdue" });
 
@@ -230,7 +230,36 @@ describe("platform operations mutation consistency route actions", () => {
       expect.objectContaining({ method: "POST", body: JSON.stringify({ limit: 100 }) }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/support/requests?escalated=2&skipped=1");
+    expect(response.headers.get("Location")).toBe(
+      "/support/requests?escalated=2&skipped=1&capped=true&escalationTotal=120",
+    );
+  });
+
+  it("preserves the current queue's filters and pagination on the escalation redirect", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ escalated: 0, skipped: 0, capped: false, total: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new URLSearchParams({ intent: "escalate-overdue" });
+
+    const response = (await supportOperationsAction({
+      request: formRequest(
+        "http://localhost/support/requests?status=urgent&priority=urgent&search=ord_1&limit=25&offset=25",
+        form,
+      ),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("Location") ?? "", "http://localhost");
+    expect(location.searchParams.get("status")).toBe("urgent");
+    expect(location.searchParams.get("priority")).toBe("urgent");
+    expect(location.searchParams.get("search")).toBe("ord_1");
+    expect(location.searchParams.get("limit")).toBe("25");
+    expect(location.searchParams.get("offset")).toBe("25");
+    expect(location.searchParams.get("escalated")).toBe("0");
+    expect(location.searchParams.get("skipped")).toBe("0");
+    expect(location.searchParams.get("capped")).toBe("false");
+    expect(location.searchParams.get("escalationTotal")).toBe("0");
   });
 
   it.each([

@@ -173,7 +173,7 @@ export type SupportRequestServices = Readonly<{
   escalateOverdueSupportRequests: (
     params: Readonly<{ now?: string; limit?: number }>,
     context: EventStoreContext,
-  ) => Promise<{ escalated: number; skipped: number }>;
+  ) => Promise<{ escalated: number; skipped: number; capped: boolean; total: number }>;
   /**
    * Records that a `return-for-refund` case's returned item arrived back.
    * Starts the 5-day inspection window; the refund releases automatically
@@ -633,10 +633,16 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     listSupportRequestsAwaitingReturnDelivery: (params) => listSupportRequestsAwaitingReturnDelivery(deps.db, params),
     escalateOverdueSupportRequests: async (params, context) => {
       const now = params.now ?? new Date().toISOString();
+      const limit = params.limit ?? 100;
       const queue = await listSupportOperationsQueue(deps.db, {
         now,
-        limit: params.limit ?? 100,
+        limit,
       });
+      // The sweep only evaluates the fetched page: if the active queue holds
+      // more candidates than the page limit, some overdue cases outside this
+      // window were not examined this run and the caller needs to know the
+      // pass was partial rather than exhaustive.
+      const capped = queue.total > queue.items.length;
       let escalated = 0;
       let skipped = 0;
 
@@ -667,7 +673,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         }
       }
 
-      return { escalated, skipped };
+      return { escalated, skipped, capped, total: queue.total };
     },
     sweepSupportRequestDeadlines: async (params, context) => {
       const now = params.now ?? new Date().toISOString();
