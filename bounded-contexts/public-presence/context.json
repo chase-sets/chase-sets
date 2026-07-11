@@ -194,19 +194,21 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
+        "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H1dea678e1f7f#1",
         "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#3",
         "route-action:bounded-contexts/public-presence/routes/admin/promo-bar.tsx"
       ],
       "visibleDestination": {
         "routeId": "promo-bar",
-        "description": "The admin Promo Bar route returns a Public Presence admin promo-bar list snapshot after every write and renders that action-owned list snapshot ahead of any stale loader result."
+        "description": "The admin Promo Bar route returns a Public Presence admin promo-bar list snapshot after every write and renders that action-owned list snapshot ahead of any stale loader result. Row edits open in a SideSheet and row deletes require AlertDialog confirmation before the hidden delete form submits, but every intent (create/update/activate/deactivate/delete) still posts to the same route action."
       },
       "proof": {
-        "authoritativeResponse": "The route action performs create/update/activate/deactivate/delete, then calls listPromoBarMessages and returns items; PromoBarAdminRoute renders actionData.items before loader data for the just-completed write.",
+        "authoritativeResponse": "The route action performs create/update/activate/deactivate/delete, then calls listPromoBarMessages and returns items; PromoBarAdminRoute renders actionData.items before loader data for the just-completed write. On failure the action returns the error message instead of items, and the page renders it in a danger banner.",
         "tests": [
           "bounded-contexts/public-presence/tests/promo-bar-route.test.ts proves the route action returns the refreshed admin list snapshot after create.",
-          "bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.test.tsx proves the admin page renders the supplied message list and preview links."
+          "bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.test.tsx proves the admin page renders a read-only row summary, gates delete behind an AlertDialog confirmation, opens edit in a dedicated SideSheet, and surfaces success/failure through a banner."
         ]
       }
     }

@@ -1,8 +1,11 @@
 import { t } from "@chase-sets/localization";
+import { useRef, useState } from "react";
 import {
   HiddenInput,
   Form,
+  AlertDialog,
   Badge,
+  Banner,
   Button,
   Checkbox,
   DataTable,
@@ -13,6 +16,7 @@ import {
   PageHeader,
   PageSection,
   PromoBar,
+  SideSheet,
   Stack,
   Text,
   Textarea,
@@ -122,18 +126,72 @@ function PromoBarMessageFields({ message }: { message?: PromoBarMessage }) {
   );
 }
 
+function PromoBarRowActions({
+  message,
+  onEdit,
+}: {
+  message: PromoBarMessage;
+  onEdit: (message: PromoBarMessage) => void;
+}) {
+  const deleteFormRef = useRef<HTMLFormElement>(null);
+
+  return (
+    <Inline gap={2}>
+      <Form spacing="none" method="post">
+        <HiddenInput type="hidden" name="id" value={message.id} />
+        <Button
+          type="submit"
+          name="intent"
+          value={message.is_active ? "deactivate" : "activate"}
+          size="sm"
+          tone="secondary"
+          leadingIcon={message.is_active ? "pause" : "play"}
+        >
+          {message.is_active
+            ? t("publicPresence.promoBar.deactivate.action")
+            : t("publicPresence.promoBar.activate.action")}
+        </Button>
+      </Form>
+      <Button type="button" size="sm" tone="secondary" leadingIcon="edit" onClick={() => onEdit(message)}>
+        {t("publicPresence.promoBar.edit.action")}
+      </Button>
+      <Form ref={deleteFormRef} spacing="none" method="post">
+        <HiddenInput type="hidden" name="intent" value="delete" />
+        <HiddenInput type="hidden" name="id" value={message.id} />
+      </Form>
+      <AlertDialog
+        title={t("publicPresence.promoBar.delete.confirm.title")}
+        description={t("publicPresence.promoBar.delete.confirm.description", { title: message.title })}
+        confirmLabel={t("publicPresence.promoBar.delete.action")}
+        cancelLabel={t("publicPresence.promoBar.cancel.action")}
+        tone="danger"
+        onConfirm={() => deleteFormRef.current?.requestSubmit()}
+        trigger={
+          <Button type="button" size="sm" tone="danger" leadingIcon="trash">
+            {t("publicPresence.promoBar.delete.action")}
+          </Button>
+        }
+      />
+    </Inline>
+  );
+}
+
 export function PromoBarAdminPage({
   messages,
   actionMessage,
+  errorMessage,
   marketplaceOrigin,
   currentTime = new Date().toISOString(),
 }: {
   messages: readonly PromoBarMessage[];
   actionMessage?: string | null;
+  errorMessage?: string | null;
   marketplaceOrigin?: string | null;
   currentTime?: string;
 }) {
   const activeMessages = messages.filter((message) => isPromoBarMessageLiveAt(message, currentTime));
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingMessage = messages.find((message) => message.id === editingId) ?? null;
 
   return (
     <Page>
@@ -142,10 +200,10 @@ export function PromoBarAdminPage({
         title={t("publicPresence.promoBar.admin.title")}
         description={t("publicPresence.promoBar.admin.description")}
       />
-      {actionMessage ? (
-        <Text size="sm" tone="secondary">
-          {actionMessage}
-        </Text>
+      {errorMessage ? (
+        <Banner tone="danger" title={t("publicPresence.promoBar.action.failed")} description={errorMessage} />
+      ) : actionMessage ? (
+        <Banner tone="success" title={actionMessage} />
       ) : null}
       <PageSection
         title={t("publicPresence.promoBar.preview.title")}
@@ -210,40 +268,39 @@ export function PromoBarAdminPage({
               cell: (message) => message.display_order,
             },
             {
-              key: "edit",
-              header: t("publicPresence.promoBar.column.edit"),
-              cell: (message) => (
-                <Form spacing="none" method="post">
-                  <Stack gap={3}>
-                    <HiddenInput type="hidden" name="id" value={message.id} />
-                    <PromoBarMessageFields message={message} />
-                    <Inline gap={2}>
-                      <Button type="submit" name="intent" value="update" size="sm" leadingIcon="check">
-                        {t("publicPresence.promoBar.update.action")}
-                      </Button>
-                      <Button
-                        type="submit"
-                        name="intent"
-                        value={message.is_active ? "deactivate" : "activate"}
-                        size="sm"
-                        tone="secondary"
-                        leadingIcon={message.is_active ? "pause" : "play"}
-                      >
-                        {message.is_active
-                          ? t("publicPresence.promoBar.deactivate.action")
-                          : t("publicPresence.promoBar.activate.action")}
-                      </Button>
-                      <Button type="submit" name="intent" value="delete" size="sm" tone="danger" leadingIcon="trash">
-                        {t("publicPresence.promoBar.delete.action")}
-                      </Button>
-                    </Inline>
-                  </Stack>
-                </Form>
-              ),
+              key: "actions",
+              header: t("publicPresence.promoBar.column.actions"),
+              cell: (message) => <PromoBarRowActions message={message} onEdit={(edited) => setEditingId(edited.id)} />,
             },
           ]}
         />
       </PageSection>
+      <SideSheet
+        open={editingMessage !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingId(null);
+          }
+        }}
+        title={t("publicPresence.promoBar.edit.title")}
+        description={editingMessage?.title}
+        width="lg"
+      >
+        {editingMessage ? (
+          <Form spacing="none" method="post">
+            <Stack gap={3}>
+              <HiddenInput type="hidden" name="intent" value="update" />
+              <HiddenInput type="hidden" name="id" value={editingMessage.id} />
+              <PromoBarMessageFields message={editingMessage} />
+              <Inline>
+                <Button type="submit" leadingIcon="check">
+                  {t("publicPresence.promoBar.update.action")}
+                </Button>
+              </Inline>
+            </Stack>
+          </Form>
+        ) : null}
+      </SideSheet>
     </Page>
   );
 }
