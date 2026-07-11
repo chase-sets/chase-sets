@@ -92,6 +92,7 @@ export type PaymentState = Readonly<{
   balanceCreditAmount: string;
   processorAmount: string | null;
   marketplaceSalesFeeAmount: string | null;
+  authenticityFeeAmount: string | null;
   marketplaceCheckoutFeeAmount: string | null;
   marketplaceCheckoutFeePolicyVersion: string | null;
   marketplaceCheckoutFeeQuoteFingerprint: string | null;
@@ -149,6 +150,7 @@ export const initialPaymentState: PaymentState = {
   balanceCreditAmount: "0.00",
   processorAmount: null,
   marketplaceSalesFeeAmount: null,
+  authenticityFeeAmount: null,
   marketplaceCheckoutFeeAmount: null,
   marketplaceCheckoutFeePolicyVersion: null,
   marketplaceCheckoutFeeQuoteFingerprint: null,
@@ -197,6 +199,7 @@ export type CreatePaymentCommand = Readonly<{
   balanceCreditAmount?: string;
   processorAmount?: string;
   marketplaceSalesFeeAmount: string;
+  authenticityFeeAmount?: string;
   marketplaceCheckoutFeeAmount: string;
   marketplaceCheckoutFeePolicyVersion?: string | null;
   marketplaceCheckoutFeeQuoteFingerprint?: string | null;
@@ -363,6 +366,7 @@ export type PaymentCreatedEvent = DomainEvent<
     balanceCreditAmount: string;
     processorAmount: string;
     marketplaceSalesFeeAmount: string;
+    authenticityFeeAmount: string;
     marketplaceCheckoutFeeAmount: string;
     marketplaceCheckoutFeePolicyVersion: string | null;
     marketplaceCheckoutFeeQuoteFingerprint: string | null;
@@ -406,6 +410,7 @@ export type PaymentCapturedEvent = DomainEvent<
     balanceCreditAmount: string;
     processorAmount: string;
     marketplaceSalesFeeAmount: string;
+    authenticityFeeAmount: string;
     marketplaceCheckoutFeeAmount: string;
     marketplaceCheckoutFeePolicyVersion: string | null;
     marketplaceCheckoutFeeQuoteFingerprint: string | null;
@@ -845,6 +850,10 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
               fieldName: "Marketplace sales fee amount",
               allowZero: true,
             }),
+            authenticityFeeAmount: normalizeMoneyAmount(command.authenticityFeeAmount ?? "0.00", {
+              fieldName: "Authenticity check fee amount",
+              allowZero: true,
+            }),
             marketplaceCheckoutFeeAmount: normalizeMoneyAmount(command.marketplaceCheckoutFeeAmount, {
               fieldName: "Marketplace checkout fee amount",
               allowZero: true,
@@ -918,6 +927,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
             balanceCreditAmount: state.balanceCreditAmount,
             processorAmount: state.processorAmount!,
             marketplaceSalesFeeAmount: state.marketplaceSalesFeeAmount!,
+            authenticityFeeAmount: state.authenticityFeeAmount ?? "0.00",
             marketplaceCheckoutFeeAmount: state.marketplaceCheckoutFeeAmount!,
             marketplaceCheckoutFeePolicyVersion: state.marketplaceCheckoutFeePolicyVersion,
             marketplaceCheckoutFeeQuoteFingerprint: state.marketplaceCheckoutFeeQuoteFingerprint,
@@ -1354,6 +1364,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         balanceCreditAmount: event.data.balanceCreditAmount,
         processorAmount: event.data.processorAmount,
         marketplaceSalesFeeAmount: event.data.marketplaceSalesFeeAmount,
+        authenticityFeeAmount: event.data.authenticityFeeAmount ?? "0.00",
         marketplaceCheckoutFeeAmount: event.data.marketplaceCheckoutFeeAmount,
         marketplaceCheckoutFeePolicyVersion: event.data.marketplaceCheckoutFeePolicyVersion ?? null,
         marketplaceCheckoutFeeQuoteFingerprint: event.data.marketplaceCheckoutFeeQuoteFingerprint ?? null,

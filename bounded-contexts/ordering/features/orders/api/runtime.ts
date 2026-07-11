@@ -82,6 +82,8 @@ import {
   type OrderingOrderState,
 } from "../domain/domain";
 import { createFulfillmentDeliveryPromise } from "../domain/fulfillment-delivery-promise";
+import { quoteAuthenticityCheckFee, type AuthenticityCheckFeeQuote } from "../domain/authenticity-check-fee";
+import type { AuthenticityFeePolicyResolver } from "./authenticity-fee-policy-resolver";
 
 export type TaxDestinationAddress = AddressSnapshot;
 
@@ -188,6 +190,7 @@ type OrderRuntimeDeps = Readonly<{
   postagePolicyResolver?: PostagePolicyResolver;
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
+  authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
 }>;
 
 export type CheckoutOrderLineSnapshot = Readonly<{
@@ -355,6 +358,13 @@ export type CheckoutFulfillmentPreview = Readonly<{
     reason: string;
   }>[];
   materialChangeReasons: readonly string[];
+  /**
+   * The authenticity-check opt-in offer (m109): null when the
+   * checkout has more than one seller group (single-seller only in v1) or
+   * the policy resolver is not wired; otherwise a quote that may itself be
+   * `eligible: false` when the order value is below the opt-in threshold.
+   */
+  authenticityCheckOffer: AuthenticityCheckFeeQuote | null;
 }>;
 
 type OrderingCommitMetadata = Readonly<{
@@ -384,6 +394,15 @@ export type OrderingOrderServices = Readonly<{
       checkoutReservations?: readonly CheckoutInventoryReservationInput[];
       customerAccountIsGuest?: boolean;
       orderIdsOverride?: readonly OrderId[];
+      /**
+       * The buyer's authenticity-check opt-in (m109), carrying the
+       * quote fingerprint they last saw at checkout. Ordering
+       * re-resolves the policy and recomputes the fee live against the
+       * actual committed order value; a fingerprint mismatch rejects the
+       * whole checkout submission with `authenticity_fee_quote_stale`
+       * rather than silently freezing a different amount.
+       */
+      authenticityCheckOptIn?: Readonly<{ selected: true; quoteFingerprint: string }> | null;
     }>,
     context: EventStoreContext,
   ) => Promise<OrderingOrderCreationResult>;
@@ -396,6 +415,8 @@ export type OrderingOrderServices = Readonly<{
       shippingAddress?: CheckoutShippingAddressSnapshot | null;
       lines: readonly CheckoutOrderLineSnapshot[];
       optimizationGoal?: "lowest-total" | "fewest-shipments";
+      /** When true, the delivery estimate reflects the facility inspection allowance (m109). */
+      authenticityCheckOptIn?: boolean;
     }>,
   ) => Promise<CheckoutFulfillmentPreview>;
   createOrdersFromAcceptedOffer: (
@@ -1098,12 +1119,14 @@ function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) 
       )
       .join(";"),
     preview.totals.totalAmount,
+    preview.authenticityCheckOffer?.quote_fingerprint ?? "no-authenticity-check-offer",
   ].join("#");
 }
 
 function fulfillmentDeliveryPromiseForDraft(
   draft: SellerOrderDraft,
   shippingDestinationSnapshot: CheckoutShippingAddressSnapshot | null | undefined,
+  authenticityCheckSelected?: boolean,
 ) {
   const postagePolicySnapshot = requirePostagePolicySnapshot(draft);
   const serviceLevels = [
@@ -1119,7 +1142,61 @@ function fulfillmentDeliveryPromiseForDraft(
     serviceLevels,
     shipFrom: draft.shippingOriginSnapshot,
     shipTo: shippingDestinationSnapshot,
+    authenticityCheckSelected,
   });
+}
+
+/**
+ * Resolves the authenticity-check opt-in offer (m109) for a checkout
+ * plan: single-seller only in v1 (mirrors the issue's own "all lines are
+ * eligible (single seller -- already the order shape)" simplification),
+ * banded on the declared item subtotal of that one seller order. Returns
+ * null when the plan spans more than one seller or the policy resolver
+ * host port is not wired (feature effectively off), rather than an
+ * ineligible quote, so callers can distinguish "not offered" from
+ * "offered but below threshold."
+ */
+async function resolveAuthenticityCheckOffer(
+  deps: Pick<OrderRuntimeDeps, "authenticityFeePolicyResolver">,
+  plan: Pick<CheckoutPlan, "orderDrafts">,
+): Promise<AuthenticityCheckFeeQuote | null> {
+  if (!deps.authenticityFeePolicyResolver || plan.orderDrafts.length !== 1) {
+    return null;
+  }
+
+  const draft = plan.orderDrafts[0]!;
+  const resolved = await deps.authenticityFeePolicyResolver.resolveAuthenticityFeePolicy();
+  return quoteAuthenticityCheckFee({ orderValueAmount: draft.itemSubtotalAmount, category: "any" }, resolved.value);
+}
+
+/**
+ * Validates and freezes the buyer's authenticity-check opt-in at order
+ * creation. Re-resolves the policy and recomputes the fee live against the
+ * committed order value rather than trusting the client-supplied amount --
+ * the buyer only supplies the fingerprint of the quote they saw at opt-in
+ * time, which must match Ordering's authoritative recomputation exactly
+ * (order value, category, and policy version) or the whole checkout
+ * submission is rejected as stale (`authenticity_fee_quote_stale`),
+ * mirroring the marketplace checkout fee's `fee_quote_stale` 409 pattern.
+ */
+async function resolveAuthenticityCheckOptIn(
+  deps: Pick<OrderRuntimeDeps, "authenticityFeePolicyResolver">,
+  plan: Pick<CheckoutPlan, "orderDrafts">,
+  optIn: Readonly<{ selected: true; quoteFingerprint: string }> | null | undefined,
+): Promise<AuthenticityCheckFeeQuote | null> {
+  if (!optIn?.selected) {
+    return null;
+  }
+
+  const offer = await resolveAuthenticityCheckOffer(deps, plan);
+  if (!offer || !offer.eligible) {
+    throw new OrderingDomainError("Authenticity check is no longer available for this order.");
+  }
+  if (offer.quote_fingerprint !== optIn.quoteFingerprint) {
+    throw new OrderingDomainError(`authenticity_fee_quote_stale:${JSON.stringify(offer)}`);
+  }
+
+  return offer;
 }
 
 function requirePostagePolicySnapshot(draft: SellerOrderDraft) {
@@ -1152,6 +1229,8 @@ function planToPreview(
     optimizationGoal: "lowest-total" | "fewest-shipments";
     shippingDestinationSnapshot?: CheckoutShippingAddressSnapshot | null;
     unavailableLines: CheckoutFulfillmentPreview["unavailableLines"];
+    authenticityCheckOptIn?: boolean;
+    authenticityCheckOffer?: AuthenticityCheckFeeQuote | null;
   }>,
 ): CheckoutFulfillmentPreview {
   const lineKeysByDemand = new Map<string, string[]>();
@@ -1171,7 +1250,11 @@ function planToPreview(
     salesTaxAmount: draft.salesTaxAmount,
     totalAmount: draft.totalAmount,
     postageRequirements: postageRequirementsForDraft(draft),
-    deliveryEstimate: fulfillmentDeliveryPromiseForDraft(draft, params.shippingDestinationSnapshot),
+    deliveryEstimate: fulfillmentDeliveryPromiseForDraft(
+      draft,
+      params.shippingDestinationSnapshot,
+      params.authenticityCheckOptIn,
+    ),
     lines: draft.lines.map((line) => {
       const demandKey = buildDemandSignature(line.productId);
       const lineKey = lineKeysByDemand.get(demandKey)?.shift() ?? line.listingId;
@@ -1199,6 +1282,14 @@ function planToPreview(
   const materialChangeReasons = sellerGroups.flatMap((group) =>
     group.lines.flatMap((line) => line.materialChangeReasons),
   );
+  // The payable total reflects the authenticity check fee only once the
+  // buyer has actually opted in (not merely because the order is
+  // eligible) -- otherwise the preview would overstate the total for
+  // buyers who never selected it.
+  const authenticityCheckFeeAmount =
+    params.authenticityCheckOptIn && params.authenticityCheckOffer?.eligible
+      ? params.authenticityCheckOffer.fee_amount
+      : "0.00";
   const withoutRevision = {
     optimizationGoal: params.optimizationGoal,
     readyLineKeys,
@@ -1208,11 +1299,12 @@ function planToPreview(
       itemSubtotalAmount: centsToMoneyAmount(params.plan.itemSubtotalAmount),
       shippingAmount,
       salesTaxAmount,
-      totalAmount: centsToMoneyAmount(params.plan.totalAmount),
+      totalAmount: addMoneyAmounts(centsToMoneyAmount(params.plan.totalAmount), authenticityCheckFeeAmount),
       packageCount: params.plan.orderCount,
     },
     unavailableLines: params.unavailableLines,
     materialChangeReasons,
+    authenticityCheckOffer: params.authenticityCheckOffer ?? null,
   };
 
   return {
@@ -1240,9 +1332,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     shippingDestinationSnapshot: AddressSnapshot,
     context: EventStoreContext,
     orderIdsOverride?: readonly OrderId[],
+    authenticityPlan?: AuthenticityCheckFeeQuote | null,
   ) => {
     if (orderIdsOverride && orderIdsOverride.length !== plan.orderDrafts.length) {
       throw new OrderingDomainError("Order seed overrides must match the number of generated seller orders.");
+    }
+    if (authenticityPlan && plan.orderDrafts.length !== 1) {
+      throw new OrderingDomainError("Authenticity check requires a single-seller order.");
     }
 
     const orderIds: OrderId[] = [];
@@ -1260,6 +1356,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         ? (planTermsForLines(draft.lines, "termsResolvedAt") ?? new Date().toISOString())
         : new Date().toISOString();
       const orderId = orderIdsOverride?.[draftIndex] ?? (createId("ord") as OrderId);
+      // The authenticity fee is a buyer-charged addition to the order total
+      // (like tax), applied to the sole seller order draft when the buyer
+      // opted in -- v1 is single-seller only (asserted above).
+      const authenticityFeeAmount = draftIndex === 0 ? (authenticityPlan?.fee_amount ?? null) : null;
+      const totalAmount = authenticityFeeAmount
+        ? addMoneyAmounts(draft.totalAmount, authenticityFeeAmount)
+        : draft.totalAmount;
       const result = await commandHandler({
         streamId: `ordering.order-${orderId}`,
         command: {
@@ -1278,7 +1381,19 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           shippingChargeAmount: draft.shippingChargeAmount,
           shippingPlanSnapshot: draft.shippingPlanSnapshot,
           salesTaxAmount: draft.salesTaxAmount,
-          totalAmount: draft.totalAmount,
+          totalAmount,
+          authenticityPlanSnapshot:
+            authenticityFeeAmount && authenticityPlan
+              ? {
+                  feeAmount: authenticityFeeAmount,
+                  payer: "buyer",
+                  policyVersion: authenticityPlan.policy_version,
+                  category: authenticityPlan.category,
+                  thresholdAmount: authenticityPlan.threshold_amount,
+                  orderValueAmount: authenticityPlan.order_value_amount,
+                  quotedAt: authenticityPlan.quoted_at,
+                }
+              : null,
           taxSnapshot: {
             taxableAmount: draft.taxQuote.taxableAmount,
             salesTaxAmount: draft.salesTaxAmount,
@@ -1687,6 +1802,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           },
           unavailableLines,
           materialChangeReasons: ["unavailable-lines"],
+          authenticityCheckOffer: null,
         };
         return {
           ...withoutRevision,
@@ -1729,12 +1845,16 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         taxQuoteResolver,
       );
 
+      const authenticityCheckOffer = await resolveAuthenticityCheckOffer(deps, taxAdjustedPlan);
+
       return planToPreview({
         plan: taxAdjustedPlan,
         sourceLines: readyLines,
         optimizationGoal,
         shippingDestinationSnapshot: params.shippingAddress ?? null,
         unavailableLines,
+        authenticityCheckOptIn: params.authenticityCheckOptIn,
+        authenticityCheckOffer,
       });
     },
     createOrdersFromCheckout: async (params, context) => {
@@ -1747,7 +1867,10 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         throw new OrderingDomainError("Checkout must contain at least one line.");
       }
 
-      const preview = await createOrderingOrderRuntime(deps).previewCheckoutFulfillment(params);
+      const preview = await createOrderingOrderRuntime(deps).previewCheckoutFulfillment({
+        ...params,
+        authenticityCheckOptIn: Boolean(params.authenticityCheckOptIn?.selected),
+      });
       if (preview.readyLineKeys.length === 0) {
         throw new OrderingDomainError("No checkout lines are currently fulfillable.");
       }
@@ -1794,12 +1917,18 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         normalizeAddressSnapshot(params.shippingAddress, "Shipping destination"),
         taxQuoteResolver,
       );
+      const authenticityPlan = await resolveAuthenticityCheckOptIn(
+        deps,
+        taxAdjustedPlan,
+        params.authenticityCheckOptIn,
+      );
       const result = await createOrdersFromPlan(
         params.buyerAccountId,
         taxAdjustedPlan,
         normalizeAddressSnapshot(params.shippingAddress, "Shipping destination"),
         context,
         params.orderIdsOverride,
+        authenticityPlan,
       );
 
       return result;

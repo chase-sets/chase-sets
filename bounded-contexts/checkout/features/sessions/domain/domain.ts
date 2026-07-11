@@ -48,6 +48,21 @@ export type CheckoutSessionLine = Readonly<{
   availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
+/**
+ * The buyer's authenticity-check opt-in selection (m109), tracked on
+ * the checkout session so it can be forwarded to Ordering at order
+ * creation. `quoteFingerprint` is the fingerprint of the offer the buyer
+ * last saw in the fulfillment preview (`fulfillmentPreviewSnapshot.authenticityCheckOffer`);
+ * Ordering re-resolves the policy and rejects the whole checkout
+ * submission as stale if it no longer matches its own authoritative
+ * recomputation.
+ */
+export type CheckoutAuthenticityCheckOptIn = Readonly<{
+  selected: boolean;
+  quoteFingerprint: string | null;
+  selectedAt: string;
+}>;
+
 export type CheckoutSessionReservation = Readonly<{
   holdId: string;
   lineKey: string;
@@ -91,6 +106,7 @@ export type CheckoutSessionState = Readonly<{
   splitGroupHandoff: CheckoutSplitGroupHandoff | null;
   shippingOption: ShippingOption;
   shippingAddress: CheckoutShippingAddress | null;
+  authenticityCheckOptIn: CheckoutAuthenticityCheckOptIn | null;
   lines: CheckoutSessionLine[];
   orderIds: readonly OrderId[];
   orderWriteCommitPositions: readonly CheckoutSourceCommitPosition[];
@@ -113,6 +129,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   splitGroupHandoff: null,
   shippingOption: "standard",
   shippingAddress: null,
+  authenticityCheckOptIn: null,
   lines: [],
   orderIds: [],
   orderWriteCommitPositions: [],
@@ -163,6 +180,13 @@ export type SetShippingAddressCommand = Readonly<{
   selectedAt: string;
 }>;
 
+export type SelectAuthenticityCheckOptInCommand = Readonly<{
+  type: "SelectAuthenticityCheckOptIn";
+  selected: boolean;
+  quoteFingerprint: string | null;
+  selectedAt: string;
+}>;
+
 export type RecordOrdersCreatedCommand = Readonly<{
   type: "RecordOrdersCreated";
   orderIds: readonly OrderId[];
@@ -199,6 +223,7 @@ export type CheckoutSessionCommand =
   | SelectOptimizationGoalCommand
   | RecordFulfillmentPreviewCommand
   | SetShippingAddressCommand
+  | SelectAuthenticityCheckOptInCommand
   | RecordCheckoutReservationsCommand
   | RecordOrdersCreatedCommand
   | RecordPaymentStartedCommand
@@ -259,6 +284,16 @@ export type CheckoutShippingAddressSetEvent = DomainEvent<
   }>
 >;
 
+export type CheckoutAuthenticityCheckOptInSelectedEvent = DomainEvent<
+  "checkout.session.authenticity-check-opt-in-selected",
+  Readonly<{
+    sessionId: CheckoutSessionId;
+    selected: boolean;
+    quoteFingerprint: string | null;
+    selectedAt: string;
+  }>
+>;
+
 export type CheckoutOrdersCreatedEvent = DomainEvent<
   "checkout.session.orders-created",
   Readonly<{
@@ -311,6 +346,7 @@ export type CheckoutSessionEvent =
   | CheckoutOptimizationGoalSelectedEvent
   | CheckoutFulfillmentPreviewRecordedEvent
   | CheckoutShippingAddressSetEvent
+  | CheckoutAuthenticityCheckOptInSelectedEvent
   | CheckoutReservationsRecordedEvent
   | CheckoutOrdersCreatedEvent
   | CheckoutPaymentStartedEvent
@@ -657,6 +693,29 @@ export const decideCheckoutSession: AggregateDecider<
           },
         },
       ];
+    case "SelectAuthenticityCheckOptIn":
+      assert(state.sessionId !== null, "Checkout session must be started first.");
+      assertSessionActive(state);
+      assert(state.orderIds.length === 0, "Authenticity check opt-in cannot change after orders are created.");
+      assert(!state.submittedOfferId, "Authenticity check opt-in cannot change after purchase intent is placed.");
+      assert(state.sourceType !== "offer-intent", "Purchase intent checkout does not offer the authenticity check.");
+      if (command.selected) {
+        assert(
+          normalizeOptionalText(command.quoteFingerprint) !== null,
+          "Authenticity check opt-in requires a current fee quote.",
+        );
+      }
+      return [
+        {
+          type: "checkout.session.authenticity-check-opt-in-selected",
+          data: {
+            sessionId: state.sessionId,
+            selected: command.selected,
+            quoteFingerprint: command.selected ? normalizeOptionalText(command.quoteFingerprint) : null,
+            selectedAt: normalizeRequiredText(command.selectedAt, "Authenticity check opt-in must record a timestamp."),
+          },
+        },
+      ];
     case "RecordOrdersCreated":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assertSessionActive(state, "Cancelled checkout sessions cannot create orders.");
@@ -774,6 +833,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         splitGroupHandoff: event.data.splitGroupHandoff ?? null,
         shippingOption: event.data.shippingOption,
         shippingAddress: null,
+        authenticityCheckOptIn: null,
         lines: event.data.lines,
         orderIds: [],
         orderWriteCommitPositions: [],
@@ -811,6 +871,21 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
       return {
         ...state,
         shippingAddress: event.data.shippingAddress,
+        fulfillmentPreviewRevision: null,
+        fulfillmentPreviewSnapshot: null,
+        updatedAt: event.data.selectedAt,
+      };
+    case "checkout.session.authenticity-check-opt-in-selected":
+      return {
+        ...state,
+        authenticityCheckOptIn: {
+          selected: event.data.selected,
+          quoteFingerprint: event.data.quoteFingerprint,
+          selectedAt: event.data.selectedAt,
+        },
+        // Re-fetching the fulfillment preview after this selection changes
+        // is required: the delivery-estimate window and the offer's own
+        // quote fingerprint both depend on whether the buyer opted in.
         fulfillmentPreviewRevision: null,
         fulfillmentPreviewSnapshot: null,
         updatedAt: event.data.selectedAt,

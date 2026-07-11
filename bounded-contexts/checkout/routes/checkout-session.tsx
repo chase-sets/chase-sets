@@ -807,6 +807,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const shippingAddressResult = await writeApi.selectShippingAddress(params.sessionId, {
         shippingAddress,
       });
+      const authenticityCheckOptInResult = await writeApi.selectAuthenticityCheckOptIn(params.sessionId, {
+        selected: String(formData.get("authenticityCheckOptIn") ?? "") === "true",
+        quoteFingerprint: String(formData.get("authenticityCheckOptInQuoteFingerprint") ?? "") || null,
+      });
       const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(writeApi, session, {
         shippingOption,
         shippingAddress,
@@ -814,7 +818,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const paymentMethodCategory = String(formData.get("previewPaymentMethodCategory") ?? "card");
       return redirect(
         await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
-          reviewedPreviewWriteSources([shippingOptionResult, shippingAddressResult, fulfillmentPreviewResult]),
+          reviewedPreviewWriteSources([
+            shippingOptionResult,
+            shippingAddressResult,
+            authenticityCheckOptInResult,
+            fulfillmentPreviewResult,
+          ]),
           `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
         ),
       );
@@ -853,6 +862,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
         : await writeApi.selectShippingOption(params.sessionId, {
             shippingOption,
           });
+      const authenticityCheckOptInResult = hasCommittedSideEffects
+        ? null
+        : await writeApi.selectAuthenticityCheckOptIn(params.sessionId, {
+            selected: String(formData.get("authenticityCheckOptIn") ?? "") === "true",
+            quoteFingerprint: String(formData.get("authenticityCheckOptInQuoteFingerprint") ?? "") || null,
+          });
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
       const visibleReviewChanged =
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
@@ -879,7 +894,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
           await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
-            reviewedPreviewWriteSources([shippingOptionResult, shippingAddressResult, fulfillmentPreviewResult]),
+            reviewedPreviewWriteSources([
+              shippingOptionResult,
+              shippingAddressResult,
+              authenticityCheckOptInResult,
+              fulfillmentPreviewResult,
+            ]),
             `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
           ),
         );

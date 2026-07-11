@@ -85,6 +85,32 @@ function errorCode(error: unknown) {
   return errorMessage(error).startsWith("Sign in is required") ? "account_sign_in_required" : "validation_failed";
 }
 
+/**
+ * Mirrors payments' `fee_quote_stale` 409 handling (m109): the
+ * authenticity-check fee quote the buyer saw at checkout opt-in time must
+ * match Ordering's authoritative recomputation at order-creation time. A
+ * mismatch (order value or policy changed between opt-in and submission)
+ * is rejected with a fresh quote rather than silently charging a different
+ * amount than what the buyer confirmed.
+ */
+function staleAuthenticityFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (!message.startsWith("authenticity_fee_quote_stale:")) {
+    return null;
+  }
+  const quote = JSON.parse(message.slice("authenticity_fee_quote_stale:".length));
+  return c.json(
+    {
+      error: {
+        code: "authenticity_fee_quote_stale",
+        message: t("ordering.features.orders.api.route.authenticity.fee.quote.stale"),
+      },
+      authenticity_check_offer: quote,
+    },
+    409,
+  );
+}
+
 function canViewReviewOpportunity(actor: OrderingApiEnv["Variables"]["actor"]) {
   return Boolean(actor?.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage"));
 }
@@ -103,6 +129,21 @@ function parseShippingAddress(value: unknown) {
     phone: source.phone === null || source.phone === undefined ? null : String(source.phone),
     email: source.email === null || source.email === undefined ? null : String(source.email),
   };
+}
+
+function parseAuthenticityCheckOptIn(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.selected !== true) {
+    return null;
+  }
+  const quoteFingerprint = String(record.quoteFingerprint ?? "").trim();
+  if (!quoteFingerprint) {
+    return null;
+  }
+  return { selected: true as const, quoteFingerprint };
 }
 
 function parseCheckoutReservations(value: unknown) {
@@ -138,6 +179,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
             ? parseShippingAddress(body.shippingAddress)
             : null,
         optimizationGoal: body.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
+        authenticityCheckOptIn: Boolean(parseAuthenticityCheckOptIn(body.authenticityCheckOptIn)?.selected),
         lines: Array.isArray(body.lines)
           ? body.lines.map((line: Record<string, unknown>) => ({
               listingId: line.listingId === null || line.listingId === undefined ? null : String(line.listingId),
@@ -207,6 +249,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
           customerAccountIsGuest:
             !access.actor.permissions.includes("orders.manage") &&
             access.actor.permissions.includes("guest-checkout.manage"),
+          authenticityCheckOptIn: parseAuthenticityCheckOptIn(body.authenticityCheckOptIn),
           lines: Array.isArray(body.lines)
             ? body.lines.map((line: Record<string, unknown>) => ({
                 listingId: line.listingId === null || line.listingId === undefined ? null : String(line.listingId),
@@ -239,7 +282,10 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
       return c.json({ ...result, status: "created" }, 201);
     } catch (error) {
-      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+      return (
+        staleAuthenticityFeeQuoteResponse(c, error) ??
+        c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400)
+      );
     }
   });
 

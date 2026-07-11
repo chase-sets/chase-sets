@@ -74,6 +74,8 @@ export type CreateCheckoutOrdersRequest = Readonly<{
   fulfillmentPreviewRevision?: string | null;
   acknowledgedMaterialChanges?: boolean;
   checkoutReservations?: readonly OrderingCheckoutReservationInput[];
+  /** The buyer's authenticity-check opt-in (m109). */
+  authenticityCheckOptIn?: Readonly<{ selected: true; quoteFingerprint: string }>;
 }>;
 
 export type CreateCheckoutOrdersResponse = Readonly<{
@@ -161,6 +163,17 @@ export type CheckoutFulfillmentPreview = Readonly<{
     reason: string;
   }>[];
   materialChangeReasons: readonly string[];
+  /** The authenticity-check opt-in offer (m109); null when not offered. */
+  authenticityCheckOffer?: Readonly<{
+    eligible: boolean;
+    order_value_amount: string;
+    threshold_amount: string;
+    category: "raw" | "graded" | "any";
+    fee_amount: string;
+    policy_version: string;
+    quote_fingerprint: string;
+    quoted_at: string;
+  }> | null;
 }>;
 
 export type PostagePolicyAdminRecord = Readonly<{

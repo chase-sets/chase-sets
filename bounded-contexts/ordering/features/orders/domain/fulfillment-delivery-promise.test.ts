@@ -85,4 +85,30 @@ describe("fulfillment delivery promise policy", () => {
     expect(promise.carrierHandoffDate).toBe("2026-06-03");
     expect(promise.serviceLevel).toBe("standard parcel, priority signature");
   });
+
+  it("extends the transit window by the facility inspection allowance for authenticity-checked orders", () => {
+    const standard = createFulfillmentDeliveryPromise({
+      ...baseInput,
+      now: "2026-06-01T15:00:00.000Z",
+    });
+    const authenticated = createFulfillmentDeliveryPromise({
+      ...baseInput,
+      now: "2026-06-01T15:00:00.000Z",
+      authenticityCheckSelected: true,
+    });
+
+    expect(authenticated.minimumTransitDays).toBe(standard.minimumTransitDays + 2);
+    expect(authenticated.maximumTransitDays).toBe(standard.maximumTransitDays + 4);
+    expect(authenticated.basis).toContain("authenticity check");
+  });
+
+  it("leaves the transit window unchanged when authenticity check is not selected", () => {
+    const promise = createFulfillmentDeliveryPromise({
+      ...baseInput,
+      now: "2026-06-01T15:00:00.000Z",
+      authenticityCheckSelected: false,
+    });
+
+    expect(promise.basis).not.toContain("authenticity check");
+  });
 });

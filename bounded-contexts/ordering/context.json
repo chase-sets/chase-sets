@@ -252,6 +252,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by order event projectors."
+    },
+    {
+      "portName": "authenticityFeePolicyResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolves the authenticity-check fee policy (m109 #4275) so Ordering can offer and freeze the buyer opt-in fee at checkout preview and order-creation time."
     }
   ],
   "apiDeployables": ["platform-api"],

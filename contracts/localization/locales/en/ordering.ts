@@ -141,6 +141,8 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.api.route.authentication.context.missing.2": "Authentication context missing.",
   "ordering.features.orders.api.route.authentication.context.missing.3": "Authentication context missing.",
   "ordering.features.orders.api.route.authentication.required": "Authentication required.",
+  "ordering.features.orders.api.route.authenticity.fee.quote.stale":
+    "The authenticity check fee changed. Review the updated fee before continuing.",
   "ordering.features.orders.api.route.forbidden": "Forbidden.",
   "ordering.features.orders.api.route.purchase.not.found": "Purchase not found.",
   "ordering.features.orders.api.route.request.failed": "Request failed.",

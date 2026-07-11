@@ -149,6 +149,44 @@ describe("ordering order domain", () => {
     ).toEqual([]);
   });
 
+  it("creates an order with no authenticity plan when the buyer did not opt in", () => {
+    const createdState = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
+      evolveOrderingOrder,
+      initialOrderingOrderState,
+    );
+
+    expect(createdState.authenticityPlanSnapshot).toBeNull();
+  });
+
+  it("freezes the authenticity plan onto the order when the buyer opted in at checkout", () => {
+    const command: CreateOrderCommand = {
+      ...createOrderCommand("cart-checkout"),
+      authenticityPlanSnapshot: {
+        feeAmount: "10.00",
+        payer: "buyer",
+        policyVersion: "authenticity-check-fee-v1",
+        category: "any",
+        thresholdAmount: "100.00",
+        orderValueAmount: "150.00",
+        quotedAt: "2026-03-31T00:00:00.000Z",
+      },
+    };
+    const createdState = decideOrderingOrder(initialOrderingOrderState, command).reduce(
+      evolveOrderingOrder,
+      initialOrderingOrderState,
+    );
+
+    expect(createdState.authenticityPlanSnapshot).toEqual({
+      feeAmount: "10.00",
+      payer: "buyer",
+      policyVersion: "authenticity-check-fee-v1",
+      category: "any",
+      thresholdAmount: "100.00",
+      orderValueAmount: "150.00",
+      quotedAt: "2026-03-31T00:00:00.000Z",
+    });
+  });
+
   it("marks a pending order ready for fulfillment after payment capture", () => {
     const createdState = decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
       evolveOrderingOrder,

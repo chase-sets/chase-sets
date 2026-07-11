@@ -35,3 +35,7 @@ A **Seller Net** is the amount remaining from the resolved basis amount after th
 ## Checkout Processing-Fee Policy
 
 A **Checkout Processing-Fee Policy** is the runtime-configurable, admin-managed policy for the buyer-side Marketplace Checkout Fee: base percentage/fixed terms, per-payment-method-category adjustments, and enabled jurisdictions. It is account-type-agnostic and effective-windowed, declared on the shared `@chase-sets/platform-policy` machinery rather than the Commercial Terms Schedule/Agreement pattern. Payments resolves the current value at quote time and owns the quote math itself; Commercial Terms owns only the policy value.
+
+## Authenticity Fee Policy
+
+An **Authenticity Fee Policy** is the runtime-configurable, admin-managed policy for the buyer-opt-in Authenticity Check fee (m109): an opt-in order-value threshold plus banded flat + percentage-of-order-value terms, capped per band, with an optional per-category (raw/graded) override. It follows the Checkout Processing-Fee Policy pattern exactly, declared on the shared `@chase-sets/platform-policy` machinery. Ordering resolves the current value at checkout-preview and order-creation time and owns the quote math itself; Commercial Terms owns only the policy value.

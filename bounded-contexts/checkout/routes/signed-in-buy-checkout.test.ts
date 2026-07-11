@@ -26,6 +26,7 @@ import {
   mockPreviewCheckoutStatus,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockSelectAuthenticityCheckOptIn,
   mockSelectShippingOption,
   mockStartGuestCheckout,
 } from "../tests/support/checkout-route-test-harness";
@@ -430,6 +431,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
       getCheckoutSession: mockGetCheckoutSession,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -601,6 +603,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
       getCheckoutSession: mockGetCheckoutSession,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
     const confirmForm = new URLSearchParams();

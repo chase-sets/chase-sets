@@ -18,6 +18,7 @@ export type LedgerEntryFundsStatus = "pending" | "available";
 export type LedgerEntryKind =
   | "sale"
   | "fee"
+  | "authenticity-fee"
   | "rebate"
   | "refund"
   | "platform-purchase"
@@ -200,6 +201,8 @@ export function normalizeLedgerEntryKind(value: string): LedgerEntryKind {
       return "sale";
     case "fee":
       return "fee";
+    case "authenticity-fee":
+      return "authenticity-fee";
     case "rebate":
       return "rebate";
     case "refund":

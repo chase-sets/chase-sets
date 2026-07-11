@@ -168,6 +168,10 @@ export async function createCheckoutOrdersThroughOrdering(
       quantity: reservation.quantity,
     })),
     lines: session.lines,
+    authenticityCheckOptIn:
+      session.authenticity_check_opt_in?.selected && session.authenticity_check_opt_in.quoteFingerprint
+        ? { selected: true, quoteFingerprint: session.authenticity_check_opt_in.quoteFingerprint }
+        : undefined,
   });
 
   return {
@@ -308,6 +312,10 @@ export async function previewCheckoutFulfillmentThroughOrdering(
     shippingAddress: options.shippingAddress ?? session.shipping_address,
     optimizationGoal: session.optimization_goal,
     lines: session.lines,
+    authenticityCheckOptIn:
+      session.authenticity_check_opt_in?.selected && session.authenticity_check_opt_in.quoteFingerprint
+        ? { selected: true, quoteFingerprint: session.authenticity_check_opt_in.quoteFingerprint }
+        : undefined,
   });
 }
 

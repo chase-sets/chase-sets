@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   shipping_option text NOT NULL,
   shipping_address_id text NULL,
   shipping_address jsonb NULL,
+  authenticity_check_opt_in jsonb NULL,
   lines jsonb NOT NULL DEFAULT '[]'::jsonb,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -63,6 +64,14 @@ export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
     statements: [
       `ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL;`,
+    ],
+  },
+  {
+    migrationId: "20260711_checkout_session_authenticity_opt_in",
+    description: "Add the buyer authenticity-check opt-in snapshot to checkout session pages.",
+    statements: [
+      `ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS authenticity_check_opt_in jsonb NULL;`,
     ],
   },
 ];

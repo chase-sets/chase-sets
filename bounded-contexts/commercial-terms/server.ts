@@ -8,6 +8,7 @@ import {
   checkoutProcessingFeePolicy,
   type CheckoutProcessingFeePolicyValue,
 } from "./features/checkout-processing-fee/domain/policy";
+import { authenticityFeePolicy, type AuthenticityFeePolicyValue } from "./features/authenticity-fee/domain/policy";
 
 export type { CommercialTermsResolver, ResolvedCommercialTerms } from "./features/resolutions/read-model/resolve";
 export type { CommercialTermsAccountSource } from "./features/resolutions/read-model/resolve";
@@ -77,3 +78,56 @@ export function createNoopCheckoutProcessingFeePolicyResolver(): CheckoutProcess
 }
 
 export type { CheckoutProcessingFeePolicyValue } from "./features/checkout-processing-fee/domain/policy";
+
+export type ResolvedAuthenticityFeePolicy = Readonly<{
+  value: AuthenticityFeePolicyValue;
+  source: "policy" | "fallback";
+  documentId: string | null;
+  effectiveFrom: string | null;
+  resolvedAt: string;
+}>;
+
+export type AuthenticityFeePolicyResolver = Readonly<{
+  resolveAuthenticityFeePolicy: (params?: Readonly<{ at?: string }>) => Promise<ResolvedAuthenticityFeePolicy>;
+}>;
+
+/**
+ * Cross-context read port for the authenticity-check fee policy (m109):
+ * Ordering consumes this (as its `authenticityFeePolicyResolver`
+ * host port) without ever querying Commercial Terms' storage directly.
+ * Mirrors `createCheckoutProcessingFeePolicyResolver` exactly, including
+ * the fresh-uncached-resolver rationale documented there.
+ */
+export function createAuthenticityFeePolicyResolver(db: PgQueryable): AuthenticityFeePolicyResolver {
+  return {
+    resolveAuthenticityFeePolicy: async (params) => {
+      const resolver = createPolicyResolver({ db });
+      const resolved = await resolver.resolvePolicy(authenticityFeePolicy, params?.at ? { at: params.at } : undefined);
+      return {
+        value: resolved.value,
+        source: resolved.source,
+        documentId: resolved.documentId,
+        effectiveFrom: resolved.effectiveFrom,
+        resolvedAt: resolved.resolvedAt,
+      };
+    },
+  };
+}
+
+export function createNoopAuthenticityFeePolicyResolver(): AuthenticityFeePolicyResolver {
+  return {
+    resolveAuthenticityFeePolicy: async (params) => ({
+      value: authenticityFeePolicy.defaultValue,
+      source: "fallback",
+      documentId: null,
+      effectiveFrom: null,
+      resolvedAt: params?.at ?? new Date().toISOString(),
+    }),
+  };
+}
+
+export type {
+  AuthenticityFeePolicyValue,
+  AuthenticityFeeBand,
+  AuthenticityFeeCategory,
+} from "./features/authenticity-fee/domain/policy";

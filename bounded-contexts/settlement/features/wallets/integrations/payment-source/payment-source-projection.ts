@@ -56,6 +56,54 @@ async function debitAppliedBalanceCredit(
   }
 }
 
+/**
+ * The well-known platform-revenue account the authenticity-check fee
+ * (m109) is credited to on capture. `wallets.postEntry` opens this
+ * wallet idempotently on first use (see `ensureWallet` in
+ * `../../api/runtime.ts`), so no separate provisioning step is required.
+ * Scoped to this one fee for now -- introducing a general platform
+ * chart-of-accounts for every existing fee (e.g. the marketplace sales
+ * fee, which today is not posted as an explicit ledger entry at all) is a
+ * larger, separate reconciliation initiative and out of scope here.
+ */
+const AUTHENTICITY_FEE_PLATFORM_ACCOUNT_ID = "acc_platform_authenticity_fee_revenue" as AccountId;
+
+async function creditAuthenticityFee(
+  wallets: WalletServices | undefined,
+  data: Readonly<{
+    paymentId: string;
+    amount: string;
+    currencyCode: string;
+    capturedAt: string;
+  }>,
+  event: TransportEvent,
+) {
+  if (!wallets || compareMoney(data.amount, "0.00") === 0) {
+    return;
+  }
+
+  await postWalletEntryIdempotently(
+    wallets,
+    {
+      accountId: AUTHENTICITY_FEE_PLATFORM_ACCOUNT_ID,
+      ledgerEntryId: `led_authenticity_fee_${data.paymentId}` as LedgerEntryId,
+      kind: "authenticity-fee",
+      direction: "credit",
+      amount: data.amount,
+      currencyCode: normalizeCurrencyCode(data.currencyCode),
+      fundsStatus: "available",
+      paymentId: data.paymentId as PaymentId,
+      description: `Authenticity check fee for payment ${data.paymentId}`,
+      postedAt: data.capturedAt,
+    },
+    {
+      tenantId: event.tenantId,
+      audit: event.audit,
+      trace: event.trace,
+    },
+  );
+}
+
 type SellerPayoutComponent = Readonly<{
   orderId: string;
   sellerAccountId: string;
@@ -597,6 +645,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
         balanceCreditAmount?: string;
         currencyCode?: string;
         sellerPayouts?: unknown;
+        authenticityFeeAmount?: string;
         processorStatus: string;
         capturedAt: string;
       };
@@ -633,6 +682,16 @@ export function buildSettlementPaymentInputProjectionHandlers(
           currencyCode: data.currencyCode ?? "usd",
           capturedAt: data.capturedAt,
           sellerPayouts: normalizeSellerPayoutComponents(data.sellerPayouts),
+        },
+        event,
+      );
+      await creditAuthenticityFee(
+        wallets,
+        {
+          paymentId: data.paymentId,
+          amount: data.authenticityFeeAmount ?? "0.00",
+          currencyCode: data.currencyCode ?? "usd",
+          capturedAt: data.capturedAt,
         },
         event,
       );

@@ -369,6 +369,10 @@ export function CheckoutSessionPage({
           email: guestBuyCheckout ? (guestCheckoutContact?.contactEmail ?? "") : "",
         };
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
+  const authenticityCheckOffer = preview?.authenticityCheckOffer ?? null;
+  const authenticityCheckEligible = authenticityCheckOffer?.eligible === true;
+  const authenticityCheckSelected = session.authenticity_check_opt_in?.selected === true;
+  const authenticityCheckShowsInTotals = authenticityCheckEligible && authenticityCheckSelected;
   const orderReferenceValue = formatBuyCheckoutReferenceList(session.order_ids);
   const buySupportReferenceValue = buyCheckoutSupportReference(session);
   const quotedPaymentMethodCategories = payment
@@ -570,6 +574,14 @@ export function CheckoutSessionPage({
           },
         ]
       : []),
+    ...(authenticityCheckShowsInTotals && authenticityCheckOffer
+      ? [
+          {
+            label: t("checkout.features.sessions.ui.checkoutPage.authenticity.check.fee"),
+            value: `$${authenticityCheckOffer.fee_amount}`,
+          },
+        ]
+      : []),
     ...(wallet
       ? [
           {
@@ -690,6 +702,16 @@ export function CheckoutSessionPage({
               ? t("checkout.features.sessions.ui.checkoutPage.shipping.preference.is.captured.for.purchase.intent")
               : t("checkout.features.sessions.ui.checkoutPage.fulfillment.resolved.before.checkout"),
           },
+          ...(authenticityCheckShowsInTotals
+            ? [
+                {
+                  title: t("checkout.features.sessions.ui.checkoutPage.authenticity.check.protection"),
+                  description: t(
+                    "checkout.features.sessions.ui.checkoutPage.authenticity.check.protection.description",
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
     </Stack>
@@ -1300,8 +1322,42 @@ export function CheckoutSessionPage({
                       description={t("checkout.features.sessions.ui.checkoutPage.shipping.after.address.description")}
                     />
                   )}
+                  {authenticityCheckEligible && authenticityCheckOffer ? (
+                    <>
+                      <Checkbox
+                        label={t("checkout.features.sessions.ui.checkoutPage.authenticity.check.opt.in", {
+                          amount: `$${authenticityCheckOffer.fee_amount}`,
+                        })}
+                        description={t(
+                          "checkout.features.sessions.ui.checkoutPage.authenticity.check.opt.in.description",
+                        )}
+                        name="authenticityCheckOptIn"
+                        value="true"
+                        defaultChecked={authenticityCheckSelected}
+                        onCheckedChange={markReviewStale}
+                      />
+                      <HiddenInput
+                        type="hidden"
+                        name="authenticityCheckOptInQuoteFingerprint"
+                        value={authenticityCheckOffer.quote_fingerprint}
+                      />
+                    </>
+                  ) : (
+                    <HiddenInput
+                      type="hidden"
+                      name="authenticityCheckOptInQuoteFingerprint"
+                      value={session.authenticity_check_opt_in?.quoteFingerprint ?? ""}
+                    />
+                  )}
                 </CheckoutFormSection>
               </Surface>
+            ) : null}
+            {!showShippingMethodForm ? (
+              <HiddenInput
+                type="hidden"
+                name="authenticityCheckOptIn"
+                value={authenticityCheckSelected ? "true" : "false"}
+              />
             ) : null}
             {!isOfferIntent && showPaymentForm ? (
               <Surface elevated glow>

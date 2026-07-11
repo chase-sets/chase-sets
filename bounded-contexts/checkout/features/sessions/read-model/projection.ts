@@ -157,6 +157,33 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         ],
       );
     },
+    "checkout.session.authenticity-check-opt-in-selected": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data as {
+        sessionId: string;
+        selected: boolean;
+        quoteFingerprint: string | null;
+        selectedAt: string;
+      };
+
+      await projectionDb.query(
+        `UPDATE checkout_session_pages
+         SET authenticity_check_opt_in = $2,
+             fulfillment_preview_revision = NULL,
+             fulfillment_preview_snapshot = NULL,
+             updated_at = $3
+         WHERE session_id = $1`,
+        [
+          data.sessionId,
+          JSON.stringify({
+            selected: data.selected,
+            quoteFingerprint: data.quoteFingerprint,
+            selectedAt: data.selectedAt,
+          }),
+          data.selectedAt,
+        ],
+      );
+    },
     "checkout.session.orders-created": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {

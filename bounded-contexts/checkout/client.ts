@@ -178,6 +178,11 @@ export type SelectCheckoutShippingOptionRequest = Readonly<{
   shippingOption: string;
 }>;
 
+export type SelectCheckoutAuthenticityCheckOptInRequest = Readonly<{
+  selected: boolean;
+  quoteFingerprint?: string | null;
+}>;
+
 export type SelectCheckoutOptimizationGoalRequest = Readonly<{
   optimizationGoal: "lowest-total" | "fewest-shipments";
 }>;
@@ -686,6 +691,18 @@ export function createCheckoutApiClient({
     ): Promise<CheckoutMutationResult<{ status: string }>> {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"]["shipping-address"].$post({
+          param: { sessionId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async selectAuthenticityCheckOptIn(
+      sessionId: string,
+      body: SelectCheckoutAuthenticityCheckOptInRequest,
+    ): Promise<CheckoutMutationResult<{ status: string }>> {
+      return parseJsonResponse(
+        await client.account["checkout-sessions"][":sessionId"]["authenticity-check-opt-in"].$post({
           param: { sessionId },
           json: body,
           header: headers,

@@ -62,6 +62,7 @@ function orderRow() {
     sales_tax_amount: "0.00",
     total_amount: "42.00",
     marketplace_sales_fee_amount: "2.00",
+    authenticity_fee_amount: "0.00",
     marketplace_checkout_fee_amount: "1.00",
     seller_net_amount: "38.00",
     seller_item_net_amount: "38.00",

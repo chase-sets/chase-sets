@@ -11,6 +11,12 @@ export const commercialTermsEnglishTranslations = {
     "Checkout processing-fee document not found.",
   "commercialTerms.features.checkoutProcessingFee.api.route.forbidden": "Forbidden.",
   "commercialTerms.features.checkoutProcessingFee.api.route.request.failed": "Request failed.",
+  "commercialTerms.features.authenticityFee.api.route.authentication.context.missing":
+    "Authentication context missing.",
+  "commercialTerms.features.authenticityFee.api.route.authentication.required": "Authentication required.",
+  "commercialTerms.features.authenticityFee.api.route.document.not.found": "Authenticity fee document not found.",
+  "commercialTerms.features.authenticityFee.api.route.forbidden": "Forbidden.",
+  "commercialTerms.features.authenticityFee.api.route.request.failed": "Request failed.",
   "commercialTerms.features.agreements.ui.agreementDetailPage.account": "Account: ",
   "commercialTerms.features.agreements.ui.agreementDetailPage.account.type": "Account Type: ",
   "commercialTerms.features.agreements.ui.agreementDetailPage.admin": "Admin",
