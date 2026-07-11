@@ -122,10 +122,6 @@ export function canUseAccountCheckoutCart(actor: Awaited<ReturnType<typeof resol
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
 }
 
-export function formatAllowancePercentage(bps: number) {
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
-}
-
 export function parseMoneyAmount(value: string | null | undefined): number | null {
   const amount = Number.parseFloat(String(value ?? ""));
 

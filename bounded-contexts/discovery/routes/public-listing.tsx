@@ -1,4 +1,4 @@
-import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -422,7 +422,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                   label: t("discovery.routes.publicListing.shipping.credit"),
                   value:
                     listing.shipping_allowance_percentage_bps > 0
-                      ? `${listing.shipping_allowance_percentage_bps / 100}%`
+                      ? formatBpsPercent(listing.shipping_allowance_percentage_bps)
                       : t("discovery.routes.publicListing.none"),
                 },
                 {

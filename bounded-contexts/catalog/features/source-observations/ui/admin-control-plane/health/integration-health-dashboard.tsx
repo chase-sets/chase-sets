@@ -11,7 +11,7 @@ import {
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import type {
   CatalogPrimaryWorkbenchHealthTriageJob,
   CatalogPrimaryWorkbenchHealthTriageProvider,
@@ -141,7 +141,7 @@ const readModelColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageReadModelS
     key: "generated",
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated"),
-    cell: (row) => formatDateTime(row.generatedAt),
+    cell: (row) => formatWorkspaceDateTime(row.generatedAt),
   },
 ];
 
@@ -426,7 +426,7 @@ function CatalogIntegrationAuditTriage({
       key: "occurred",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.occurred"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.occurred"),
-      cell: (row) => formatDateTime(row.occurredAt),
+      cell: (row) => formatWorkspaceDateTime(row.occurredAt),
     },
   ];
 
@@ -515,15 +515,12 @@ function primaryActionLabel(action: CatalogPrimaryWorkbenchHealthTriageUnit["aff
   }
 }
 
-function formatDateTime(value: string | null | undefined) {
+function formatWorkspaceDateTime(value: string | null | undefined) {
   if (!value) {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
   }
 
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatDateTime(value);
 }
 
 function formatUsageBudgetCredits(

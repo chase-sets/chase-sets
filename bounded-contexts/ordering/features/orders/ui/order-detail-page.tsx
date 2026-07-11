@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
   Form,
   Badge,
@@ -22,10 +22,6 @@ import {
 } from "@chase-sets/design-system";
 import type { ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
-
-function formatTimestamp(value: string) {
-  return new Date(value).toLocaleString();
-}
 
 function isPendingStatus(status: string) {
   return status === "pending-payment" || status === "pending-reservation";
@@ -220,7 +216,7 @@ export function OrderingOrderDetailPage({
                   title: t("ordering.features.orders.ui.orderDetailPage.payment.state"),
                   description: paymentDeadlineAt
                     ? t("ordering.features.orders.ui.orderDetailPage.payment.deadline.description", {
-                        deadline: formatTimestamp(paymentDeadlineAt),
+                        deadline: formatDateTime(paymentDeadlineAt),
                       })
                     : order.status,
                 },
@@ -257,7 +253,7 @@ export function OrderingOrderDetailPage({
                   <Text size="sm" tone="secondary">
                     {t("ordering.features.orders.ui.orderDetailPage.terms.resolved")}
                   </Text>
-                  <Text>{new Date(order.terms_resolved_at).toLocaleString()}</Text>
+                  <Text>{formatDateTime(order.terms_resolved_at)}</Text>
                 </Stack>
               </Grid>
               <Divider />
@@ -266,7 +262,7 @@ export function OrderingOrderDetailPage({
                   tone="info"
                   title={t("ordering.features.orders.ui.orderDetailPage.payment.deadline.title")}
                   description={t("ordering.features.orders.ui.orderDetailPage.payment.deadline.description", {
-                    deadline: formatTimestamp(paymentDeadlineAt),
+                    deadline: formatDateTime(paymentDeadlineAt),
                   })}
                 />
               ) : null}

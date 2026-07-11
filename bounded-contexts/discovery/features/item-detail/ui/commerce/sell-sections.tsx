@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatBpsPercent, formatDateTime, t } from "@chase-sets/localization";
 import { useEffect, type FormEvent, type ReactNode } from "react";
 import {
   HiddenInput,
@@ -17,7 +17,6 @@ import {
 } from "@chase-sets/design-system";
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import {
-  formatAllowancePercentage,
   formatMoneyAmount,
   formatTermsSource,
   type MarketplaceListingTermsPreview,
@@ -87,7 +86,7 @@ export function MarketplaceOfferMatchSection({
     acceptanceTerms && acceptedValue !== null
       ? (acceptedValue * acceptanceTerms.shipping_allowance_percentage_bps) / 10000
       : null;
-  const quoteTime = acceptanceTerms ? new Date(acceptanceTerms.resolved_at).toLocaleString() : null;
+  const quoteTime = acceptanceTerms ? formatDateTime(acceptanceTerms.resolved_at) : null;
   const termsSource = acceptanceTerms
     ? formatTermsSource(acceptanceTerms)
     : t("discovery.routes.itemDetail.standard.terms");
@@ -273,7 +272,7 @@ export function MarketplaceOfferMatchSection({
                           key: t("discovery.routes.itemDetail.shipping.allowance"),
                           value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
                             amount: formatMoneyAmount(shippingAllowanceAmount),
-                            percentage: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
+                            percentage: formatBpsPercent(acceptanceTerms.shipping_allowance_percentage_bps),
                           }),
                         },
                       ]}
@@ -292,9 +291,7 @@ export function MarketplaceOfferMatchSection({
                               key: t("discovery.routes.itemDetail.shipping.allowance"),
                               value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
                                 amount: formatMoneyAmount(shippingAllowanceAmount),
-                                percentage: formatAllowancePercentage(
-                                  acceptanceTerms.shipping_allowance_percentage_bps,
-                                ),
+                                percentage: formatBpsPercent(acceptanceTerms.shipping_allowance_percentage_bps),
                               }),
                             },
                             {

@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -104,7 +104,7 @@ function setupStatusLabel(value: string) {
 
 function checkedAtLabel(value: string | null) {
   return value
-    ? new Date(value).toLocaleString()
+    ? formatDateTime(value)
     : t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.not.checked.yet");
 }
 

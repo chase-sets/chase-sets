@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import { useMemo, useState } from "react";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
@@ -46,17 +46,12 @@ function priorityTone(priority: string) {
   return priority === "urgent" ? "danger" : "neutral";
 }
 
-function formatDateTime(value: string | null) {
+function formatRequestDateTime(value: string | null) {
   if (!value) {
     return t("support.features.supportRequests.ui.supportRequestListPage.not.applicable");
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  return formatDateTime(value, { preset: "short" });
 }
 
 function nextDeadline(request: SupportRequestListItem) {
@@ -98,7 +93,7 @@ function SupportRequestTable({ requests }: Readonly<{ requests: readonly Support
       key: "nextDeadline",
       header: t("support.features.supportRequests.ui.supportRequestListPage.next.deadline"),
       mobileLabel: t("support.features.supportRequests.ui.supportRequestListPage.next.deadline"),
-      cell: (request) => formatDateTime(nextDeadline(request)),
+      cell: (request) => formatRequestDateTime(nextDeadline(request)),
     },
     {
       key: "checklist",

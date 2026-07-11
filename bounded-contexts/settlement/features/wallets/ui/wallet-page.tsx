@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDate, formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -35,7 +35,7 @@ function fundsAvailabilityLabel(row: SettlementLedgerEntryRow) {
   if (row.funds_status === "available") {
     return row.available_at
       ? t("settlement.features.wallets.ui.walletPage.available.on.date", {
-          date: new Date(row.available_at).toLocaleDateString(),
+          date: formatDate(row.available_at),
         })
       : t("settlement.features.wallets.ui.walletPage.available.now");
   }
@@ -43,7 +43,7 @@ function fundsAvailabilityLabel(row: SettlementLedgerEntryRow) {
     const availableAt = sellerFundsAvailableAt(row.posted_at);
     return availableAt
       ? t("settlement.features.wallets.ui.walletPage.expected.on.date", {
-          date: new Date(availableAt).toLocaleDateString(),
+          date: formatDate(availableAt),
         })
       : t("settlement.features.wallets.ui.walletPage.pending.review");
   }
@@ -296,7 +296,7 @@ export function SettlementWalletPage({
             {
               key: "posted_at",
               header: t("settlement.features.wallets.ui.walletPage.posted"),
-              cell: (row) => new Date(row.posted_at).toLocaleDateString(),
+              cell: (row) => formatDate(row.posted_at),
             },
           ]}
           emptyTitle={t("settlement.features.wallets.ui.walletPage.no.ledger.activity")}

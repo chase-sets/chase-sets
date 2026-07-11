@@ -29,7 +29,7 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatDateTime, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { useState } from "react";
 import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
 import { sellListConfirmationSupportReference } from "../read-model/support-reference";
@@ -220,10 +220,6 @@ function confirmationReferenceSummary(
     : t("checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.pending");
 }
 
-function formatAllowancePercentage(bps: number) {
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
-}
-
 function multiplyMoney(value: string | null | undefined, quantity: number) {
   return moneyNumber(value) * quantity;
 }
@@ -245,7 +241,7 @@ function formatAllowanceDelta(value: number) {
     return t("checkout.features.sellList.ui.sellListPage.no.change");
   }
 
-  return `${value > 0 ? "+" : "-"}${formatAllowancePercentage(Math.abs(value))}`;
+  return `${value > 0 ? "+" : "-"}${formatBpsPercent(Math.abs(value))}`;
 }
 
 function isPublicStandardTerms(terms: SellListTermsPreview | null | undefined) {
@@ -266,7 +262,7 @@ function termsSourceLabel(terms: SellListTermsPreview) {
 
 function formatResolvedAt(terms: SellListTermsPreview) {
   return terms.resolved_at
-    ? new Date(terms.resolved_at).toLocaleString()
+    ? formatDateTime(terms.resolved_at)
     : t("checkout.features.sellList.ui.sellListPage.just.now");
 }
 
@@ -537,7 +533,7 @@ function SellListTermsReferenceInfo({ review, quantity }: { review: SellListOffe
           ? [
               {
                 key: t("checkout.features.sellList.ui.sellListPage.shipping.allowance"),
-                value: `${formatMoney(allowanceAmount)} (${formatAllowancePercentage(allowanceBps)})`,
+                value: `${formatMoney(allowanceAmount)} (${formatBpsPercent(allowanceBps)})`,
               },
             ]
           : []),
@@ -938,7 +934,7 @@ function LatestSellListConfirmationPanel({ confirmation }: { confirmation: Check
               <Text size="sm" tone="secondary">
                 {t("checkout.features.sellList.ui.sellListPage.latest.confirmation.recorded")}
               </Text>
-              <Text>{new Date(confirmation.confirmed_at).toLocaleString()}</Text>
+              <Text>{formatDateTime(confirmation.confirmed_at)}</Text>
             </Stack>
             <Stack gap={1}>
               <Text size="sm" tone="secondary">

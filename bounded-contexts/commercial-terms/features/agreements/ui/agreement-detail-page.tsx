@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatMoney, t } from "@chase-sets/localization";
 import {
   Form,
   Badge,
@@ -64,15 +64,13 @@ export function AgreementDetailPage({
             </Text>
             <Text>
               {t("commercialTerms.features.agreements.ui.agreementDetailPage.marketplace.fee")}
-              {agreement.marketplace_sales_fee_percentage_bps}{" "}
-              {t("commercialTerms.features.agreements.ui.agreementDetailPage.bps")}
+              {formatBpsPercent(agreement.marketplace_sales_fee_percentage_bps)}
               {" + "}
               {formatMoney(agreement.marketplace_sales_fee_fixed_amount, "USD")}
             </Text>
             <Text>
               {t("commercialTerms.features.agreements.ui.agreementDetailPage.shipping.allowance")}
-              {agreement.shipping_allowance_percentage_bps}{" "}
-              {t("commercialTerms.features.agreements.ui.agreementDetailPage.bps")}
+              {formatBpsPercent(agreement.shipping_allowance_percentage_bps)}
             </Text>
             <Text>
               {t("commercialTerms.features.agreements.ui.agreementDetailPage.effective.from")}

@@ -1,4 +1,4 @@
-import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import {
   HiddenInput,
@@ -52,10 +52,6 @@ function formatMoney(amount: string | null) {
   }
 
   return formatMoneyDisplay(amount, "USD");
-}
-
-function formatAllowancePercentage(bps: number) {
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
 
 function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
@@ -516,7 +512,7 @@ export function MarketplaceListingCreatePage({
               },
               {
                 label: t("marketplace.features.listings.ui.listingCreatePage.buyer.shipping.credit.summary", {
-                  percentage: formatAllowancePercentage(createPreview.shipping_allowance_percentage_bps),
+                  percentage: formatBpsPercent(createPreview.shipping_allowance_percentage_bps),
                 }),
                 value: t("marketplace.features.listings.ui.listingCreatePage.if.you.create.the.listing.now"),
               },

@@ -1,4 +1,4 @@
-import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { formatDateTime, formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   HiddenInput,
@@ -51,7 +51,7 @@ function orderSourceRef(sourceRef: InventoryItemDetail["holds"][number]["source_
 }
 
 function formatTimestamp(value: string | null) {
-  return value ? new Date(value).toLocaleString() : "";
+  return value ? formatDateTime(value) : "";
 }
 
 function countdownLabel(expiresAt: string | null) {

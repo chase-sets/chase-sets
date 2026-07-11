@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
@@ -198,7 +198,7 @@ export default function AccountPaymentMethodsRoute() {
                     <Text tone="secondary">{paymentMethodCategoryLabel(method.payment_method_category)}</Text>
                     <Text tone="secondary">
                       {t("payments.routes.marketplace.accountPaymentMethods.updated", {
-                        date: new Date(method.updated_at).toLocaleString(),
+                        date: formatDateTime(method.updated_at),
                       })}
                     </Text>
                   </Stack>

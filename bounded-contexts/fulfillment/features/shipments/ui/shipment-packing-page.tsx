@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -116,12 +116,7 @@ function formatPackingTimestamp(value: string | null) {
     return t("fulfillment.features.shipments.ui.shipmentPackingPage.not.recorded");
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  return formatDateTime(value, { preset: "short" });
 }
 
 function packedQuantity(line: FulfillmentShipmentLine) {

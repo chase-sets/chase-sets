@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDate, formatMoney, t } from "@chase-sets/localization";
 import {
   AccountReputationSummary,
   Badge,
@@ -24,21 +24,6 @@ function statusTone(status: string) {
     default:
       return "neutral";
   }
-}
-
-function formatTimestamp(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
 }
 
 export function MarketplaceSubmittedOfferListPage({
@@ -105,7 +90,7 @@ export function MarketplaceSubmittedOfferListPage({
                       ) : null}
                       <Text size="sm" tone="secondary">
                         {t("marketplace.features.offers.ui.submittedOfferListPage.updated.on", {
-                          date: formatTimestamp(offer.updated_at),
+                          date: formatDate(offer.updated_at),
                         })}
                       </Text>
                     </Stack>

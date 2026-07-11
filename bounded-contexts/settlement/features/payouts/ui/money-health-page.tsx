@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -165,14 +165,12 @@ export function SettlementMoneyHealthPage({
             {
               key: "age",
               header: t("settlement.features.payouts.ui.moneyHealthPage.negative.since"),
-              cell: (row) =>
-                row.negative_balance_started_at ? new Date(row.negative_balance_started_at).toLocaleString() : "-",
+              cell: (row) => (row.negative_balance_started_at ? formatDateTime(row.negative_balance_started_at) : "-"),
             },
             {
               key: "collections",
               header: t("settlement.features.payouts.ui.moneyHealthPage.collections"),
-              cell: (row) =>
-                row.collections_escalated_at ? new Date(row.collections_escalated_at).toLocaleString() : "-",
+              cell: (row) => (row.collections_escalated_at ? formatDateTime(row.collections_escalated_at) : "-"),
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.moneyHealthPage.no.negative.balances")}
@@ -207,7 +205,7 @@ export function SettlementMoneyHealthPage({
             {
               key: "updated",
               header: t("settlement.features.payouts.ui.moneyHealthPage.updated"),
-              cell: (row) => new Date(row.updated_at).toLocaleString(),
+              cell: (row) => formatDateTime(row.updated_at),
             },
             {
               key: "action",
@@ -259,7 +257,7 @@ export function SettlementMoneyHealthPage({
             {
               key: "completed",
               header: t("settlement.features.payouts.ui.moneyHealthPage.completed"),
-              cell: (row) => new Date(row.completed_at).toLocaleString(),
+              cell: (row) => formatDateTime(row.completed_at),
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.moneyHealthPage.no.reconciliation.runs")}

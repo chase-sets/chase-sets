@@ -6,7 +6,7 @@ import {
   type NotificationCenterProductAlert,
   type NotificationCenterView,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   createNotificationCenterApiClient,
   type NotificationCenterFeedResponse,
@@ -111,7 +111,7 @@ export function NotificationCenterShell({
         title: item.title,
         body: item.body,
         sourceLabel: sourceLabel(item.messageType),
-        createdAtLabel: formatTimestamp(item.createdAt),
+        createdAtLabel: formatDateTime(item.createdAt),
         actionHref: item.actionHref,
         actionLabel: t("notifications.features.notificationCenter.ui.shell.open"),
         read: Boolean(item.readAt),
@@ -220,11 +220,6 @@ function sourceLabel(messageType: string) {
   }
 
   return t("notifications.features.notificationCenter.ui.shell.source.marketplace");
-}
-
-function formatTimestamp(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function productAlertDetail(alert: ProductAlertResponse["items"][number]) {

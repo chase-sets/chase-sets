@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatMoney, t } from "@chase-sets/localization";
 import { useLocation, useNavigate } from "react-router";
 import {
   Form,
@@ -113,15 +113,13 @@ export function AgreementListPage({
                 <Stack gap={1}>
                   <Text size="sm">
                     {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}
-                    {row.marketplace_sales_fee_percentage_bps}{" "}
-                    {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}
+                    {formatBpsPercent(row.marketplace_sales_fee_percentage_bps)}
                     {" + "}
                     {formatMoney(row.marketplace_sales_fee_fixed_amount, "USD")}
                   </Text>
                   <Text size="sm">
                     {t("commercialTerms.features.agreements.ui.agreementListPage.shipping.allowance")}
-                    {row.shipping_allowance_percentage_bps}{" "}
-                    {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}
+                    {formatBpsPercent(row.shipping_allowance_percentage_bps)}
                   </Text>
                 </Stack>
               ),

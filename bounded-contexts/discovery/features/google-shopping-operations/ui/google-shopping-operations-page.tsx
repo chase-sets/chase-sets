@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import { useEffect, useState } from "react";
 import { RouterForm } from "@chase-sets/design-system/react-router";
@@ -165,13 +165,13 @@ export function GoogleShoppingOperationsPage({
               </Badge>
               <Badge tone="info">
                 {t(`${routeKey}.generatedAt`, {
-                  value: formatDateTime(data.generatedAt),
+                  value: formatSyncDateTime(data.generatedAt),
                 })}
               </Badge>
             </Inline>
             <Text size="sm" tone="secondary">
               {t(`${routeKey}.refreshCutoff`, {
-                value: formatDateTime(data.refreshCutoff),
+                value: formatSyncDateTime(data.refreshCutoff),
               })}
             </Text>
           </Cluster>
@@ -231,7 +231,7 @@ export function GoogleShoppingOperationsPage({
             {
               key: "updated",
               header: t(`${routeKey}.updated`),
-              cell: (row) => formatDateTime(row.updatedAt),
+              cell: (row) => formatSyncDateTime(row.updatedAt),
             },
             {
               key: "action",
@@ -274,7 +274,7 @@ function GoogleShoppingJobSummary({
             { key: t(`${routeKey}.jobId`), value: breakable(jobId) },
             { key: t(`${routeKey}.jobKind`), value: job?.jobKind ?? t(`${routeKey}.none`) },
             { key: t(`${routeKey}.currentRow`), value: breakable(progress?.currentRowId ?? null) },
-            { key: t(`${routeKey}.updated`), value: formatDateTime(job?.updatedAt ?? null) },
+            { key: t(`${routeKey}.updated`), value: formatSyncDateTime(job?.updatedAt ?? null) },
           ]}
         />
         <StatGrid columns={{ base: 1, md: 4 }}>
@@ -481,9 +481,9 @@ function SelectedRowDetail({ row }: Readonly<{ row: GoogleShoppingFeedRowListIte
             { key: t(`${routeKey}.providerOperation`), value: row.lastProviderOperation ?? t(`${routeKey}.none`) },
             { key: t(`${routeKey}.syncErrorCode`), value: row.lastSyncErrorCode ?? t(`${routeKey}.none`) },
             { key: t(`${routeKey}.syncErrorMessage`), value: row.lastSyncErrorMessage ?? t(`${routeKey}.none`) },
-            { key: t(`${routeKey}.lastSubmittedAt`), value: formatDateTime(row.lastSubmittedAt) },
-            { key: t(`${routeKey}.lastAcceptedAt`), value: formatDateTime(row.lastAcceptedAt) },
-            { key: t(`${routeKey}.lastDiagnosticAt`), value: formatDateTime(row.lastDiagnosticAt) },
+            { key: t(`${routeKey}.lastSubmittedAt`), value: formatSyncDateTime(row.lastSubmittedAt) },
+            { key: t(`${routeKey}.lastAcceptedAt`), value: formatSyncDateTime(row.lastAcceptedAt) },
+            { key: t(`${routeKey}.lastDiagnosticAt`), value: formatSyncDateTime(row.lastDiagnosticAt) },
             { key: t(`${routeKey}.shippingPolicyUrl`), value: breakable(row.shippingPolicyUrl) },
             { key: t(`${routeKey}.returnPolicyUrl`), value: breakable(row.returnPolicyUrl) },
             { key: t(`${routeKey}.returnPolicyLabel`), value: breakable(row.returnPolicyLabel) },
@@ -605,20 +605,15 @@ function diagnosticTone(status: string | null): Tone {
 }
 
 function formatCount(value: number) {
-  return new Intl.NumberFormat("en-US").format(value);
+  return value.toLocaleString();
 }
 
-function formatDateTime(value: string | null) {
+function formatSyncDateTime(value: string | null) {
   if (!value) {
     return t(`${routeKey}.none`);
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  return formatDateTime(value, { preset: "short" });
 }
 
 function breakable(value: string | null) {

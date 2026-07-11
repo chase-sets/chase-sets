@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatBpsPercent, formatDate, formatMoney, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -22,6 +22,7 @@ import {
 } from "@chase-sets/design-system";
 import type { OfferBuyerMute, OfferMatchListItem } from "./contracts";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
+import { formatPriceGap } from "./price-gap";
 
 function statusTone(status: string) {
   switch (status) {
@@ -30,47 +31,6 @@ function statusTone(status: string) {
     default:
       return "neutral";
   }
-}
-
-function formatAllowancePercentage(bps: number) {
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
-}
-
-function formatPriceGap(amount: string) {
-  const value = Number(amount);
-
-  if (Number.isNaN(value)) {
-    return t("marketplace.features.offers.ui.offerMatchListPage.ask.gap.unknown");
-  }
-
-  if (value > 0) {
-    return t("marketplace.features.offers.ui.offerMatchListPage.below.ask", {
-      amount: formatMoney(value.toFixed(2), "USD"),
-    });
-  }
-
-  if (value < 0) {
-    return t("marketplace.features.offers.ui.offerMatchListPage.over.ask", {
-      amount: formatMoney(Math.abs(value).toFixed(2), "USD"),
-    });
-  }
-
-  return t("marketplace.features.offers.ui.offerMatchListPage.meets.ask");
-}
-
-function formatTimestamp(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
 }
 
 export function MarketplaceOfferMatchListPage({
@@ -85,7 +45,7 @@ export function MarketplaceOfferMatchListPage({
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
   const atOrAboveAskCount = data.items.filter((item) => item.offer_to_listing_price_bps >= 10000).length;
   const bestMatchPercentage = data.items.length
-    ? formatAllowancePercentage(Math.max(...data.items.map((item) => item.offer_to_listing_price_bps)))
+    ? formatBpsPercent(Math.max(...data.items.map((item) => item.offer_to_listing_price_bps)))
     : "0%";
   const listingsUnavailable = data.items.some((item) => item.seller_listing_availability_status === "unavailable");
   return (
@@ -214,7 +174,7 @@ export function MarketplaceOfferMatchListPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Badge tone={row.offer_to_listing_price_bps >= 10000 ? "success" : "accent"}>
-                    {formatAllowancePercentage(row.offer_to_listing_price_bps)}
+                    {formatBpsPercent(row.offer_to_listing_price_bps)}
                   </Badge>
                   <Text size="sm" tone="secondary">
                     {formatPriceGap(row.offer_price_gap_amount)}
@@ -260,7 +220,7 @@ export function MarketplaceOfferMatchListPage({
             {
               key: "updated",
               header: t("marketplace.features.offers.ui.offerMatchListPage.updated"),
-              cell: (row) => formatTimestamp(row.updated_at),
+              cell: (row) => formatDate(row.updated_at),
             },
             {
               key: "actions",
@@ -323,7 +283,7 @@ export function MarketplaceOfferMatchListPage({
             {
               key: "muted",
               header: t("marketplace.features.offers.ui.offerMatchListPage.muted.on"),
-              cell: (row) => formatTimestamp(row.muted_at),
+              cell: (row) => formatDate(row.muted_at),
             },
             {
               key: "actions",

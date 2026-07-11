@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDate, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -52,7 +52,7 @@ export function AccountProfilePage({
   actorDisplay?: CurrentActorDisplay | null;
 }) {
   const updatedAt = account.updated_at
-    ? new Date(account.updated_at).toLocaleDateString()
+    ? formatDate(account.updated_at)
     : t("identity.features.accounts.ui.accountProfilePage.not.available");
 
   return (

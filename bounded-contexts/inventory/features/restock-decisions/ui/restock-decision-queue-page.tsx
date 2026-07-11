@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -29,10 +29,6 @@ function sourceLabel(source: InventoryRestockDecision["source"]) {
     default:
       return source;
   }
-}
-
-function formatTimestamp(value: string) {
-  return new Date(value).toLocaleString();
 }
 
 export function RestockDecisionQueuePage({
@@ -81,7 +77,7 @@ export function RestockDecisionQueuePage({
                     <Text weight="semibold">{itemLabel(decision)}</Text>
                     {decision.item_subtitle ? <Text tone="secondary">{decision.item_subtitle}</Text> : null}
                     <Text tone="secondary" size="sm">
-                      {formatTimestamp(decision.pending_at)}
+                      {formatDateTime(decision.pending_at)}
                     </Text>
                   </Stack>
                   <Inline>

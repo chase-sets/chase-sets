@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import { useLiveConnectionStatus } from "@chase-sets/platform-runtime/live-connection-status";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -199,7 +199,9 @@ export function ProjectionOperationsPage({
               liveLabel={t(`${routeKey}.connectionLive`)}
               connectingLabel={t(`${routeKey}.connectionConnecting`)}
               staleLabel={t(`${routeKey}.connectionStaleSince`, {
-                value: operationsConnection.staleSince ? formatDate(operationsConnection.staleSince.toISOString()) : "",
+                value: operationsConnection.staleSince
+                  ? formatProjectionDateTime(operationsConnection.staleSince.toISOString())
+                  : "",
               })}
               staleDescription={t(`${routeKey}.connectionStaleDescription`)}
             />
@@ -619,7 +621,11 @@ function OperationsTable({
               target: operation.projectionName ?? operation.projectionKey ?? operation.streamId ?? t(`${routeKey}.all`),
             }),
         },
-        { key: "updated", header: t(`${routeKey}.updated`), cell: (operation) => formatDate(operation.updatedAt) },
+        {
+          key: "updated",
+          header: t(`${routeKey}.updated`),
+          cell: (operation) => formatProjectionDateTime(operation.updatedAt),
+        },
         {
           key: "actions",
           header: t(`${routeKey}.actions`),
@@ -843,7 +849,7 @@ function WorkersTable({
         {
           key: "updated",
           header: t(`${routeKey}.updated`),
-          cell: (row) => formatDate(String(row.updated_at ?? row.heartbeat_at ?? "")),
+          cell: (row) => formatProjectionDateTime(String(row.updated_at ?? row.heartbeat_at ?? "")),
         },
         {
           key: "actions",
@@ -892,10 +898,13 @@ function DiagnosticsPanel({ data }: Readonly<{ data: ProjectionOperationsSnapsho
               key: t(`${routeKey}.failedOperations`),
               value: formatDecimalCount(data.operationSummary?.failedCount ?? "0"),
             },
-            { key: t(`${routeKey}.oldestQueuedAt`), value: formatDate(data.operationSummary?.oldestQueuedAt ?? "") },
+            {
+              key: t(`${routeKey}.oldestQueuedAt`),
+              value: formatProjectionDateTime(data.operationSummary?.oldestQueuedAt ?? ""),
+            },
             {
               key: t(`${routeKey}.oldestRunningAt`),
-              value: formatDate(data.operationSummary?.oldestRunningAt ?? ""),
+              value: formatProjectionDateTime(data.operationSummary?.oldestRunningAt ?? ""),
             },
           ]}
         />
@@ -1088,9 +1097,9 @@ function resolveSelectedDetail(
         },
         { key: t(`${routeKey}.requestedBy`), value: operation.requestedByUserId ?? t(`${routeKey}.notRecorded`) },
         { key: t(`${routeKey}.claimOwner`), value: operation.claimOwnerId ?? t(`${routeKey}.notRecorded`) },
-        { key: t(`${routeKey}.requestedAt`), value: formatDate(operation.requestedAt) },
-        { key: t(`${routeKey}.startedAt`), value: formatDate(operation.startedAt ?? "") },
-        { key: t(`${routeKey}.completedAt`), value: formatDate(operation.completedAt ?? "") },
+        { key: t(`${routeKey}.requestedAt`), value: formatProjectionDateTime(operation.requestedAt) },
+        { key: t(`${routeKey}.startedAt`), value: formatProjectionDateTime(operation.startedAt ?? "") },
+        { key: t(`${routeKey}.completedAt`), value: formatProjectionDateTime(operation.completedAt ?? "") },
       ],
     };
   }
@@ -1129,7 +1138,7 @@ function resolveSelectedDetail(
         },
         { key: t(`${routeKey}.applicableLag`), value: formatApplicableLag(group.applicableLagEstimate) },
         { key: t(`${routeKey}.ownedTables`), value: group.ownedTables.join(", ") || t(`${routeKey}.notRecorded`) },
-        { key: t(`${routeKey}.updated`), value: formatDate(group.updatedAt) },
+        { key: t(`${routeKey}.updated`), value: formatProjectionDateTime(group.updatedAt) },
       ],
     };
   }
@@ -1416,7 +1425,7 @@ function latestUpdatedAt(data: ProjectionOperationsSnapshot) {
     return t(`${routeKey}.notRecorded`);
   }
 
-  return formatDate(values.sort().at(-1) ?? "");
+  return formatProjectionDateTime(values.sort().at(-1) ?? "");
 }
 
 function formatDecimalCount(value: string | number) {
@@ -1429,10 +1438,10 @@ function formatApplicableLag(value: string | null | undefined) {
     : t(`${routeKey}.applicableLagValue`, { count: formatDecimalCount(value) });
 }
 
-function formatDate(value: string) {
+function formatProjectionDateTime(value: string) {
   if (!value) {
     return t(`${routeKey}.notRecorded`);
   }
 
-  return new Date(value).toLocaleString();
+  return formatDateTime(value);
 }

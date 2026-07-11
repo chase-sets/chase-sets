@@ -1,4 +1,4 @@
-import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatDate, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -103,34 +103,15 @@ function formatReviewDate(value: string | null | undefined) {
     return null;
   }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return formatDate(value);
 }
 
 function formatMemberSince(value: string | null | undefined) {
-  if (!value) {
+  if (!value || Number.isNaN(new Date(value).getTime())) {
     return null;
   }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return formatDate(value, { preset: "long", includeDay: false });
 }
 
 function reviewRoleFromRequest(request: Request): AccountReviewRoleFilter {

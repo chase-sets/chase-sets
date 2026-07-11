@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDate, t } from "@chase-sets/localization";
 import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import {
@@ -32,7 +32,7 @@ export function SecurityPage({
     : t("identity.features.apiKeys.ui.accountSecurityPage.no.interactive.methods.enabled");
   const activeApiKeys = apiKeys.filter((key) => key.status === "active").length;
   const lastUpdated = user.updated_at
-    ? new Date(user.updated_at).toLocaleDateString()
+    ? formatDate(user.updated_at)
     : t("identity.features.apiKeys.ui.accountSecurityPage.not.available");
 
   return (
