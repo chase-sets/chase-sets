@@ -48,6 +48,14 @@ Contexts that ingest externally sourced natural keys (provider set codes, card n
 
 Catalog's contract is the reference implementation: `catalogNaturalKeyNormalizationContract` in [bounded-contexts/catalog/features/source-observations/domain/domain.ts](../../bounded-contexts/catalog/features/source-observations/domain/domain.ts) pins the normal form for `setCode`, `cardNumber`, `collectorNumber`, `languageCode`, `providerKey`, and `externalKey` (trim/lowercase, unpadded numeric forms, canonical BCP-47, and so on). Any other context normalizing an externally sourced natural key should follow the same shape: a named, versioned, per-field contract next to the domain module that owns ingest, guarded by a test that pins the normal form.
 
+Discovery's `/search` structured set-code + collector-number query (`parseStructuredNaturalKeyQuery` in [bounded-contexts/discovery/features/search/domain/structured-natural-key-query.ts](../../bounded-contexts/discovery/features/search/domain/structured-natural-key-query.ts)) and the `/sets/:setSlug` expansion/set browse page (below) both re-derive this same normal form rather than importing Catalog at runtime — Discovery does not depend on Catalog at runtime, only in tests, so the rules are re-implemented and kept in sync by hand.
+
+### Set/expansion browse pages are addressed by the reference-record natural key
+
+`/sets/:setSlug` is a natural-key address, not an opaque slug: the URL path segment is the set/expansion reference record's own normalized `key` (game + set code, for example `surging-sparks`), run through `createSlugBase` for URL-safety — not a display-title-derived slug with a ULID hash suffix like listings, accounts, and item-detail pages use. Only reference records whose `typeKey` is set-like (`SET_LIKE_REFERENCE_TYPE_KEYS` in [bounded-contexts/discovery/support/item-support/reference-records.ts](../../bounded-contexts/discovery/support/item-support/reference-records.ts) — today `set` and `expansion`) are addressable this way; every other reference type keeps an empty slug and has no browse page.
+
+The reference record's ULID (`referenceId`) stays canonical internally — the slug only ever *addresses* it, the same "natural keys are addressing, not identity" rule as the structured search query above. If a set's natural key is revised, the projection remembers a redirect (`discovery_slug_redirects`, `entityKind: "reference-record"`) so the old URL 301s to the new one, reusing the same slug-redirect machinery proven on listings, accounts, and item detail.
+
 ## Product Identity Is A Derived Key, Not A Minted ID
 
 Product identity is the tuple `(catalogItemId, selectedOptions)`. A Product is not an independently persisted aggregate and does not have a first-class minted `ProductId`.

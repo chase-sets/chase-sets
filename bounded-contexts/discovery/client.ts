@@ -24,6 +24,7 @@ export type {
 } from "./support/client-support/contracts";
 export { DISCOVERY_SITEMAP_ENTITY_KINDS, DISCOVERY_SITEMAP_PAGE_SIZE } from "./support/market-support/queries";
 export type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
+export type { DiscoveryBrowseSetItem, DiscoveryBrowseSetPage } from "./features/browse/api/contracts";
 export type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
 export type {
   AnonymousProductAlertIntent,
@@ -45,6 +46,7 @@ import type {
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
 import type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
+import type { DiscoveryBrowseSetPage } from "./features/browse/api/contracts";
 
 type DiscoveryApiApp = ReturnType<typeof buildDiscoveryApi>;
 
@@ -230,6 +232,14 @@ export function createDiscoveryApiClient({
     async getCategoryBySlug(slug: string): Promise<DiscoveryCategoryItem> {
       return parseJsonResponse(
         await client.categories[":slug"].$get({
+          param: { slug },
+          header: headers,
+        }),
+      );
+    },
+    async getSetBySlug(slug: string): Promise<DiscoveryBrowseSetPage> {
+      return parseJsonResponse(
+        await client.sets[":slug"].$get({
           param: { slug },
           header: headers,
         }),

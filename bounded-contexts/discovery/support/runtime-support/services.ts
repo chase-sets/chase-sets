@@ -8,6 +8,7 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
+import { createDiscoveryBrowseRuntime, type DiscoveryBrowseServices } from "../../features/browse/api/runtime";
 import { createDiscoveryCategoryRuntime, type DiscoveryCategoryServices } from "../../features/categories/api/runtime";
 import { createProductAlertRuntime, type ProductAlertServices } from "../../features/product-alerts/api/runtime";
 import { buildGoogleShoppingFeedRowProjectionHandlers } from "../../features/google-shopping-operations/api/projection";
@@ -58,6 +59,7 @@ export type DiscoveryHostPorts = Readonly<{
 }>;
 
 export type DiscoveryServices = Readonly<{
+  browse: DiscoveryBrowseServices;
   categories: DiscoveryCategoryServices;
   items: DiscoveryItemsServices;
   googleShoppingSync: GoogleShoppingSyncServices;
@@ -78,6 +80,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
   const db = pool as PgQueryable;
   const deps = { eventStore, checkpointStore, db } as const;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
+  const browse = createDiscoveryBrowseRuntime(deps);
   const categories = createDiscoveryCategoryRuntime(deps);
   const googleShoppingSync = createGoogleShoppingSyncRuntime({ db });
   const googleShoppingProjectors = [
@@ -131,6 +134,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
   });
 
   return {
+    browse,
     categories,
     items,
     googleShoppingSync,

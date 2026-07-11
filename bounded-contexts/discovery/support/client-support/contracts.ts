@@ -339,7 +339,7 @@ export interface DiscoverySitemapUrl {
  * Sitemap coverage is paginated per entity kind so no crawlable URL is silently
  * dropped once a kind grows past a single sitemap page.
  */
-export type DiscoverySitemapEntityKind = "items" | "categories" | "sellers" | "listings";
+export type DiscoverySitemapEntityKind = "items" | "categories" | "sellers" | "listings" | "sets";
 
 export type DiscoverySitemapEntityCounts = Readonly<Record<DiscoverySitemapEntityKind, number>>;
 

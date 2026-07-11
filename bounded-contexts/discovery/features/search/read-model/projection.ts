@@ -25,11 +25,12 @@ import {
   findCatalogItemIdsByReferenceRecord,
   findReferenceRecordIdsByRelatedReferenceGraph,
   flattenReferenceRecordText,
+  isSetLikeReferenceType,
   loadReferenceRecordMap,
   referenceIdFromValue,
   type ReferenceRecordRef,
 } from "../../../support/item-support/reference-records";
-import { createMarketplaceSlug, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
+import { createMarketplaceSlug, createSlugBase, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
 import { fieldFacetSortMetadata } from "./facet-ordering";
 import { extractStructuredCardNumber, extractStructuredSetCode } from "./natural-key-extraction";
 
@@ -80,6 +81,7 @@ const SEARCH_REFERENCE_RECORD_CREATED_COLUMNS = [
   "reference_record_id",
   "type_key",
   "key",
+  "slug",
   "name",
   "attributes",
   "relationships",
@@ -90,6 +92,7 @@ const SEARCH_REFERENCE_RECORD_REVISED_COLUMNS = [
   "reference_record_id",
   "type_key",
   "key",
+  "slug",
   "name",
   "attributes",
   "relationships",
@@ -98,6 +101,7 @@ const SEARCH_REFERENCE_RECORD_REVISED_COLUMNS = [
 const SEARCH_REFERENCE_RECORD_UPDATE_COLUMNS = [
   "type_key",
   "key",
+  "slug",
   "name",
   "attributes",
   "relationships",
@@ -239,6 +243,18 @@ async function upsertSearchCatalogField(
   });
 }
 
+/**
+ * Derives the set/expansion browse-page slug for a reference record.
+ * The slug is the reference record's own normalized natural key, not a
+ * display-title-derived slug, so `/sets/:slug` addresses collectors' native
+ * vocabulary directly. Only set-like reference records (see
+ * `isSetLikeReferenceType`) are addressable; every other reference type keeps
+ * an empty slug and is not browsable.
+ */
+function referenceRecordSlug(typeKey: string, key: string): string {
+  return isSetLikeReferenceType(typeKey) ? createSlugBase(key) : "";
+}
+
 async function upsertSearchReferenceRecord(
   db: PgQueryable,
   input: Readonly<{
@@ -252,6 +268,8 @@ async function upsertSearchReferenceRecord(
     updatedAt: string;
   }>,
 ): Promise<void> {
+  const slug = referenceRecordSlug(input.typeKey, input.key);
+
   if (input.status) {
     await upsertRow(db, {
       table: SEARCH_REFERENCE_RECORDS_TABLE,
@@ -262,6 +280,7 @@ async function upsertSearchReferenceRecord(
         reference_record_id: input.referenceRecordId,
         type_key: input.typeKey,
         key: input.key,
+        slug,
         name: input.name,
         attributes: input.attributes,
         relationships: input.relationships,
@@ -282,6 +301,7 @@ async function upsertSearchReferenceRecord(
       reference_record_id: input.referenceRecordId,
       type_key: input.typeKey,
       key: input.key,
+      slug,
       name: input.name,
       attributes: input.attributes,
       relationships: input.relationships,
@@ -1589,6 +1609,11 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         relationships?: unknown;
       };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+      const nextSlug = referenceRecordSlug(typeKey, key);
+      const current = await db.query<{ slug: string | null }>(
+        `SELECT slug FROM ${SEARCH_REFERENCE_RECORDS_TABLE} WHERE reference_record_id = $1`,
+        [referenceRecordId],
+      );
 
       await upsertSearchReferenceRecord(db, {
         referenceRecordId,
@@ -1597,6 +1622,13 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         name: resolvedName,
         attributes: attributes ?? {},
         relationships: Array.isArray(relationships) ? relationships : [],
+        updatedAt: event.timing.recordedAt,
+      });
+      await rememberSlugRedirect(db, {
+        entityKind: "reference-record",
+        entityId: referenceRecordId,
+        previousSlug: current.rows[0]?.slug,
+        nextSlug,
         updatedAt: event.timing.recordedAt,
       });
 
