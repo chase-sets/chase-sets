@@ -34,6 +34,7 @@
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
+    "@chase-sets/product-selection": "workspace:*",
     "hono": "^4.12.12"
   },
   "devDependencies": {

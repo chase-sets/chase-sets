@@ -47,6 +47,12 @@ export {
 export { Calendar, type CalendarDate, type CalendarProps, DatePicker, type DatePickerProps } from "./date-picker";
 export { Textarea, type TextareaProps } from "./textarea";
 export { Select, NativeSelect, type NativeSelectProps, type SelectItem, type SelectProps } from "./select";
+export {
+  ProductSelectionFields,
+  type ProductSelectionField,
+  type ProductSelectionFieldOption,
+  type ProductSelectionFieldsProps,
+} from "./product-selection-fields";
 export { Combobox, type ComboboxProps } from "./combobox";
 export { Autocomplete, type AutocompleteItem, type AutocompleteProps } from "./autocomplete";
 export { NumberField, type NumberFieldProps } from "./number-field";

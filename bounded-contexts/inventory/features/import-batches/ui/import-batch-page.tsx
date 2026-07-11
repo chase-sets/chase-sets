@@ -17,6 +17,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  ProductSelectionFields,
   Stack,
   Text,
   TextInput,
@@ -29,12 +30,10 @@ import type { InventoryStorageLocation } from "../../storage-locations/api/contr
 import { inventoryImportSourceLabel, listInventoryImportSources } from "../domain/import-source-adapters";
 import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
 import {
-  getOptionLabel,
-  getOrderedDimensions,
-  isDimensionActive,
-  normalizeSelectedOptionssForSchema,
+  normalizeSelectedOptionsForSchema,
   recordToSelectionEntries,
   selectionEntriesToRecord,
+  toInventoryProductSelectionFields,
 } from "../../inventory-items/integrations/catalog/versioning";
 
 const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
@@ -180,7 +179,7 @@ function ImportRowResolutionForm({
               setCatalogItemSearch(selectedItem.title);
               setSelectedOptionsByDimension(
                 selectedItem.product_schema
-                  ? normalizeSelectedOptionssForSchema(selectedItem.product_schema, initialSelectedOptions)
+                  ? normalizeSelectedOptionsForSchema(selectedItem.product_schema, initialSelectedOptions)
                   : {},
               );
             }
@@ -222,10 +221,14 @@ function ImportRowResolutionForm({
     setCatalogLookupError(null);
     setCatalogItemSearch(item?.title ?? catalogItemSearch);
     setSelectedOptionsByDimension(
-      item?.product_schema ? normalizeSelectedOptionssForSchema(item.product_schema, initialSelectedOptions) : {},
+      item?.product_schema ? normalizeSelectedOptionsForSchema(item.product_schema, initialSelectedOptions) : {},
     );
   }
 
+  const productSelectionFields = toInventoryProductSelectionFields(
+    catalogItem?.product_schema ?? null,
+    selectedOptionsByDimension,
+  );
   const selectedOptions = catalogItem?.product_schema
     ? recordToSelectionEntries(catalogItem.product_schema, selectedOptionsByDimension)
     : [];
@@ -267,32 +270,17 @@ function ImportRowResolutionForm({
         ) : null}
         {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
         {catalogItem?.product_schema && catalogItem.product_schema.dimensions.length > 0 ? (
-          getOrderedDimensions(catalogItem.product_schema).map((dimension) => {
-            const active = isDimensionActive(dimension, selectedOptionsByDimension);
-            if (!active) {
-              return null;
+          <ProductSelectionFields
+            fields={productSelectionFields}
+            onFieldChange={(dimensionId, optionId) =>
+              setSelectedOptionsByDimension((current) =>
+                normalizeSelectedOptionsForSchema(catalogItem.product_schema!, {
+                  ...current,
+                  [dimensionId]: optionId,
+                }),
+              )
             }
-
-            return (
-              <NativeSelect
-                key={dimension.dimensionId}
-                label={dimension.dimensionName}
-                value={selectedOptionsByDimension[dimension.dimensionId] ?? ""}
-                onChange={(event) =>
-                  setSelectedOptionsByDimension((current) =>
-                    normalizeSelectedOptionssForSchema(catalogItem.product_schema!, {
-                      ...current,
-                      [dimension.dimensionId]: event.target.value,
-                    }),
-                  )
-                }
-                items={dimension.allowedOptions.map((option) => ({
-                  value: option.optionId,
-                  label: getOptionLabel(option),
-                }))}
-              />
-            );
-          })
+          />
         ) : catalogItem ? (
           <Text size="sm" tone="secondary">
             {t("inventory.features.inventoryItems.ui.inventoryItemListPage.this.catalog.item.does.not.require")}

@@ -258,6 +258,9 @@
       "@chase-sets/design-system/product-options": [
         "./packages/design-system/src/components/data-display/product-options.tsx"
       ],
+      "@chase-sets/design-system/product-selection-fields": [
+        "./packages/design-system/src/components/forms/product-selection-fields.tsx"
+      ],
       "@chase-sets/design-system/radio-group": [
         "./packages/design-system/src/components/forms/radio-group.tsx"
       ],
@@ -728,6 +731,9 @@
       ],
       "@chase-sets/product-measures": [
         "./contracts/product-measures/index.ts"
+      ],
+      "@chase-sets/product-selection": [
+        "./contracts/product-selection/index.ts"
       ],
       "@chase-sets/provider-webhook-inbox": [
         "./infrastructure/provider-webhook-inbox/index.ts"

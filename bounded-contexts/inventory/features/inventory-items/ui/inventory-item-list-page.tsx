@@ -14,6 +14,7 @@ import {
   PageHeader,
   PageSection,
   Pagination,
+  ProductSelectionFields,
   Stack,
   Text,
   TextInput,
@@ -24,10 +25,9 @@ import {
 } from "@chase-sets/design-system";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import {
-  getOptionLabel,
-  isDimensionActive,
-  normalizeSelectedOptionssForSchema,
-  type InventoryProductSchema,
+  normalizeSelectedOptionsForSchema,
+  recordToSelectionEntries,
+  toInventoryProductSelectionFields,
 } from "../integrations/catalog/versioning";
 import type { InventoryStorageLocation } from "../../storage-locations/ui/contracts";
 import type { InventoryItemListItem } from "./contracts";
@@ -64,13 +64,7 @@ function navigateToInventoryItemListPage(page: number, pageSize: number) {
   window.location.assign(`${url.pathname}${url.search}${url.hash}`);
 }
 
-function getOrderedDimensions(schema: InventoryProductSchema) {
-  return schema.canonicalDimensionOrder
-    .map((entry) => schema.dimensions.find((dimension) => dimension.dimensionId === entry.dimensionId))
-    .filter((dimension): dimension is InventoryProductSchema["dimensions"][number] => dimension !== undefined);
-}
-
-function selectedOptionssFromEntries(entries: readonly { dimensionId: string; optionId: string }[]) {
+function selectedOptionsFromEntries(entries: readonly { dimensionId: string; optionId: string }[]) {
   return Object.fromEntries(entries.map((entry) => [entry.dimensionId, entry.optionId]));
 }
 
@@ -102,14 +96,14 @@ export function InventoryItemListPage({
   const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
   const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
   const [initialCatalogItemId] = useState(() => createItemDraft?.catalogItemId?.trim() ?? "");
-  const [initialSelectedOptionss] = useState(() => selectedOptionssFromEntries(createItemDraft?.selectedOptions ?? []));
+  const [initialSelectedOptions] = useState(() => selectedOptionsFromEntries(createItemDraft?.selectedOptions ?? []));
   const [catalogItemSearch, setCatalogItemSearch] = useState(initialCatalogItemId);
   const [catalogSearchResults, setCatalogSearchResults] = useState<readonly InventoryCatalogItemSnapshot[]>([]);
   const [catalogItemId, setCatalogItemId] = useState(initialCatalogItemId);
   const [catalogItem, setCatalogItem] = useState<InventoryCatalogItemSnapshot | null>(null);
   const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
   const [catalogLookupPending, setCatalogLookupPending] = useState(false);
-  const [selectedOptionss, setVersionSelections] = useState<Record<string, string>>({});
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const search = catalogItemSearch.trim();
@@ -154,11 +148,11 @@ export function InventoryItemListPage({
             setCatalogItem(selectedItem);
             if (catalogItemSearch.trim() === catalogItemId) {
               setCatalogItemSearch(selectedItem.title);
-              setVersionSelections(
+              setSelectedOptions(
                 selectedItem.product_schema
-                  ? normalizeSelectedOptionssForSchema(
+                  ? normalizeSelectedOptionsForSchema(
                       selectedItem.product_schema,
-                      catalogItemId === initialCatalogItemId ? initialSelectedOptionss : {},
+                      catalogItemId === initialCatalogItemId ? initialSelectedOptions : {},
                     )
                   : {},
               );
@@ -185,13 +179,13 @@ export function InventoryItemListPage({
       });
 
     return () => controller.abort();
-  }, [catalogItemApiBaseUrl, catalogItemId, catalogItemSearch, initialCatalogItemId, initialSelectedOptionss]);
+  }, [catalogItemApiBaseUrl, catalogItemId, catalogItemSearch, initialCatalogItemId, initialSelectedOptions]);
 
   function resetCatalogItemSelection(nextSearch: string) {
     setCatalogItemSearch(nextSearch);
     setCatalogItemId("");
     setCatalogItem(null);
-    setVersionSelections({});
+    setSelectedOptions({});
   }
 
   function selectCatalogItem(nextCatalogItemId: string) {
@@ -200,32 +194,22 @@ export function InventoryItemListPage({
     setCatalogItem(item ?? null);
     setCatalogLookupError(null);
     setCatalogItemSearch(item?.title ?? catalogItemSearch);
-    setVersionSelections(
+    setSelectedOptions(
       item?.product_schema
-        ? normalizeSelectedOptionssForSchema(
+        ? normalizeSelectedOptionsForSchema(
             item.product_schema,
-            nextCatalogItemId === initialCatalogItemId ? initialSelectedOptionss : {},
+            nextCatalogItemId === initialCatalogItemId ? initialSelectedOptions : {},
           )
         : {},
     );
   }
 
+  const productSelectionFields = toInventoryProductSelectionFields(
+    catalogItem?.product_schema ?? null,
+    selectedOptions,
+  );
   const serializedVersionSelection = catalogItem?.product_schema
-    ? JSON.stringify(
-        getOrderedDimensions(catalogItem.product_schema)
-          .map((dimension) => {
-            const optionId = selectedOptionss[dimension.dimensionId];
-            if (!optionId) {
-              return null;
-            }
-
-            return {
-              dimensionId: dimension.dimensionId,
-              optionId,
-            };
-          })
-          .filter((entry): entry is { dimensionId: string; optionId: string } => entry !== null),
-      )
+    ? JSON.stringify(recordToSelectionEntries(catalogItem.product_schema, selectedOptions))
     : "[]";
 
   return (
@@ -342,33 +326,18 @@ export function InventoryItemListPage({
                       </Text>
                     ) : null}
                     {catalogItem.product_schema && catalogItem.product_schema.dimensions.length > 0 ? (
-                      getOrderedDimensions(catalogItem.product_schema).map((dimension) => {
-                        const active = isDimensionActive(dimension, selectedOptionss);
-                        if (!active) {
-                          return null;
+                      <ProductSelectionFields
+                        fields={productSelectionFields}
+                        fieldName={(dimensionId) => `selectedOptions:${dimensionId}`}
+                        onFieldChange={(dimensionId, optionId) =>
+                          setSelectedOptions((current) =>
+                            normalizeSelectedOptionsForSchema(catalogItem.product_schema!, {
+                              ...current,
+                              [dimensionId]: optionId,
+                            }),
+                          )
                         }
-
-                        return (
-                          <NativeSelect
-                            key={dimension.dimensionId}
-                            label={dimension.dimensionName}
-                            name={`selectedOptions:${dimension.dimensionId}`}
-                            value={selectedOptionss[dimension.dimensionId] ?? ""}
-                            onChange={(event) =>
-                              setVersionSelections((current) =>
-                                normalizeSelectedOptionssForSchema(catalogItem.product_schema!, {
-                                  ...current,
-                                  [dimension.dimensionId]: event.target.value,
-                                }),
-                              )
-                            }
-                            items={dimension.allowedOptions.map((option) => ({
-                              value: option.optionId,
-                              label: getOptionLabel(option),
-                            }))}
-                          />
-                        );
-                      })
+                      />
                     ) : (
                       <Text size="sm" tone="secondary">
                         {t(

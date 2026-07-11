@@ -1,4 +1,14 @@
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import {
+  getOrderedProductSelectionDimensions,
+  getProductSelectionOptionLabel,
+  isProductSelectionDimensionActive,
+  normalizeProductSelection,
+  productSelectionEntriesToRecord,
+  recordToProductSelectionEntries,
+  toProductSelectionFields,
+  type ProductSelectionField,
+} from "@chase-sets/product-selection";
 import { assert } from "../../../../support/runtime-support/common";
 
 export type InventorySelectedOptionEntry = Readonly<{
@@ -40,76 +50,32 @@ export function toInventoryItemProductSchema(schema: InventoryProductSchema | nu
   return schema;
 }
 
-export function getOptionLabel(option: InventoryProductOption): string {
-  return option.label || option.code;
-}
-
-export function isDimensionActive(dimension: InventoryProductDimension, selections: Record<string, string>): boolean {
-  return dimension.appliesWhen.every((clause) => {
-    const selectedOptionId = selections[clause.dimensionId];
-    return selectedOptionId !== undefined && clause.optionIds.includes(selectedOptionId);
-  });
-}
-
-export function getOrderedDimensions(schema: InventoryProductSchema): InventoryProductDimension[] {
-  return schema.canonicalDimensionOrder
-    .map((order) => schema.dimensions.find((dimension) => dimension.dimensionId === order.dimensionId))
-    .filter((dimension): dimension is InventoryProductDimension => dimension !== undefined);
-}
-
-export function normalizeSelectedOptionssForSchema(
-  schema: InventoryProductSchema,
-  selections: Record<string, string>,
-): Record<string, string> {
-  const nextSelections = { ...selections };
-
-  for (const dimension of getOrderedDimensions(schema)) {
-    const active = isDimensionActive(dimension, nextSelections);
-
-    if (!active) {
-      delete nextSelections[dimension.dimensionId];
-      continue;
-    }
-
-    const allowedOptionIds = dimension.allowedOptions.map((option) => option.optionId);
-    const selectedOptionId = nextSelections[dimension.dimensionId];
-
-    if (selectedOptionId !== undefined && allowedOptionIds.includes(selectedOptionId)) {
-      continue;
-    }
-
-    if (dimension.required && allowedOptionIds.length > 0) {
-      nextSelections[dimension.dimensionId] = allowedOptionIds[0];
-      continue;
-    }
-
-    delete nextSelections[dimension.dimensionId];
-  }
-
-  return nextSelections;
-}
+// The dimension-selection algorithm (ordering, appliesWhen activation, normalization, and
+// label formatting) is owned by @chase-sets/product-selection - the single implementation
+// shared with marketplace's listing picker and inventory's own import-row picker. These
+// re-exports keep this module's established names stable for existing consumers.
+export const getOptionLabel = getProductSelectionOptionLabel;
+export const isDimensionActive = isProductSelectionDimensionActive;
+export const getOrderedDimensions = getOrderedProductSelectionDimensions;
+export const normalizeSelectedOptionsForSchema = normalizeProductSelection;
 
 export function selectionEntriesToRecord(selection: readonly InventorySelectedOptionEntry[]): Record<string, string> {
-  return Object.fromEntries(selection.map((entry) => [entry.dimensionId, entry.optionId]));
+  return productSelectionEntriesToRecord(selection);
 }
 
 export function recordToSelectionEntries(
   schema: InventoryProductSchema,
   selections: Record<string, string>,
 ): InventorySelectedOptionEntry[] {
-  return getOrderedDimensions(schema)
-    .map((dimension) => {
-      const optionId = selections[dimension.dimensionId];
-      if (!optionId) {
-        return null;
-      }
+  return recordToProductSelectionEntries(schema, selections);
+}
 
-      return {
-        dimensionId: dimension.dimensionId,
-        optionId,
-      };
-    })
-    .filter((entry): entry is InventorySelectedOptionEntry => entry !== null);
+/** Ready-to-render dimension fields for a catalog-item picker UI (search + select + this). */
+export function toInventoryProductSelectionFields(
+  schema: InventoryProductSchema | null,
+  selections: Record<string, string>,
+): ProductSelectionField[] {
+  return toProductSelectionFields(schema, selections);
 }
 
 export function parseSelectedOptionsInput(value: unknown): InventorySelectedOptionEntry[] {
