@@ -33,6 +33,8 @@
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/inventory": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/notification-outbox": "workspace:*",
+    "@chase-sets/outbound-messaging": "workspace:*",
     "@chase-sets/platform-operations": "workspace:*",
     "@chase-sets/platform-policy": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",

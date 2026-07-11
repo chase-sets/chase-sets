@@ -79,6 +79,7 @@ export type PlatformWorkerConfig = Readonly<{
   paymentDeadlineSweepIntervalMs: number | null;
   supportRequestDeadlineSweepIntervalMs: number | null;
   reviewWindowSweepIntervalMs: number | null;
+  reviewOpportunityReminderSweepIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
   marketRollupsCloserIntervalMs: number | null;
@@ -432,6 +433,16 @@ export function loadConfig(): PlatformWorkerConfig {
     // same-request counterpart-reveal race self-heals promptly, cheap enough
     // (bounded candidate queries) to run that often.
     reviewWindowSweepIntervalMs: getOptionalPositiveNumberEnv("REVIEW_WINDOW_SWEEP_INTERVAL_MS", 300_000),
+    // Post-delivery review nudge reminder sweep (m108): the reminder
+    // fires REVIEW_NUDGE_REMINDER_DELAY_DAYS (7 days) after eligibility, so
+    // unlike the reveal sweep this has no promptness requirement -- an hourly
+    // cadence is frequent enough that the reminder lands within the same day
+    // it becomes due, cheap enough (one bounded candidate query) to run that
+    // often.
+    reviewOpportunityReminderSweepIntervalMs: getOptionalPositiveNumberEnv(
+      "REVIEW_OPPORTUNITY_REMINDER_SWEEP_INTERVAL_MS",
+      3_600_000,
+    ),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
     // Daily rollup closer (pricing market rollups): frequent enough that

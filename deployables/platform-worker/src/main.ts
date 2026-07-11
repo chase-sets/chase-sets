@@ -1243,6 +1243,7 @@ function createScheduledJobRunners(
     | "paymentDeadlineSweepIntervalMs"
     | "supportRequestDeadlineSweepIntervalMs"
     | "reviewWindowSweepIntervalMs"
+    | "reviewOpportunityReminderSweepIntervalMs"
     | "sellerFundsReleaseIntervalMs"
     | "payoutReconciliationIntervalMs"
     | "marketRollupsCloserIntervalMs"
@@ -1291,6 +1292,10 @@ function createScheduledJobRunners(
           params: { now?: string; limit?: number },
           context: typeof SYSTEM_CONTEXT,
         ) => Promise<{ counterpartPairsRevealed: number; windowExpiredRevealed: number }>;
+        sweepReviewOpportunityReminders?: (params: {
+          now?: string;
+          limit?: number;
+        }) => Promise<{ remindersSent: number }>;
       }
     | undefined;
   const pricing = services.pricing as
@@ -1432,6 +1437,25 @@ function createScheduledJobRunners(
             result,
           });
           return result.counterpartPairsRevealed + result.windowExpiredRevealed;
+        },
+      ),
+    );
+  }
+
+  const sweepReviewOpportunityReminders = marketplaceReviews?.sweepReviewOpportunityReminders;
+  if (sweepReviewOpportunityReminders && input.reviewOpportunityReminderSweepIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "marketplace.review-opportunity-reminder-sweep",
+        input.reviewOpportunityReminderSweepIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await sweepReviewOpportunityReminders({ limit: 100 });
+          logger.info("Marketplace review-opportunity reminder sweep completed.", {
+            type: "marketplace.review-opportunity-reminder-sweep",
+            result,
+          });
+          return result.remindersSent;
         },
       ),
     );

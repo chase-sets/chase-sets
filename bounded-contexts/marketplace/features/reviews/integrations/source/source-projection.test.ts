@@ -140,6 +140,12 @@ class ReviewSourceProjectionDb implements PgQueryable {
       return { rows: rows as Row[], rowCount: rows.length };
     }
 
+    if (sql.includes("SELECT 1") && sql.includes("FROM marketplace_review_eligibility_pages")) {
+      const [orderId, authorAccountId, subjectAccountId] = values.map(String);
+      const exists = this.eligibilities.has(`${orderId}:${authorAccountId}:${subjectAccountId}`);
+      return { rows: (exists ? [{ "?column?": 1 }] : []) as Row[], rowCount: exists ? 1 : 0 };
+    }
+
     if (sql.includes("INSERT INTO marketplace_review_eligibility_pages")) {
       const [orderId, authorAccountId, subjectAccountId, authorRole] = values.map(String);
       this.eligibilities.set(`${orderId}:${authorAccountId}:${subjectAccountId}`, {

@@ -8,16 +8,20 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, ReviewId } from "@chase-sets/primitives/typed-ids";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import {
   addReviewWindowDays,
   assert,
   normalizeRating,
   normalizeRequiredText,
+  normalizeReviewRole,
   ReputationDomainError,
   REVIEW_WINDOW_DAYS,
   type ReviewRole,
 } from "../domain/common";
 import { syncReviewEligibilityForOrder } from "../integrations/source/eligibility-sync";
+import { mapReviewReminderToNotification } from "../integrations/notifications/notification-intents";
+import { buildReviewNotificationProjectionHandlers } from "../integrations/notifications/notification-projector";
 import { buildReviewProjectionHandlers } from "../read-model/projection";
 import {
   findActiveReviewForDirection,
@@ -27,11 +31,14 @@ import {
   getOrderReviewOpportunity,
   getPublicAccountSummary,
   getReviewEligibility,
+  getReviewOrderBuyerEmail,
   listPendingCounterpartPairs,
   listPendingReviewsPastWindow,
   listPublicAccountReviews,
   listReceivedReviews,
+  listReviewOpportunityReminderCandidates,
   listWrittenReviews,
+  markReviewOpportunityReminderNotified,
 } from "../read-model/queries";
 import {
   decideReview,
@@ -46,11 +53,18 @@ type ReviewRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
+  /** Post-delivery review nudges (m108). Defaults to a noop so every
+   * existing caller (services wiring aside) keeps working unchanged. */
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type ReviewWindowSweepResult = Readonly<{
   counterpartPairsRevealed: number;
   windowExpiredRevealed: number;
+}>;
+
+export type ReviewOpportunityReminderSweepResult = Readonly<{
+  remindersSent: number;
 }>;
 
 export type ReviewServices = Readonly<{
@@ -124,6 +138,18 @@ export type ReviewServices = Readonly<{
     params: Readonly<{ now?: string; limit?: number }>,
     context: EventStoreContext,
   ) => Promise<ReviewWindowSweepResult>;
+  /**
+   * Post-delivery review nudge reminder sweep (m108). Mirrors the
+   * review-window sweep pattern: a periodic scan rather than per-event
+   * scheduling. Fires exactly one reminder per (order, direction) -- eligible
+   * long enough ago, still unsubmitted, still inside the submission window --
+   * then marks it notified so the next sweep never re-selects it. Suspension
+   * (eligibility row deleted) and expiry (window closed) both fall out of the
+   * candidate query with no separate cancellation step.
+   */
+  sweepReviewOpportunityReminders: (
+    params: Readonly<{ now?: string; limit?: number }>,
+  ) => Promise<ReviewOpportunityReminderSweepResult>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -152,6 +178,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     evolve: evolveReview,
     decide: decideReview,
   });
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
 
   return {
     commandHandler,
@@ -172,7 +199,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       // grant: the sync consults support-request history so, for example, the
       // delivered return leg of a return-for-refund never re-opens the
       // seller→buyer direction.
-      await syncReviewEligibilityForOrder(deps.db, orderId, params.deliveredAt);
+      await syncReviewEligibilityForOrder(deps.db, orderId, params.deliveredAt, { outbox: notificationOutbox });
     },
     async submitReview(params, context) {
       const orderId = normalizeRequiredText(params.orderId, "Order is required.") as OrderId;
@@ -394,6 +421,50 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
 
       return { counterpartPairsRevealed, windowExpiredRevealed };
     },
+    async sweepReviewOpportunityReminders(params) {
+      const now = params.now ?? new Date().toISOString();
+      const limit = params.limit ?? 100;
+      let remindersSent = 0;
+
+      const candidates = await listReviewOpportunityReminderCandidates(deps.db, { now, limit });
+      for (const candidate of candidates) {
+        const authorRole = normalizeReviewRole(candidate.author_role);
+        const [subjectResult, buyerEmail] = await Promise.all([
+          deps.db.query<{ display_name: string | null }>(
+            `SELECT display_name FROM marketplace_review_account_sources WHERE account_id = $1`,
+            [candidate.subject_account_id],
+          ),
+          authorRole === "buyer" ? getReviewOrderBuyerEmail(deps.db, candidate.order_id) : Promise.resolve(null),
+        ]);
+
+        await notificationOutbox.enqueueNotification({
+          message: mapReviewReminderToNotification({
+            orderId: candidate.order_id,
+            authorAccountId: candidate.author_account_id as AccountId,
+            authorRole,
+            subjectDisplayName: subjectResult.rows[0]?.display_name ?? null,
+            buyerEmail,
+            eligibleAt: candidate.eligible_at,
+            correlationId: `marketplace-review-opportunity-reminder-sweep:${candidate.order_id}:${candidate.author_account_id}`,
+          }),
+          source: {
+            sourceEventId: `marketplace-review-opportunity-reminder-sweep:${candidate.order_id}:${candidate.author_account_id}`,
+            sourceGlobalPosition: "0",
+            projectionName: "marketplace-review-opportunity-reminder-sweep",
+            occurredAt: now,
+          },
+        });
+        await markReviewOpportunityReminderNotified(deps.db, {
+          orderId: candidate.order_id,
+          authorAccountId: candidate.author_account_id,
+          subjectAccountId: candidate.subject_account_id,
+          notifiedAt: now,
+        });
+        remindersSent += 1;
+      }
+
+      return { remindersSent };
+    },
     listPublicAccountReviews: (params) => listPublicAccountReviews(deps.db, params),
     listWrittenReviews: (params) => listWrittenReviews(deps.db, params),
     listReceivedReviews: (params) => listReceivedReviews(deps.db, params),
@@ -406,6 +477,15 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       createProjectionHandlerSet({
         projectionName: "marketplace-review-projection",
         handlers: buildReviewProjectionHandlers(deps.db),
+        streamPrefixes: ["marketplace.review-"],
+      }),
+      // Reveal-notice nudge (m108): same-context local projector, same
+      // stream as the read-model projection above (see
+      // notification-projector.ts for why reading marketplace_review_pages
+      // here is safe).
+      createProjectionHandlerSet({
+        projectionName: "marketplace-review-notification-projection",
+        handlers: buildReviewNotificationProjectionHandlers(deps.db, notificationOutbox),
         streamPrefixes: ["marketplace.review-"],
       }),
     ],

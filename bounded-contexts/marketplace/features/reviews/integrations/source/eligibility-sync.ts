@@ -1,12 +1,30 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { decideReviewEligibility, type ReviewDirectionEligibility } from "@chase-sets/review-eligibility";
+import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { mapReviewOpportunityToNotification } from "../notifications/notification-intents";
+import { normalizeReviewRole } from "../../domain/common";
+import { getReviewOrderBuyerEmail } from "../../read-model/queries";
+
+export type ReviewEligibilityNotify = Readonly<{ outbox: NotificationOutbox }>;
 
 // Recomputes the review-eligibility rows for one order from the source
 // projections (order, shipments, support requests). Convergent by design:
 // every handler that changes an input re-runs the same computation, so
 // replays and out-of-order interleavings across support requests settle on
 // the matrix documented in `@chase-sets/review-eligibility`.
-export async function syncReviewEligibilityForOrder(db: PgQueryable, orderId: string, updatedAt: string) {
+//
+// `notify` (m108) is optional so every existing caller (and every
+// test constructing this function directly) keeps working unchanged; wiring
+// it through fires the post-delivery review-opportunity notification the
+// instant a direction becomes newly eligible -- whether that is the first
+// grant after delivery or a re-arm after a suspend/restore cycle.
+export async function syncReviewEligibilityForOrder(
+  db: PgQueryable,
+  orderId: string,
+  updatedAt: string,
+  notify?: ReviewEligibilityNotify,
+) {
   const orderResult = await db.query<{
     buyer_account_id: string;
     seller_account_id: string;
@@ -66,6 +84,7 @@ export async function syncReviewEligibilityForOrder(db: PgQueryable, orderId: st
     authorRole: "buyer",
     direction: decision.buyerToSeller,
     updatedAt,
+    notify,
   });
   await applyDirection(db, {
     orderId,
@@ -74,6 +93,7 @@ export async function syncReviewEligibilityForOrder(db: PgQueryable, orderId: st
     authorRole: "seller",
     direction: decision.sellerToBuyer,
     updatedAt,
+    notify,
   });
 }
 
@@ -86,9 +106,28 @@ async function applyDirection(
     authorRole: "buyer" | "seller";
     direction: ReviewDirectionEligibility;
     updatedAt: string;
+    notify?: ReviewEligibilityNotify;
   }>,
 ) {
   if (params.direction.eligible && params.direction.eligibleAt !== null) {
+    // Read-before-write (mirrors the pre-check idiom already used by other
+    // notification-intent projectors in this codebase, e.g. discovery's
+    // product-alert projector loading market activity before its upsert):
+    // a row already present means this is an update to an already-armed
+    // direction (no new opportunity to notify); no row means this grant is
+    // either the first one for this order/direction or a re-arm after a
+    // suspend/restore cycle deleted the prior row -- both fire the
+    // opportunity notification.
+    const existingResult = await db.query(
+      `SELECT 1
+       FROM marketplace_review_eligibility_pages
+       WHERE order_id = $1
+         AND author_account_id = $2
+         AND subject_account_id = $3`,
+      [params.orderId, params.authorAccountId, params.subjectAccountId],
+    );
+    const isNewGrant = existingResult.rows.length === 0;
+
     await db.query(
       `INSERT INTO marketplace_review_eligibility_pages (
          order_id,
@@ -114,6 +153,10 @@ async function applyDirection(
         params.updatedAt,
       ],
     );
+
+    if (isNewGrant && params.notify) {
+      await notifyReviewOpportunity(db, params.notify.outbox, params);
+    }
     return;
   }
 
@@ -124,4 +167,43 @@ async function applyDirection(
        AND subject_account_id = $3`,
     [params.orderId, params.authorAccountId, params.subjectAccountId],
   );
+}
+
+async function notifyReviewOpportunity(
+  db: PgQueryable,
+  outbox: NotificationOutbox,
+  params: Readonly<{
+    orderId: string;
+    authorAccountId: string;
+    subjectAccountId: string;
+    authorRole: "buyer" | "seller";
+    updatedAt: string;
+  }>,
+) {
+  const authorRole = normalizeReviewRole(params.authorRole);
+  const [subjectResult, buyerEmail] = await Promise.all([
+    db.query<{ display_name: string | null }>(
+      `SELECT display_name FROM marketplace_review_account_sources WHERE account_id = $1`,
+      [params.subjectAccountId],
+    ),
+    authorRole === "buyer" ? getReviewOrderBuyerEmail(db, params.orderId) : Promise.resolve(null),
+  ]);
+
+  await outbox.enqueueNotification({
+    message: mapReviewOpportunityToNotification({
+      orderId: params.orderId,
+      authorAccountId: params.authorAccountId as AccountId,
+      authorRole,
+      subjectDisplayName: subjectResult.rows[0]?.display_name ?? null,
+      buyerEmail,
+      armedAt: params.updatedAt,
+      correlationId: `marketplace-review-eligibility:${params.orderId}:${params.authorAccountId}:${params.updatedAt}`,
+    }),
+    source: {
+      sourceEventId: `marketplace-review-eligibility:${params.orderId}:${params.authorAccountId}`,
+      sourceGlobalPosition: "0",
+      projectionName: "marketplace-review-eligibility-notify",
+      occurredAt: params.updatedAt,
+    },
+  });
 }

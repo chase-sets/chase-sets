@@ -138,4 +138,16 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewSubmissionPage.feedback.description":
     "Leave account feedback for this {counterpartyRole} on order {orderId}.",
   "reputation.features.reviews.ui.reviewSubmissionPage.review.counterparty.title": "Review {counterparty}",
+  "reputation.features.reviews.integrations.notifications.notificationIntents.reviewOpportunity.title":
+    "You can now review order {orderReference}",
+  "reputation.features.reviews.integrations.notifications.notificationIntents.reviewOpportunity.body":
+    "Your order is delivered -- leave a review for {subjectLabel}.",
+  "reputation.features.reviews.integrations.notifications.notificationIntents.reviewReminder.title":
+    "Reminder: review order {orderReference}",
+  "reputation.features.reviews.integrations.notifications.notificationIntents.reviewReminder.body":
+    "You still have time to leave a review for {subjectLabel}.",
+  "reputation.features.reviews.integrations.notifications.notificationIntents.reviewRevealed.title":
+    "A review on order {orderReference} is now visible",
+  "reputation.features.reviews.integrations.notifications.notificationIntents.reviewRevealed.body":
+    "{authorLabel} left you a review. You can now view it and respond.",
 } as const;

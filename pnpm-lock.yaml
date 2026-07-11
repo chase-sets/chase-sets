@@ -564,6 +564,12 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/outbound-messaging':
+        specifier: workspace:*
+        version: link:../../contracts/outbound-messaging
       '@chase-sets/platform-operations':
         specifier: workspace:*
         version: link:../platform-operations
