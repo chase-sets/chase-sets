@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import { useLocation, useNavigate } from "react-router";
 import {
   Form,
@@ -177,7 +177,7 @@ export function ScheduleListPage({
               key: "marketplace",
               header: t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee"),
               cell: (row) =>
-                `${row.marketplace_sales_fee_percentage_bps} bps + $${row.marketplace_sales_fee_fixed_amount}`,
+                `${row.marketplace_sales_fee_percentage_bps} bps + ${formatMoney(row.marketplace_sales_fee_fixed_amount, "USD")}`,
             },
             {
               key: "shippingAllowance",

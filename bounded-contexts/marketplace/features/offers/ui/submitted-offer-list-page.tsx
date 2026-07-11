@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   AccountReputationSummary,
   Badge,
@@ -24,10 +24,6 @@ function statusTone(status: string) {
     default:
       return "neutral";
   }
-}
-
-function formatMoney(amount: string) {
-  return `$${amount}`;
 }
 
 function formatTimestamp(value: string) {
@@ -86,7 +82,7 @@ export function MarketplaceSubmittedOfferListPage({
                 <OfferCard
                   key={offer.offer_id}
                   title={offer.item_title}
-                  amount={formatMoney(offer.price_amount)}
+                  amount={formatMoney(offer.price_amount, "USD")}
                   status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
                   details={
                     <Stack gap={2}>

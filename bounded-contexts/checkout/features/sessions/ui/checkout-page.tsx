@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import {
   HiddenInput,
@@ -194,8 +194,8 @@ function firstSellerGroup(preview: CheckoutFulfillmentPreview | null) {
   return preview?.sellerGroups[0] ?? null;
 }
 
-function formatMoney(value: string | null | undefined) {
-  return value ? `$${value}` : t("checkout.features.sessions.ui.checkoutPage.pending");
+function formatMoneyOrPending(value: string | null | undefined) {
+  return value ? formatMoney(value, "USD") : t("checkout.features.sessions.ui.checkoutPage.pending");
 }
 
 function formatReservationTime(msRemaining: number) {
@@ -534,7 +534,7 @@ export function CheckoutSessionPage({
         ? [<ProductOptions key="opts" options={productOptionsFromSummary(line.productSummary)} variant="compact" />]
         : undefined,
       quantity: line.quantity,
-      price: lineAmount ? `$${lineAmount}` : undefined,
+      price: lineAmount ? formatMoney(lineAmount, "USD") : undefined,
       priceState: lineAmount ? "exact" : "deferred",
       deferredPriceLabel: t("checkout.features.sessions.ui.checkoutPage.pending"),
     };
@@ -543,20 +543,20 @@ export function CheckoutSessionPage({
   const totalsLines = [
     {
       label: t("checkout.features.sessions.ui.checkoutPage.subtotal"),
-      value: formatMoney(preview?.totals.itemSubtotalAmount),
+      value: formatMoneyOrPending(preview?.totals.itemSubtotalAmount),
     },
     {
       label: t("checkout.features.sessions.ui.checkoutPage.shipping.2"),
       value: isOfferIntent
         ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
-        : formatMoney(preview?.totals.shippingAmount),
+        : formatMoneyOrPending(preview?.totals.shippingAmount),
       muted: true,
     },
     {
       label: t("checkout.features.sessions.ui.checkoutPage.estimated.tax"),
       value: isOfferIntent
         ? t("checkout.features.sessions.ui.checkoutPage.not.applicable")
-        : formatMoney(preview?.totals.salesTaxAmount),
+        : formatMoneyOrPending(preview?.totals.salesTaxAmount),
       muted: true,
     },
     ...(!isOfferIntent
@@ -564,13 +564,15 @@ export function CheckoutSessionPage({
           {
             label: t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee"),
             value: payment
-              ? `$${payment.marketplace_checkout_fee.marketplace_checkout_fee_amount}`
+              ? formatMoney(payment.marketplace_checkout_fee.marketplace_checkout_fee_amount, "USD")
               : t("checkout.features.sessions.ui.checkoutPage.calculated.before.payment"),
             muted: !payment,
           },
           {
             label: t("checkout.features.sessions.ui.checkoutPage.wallet.credit"),
-            value: payment ? `-$${payment.wallet_credit.applied_amount}` : "$0.00",
+            value: payment
+              ? formatMoney(`-${payment.wallet_credit.applied_amount}`, "USD")
+              : formatMoney("0.00", "USD"),
           },
         ]
       : []),
@@ -578,7 +580,7 @@ export function CheckoutSessionPage({
       ? [
           {
             label: t("checkout.features.sessions.ui.checkoutPage.authenticity.check.fee"),
-            value: `$${authenticityCheckOffer.fee_amount}`,
+            value: formatMoney(authenticityCheckOffer.fee_amount, "USD"),
           },
         ]
       : []),
@@ -586,7 +588,7 @@ export function CheckoutSessionPage({
       ? [
           {
             label: t("checkout.features.sessions.ui.checkoutPage.available.balance"),
-            value: `${wallet.available_balance_amount} ${wallet.currency_code.toUpperCase()}`,
+            value: formatMoney(wallet.available_balance_amount, wallet.currency_code),
             muted: true,
           },
         ]
@@ -598,7 +600,7 @@ export function CheckoutSessionPage({
   const totalsTotal = isOfferIntent
     ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
     : previewPayableTotal
-      ? `$${previewPayableTotal}`
+      ? formatMoney(previewPayableTotal, "USD")
       : t("checkout.features.sessions.ui.checkoutPage.pending");
   // The single deferral statement for this surface lives once, beneath the total.
   // For offer intent the total already reads "No payment today", so the caption
@@ -959,7 +961,7 @@ export function CheckoutSessionPage({
           supportReferenceLabel={t("checkout.features.sessions.ui.checkoutPage.support.reference")}
           supportReferenceValue={buySupportReferenceValue}
           totalLabel={t("checkout.features.sessions.ui.checkoutPage.payable.total")}
-          total={formatMoney(previewPayableTotal)}
+          total={formatMoneyOrPending(previewPayableTotal)}
           nextSteps={[
             {
               title: t("checkout.features.sessions.ui.checkoutPage.payment.handoff.title"),
@@ -1326,7 +1328,7 @@ export function CheckoutSessionPage({
                     <>
                       <Checkbox
                         label={t("checkout.features.sessions.ui.checkoutPage.authenticity.check.opt.in", {
-                          amount: `$${authenticityCheckOffer.fee_amount}`,
+                          amount: formatMoney(authenticityCheckOffer.fee_amount, "USD"),
                         })}
                         description={t(
                           "checkout.features.sessions.ui.checkoutPage.authenticity.check.opt.in.description",

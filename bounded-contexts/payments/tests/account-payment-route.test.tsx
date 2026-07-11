@@ -23,6 +23,7 @@ type PurchaseDetail = Readonly<{
   marketplace_sales_fee_amount: string;
   marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
+  seller_payout_amount: string;
   status: string;
   payment_deadline_at: string | null;
   created_at: string;
@@ -76,6 +77,8 @@ type PaymentsPaymentDetail = Readonly<{
   marketplace_sales_fee_amount: string;
   marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
+  balance_credit_amount: string;
+  seller_payout_amount: string;
 }>;
 
 type StripeMock = ReturnType<typeof vi.fn>;
@@ -156,6 +159,7 @@ function buildPurchase(overrides: Partial<PurchaseDetail> = {}): PurchaseDetail 
     marketplace_sales_fee_amount: "1.00",
     marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "9.50",
+    seller_payout_amount: "9.50",
     status: "pending-payment",
     payment_deadline_at: null,
     created_at: "2026-04-01T00:00:00.000Z",
@@ -206,6 +210,8 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     marketplace_sales_fee_amount: "1.00",
     marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "9.50",
+    balance_credit_amount: "0.00",
+    seller_payout_amount: "9.50",
     ...overrides,
   };
 }

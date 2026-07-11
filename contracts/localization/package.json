@@ -14,6 +14,9 @@
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts"
   },
+  "dependencies": {
+    "@chase-sets/primitives": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^7.0.0",
     "vitest": "^4.1.4"

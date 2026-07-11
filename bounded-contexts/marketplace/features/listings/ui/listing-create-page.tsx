@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import {
   HiddenInput,
@@ -51,7 +51,7 @@ function formatMoney(amount: string | null) {
     return t("marketplace.features.listings.ui.listingCreatePage.not.set");
   }
 
-  return `$${amount}`;
+  return formatMoneyDisplay(amount, "USD");
 }
 
 function formatAllowancePercentage(bps: number) {

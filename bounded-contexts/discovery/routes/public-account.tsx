@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -46,7 +46,7 @@ type AccountRatingDimension = Readonly<{
 }>;
 
 function formatMoney(value: string): string {
-  return `$${value}`;
+  return formatMoneyDisplay(value, "USD");
 }
 
 function parseRating(value: string | null | undefined): number | null {

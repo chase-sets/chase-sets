@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import { useLocation, useNavigate } from "react-router";
 import {
   Form,
@@ -115,7 +115,8 @@ export function AgreementListPage({
                     {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}
                     {row.marketplace_sales_fee_percentage_bps}{" "}
                     {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}
-                    {row.marketplace_sales_fee_fixed_amount}
+                    {" + "}
+                    {formatMoney(row.marketplace_sales_fee_fixed_amount, "USD")}
                   </Text>
                   <Text size="sm">
                     {t("commercialTerms.features.agreements.ui.agreementListPage.shipping.allowance")}

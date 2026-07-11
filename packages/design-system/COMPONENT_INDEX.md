@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 360
+- Runtime exports indexed: 359
 - Source modules covered: 125
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -225,7 +225,6 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `PlatformCredibilityCue` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Platform Credibility Cue. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `Popover` | `packages/design-system/src/components/feedback/popover.tsx` | Purpose not documented; symbol name suggests: Popover. | `No production consumer yet.` |
 | `PriceBreakdown` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Price Breakdown. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
-| `PriceDisplay` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Price Display. | `No production consumer yet.` |
 | `ProductCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Product Card. | `No production consumer yet.` |
 | `ProductMediaImage` | `packages/design-system/src/components/data-display/product-media.tsx` | Purpose not documented; symbol name suggests: Product Media Image. | `No production consumer yet.` |
 | `ProductMediaModule` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Product Media Module. | `No production consumer yet.` |

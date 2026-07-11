@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   Card,
   Inline,
@@ -13,10 +13,6 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow } from "../read-model/queries";
-
-function formatMoney(amount: string, currencyCode: string) {
-  return `${amount} ${currencyCode.toUpperCase()}`;
-}
 
 function statusLabel(status: string) {
   switch (status) {

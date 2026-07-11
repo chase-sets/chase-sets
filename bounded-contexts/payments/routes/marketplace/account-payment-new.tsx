@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
@@ -45,7 +45,7 @@ function parseOrderIds(value: string | null) {
 }
 
 function formatMoney(amount: string) {
-  return `$${amount}`;
+  return formatMoneyDisplay(amount, "USD");
 }
 
 function parseMoneyAmount(value: FormDataEntryValue | null) {

@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -22,10 +22,6 @@ import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
 import { capPayoutAmountToPolicy, payoutAmountPolicy } from "../domain/payout-policy";
 import { payoutUnavailableReasonLabel } from "../domain/reason-codes";
-
-function formatMoney(amount: string, currencyCode: string) {
-  return `${amount} ${currencyCode.toUpperCase()}`;
-}
 
 function subtractMoney(left: string, right: string) {
   return (Number.parseFloat(left) - Number.parseFloat(right)).toFixed(2);

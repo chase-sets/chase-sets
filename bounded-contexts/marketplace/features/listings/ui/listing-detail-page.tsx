@@ -1,4 +1,4 @@
-import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   HiddenInput,
@@ -79,12 +79,8 @@ function listingPhotoImages(listing: MarketplaceListingDetail) {
   });
 }
 
-function formatMoney(amount: string) {
-  return `$${amount}`;
-}
-
 function formatOptionalMoney(amount: string | null) {
-  return amount ? formatMoney(amount) : t("marketplace.features.listings.ui.listingDetailPage.not.set");
+  return amount ? formatMoney(amount, "USD") : t("marketplace.features.listings.ui.listingDetailPage.not.set");
 }
 
 function formatAllowancePercentage(bps: number) {
@@ -94,10 +90,10 @@ function formatAllowancePercentage(bps: number) {
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
     t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
-      amount: formatMoney(preview.marketplace_sales_fee_unit_amount),
+      amount: formatMoney(preview.marketplace_sales_fee_unit_amount, "USD"),
     }),
     t("marketplace.features.listings.ui.listingDetailPage.net.summary", {
-      amount: formatMoney(preview.seller_net_unit_amount),
+      amount: formatMoney(preview.seller_net_unit_amount, "USD"),
     }),
     t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.summary", {
       percentage: formatAllowancePercentage(preview.shipping_allowance_percentage_bps),
@@ -257,7 +253,7 @@ export function MarketplaceListingDetailPage({
                   <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="chips" />
                 ) : null}
                 <Text size="lg" weight="semibold">
-                  {formatMoney(listing.price_amount)}
+                  {formatMoney(listing.price_amount, "USD")}
                 </Text>
                 <Text size="sm" tone="secondary">
                   {renderPreviewSummary({
@@ -302,7 +298,7 @@ export function MarketplaceListingDetailPage({
             lines={[
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.price"),
-                value: formatMoney(listing.price_amount),
+                value: formatMoney(listing.price_amount, "USD"),
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee"),
@@ -436,7 +432,9 @@ export function MarketplaceListingDetailPage({
                     </Text>
                     <Text size="sm" tone="secondary">
                       {t("marketplace.features.listings.ui.listingDetailPage.price")}
-                      {entry.price_amount ? formatMoney(entry.price_amount) : formatMoney(listing.price_amount)}
+                      {entry.price_amount
+                        ? formatMoney(entry.price_amount, "USD")
+                        : formatMoney(listing.price_amount, "USD")}
                     </Text>
                     {entry.quantity_cap !== null ? (
                       <Text size="sm" tone="secondary">
@@ -514,7 +512,7 @@ export function MarketplaceListingDetailPage({
                 </Text>
                 <Text size="sm" tone="secondary">
                   {t("marketplace.features.listings.ui.listingDetailPage.basis.amount")}
-                  {formatMoney(pricePreview.basis_amount)}
+                  {formatMoney(pricePreview.basis_amount, "USD")}
                 </Text>
                 <Text size="sm" tone="secondary">
                   {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule.2")}

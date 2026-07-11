@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
   Grid,
@@ -20,10 +20,6 @@ import {
 import type { OrderListSummary, PurchaseListItem, SaleListItem } from "./contracts";
 
 export type OrderListKind = "purchase" | "sale";
-
-function formatMoney(amount: string) {
-  return `$${amount}`;
-}
 
 function formatOrderDate(value: string) {
   return new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -175,14 +171,14 @@ export function OrderingOrderListPage({
                         <Text size="sm" tone="secondary">
                           {t("ordering.features.orders.ui.orderListPage.total")}
                         </Text>
-                        <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
+                        <Text weight="semibold">{formatMoney(order.total_amount, "USD")}</Text>
                       </Stack>
                       {kind === "sale" ? (
                         <Stack gap={1}>
                           <Text size="sm" tone="secondary">
                             {t("ordering.features.orders.ui.orderListPage.seller.payout")}
                           </Text>
-                          <Text>{formatMoney(order.seller_payout_amount)}</Text>
+                          <Text>{formatMoney(order.seller_payout_amount, "USD")}</Text>
                         </Stack>
                       ) : null}
                     </Grid>

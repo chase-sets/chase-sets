@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import {
   AccountReputationSummary,
   ActionStack,
@@ -139,13 +139,6 @@ function selectedListingSnapshotFields(
   };
 }
 
-function formatMoney(amount: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(amount);
-}
-
 function lowestKnownUnitPrice(line: CheckoutCartLineGroup) {
   if (!lineHasMeasuredPricedSupply(line)) {
     return null;
@@ -210,7 +203,7 @@ function linePrice(line: CheckoutCartLineGroup): ReactNode {
     return null;
   }
 
-  return formatMoney(unitPrice * line.quantity);
+  return formatMoney((unitPrice * line.quantity).toFixed(2), "USD");
 }
 
 function marketRecoveryHref(itemTitle: string) {
@@ -727,7 +720,7 @@ export function CheckoutCartPage({
   const pricedLineCount = cartLineGroups.filter(hasKnownLinePrice).length;
   const hasKnownTotal = pricedLineCount > 0;
   const estimatedTotal = hasKnownTotal
-    ? formatMoney(estimatedSubtotal)
+    ? formatMoney(estimatedSubtotal.toFixed(2), "USD")
     : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
   const blockedLineCount = cartLineGroups.filter((line) => !hasFulfillmentPath(line)).length;
   const baseReadinessSnapshot = createCartReadinessSnapshot(cartLineGroups);

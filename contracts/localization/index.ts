@@ -1,5 +1,7 @@
 import { englishTranslations } from "./locales/en";
 
+export { formatMoney, type FormatMoneyOptions } from "./money";
+
 export const supportedLocales = ["en"] as const;
 
 export type SupportedLocale = (typeof supportedLocales)[number];

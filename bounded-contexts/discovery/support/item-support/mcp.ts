@@ -1,3 +1,4 @@
+import { formatMoney } from "@chase-sets/localization";
 import { readMcpStringArgument, type McpResourceHandler, type McpToolHandler } from "@chase-sets/platform-runtime/mcp";
 import type { DiscoveryItemDetailRow } from "../../features/item-detail/read-model/queries";
 import type { DiscoverySearchParams } from "../../features/search/read-model/queries";
@@ -114,7 +115,7 @@ function marketplaceUrl(request: Request, path: string) {
 }
 
 function priceDisplay(amount: string | null | undefined) {
-  return amount ? `$${Number(amount).toFixed(2)}` : "Not currently listed";
+  return amount ? formatMoney(amount, "USD") : "Not currently listed";
 }
 
 function productFeedItem(item: DiscoveryItemDetailRow, request: Request) {

@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import { useState, type FormEvent, type ReactNode } from "react";
 import {
   ProductOptions,
@@ -135,12 +135,7 @@ export function parseMoneyAmount(value: string | null | undefined): number | nul
 export function formatMoneyAmount(value: string | number | null | undefined) {
   const amount = typeof value === "number" ? value : parseMoneyAmount(value);
 
-  return amount === null
-    ? t("discovery.routes.itemDetail.unavailable")
-    : new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-      }).format(amount);
+  return amount === null ? t("discovery.routes.itemDetail.unavailable") : formatMoney(amount.toFixed(2), "USD");
 }
 
 export function multiplyMoneyAmount(value: string, quantity: number) {

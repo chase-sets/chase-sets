@@ -25,6 +25,7 @@ type PurchaseDetail = Readonly<{
   marketplace_sales_fee_amount: string;
   marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
+  seller_payout_amount: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -95,6 +96,7 @@ function buildPurchase(purchaseId: string): PurchaseDetail {
     marketplace_sales_fee_amount: "1.00",
     marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "9.50",
+    seller_payout_amount: "9.50",
     status: "pending-payment",
     created_at: "2026-04-01T00:00:00.000Z",
     updated_at: "2026-04-01T00:00:00.000Z",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
   Form,
@@ -26,10 +26,7 @@ function money(amount: number | null, currency = "USD") {
     return t("pricing.features.recommendations.ui.recommendationListPage.not.set");
   }
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-  }).format(amount);
+  return formatMoneyDisplay(amount.toFixed(2), currency);
 }
 
 function title(row: AccountRecommendationListItem) {

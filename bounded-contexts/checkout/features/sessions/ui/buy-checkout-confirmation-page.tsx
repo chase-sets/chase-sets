@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   ActionStack,
   CheckoutConfirmationPanel,
@@ -28,16 +28,7 @@ function formatPaymentAmount(paymentSummary: BuyCheckoutPaymentSummary | null) {
     return t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.total.pending");
   }
 
-  const numericAmount = Number(paymentSummary.amount);
-  const currencyCode = paymentSummary.currencyCode.toUpperCase();
-  if (Number.isFinite(numericAmount)) {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: currencyCode,
-    }).format(numericAmount);
-  }
-
-  return `${paymentSummary.amount} ${currencyCode}`;
+  return formatMoney(paymentSummary.amount, paymentSummary.currencyCode);
 }
 
 function paymentStatusLabel(status: string) {

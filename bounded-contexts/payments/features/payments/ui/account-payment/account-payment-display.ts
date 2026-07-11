@@ -3,10 +3,6 @@ import { isRouteErrorResponse } from "react-router";
 import type { Tone } from "@chase-sets/design-system";
 import type { PaymentsPaymentDetail } from "../../api/contracts";
 
-export function formatMoney(amount: string) {
-  return `$${amount}`;
-}
-
 const paymentTimestampMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function formatPaymentTimestamp(value: string | null | undefined) {

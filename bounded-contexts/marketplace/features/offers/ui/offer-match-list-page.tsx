@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -32,10 +32,6 @@ function statusTone(status: string) {
   }
 }
 
-function formatMoney(amount: string) {
-  return `$${amount}`;
-}
-
 function formatAllowancePercentage(bps: number) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
@@ -49,13 +45,13 @@ function formatPriceGap(amount: string) {
 
   if (value > 0) {
     return t("marketplace.features.offers.ui.offerMatchListPage.below.ask", {
-      amount: formatMoney(value.toFixed(2)),
+      amount: formatMoney(value.toFixed(2), "USD"),
     });
   }
 
   if (value < 0) {
     return t("marketplace.features.offers.ui.offerMatchListPage.over.ask", {
-      amount: formatMoney(Math.abs(value).toFixed(2)),
+      amount: formatMoney(Math.abs(value).toFixed(2), "USD"),
     });
   }
 
@@ -187,7 +183,7 @@ export function MarketplaceOfferMatchListPage({
               header: t("marketplace.features.offers.ui.offerMatchListPage.your.listing"),
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text weight="semibold">{formatMoney(row.listing_price_amount)}</Text>
+                  <Text weight="semibold">{formatMoney(row.listing_price_amount, "USD")}</Text>
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.offers.ui.offerMatchListPage.listing.quantity", {
                       visible: row.listing_visible_quantity,
@@ -202,7 +198,7 @@ export function MarketplaceOfferMatchListPage({
               header: t("marketplace.features.offers.ui.offerMatchListPage.best.offer"),
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text weight="semibold">{formatMoney(row.price_amount)}</Text>
+                  <Text weight="semibold">{formatMoney(row.price_amount, "USD")}</Text>
                   <AccountReputationSummary
                     accountName={row.buyer_display_name ?? row.buyer_account_id}
                     averageRating={row.buyer_average_rating}

@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   AccountReputationSummary,
@@ -26,10 +26,6 @@ function statusTone(status: string) {
     default:
       return "neutral";
   }
-}
-
-function formatMoney(amount: string) {
-  return `$${amount}`;
 }
 
 export function MarketplaceSubmittedOfferDetailPage({
@@ -70,7 +66,7 @@ export function MarketplaceSubmittedOfferDetailPage({
         <Stack gap={4}>
           <OfferCard
             title={offer.item_title}
-            amount={formatMoney(offer.price_amount)}
+            amount={formatMoney(offer.price_amount, "USD")}
             status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
             details={
               <Stack gap={2}>
@@ -103,14 +99,14 @@ export function MarketplaceSubmittedOfferDetailPage({
             lines={[
               {
                 label: t("marketplace.features.offers.ui.submittedOfferDetailPage.offer.price"),
-                value: formatMoney(offer.price_amount),
+                value: formatMoney(offer.price_amount, "USD"),
               },
               {
                 label: t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested"),
                 value: offer.quantity_requested,
               },
             ]}
-            total={formatMoney(offer.price_amount)}
+            total={formatMoney(offer.price_amount, "USD")}
             totalLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.offer.price")}
           />
 

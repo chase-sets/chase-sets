@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   Form,
   Badge,
@@ -22,10 +22,6 @@ import {
 } from "@chase-sets/design-system";
 import type { ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
-
-function formatMoney(amount: string) {
-  return `$${amount}`;
-}
 
 function formatTimestamp(value: string) {
   return new Date(value).toLocaleString();
@@ -113,7 +109,7 @@ export function OrderingOrderDetailPage({
   };
   const itemSubtotalLine = {
     label: t("ordering.features.orders.ui.orderDetailPage.item.subtotal"),
-    value: formatMoney(order.item_subtotal_amount),
+    value: formatMoney(order.item_subtotal_amount, "USD"),
   };
   // Role-scoped money lines: buyers see what they paid (subtotal/shipping/tax/total).
   // Sellers see their own economics (fee/net/payout). Neither role ever sees the
@@ -125,11 +121,11 @@ export function OrderingOrderDetailPage({
           itemSubtotalLine,
           {
             label: t("ordering.features.orders.ui.orderDetailPage.shipping"),
-            value: formatMoney(order.shipping_charge_amount),
+            value: formatMoney(order.shipping_charge_amount, "USD"),
           },
           {
             label: t("ordering.features.orders.ui.orderDetailPage.tax"),
-            value: formatMoney(order.sales_tax_amount),
+            value: formatMoney(order.sales_tax_amount, "USD"),
           },
         ]
       : [
@@ -137,23 +133,23 @@ export function OrderingOrderDetailPage({
           itemSubtotalLine,
           {
             label: t("ordering.features.orders.ui.orderDetailPage.shipping.allowance"),
-            value: formatMoney(order.shipping_allowance_amount),
+            value: formatMoney(order.shipping_allowance_amount, "USD"),
           },
           {
             label: t("ordering.features.orders.ui.orderDetailPage.shipping.overage"),
-            value: formatMoney(order.shipping_overage_amount),
+            value: formatMoney(order.shipping_overage_amount, "USD"),
           },
           {
             label: t("ordering.features.orders.ui.orderDetailPage.marketplace.fee"),
-            value: formatMoney(order.marketplace_sales_fee_amount),
+            value: formatMoney(order.marketplace_sales_fee_amount, "USD"),
           },
           {
             label: t("ordering.features.orders.ui.orderDetailPage.seller.item.net"),
-            value: formatMoney(order.seller_item_net_amount),
+            value: formatMoney(order.seller_item_net_amount, "USD"),
           },
           {
             label: t("ordering.features.orders.ui.orderDetailPage.seller.payout"),
-            value: formatMoney(order.seller_payout_amount),
+            value: formatMoney(order.seller_payout_amount, "USD"),
           },
         ];
 
@@ -195,7 +191,7 @@ export function OrderingOrderDetailPage({
           <Stack gap={4}>
             <PriceBreakdown
               lines={priceBreakdownLines}
-              total={formatMoney(order.total_amount)}
+              total={formatMoney(order.total_amount, "USD")}
               totalLabel={t("ordering.features.orders.ui.orderDetailPage.summary.title", {
                 projectionLabel,
               })}
@@ -335,7 +331,8 @@ export function OrderingOrderDetailPage({
                         {t("ordering.features.orders.ui.orderDetailPage.line.total")}
                       </Text>
                       <Text weight="semibold">
-                        {line.quantity} x {formatMoney(line.unit_price_amount)} = {formatMoney(line.line_total_amount)}
+                        {line.quantity} x {formatMoney(line.unit_price_amount, "USD")} ={" "}
+                        {formatMoney(line.line_total_amount, "USD")}
                       </Text>
                     </Stack>
                   </Grid>
