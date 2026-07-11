@@ -500,23 +500,67 @@
       "mountPath": "/api/marketplace",
       "kind": "additional",
       "requiresAuth": true
+    },
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "additional",
+      "requiresAuth": true
     }
   ],
   "mcpCapabilities": {
     "tools": [
-      { "name": "marketplace.create-listing", "ownerSlice": "listings" },
-      { "name": "marketplace.list-listings", "ownerSlice": "listings" },
-      { "name": "marketplace.get-seller-insights", "ownerSlice": "listings" },
-      { "name": "marketplace.update-listing-price", "ownerSlice": "listings" },
-      { "name": "marketplace.publish-listing", "ownerSlice": "listings" },
-      { "name": "marketplace.unpublish-listing", "ownerSlice": "listings" },
-      { "name": "marketplace.submit-offer", "ownerSlice": "offers" },
-      { "name": "marketplace.counter-offer", "ownerSlice": "offers" },
-      { "name": "marketplace.accept-offer", "ownerSlice": "offers" },
-      { "name": "marketplace.decline-offer", "ownerSlice": "offers" },
-      { "name": "marketplace.list-offers", "ownerSlice": "offers" },
-      { "name": "marketplace.get-reputation-summary", "ownerSlice": "reviews" },
-      { "name": "marketplace.list-reviews", "ownerSlice": "reviews" }
+      {
+        "name": "marketplace.create-listing",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.list-listings",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.get-seller-insights",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.update-listing-price",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.publish-listing",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.unpublish-listing",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.submit-offer",
+        "ownerSlice": "offers"
+      },
+      {
+        "name": "marketplace.counter-offer",
+        "ownerSlice": "offers"
+      },
+      {
+        "name": "marketplace.accept-offer",
+        "ownerSlice": "offers"
+      },
+      {
+        "name": "marketplace.decline-offer",
+        "ownerSlice": "offers"
+      },
+      {
+        "name": "marketplace.list-offers",
+        "ownerSlice": "offers"
+      },
+      {
+        "name": "marketplace.get-reputation-summary",
+        "ownerSlice": "reviews"
+      },
+      {
+        "name": "marketplace.list-reviews",
+        "ownerSlice": "reviews"
+      }
     ],
     "resources": [
       {
