@@ -7,6 +7,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -32,7 +33,8 @@ import {
   type SupportRequestEvent,
   type SupportRequestState,
 } from "../domain/domain";
-import { getSupportFlowDefinition, supportFlowCatalog } from "../domain/flow-catalog";
+import { getSupportFlowDefinition, supportFlowCatalog, type SupportFlowDefinition } from "../domain/flow-catalog";
+import { resolveSupportFlowDeadlineHours, supportDeadlinePolicy } from "../domain/support-deadline-policy";
 import {
   buildSupportRequestTransactionalEmailProjectionHandlers,
   SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -59,6 +61,14 @@ type SupportRequestRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   notificationOutbox?: NotificationOutbox;
+  /**
+   * The shared platform-policy runtime, used to resolve the support-deadline
+   * policy at open time and to source `listFlowDefinitions`' response-window
+   * display copy from the same live values. Optional so seeds and any
+   * pre-policy call site keep working against the flow catalog's compiled
+   * defaults unchanged.
+   */
+  policies?: Pick<PolicyRuntime, "resolvePolicy">;
 }>;
 
 type SupportRequestMutationScope = "participant" | "operations";
@@ -90,7 +100,16 @@ function normalizeOrderId(value: string): OrderId {
 
 export type SupportRequestServices = Readonly<{
   commandHandler: CommandHandler<SupportRequestCommand, SupportRequestState, SupportRequestEvent>;
-  listFlowDefinitions: () => typeof supportFlowCatalog;
+  /**
+   * The flow catalog with each flow's `sellerResponseHours`/
+   * `supportReviewHours` overridden by the support-deadline policy's current
+   * resolved value (falls back to the compiled catalog default when no
+   * `policies` dependency is wired). This is the single source both the
+   * marketplace "before you open a request" panel and any future
+   * public-policy copy read -- so displayed windows and enforced deadlines
+   * can never diverge.
+   */
+  listFlowDefinitions: () => Promise<readonly SupportFlowDefinition[]>;
   openSupportRequest: (
     params: Readonly<{
       orderId: string;
@@ -331,8 +350,16 @@ export type SupportRequestDeadlineSweepResult = Readonly<{
   returnRefundsReleased: number;
 }>;
 
-function addHoursToIso(timestamp: string, hours: number): string {
-  return new Date(Date.parse(timestamp) + hours * 60 * 60 * 1000).toISOString();
+/**
+ * A point `fraction` of the way from `fromIso` to `toIso`. Used to derive
+ * reminder thresholds (halfway through the seller-response window, three
+ * quarters through the support-review window) from a request's own stamped
+ * timestamps rather than a live or catalog-compiled hour count, so reminder
+ * timing always matches the deadline actually stamped on this request at
+ * open time -- unaffected by later support-deadline policy revisions.
+ */
+function fractionalPointIso(fromIso: string, toIso: string, fraction: number): string {
+  return new Date(Date.parse(fromIso) + (Date.parse(toIso) - Date.parse(fromIso)) * fraction).toISOString();
 }
 
 function accountRoleForSupportRequest(
@@ -363,7 +390,20 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
 
   return {
     commandHandler,
-    listFlowDefinitions: () => supportFlowCatalog,
+    listFlowDefinitions: async () => {
+      if (!deps.policies) {
+        return supportFlowCatalog;
+      }
+      const resolved = await deps.policies.resolvePolicy(supportDeadlinePolicy);
+      return supportFlowCatalog.map((flow) => {
+        const hours = resolveSupportFlowDeadlineHours(flow.flowType, resolved.value);
+        return {
+          ...flow,
+          sellerResponseHours: hours.sellerResponseHours,
+          supportReviewHours: hours.supportReviewHours,
+        };
+      });
+    },
     getSupportOrderContext: async (params) => {
       const orderId = normalizeOrderId(params.orderId);
       const order = await getOrderSource(deps.db, orderId);
@@ -406,6 +446,16 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         throw new SupportDomainError("An open support request already exists for this order and issue.");
       }
 
+      // Resolve the support-deadline policy's current value once, here, at
+      // open time -- never inside the decider. The resolved hours are
+      // stamped onto the command below and, from there, onto the opened
+      // event's sellerResponseDueAt/supportReviewDueAt; a later policy
+      // revision can never move this request's deadlines (fairness
+      // invariant, tested in ../domain/domain.test.ts).
+      const deadlineHours = deps.policies
+        ? resolveSupportFlowDeadlineHours(flowType, (await deps.policies.resolvePolicy(supportDeadlinePolicy)).value)
+        : null;
+
       const supportRequestId = createId("sup") as SupportRequestId;
       const result = await commandHandler({
         streamId: `support.support-request-${supportRequestId}`,
@@ -421,6 +471,12 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           openedByRole,
           openedAt: new Date().toISOString(),
           orderReturnContext: order.return_context,
+          ...(deadlineHours
+            ? {
+                sellerResponseHours: deadlineHours.sellerResponseHours,
+                supportReviewHours: deadlineHours.supportReviewHours,
+              }
+            : {}),
         },
         context,
       });
@@ -703,12 +759,23 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
 
         try {
           if (definition.autoResolvesOnSellerSilence) {
+            // The window named in the message is the hours actually stamped
+            // on this request at open time (from `candidate.opened_at` to
+            // `candidate.seller_response_due_at`), not the flow's live or
+            // catalog-compiled default -- those can diverge once a support
+            // deadline policy revision has landed.
+            const windowHours =
+              candidate.seller_response_due_at != null
+                ? Math.round(
+                    (Date.parse(candidate.seller_response_due_at) - Date.parse(candidate.opened_at)) / (60 * 60 * 1000),
+                  )
+                : definition.sellerResponseHours;
             const result = await commandHandler({
               streamId,
               command: {
                 type: "ResolveSupportRequest",
                 resolutionType: definition.defaultResolution,
-                summary: `Automatically resolved: the seller did not respond within the ${definition.sellerResponseHours}-hour support window.`,
+                summary: `Automatically resolved: the seller did not respond within the ${windowHours}-hour support window.`,
                 refundAmount: null,
                 resolvedByAccountId: null,
                 resolvedByRole: null,
@@ -774,11 +841,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       // (the seller, while waiting on their response).
       const responseReminderCandidates = await listSupportRequestsNeedingResponseReminder(deps.db, { now, limit });
       for (const candidate of responseReminderCandidates) {
-        const definition = getSupportFlowDefinition(normalizeFlowType(candidate.flow_type));
-        if (definition.sellerResponseHours === null) {
+        if (candidate.seller_response_due_at == null) {
           continue;
         }
-        const halfwayAt = addHoursToIso(candidate.opened_at, definition.sellerResponseHours / 2);
+        const halfwayAt = fractionalPointIso(candidate.opened_at, candidate.seller_response_due_at, 0.5);
         if (Date.parse(halfwayAt) > Date.parse(now)) {
           continue;
         }
@@ -804,11 +870,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       // (last quarter of the review window).
       const reviewReminderCandidates = await listSupportRequestsNeedingReviewReminder(deps.db, { now, limit });
       for (const candidate of reviewReminderCandidates) {
-        const definition = getSupportFlowDefinition(normalizeFlowType(candidate.flow_type));
-        if (definition.supportReviewHours === null) {
-          continue;
-        }
-        const approachingAt = addHoursToIso(candidate.support_review_due_at, -(definition.supportReviewHours * 0.25));
+        const approachingAt = fractionalPointIso(candidate.opened_at, candidate.support_review_due_at, 0.75);
         if (Date.parse(approachingAt) > Date.parse(now)) {
           continue;
         }

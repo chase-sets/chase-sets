@@ -1,10 +1,15 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import type { AccountId, OrderId, SupportRequestId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createPlatformOperationsServices, type PlatformOperationsServices } from "./services";
 import { ExperienceDomainError } from "../../features/platform-feedback/domain/common";
 import { SupportDomainError } from "../../features/support-requests/domain/common";
+import {
+  SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
+  supportDeadlinePolicy,
+} from "../../features/support-requests/domain/support-deadline-policy";
 import { experienceSeedIds, supportSeedIds, supportSeedOrderSourceIds } from "../seed-support/ids";
 
 function isoDate(value: string) {
@@ -15,8 +20,87 @@ export async function seedPlatformOperationsDatabase(
   pool: PgTransactionalPool,
   services: PlatformOperationsServices = createPlatformOperationsServices(pool),
 ): Promise<void> {
+  await seedSupportDeadlinePolicy(services);
   await seedPlatformFeedbackData(pool, services);
   await seedSupportDatabase(pool, services);
+}
+
+/**
+ * Seeds the support-deadline policy with the launch value (single-sourced
+ * from the compiled flow catalog) before any support-request seed activity
+ * below -- behavior must be byte-identical at cutover. Failures here are
+ * non-fatal to the rest of the seed pass (matching the resilience of the
+ * "table may not exist yet" guards elsewhere in this file): a fresh
+ * bootstrap where the platform-policy tables have not landed yet must not
+ * block support-request seed data that later passes depend on.
+ */
+async function seedSupportDeadlinePolicy(services: PlatformOperationsServices) {
+  try {
+    await seedPolicyDocumentIfMissing(
+      services,
+      createSeedContext(),
+      supportDeadlinePolicy,
+      SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE,
+      "2026-01-01T00:00:00.000Z",
+    );
+  } catch (error) {
+    console.log(
+      `Support deadline policy seed skipped for this pass: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function createSeedContext(): EventStoreContext {
+  return {
+    tenantId: "tnt_seed_development" as TenantId,
+    audit: {
+      performedByUserId: identitySeedIds.demo.userId as UserId,
+      forAccountId: identitySeedIds.demo.accountId as AccountId,
+    },
+  };
+}
+
+/**
+ * Seeds a platform-policy document with the launch value so behavior is
+ * byte-identical at cutover: the compiled fallback and this seeded document
+ * agree on every value. A policy document's id is assigned by the
+ * platform-policy machinery itself (not pre-registered), so idempotency is
+ * checked against the policy key rather than a fixed seed id.
+ */
+async function seedPolicyDocumentIfMissing<Value>(
+  services: PlatformOperationsServices,
+  context: EventStoreContext,
+  definition: PolicyDefinition<Value>,
+  value: Value,
+  effectiveFrom: string,
+) {
+  if (await policyDocumentExists(services.db, definition.policyKey)) {
+    return;
+  }
+
+  await services.policies.createPolicyDocument(
+    definition,
+    {
+      value,
+      status: "active",
+      effectiveFrom,
+      effectiveUntil: null,
+      actorUserId: identitySeedIds.demo.userId,
+    },
+    context,
+  );
+}
+
+async function policyDocumentExists(db: Pick<PgTransactionalPool, "query">, policyKey: string): Promise<boolean> {
+  try {
+    const existing = await db.query(
+      "SELECT 1 FROM platform_policy_documents WHERE policy_key = $1 AND status = 'active' LIMIT 1",
+      [policyKey],
+    );
+    return existing.rows.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 export async function seedPlatformFeedbackData(

@@ -76,6 +76,57 @@ const context = {
 };
 
 describe("support request runtime", () => {
+  it("sources listFlowDefinitions' response-window copy from the resolved support-deadline policy", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { eventStore } = createInMemoryEventStore();
+    const resolvePolicy = vi.fn(async () => ({
+      policyKey: "platform-operations.support-deadlines",
+      value: {
+        "product-not-received": { sellerResponseHours: 96, supportReviewHours: 48 },
+      },
+      source: "policy" as const,
+      documentId: "pol_1",
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      effectiveUntil: null,
+      resolvedAt: "2026-05-09T12:00:00.000Z",
+    }));
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      policies: { resolvePolicy: resolvePolicy as never },
+    });
+
+    const flows = await runtime.listFlowDefinitions();
+
+    expect(flows.find((flow) => flow.flowType === "product-not-received")).toMatchObject({
+      sellerResponseHours: 96,
+      supportReviewHours: 48,
+    });
+    // Every other flow falls back to its launch default, single-sourced from the same resolved value.
+    expect(flows.find((flow) => flow.flowType === "authenticity-concern")).toMatchObject({
+      sellerResponseHours: 24,
+      supportReviewHours: 12,
+    });
+  });
+
+  it("listFlowDefinitions falls back to the compiled catalog when no policies dependency is wired", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    const flows = await runtime.listFlowDefinitions();
+
+    expect(flows.find((flow) => flow.flowType === "product-not-received")).toMatchObject({
+      sellerResponseHours: 48,
+      supportReviewHours: 24,
+    });
+  });
+
   it("returns an account-scoped support order context before opening a request", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -177,6 +228,115 @@ describe("support request runtime", () => {
       flowType: "product-not-received",
       status: "waiting-on-seller",
     });
+  });
+
+  it("stamps deadlines from the support-deadline policy's resolved value at open time when a policies dependency is wired", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "ready-for-fulfillment",
+                total_amount: "24.00",
+                return_context: [],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const resolvePolicy = vi.fn(async () => ({
+      policyKey: "platform-operations.support-deadlines",
+      value: {
+        "product-not-received": { sellerResponseHours: 72, supportReviewHours: 36 },
+      },
+      source: "policy" as const,
+      documentId: "pol_1",
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      effectiveUntil: null,
+      resolvedAt: "2026-05-09T12:00:00.000Z",
+    }));
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      policies: { resolvePolicy: resolvePolicy as never },
+    });
+
+    await runtime.openSupportRequest(
+      { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received", openedByRole: "buyer" },
+      context,
+    );
+
+    expect(resolvePolicy).toHaveBeenCalledWith(
+      expect.objectContaining({ policyKey: "platform-operations.support-deadlines" }),
+    );
+    const openedEvent = allEvents.find((event) => event.eventType === "support.support-request.opened");
+    const openedPayload = openedEvent?.payload as {
+      openedAt: string;
+      sellerResponseDueAt: string;
+      supportReviewDueAt: string;
+    };
+    // 72h and 36h from the resolved policy override, not the catalog's 48h/24h.
+    expect(openedPayload.sellerResponseDueAt).toBe(
+      new Date(Date.parse(openedPayload.openedAt) + 72 * 60 * 60 * 1000).toISOString(),
+    );
+    expect(openedPayload.supportReviewDueAt).toBe(
+      new Date(Date.parse(openedPayload.openedAt) + 36 * 60 * 60 * 1000).toISOString(),
+    );
+  });
+
+  it("falls back to the flow catalog's compiled defaults when no policies dependency is wired", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "ready-for-fulfillment",
+                total_amount: "24.00",
+                return_context: [],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await runtime.openSupportRequest(
+      { orderId: "ord_1", accountId: "acc_buyer", flowType: "product-not-received", openedByRole: "buyer" },
+      context,
+    );
+
+    const openedEvent = allEvents.find((event) => event.eventType === "support.support-request.opened");
+    const openedPayload = openedEvent?.payload as {
+      openedAt: string;
+      sellerResponseDueAt: string;
+      supportReviewDueAt: string;
+    };
+    // 48h and 24h -- the flow catalog's compiled defaults for product-not-received.
+    expect(openedPayload.sellerResponseDueAt).toBe(
+      new Date(Date.parse(openedPayload.openedAt) + 48 * 60 * 60 * 1000).toISOString(),
+    );
+    expect(openedPayload.supportReviewDueAt).toBe(
+      new Date(Date.parse(openedPayload.openedAt) + 24 * 60 * 60 * 1000).toISOString(),
+    );
   });
 
   it("rejects malformed order ids before looking up support order sources", async () => {
@@ -602,6 +762,8 @@ describe("support request runtime", () => {
       let responseReminderPendingId = "";
       let reviewReminderPendingId = "";
       let responseOpenedAtIso = "";
+      let responseDueAtIso = "";
+      let reviewOpenedAtIso = "";
       let reviewDueAtIso = "";
       const db = {
         query: vi.fn(async (sql: string) => {
@@ -619,6 +781,7 @@ describe("support request runtime", () => {
                       support_request_id: responseReminderPendingId,
                       flow_type: "product-not-received",
                       opened_at: responseOpenedAtIso,
+                      seller_response_due_at: responseDueAtIso,
                     },
                   ],
                 }
@@ -631,6 +794,7 @@ describe("support request runtime", () => {
                     {
                       support_request_id: reviewReminderPendingId,
                       flow_type: "authenticity-concern",
+                      opened_at: reviewOpenedAtIso,
                       support_review_due_at: reviewDueAtIso,
                     },
                   ],
@@ -670,10 +834,12 @@ describe("support request runtime", () => {
           event.eventType === "support.support-request.opened" && event.streamId.includes(reviewCase.supportRequestId),
       );
       const responsePayload = responseOpenedEvent?.payload as { openedAt: string; sellerResponseDueAt: string };
-      const reviewPayload = reviewOpenedEvent?.payload as { supportReviewDueAt: string };
+      const reviewPayload = reviewOpenedEvent?.payload as { openedAt: string; supportReviewDueAt: string };
       responseOpenedAtIso = responsePayload.openedAt;
+      responseDueAtIso = responsePayload.sellerResponseDueAt;
       // product-not-received: sellerResponseHours = 48, so the halfway point is 24h after opening.
       const halfwayAt = new Date(Date.parse(responseOpenedAtIso) + 24 * 60 * 60 * 1000).toISOString();
+      reviewOpenedAtIso = reviewPayload.openedAt;
       reviewDueAtIso = reviewPayload.supportReviewDueAt;
       // authenticity-concern: supportReviewHours = 12, so "approaching" (75% elapsed) is 9h after opening,
       // i.e. 3h before the due date.

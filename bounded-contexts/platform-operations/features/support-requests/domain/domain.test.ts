@@ -142,6 +142,85 @@ describe("support request domain", () => {
     });
   });
 
+  it("stamps deadlines from a resolved policy override at open time instead of the flow catalog default", () => {
+    const events = decideSupportRequest(initialSupportRequestState, {
+      type: "OpenSupportRequest",
+      supportRequestId: "sup_override" as never,
+      orderId: "ord_01" as never,
+      orderTotalAmount: "25.00",
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      flowType: "product-not-received",
+      openedByAccountId: "acc_buyer" as never,
+      openedByRole: "buyer",
+      openedAt,
+      sellerResponseHours: 72,
+      supportReviewHours: 6,
+    });
+
+    expect(events[0]?.data).toMatchObject({
+      // 72h and 6h from the resolved override, not the catalog's 48h/24h.
+      sellerResponseDueAt: "2026-05-12T12:00:00.000Z",
+      supportReviewDueAt: "2026-05-09T18:00:00.000Z",
+    });
+  });
+
+  it("falls back to the flow catalog's compiled default when no override is provided (seeds, pre-policy call sites)", () => {
+    const events = openProductNotReceived();
+
+    expect(events[0]?.data).toMatchObject({
+      sellerResponseDueAt: "2026-05-11T12:00:00.000Z",
+      supportReviewDueAt: "2026-05-10T12:00:00.000Z",
+    });
+  });
+
+  it("rejects an override that introduces a seller-response phase for a flow with none structurally", () => {
+    expect(() =>
+      decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: "sup_bad_override" as never,
+        orderId: "ord_01" as never,
+        orderTotalAmount: "25.00",
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        // seller-cannot-fulfill has no seller-response phase (sellerResponseHours is null in the catalog).
+        flowType: "seller-cannot-fulfill",
+        openedByAccountId: "acc_seller" as never,
+        openedByRole: "seller",
+        openedAt,
+        sellerResponseHours: 24,
+      }),
+    ).toThrow("This support flow has no seller-response phase; seller response hours must stay null.");
+  });
+
+  it("does not retroactively change an already-opened request's deadlines (fairness invariant)", () => {
+    // A request opened under the compiled catalog default...
+    const openedUnderDefault = fold(openProductNotReceived());
+    expect(openedUnderDefault.sellerResponseDueAt).toBe("2026-05-11T12:00:00.000Z");
+
+    // ...is untouched by a later policy revision: decideSupportRequest never
+    // re-reads the policy for an existing aggregate. Only a brand-new
+    // OpenSupportRequest command carrying the newly resolved override
+    // produces different deadlines.
+    const openedUnderRevisedPolicy = decideSupportRequest(initialSupportRequestState, {
+      type: "OpenSupportRequest",
+      supportRequestId: "sup_after_revision" as never,
+      orderId: "ord_02" as never,
+      orderTotalAmount: "25.00",
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      flowType: "product-not-received",
+      openedByAccountId: "acc_buyer" as never,
+      openedByRole: "buyer",
+      openedAt,
+      sellerResponseHours: 96,
+      supportReviewHours: 24,
+    });
+
+    expect(openedUnderDefault.sellerResponseDueAt).toBe("2026-05-11T12:00:00.000Z");
+    expect(openedUnderRevisedPolicy[0]?.data).toMatchObject({ sellerResponseDueAt: "2026-05-13T12:00:00.000Z" });
+  });
+
   it("accepts tracking evidence and moves toward support-ready seller response", () => {
     const opened = openProductNotReceived();
     const state = fold(opened);
