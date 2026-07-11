@@ -27,3 +27,12 @@ export {
 } from "./support/realtime-support/topics";
 export { createReputationRequestApiClient } from "./support/request-support/reputation-api-client";
 export type { ReviewOpportunity } from "./support/request-support/reputation-api-client";
+/**
+ * Policy definition for the platform policy console: Platform Operations
+ * imports this (via `policyConsoleCrossContext`, assembled in the
+ * `platform-api` composition root) to list, show history for, and revise
+ * this policy through the shared machinery -- without ever importing
+ * Marketplace's domain code directly.
+ */
+export { marketplaceListingGatePolicy } from "./features/listings/domain/listing-gate-policy";
+export type { MarketplaceListingGatePolicyValue } from "./features/listings/domain/listing-gate-policy";

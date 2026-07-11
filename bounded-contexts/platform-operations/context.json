@@ -21,6 +21,7 @@
     "projection-operations",
     "insights-dashboards",
     "platform-feedback",
+    "policy-console",
     "rate-limit-policy",
     "reported-content",
     "risk-alerts",
@@ -224,6 +225,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by support request event projectors."
+    },
+    {
+      "portName": "policyConsoleCrossContext",
+      "providedBy": "platform-api",
+      "purpose": "Settlement's and Commercial Terms' declared policy-console entries (definitions, read pool, write port), assembled once in the platform-api composition root so the #4291 policy console can aggregate across contexts without this context importing their domain code."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -488,6 +494,25 @@
         "authoritativeResponse": "createSupportDeadlinePolicyRoutes responds from the platform-policy runtime's createPolicyDocument/revisePolicyDocument command result, never from a projection read.",
         "tests": ["bounded-contexts/platform-operations/features/support-requests/api/deadline-policy-route.test.ts"]
       }
+    },
+    {
+      "id": "platform-operations.policy-console-revision-snapshots",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/platform-operations/support/request-support/policy-console-client.ts:POST Hf5835e93518c#1",
+        "api-route:bounded-contexts/platform-operations/features/policy-console/api/policy-console-route.ts:POST /:policyKey/revisions",
+        "post-form:bounded-contexts/platform-operations/features/policy-console/ui/policy-console-detail-page.tsx:H1abed2c1c746#1",
+        "route-action:bounded-contexts/platform-operations/routes/admin/policy-console-detail.tsx"
+      ],
+      "visibleDestination": {
+        "description": "The policy console revise route (#4291) returns the command-local id/version/scheduled snapshot from the owning context's own PolicyRuntime before any projection read; the detail route redirects back to the same policy detail route, whose loader reads the same context's platform_policy_documents table directly (same database, no projection lag) for an immediate authoritative refetch."
+      },
+      "proof": {
+        "authoritativeResponse": "createScheduledOrImmediateRevision returns the owning context's PolicyRuntime createPolicyDocument/revisePolicyDocument command result (documentId, version, scheduled), never from a projection read; loads go straight at platform_policy_documents via listPolicyRegistry/listActivePolicyDocuments/getPolicyDocument in the same database as the write.",
+        "tests": ["bounded-contexts/platform-operations/features/policy-console/api/policy-console-route.test.ts"]
+      }
     }
   ],
   "deployableContributions": [
@@ -577,6 +602,22 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "section": "platform"
+        },
+        {
+          "routeId": "policy-console",
+          "routePath": "policy-console",
+          "fileExport": "./routes/admin/policy-console",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "platform"
+        },
+        {
+          "routeId": "policy-console-detail",
+          "routePath": "policy-console/:policyKey",
+          "fileExport": "./routes/admin/policy-console-detail",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "platform"
         }
       ]
     }
@@ -663,6 +704,18 @@
       "order": 10,
       "visibility": "signed-in",
       "requiredPermissions": ["projection-operations.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "policy-console",
+      "label": "Policy Console",
+      "icon": "settings",
+      "href": "/policy-console",
+      "section": "platform",
+      "order": 15,
+      "visibility": "signed-in",
+      "requiredPermissions": ["platform-policy.view"]
     }
   ],
   "directoryIntent": {
@@ -683,6 +736,11 @@
         "Internal platform-operations module composition",
         "Marketplace contextual feedback prompts"
       ]
+    },
+    "policy-console": {
+      "classification": "slice",
+      "purpose": "Own the policy-console slice for platform-operations (#4291): lists every policy declared with definePolicy across the contexts that have migrated onto the shared platform-policy machinery, grouped by owning context, with history and scheduled-revision support. Reads query each owning context's own platform_policy_documents table directly; writes delegate to that context's own PolicyRuntime via the policyConsoleCrossContext host port.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
     },
     "rate-limit-policy": {
       "classification": "slice",

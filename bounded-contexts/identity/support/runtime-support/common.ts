@@ -62,6 +62,8 @@ export type PermissionKey =
   | "projection-operations.view"
   | "platform-feedback.manage"
   | "platform-feedback.view"
+  | "platform-policy.manage"
+  | "platform-policy.view"
   | "public-presence.manage"
   | "public-presence.view"
   | "reputation.manage"

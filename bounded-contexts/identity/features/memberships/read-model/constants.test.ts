@@ -51,6 +51,20 @@ describe("identity role permissions", () => {
     );
   });
 
+  it("restricts platform-policy.manage to platform-admin (m110 #4291 policy console)", () => {
+    expect(ROLE_PERMISSIONS["platform-admin"]).toContain("platform-policy.manage");
+    expect(ROLE_PERMISSIONS.owner).not.toContain("platform-policy.manage");
+    expect(ROLE_PERMISSIONS.manager).not.toContain("platform-policy.manage");
+    expect(ROLE_PERMISSIONS.fulfillment).not.toContain("platform-policy.manage");
+    expect(ROLE_PERMISSIONS.viewer).not.toContain("platform-policy.manage");
+
+    expect(ROLE_PERMISSIONS["platform-admin"]).toContain("platform-policy.view");
+    expect(ROLE_PERMISSIONS.owner).toContain("platform-policy.view");
+    expect(ROLE_PERMISSIONS.manager).toContain("platform-policy.view");
+    expect(ROLE_PERMISSIONS.fulfillment).not.toContain("platform-policy.view");
+    expect(ROLE_PERMISSIONS.viewer).not.toContain("platform-policy.view");
+  });
+
   it("keeps payout scheduling as an authority permission instead of an account capability", () => {
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.reconcile");

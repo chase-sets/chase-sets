@@ -9,14 +9,27 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
+import type { JsonValue } from "@chase-sets/primitives/json";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
 import { createDashboardQueryService } from "../../features/insights-dashboards/read-model/queries";
+import { rateLimitPolicy } from "../../features/rate-limit-policy/domain/rate-limit-policy";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
+import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
+import type { PolicyConsoleCrossContextPort, PolicyConsoleEntry } from "../../features/policy-console/api/contracts";
 
 export type PlatformOperationsHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
+  /**
+   * Cross-context policy sources for the platform policy console: Settlement
+   * and Commercial Terms' declared policies, assembled once in the
+   * `platform-api` composition root so this context never imports those
+   * contexts' domain code directly (see `allowedContextDependencies` in
+   * `context.json`).
+   */
+  policyConsoleCrossContext?: PolicyConsoleCrossContextPort;
 }>;
 
 export type PlatformOperationsServices = Readonly<{
@@ -28,6 +41,8 @@ export type PlatformOperationsServices = Readonly<{
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (the rate-limit policy and the support-flow deadline policy). */
   policies: PolicyRuntime;
+  /** The platform policy console's full registry: this context's own two policies plus any injected cross-context ones. */
+  policyConsoleEntries: readonly PolicyConsoleEntry[];
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -60,6 +75,33 @@ export function createPlatformOperationsServices(
     policies,
   });
 
+  const ownPolicyDefinitions = [
+    rateLimitPolicy,
+    supportDeadlinePolicy,
+  ] as unknown as readonly PolicyDefinition<JsonValue>[];
+  const policyConsoleEntries: readonly PolicyConsoleEntry[] = [
+    ...ownPolicyDefinitions.map(
+      (definition): PolicyConsoleEntry => ({
+        policyKey: definition.policyKey,
+        contextName: "platform-operations",
+        db,
+        definition,
+        write: policies,
+      }),
+    ),
+    ...(ports.policyConsoleCrossContext?.sources ?? []).flatMap((source) =>
+      source.definitions.map(
+        (definition): PolicyConsoleEntry => ({
+          policyKey: definition.policyKey,
+          contextName: source.contextName,
+          db: source.db,
+          definition,
+          write: source.write,
+        }),
+      ),
+    ),
+  ];
+
   return {
     db: pool,
     insightsDashboards: createDashboardQueryService(new Map()),
@@ -68,6 +110,7 @@ export function createPlatformOperationsServices(
     riskAlerts,
     supportRequests,
     policies,
+    policyConsoleEntries,
     projectors: [
       ...platformFeedback.projectors,
       ...reportedContent.projectors,

@@ -131,3 +131,15 @@ export type {
   AuthenticityFeeBand,
   AuthenticityFeeCategory,
 } from "./features/authenticity-fee/domain/policy";
+
+/**
+ * Policy definitions for the platform policy console: Platform
+ * Operations imports these (via `policyConsoleCrossContext`, assembled in
+ * the `platform-api` composition root) to list, show history for, and
+ * revise these policies through the shared machinery -- without ever
+ * importing Commercial Terms' domain code directly. Schedules and
+ * agreements deliberately stay off this list -- they keep their own
+ * `/terms` admin surface, which has richer, account-targeted semantics.
+ */
+export { checkoutProcessingFeePolicy } from "./features/checkout-processing-fee/domain/policy";
+export { authenticityFeePolicy } from "./features/authenticity-fee/domain/policy";
