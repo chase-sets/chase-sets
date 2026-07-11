@@ -346,6 +346,24 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * The authenticity-check fee (m109) is frozen once, on the sole
+ * order it applies to (single-seller only in v1), so summing it across a
+ * payment's orders is a plain zero-default sum -- no `seller_net_amount`
+ * fallback quirk like `sumFeeAmounts` applies, since a missing/zero value
+ * here means "this order did not opt in," not "data is missing."
+ */
+function sumAuthenticityFeeAmounts(orders: readonly Readonly<{ authenticity_fee_amount?: string | null }>[]) {
+  return sumMoneyAmounts(
+    orders.map((order) =>
+      normalizeMoneyAmount(order.authenticity_fee_amount ?? "0.00", {
+        fieldName: "Authenticity check fee amount",
+        allowZero: true,
+      }),
+    ),
+  );
+}
+
 function sumOrderAmounts(orders: readonly Readonly<{ total_amount: string }>[]) {
   return sumMoneyAmounts(
     orders.map((order) =>
@@ -1678,6 +1696,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const paymentAmount = marketplaceCheckoutFeeQuote.total_amount;
       const processorAmount = marketplaceCheckoutFeeQuote.processor_amount;
       const marketplaceSalesFeeAmount = sumFeeAmounts(orders, "marketplace_sales_fee_amount");
+      const authenticityFeeAmount = sumAuthenticityFeeAmounts(orders);
       const marketplaceCheckoutFeeAmount = marketplaceCheckoutFeeQuote.marketplace_checkout_fee_amount;
       const sellerNetAmount = sumFeeAmounts(orders, "seller_net_amount");
       const sellerPayoutAmount = sumFeeAmounts(orders, "seller_payout_amount");
@@ -1847,6 +1866,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           balanceCreditAmount,
           processorAmount,
           marketplaceSalesFeeAmount,
+          authenticityFeeAmount,
           marketplaceCheckoutFeeAmount,
           marketplaceCheckoutFeePolicyVersion: marketplaceCheckoutFeeQuote.policy_version,
           marketplaceCheckoutFeeQuoteFingerprint: marketplaceCheckoutFeeQuote.quote_fingerprint,

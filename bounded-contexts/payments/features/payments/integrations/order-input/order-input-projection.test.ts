@@ -50,6 +50,7 @@ describe("payments order input projection", () => {
       "20.81",
       "1.00",
       "0.00",
+      "0.00",
       "15.00",
       "15.00",
       "0.00",
@@ -62,5 +63,41 @@ describe("payments order input projection", () => {
       "2026-04-01T00:00:00.000Z",
       "2026-04-01T00:00:00.000Z",
     ]);
+  });
+
+  it("relays the frozen authenticity-check fee amount (m109 #4275) into the order-input mirror", async () => {
+    const db = {
+      query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] })),
+    };
+    const handlers = buildPaymentsOrderInputProjectionHandlers(db);
+
+    await handlers["ordering.order.created"]!(
+      storedEvent("ordering.order.created", {
+        orderId: "ord_2",
+        sourceType: "checkout",
+        sourceReferenceId: "chk_2",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        shippingDestinationSnapshot: { email: "buyer@example.com" },
+        salesTaxAmount: "1.57",
+        totalAmount: "161.00",
+        commercialTermsSnapshot: {
+          marketplaceSalesFeeAmount: "1.00",
+          sellerNetAmount: "15.00",
+          termsScheduleId: null,
+          termsAgreementId: null,
+          termsResolvedAt: "2026-04-01T00:00:00.000Z",
+        },
+        authenticityPlanSnapshot: {
+          feeAmount: "11.00",
+          payer: "buyer",
+          policyVersion: "authenticity-check-fee-v1",
+        },
+      }),
+    );
+
+    const [, params] = db.query.mock.calls[0]!;
+    expect(params![8]).toBe("1.00");
+    expect(params![9]).toBe("11.00");
   });
 });

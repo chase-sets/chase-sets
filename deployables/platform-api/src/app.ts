@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/auth/server";
 import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import {
+  createAuthenticityFeePolicyResolver,
   createCheckoutProcessingFeePolicyResolver,
   createCommercialTermsResolver,
   type CommercialTermsAccountSource,
@@ -138,6 +139,9 @@ export function createPlatformApiHost(
   const checkoutProcessingFeePolicyResolver = commercialTermsPool
     ? createCheckoutProcessingFeePolicyResolver(commercialTermsPool)
     : undefined;
+  const authenticityFeePolicyResolver = commercialTermsPool
+    ? createAuthenticityFeePolicyResolver(commercialTermsPool)
+    : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
     const marketplaceServices = runtime?.services.marketplace as
       | {
@@ -162,6 +166,7 @@ export function createPlatformApiHost(
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
+      ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       draftListingCreator,
     },
   });

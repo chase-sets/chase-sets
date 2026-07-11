@@ -5,11 +5,12 @@
     "commercial-terms-schedule",
     "commercial-agreement",
     "commercial-terms-resolution",
-    "checkout-processing-fee-policy"
+    "checkout-processing-fee-policy",
+    "authenticity-fee-policy"
   ],
   "streamPrefix": "commercial-terms.",
   "apiBasePath": "/api/commercial-terms",
-  "slices": ["schedules", "agreements", "resolutions", "checkout-processing-fee"],
+  "slices": ["schedules", "agreements", "resolutions", "checkout-processing-fee", "authenticity-fee"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/identity"],
@@ -263,18 +264,21 @@
         "api-route:bounded-contexts/commercial-terms/features/schedules/api/route.ts:PUT /:id",
         "api-route:bounded-contexts/commercial-terms/features/resolutions/api/route.ts:POST /preview",
         "api-route:bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.ts:POST /",
-        "api-route:bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.ts:PUT /:id"
+        "api-route:bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.ts:PUT /:id",
+        "api-route:bounded-contexts/commercial-terms/features/authenticity-fee/api/route.ts:POST /",
+        "api-route:bounded-contexts/commercial-terms/features/authenticity-fee/api/route.ts:PUT /:id"
       ],
       "visibleDestination": {
         "description": "Commercial Terms API command routes return command-local id/version snapshots, and resolution preview returns the calculated terms snapshot directly."
       },
       "proof": {
-        "authoritativeResponse": "Create and revise routes respond from the command result before projection reads; preview responds from the resolver calculation and does not redirect to a projection-backed browser page. The checkout processing-fee create/revise routes are the shared platform-policy document commands and respond the same way -- no browser destination exists for this policy yet (admin UI is tracked as follow-up work).",
+        "authoritativeResponse": "Create and revise routes respond from the command result before projection reads; preview responds from the resolver calculation and does not redirect to a projection-backed browser page. The checkout processing-fee and authenticity-fee create/revise routes are the shared platform-policy document commands and respond the same way -- no browser destination exists for either policy yet (admin UI is tracked as follow-up work).",
         "tests": [
           "bounded-contexts/commercial-terms/features/agreements/api/route.test.ts",
           "bounded-contexts/commercial-terms/features/schedules/api/route.test.ts",
           "bounded-contexts/commercial-terms/features/resolutions/api/route.test.ts",
-          "bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.test.ts"
+          "bounded-contexts/commercial-terms/features/checkout-processing-fee/api/route.test.ts",
+          "bounded-contexts/commercial-terms/features/authenticity-fee/api/route.test.ts"
         ]
       }
     },
@@ -510,6 +514,14 @@
         "Payments (via checkoutProcessingFeePolicyResolver host port)"
       ]
     },
+    "authenticity-fee": {
+      "classification": "slice",
+      "purpose": "Own the authenticity-fee-policy definition (bands + opt-in threshold) and admin-managed create/revise API on the shared platform-policy machinery.",
+      "expectedConsumers": [
+        "Internal commercial-terms module composition",
+        "Ordering (via authenticityFeePolicyResolver host port)"
+      ]
+    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide Commercial Terms request composition for admin routes that span schedules, agreements, and resolutions.",
@@ -519,7 +531,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide commercial-terms event-store composition and common fee math shared by runtime services.",
-      "expectedConsumers": ["schedules", "agreements", "resolutions", "checkout-processing-fee"]
+      "expectedConsumers": ["schedules", "agreements", "resolutions", "checkout-processing-fee", "authenticity-fee"]
     },
     "seed-support": {
       "classification": "support",

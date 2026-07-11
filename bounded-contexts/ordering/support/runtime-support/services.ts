@@ -13,11 +13,13 @@ import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
 import { createPostagePolicyRuntime } from "../../features/postage-policies/api/runtime";
 import { defaultShippingQuotePolicy, type ShippingQuotePolicy } from "../../features/orders/domain/policies";
+import type { AuthenticityFeePolicyResolver } from "../../features/orders/api/authenticity-fee-policy-resolver";
 
 export type OrderingServiceOptions = Readonly<{
   shippingQuotePolicy?: ShippingQuotePolicy;
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
+  authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
 }>;
 
 export type OrderingServices = Readonly<{
@@ -49,6 +51,7 @@ export function createOrderingServices(
     postagePolicyResolver: postagePolicies.getActivePolicy,
     taxQuoteResolver: options.taxQuoteResolver,
     notificationOutbox,
+    authenticityFeePolicyResolver: options.authenticityFeePolicyResolver,
   });
 
   return {

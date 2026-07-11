@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CartReadinessSnapshot } from "../../cart/domain/readiness";
 import type {
+  CheckoutAuthenticityCheckOptIn,
   CheckoutSessionLine,
   CheckoutSessionReservation,
   CheckoutShippingAddress,
@@ -21,6 +22,7 @@ export type CheckoutSessionRow = Readonly<{
   shipping_option: "standard" | "expedited" | "priority";
   shipping_address_id: string | null;
   shipping_address: CheckoutShippingAddress | null;
+  authenticity_check_opt_in?: CheckoutAuthenticityCheckOptIn | null;
   lines: readonly CheckoutSessionLine[];
   order_ids: readonly string[];
   order_write_commit_positions: readonly CheckoutSourceCommitPosition[];
@@ -42,6 +44,7 @@ type CheckoutSessionPageRow = Omit<
     shipping_option: string;
     fulfillment_preview_snapshot: unknown;
     shipping_address: unknown;
+    authenticity_check_opt_in: unknown;
     cart_readiness_snapshot: unknown;
     split_group_handoff: unknown;
     lines: unknown;
@@ -85,6 +88,10 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
       typeof row.shipping_address === "object" && row.shipping_address !== null
         ? (row.shipping_address as CheckoutShippingAddress)
         : null,
+    authenticity_check_opt_in:
+      typeof row.authenticity_check_opt_in === "object" && row.authenticity_check_opt_in !== null
+        ? (row.authenticity_check_opt_in as CheckoutAuthenticityCheckOptIn)
+        : null,
     cart_readiness_snapshot:
       typeof row.cart_readiness_snapshot === "object" && row.cart_readiness_snapshot !== null
         ? (row.cart_readiness_snapshot as CartReadinessSnapshot)
@@ -122,6 +129,7 @@ export async function getCheckoutSession(
        shipping_option,
        shipping_address_id,
        shipping_address,
+       authenticity_check_opt_in,
        lines,
        order_ids,
        order_write_commit_positions,

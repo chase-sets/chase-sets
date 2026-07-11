@@ -182,6 +182,15 @@ export type CheckoutSessionServices = Readonly<{
     address: CheckoutShippingAddress,
     decision?: AddressVerificationDecision,
   ) => Promise<CheckoutAddressVerificationOutcome>;
+  selectAuthenticityCheckOptIn: (
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+      selected: boolean;
+      quoteFingerprint?: string | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<CheckoutSessionMutationResult>;
   recordOrdersCreated: (
     params: Readonly<{
       sessionId: string;
@@ -270,6 +279,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     shipping_option: state.shippingOption,
     shipping_address_id: state.shippingAddress?.shippingAddressId ?? null,
     shipping_address: state.shippingAddress,
+    authenticity_check_opt_in: state.authenticityCheckOptIn,
     lines: [...state.lines],
     order_ids: [...state.orderIds],
     order_write_commit_positions: [...state.orderWriteCommitPositions],
@@ -900,6 +910,21 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     },
     verifyShippingAddress: (address, decision) =>
       verifyCheckoutShippingAddress(deps.addressVerificationProvider, address, decision ?? null),
+    selectAuthenticityCheckOptIn: async (params, context) => {
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "SelectAuthenticityCheckOptIn",
+            selected: params.selected,
+            quoteFingerprint: params.quoteFingerprint ?? null,
+            selectedAt: new Date().toISOString(),
+          },
+        },
+        context,
+      );
+    },
     assertReadyForOrderCreation: async (params) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
       assertSessionNotCancelled(state);

@@ -109,6 +109,10 @@ describe("fresh checkout read-model schemas", () => {
         migrationId: "20260708_checkout_session_cancellation",
         statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL")],
       }),
+      expect.objectContaining({
+        migrationId: "20260711_checkout_session_authenticity_opt_in",
+        statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS authenticity_check_opt_in jsonb NULL")],
+      }),
     ]);
     expect(checkoutSessionSchemaMigrations[0]?.statements).toHaveLength(1);
     expect(checkoutSessionSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);

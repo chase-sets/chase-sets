@@ -14,6 +14,13 @@ export type FulfillmentDeliveryPromiseInput = Readonly<{
   cutoffTimeLocal?: string;
   shipFromTimeZone?: string | null;
   holidayDates?: readonly string[] | null;
+  /**
+   * True when the order carries an authenticity-check plan (m109):
+   * the package routes seller -> facility -> buyer, so the promise window
+   * extends by the facility's inspection allowance on top of the normal
+   * transit window.
+   */
+  authenticityCheckSelected?: boolean;
 }>;
 
 export type FulfillmentDeliveryPromise = Readonly<{
@@ -177,6 +184,14 @@ function destinationRegion(address: FulfillmentDeliveryPromiseAddress | null | u
   return cityState || String(address?.country ?? "").trim() || "destination";
 }
 
+/**
+ * The authenticity-check facility's inspection allowance (m109):
+ * added on top of the normal transit window because the package makes two
+ * legs (seller -> facility -> buyer) with a check-in and inspection step
+ * between them, rather than shipping directly to the buyer.
+ */
+const AUTHENTICITY_CHECK_INSPECTION_ALLOWANCE = { earliestDays: 2, latestDays: 4 } as const;
+
 function transitWindow(input: FulfillmentDeliveryPromiseInput) {
   const base =
     input.shippingOption === "priority"
@@ -197,23 +212,40 @@ function transitWindow(input: FulfillmentDeliveryPromiseInput) {
     .trim()
     .toUpperCase();
 
+  const withAuthenticityCheck = (window: Readonly<{ earliestDays: number; latestDays: number; basis: string }>) =>
+    input.authenticityCheckSelected
+      ? {
+          earliestDays: window.earliestDays + AUTHENTICITY_CHECK_INSPECTION_ALLOWANCE.earliestDays,
+          latestDays: window.latestDays + AUTHENTICITY_CHECK_INSPECTION_ALLOWANCE.latestDays,
+          basis: `${window.basis}, authenticity check`,
+        }
+      : window;
+
   if (originCountry && destinationCountry && originCountry !== destinationCountry) {
-    return { earliestDays: base.earliestDays + 2, latestDays: base.latestDays + 4, basis: "cross-border" };
+    return withAuthenticityCheck({
+      earliestDays: base.earliestDays + 2,
+      latestDays: base.latestDays + 4,
+      basis: "cross-border",
+    });
   }
 
   if (REMOTE_US_REGIONS.has(destinationState)) {
-    return { earliestDays: base.earliestDays + 2, latestDays: base.latestDays + 4, basis: "remote-region" };
+    return withAuthenticityCheck({
+      earliestDays: base.earliestDays + 2,
+      latestDays: base.latestDays + 4,
+      basis: "remote-region",
+    });
   }
 
   if (originState && destinationState && originState === destinationState) {
-    return {
+    return withAuthenticityCheck({
       earliestDays: base.earliestDays,
       latestDays: Math.max(base.earliestDays, base.latestDays - 1),
       basis: "same-state",
-    };
+    });
   }
 
-  return { ...base, basis: "domestic" };
+  return withAuthenticityCheck({ ...base, basis: "domestic" });
 }
 
 export function createFulfillmentDeliveryPromise(input: FulfillmentDeliveryPromiseInput): FulfillmentDeliveryPromise {

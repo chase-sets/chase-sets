@@ -947,6 +947,47 @@ export function createAccountCheckoutSessionRoutes(
     }
   });
 
+  app.post("/checkout-sessions/:sessionId/authenticity-check-opt-in", async (c) => {
+    const access = requireCheckoutAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.sessions.api.route.authentication.context.missing.4"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json();
+
+    try {
+      await services.selectAuthenticityCheckOptIn(
+        {
+          sessionId: c.req.param("sessionId"),
+          accountId: access.actor.accountId as AccountId,
+          selected: body.selected === true,
+          quoteFingerprint:
+            typeof body.quoteFingerprint === "string" && body.quoteFingerprint.trim() ? body.quoteFingerprint : null,
+        },
+        context,
+      );
+      return c.json({
+        session_id: c.req.param("sessionId"),
+        status: "authenticity-check-opt-in-selected",
+      });
+    } catch (error) {
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/checkout-sessions/:sessionId/shipping-address", async (c) => {
     const access = requireCheckoutAccess(c);
     if (access.response) {

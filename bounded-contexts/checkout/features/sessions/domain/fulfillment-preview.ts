@@ -71,6 +71,23 @@ export type CheckoutFulfillmentPreview = Readonly<{
     reason: string;
   }>[];
   materialChangeReasons: readonly string[];
+  /**
+   * The authenticity-check opt-in offer (m109), relayed verbatim
+   * from Ordering's checkout preview. Null when checkout spans more than
+   * one seller (single-seller only in v1) or the feature is not
+   * configured; otherwise a quote that may itself be `eligible: false`
+   * when the order value is below the opt-in threshold.
+   */
+  authenticityCheckOffer?: Readonly<{
+    eligible: boolean;
+    order_value_amount: string;
+    threshold_amount: string;
+    category: "raw" | "graded" | "any";
+    fee_amount: string;
+    policy_version: string;
+    quote_fingerprint: string;
+    quoted_at: string;
+  }> | null;
 }>;
 
 export function readCheckoutFulfillmentPreview(value: unknown): CheckoutFulfillmentPreview | null {

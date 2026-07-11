@@ -225,6 +225,70 @@ describe("settlement payment source projection", () => {
     );
   });
 
+  it("credits the platform revenue account for the authenticity check fee (m109 #4275) on capture", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_platform_authenticity_fee_revenue", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await handlers["payments.payment-captured"]!(
+      transportEvent("payments.payment-captured", {
+        paymentId: "pay_authenticity_1",
+        buyerAccountId: "acc_buyer",
+        balanceCreditAmount: "0.00",
+        currencyCode: "usd",
+        processorStatus: "succeeded",
+        capturedAt: "2026-05-01T00:00:00.000Z",
+        authenticityFeeAmount: "11.00",
+        sellerPayouts: [],
+      }),
+    );
+
+    expect(wallets.postEntry).toHaveBeenCalledTimes(1);
+    expect(wallets.postEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_platform_authenticity_fee_revenue",
+        ledgerEntryId: "led_authenticity_fee_pay_authenticity_1",
+        kind: "authenticity-fee",
+        direction: "credit",
+        amount: "11.00",
+        currencyCode: "usd",
+        fundsStatus: "available",
+        paymentId: "pay_authenticity_1",
+      }),
+      expect.objectContaining({
+        tenantId: "tnt_test",
+      }),
+    );
+  });
+
+  it("does not post an authenticity check fee ledger entry when the buyer did not opt in", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_platform_authenticity_fee_revenue", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await handlers["payments.payment-captured"]!(
+      transportEvent("payments.payment-captured", {
+        paymentId: "pay_no_authenticity",
+        buyerAccountId: "acc_buyer",
+        balanceCreditAmount: "0.00",
+        currencyCode: "usd",
+        processorStatus: "succeeded",
+        capturedAt: "2026-05-01T00:00:00.000Z",
+        sellerPayouts: [],
+      }),
+    );
+
+    expect(wallets.postEntry).not.toHaveBeenCalled();
+  });
+
   it("applies new sale credits to a negative balance before leaving excess funds pending", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

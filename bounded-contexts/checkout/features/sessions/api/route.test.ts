@@ -245,6 +245,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     selectShippingOption: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     verifyShippingAddress: vi.fn(async (address) => ({ status: "accepted", shippingAddress: address }) as const),
     setShippingAddress: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    selectAuthenticityCheckOptIn: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     assertReadyForOrderCreation: vi.fn(async ({ sessionId }) => createSession({ session_id: sessionId })),
     recordCheckoutReservations: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),

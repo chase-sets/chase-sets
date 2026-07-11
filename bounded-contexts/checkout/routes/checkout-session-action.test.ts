@@ -26,6 +26,7 @@ import {
   mockRecordFulfillmentPreview,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockSelectAuthenticityCheckOptIn,
   mockSelectShippingAddress,
   mockSelectShippingOption,
 } from "../tests/support/checkout-route-test-harness";
@@ -165,6 +166,7 @@ describe("checkout web routes: checkout session action", () => {
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -227,6 +229,7 @@ describe("checkout web routes: checkout session action", () => {
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -284,6 +287,7 @@ describe("checkout web routes: checkout session action", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -328,6 +332,7 @@ describe("checkout web routes: checkout session action", () => {
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -381,6 +386,7 @@ describe("checkout web routes: checkout session action", () => {
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -457,6 +463,7 @@ describe("checkout web routes: checkout session action", () => {
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -502,6 +509,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -544,6 +552,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -586,6 +595,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -628,6 +638,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -676,6 +687,7 @@ describe("checkout web routes: checkout session action", () => {
     );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -732,6 +744,7 @@ describe("checkout web routes: checkout session action", () => {
     );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -783,6 +796,7 @@ describe("checkout web routes: checkout session action", () => {
     );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -840,6 +854,7 @@ describe("checkout web routes: checkout session action", () => {
     );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -896,6 +911,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -956,6 +972,7 @@ describe("checkout web routes: checkout session action", () => {
       );
       mockCreateCheckoutRequestApiClient.mockReturnValue({
         selectShippingOption: mockSelectShippingOption,
+        selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
         confirmCheckoutSession: mockConfirmCheckoutSession,
       });
 
@@ -1036,6 +1053,7 @@ describe("checkout web routes: checkout session action", () => {
     );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -1102,6 +1120,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -1181,6 +1200,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -1233,6 +1253,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       recordFulfillmentPreview: mockRecordFulfillmentPreview,
       confirmCheckoutSession: mockConfirmCheckoutSession,
@@ -1328,6 +1349,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       recordFulfillmentPreview: mockRecordFulfillmentPreview,
       confirmCheckoutSession: mockConfirmCheckoutSession,
@@ -1399,6 +1421,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -1447,6 +1470,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       recordFulfillmentPreview: mockRecordFulfillmentPreview,
       confirmCheckoutSession: mockConfirmCheckoutSession,
@@ -1503,6 +1527,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingAddress.mockResolvedValue(checkoutCommit("42", "evt_shipping_address"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -1549,6 +1574,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -1591,6 +1617,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -1644,6 +1671,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -1700,6 +1728,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       selectShippingAddress: mockSelectShippingAddress,
       recordFulfillmentPreview: mockRecordFulfillmentPreview,
       confirmCheckoutSession: mockConfirmCheckoutSession,
@@ -1758,6 +1787,7 @@ describe("checkout web routes: checkout session action", () => {
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"] });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -1810,6 +1840,7 @@ describe("checkout web routes: checkout session action", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -1881,6 +1912,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 
@@ -1940,6 +1972,7 @@ describe("checkout web routes: checkout session action", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 

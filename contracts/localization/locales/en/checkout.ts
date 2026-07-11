@@ -88,6 +88,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.authentication.context.missing": "Authentication context missing.",
   "checkout.features.sessions.api.route.authentication.context.missing.2": "Authentication context missing.",
   "checkout.features.sessions.api.route.authentication.context.missing.3": "Authentication context missing.",
+  "checkout.features.sessions.api.route.authentication.context.missing.4": "Authentication context missing.",
   "checkout.features.sessions.api.route.authentication.required": "Authentication required.",
   "checkout.features.sessions.api.route.address.standardization.suggested":
     "We found a standardized version of this address. Choose the suggested address or confirm the address as entered.",
@@ -138,6 +139,13 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.delivery.basis": "Delivery basis",
   "checkout.features.sessions.ui.checkoutPage.delivery.promise": "Delivery promise",
   "checkout.features.sessions.ui.checkoutPage.delivery.promise.preview": "Delivery preview, carrier promise pending",
+  "checkout.features.sessions.ui.checkoutPage.authenticity.check.opt.in": "Add authenticity check ({amount})",
+  "checkout.features.sessions.ui.checkoutPage.authenticity.check.opt.in.description":
+    "Seller ships to our authenticity facility for inspection first, then to you. Delivery takes a few extra days; a failed check refunds you in full, including this fee.",
+  "checkout.features.sessions.ui.checkoutPage.authenticity.check.fee": "Authenticity check",
+  "checkout.features.sessions.ui.checkoutPage.authenticity.check.protection": "Authenticity checked",
+  "checkout.features.sessions.ui.checkoutPage.authenticity.check.protection.description":
+    "This order routes through our authenticity facility before it ships to you; delivery is extended to allow time for inspection.",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.cutoff": "Fulfillment cutoff",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.cutoff.value":
     "{cutoffTime} local cutoff; packing starts {packingStartDate}; carrier pickup {carrierHandoffDate}",

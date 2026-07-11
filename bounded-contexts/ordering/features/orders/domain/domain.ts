@@ -79,6 +79,24 @@ export type OrderingTaxSnapshot = Readonly<{
   quotedAt: string;
 }>;
 
+/**
+ * Frozen at order creation when the buyer opted into the authenticity
+ * check at checkout (m109): the fact the `authenticity` context
+ * consumes to open a case (a later m109 slice). The fee amount is
+ * additive to the order total (a buyer-charged line, like tax), and
+ * `payer` is always "buyer" in v1 -- seller opt-in and platform-mandated
+ * tiers are Phase 2 follow-ons.
+ */
+export type OrderingAuthenticityPlanSnapshot = Readonly<{
+  feeAmount: string;
+  payer: "buyer";
+  policyVersion: string;
+  category: "raw" | "graded" | "any";
+  thresholdAmount: string;
+  orderValueAmount: string;
+  quotedAt: string;
+}>;
+
 export type OrderingOrderState = Readonly<{
   orderId: OrderId | null;
   sourceType: OrderSourceType | null;
@@ -97,6 +115,7 @@ export type OrderingOrderState = Readonly<{
   totalAmount: string | null;
   taxSnapshot: OrderingTaxSnapshot | null;
   commercialTermsSnapshot: OrderingCommercialTermsSnapshot | null;
+  authenticityPlanSnapshot: OrderingAuthenticityPlanSnapshot | null;
   shippingDestinationSnapshot: AddressSnapshot | null;
   shippingOriginSnapshot: AddressSnapshot | null;
   lines: OrderingOrderLine[];
@@ -128,6 +147,7 @@ export const initialOrderingOrderState: OrderingOrderState = {
   totalAmount: null,
   taxSnapshot: null,
   commercialTermsSnapshot: null,
+  authenticityPlanSnapshot: null,
   shippingDestinationSnapshot: null,
   shippingOriginSnapshot: null,
   lines: [],
@@ -160,6 +180,7 @@ export type CreateOrderCommand = Readonly<{
   totalAmount: string;
   taxSnapshot: OrderingTaxSnapshot;
   commercialTermsSnapshot: OrderingCommercialTermsSnapshot;
+  authenticityPlanSnapshot?: OrderingAuthenticityPlanSnapshot | null;
   shippingDestinationSnapshot: AddressSnapshot;
   shippingOriginSnapshot: AddressSnapshot;
   lines: OrderingOrderLine[];
@@ -234,6 +255,7 @@ export type OrderCreatedEvent = DomainEvent<
     totalAmount: string;
     taxSnapshot: OrderingTaxSnapshot;
     commercialTermsSnapshot: OrderingCommercialTermsSnapshot;
+    authenticityPlanSnapshot: OrderingAuthenticityPlanSnapshot | null;
     shippingDestinationSnapshot: AddressSnapshot;
     shippingOriginSnapshot: AddressSnapshot;
     lines: OrderingOrderLine[];
@@ -467,6 +489,36 @@ function assertSeparateTransactionAccounts(buyerAccountId: AccountId, sellerAcco
   assert(buyerAccountId !== sellerAccountId, "Buyer and seller accounts must be different for an order.");
 }
 
+function normalizeAuthenticityPlanSnapshot(
+  snapshot: OrderingAuthenticityPlanSnapshot | null | undefined,
+): OrderingAuthenticityPlanSnapshot | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  return {
+    feeAmount: normalizeMoneyAmount(snapshot.feeAmount, {
+      fieldName: "Authenticity check fee amount",
+      allowZero: true,
+    }),
+    payer: "buyer",
+    policyVersion: normalizeRequiredText(
+      snapshot.policyVersion,
+      "Authenticity plan must include a fee policy version.",
+    ),
+    category: snapshot.category === "raw" || snapshot.category === "graded" ? snapshot.category : "any",
+    thresholdAmount: normalizeMoneyAmount(snapshot.thresholdAmount, {
+      fieldName: "Authenticity check opt-in threshold",
+      allowZero: true,
+    }),
+    orderValueAmount: normalizeMoneyAmount(snapshot.orderValueAmount, {
+      fieldName: "Authenticity check order value",
+      allowZero: true,
+    }),
+    quotedAt: normalizeRequiredText(snapshot.quotedAt, "Authenticity plan must include a quote timestamp."),
+  };
+}
+
 function updateReservationRequest(
   state: OrderingOrderState,
   reservationRequestId: string,
@@ -552,6 +604,7 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
             }),
             taxSnapshot: normalizeTaxSnapshot(command.taxSnapshot),
             commercialTermsSnapshot: normalizeCommercialTermsSnapshot(command.commercialTermsSnapshot),
+            authenticityPlanSnapshot: normalizeAuthenticityPlanSnapshot(command.authenticityPlanSnapshot),
             shippingDestinationSnapshot: normalizeAddressSnapshot(
               command.shippingDestinationSnapshot,
               "Shipping destination",
@@ -800,6 +853,7 @@ export const evolveOrderingOrder: AggregateEvolver<OrderingOrderState, OrderingO
         totalAmount: event.data.totalAmount,
         taxSnapshot: event.data.taxSnapshot,
         commercialTermsSnapshot: event.data.commercialTermsSnapshot,
+        authenticityPlanSnapshot: event.data.authenticityPlanSnapshot ?? null,
         shippingDestinationSnapshot: event.data.shippingDestinationSnapshot,
         shippingOriginSnapshot: event.data.shippingOriginSnapshot,
         lines: event.data.lines,

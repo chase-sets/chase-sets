@@ -24,6 +24,7 @@ import {
   mockPreviewCheckoutStatus,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockSelectAuthenticityCheckOptIn,
   mockSelectShippingOption,
   mockStartGuestCheckout,
 } from "../tests/support/checkout-route-test-harness";
@@ -272,6 +273,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
+      selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
 

@@ -9,6 +9,7 @@ export type PaymentOrderInputRow = Readonly<{
   sales_tax_amount: string;
   total_amount: string;
   marketplace_sales_fee_amount: string;
+  authenticity_fee_amount: string;
   marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
   seller_item_net_amount: string;
@@ -44,6 +45,7 @@ export async function listPaymentOrderInputs(
        sales_tax_amount::text AS sales_tax_amount,
        total_amount::text AS total_amount,
        marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
+       authenticity_fee_amount::text AS authenticity_fee_amount,
        marketplace_checkout_fee_amount::text AS marketplace_checkout_fee_amount,
        seller_net_amount::text AS seller_net_amount,
        seller_item_net_amount::text AS seller_item_net_amount,

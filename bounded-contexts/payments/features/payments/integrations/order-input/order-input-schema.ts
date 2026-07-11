@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
   sales_tax_amount numeric(12, 2) NOT NULL DEFAULT 0,
   total_amount numeric(12, 2) NOT NULL,
   marketplace_sales_fee_amount numeric(12, 2) NOT NULL,
+  authenticity_fee_amount numeric(12, 2) NOT NULL DEFAULT 0,
   marketplace_checkout_fee_amount numeric(12, 2) NOT NULL,
   seller_net_amount numeric(12, 2) NOT NULL,
   seller_item_net_amount numeric(12, 2) NOT NULL DEFAULT 0,
