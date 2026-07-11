@@ -1,5 +1,6 @@
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { Hono } from "hono";
+import { createPolicyConsoleRoutes } from "./features/policy-console/api/policy-console-route";
 import { createRateLimitPolicyRoutes } from "./features/rate-limit-policy/api/rate-limit-policy-route";
 import { createSupportDeadlinePolicyRoutes } from "./features/support-requests/api/deadline-policy-route";
 import type { PlatformOperationsServices } from "./support/runtime-support/services";
@@ -11,6 +12,7 @@ export function buildPlatformOperationsApi(services: PlatformOperationsServices)
 
   app.route("/rate-limit-policy", createRateLimitPolicyRoutes(services.policies));
   app.route("/support-deadline-policy", createSupportDeadlinePolicyRoutes(services.policies));
+  app.route("/policy-console", createPolicyConsoleRoutes(services.policyConsoleEntries));
 
   return app;
 }

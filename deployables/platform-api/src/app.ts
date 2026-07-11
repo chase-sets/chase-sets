@@ -7,6 +7,8 @@ import {
 } from "@chase-sets/auth/server";
 import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import {
+  authenticityFeePolicy,
+  checkoutProcessingFeePolicy,
   createAuthenticityFeePolicyResolver,
   createCheckoutProcessingFeePolicyResolver,
   createCommercialTermsResolver,
@@ -22,9 +24,21 @@ import { module as identityModule } from "@chase-sets/identity";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import { createOrderingUcpHandlers } from "@chase-sets/ordering/server";
 import { createPaymentsUcpHandoff, type UcpAp2MandateVerifier } from "@chase-sets/payments/server";
-import { marketplaceRealtimeManifest, marketplaceRealtimeTopicPolicyManifest } from "@chase-sets/marketplace/server";
-import { createRateLimitPolicyResolver } from "@chase-sets/platform-operations/server";
-import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
+import {
+  marketplaceListingGatePolicy,
+  marketplaceRealtimeManifest,
+  marketplaceRealtimeTopicPolicyManifest,
+} from "@chase-sets/marketplace/server";
+import {
+  createRateLimitPolicyResolver,
+  type PolicyConsoleCrossContextPort,
+  type PolicyConsoleWritePort,
+} from "@chase-sets/platform-operations/server";
+import {
+  createSettlementBalanceCreditResolver,
+  settlementClearancePolicy,
+  settlementPayoutBoundsPolicy,
+} from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
   attachReadConsistencyMiddleware,
@@ -79,6 +93,8 @@ import {
 import type { PlatformApiRuntimeProfile } from "@chase-sets/platform-runtime/runtime-profiles";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
+import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
+import type { JsonValue } from "@chase-sets/primitives/json";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
 export type PlatformIdentityServices = Readonly<{
@@ -129,6 +145,7 @@ export function createPlatformApiHost(
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
+  const marketplacePool = getPlatformApiPool(options.pools.marketplace);
   const commercialTermsResolver = commercialTermsPool
     ? createCommercialTermsResolver({
         db: commercialTermsPool,
@@ -147,6 +164,45 @@ export function createPlatformApiHost(
   const rateLimitPolicyResolver = platformOperationsPool
     ? createRateLimitPolicyResolver(platformOperationsPool)
     : undefined;
+  const policyConsoleCrossContextSources: PolicyConsoleCrossContextPort["sources"][number][] = [];
+  if (settlementPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "settlement",
+      db: settlementPool,
+      definitions: [
+        settlementClearancePolicy,
+        settlementPayoutBoundsPolicy,
+      ] as unknown as readonly PolicyDefinition<JsonValue>[],
+      write: lazyPolicyConsoleWritePort(
+        () => runtime?.services.settlement as { policies?: PolicyConsoleWritePort } | undefined,
+      ),
+    });
+  }
+  if (commercialTermsPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "commercial-terms",
+      db: commercialTermsPool,
+      definitions: [
+        checkoutProcessingFeePolicy,
+        authenticityFeePolicy,
+      ] as unknown as readonly PolicyDefinition<JsonValue>[],
+      write: lazyPolicyConsoleWritePort(
+        () => runtime?.services["commercial-terms"] as { policies?: PolicyConsoleWritePort } | undefined,
+      ),
+    });
+  }
+  if (marketplacePool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "marketplace",
+      db: marketplacePool,
+      definitions: [marketplaceListingGatePolicy] as unknown as readonly PolicyDefinition<JsonValue>[],
+      write: lazyPolicyConsoleWritePort(
+        () => runtime?.services.marketplace as { policies?: PolicyConsoleWritePort } | undefined,
+      ),
+    });
+  }
+  const policyConsoleCrossContext: PolicyConsoleCrossContextPort | undefined =
+    policyConsoleCrossContextSources.length > 0 ? { sources: policyConsoleCrossContextSources } : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
     const marketplaceServices = runtime?.services.marketplace as
       | {
@@ -173,6 +229,7 @@ export function createPlatformApiHost(
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
+      ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       draftListingCreator,
     },
   });
@@ -181,6 +238,34 @@ export function createPlatformApiHost(
 
 function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
+}
+
+/**
+ * Lazily proxies to a cross-context policy console write port that only
+ * exists once `createApiHost` has returned and `runtime.services` is
+ * populated (host ports are needed before that point). Reusing the owning
+ * context's own already-running `PolicyRuntime` -- rather than building a
+ * second one bound to the same pool -- keeps the console's writes and that
+ * context's own resolvers sharing one push-invalidated cache.
+ */
+function lazyPolicyConsoleWritePort(
+  getServices: () => { policies?: PolicyConsoleWritePort } | undefined,
+): PolicyConsoleWritePort {
+  function requirePolicies(): PolicyConsoleWritePort {
+    const policies = getServices()?.policies;
+    if (!policies) {
+      throw new Error("Cross-context policy runtime is unavailable.");
+    }
+    return policies;
+  }
+
+  return {
+    createPolicyDocument: (definition, params, context) =>
+      requirePolicies().createPolicyDocument(definition, params, context),
+    revisePolicyDocument: (definition, documentId, params, context) =>
+      requirePolicies().revisePolicyDocument(definition, documentId, params, context),
+    resolvePolicy: (definition, params) => requirePolicies().resolvePolicy(definition, params),
+  };
 }
 
 function createIdentityCommercialTermsAccountSource(
