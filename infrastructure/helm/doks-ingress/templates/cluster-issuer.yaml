@@ -23,6 +23,23 @@ spec:
       - http01:
           ingress:
             class: {{ $ingressClassName | quote }}
+      {{- if and $issuer.dns01 $issuer.dns01.enabled }}
+      # Scoped to the preview wildcard zone only: every other certificate
+      # this issuer signs keeps using the http01 solver above. ACME forbids
+      # proving a wildcard name over HTTP-01, so the shared
+      # `*.preview.chasesets.com` certificate (templates/preview-wildcard-certificate.yaml)
+      # needs this DNS-01 solver (#4857).
+      - selector:
+          dnsZones:
+            {{- range $issuer.dns01.dnsZones }}
+            - {{ . | quote }}
+            {{- end }}
+        dns01:
+          digitalocean:
+            tokenSecretRef:
+              name: {{ required "dns01 secretName is required" $issuer.dns01.secretName | quote }}
+              key: {{ $issuer.dns01.secretKey | default "access-token" | quote }}
+      {{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

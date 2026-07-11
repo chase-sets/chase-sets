@@ -892,7 +892,6 @@ jobs:
       CHASE_SETS_HELM_RELEASE: chase-sets-pr-${{ github.event.pull_request.number }}
       CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-pr-${{ github.event.pull_request.number }}
       CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
-      DOKS_INGRESS_TARGET: ${{ vars.DOKS_INGRESS_TARGET || '' }}
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -1153,39 +1152,13 @@ jobs:
             -o yaml | kubectl apply -f -
           echo "CHASE_SETS_IMAGE_PULL_SECRET_NAME=${registry_pull_secret_name}" >> "$GITHUB_ENV"
 
-      # Per-preview DNS must exist before the Helm deploy creates the Ingress so
-      # cert-manager's ACME HTTP-01 challenge resolves, and before the ingress
-      # wait probes the app hosts. A single `*.preview.chasesets.com` wildcard
-      # only matches one label, so it covers `pr-<n>.preview.chasesets.com` but
-      # never `admin.`/`marketplace.pr-<n>.preview.chasesets.com`. Publish this
-      # preview's own apex A record plus a `*.pr-<n>.preview` wildcard, both
-      # pointing at the DOKS ingress load balancer.
-      - name: Publish preview DNS records
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-          target="${DOKS_INGRESS_TARGET:-}"
-          if [ -z "$target" ]; then
-            echo "DOKS_INGRESS_TARGET is unset; resolving the DOKS ingress load balancer IP from the ingress-nginx controller Service."
-            target="$(kubectl --namespace ingress-nginx get service ingress-nginx-controller \
-              --output 'jsonpath={.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-          fi
-          if [ -z "$target" ]; then
-            echo "Unable to determine the DOKS ingress load balancer IP; set the DOKS_INGRESS_TARGET repository variable or ensure the ingress-nginx controller Service has an assigned load balancer." >&2
-            exit 1
-          fi
-          node ./scripts/digitalocean-preview-cleanup-sweep.mjs apply-dns \
-            --pr-number "${{ github.event.pull_request.number }}" \
-            --target "$target"
-
       - name: Deploy preview Kubernetes release
         env:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
           landing_domain="${PREVIEW_IDENTIFIER}.preview.chasesets.com"
-          marketplace_domain="marketplace.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
+          marketplace_domain="${PREVIEW_IDENTIFIER}-marketplace.preview.chasesets.com"
 
           # Optional provider endpoint overrides are only passed when the
           # repository variable is set. When absent, the Helm chart's preview
@@ -1233,37 +1206,31 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" || true
 
-      # The ingress-URL wait probes https, so it can only pass once cert-manager
-      # has issued the ACME certificate. Issuance for a cold preview only starts
-      # after DNS is live (this deploy) and HTTP-01 validation across all three
-      # hosts takes several minutes — longer than the ingress-wait window. Block
-      # on the Certificate becoming Ready first so the https probes then pass
-      # fast. cert-manager's ingress-shim names the Certificate after the TLS
-      # secret, which the preview Helm values set to "${PREVIEW_IDENTIFIER}-platform-tls".
-      - name: Wait for preview TLS certificate
+      # The preview Ingress references the shared *.preview.chasesets.com
+      # wildcard secret (copied into this namespace by the deploy step above,
+      # before `helm upgrade --install`; see copyPreviewWildcardTlsSecret in
+      # platform-kubernetes-deployment.mjs), never a per-PR cert-manager
+      # issuance, so there is no ACME order to wait on here. This is a fast
+      # presence check, not a poll: the deploy step already failed loudly with
+      # a bootstrap pointer if the shared secret did not exist to copy (#4857).
+      - name: Verify preview TLS secret
         run: |
           set -euo pipefail
-          certificate_name="${PREVIEW_IDENTIFIER}-platform-tls"
+          secret_name="preview-wildcard-tls"
           namespace="$CHASE_SETS_KUBERNETES_NAMESPACE"
-          echo "Waiting up to 10m for cert-manager Certificate ${certificate_name} in ${namespace} to become Ready (cold-preview ACME HTTP-01 issuance across all hosts takes several minutes)."
-          if ! kubectl wait --for=condition=Ready "certificate/${certificate_name}" \
-            --namespace "$namespace" \
-            --timeout=600s; then
-            echo "::error::Preview TLS certificate ${certificate_name} did not become Ready within 10m; dumping cert-manager diagnostics." >&2
-            kubectl describe "certificate/${certificate_name}" --namespace "$namespace" || true
-            kubectl get certificaterequests,orders,challenges --namespace "$namespace" -o wide || true
-            kubectl describe challenges --namespace "$namespace" || true
+          if ! kubectl get "secret/${secret_name}" --namespace "$namespace" >/dev/null 2>&1; then
+            echo "::error::Preview TLS secret ${secret_name} is missing from ${namespace} after deploy; the shared preview wildcard copy step should have created it." >&2
             exit 1
           fi
-          echo "Preview TLS certificate ${certificate_name} is Ready."
+          echo "Preview TLS secret ${secret_name} is present in ${namespace}."
 
       - name: Wait for preview ingress URLs
         id: preview_domains
         run: |
           set -euo pipefail
           landing_domain="${PREVIEW_IDENTIFIER}.preview.chasesets.com"
-          marketplace_domain="marketplace.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
-          admin_domain="admin.${PREVIEW_IDENTIFIER}.preview.chasesets.com"
+          marketplace_domain="${PREVIEW_IDENTIFIER}-marketplace.preview.chasesets.com"
+          admin_domain="${PREVIEW_IDENTIFIER}-admin.preview.chasesets.com"
 
           node ./scripts/platform-ingress-wait.mjs \
             --url "https://${admin_domain}/health/ready" \

@@ -13,6 +13,7 @@ import {
   extractDigitalOceanPlatformComponents,
   platformHelmComponentName,
   platformHelmFullname,
+  previewWildcardTlsSecretName,
   readPlatformSources,
   syncPlatformHelmValues,
 } from "./render-platform-helm-values.mjs";
@@ -463,18 +464,44 @@ describe("render platform Helm values", () => {
   it("renders DOKS preview ingress hosts for a preview identifier", () => {
     const previewIngress = buildPreviewDoksIngressValues({ previewIdentifier: "pr-123" });
 
+    // #4857: single-label preview hosts so the ONE shared
+    // *.preview.chasesets.com wildcard certificate covers all of them, and no
+    // cert-manager cluster-issuer annotation belongs on a preview Ingress
+    // (previews reference the shared, pre-copied secret instead of asking
+    // for their own certificate).
     expect(previewIngress.enabled).toBe(true);
-    expect(previewIngress.tls.secretName).toBe("pr-123-platform-tls");
+    expect(previewIngress.clusterIssuer).toBe("");
+    expect(previewIngress.tls.secretName).toBe("preview-wildcard-tls");
     expect(previewIngress.hosts.map((host) => host.host)).toEqual([
       "pr-123.preview.chasesets.com",
-      "marketplace.pr-123.preview.chasesets.com",
-      "admin.pr-123.preview.chasesets.com",
+      "pr-123-marketplace.preview.chasesets.com",
+      "pr-123-admin.preview.chasesets.com",
     ]);
     expect(Object.fromEntries(previewIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
       "pr-123.preview.chasesets.com": { path: "/", service: "public-web" },
-      "marketplace.pr-123.preview.chasesets.com": { path: "/", service: "marketplace" },
-      "admin.pr-123.preview.chasesets.com": { path: "/", service: "admin-web" },
+      "pr-123-marketplace.preview.chasesets.com": { path: "/", service: "marketplace" },
+      "pr-123-admin.preview.chasesets.com": { path: "/", service: "admin-web" },
     });
+  });
+
+  it("every preview namespace references the same shared wildcard TLS secret name (#4857)", () => {
+    const first = buildPreviewDoksIngressValues({ previewIdentifier: "pr-1" });
+    const second = buildPreviewDoksIngressValues({ previewIdentifier: "pr-999999" });
+
+    expect(first.tls.secretName).toBe(second.tls.secretName);
+    expect(first.tls.secretName).toBe(previewWildcardTlsSecretName);
+  });
+
+  it("omits the cert-manager cluster-issuer annotation entirely when doksIngress.clusterIssuer is empty (#4857)", () => {
+    // Verified against a live `helm template` render for both shapes: a
+    // preview-shaped values set (clusterIssuer="") renders no `annotations:`
+    // block at all, and a staging-shaped set (clusterIssuer="letsencrypt-production")
+    // renders `cert-manager.io/cluster-issuer: "letsencrypt-production"`. This
+    // pins the template conditional that makes that possible so a preview
+    // deploy never accidentally re-triggers ACME issuance.
+    const [ingressTemplate] = readChartFiles(["templates/ingress.yaml"]);
+    expect(ingressTemplate).toContain("{{- if or $ingress.clusterIssuer $ingress.annotations }}");
+    expect(ingressTemplate).toContain("cert-manager.io/cluster-issuer: {{ $ingress.clusterIssuer | quote }}");
   });
 
   it("wires the startup/liveness/readiness probes in the deployment template with one liveness-path source of truth", () => {

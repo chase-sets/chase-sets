@@ -23,6 +23,12 @@ const doksIngressTlsSecretName = "chase-sets-platform-doks-tls";
 const previewEnvironmentZone = "preview.chasesets.com";
 const previewPostgresPort = 5432;
 const previewPostgresSecretName = "chase-sets-preview-postgres";
+// Every preview namespace references this SAME shared *.preview.chasesets.com
+// wildcard certificate secret (copied in before the Helm deploy runs) instead
+// of requesting a per-PR certificate, so the name is a stable constant rather
+// than derived from the preview identifier.
+export const previewWildcardTlsSecretName = "preview-wildcard-tls";
+export const previewWildcardTlsSecretNamespace = "cert-manager";
 
 const platformApiIngressPrefixes = [
   "/.well-known",
@@ -506,11 +512,18 @@ export function buildPreviewDoksIngressValues(options = {}) {
   return {
     enabled: true,
     className: doksIngressClassName,
-    clusterIssuer: doksIngressClusterIssuer,
+    // Previews reference the shared *.preview.chasesets.com wildcard secret
+    // (copied into this namespace before the Helm deploy runs; see
+    // copyPreviewWildcardTlsSecret in platform-kubernetes-deployment.mjs)
+    // instead of requesting a per-PR certificate, so no cert-manager
+    // cluster-issuer annotation belongs on this Ingress: a high-throughput PR
+    // day issuing one certificate per namespace exhausted Let's Encrypt's
+    // 50-certificates-per-168h quota and blocked every PR.
+    clusterIssuer: "",
     annotations: {},
     tls: {
       enabled: true,
-      secretName: `${previewIdentifier}-platform-tls`,
+      secretName: previewWildcardTlsSecretName,
     },
     hosts: buildPreviewDoksIngressHosts(previewIdentifier),
   };
@@ -552,6 +565,12 @@ function buildDoksIngressHosts(hostMode) {
   ];
 }
 
+// Single-level preview hostnames: `pr-<n>`, `pr-<n>-marketplace`, and
+// `pr-<n>-admin` are each exactly one label under preview.chasesets.com, so
+// the single shared `*.preview.chasesets.com` wildcard certificate covers
+// every preview's every app host. The retired two-label shape
+// (`marketplace.pr-<n>.preview...`, `admin.pr-<n>.preview...`) required a
+// fresh per-PR certificate because a wildcard only matches one label.
 function buildPreviewDoksIngressHosts(previewIdentifier) {
   return [
     {
@@ -559,11 +578,11 @@ function buildPreviewDoksIngressHosts(previewIdentifier) {
       paths: doksIngressPaths("public-web"),
     },
     {
-      host: `marketplace.${previewIdentifier}.${previewEnvironmentZone}`,
+      host: `${previewIdentifier}-marketplace.${previewEnvironmentZone}`,
       paths: doksIngressPaths("marketplace"),
     },
     {
-      host: `admin.${previewIdentifier}.${previewEnvironmentZone}`,
+      host: `${previewIdentifier}-admin.${previewEnvironmentZone}`,
       paths: doksIngressPaths("admin-web"),
     },
   ];

@@ -5,18 +5,24 @@ Cluster ingress, load balancer, and TLS add-ons for the DOKS runtime accepted by
 (issue #4045). This is the DOKS equivalent of the routing and certificate surface
 App Platform provides today.
 
-It owns three cluster-scoped concerns:
+It owns four cluster-scoped concerns:
 
 - **Ingress controller + load balancer** — the upstream `ingress-nginx` chart, whose
   `LoadBalancer` Service provisions the DigitalOcean Load Balancer that fronts DOKS
   ingress and terminates TLS with cert-manager certificates.
 - **cert-manager** — the upstream `jetstack/cert-manager` chart, installed with CRDs.
 - **ACME `ClusterIssuer`s** — rendered by this chart (`letsencrypt-staging` and
-  `letsencrypt-production`, HTTP-01 solver via the nginx ingress class).
+  `letsencrypt-production`, HTTP-01 solver via the nginx ingress class; the
+  production issuer also carries a DNS-01 solver scoped by `selector.dnsZones`
+  to `preview.chasesets.com` only — see below).
+- **The shared preview wildcard `Certificate`** (`previewWildcardCertificate`,
+  `--environment staging` only) — ONE `*.preview.chasesets.com` certificate every
+  preview namespace's Ingress references, instead of each preview issuing its own
+  (#4857). See [Preview Wildcard Certificate Bootstrap](../../../docs/runbooks/doks-platform-operations.md#preview-wildcard-certificate-bootstrap-one-time---environment-staging-only).
 
 The application `Ingress` objects themselves stay in the
 [platform chart](../platform/README.md); this chart only stands up the controller,
-load balancer, and issuers those Ingress objects depend on.
+load balancer, and issuers/certificate those Ingress objects depend on.
 
 ## What Is Installed Where
 
@@ -25,6 +31,8 @@ load balancer, and issuers those Ingress objects depend on.
 | ingress-nginx controller + DO Load Balancer | upstream chart + `ingress-nginx-values.yaml` | `ingress-nginx` |
 | cert-manager + CRDs | upstream chart + `cert-manager-values.yaml` | `cert-manager` |
 | ACME `ClusterIssuer`s | this chart (`templates/cluster-issuer.yaml`) | `cert-manager` |
+| `digitalocean-dns-token` Secret (DNS-01 credential, staging only) | `scripts/doks-cluster-addons.mjs` (applied via `kubectl apply` stdin, never in git) | `cert-manager` |
+| Shared preview wildcard `Certificate` (staging only) | this chart (`templates/preview-wildcard-certificate.yaml`) | `cert-manager` |
 
 The upstream charts are pinned and installed by the source-owned helper so versions
 and values stay in git, never in ad-hoc `helm install` invocations:
