@@ -99,4 +99,96 @@ describe("support request projection", () => {
       "I still believe the item was misrepresented.",
     ]);
   });
+
+  it("opens the return-refund gate on a return-for-refund resolution and leaves it null otherwise", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildSupportRequestProjectionHandlers(db);
+
+    await handlers["support.support-request.resolved"]?.({
+      type: "support.support-request.resolved",
+      data: {
+        supportRequestId: "sup_01",
+        resolution: {
+          resolutionType: "return-for-refund",
+          summary: "Seller accepted the return.",
+          refundAmount: null,
+          resolvedByAccountId: "acc_seller",
+          resolvedByRole: "seller",
+          resolvedAt: "2026-05-09T14:00:00.000Z",
+        },
+        autoCloseDueAt: "2026-05-16T14:00:00.000Z",
+      },
+    } as never);
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("return_refund_gate_status = $5"), [
+      "sup_01",
+      "2026-05-09T14:00:00.000Z",
+      expect.stringContaining("return-for-refund"),
+      "2026-05-16T14:00:00.000Z",
+      "awaiting-return-delivery",
+    ]);
+
+    await handlers["support.support-request.resolved"]?.({
+      type: "support.support-request.resolved",
+      data: {
+        supportRequestId: "sup_02",
+        resolution: {
+          resolutionType: "full-refund",
+          summary: "Delivery could not be proven.",
+          refundAmount: null,
+          resolvedByAccountId: null,
+          resolvedByRole: null,
+          resolvedAt: "2026-05-09T14:00:00.000Z",
+        },
+        autoCloseDueAt: "2026-05-16T14:00:00.000Z",
+      },
+    } as never);
+
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("return_refund_gate_status = $5"), [
+      "sup_02",
+      "2026-05-09T14:00:00.000Z",
+      expect.stringContaining("full-refund"),
+      "2026-05-16T14:00:00.000Z",
+      null,
+    ]);
+  });
+
+  it("records return delivery, condition disputes, and refund release on the read model", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildSupportRequestProjectionHandlers(db);
+
+    await handlers["support.support-request.return-delivered"]?.({
+      type: "support.support-request.return-delivered",
+      data: {
+        supportRequestId: "sup_01",
+        deliveredAt: "2026-06-01T00:00:00.000Z",
+        returnRefundReleaseDueAt: "2026-06-06T00:00:00.000Z",
+      },
+    } as never);
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("awaiting-return-inspection"), [
+      "sup_01",
+      "2026-06-01T00:00:00.000Z",
+      "2026-06-06T00:00:00.000Z",
+    ]);
+
+    await handlers["support.support-request.return-condition-disputed"]?.({
+      type: "support.support-request.return-condition-disputed",
+      data: {
+        supportRequestId: "sup_01",
+        disputedAt: "2026-06-02T00:00:00.000Z",
+      },
+    } as never);
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("return-condition-disputed"), [
+      "sup_01",
+      "2026-06-02T00:00:00.000Z",
+    ]);
+
+    await handlers["support.support-request.return-refund-released"]?.({
+      type: "support.support-request.return-refund-released",
+      data: {
+        supportRequestId: "sup_01",
+      },
+    } as never);
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("return-refund-released"), ["sup_01"]);
+  });
 });

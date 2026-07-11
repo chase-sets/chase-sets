@@ -69,6 +69,18 @@ export type SupportResolutionType =
 
 export type SupportOfferStatus = "pending" | "accepted" | "declined";
 
+/**
+ * Lifecycle of the money gate on a `return-for-refund` resolution: the
+ * resolution decides the buyer gets a refund, but the refund itself waits
+ * for the returned item to come back. `null` for every resolution type
+ * other than `return-for-refund`.
+ */
+export type SupportReturnRefundGateStatus =
+  | "awaiting-return-delivery"
+  | "awaiting-return-inspection"
+  | "return-condition-disputed"
+  | "return-refund-released";
+
 export type SupportChecklistItem = Readonly<{
   key: string;
   label: string;

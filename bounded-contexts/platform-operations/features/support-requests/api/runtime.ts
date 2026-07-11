@@ -45,11 +45,13 @@ import {
   listSupportOperationsQueue,
   listBuyerSupportRequests,
   listSellerSupportRequests,
+  listSupportRequestsAwaitingReturnDelivery,
   listSupportRequestsNeedingResponseReminder,
   listSupportRequestsNeedingReviewReminder,
   listSupportRequestsOverdueForEscalation,
   listSupportRequestsPastSellerResponseDeadline,
   listSupportRequestsReadyForAutoClose,
+  listSupportRequestsReadyForReturnRefundRelease,
 } from "../read-model/queries";
 
 type SupportRequestRuntimeDeps = Readonly<{
@@ -173,10 +175,47 @@ export type SupportRequestServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ escalated: number; skipped: number }>;
   /**
+   * Records that a `return-for-refund` case's returned item arrived back.
+   * Starts the 5-day inspection window; the refund releases automatically
+   * once it elapses unless the seller disputes the item's condition.
+   */
+  recordReturnDelivery: (
+    params: Readonly<{
+      supportRequestId: string;
+      accountId: string;
+      deliveredAt?: string;
+      scope?: SupportRequestMutationScope;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; version: number }>;
+  /**
+   * The seller's structured dispute of the returned item's condition,
+   * recorded within the inspection window. Blocks the automatic release;
+   * only a support-scoped `releaseReturnRefund` call can move it forward.
+   */
+  disputeReturnCondition: (
+    params: Readonly<{ supportRequestId: string; accountId: string; reason: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; version: number }>;
+  /**
+   * Support-only manual override: releases a pending return refund from
+   * either `awaiting-return-inspection` or `return-condition-disputed`
+   * without waiting for the automatic deadline.
+   */
+  releaseReturnRefund: (
+    params: Readonly<{ supportRequestId: string; accountId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ supportRequestId: string; version: number }>;
+  listSupportRequestsAwaitingReturnDelivery: (
+    params: Parameters<typeof listSupportRequestsAwaitingReturnDelivery>[1],
+  ) => ReturnType<typeof listSupportRequestsAwaitingReturnDelivery>;
+  /**
    * The scheduled deadline sweep: auto-resolves seller-silence cases to
    * their flow default, escalates contested/overdue cases and
    * silence cases whose default cannot be safely applied, emits SLA reminder
-   * events, and auto-closes resolved cases after 7 days. Every state change
+   * events, auto-closes resolved cases after 7 days, and releases
+   * `return-for-refund` refunds once the 5-day return-inspection window
+   * elapses without a seller condition dispute. Every state change
    * is a domain event with a system actor (`resolvedByRole`/`escalatedByRole`
    * `null`), never a silent row update. Safe to run concurrently: each
    * candidate mutation goes through the same optimistic-concurrency command
@@ -289,6 +328,7 @@ export type SupportRequestDeadlineSweepResult = Readonly<{
   autoClosed: number;
   responseRemindersEmitted: number;
   reviewRemindersEmitted: number;
+  returnRefundsReleased: number;
 }>;
 
 function addHoursToIso(timestamp: string, hours: number): string {
@@ -535,6 +575,62 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
 
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
+    recordReturnDelivery: async (params, context) => {
+      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      const recordedByRole =
+        params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "RecordReturnDelivery",
+          deliveredAt: params.deliveredAt ?? new Date().toISOString(),
+          recordedByAccountId: params.accountId as AccountId,
+          recordedByRole,
+        },
+        context,
+      });
+
+      return { supportRequestId: params.supportRequestId, version: result.version };
+    },
+    disputeReturnCondition: async (params, context) => {
+      const supportRequest = await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      const disputedByRole = accountRoleForSupportRequest(supportRequest, params.accountId);
+      if (disputedByRole !== "seller") {
+        throw new SupportDomainError("Only the seller can dispute the returned item's condition.");
+      }
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "DisputeReturnCondition",
+          disputedAt: new Date().toISOString(),
+          reason: params.reason,
+          disputedByAccountId: params.accountId as AccountId,
+        },
+        context,
+      });
+
+      return { supportRequestId: params.supportRequestId, version: result.version };
+    },
+    releaseReturnRefund: async (params, context) => {
+      await requireMutableSupportRequest(deps.db, {
+        supportRequestId: params.supportRequestId,
+        accountId: params.accountId,
+        scope: "operations",
+      });
+      const result = await commandHandler({
+        streamId: `support.support-request-${params.supportRequestId}`,
+        command: {
+          type: "ReleaseReturnRefund",
+          releasedAt: new Date().toISOString(),
+          releasedByAccountId: params.accountId as AccountId,
+          releasedByRole: "support",
+        },
+        context,
+      });
+
+      return { supportRequestId: params.supportRequestId, version: result.version };
+    },
+    listSupportRequestsAwaitingReturnDelivery: (params) => listSupportRequestsAwaitingReturnDelivery(deps.db, params),
     escalateOverdueSupportRequests: async (params, context) => {
       const now = params.now ?? new Date().toISOString();
       const queue = await listSupportOperationsQueue(deps.db, {
@@ -582,6 +678,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       let autoClosed = 0;
       let responseRemindersEmitted = 0;
       let reviewRemindersEmitted = 0;
+      let returnRefundsReleased = 0;
 
       // 1. Seller-silence candidates: auto-resolve to the flow default when
       // that default needs no human-computed value; otherwise (or if the
@@ -771,6 +868,39 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         }
       }
 
+      // 6. Return-for-refund cases whose returned item was delivered back
+      // and whose 5-day inspection window has elapsed release automatically
+      // (system actor, `releasedByRole: null`), letting the payments
+      // support-refund-effect projection actually issue the refund. A case
+      // the seller disputed within the window is excluded by the query
+      // itself (its gate has already moved to `return-condition-disputed`),
+      // so it never reaches this step.
+      const returnRefundCandidates = await listSupportRequestsReadyForReturnRefundRelease(deps.db, { now, limit });
+      for (const candidate of returnRefundCandidates) {
+        try {
+          const result = await commandHandler({
+            streamId: `support.support-request-${candidate.support_request_id}`,
+            command: {
+              type: "ReleaseReturnRefund",
+              releasedAt: now,
+              releasedByAccountId: null,
+              releasedByRole: null,
+            },
+            context,
+          });
+          if (result.newEvents.length > 0) {
+            returnRefundsReleased += 1;
+          }
+        } catch (error) {
+          if (!(error instanceof SupportDomainError)) {
+            throw error;
+          }
+          // The case moved on (seller disputed, or a concurrent runner
+          // already released it) between the read-model query and this
+          // command.
+        }
+      }
+
       return {
         autoResolved,
         fallbackEscalated,
@@ -778,6 +908,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         autoClosed,
         responseRemindersEmitted,
         reviewRemindersEmitted,
+        returnRefundsReleased,
       };
     },
     listSupportOperationsQueue: (params) => listSupportOperationsQueue(deps.db, params),

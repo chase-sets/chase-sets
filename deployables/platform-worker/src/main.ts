@@ -1270,6 +1270,7 @@ function createScheduledJobRunners(
             autoClosed: number;
             responseRemindersEmitted: number;
             reviewRemindersEmitted: number;
+            returnRefundsReleased: number;
           }>;
         };
       }
@@ -1380,7 +1381,8 @@ function createScheduledJobRunners(
             result.escalated +
             result.autoClosed +
             result.responseRemindersEmitted +
-            result.reviewRemindersEmitted
+            result.reviewRemindersEmitted +
+            result.returnRefundsReleased
           );
         },
       ),

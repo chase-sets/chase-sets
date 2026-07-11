@@ -219,15 +219,24 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         resolution: SupportResolution;
         autoCloseDueAt: string;
       };
+      const returnRefundGateStatus =
+        data.resolution.resolutionType === "return-for-refund" ? "awaiting-return-delivery" : null;
 
       await db.query(
         `UPDATE support_request_pages
          SET status = 'resolved',
              updated_at = $2,
              resolution = $3::jsonb,
-             auto_close_due_at = $4
+             auto_close_due_at = $4,
+             return_refund_gate_status = $5
          WHERE support_request_id = $1`,
-        [data.supportRequestId, data.resolution.resolvedAt, JSON.stringify(data.resolution), data.autoCloseDueAt],
+        [
+          data.supportRequestId,
+          data.resolution.resolvedAt,
+          JSON.stringify(data.resolution),
+          data.autoCloseDueAt,
+          returnRefundGateStatus,
+        ],
       );
     },
     "support.support-request.closed": async (event) => {
@@ -286,6 +295,48 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
          SET support_review_reminder_sent_at = $2
          WHERE support_request_id = $1`,
         [data.supportRequestId, data.remindedAt],
+      );
+    },
+    "support.support-request.return-delivered": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        deliveredAt: string;
+        returnRefundReleaseDueAt: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET return_refund_gate_status = 'awaiting-return-inspection',
+             return_delivered_at = $2,
+             return_refund_release_due_at = $3
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.deliveredAt, data.returnRefundReleaseDueAt],
+      );
+    },
+    "support.support-request.return-condition-disputed": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        disputedAt: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET return_refund_gate_status = 'return-condition-disputed',
+             return_condition_disputed_at = $2
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.disputedAt],
+      );
+    },
+    "support.support-request.return-refund-released": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET return_refund_gate_status = 'return-refund-released'
+         WHERE support_request_id = $1`,
+        [data.supportRequestId],
       );
     },
   };

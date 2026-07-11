@@ -33,6 +33,10 @@ export type SupportRequestListRow = Readonly<{
   escalated_by_account_id: string | null;
   escalated_by_role: string | null;
   escalation_reason: string | null;
+  return_refund_gate_status: string | null;
+  return_delivered_at: string | null;
+  return_refund_release_due_at: string | null;
+  return_condition_disputed_at: string | null;
 }>;
 
 export type SupportRequestDetailRow = SupportRequestListRow &
@@ -68,7 +72,11 @@ const listSelect = `
     escalated_at::text AS escalated_at,
     escalated_by_account_id,
     escalated_by_role,
-    escalation_reason
+    escalation_reason,
+    return_refund_gate_status,
+    return_delivered_at::text AS return_delivered_at,
+    return_refund_release_due_at::text AS return_refund_release_due_at,
+    return_condition_disputed_at::text AS return_condition_disputed_at
   FROM support_request_pages
 `;
 
@@ -101,7 +109,11 @@ const detailSelect = `
     escalated_at::text AS escalated_at,
     escalated_by_account_id,
     escalated_by_role,
-    escalation_reason
+    escalation_reason,
+    return_refund_gate_status,
+    return_delivered_at::text AS return_delivered_at,
+    return_refund_release_due_at::text AS return_refund_release_due_at,
+    return_condition_disputed_at::text AS return_condition_disputed_at
   FROM support_request_pages
 `;
 
@@ -181,32 +193,33 @@ export async function listSupportOperationsQueue(
   const values = params.accountId ? [now, params.accountId] : [now];
   const limitParam = values.length + 1;
   const offsetParam = values.length + 2;
+  // A resolved (even closed) `return-for-refund` case whose seller disputed
+  // the returned item's condition stays in the queue: the refund is stuck
+  // until an operator releases or otherwise adjudicates it, and that state
+  // has no further automatic deadline.
+  const activeStatusPredicate = `(
+    (status NOT IN ('resolved', 'closed', 'cancelled')
+      AND (
+        priority = 'urgent'
+        OR seller_response_due_at <= $1::timestamptz
+        OR support_review_due_at <= $1::timestamptz
+        OR seller_condition_attestation_due_at <= $1::timestamptz
+        OR status = 'ready-for-support'
+      ))
+    OR return_refund_gate_status = 'return-condition-disputed'
+  )`;
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM support_request_pages
-       WHERE status NOT IN ('resolved', 'closed', 'cancelled')
-         ${accountFilter}
-         AND (
-           priority = 'urgent'
-           OR seller_response_due_at <= $1::timestamptz
-           OR support_review_due_at <= $1::timestamptz
-           OR seller_condition_attestation_due_at <= $1::timestamptz
-           OR status = 'ready-for-support'
-         )`,
+       WHERE ${activeStatusPredicate}
+         ${accountFilter}`,
       values,
     ),
     db.query<SupportRequestListRow>(
       `${listSelect}
-       WHERE status NOT IN ('resolved', 'closed', 'cancelled')
+       WHERE ${activeStatusPredicate}
          ${accountFilter}
-         AND (
-           priority = 'urgent'
-           OR seller_response_due_at <= $1::timestamptz
-           OR support_review_due_at <= $1::timestamptz
-           OR seller_condition_attestation_due_at <= $1::timestamptz
-           OR status = 'ready-for-support'
-         )
        ORDER BY
          CASE WHEN priority = 'urgent' THEN 0 ELSE 1 END,
          LEAST(
@@ -384,6 +397,60 @@ export async function listSupportRequestsReadyForAutoClose(
     [params.now, normalizeSweepLimit(params.limit)],
   );
   return result.rows;
+}
+
+/**
+ * `return-for-refund` cases whose returned item was delivered back and whose
+ * 5-day inspection window has elapsed with no seller condition dispute: the
+ * deadline sweep's return-refund auto-release candidates.
+ */
+export async function listSupportRequestsReadyForReturnRefundRelease(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<readonly Pick<SupportRequestSweepCandidateRow, "support_request_id">[]> {
+  const result = await db.query<Pick<SupportRequestSweepCandidateRow, "support_request_id">>(
+    `SELECT support_request_id
+     FROM support_request_pages
+     WHERE return_refund_gate_status = 'awaiting-return-inspection'
+       AND return_refund_release_due_at IS NOT NULL
+       AND return_refund_release_due_at <= $1::timestamptz
+     ORDER BY return_refund_release_due_at ASC, support_request_id ASC
+     LIMIT $2`,
+    [params.now, normalizeSweepLimit(params.limit)],
+  );
+  return result.rows;
+}
+
+/**
+ * `return-for-refund` cases whose returned item has never been recorded as
+ * delivered back. There is no deadline for this state (the issue does not
+ * specify a never-arrives fallback), so this query is the operator-visible
+ * surface support tooling uses to find and manually follow up on them.
+ */
+export async function listSupportRequestsAwaitingReturnDelivery(
+  db: PgQueryable,
+  params: Readonly<{ limit?: number; offset?: number }>,
+): Promise<{ items: SupportRequestListRow[]; total: number }> {
+  const { limit, offset } = normalizePageParams(params);
+  const [countResult, itemsResult] = await Promise.all([
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM support_request_pages
+       WHERE return_refund_gate_status = 'awaiting-return-delivery'`,
+    ),
+    db.query<SupportRequestListRow>(
+      `${listSelect}
+       WHERE return_refund_gate_status = 'awaiting-return-delivery'
+       ORDER BY updated_at ASC, support_request_id ASC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    ),
+  ]);
+
+  return {
+    items: itemsResult.rows,
+    total: Number(countResult.rows[0]?.count ?? 0),
+  };
 }
 
 export async function findOpenSupportRequestForOrderAndFlow(

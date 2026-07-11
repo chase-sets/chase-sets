@@ -24,6 +24,7 @@ import {
   type SupportRequesterRole,
   type SupportRequestStatus,
   type SupportReturnInvestigation,
+  type SupportReturnRefundGateStatus,
   type SupportResolution,
   type SupportResolutionType,
   type SupportResponse,
@@ -65,6 +66,11 @@ export type SupportRequestState = Readonly<{
   sellerResponseReminderSentAt: string | null;
   supportReviewReminderSentAt: string | null;
   autoCloseDueAt: string | null;
+  /** Set the moment a `return-for-refund` resolution fires; null for every other resolution type. */
+  returnRefundGateStatus: SupportReturnRefundGateStatus | null;
+  returnDeliveredAt: string | null;
+  returnRefundReleaseDueAt: string | null;
+  returnConditionDisputedAt: string | null;
 }>;
 
 export const initialSupportRequestState: SupportRequestState = {
@@ -100,6 +106,10 @@ export const initialSupportRequestState: SupportRequestState = {
   sellerResponseReminderSentAt: null,
   supportReviewReminderSentAt: null,
   autoCloseDueAt: null,
+  returnRefundGateStatus: null,
+  returnDeliveredAt: null,
+  returnRefundReleaseDueAt: null,
+  returnConditionDisputedAt: null,
 };
 
 export type OpenSupportRequestCommand = Readonly<{
@@ -207,6 +217,47 @@ export type EmitSupportReviewReminderCommand = Readonly<{
   remindedAt: string;
 }>;
 
+/**
+ * Records the fact that a `return-for-refund` case's returned item arrived
+ * back. Only valid while the gate is `awaiting-return-delivery`. Starts the
+ * inspection window the seller has to dispute the item's condition before
+ * the refund auto-releases.
+ */
+export type RecordReturnDeliveryCommand = Readonly<{
+  type: "RecordReturnDelivery";
+  deliveredAt: string;
+  recordedByAccountId?: AccountId | null;
+  recordedByRole: SupportRequesterRole;
+}>;
+
+/**
+ * The seller's structured objection to the returned item's condition,
+ * recorded within the inspection window. Blocks the auto-release sweep;
+ * only a support-scoped `ReleaseReturnRefund` can move the gate forward
+ * from here.
+ */
+export type DisputeReturnConditionCommand = Readonly<{
+  type: "DisputeReturnCondition";
+  disputedAt: string;
+  reason: string;
+  disputedByAccountId?: AccountId | null;
+}>;
+
+/**
+ * Opens the money gate: releasing this lets the payments refund-effect
+ * projection actually call `issueRefund`. `releasedByRole: null` is the
+ * automated sweep path (only allowed once the inspection window has
+ * elapsed with no dispute); `releasedByRole: "support"` is a manual
+ * operator override, allowed from either `awaiting-return-inspection` or
+ * `return-condition-disputed`, with no deadline requirement.
+ */
+export type ReleaseReturnRefundCommand = Readonly<{
+  type: "ReleaseReturnRefund";
+  releasedAt: string;
+  releasedByAccountId?: AccountId | null;
+  releasedByRole: "support" | null;
+}>;
+
 export type SupportRequestCommand =
   | OpenSupportRequestCommand
   | SubmitSupportEvidenceCommand
@@ -218,7 +269,10 @@ export type SupportRequestCommand =
   | CloseSupportRequestCommand
   | CancelSupportRequestCommand
   | EmitSupportResponseReminderCommand
-  | EmitSupportReviewReminderCommand;
+  | EmitSupportReviewReminderCommand
+  | RecordReturnDeliveryCommand
+  | DisputeReturnConditionCommand
+  | ReleaseReturnRefundCommand;
 
 export type SupportRequestOpenedEvent = DomainEvent<
   "support.support-request.opened",
@@ -347,6 +401,41 @@ export type SupportReviewReminderEmittedEvent = DomainEvent<
   }>
 >;
 
+export type SupportRequestReturnDeliveredEvent = DomainEvent<
+  "support.support-request.return-delivered",
+  Readonly<{
+    supportRequestId: SupportRequestId;
+    orderId: OrderId;
+    deliveredAt: string;
+    /** Inspection window end: the auto-release sweep candidate deadline. */
+    returnRefundReleaseDueAt: string;
+    recordedByAccountId: AccountId | null;
+    recordedByRole: SupportRequesterRole;
+  }>
+>;
+
+export type SupportRequestReturnConditionDisputedEvent = DomainEvent<
+  "support.support-request.return-condition-disputed",
+  Readonly<{
+    supportRequestId: SupportRequestId;
+    orderId: OrderId;
+    disputedAt: string;
+    reason: string;
+    disputedByAccountId: AccountId | null;
+  }>
+>;
+
+export type SupportRequestReturnRefundReleasedEvent = DomainEvent<
+  "support.support-request.return-refund-released",
+  Readonly<{
+    supportRequestId: SupportRequestId;
+    orderId: OrderId;
+    releasedAt: string;
+    releasedByAccountId: AccountId | null;
+    releasedByRole: "support" | null;
+  }>
+>;
+
 export type SupportRequestEvent =
   | SupportRequestOpenedEvent
   | SupportEvidenceSubmittedEvent
@@ -358,7 +447,10 @@ export type SupportRequestEvent =
   | SupportRequestClosedEvent
   | SupportRequestCancelledEvent
   | SupportResponseReminderEmittedEvent
-  | SupportReviewReminderEmittedEvent;
+  | SupportReviewReminderEmittedEvent
+  | SupportRequestReturnDeliveredEvent
+  | SupportRequestReturnConditionDisputedEvent
+  | SupportRequestReturnRefundReleasedEvent;
 
 function addHours(timestamp: string, hours: number | null) {
   if (hours === null) {
@@ -1036,6 +1128,78 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
         },
       ];
     }
+    case "RecordReturnDelivery": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(
+        state.returnRefundGateStatus === "awaiting-return-delivery",
+        "This case has no return-for-refund refund awaiting return delivery.",
+      );
+      const deliveredAt = normalizeIsoTimestamp(command.deliveredAt, "Return delivery must record a timestamp.");
+      return [
+        {
+          type: "support.support-request.return-delivered",
+          data: {
+            supportRequestId: state.supportRequestId,
+            orderId: state.orderId!,
+            deliveredAt,
+            returnRefundReleaseDueAt: addHours(deliveredAt, returnFlowPolicy.returnRefundInspectionWindowHours)!,
+            recordedByAccountId: command.recordedByAccountId ?? null,
+            recordedByRole: normalizeRequesterRole(command.recordedByRole),
+          },
+        },
+      ];
+    }
+    case "DisputeReturnCondition": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      assert(
+        state.returnRefundGateStatus === "awaiting-return-inspection",
+        "This case has no return awaiting inspection to dispute.",
+      );
+      return [
+        {
+          type: "support.support-request.return-condition-disputed",
+          data: {
+            supportRequestId: state.supportRequestId,
+            orderId: state.orderId!,
+            disputedAt: normalizeIsoTimestamp(command.disputedAt, "Return condition dispute must record a timestamp."),
+            reason: normalizeRequiredText(command.reason, "Return condition dispute must include a reason."),
+            disputedByAccountId: command.disputedByAccountId ?? null,
+          },
+        },
+      ];
+    }
+    case "ReleaseReturnRefund": {
+      assert(state.supportRequestId !== null, "Support request must be opened first.");
+      const releasedAt = normalizeIsoTimestamp(command.releasedAt, "Return refund release must record a timestamp.");
+      if (command.releasedByRole === "support") {
+        assert(
+          state.returnRefundGateStatus === "awaiting-return-inspection" ||
+            state.returnRefundGateStatus === "return-condition-disputed",
+          "This case has no pending return refund for support to release.",
+        );
+      } else {
+        assert(
+          state.returnRefundGateStatus === "awaiting-return-inspection",
+          "This case has no return refund awaiting automatic release.",
+        );
+        assert(
+          state.returnRefundReleaseDueAt !== null && releasedAt >= state.returnRefundReleaseDueAt,
+          "The return refund inspection window has not elapsed yet.",
+        );
+      }
+      return [
+        {
+          type: "support.support-request.return-refund-released",
+          data: {
+            supportRequestId: state.supportRequestId,
+            orderId: state.orderId!,
+            releasedAt,
+            releasedByAccountId: command.releasedByAccountId ?? null,
+            releasedByRole: command.releasedByRole,
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -1077,6 +1241,10 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         sellerResponseReminderSentAt: null,
         supportReviewReminderSentAt: null,
         autoCloseDueAt: null,
+        returnRefundGateStatus: null,
+        returnDeliveredAt: null,
+        returnRefundReleaseDueAt: null,
+        returnConditionDisputedAt: null,
       };
     case "support.support-request.evidence-submitted":
       return {
@@ -1131,6 +1299,8 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
         updatedAt: event.data.resolution.resolvedAt,
         resolution: event.data.resolution,
         autoCloseDueAt: event.data.autoCloseDueAt,
+        returnRefundGateStatus:
+          event.data.resolution.resolutionType === "return-for-refund" ? "awaiting-return-delivery" : null,
       };
     case "support.support-request.closed":
       return {
@@ -1156,6 +1326,24 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
       return {
         ...state,
         supportReviewReminderSentAt: event.data.remindedAt,
+      };
+    case "support.support-request.return-delivered":
+      return {
+        ...state,
+        returnRefundGateStatus: "awaiting-return-inspection",
+        returnDeliveredAt: event.data.deliveredAt,
+        returnRefundReleaseDueAt: event.data.returnRefundReleaseDueAt,
+      };
+    case "support.support-request.return-condition-disputed":
+      return {
+        ...state,
+        returnRefundGateStatus: "return-condition-disputed",
+        returnConditionDisputedAt: event.data.disputedAt,
+      };
+    case "support.support-request.return-refund-released":
+      return {
+        ...state,
+        returnRefundGateStatus: "return-refund-released",
       };
     default:
       return assertNever(event);
