@@ -3,8 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
-
-const productAlertSettingsHref = "/search?notifications=settings&notificationSection=product-alerts";
+import { productAlertSettingsHref } from "../features/search/ui/product-alert-settings-link";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "accounts.view" });
