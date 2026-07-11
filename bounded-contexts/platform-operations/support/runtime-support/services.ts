@@ -26,7 +26,7 @@ export type PlatformOperationsServices = Readonly<{
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
-  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (currently just the rate-limit policy). */
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (the rate-limit policy and the support-flow deadline policy). */
   policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -51,13 +51,14 @@ export function createPlatformOperationsServices(
   const reportedContent = createReportedContentRuntime({ db, eventStore });
   const riskAlerts = createRiskAlertRuntime({ db, eventStore });
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
+  const policies = createPolicyRuntime({ eventStore, db });
   const supportRequests = createSupportRequestRuntime({
     eventStore,
     checkpointStore,
     db,
     notificationOutbox,
+    policies,
   });
-  const policies = createPolicyRuntime({ eventStore, db });
 
   return {
     db: pool,

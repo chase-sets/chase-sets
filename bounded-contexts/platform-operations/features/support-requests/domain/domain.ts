@@ -124,6 +124,20 @@ export type OpenSupportRequestCommand = Readonly<{
   openedByRole: SupportRequesterRole;
   openedAt: string;
   orderReturnContext?: readonly SupportOrderReturnContextLine[] | null;
+  /**
+   * The support-deadline policy's resolved value for this flow at open
+   * time (see `../domain/support-deadline-policy.ts`), stamped onto
+   * `sellerResponseDueAt` below. Omit to fall back to the flow catalog's
+   * compiled default -- used by seeds and any pre-policy call site. Must be
+   * `null` when the flow has no seller-response phase at all.
+   */
+  sellerResponseHours?: number | null;
+  /**
+   * The support-deadline policy's resolved value for this flow at open
+   * time, stamped onto `supportReviewDueAt` below. Omit to fall back to the
+   * flow catalog's compiled default.
+   */
+  supportReviewHours?: number;
 }>;
 
 export type SubmitSupportEvidenceCommand = Readonly<{
@@ -736,6 +750,21 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
       assert(orderTotalAmount !== null, "Support request must include the order total.");
       const checklist = createChecklist(flowType);
       const status = statusForOpenedRequest(flowType, orderTotalAmount, definition.initialStatus);
+      // The support-deadline policy is resolved once, by the caller, before
+      // this decider runs (see `../api/runtime.ts`'s `openSupportRequest`)
+      // and arrives here already stamped onto the command -- the fairness
+      // invariant (a policy revision affects only newly opened requests) and
+      // the m114 LAW (deciders consume stamped values, never re-read policy
+      // live) both fall out of that: this function never calls the policy
+      // resolver itself. Omitted fields fall back to the flow catalog's
+      // compiled default, so seeds and any pre-policy call site are unaffected.
+      const sellerResponseHours =
+        command.sellerResponseHours === undefined ? definition.sellerResponseHours : command.sellerResponseHours;
+      assert(
+        definition.sellerResponseHours !== null || sellerResponseHours === null,
+        "This support flow has no seller-response phase; seller response hours must stay null.",
+      );
+      const supportReviewHours = command.supportReviewHours ?? definition.supportReviewHours;
       return [
         {
           type: "support.support-request.opened",
@@ -751,8 +780,8 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
             openedByAccountId: command.openedByAccountId,
             openedByRole,
             openedAt,
-            sellerResponseDueAt: addHours(openedAt, definition.sellerResponseHours),
-            supportReviewDueAt: addHours(openedAt, definition.supportReviewHours),
+            sellerResponseDueAt: addHours(openedAt, sellerResponseHours),
+            supportReviewDueAt: addHours(openedAt, supportReviewHours),
             sellerConditionAttestationDueAt: null,
             orderReturnContext: normalizeOrderReturnContext(command.orderReturnContext),
             returnInvestigation: null,

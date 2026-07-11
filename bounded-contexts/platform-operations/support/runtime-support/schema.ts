@@ -16,7 +16,7 @@ export const platformOperationsSchemaSql = [
   supportSourceProjectionSchemaSql,
   supportRequestSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
-  // for the platform-wide rate-limit policy -- see
-  // ../../features/rate-limit-policy/domain/rate-limit-policy.ts.
+  // for the platform-wide rate-limit policy (../../features/rate-limit-policy/domain/rate-limit-policy.ts)
+  // and the support-flow deadline policy (../../features/support-requests/domain/support-deadline-policy.ts).
   platformPolicySchemaSql,
 ].join("\n\n");

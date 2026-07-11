@@ -85,7 +85,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       return access.response;
     }
 
-    return c.json({ items: services.listFlowDefinitions() });
+    return c.json({ items: await services.listFlowDefinitions() });
   });
 
   app.get("/purchases", async (c) => {

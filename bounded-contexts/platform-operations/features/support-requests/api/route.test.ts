@@ -65,7 +65,7 @@ function supportRequestDetail() {
 function createServices(overrides: Partial<SupportRequestServices> = {}): SupportRequestServices {
   return {
     commandHandler: vi.fn(),
-    listFlowDefinitions: vi.fn(() => []),
+    listFlowDefinitions: vi.fn(async () => []),
     getSupportOrderContext: vi.fn(),
     openSupportRequest: vi.fn(),
     submitEvidence: vi.fn(),

@@ -316,11 +316,22 @@ export type SupportRequestSweepCandidateRow = Readonly<{
   support_request_id: string;
   flow_type: string;
   opened_at: string;
+  /**
+   * The stamped seller-response deadline, present only on rows returned by
+   * queries that select it (`listSupportRequestsPastSellerResponseDeadline`,
+   * `listSupportRequestsNeedingResponseReminder`). The sweep derives
+   * halfway/window-elapsed timing from this stamped value rather than
+   * re-reading the flow's compiled or policy-resolved hours, so a support
+   * deadline policy revision never desyncs reminder timing from the deadline
+   * that was actually stamped on this request at open time.
+   */
+  seller_response_due_at?: string | null;
 }>;
 
 export type SupportRequestReviewReminderCandidateRow = Readonly<{
   support_request_id: string;
   flow_type: string;
+  opened_at: string;
   support_review_due_at: string;
 }>;
 
@@ -337,7 +348,8 @@ export async function listSupportRequestsPastSellerResponseDeadline(
   params: Readonly<{ now: string; limit?: number }>,
 ): Promise<readonly SupportRequestSweepCandidateRow[]> {
   const result = await db.query<SupportRequestSweepCandidateRow>(
-    `SELECT support_request_id, flow_type, opened_at::text AS opened_at
+    `SELECT support_request_id, flow_type, opened_at::text AS opened_at,
+            seller_response_due_at::text AS seller_response_due_at
      FROM support_request_pages
      WHERE status = 'waiting-on-seller'
        AND seller_response_due_at IS NOT NULL
@@ -351,15 +363,19 @@ export async function listSupportRequestsPastSellerResponseDeadline(
 
 /**
  * Cases still `waiting-on-seller`, not yet at their deadline, that have not
- * been reminded yet. The caller derives the halfway threshold from
- * `opened_at` and the flow's `sellerResponseHours`.
+ * been reminded yet. The caller derives the halfway threshold from the
+ * stamped `opened_at` and `seller_response_due_at` (never a live or
+ * catalog-compiled hour count), so the reminder timing always matches the
+ * deadline that was actually resolved and stamped on this request at open
+ * time, regardless of later support-deadline policy revisions.
  */
 export async function listSupportRequestsNeedingResponseReminder(
   db: PgQueryable,
   params: Readonly<{ now: string; limit?: number }>,
 ): Promise<readonly SupportRequestSweepCandidateRow[]> {
   const result = await db.query<SupportRequestSweepCandidateRow>(
-    `SELECT support_request_id, flow_type, opened_at::text AS opened_at
+    `SELECT support_request_id, flow_type, opened_at::text AS opened_at,
+            seller_response_due_at::text AS seller_response_due_at
      FROM support_request_pages
      WHERE status = 'waiting-on-seller'
        AND seller_response_reminder_sent_at IS NULL
@@ -375,14 +391,16 @@ export async function listSupportRequestsNeedingResponseReminder(
 /**
  * Cases `ready-for-support`, not yet at their support-review deadline, that
  * have not been reminded yet. The caller derives the approaching threshold
- * from `support_review_due_at` and the flow's `supportReviewHours`.
+ * from the stamped `opened_at` and `support_review_due_at` for the same
+ * stamped-deadline reason as the response-reminder query above.
  */
 export async function listSupportRequestsNeedingReviewReminder(
   db: PgQueryable,
   params: Readonly<{ now: string; limit?: number }>,
 ): Promise<readonly SupportRequestReviewReminderCandidateRow[]> {
   const result = await db.query<SupportRequestReviewReminderCandidateRow>(
-    `SELECT support_request_id, flow_type, support_review_due_at::text AS support_review_due_at
+    `SELECT support_request_id, flow_type, opened_at::text AS opened_at,
+            support_review_due_at::text AS support_review_due_at
      FROM support_request_pages
      WHERE status = 'ready-for-support'
        AND support_review_reminder_sent_at IS NULL

@@ -18,6 +18,17 @@ export const supportEnglishTranslations = {
   "support.features.support_requests.api.route.authentication.context.missing.8": "Return delivery context is missing.",
   "support.features.support_requests.api.route.authentication.context.missing.9":
     "Return refund release context is missing.",
+  "support.features.supportRequests.api.deadlinePolicyRoute.authentication.required":
+    "Sign in to manage the support deadline policy.",
+  "support.features.supportRequests.api.deadlinePolicyRoute.forbidden":
+    "You do not have permission to manage the support deadline policy.",
+  "support.features.supportRequests.api.deadlinePolicyRoute.request.failed": "Support deadline policy request failed.",
+  "support.features.supportRequests.api.deadlinePolicyRoute.document.not.found":
+    "Support deadline policy document not found.",
+  "support.features.supportRequests.api.deadlinePolicyRoute.authentication.context.missing":
+    "Support deadline policy context is missing.",
+  "support.features.supportRequests.api.deadlinePolicyRoute.authentication.context.missing.2":
+    "Support deadline policy revision context is missing.",
   "support.features.supportRequests.ui.supportRequestListPage.title": "Support",
   "support.features.supportRequests.ui.supportRequestListPage.description":
     "Track structured order workflows without direct back and forth.",

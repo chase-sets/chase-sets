@@ -139,7 +139,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 85 `push-enabled`, 15 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 86 `push-enabled`, 15 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (70)
 
