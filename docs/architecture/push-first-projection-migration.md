@@ -95,8 +95,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-account-source-projection` | Marketplace | **identity** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-moderation-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-notification-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
+| `marketplace:marketplace-review-notification-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
 | `marketplace:marketplace-review-support-source-projection` | Marketplace | **platform-operations** | push-enabled | 1/1 |

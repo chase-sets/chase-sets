@@ -386,7 +386,7 @@
     {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable notification outbox consumed by post-delivery review-opportunity, reminder, and reveal-notice nudges (m108, #4270) and dispatched through channel adapters."
+      "purpose": "Durable notification outbox consumed by post-delivery review-opportunity, reminder, and reveal-notice nudges (m108) and dispatched through channel adapters."
     }
   ],
   "apiDeployables": ["platform-api"],
