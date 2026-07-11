@@ -3,6 +3,7 @@ export { createOrderingApiClient, orderingApi, OrderingApiError } from "../../cl
 export type {
   CheckoutFulfillmentPreview,
   OrderingApiClientOptions,
+  OrderListSummary,
   PostagePolicyAdminRecord,
   PostagePolicyCommandRequest,
   PostagePolicyPreviewRequest,

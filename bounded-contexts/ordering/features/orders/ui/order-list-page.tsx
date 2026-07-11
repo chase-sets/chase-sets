@@ -8,15 +8,27 @@ import {
   Page,
   PageHeader,
   PageSection,
+  Pagination,
   PlatformCredibilityCue,
   Stack,
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import type { PurchaseListItem, SaleListItem } from "./contracts";
+import type { OrderListSummary, PurchaseListItem, SaleListItem } from "./contracts";
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function navigateToOrderListPage(page: number, pageSize: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("limit", String(pageSize));
+  url.searchParams.set("offset", String((page - 1) * pageSize));
+  window.location.assign(`${url.pathname}${url.search}${url.hash}`);
 }
 
 function statusTone(status: string) {
@@ -41,6 +53,9 @@ export function OrderingOrderListPage({
   emptyDescription,
   orderDetailBasePath,
   orders,
+  total,
+  summary,
+  pagination,
 }: {
   title: string;
   eyebrow: string;
@@ -48,9 +63,19 @@ export function OrderingOrderListPage({
   emptyDescription: string;
   orderDetailBasePath: string;
   orders: readonly (PurchaseListItem | SaleListItem)[];
+  total?: number;
+  summary?: OrderListSummary;
+  pagination?: Readonly<{ limit: number; offset: number; total: number }>;
 }) {
-  const totalQuantity = orders.reduce((sum, order) => sum + order.total_quantity, 0);
-  const pendingCount = orders.filter((order) => order.status.includes("pending")).length;
+  const totalCount = total ?? orders.length;
+  const totalQuantity = summary ? summary.total_quantity : orders.reduce((sum, order) => sum + order.total_quantity, 0);
+  const pendingCount = summary
+    ? summary.pending_count
+    : orders.filter((order) => order.status.includes("pending")).length;
+  const pageSize = pagination?.limit ?? orders.length;
+  const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
+  const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
+  const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
 
   return (
     <Page>
@@ -64,7 +89,7 @@ export function OrderingOrderListPage({
         title={title}
         description={t("ordering.features.orders.ui.orderListPage.review.pending.commercial.commitments.created.by")}
         metrics={[
-          { label: title, value: orders.length },
+          { label: title, value: totalCount },
           { label: t("ordering.features.orders.ui.orderListPage.items"), value: totalQuantity },
           { label: t("ordering.features.orders.ui.orderListPage.pending"), value: pendingCount },
         ]}
@@ -124,6 +149,13 @@ export function OrderingOrderListPage({
             ))
           )}
         </Grid>
+        {showPagination ? (
+          <Pagination
+            page={currentPage}
+            totalPages={totalPages}
+            onPageChange={(page) => navigateToOrderListPage(page, pageSize)}
+          />
+        ) : null}
       </PageSection>
     </Page>
   );

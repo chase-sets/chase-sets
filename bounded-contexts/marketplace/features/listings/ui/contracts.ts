@@ -65,6 +65,13 @@ export interface MarketplaceListingListItem {
   updated_at: string;
 }
 
+export interface MarketplaceSellerListingStatusCounts {
+  active: number;
+  draft: number;
+  paused: number;
+  withdrawn: number;
+}
+
 export interface MarketplaceGradedCardDetails {
   gradingCompany: string;
   grade: string;

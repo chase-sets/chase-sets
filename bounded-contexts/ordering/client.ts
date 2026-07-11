@@ -9,13 +9,20 @@ export type {
   OrderingOrderProjectionDetail,
   OrderingOrderProjectionHold,
   OrderingOrderProjectionLine,
+  OrderListSummary,
   PurchaseDetail,
   PurchaseListItem,
   SaleDetail,
   SaleListItem,
 } from "./features/orders/api/contracts";
 
-import type { PurchaseDetail, PurchaseListItem, SaleDetail, SaleListItem } from "./features/orders/api/contracts";
+import type {
+  OrderListSummary,
+  PurchaseDetail,
+  PurchaseListItem,
+  SaleDetail,
+  SaleListItem,
+} from "./features/orders/api/contracts";
 import type { PackagePlan, PostagePolicy, ProductPhysicalFlag, ShippingOption } from "@chase-sets/product-measures";
 
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
@@ -282,7 +289,9 @@ export function createOrderingApiClient({
         }),
       );
     },
-    async listPurchases(query = ""): Promise<ListResponse<PurchaseListItem>> {
+    async listPurchases(
+      query = "",
+    ): Promise<ListResponse<PurchaseListItem> & { limit: number; offset: number; summary: OrderListSummary }> {
       return parseJsonResponse(
         await client.account.purchases.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -307,7 +316,9 @@ export function createOrderingApiClient({
         }),
       );
     },
-    async listSales(query = ""): Promise<ListResponse<SaleListItem>> {
+    async listSales(
+      query = "",
+    ): Promise<ListResponse<SaleListItem> & { limit: number; offset: number; summary: OrderListSummary }> {
       return parseJsonResponse(
         await client.account.sales.$get({
           query: Object.fromEntries(new URLSearchParams(query)),

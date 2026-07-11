@@ -48,7 +48,9 @@ import {
 } from "../domain/policies";
 import {
   getPurchase,
+  getPurchaseListSummary,
   getSale,
+  getSaleListSummary,
   listOrderIdsForSource,
   listPendingPaymentOrdersPastDeadline,
   listPurchases,
@@ -476,8 +478,10 @@ export type OrderingOrderServices = Readonly<{
   ) => Promise<{ checked: number; cancelled: number; progressed: number; failed: number }>;
   listPurchases: (params: Parameters<typeof listPurchases>[1]) => ReturnType<typeof listPurchases>;
   getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchase>;
+  getPurchaseListSummary: (buyerAccountId: string) => ReturnType<typeof getPurchaseListSummary>;
   listSales: (params: Parameters<typeof listSales>[1]) => ReturnType<typeof listSales>;
   getSale: (orderId: string, sellerAccountId: string) => ReturnType<typeof getSale>;
+  getSaleListSummary: (sellerAccountId: string) => ReturnType<typeof getSaleListSummary>;
   getOrderReviewOpportunity: (
     orderId: string,
     authorAccountId: string,
@@ -1990,8 +1994,10 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     },
     listPurchases: (params) => listPurchases(deps.db, params),
     getPurchase: (orderId, buyerAccountId) => getPurchase(deps.db, orderId, buyerAccountId),
+    getPurchaseListSummary: (buyerAccountId) => getPurchaseListSummary(deps.db, buyerAccountId),
     listSales: (params) => listSales(deps.db, params),
     getSale: (orderId, sellerAccountId) => getSale(deps.db, orderId, sellerAccountId),
+    getSaleListSummary: (sellerAccountId) => getSaleListSummary(deps.db, sellerAccountId),
     getOrderReviewOpportunity: (orderId, authorAccountId) =>
       getOrderingOrderReviewOpportunity(deps.db, { orderId, authorAccountId }),
     projectors: [

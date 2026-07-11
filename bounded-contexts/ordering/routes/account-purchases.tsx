@@ -7,8 +7,8 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { type PurchaseListItem } from "../support/request-support/api-client";
 import { createOrderingRequestApiClient } from "../support/request-support/api-client";
 import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
+import { orderListPageQuery } from "../support/request-support/list-pagination";
 
-const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchases.track.purchases.and.drill.into.each");
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -16,7 +16,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createOrderingRequestApiClient(request);
 
   return {
-    purchases: await api.listPurchases(DEFAULT_ORDER_QUERY),
+    purchases: await api.listPurchases(orderListPageQuery(request)),
   };
 }
 
@@ -28,6 +28,11 @@ export const meta: MetaFunction = () =>
 
 export default function OrderingAccountPurchasesRoute() {
   const data = useLoaderData<typeof loader>();
+  const purchases = data.purchases as ListResponse<PurchaseListItem> & {
+    limit: number;
+    offset: number;
+    summary: { total_quantity: number; pending_count: number };
+  };
 
   return (
     <OrderingOrderListPage
@@ -36,7 +41,10 @@ export default function OrderingAccountPurchasesRoute() {
       emptyTitle={t("ordering.routes.accountPurchases.no.purchases.yet")}
       emptyDescription={t("ordering.routes.accountPurchases.your.checkout.activity.and.accepted.offers")}
       orderDetailBasePath="/account/purchases"
-      orders={(data.purchases as ListResponse<PurchaseListItem>).items}
+      orders={purchases.items}
+      total={purchases.total}
+      summary={purchases.summary}
+      pagination={{ limit: purchases.limit, offset: purchases.offset, total: purchases.total }}
     />
   );
 }

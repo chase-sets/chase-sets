@@ -226,7 +226,14 @@ describe("account listings route", () => {
       context: {},
     } as never);
 
-    expect(result.listings).toEqual({ items: [], total: 0, count: 0 });
+    expect(result.listings).toEqual({
+      items: [],
+      total: 0,
+      count: 0,
+      limit: 100,
+      offset: 0,
+      statusCounts: { active: 0, draft: 0, paused: 0, withdrawn: 0 },
+    });
     expect(result.inventoryItems).toEqual([]);
     expect(result.listingAvailability.account_id).toBe("acc_seller");
     expect(result.claimError).toBeNull();
@@ -277,7 +284,14 @@ describe("account listings route", () => {
       account_id: "acc_seller",
       status: "unavailable",
     });
-    expect(result.listings).toEqual({ items: [], total: 0, count: 0 });
+    expect(result.listings).toEqual({
+      items: [],
+      total: 0,
+      count: 0,
+      limit: 100,
+      offset: 0,
+      statusCounts: { active: 0, draft: 0, paused: 0, withdrawn: 0 },
+    });
   });
 
   it("pre-fills selected product options from listing setup links", async () => {

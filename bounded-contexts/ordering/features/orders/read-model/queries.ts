@@ -277,6 +277,41 @@ export async function listPurchases(
   };
 }
 
+async function summarizeOrderList(
+  db: PgQueryable,
+  column: "buyer_account_id" | "seller_account_id",
+  accountId: string,
+): Promise<{ total_quantity: number; pending_count: number }> {
+  const result = await db.query<{ total_quantity: string; pending_count: string }>(
+    `SELECT
+       COALESCE(
+         (SELECT SUM(line.quantity)
+          FROM ordering_order_line_pages AS line
+          JOIN ordering_order_pages AS page ON page.order_id = line.order_id
+          WHERE page.${column} = $1),
+         0
+       ) AS total_quantity,
+       COUNT(*) FILTER (WHERE status LIKE 'pending%') AS pending_count
+     FROM ordering_order_pages
+     WHERE ${column} = $1`,
+    [accountId],
+  );
+  const row = result.rows[0];
+
+  return {
+    total_quantity: Number(row?.total_quantity ?? 0),
+    pending_count: Number(row?.pending_count ?? 0),
+  };
+}
+
+export async function getPurchaseListSummary(db: PgQueryable, buyerAccountId: string) {
+  return summarizeOrderList(db, "buyer_account_id", buyerAccountId);
+}
+
+export async function getSaleListSummary(db: PgQueryable, sellerAccountId: string) {
+  return summarizeOrderList(db, "seller_account_id", sellerAccountId);
+}
+
 export async function getPurchase(
   db: PgQueryable,
   orderId: string,

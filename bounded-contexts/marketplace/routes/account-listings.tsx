@@ -20,6 +20,7 @@ import {
   type MarketplaceListingFeeLockReportEntry,
   type MarketplaceListingListItem,
   type MarketplaceSellerListingAvailability,
+  type MarketplaceSellerListingStatusCounts,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import {
@@ -31,9 +32,10 @@ import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import { MarketplaceListingListPage } from "../features/listings/ui/listing-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
+import { sellerListingPageQuery } from "../support/request-support/list-pagination";
 
-const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
+const DEFAULT_FEE_LOCK_QUERY = "limit=100&offset=0";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
 const AVAILABILITY_ACTION_PARAM = "availabilityAction";
@@ -56,7 +58,7 @@ function accountAccessRequired(returnTo: string) {
       title: t("marketplace.routes.accountListings.account.access.required.title"),
       description: t("marketplace.routes.accountListings.account.access.required.description"),
     },
-    listings: emptyListResponse<MarketplaceListingListItem>(),
+    listings: emptyListingsResponse(),
     feeLockReport: emptyListResponse<MarketplaceListingFeeLockReportEntry>(),
     listingAvailability: {
       account_id: "",
@@ -189,8 +191,15 @@ function inventorySnapshotFromMarketplaceSupplyItem(item: MarketplaceListingInve
   };
 }
 
+type MarketplaceListingListResponse = ListResponse<MarketplaceListingListItem> &
+  Readonly<{
+    limit: number;
+    offset: number;
+    statusCounts: MarketplaceSellerListingStatusCounts;
+  }>;
+
 type AccountListingsPageReads = Readonly<{
-  listings: ListResponse<MarketplaceListingListItem>;
+  listings: MarketplaceListingListResponse;
   feeLockReport: ListResponse<MarketplaceListingFeeLockReportEntry>;
   inventoryItemsResponse: ListResponse<MarketplaceListingInventoryItemOption>;
   hasListingStockLocation: boolean;
@@ -201,12 +210,21 @@ function emptyListResponse<T>(): ListResponse<T> {
   return { items: [], total: 0, count: 0 };
 }
 
+function emptyListingsResponse(): MarketplaceListingListResponse {
+  return {
+    ...emptyListResponse<MarketplaceListingListItem>(),
+    limit: 100,
+    offset: 0,
+    statusCounts: { active: 0, draft: 0, paused: 0, withdrawn: 0 },
+  };
+}
+
 function createFreshWriteRecoveryPageReads(
   accountId: string,
   availabilityStatus: MarketplaceSellerListingAvailability["status"] = "available",
 ): AccountListingsPageReads {
   return {
-    listings: emptyListResponse(),
+    listings: emptyListingsResponse(),
     feeLockReport: emptyListResponse(),
     inventoryItemsResponse: emptyListResponse(),
     hasListingStockLocation: false,
@@ -338,6 +356,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const actor = actorResult.actor;
   const resolvedRequest = await resolveMarketplacePostWriteRequest(request);
   const marketplaceApi = createMarketplaceRequestApiClient(resolvedRequest);
+  const listingsPageQuery = sellerListingPageQuery(resolvedRequest);
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const selectedInventoryItemId = searchParams.get("inventoryItemId");
   const selectedCatalogItemId = searchParams.get("catalogItemId");
@@ -369,8 +388,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
     load: async () => {
       const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability] =
         await Promise.all([
-          marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
-          marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
+          marketplaceApi.listSellerListings(listingsPageQuery),
+          marketplaceApi.listSellerListingFeeLockReport(DEFAULT_FEE_LOCK_QUERY),
           loadListingInventoryOptions(marketplaceApi, selectedInventoryItemId),
           marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
           marketplaceApi.getSellerListingAvailability(),
@@ -401,8 +420,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
       pageReads = createFreshWriteRecoveryPageReads(actor.accountId, pendingAvailabilityStatus);
     } else if (selectedInventoryItemId && classification.transient && !hasMarketplaceFreshWriteSource(classification)) {
       const [listings, feeLockReport, listingAvailability] = await Promise.all([
-        marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
-        marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
+        marketplaceApi.listSellerListings(listingsPageQuery),
+        marketplaceApi.listSellerListingFeeLockReport(DEFAULT_FEE_LOCK_QUERY),
         marketplaceApi.getSellerListingAvailability(),
       ]);
       pageReads = {
@@ -690,15 +709,15 @@ function MarketplaceAccountListingsRealtimeView({
   accountId: string | null;
 }) {
   const topics = accountId ? marketplaceRealtimeRouteTopics.accountListings(accountId).topics : [];
-  const listings = useRealtimePatchedSnapshot<ListResponse<MarketplaceListingListItem>>({
-    initialSnapshot: data.listings as ListResponse<MarketplaceListingListItem>,
+  const listings = useRealtimePatchedSnapshot<MarketplaceListingListResponse>({
+    initialSnapshot: data.listings as MarketplaceListingListResponse,
     snapshotKey: JSON.stringify(data.listings),
     topics,
     applyPatch: (current, patch) =>
       applyMarketplaceListPatch(current, patch, {
         entity: "marketplace.sellerListing",
         idField: "listing_id",
-      }),
+      }) as MarketplaceListingListResponse,
     onSyncRequired: reloadForRealtimeSync,
   });
   const feeLockReport = useRealtimePatchedSnapshot<ListResponse<MarketplaceListingFeeLockReportEntry>>({
@@ -716,6 +735,8 @@ function MarketplaceAccountListingsRealtimeView({
   return (
     <MarketplaceListingListPage
       data={listings}
+      statusCounts={listings.statusCounts}
+      pagination={{ limit: listings.limit, offset: listings.offset, total: listings.total }}
       feeLockReport={feeLockReport}
       listingAvailability={data.listingAvailability as MarketplaceSellerListingAvailability}
       inventoryItems={data.inventoryItems}

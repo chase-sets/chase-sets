@@ -580,6 +580,37 @@ export async function listSellerListings(
   };
 }
 
+export type MarketplaceSellerListingStatusCounts = Readonly<{
+  active: number;
+  draft: number;
+  paused: number;
+  withdrawn: number;
+}>;
+
+export async function getSellerListingStatusCounts(
+  db: PgQueryable,
+  accountId: string,
+): Promise<MarketplaceSellerListingStatusCounts> {
+  const result = await db.query<{ active: string; draft: string; paused: string; withdrawn: string }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'active') AS active,
+       COUNT(*) FILTER (WHERE status = 'draft') AS draft,
+       COUNT(*) FILTER (WHERE status = 'paused') AS paused,
+       COUNT(*) FILTER (WHERE status = 'withdrawn') AS withdrawn
+     FROM marketplace_listing_pages
+     WHERE account_id = $1`,
+    [accountId],
+  );
+  const row = result.rows[0];
+
+  return {
+    active: Number(row?.active ?? 0),
+    draft: Number(row?.draft ?? 0),
+    paused: Number(row?.paused ?? 0),
+    withdrawn: Number(row?.withdrawn ?? 0),
+  };
+}
+
 export async function getSellerListingAvailability(
   db: PgQueryable,
   accountId: string,
