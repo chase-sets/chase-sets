@@ -110,6 +110,15 @@ CREATE TABLE IF NOT EXISTS discovery_search_catalog_reference_records (
 CREATE INDEX IF NOT EXISTS discovery_search_catalog_reference_records_type_key_idx
   ON discovery_search_catalog_reference_records (type_key);
 
+-- Set/expansion browse-page addressing. Slug is the reference record's
+-- own natural key (game + set code, already normalized lowercase/hyphenated by
+-- the Catalog reference-record contract), not a display-title-derived slug, so
+-- the URL is the natural key rather than an opaque hash-suffixed string. Only
+-- set-like reference records (see SET_LIKE_REFERENCE_TYPE_KEYS) carry a
+-- non-empty slug; every other reference type keeps '' and stays unaddressed.
+ALTER TABLE discovery_search_catalog_reference_records
+  ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
+
 CREATE TABLE IF NOT EXISTS discovery_search_catalog_dimensions (
   dimension_id text PRIMARY KEY,
   name text NOT NULL,
@@ -303,6 +312,15 @@ export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
   ON discovery_search_items (set_code, card_number);`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_items_blueprint_set_code_card_number_idx
   ON discovery_search_items (blueprint_id, set_code, card_number);`,
+    ],
+  },
+  {
+    migrationId: "20260710_discovery_search_reference_record_slug_index",
+    description:
+      "Create the unique index on the set/expansion browse-page slug so the natural-key-derived slug addresses exactly one reference record.",
+    statements: [
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_catalog_reference_records_slug_idx
+  ON discovery_search_catalog_reference_records (slug) WHERE slug <> ''`,
     ],
   },
 ];

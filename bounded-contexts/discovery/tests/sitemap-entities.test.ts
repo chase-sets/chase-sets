@@ -9,21 +9,28 @@ import {
 
 describe("discovery sitemap entity coverage", () => {
   it("exposes every sitemap entity kind and a page size well under the protocol's 50,000-URL ceiling", () => {
-    expect(DISCOVERY_SITEMAP_ENTITY_KINDS).toEqual(["items", "categories", "sellers", "listings"]);
+    expect(DISCOVERY_SITEMAP_ENTITY_KINDS).toEqual(["items", "categories", "sellers", "listings", "sets"]);
     expect(DISCOVERY_SITEMAP_PAGE_SIZE).toBeLessThan(50000);
   });
 
   it("counts every entity kind independently instead of capping at a fixed row limit", async () => {
-    const db = queryDbSequence([[{ count: "12000" }], [{ count: "3" }], [{ count: "0" }], [{ count: "5000" }]]);
+    const db = queryDbSequence([
+      [{ count: "12000" }],
+      [{ count: "3" }],
+      [{ count: "0" }],
+      [{ count: "5000" }],
+      [{ count: "42" }],
+    ]);
 
     const counts = await countDiscoveryPublicSitemapEntities(db);
 
-    expect(counts).toEqual({ items: 12000, categories: 3, sellers: 0, listings: 5000 });
-    expect(db.queries).toHaveLength(4);
+    expect(counts).toEqual({ items: 12000, categories: 3, sellers: 0, listings: 5000, sets: 42 });
+    expect(db.queries).toHaveLength(5);
     expect(db.queries[0]?.sql).toContain("discovery_item_detail_pages");
     expect(db.queries[1]?.sql).toContain("discovery_categories");
     expect(db.queries[2]?.sql).toContain("discovery_market_accounts");
     expect(db.queries[3]?.sql).toContain("discovery_market_listings");
+    expect(db.queries[4]?.sql).toContain("discovery_search_catalog_reference_records");
   });
 
   it("pages items with a stable slug order and offset math that matches the requested page", async () => {
@@ -63,6 +70,11 @@ describe("discovery sitemap entity coverage", () => {
     const listingsDb = queryDbSequence([[{ listing_slug: "charizard-lst_1", updated_at: "2026-07-01T00:00:00.000Z" }]]);
     expect(await listDiscoveryPublicSitemapEntityPage(listingsDb, "listings", 1)).toEqual([
       { path: "/listings/charizard-lst_1", updated_at: "2026-07-01T00:00:00.000Z" },
+    ]);
+
+    const setsDb = queryDbSequence([[{ slug: "surging-sparks", updated_at: "2026-07-01T00:00:00.000Z" }]]);
+    expect(await listDiscoveryPublicSitemapEntityPage(setsDb, "sets", 1)).toEqual([
+      { path: "/sets/surging-sparks", updated_at: "2026-07-01T00:00:00.000Z" },
     ]);
   });
 

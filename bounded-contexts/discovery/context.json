@@ -4,7 +4,7 @@
   "ownedNouns": ["search", "browse", "item-detail", "product-alert"],
   "streamPrefix": "discovery.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["categories", "google-shopping-operations", "item-detail", "product-alerts", "search"],
+  "slices": ["browse", "categories", "google-shopping-operations", "item-detail", "product-alerts", "search"],
   "allowedSupportDirectories": [
     "client-support",
     "item-support",
@@ -958,6 +958,13 @@
           "sourceContext": "discovery"
         },
         {
+          "routeId": "set",
+          "routePath": "sets/:setSlug",
+          "fileExport": "./routes/set",
+          "routeType": "route",
+          "sourceContext": "discovery"
+        },
+        {
           "routeId": "search",
           "routePath": "search",
           "fileExport": "./routes/search",
@@ -1017,6 +1024,11 @@
     }
   ],
   "directoryIntent": {
+    "browse": {
+      "classification": "slice",
+      "purpose": "Own natural-key browse pages (set/expansion pages addressed by the reference-record natural key) reading Search's denormalized read models.",
+      "expectedConsumers": ["Internal discovery module composition"]
+    },
     "categories": {
       "classification": "slice",
       "purpose": "Own categories feature behavior, read models, and UI contracts for the discovery context.",
@@ -1045,12 +1057,12 @@
     "client-support": {
       "classification": "support",
       "purpose": "Provide reusable client-support assets shared by discovery-owned features and composition seams.",
-      "expectedConsumers": ["google-shopping-operations", "item-detail", "search"]
+      "expectedConsumers": ["browse", "google-shopping-operations", "item-detail", "search"]
     },
     "item-support": {
       "classification": "support",
       "purpose": "Provide reusable item-support assets shared by discovery-owned features and composition seams.",
-      "expectedConsumers": ["item-detail", "search"]
+      "expectedConsumers": ["browse", "item-detail", "search"]
     },
     "market-support": {
       "classification": "support",
@@ -1076,7 +1088,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by discovery-owned features and composition seams.",
-      "expectedConsumers": ["categories", "item-detail", "product-alerts", "search"]
+      "expectedConsumers": ["browse", "categories", "item-detail", "product-alerts", "search"]
     },
     "shell-support": {
       "classification": "support",

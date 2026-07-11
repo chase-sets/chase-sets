@@ -235,6 +235,7 @@ export const DISCOVERY_SITEMAP_ENTITY_KINDS: readonly DiscoverySitemapEntityKind
   "categories",
   "sellers",
   "listings",
+  "sets",
 ];
 
 /**
@@ -243,7 +244,7 @@ export const DISCOVERY_SITEMAP_ENTITY_KINDS: readonly DiscoverySitemapEntityKind
  * instead of silently truncating past a fixed row cap.
  */
 export async function countDiscoveryPublicSitemapEntities(db: PgQueryable): Promise<DiscoverySitemapEntityCounts> {
-  const [items, categories, sellers, listings] = await Promise.all([
+  const [items, categories, sellers, listings, sets] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
        FROM discovery_item_detail_pages
@@ -274,6 +275,11 @@ export async function countDiscoveryPublicSitemapEntities(db: PgQueryable): Prom
        WHERE listing.listing_slug <> ''
          AND ${buyerVisibleListingPredicateSql("listing", "account")}`,
     ),
+    db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM discovery_search_catalog_reference_records
+       WHERE slug <> '' AND status = 'active'`,
+    ),
   ]);
 
   return {
@@ -281,6 +287,7 @@ export async function countDiscoveryPublicSitemapEntities(db: PgQueryable): Prom
     categories: Number(categories.rows[0]?.count ?? 0),
     sellers: Number(sellers.rows[0]?.count ?? 0),
     listings: Number(listings.rows[0]?.count ?? 0),
+    sets: Number(sets.rows[0]?.count ?? 0),
   };
 }
 
@@ -352,6 +359,17 @@ export async function listDiscoveryPublicSitemapEntityPage(
         [limit, offset],
       );
       return result.rows.map((row) => ({ path: `/listings/${row.listing_slug}`, updated_at: row.updated_at }));
+    }
+    case "sets": {
+      const result = await db.query<{ slug: string; updated_at: string }>(
+        `SELECT slug, updated_at
+         FROM discovery_search_catalog_reference_records
+         WHERE slug <> '' AND status = 'active'
+         ORDER BY slug ASC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      );
+      return result.rows.map((row) => ({ path: `/sets/${row.slug}`, updated_at: row.updated_at }));
     }
     default: {
       const exhaustive: never = kind;

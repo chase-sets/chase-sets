@@ -3,6 +3,8 @@ export { discoveryApi, DiscoveryApiError, createDiscoveryApiClient } from "../..
 export type {
   CategoryListResponse,
   DiscoveryApiClientOptions,
+  DiscoveryBrowseSetItem,
+  DiscoveryBrowseSetPage,
   DiscoveryCategoryItem,
   DiscoveryItemDetail,
   DiscoverySimilarItem,

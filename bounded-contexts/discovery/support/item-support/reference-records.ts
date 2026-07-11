@@ -2,6 +2,79 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export const MAX_REFERENCE_EXPANSION_DEPTH = 4;
 
+// Reference types that carry a set-level natural key across today's provider
+// integrations: Magic, Lorcana, and One Piece promote through the "set"
+// reference type; Pokemon has no top-level "set" concept and promotes through
+// "expansion" instead (see provider-integration-profiles.ts reference hierarchy
+// mappings). Extend this set if a future game introduces another top-level
+// set-like reference type key. Single source of truth for "is this reference
+// record a browsable set/expansion" consumed by natural-key extraction, the
+// search projection's slug generation, and the set browse page read model.
+export const SET_LIKE_REFERENCE_TYPE_KEYS: ReadonlySet<string> = new Set(["set", "expansion"]);
+
+export function isSetLikeReferenceType(typeKey: string): boolean {
+  return SET_LIKE_REFERENCE_TYPE_KEYS.has(typeKey);
+}
+
+// Provider reference-hierarchy attributes carry the printed set code under a
+// provider-prefixed key (mtgjson-set-code, scryfall-set-code, lorcast-set-code,
+// lorcanajson-set-code, scrydex-<game>-set-code) or, for TCGdex/Pokemon
+// expansions, the plain "abbreviation" key (provider-integration-profiles.ts).
+// Matching on this naming convention lets Discovery read the code without
+// importing Catalog's provider-integration internals at runtime.
+export function setCodeFromReferenceAttributes(attributes: unknown): string | null {
+  if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) {
+    return null;
+  }
+
+  for (const [attributeKey, value] of Object.entries(attributes as Record<string, unknown>)) {
+    if (isSetCodeAttributeKey(attributeKey) && typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function isSetCodeAttributeKey(attributeKey: string): boolean {
+  return attributeKey === "abbreviation" || attributeKey === "code" || attributeKey.endsWith("-set-code");
+}
+
+/**
+ * Walks a resolved reference's relationship graph breadth-first to find the
+ * nearest ancestor of a given type (for example "product-line", used to
+ * surface the collector-facing game name on a set/expansion browse page).
+ * Assumes `reference` was built by {@link loadReferenceRecordMap}, whose depth
+ * cap already bounds this traversal.
+ */
+export function findAncestorReferenceByTypeKey(
+  reference: ReferenceRecordRef,
+  typeKey: string,
+): ReferenceRecordRef | null {
+  const visited = new Set<string>([reference.referenceId]);
+  const queue: ReferenceRecordRef[] = [reference];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    for (const relationship of current.relationships) {
+      const related = relationship.reference;
+      if (!related || visited.has(related.referenceId)) {
+        continue;
+      }
+
+      if (related.typeKey === typeKey) {
+        return related;
+      }
+
+      visited.add(related.referenceId);
+      queue.push(related);
+    }
+  }
+
+  return null;
+}
+
 export type ReferenceRelationship = Readonly<{
   relationshipType: string;
   referenceId: string;

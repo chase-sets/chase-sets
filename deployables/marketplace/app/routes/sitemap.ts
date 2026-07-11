@@ -12,6 +12,7 @@ const EMPTY_SITEMAP_ENTITY_COUNTS: DiscoverySitemapEntityCounts = {
   categories: 0,
   sellers: 0,
   listings: 0,
+  sets: 0,
 };
 
 export async function loader({ request }: LoaderFunctionArgs) {

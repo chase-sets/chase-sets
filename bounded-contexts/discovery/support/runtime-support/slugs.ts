@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export type DiscoverySlugEntityKind = "category" | "item" | "listing" | "product" | "account";
+export type DiscoverySlugEntityKind = "category" | "item" | "listing" | "product" | "account" | "reference-record";
 
 const ID_SUFFIX_LABEL_LENGTH = 24;
 
