@@ -7,6 +7,8 @@ export type {
   MarketplaceApiClientOptions,
   MarketplaceOffer,
   PublicOfferDetail,
+  MarketplaceBulkListingPriceUpdateInput,
+  MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingDetail,
   MarketplaceListingFeeLockReportEntry,

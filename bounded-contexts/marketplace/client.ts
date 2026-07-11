@@ -4,6 +4,8 @@ import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/resp
 import type { buildMarketplaceApi } from "./api";
 
 export type {
+  MarketplaceBulkListingPriceUpdateInput,
+  MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingDetail,
   MarketplaceListingFeeLockReportEntry,
@@ -34,6 +36,8 @@ export type {
 } from "./features/offers/api/contracts";
 
 import type {
+  MarketplaceBulkListingPriceUpdateInput,
+  MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingDetail,
   MarketplaceListingFeeLockReportEntry,
@@ -383,6 +387,22 @@ export function createMarketplaceApiClient({
     ) {
       return parseJsonResponse(
         await configuredFetch(joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/price`), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+          signal: options.signal,
+        }),
+      );
+    },
+    async applyBulkListingPriceUpdates(
+      body: Readonly<{ updates: readonly MarketplaceBulkListingPriceUpdateInput[] }>,
+      options: Readonly<{ signal?: AbortSignal }> = {},
+    ): Promise<ListResponse<MarketplaceBulkListingPriceUpdateOutcome>> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings/prices/bulk"), {
           method: "POST",
           headers: {
             "content-type": "application/json",

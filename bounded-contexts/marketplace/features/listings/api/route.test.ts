@@ -165,6 +165,9 @@ function createServices(): MarketplaceListingServices {
     })),
     listSellerInventoryItemSupply: vi.fn(async () => ({ items: [], total: 0 })),
     getInventoryItemSupply: vi.fn(async () => null),
+    applyBulkListingPriceUpdates: vi.fn(async (params: { updates: readonly { listingId: string }[] }) =>
+      params.updates.map((update) => ({ listingId: update.listingId, outcome: "applied" as const, version: 2 })),
+    ),
     projectors: [],
   } as unknown as MarketplaceListingServices;
 }
@@ -719,6 +722,55 @@ describe("marketplace listing routes", () => {
         accountId: "acc_seller",
         listingId: "lst_1",
         feeQuoteFingerprint: null,
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
+        }),
+      }),
+    );
+  });
+
+  it("applies a batch of listing price updates through the bulk price-update route (m113 #4327)", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: sellerActor,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings/prices/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          updates: [
+            { listingId: "lst_1", priceAmount: "21.00" },
+            { listingId: "lst_2", priceAmount: "22.00", feeQuoteFingerprint: "some-fingerprint" },
+            { listingId: "" },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [
+        { listingId: "lst_1", outcome: "applied", version: 2 },
+        { listingId: "lst_2", outcome: "applied", version: 2 },
+      ],
+      total: 2,
+      count: 2,
+    });
+    // The empty listingId entry is dropped before it ever reaches the
+    // service -- callers cannot request an update for no listing.
+    expect(services.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
+      {
+        accountId: "acc_seller",
+        updates: [
+          { listingId: "lst_1", priceAmount: "21.00", feeQuoteFingerprint: null },
+          { listingId: "lst_2", priceAmount: "22.00", feeQuoteFingerprint: "some-fingerprint" },
+        ],
       },
       expect.objectContaining({
         audit: expect.objectContaining({

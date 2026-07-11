@@ -191,6 +191,29 @@ export interface MarketplaceListingTermsPreview {
   fee_quote_fingerprint: string;
 }
 
+/**
+ * One listing's price-update input to the bulk chunked-append path
+ * (`applyBulkListingPriceUpdates`), part of the m113 repricing-at-scale
+ * throughput lane. `feeQuoteFingerprint` is optional: a human-confirmed
+ * price supplies it and gets the same
+ * staleness protection as `updateListingPrice`; a bulk/system caller (e.g.
+ * `pricing`'s `applyRecommendations`) omits it and applies at the
+ * freshly-resolved per-account terms session with nothing to confirm.
+ */
+export interface MarketplaceBulkListingPriceUpdateInput {
+  listingId: string;
+  priceAmount: string;
+  feeQuoteFingerprint?: string | null;
+}
+
+/** Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never prevents the others from applying. */
+export interface MarketplaceBulkListingPriceUpdateOutcome {
+  listingId: string;
+  outcome: "applied" | "no_op" | "conflict" | "error";
+  version: number;
+  message?: string;
+}
+
 export interface MarketplacePublicStandardTermsPreview {
   account_type: "personal" | "business" | "enterprise";
   basis_amount: string;

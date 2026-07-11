@@ -218,10 +218,11 @@ describe("pricing recommendation runtime", () => {
     });
   });
 
-  it("applies active listing updates with fee-confirmed Marketplace calls", async () => {
+  it("applies active listing updates through one batched Marketplace bulk call (m113 #4327)", async () => {
     const gateway: PricingMarketplaceListingGateway = {
-      previewListingTerms: vi.fn(async () => ({ fee_quote_fingerprint: "fee_1" })),
-      updateListingPrice: vi.fn(async () => ({})),
+      applyBulkListingPriceUpdates: vi.fn(async () => ({
+        items: [{ listingId: "lst_1", outcome: "applied" as const, version: 2 }],
+      })),
       createListing: vi.fn(async () => ({ id: "lst_created" })),
     };
     const { services, events } = createRuntime(
@@ -241,22 +242,66 @@ describe("pricing recommendation runtime", () => {
     );
 
     expect(result).toEqual({ appliedCount: 1, failedCount: 0 });
-    expect(gateway.previewListingTerms).toHaveBeenCalledWith({ priceAmount: "17.99" }, expect.any(Object));
-    expect(gateway.updateListingPrice).toHaveBeenCalledWith(
-      "lst_1",
-      {
-        priceAmount: "17.99",
-        feeQuoteFingerprint: "fee_1",
-      },
+    // Exactly ONE Marketplace round trip for the whole batch, not a
+    // previewListingTerms + updateListingPrice pair per listing.
+    expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
+    expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
+      { updates: [{ listingId: "lst_1", priceAmount: "17.99" }] },
       expect.any(Object),
     );
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.applied");
   });
 
+  it("batches multiple listing-price-update recommendations into a single Marketplace bulk call", async () => {
+    const secondRecommendation = {
+      ...proposedRecommendation,
+      recommendation_id: "rec_active_2",
+      listing_id: "lst_2",
+      recommended_list_amount: 24.99,
+    } satisfies AccountRecommendationListItem;
+    const gateway: PricingMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: vi.fn(async () => ({
+        items: [
+          { listingId: "lst_1", outcome: "applied" as const, version: 2 },
+          { listingId: "lst_2", outcome: "applied" as const, version: 2 },
+        ],
+      })),
+      createListing: vi.fn(async () => ({ id: "lst_created" })),
+    };
+    const { services, events } = createRuntime(
+      queryStub({
+        recommendations: [proposedRecommendation, secondRecommendation],
+      }),
+    );
+    await seedRecommendation(services, proposedRecommendation);
+    await seedRecommendation(services, secondRecommendation);
+
+    const result = await services.applyRecommendations(
+      {
+        accountId: "acc_1",
+        recommendationIds: ["rec_active", "rec_active_2"],
+        marketplaceListings: gateway,
+      },
+      context,
+    );
+
+    expect(result).toEqual({ appliedCount: 2, failedCount: 0 });
+    expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
+    expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
+      {
+        updates: [
+          { listingId: "lst_1", priceAmount: "17.99" },
+          { listingId: "lst_2", priceAmount: "24.99" },
+        ],
+      },
+      expect.any(Object),
+    );
+    expect(events.filter((event) => event.eventType === "pricing.recommendation.applied")).toHaveLength(2);
+  });
+
   it("creates draft listings for unlisted inventory recommendations", async () => {
     const gateway: PricingMarketplaceListingGateway = {
-      previewListingTerms: vi.fn(async () => ({ fee_quote_fingerprint: "fee_1" })),
-      updateListingPrice: vi.fn(async () => ({})),
+      applyBulkListingPriceUpdates: vi.fn(async () => ({ items: [] })),
       createListing: vi.fn(async () => ({ id: "lst_created" })),
     };
     const { services, events } = createRuntime(
@@ -296,6 +341,7 @@ describe("pricing recommendation runtime", () => {
     );
 
     expect(result).toEqual({ appliedCount: 1, failedCount: 0 });
+    expect(gateway.applyBulkListingPriceUpdates).not.toHaveBeenCalled();
     expect(gateway.createListing).toHaveBeenCalledWith(
       {
         inventoryItemId: "inv_2",
@@ -310,14 +356,12 @@ describe("pricing recommendation runtime", () => {
     });
   });
 
-  it("records failed when Marketplace rejects after stale quote retry", async () => {
+  it("records failed when the bulk listing price update reports a conflict or error outcome", async () => {
     const gateway: PricingMarketplaceListingGateway = {
-      previewListingTerms: vi.fn(async () => ({ fee_quote_fingerprint: "fee_1" })),
-      updateListingPrice: vi.fn(async () => {
-        throw new Error("Fee quote changed.");
-      }),
+      applyBulkListingPriceUpdates: vi.fn(async () => ({
+        items: [{ listingId: "lst_1", outcome: "error" as const, version: 0, message: "Fee quote changed." }],
+      })),
       createListing: vi.fn(async () => ({ id: "lst_created" })),
-      staleFeeQuoteFingerprint: () => "fee_retry",
     };
     const { services, events } = createRuntime(
       queryStub({
@@ -336,7 +380,8 @@ describe("pricing recommendation runtime", () => {
     );
 
     expect(result).toEqual({ appliedCount: 0, failedCount: 1 });
-    expect(gateway.updateListingPrice).toHaveBeenCalledTimes(2);
+    // No retry dance -- one bulk call carries the outcome directly.
+    expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.failed");
     expect(events.at(-1)?.payload).toMatchObject({
       errorMessage: "Fee quote changed.",
@@ -345,8 +390,9 @@ describe("pricing recommendation runtime", () => {
 
   it("hands off lease-loss during apply side effects without recording business failure", async () => {
     const gateway: PricingMarketplaceListingGateway = {
-      previewListingTerms: vi.fn(async () => ({ fee_quote_fingerprint: "fee_1" })),
-      updateListingPrice: vi.fn(async () => ({})),
+      applyBulkListingPriceUpdates: vi.fn(async () => ({
+        items: [{ listingId: "lst_1", outcome: "applied" as const, version: 2 }],
+      })),
       createListing: vi.fn(async () => ({ id: "lst_created" })),
     };
     const { services, events } = createRuntime(

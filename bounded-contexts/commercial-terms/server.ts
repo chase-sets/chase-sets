@@ -10,7 +10,11 @@ import {
 } from "./features/checkout-processing-fee/domain/policy";
 import { authenticityFeePolicy, type AuthenticityFeePolicyValue } from "./features/authenticity-fee/domain/policy";
 
-export type { CommercialTermsResolver, ResolvedCommercialTerms } from "./features/resolutions/read-model/resolve";
+export type {
+  CommercialTermsResolver,
+  ResolvedCommercialTerms,
+  ResolvedListingTermsSession,
+} from "./features/resolutions/read-model/resolve";
 export type { CommercialTermsAccountSource } from "./features/resolutions/read-model/resolve";
 
 export function createCommercialTermsServer(deps: Readonly<{ db: PgQueryable }>) {

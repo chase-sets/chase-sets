@@ -559,3 +559,126 @@ describe("commercial terms resolver", () => {
     ).rejects.toThrow("No active commercial terms were found");
   });
 });
+
+describe("commercial terms listing-terms session (m113 #4327 per-account terms session)", () => {
+  it("resolves the account's schedule and agreement once and exposes them as the session identity", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        accountType: "business",
+        schedule: {
+          schedule_id: "cts_business",
+          marketplace_sales_fee_percentage_bps: 850,
+          marketplace_sales_fee_fixed_amount: "0.10",
+        },
+        agreement: {
+          agreement_id: "cag_business",
+          marketplace_sales_fee_percentage_bps: 700,
+          marketplace_sales_fee_fixed_amount: "0.05",
+          shipping_allowance_percentage_bps: 600,
+        },
+      }),
+    });
+
+    const session = await resolver.openListingTermsSession({
+      accountId: "acc_test",
+      effectiveAt: "2026-04-16T10:00:00.000Z",
+    });
+
+    expect(session.accountId).toBe("acc_test");
+    expect(session.accountType).toBe("business");
+    expect(session.scheduleId).toBe("cts_business");
+    expect(session.agreementId).toBe("cag_business");
+    expect(session.resolvedAt).toBe("2026-04-16T10:00:00.000Z");
+  });
+
+  it("quotes byte-identical results to resolveListingTerms across a range of prices, including rounding edges", async () => {
+    const db = createDb({
+      accountType: "business",
+      schedule: {
+        schedule_id: "cts_business",
+        marketplace_sales_fee_percentage_bps: 733,
+        marketplace_sales_fee_fixed_amount: "0.11",
+      },
+    });
+    const resolver = createCommercialTermsResolver({ db });
+
+    const session = await resolver.openListingTermsSession({
+      accountId: "acc_test",
+      effectiveAt: "2026-04-16T10:00:00.000Z",
+    });
+
+    const amounts = ["0.01", "0.02", "0.10", "0.99", "1.00", "9.99", "10.00", "20.00", "199.99", "1000.00"];
+
+    for (const amount of amounts) {
+      const individual = await resolver.resolveListingTerms({
+        accountId: "acc_test",
+        amount,
+        effectiveAt: "2026-04-16T10:00:00.000Z",
+      });
+      const sessionQuote = session.quote(amount);
+
+      expect(sessionQuote).toEqual(individual);
+    }
+  });
+
+  it("fails closed opening a session when no active schedule or agreement exists", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({ schedule: null, agreement: null }),
+    });
+
+    await expect(
+      resolver.openListingTermsSession({
+        accountId: "acc_test",
+        effectiveAt: "2026-04-16T10:00:00.000Z",
+      }),
+    ).rejects.toThrow("No active commercial terms were found");
+  });
+
+  it("reflects a schedule revision the next time a session is opened -- the mid-run staleness signal bulk callers key on", async () => {
+    let scheduleId = "cts_before_revision";
+    let percentageBps = 500;
+    const db: PgQueryable = {
+      query: async <TRow>(sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("FROM commercial_terms_account_pages")) {
+          return { rows: [{ account_id: "acc_test", account_type: "business", status: "active" }] as TRow[] };
+        }
+        if (sql.includes("FROM platform_policy_documents")) {
+          const policyKey = String(params?.[0] ?? "");
+          if (policyKey.startsWith("commercial-terms.schedule.")) {
+            return {
+              rows: [
+                {
+                  schedule_id: scheduleId,
+                  marketplace_sales_fee_percentage_bps: percentageBps,
+                  marketplace_sales_fee_fixed_amount: "0.10",
+                  shipping_allowance_percentage_bps: 500,
+                },
+              ] as TRow[],
+            };
+          }
+          if (policyKey.startsWith("commercial-terms.agreement.")) {
+            return { rows: [] as TRow[] };
+          }
+        }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    };
+    const resolver = createCommercialTermsResolver({ db });
+
+    const firstSession = await resolver.openListingTermsSession({ accountId: "acc_test" });
+    expect(firstSession.scheduleId).toBe("cts_before_revision");
+    expect(firstSession.quote("20.00").marketplaceSalesFeeUnitAmount).toBe("1.10");
+
+    // A revision lands mid-run: the active schedule document changes.
+    scheduleId = "cts_after_revision";
+    percentageBps = 900;
+
+    const secondSession = await resolver.openListingTermsSession({ accountId: "acc_test" });
+    expect(secondSession.scheduleId).toBe("cts_after_revision");
+    expect(secondSession.quote("20.00").marketplaceSalesFeeUnitAmount).toBe("1.90");
+
+    // The first session is a snapshot -- it never silently picks up the revision.
+    expect(firstSession.quote("20.00").marketplaceSalesFeeUnitAmount).toBe("1.10");
+    expect(firstSession.scheduleId).not.toBe(secondSession.scheduleId);
+  });
+});

@@ -52,6 +52,58 @@ export async function quoteMarketplaceTerms(
   };
 }
 
+/**
+ * A per-account marketplace listing-terms session, part of the m113
+ * repricing-at-scale throughput lane: wraps
+ * `CommercialTermsResolver.openListingTermsSession` so a bulk
+ * caller resolves the account's active schedule/agreement ONCE, then calls
+ * `quote(priceAmount)` locally (pure, synchronous, no DB / no HTTP) for
+ * every listing in the batch. `quote` builds its result through the exact
+ * same field mapping and `createFeeQuoteFingerprint` call as
+ * `quoteMarketplaceTerms`, so a session quote is byte-identical to what
+ * `previewListingTerms` would have returned for that price.
+ */
+export type MarketplaceListingTermsSession = Readonly<{
+  accountId: string;
+  scheduleId: string | null;
+  agreementId: string | null;
+  resolvedAt: string;
+  quote: (priceAmount: string) => MarketplaceListingTermsPreview;
+}>;
+
+export async function openMarketplaceListingTermsSession(
+  resolver: CommercialTermsResolver,
+  params: Readonly<{ accountId: string; effectiveAt?: string }>,
+): Promise<MarketplaceListingTermsSession> {
+  const session = await resolver.openListingTermsSession(params);
+
+  return {
+    accountId: session.accountId,
+    scheduleId: session.scheduleId,
+    agreementId: session.agreementId,
+    resolvedAt: session.resolvedAt,
+    quote: (priceAmount) => {
+      const terms = session.quote(priceAmount);
+      const quote = {
+        account_type: terms.accountType,
+        basis_amount: terms.basisAmount,
+        marketplace_sales_fee_unit_amount: terms.marketplaceSalesFeeUnitAmount,
+        seller_net_unit_amount: terms.sellerNetUnitAmount,
+        shipping_allowance_percentage_bps: terms.shippingAllowancePercentageBps,
+        schedule_id: terms.scheduleId,
+        agreement_id: terms.agreementId,
+        resolved_at: terms.resolvedAt,
+        fee_quote_fingerprint: "",
+      };
+
+      return {
+        ...quote,
+        fee_quote_fingerprint: createFeeQuoteFingerprint(quote),
+      };
+    },
+  };
+}
+
 export async function quotePublicStandardMarketplaceTerms(
   resolver: CommercialTermsResolver,
   params: Readonly<{ priceAmount: string }>,
