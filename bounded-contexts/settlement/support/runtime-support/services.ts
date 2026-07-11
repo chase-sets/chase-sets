@@ -8,6 +8,7 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import type { NegativeBalancePolicy } from "../../features/wallets/api/runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
@@ -29,6 +30,8 @@ export type SettlementServices = Readonly<{
   wallets: ReturnType<typeof createWalletRuntime>;
   payouts: ReturnType<typeof createPayoutRuntime>;
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (clearance window, payout bounds). */
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -69,10 +72,12 @@ export function createSettlementServices(
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const moneyMovementGateway = ports.moneyMovementGateway ?? createMissingMoneyMovementGateway();
   const operationsRecorder = ports.operationsRecorder ?? createNoopSettlementOperationsRecorder();
+  const policies = createPolicyRuntime({ eventStore, db });
   const wallets = createWalletRuntime({
     eventStore,
     checkpointStore,
     db,
+    policies,
     ...(ports.negativeBalancePolicy ? { negativeBalancePolicy: ports.negativeBalancePolicy } : {}),
   });
   const payoutReadiness = createPayoutReadinessRuntime({
@@ -94,6 +99,7 @@ export function createSettlementServices(
     moneyMovementGateway,
     operationsRecorder,
     notificationOutbox,
+    policies,
     payoutDestinationFrictionPolicy: ports.payoutDestinationFrictionPolicy,
     sensitiveActionVerifier: ports.sensitiveActionVerifier,
   });
@@ -102,7 +108,8 @@ export function createSettlementServices(
     wallets,
     payouts,
     payoutReadiness,
-    projectors: [...wallets.projectors, ...payoutReadiness.projectors, ...payouts.projectors],
+    policies,
+    projectors: [...wallets.projectors, ...payoutReadiness.projectors, ...payouts.projectors, ...policies.projectors],
     pool,
     db,
   };

@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { SettlementServices } from "./support/runtime-support/services";
 import { createWalletRoutes } from "./features/wallets/api/route";
+import { createClearancePolicyRoutes } from "./features/wallets/api/clearance-policy-route";
 import { createMoneyMovementWebhookRoutes, createPayoutRoutes } from "./features/payouts/api/route";
+import { createPayoutBoundsPolicyRoutes } from "./features/payouts/api/payout-bounds-policy-route";
 import { createPayoutReadinessRoutes } from "./features/payout-readiness/api/route";
 import { payoutUnavailableReasonLabel } from "./features/payouts/domain/reason-codes";
 import { buildPayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
@@ -91,6 +93,8 @@ export function buildSettlementApi(services: SettlementServices) {
   app.route("/", createWalletRoutes(services.wallets));
   app.route("/", createPayoutReadinessRoutes(services.payoutReadiness));
   app.route("/", createPayoutRoutes(services.payouts));
+  app.route("/clearance-policy", createClearancePolicyRoutes(services.policies));
+  app.route("/payout-bounds-policy", createPayoutBoundsPolicyRoutes(services.policies));
 
   return app;
 }

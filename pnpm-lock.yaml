@@ -972,6 +972,9 @@ importers:
       '@chase-sets/payments':
         specifier: workspace:*
         version: link:../payments
+      '@chase-sets/platform-policy':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-policy
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime

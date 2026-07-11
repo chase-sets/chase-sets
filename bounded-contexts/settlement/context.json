@@ -162,6 +162,13 @@
       "ownedTables": ["settlement_payout_readiness_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["settlement"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -551,6 +558,28 @@
           "bounded-contexts/settlement/routes/marketplace/account-payout-operations-route.test.ts",
           "bounded-contexts/settlement/features/payouts/api/route.test.ts",
           "bounded-contexts/settlement/features/payouts/ui/payout-operations-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "settlement.policy-api-command-snapshots",
+      "owner": "settlement",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/wallets/api/clearance-policy-route.ts:POST /",
+        "api-route:bounded-contexts/settlement/features/wallets/api/clearance-policy-route.ts:PUT /:id",
+        "api-route:bounded-contexts/settlement/features/payouts/api/payout-bounds-policy-route.ts:POST /",
+        "api-route:bounded-contexts/settlement/features/payouts/api/payout-bounds-policy-route.ts:PUT /:id"
+      ],
+      "visibleDestination": {
+        "description": "The clearance-window and payout-bounds policy create/revise routes are the shared platform-policy document commands and respond with the command-local id/version snapshot before any projection read -- no browser destination exists for these policies yet (admin UI is tracked as follow-up work), matching the checkout-processing-fee precedent (m110 #4286)."
+      },
+      "proof": {
+        "authoritativeResponse": "createClearancePolicyRoutes and createPayoutBoundsPolicyRoutes both respond from the platform-policy runtime's createPolicyDocument/revisePolicyDocument command result, never from a projection read.",
+        "tests": [
+          "bounded-contexts/settlement/features/wallets/api/clearance-policy-route.test.ts",
+          "bounded-contexts/settlement/features/payouts/api/payout-bounds-policy-route.test.ts"
         ]
       }
     }

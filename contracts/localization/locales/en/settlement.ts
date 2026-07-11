@@ -170,6 +170,14 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutSetupPage.verification.review": "Verification review",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.you.can.request.payouts":
     "You can request payouts from eligible account balances.",
+  "settlement.features.payouts.api.payoutBoundsPolicyRoute.authentication.context.missing":
+    "Authentication context missing.",
+  "settlement.features.payouts.api.payoutBoundsPolicyRoute.authentication.context.missing.2":
+    "Authentication context missing.",
+  "settlement.features.payouts.api.payoutBoundsPolicyRoute.authentication.required": "Authentication required.",
+  "settlement.features.payouts.api.payoutBoundsPolicyRoute.document.not.found": "Policy document not found.",
+  "settlement.features.payouts.api.payoutBoundsPolicyRoute.forbidden": "Forbidden.",
+  "settlement.features.payouts.api.payoutBoundsPolicyRoute.request.failed": "Request failed.",
   "settlement.features.payouts.api.route.authentication.context.missing": "Authentication context missing.",
   "settlement.features.payouts.api.route.authentication.context.missing.2": "Authentication context missing.",
   "settlement.features.payouts.api.route.authentication.required": "Authentication required.",
@@ -450,6 +458,14 @@ export const settlementEnglishTranslations = {
     "A payout confirmation is still pending",
   "settlement.features.payouts.ui.payoutOperationsPage.unknown": "Unknown",
   "settlement.features.payouts.ui.payoutOperationsPage.updated": "Updated",
+  "settlement.features.wallets.api.clearancePolicyRoute.authentication.context.missing":
+    "Authentication context missing.",
+  "settlement.features.wallets.api.clearancePolicyRoute.authentication.context.missing.2":
+    "Authentication context missing.",
+  "settlement.features.wallets.api.clearancePolicyRoute.authentication.required": "Authentication required.",
+  "settlement.features.wallets.api.clearancePolicyRoute.document.not.found": "Policy document not found.",
+  "settlement.features.wallets.api.clearancePolicyRoute.forbidden": "Forbidden.",
+  "settlement.features.wallets.api.clearancePolicyRoute.request.failed": "Request failed.",
   "settlement.features.wallets.api.route.adjustment.failed": "Adjustment failed.",
   "settlement.features.wallets.api.route.authentication.context.missing": "Authentication context missing.",
   "settlement.features.wallets.api.route.authentication.context.missing.2": "Authentication context missing.",

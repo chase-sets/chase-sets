@@ -185,6 +185,12 @@ export async function listPendingCreditEntriesMaturedBy(
   db: PgQueryable,
   params: Readonly<{
     now: string;
+    /** Settlement clearance policy's base clearance days (see `../domain/clearance-policy.ts`) -- resolved by the caller, not defaulted here. */
+    baseClearanceDays: number;
+    /** Settlement clearance policy's extended clearance days. */
+    extendedClearanceDays: number;
+    /** Settlement clearance policy's high-value threshold amount (decimal string). */
+    highValueThresholdAmount: string;
     limit?: number;
     claimOwnerId?: string;
     claimTtlMs?: number;
@@ -199,7 +205,7 @@ export async function listPendingCreditEntriesMaturedBy(
        WHERE direction = 'credit'
          AND funds_status = 'pending'
          AND kind IN ('sale', 'rebate')
-         AND posted_at <= ($1::timestamptz - INTERVAL '2 days')
+         AND posted_at <= ($1::timestamptz - ($2::text || ' days')::interval)
          AND EXISTS (
            SELECT 1
            FROM settlement_order_fulfillment_sources fulfillment
@@ -248,10 +254,10 @@ export async function listPendingCreditEntriesMaturedBy(
                        AND order_sale.account_id = settlement_ledger_entry_pages.account_id
                        AND order_sale.direction = 'credit'
                        AND order_sale.kind = 'sale'
-                       AND order_sale.amount >= 250
+                       AND order_sale.amount >= $4::numeric
                    )
-                 THEN INTERVAL '7 days'
-                 ELSE INTERVAL '2 days'
+                 THEN ($3::text || ' days')::interval
+                 ELSE ($2::text || ' days')::interval
                END
              )
          )
@@ -263,7 +269,7 @@ export async function listPendingCreditEntriesMaturedBy(
              AND support_hold.active = TRUE
          )
          ORDER BY posted_at ASC, ledger_entry_id ASC
-         LIMIT $2
+         LIMIT $5
        ),
        claimed AS (
          INSERT INTO settlement_work_claims (
@@ -277,8 +283,8 @@ export async function listPendingCreditEntriesMaturedBy(
          SELECT
            'seller-funds-release',
            ledger_entry_id,
-           $3,
-           now() + ($4::text || ' milliseconds')::interval,
+           $6,
+           now() + ($7::text || ' milliseconds')::interval,
            1,
            now()
          FROM candidates
@@ -310,7 +316,15 @@ export async function listPendingCreditEntriesMaturedBy(
        FROM settlement_ledger_entry_pages
        WHERE ledger_entry_id IN (SELECT entity_id FROM claimed)
        ORDER BY posted_at ASC, ledger_entry_id ASC`,
-      [params.now, limit, params.claimOwnerId, params.claimTtlMs ?? 120_000],
+      [
+        params.now,
+        params.baseClearanceDays,
+        params.extendedClearanceDays,
+        params.highValueThresholdAmount,
+        limit,
+        params.claimOwnerId,
+        params.claimTtlMs ?? 120_000,
+      ],
     );
 
     return result.rows;
@@ -336,7 +350,7 @@ export async function listPendingCreditEntriesMaturedBy(
      WHERE direction = 'credit'
        AND funds_status = 'pending'
        AND kind IN ('sale', 'rebate')
-       AND posted_at <= ($1::timestamptz - INTERVAL '2 days')
+       AND posted_at <= ($1::timestamptz - ($2::text || ' days')::interval)
        AND EXISTS (
          SELECT 1
          FROM settlement_order_fulfillment_sources fulfillment
@@ -385,10 +399,10 @@ export async function listPendingCreditEntriesMaturedBy(
                      AND order_sale.account_id = settlement_ledger_entry_pages.account_id
                      AND order_sale.direction = 'credit'
                      AND order_sale.kind = 'sale'
-                     AND order_sale.amount >= 250
+                     AND order_sale.amount >= $4::numeric
                  )
-               THEN INTERVAL '7 days'
-               ELSE INTERVAL '2 days'
+               THEN ($3::text || ' days')::interval
+               ELSE ($2::text || ' days')::interval
              END
            )
        )
@@ -400,8 +414,8 @@ export async function listPendingCreditEntriesMaturedBy(
            AND support_hold.active = TRUE
        )
      ORDER BY posted_at ASC, ledger_entry_id ASC
-     LIMIT $2`,
-    [params.now, limit],
+     LIMIT $5`,
+    [params.now, params.baseClearanceDays, params.extendedClearanceDays, params.highValueThresholdAmount, limit],
   );
 
   return result.rows;

@@ -32,6 +32,7 @@ import {
 } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PayoutId } from "@chase-sets/primitives/typed-ids";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import {
   compareMoney,
   normalizeCurrencyCode,
@@ -46,7 +47,12 @@ import {
   createNoopSettlementOperationsRecorder,
   type SettlementOperationsRecorder,
 } from "./operations";
-import { assertPayoutAmountWithinPolicy, payoutAmountPolicy } from "../domain/payout-policy";
+import {
+  assertPayoutAmountWithinPolicy,
+  payoutAmountPolicy,
+  settlementPayoutBoundsPolicy,
+  type SettlementPayoutBoundsPolicyValue,
+} from "../domain/payout-policy";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import {
   SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -96,6 +102,8 @@ type PayoutRuntimeDeps = Readonly<{
   notificationOutbox?: NotificationOutbox;
   payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
   sensitiveActionVerifier?: SensitiveActionVerifier;
+  /** The settlement-owned platform-policy runtime; absent falls back to the compiled payout-bounds default. */
+  policies?: Pick<PolicyRuntime, "resolvePolicy">;
 }>;
 
 export type PayoutDestinationFrictionPolicy = Readonly<{
@@ -465,6 +473,23 @@ function requirePayoutSnapshot(state: PayoutState, version: number): PayoutComma
 
 function subtractMoney(left: string, right: string) {
   return (Number.parseFloat(left) - Number.parseFloat(right)).toFixed(2);
+}
+
+/**
+ * Resolves the settlement payout-bounds policy in effect at `at`. When no
+ * `policies` runtime is wired (standalone/test usage) this falls back to the
+ * compiled launch bounds -- an empty or absent policy table can never break
+ * the payout request hot path.
+ */
+async function resolvePayoutBoundsPolicy(
+  deps: Pick<PayoutRuntimeDeps, "policies">,
+  at?: string,
+): Promise<SettlementPayoutBoundsPolicyValue> {
+  if (!deps.policies) {
+    return payoutAmountPolicy;
+  }
+  const resolved = await deps.policies.resolvePolicy(settlementPayoutBoundsPolicy, at ? { at } : undefined);
+  return resolved.value;
 }
 
 export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
@@ -1326,10 +1351,11 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Payout amount",
       });
-      const [riskSummary, platformBalance, activeSupportHoldAmount] = await Promise.all([
+      const [riskSummary, platformBalance, activeSupportHoldAmount, payoutBoundsPolicy] = await Promise.all([
         getAccountPayoutRiskSummary(deps.db, params.accountId),
         deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
         getAccountActiveSupportHoldAmount(deps.db, params.accountId),
+        resolvePayoutBoundsPolicy(deps),
       ]);
       const unavailableReasons: string[] = [];
       const payoutAvailableBalanceAmount = subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount);
@@ -1368,10 +1394,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       ) {
         unavailableReasons.push("payout-release-hold-active");
       }
-      if (compareMoney(amount, payoutAmountPolicy.minimumAmount) < 0) {
+      if (compareMoney(amount, payoutBoundsPolicy.minimumAmount) < 0) {
         unavailableReasons.push("amount-below-minimum");
       }
-      if (compareMoney(amount, payoutAmountPolicy.maximumAmount) > 0) {
+      if (compareMoney(amount, payoutBoundsPolicy.maximumAmount) > 0) {
         unavailableReasons.push("amount-above-maximum");
       }
       if (compareMoney(payoutAvailableBalanceAmount, amount) < 0) {
@@ -1416,7 +1442,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       const wallet = await deps.wallets.getWallet(params.accountId);
       let readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
       const currencyCode = normalizeCurrencyCode(wallet.currency_code);
-      const amount = assertPayoutAmountWithinPolicy(params.amount, currencyCode);
+      const payoutBoundsPolicy = await resolvePayoutBoundsPolicy(deps);
+      const amount = assertPayoutAmountWithinPolicy(params.amount, currencyCode, payoutBoundsPolicy);
       try {
         readiness = await refreshPayoutReadinessWhenStalenessIsOnlyBlocker(params.accountId, readiness, context);
       } catch {

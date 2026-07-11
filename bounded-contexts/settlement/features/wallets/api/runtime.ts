@@ -6,7 +6,9 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId, PayoutId } from "@chase-sets/primitives/typed-ids";
+import { settlementClearancePolicy, type SettlementClearancePolicyValue } from "../domain/clearance-policy";
 import {
   getWallet,
   listNegativeBalanceAccounts,
@@ -44,6 +46,8 @@ type WalletRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   negativeBalancePolicy?: NegativeBalancePolicy;
+  /** The settlement-owned platform-policy runtime; absent falls back to the compiled clearance-policy default. */
+  policies?: Pick<PolicyRuntime, "resolvePolicy">;
 }>;
 
 export type NegativeBalancePolicy = Readonly<{
@@ -166,6 +170,20 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
     decide: decideWallet,
   });
 
+  /**
+   * Resolves the settlement clearance policy in effect at `at`. When no
+   * `policies` runtime is wired (standalone/test usage) this falls back to
+   * the compiled launch values -- an empty or absent policy table can never
+   * break the maturity release hot path.
+   */
+  async function resolveClearancePolicy(at?: string): Promise<SettlementClearancePolicyValue> {
+    if (!deps.policies) {
+      return settlementClearancePolicy.defaultValue;
+    }
+    const resolved = await deps.policies.resolvePolicy(settlementClearancePolicy, at ? { at } : undefined);
+    return resolved.value;
+  }
+
   async function ensureWallet(
     params: Readonly<{
       accountId: AccountId;
@@ -257,8 +275,12 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
     },
     async releaseMaturePendingSaleCredits(params, context) {
       const now = params.now ?? new Date().toISOString();
+      const clearancePolicy = await resolveClearancePolicy(now);
       const entries = await listPendingCreditEntriesMaturedBy(deps.db, {
         now,
+        baseClearanceDays: clearancePolicy.baseClearanceDays,
+        extendedClearanceDays: clearancePolicy.extendedClearanceDays,
+        highValueThresholdAmount: clearancePolicy.highValueThresholdAmount,
         limit: params.limit,
         claimOwnerId: params.claimOwnerId,
         claimTtlMs: params.claimTtlMs,

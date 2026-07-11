@@ -35,6 +35,7 @@
     "@chase-sets/notification-outbox": "workspace:*",
     "@chase-sets/outbound-messaging": "workspace:*",
     "@chase-sets/payments": "workspace:*",
+    "@chase-sets/platform-policy": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/provider-webhook-inbox": "workspace:*",
