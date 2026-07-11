@@ -88,7 +88,7 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
 function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | "sale") {
   return {
     id: row.order_id,
-    label: `${perspective === "purchase" ? "Purchase" : "Sale"} ${row.order_id}`,
+    label: `${perspective === "purchase" ? "Purchase" : "Sale"} ${row.display_reference}`,
     checkout_id: row.source_reference_id ?? row.order_id,
     permalink_url: perspective === "purchase" ? `/account/purchases/${row.order_id}` : `/account/sales/${row.order_id}`,
     currency: "USD",

@@ -14,7 +14,7 @@ describe("ordering transactional email projector", () => {
         recordedAt: "2026-04-02T00:00:01.000Z",
       },
       data: {
-        orderId: "ord_1",
+        orderId: "ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
         sourceType: "offer-acceptance",
         totalAmount: "10.00",
         shippingDestinationSnapshot: { email: "buyer@example.com" },
@@ -61,7 +61,7 @@ describe("ordering transactional email projector", () => {
         recordedAt: "2026-04-02T00:00:01.000Z",
       },
       data: {
-        orderId: "ord_deadline",
+        orderId: "ord_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         reason: "payment-deadline",
         buyerEmail: " buyer@example.com ",
       },
@@ -71,8 +71,8 @@ describe("ordering transactional email projector", () => {
     expect((outbox.enqueueNotification.mock.calls[0]?.[0] as { message: unknown } | undefined)?.message).toMatchObject({
       messageType: "ordering.order.cancelled.payment-deadline",
       templateData: {
-        orderId: "ord_deadline",
-        reorderHref: "/marketplace?reorderFrom=ord_deadline",
+        orderReference: "ORD-Q69G5FAV",
+        reorderHref: "/marketplace?reorderFrom=ord_01ARZ3NDEKTSV4RRFFQ69G5FAV",
       },
     });
   });

@@ -33,6 +33,7 @@ export type OrderingOrderHoldRow = Readonly<{
 
 export type OrderingOrderListRow = Readonly<{
   order_id: string;
+  display_reference: string;
   source_type: string;
   source_reference_id: string | null;
   buyer_account_id: string;
@@ -89,6 +90,7 @@ export type OrderingOrderDetailRow = OrderingOrderListRow &
 
 type BaseOrderPageRow = Readonly<{
   order_id: string;
+  display_reference: string;
   source_type: string;
   source_reference_id: string | null;
   buyer_account_id: string;
@@ -159,6 +161,7 @@ type OrderLinePageRow = Readonly<{
 const baseOrderSelect = `
   SELECT
     page.order_id,
+    page.display_reference,
     page.source_type,
     page.source_reference_id,
     page.buyer_account_id,

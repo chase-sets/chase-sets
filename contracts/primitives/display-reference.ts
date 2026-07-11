@@ -64,6 +64,23 @@ export function deriveDisplayReference(
   return `${displayPrefix}-${normalizedUlid.slice(-suffixLength)}`;
 }
 
+/**
+ * Best-effort variant of {@link deriveDisplayReference}: falls back to the raw
+ * id verbatim when it is not a well-formed typed ULID, instead of throwing.
+ * Fixed, human-readable seed/demo identifiers (e.g. `ord_seed_checkout_pending`)
+ * predate real ULID generation and cannot derive a reference; every order,
+ * shipment, or payout created through a live domain command always carries a
+ * real ULID, so the fallback only matters for that legitimate non-ULID data —
+ * it is never a silent failure mode for a real buyer or seller.
+ */
+export function deriveDisplayReferenceOrRaw(id: TypedUlid<string>, options?: DeriveDisplayReferenceOptions): string {
+  try {
+    return deriveDisplayReference(id, options);
+  } catch {
+    return id;
+  }
+}
+
 export function displayReferencePrefixForTypedIdPrefix(prefix: string): DisplayReferencePrefix {
   if (!isDisplayReferenceTypedIdPrefix(prefix)) {
     throw new Error(`Unsupported display reference typed-id prefix '${prefix}'.`);

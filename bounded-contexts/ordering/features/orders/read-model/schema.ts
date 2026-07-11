@@ -83,6 +83,8 @@ ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS shipping_plan_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS display_reference text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   order_id text NOT NULL,
@@ -164,6 +166,18 @@ export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS ordering_order_pages_payment_deadline_idx
   ON ordering_order_pages (payment_deadline_at, order_id)
   WHERE status = 'pending-payment' AND payment_deadline_at IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260711_ordering_order_display_reference_unique_idx",
+    description:
+      "Add the support-safe order display reference unique index outside boot-time schema SQL. Rows written " +
+      "before this migration ran keep the empty-string default and are excluded from the uniqueness check; the " +
+      "projector always populates a real reference for every order it creates.",
+    statements: [
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ordering_order_pages_display_reference_key
+  ON ordering_order_pages (display_reference)
+  WHERE display_reference <> ''`,
     ],
   },
 ];

@@ -141,7 +141,9 @@ export function OrderingOrderListPage({
             />
           ) : (
             orders.map((order) => {
-              const caption = [orderKindLabel(kind), formatOrderDate(order.created_at)].filter(Boolean).join(" · ");
+              const caption = [orderKindLabel(kind), formatOrderDate(order.created_at), order.display_reference]
+                .filter(Boolean)
+                .join(" · ");
 
               return (
                 <Surface key={order.order_id} elevated>

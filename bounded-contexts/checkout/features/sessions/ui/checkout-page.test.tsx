@@ -496,7 +496,7 @@ describe("checkout session page", () => {
       <CheckoutSessionPage
         session={{
           ...readySession,
-          order_ids: ["ord_1"],
+          order_ids: ["ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9"],
           payment_id: "pay_1",
           split_group_handoff: {
             status: "ready",
@@ -525,7 +525,7 @@ describe("checkout session page", () => {
 
     expect(markup).toContain("Payment ready");
     expect(markup).toContain("Order reference");
-    expect(markup).toContain("ord_1");
+    expect(markup).toContain("ORD-E6K7M8N9");
     expect(markup).toContain("Support reference");
     expect(markup).toContain("CS-CR_READY");
     expect(markup).toContain("Payable total");
@@ -547,7 +547,7 @@ describe("checkout session page", () => {
       <CheckoutSessionPage
         session={{
           ...readySession,
-          order_ids: ["ord_card_vault", "ord_second_seller"],
+          order_ids: ["ord_01ARZ3NDEKTSV4RRFFQ69G5FAV", "ord_01ARZ3NDEKTSV4RRFFQ69G5FBW"],
           payment_id: "pay_multi_seller",
           split_group_handoff: {
             status: "ready",
@@ -589,7 +589,7 @@ describe("checkout session page", () => {
 
     expect(countText(markup, "Order reference")).toBe(1);
     expect(markup).toContain("Support reference");
-    expect(markup).toContain("ord_card_vault, ord_second_seller");
+    expect(markup).toContain("ORD-Q69G5FAV, ORD-Q69G5FBW");
     expect(markup).toContain("CS-CR_MULTI");
     expect(markup).toContain("Next steps pending");
     expect(markup).toContain("Continue to secure payment without resubmitting checkout.");
@@ -1064,7 +1064,7 @@ describe("checkout session page", () => {
         <CheckoutSessionPage
           session={{
             ...readySession,
-            order_ids: ["ord_1"],
+            order_ids: ["ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9"],
             shipping_address_id: "adr_manual",
             shipping_address: {
               shippingAddressId: "adr_manual",

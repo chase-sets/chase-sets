@@ -3,6 +3,7 @@ import type { OrderId, PayoutId, ShipmentId, TypedUlid } from "./typed-ids";
 import {
   DISPLAY_REFERENCE_PREFIX_BY_TYPED_ID_PREFIX,
   deriveDisplayReference,
+  deriveDisplayReferenceOrRaw,
   displayReferencePrefixForTypedIdPrefix,
 } from "./display-reference";
 
@@ -49,5 +50,25 @@ describe("display reference primitive", () => {
     const payoutId = "pyo_01jz6dkp7s7z4az5n5e6k7m8n9" as PayoutId;
 
     expect(deriveDisplayReference(payoutId)).toBe("PYO-E6K7M8N9");
+  });
+});
+
+describe("deriveDisplayReferenceOrRaw", () => {
+  it("derives the same reference as the strict variant for well-formed typed ULIDs", () => {
+    const orderId = "ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9" as OrderId;
+
+    expect(deriveDisplayReferenceOrRaw(orderId)).toBe("ORD-E6K7M8N9");
+  });
+
+  it("falls back to the raw id verbatim for fixed, human-readable seed identifiers", () => {
+    const seedOrderId = "ord_seed_checkout_pending" as OrderId;
+
+    expect(deriveDisplayReferenceOrRaw(seedOrderId)).toBe(seedOrderId);
+  });
+
+  it("falls back to the raw id verbatim for unsupported typed-id prefixes", () => {
+    const paymentId = "pay_01JZ6DKP7S7Z4AZ5N5E6K7M8N9" as TypedUlid<"pay">;
+
+    expect(deriveDisplayReferenceOrRaw(paymentId)).toBe(paymentId);
   });
 });

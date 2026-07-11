@@ -165,7 +165,10 @@ export function OrderingOrderDetailPage({
             ? t("ordering.features.orders.ui.orderDetailPage.buyer")
             : t("ordering.features.orders.ui.orderDetailPage.seller")
         }
-        title={projectionLabel}
+        title={t("ordering.features.orders.ui.orderDetailPage.order.title", {
+          projectionLabel,
+          orderReference: order.display_reference,
+        })}
         description={t("ordering.features.orders.ui.orderDetailPage.counterparty.description", {
           counterparty: counterpartLabel,
         })}

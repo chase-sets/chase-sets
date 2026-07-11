@@ -5,6 +5,7 @@ import { buildOrderingOrderProjectionHandlers } from "./projection";
 
 type OrderPageRow = {
   order_id: string;
+  display_reference: string;
   source_type: string;
   source_reference_id: string | null;
   buyer_account_id: string;
@@ -25,12 +26,13 @@ class OrderProjectionDb implements PgQueryable {
     if (sql.includes("INSERT INTO ordering_order_pages")) {
       const row: OrderPageRow = {
         order_id: String(values[0]),
-        source_type: String(values[1]),
-        source_reference_id: values[2] === null ? null : String(values[2]),
-        buyer_account_id: String(values[3]),
-        seller_account_id: String(values[4]),
+        display_reference: String(values[1]),
+        source_type: String(values[2]),
+        source_reference_id: values[3] === null ? null : String(values[3]),
+        buyer_account_id: String(values[4]),
+        seller_account_id: String(values[5]),
         status: "pending-reservation",
-        total_amount: String(values[20]),
+        total_amount: String(values[21]),
       };
       this.orders.set(row.order_id, row);
       return { rows: [], rowCount: 1 };
@@ -92,7 +94,7 @@ describe("ordering order projection", () => {
 
     await handlers["ordering.order.created"]!(
       event("ordering.order.created", {
-        orderId: "ord_1",
+        orderId: "ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
         sourceType: "offer-acceptance",
         sourceReferenceId: "off_1",
         buyerAccountId: "acc_buyer",
@@ -153,7 +155,8 @@ describe("ordering order projection", () => {
       }),
     );
 
-    expect(db.orders.get("ord_1")).toMatchObject({
+    expect(db.orders.get("ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9")).toMatchObject({
+      display_reference: "ORD-E6K7M8N9",
       source_type: "offer-acceptance",
       source_reference_id: "off_1",
       buyer_account_id: "acc_buyer",

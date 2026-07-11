@@ -2,6 +2,7 @@ import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 export interface OrderingOrderProjection {
   order_id: string;
+  display_reference: string;
   source_type: string;
   source_reference_id: string | null;
   buyer_account_id: string;
