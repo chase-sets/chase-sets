@@ -51,7 +51,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `authenticity` ([README](bounded-contexts/authenticity/README.md), `@chase-sets/authenticity`): owned nouns `authenticity-case`.
 - `catalog` ([README](bounded-contexts/catalog/README.md), `@chase-sets/catalog`): owned nouns `catalog-item`, `category`, `blueprint`, `field`, `component`, `dimension`, `display-template`, `product-contents`, `product-measure-profile`, `provider-scope-mapping`, `reference-type`, `reference-record`, `scope-record`.
 - `checkout` ([README](bounded-contexts/checkout/README.md), `@chase-sets/checkout`): owned nouns `cart`, `sell list`, `checkout session`.
-- `commercial-terms` ([README](bounded-contexts/commercial-terms/README.md), `@chase-sets/commercial-terms`): owned nouns `commercial-terms-schedule`, `commercial-agreement`, `commercial-terms-resolution`.
+- `commercial-terms` ([README](bounded-contexts/commercial-terms/README.md), `@chase-sets/commercial-terms`): owned nouns `commercial-terms-schedule`, `commercial-agreement`, `commercial-terms-resolution`, `checkout-processing-fee-policy`.
 - `discovery` ([README](bounded-contexts/discovery/README.md), `@chase-sets/discovery`): owned nouns `search`, `browse`, `item-detail`, `product-alert`.
 - `fulfillment` ([README](bounded-contexts/fulfillment/README.md), `@chase-sets/fulfillment`): owned nouns `shipment`.
 - `identity` ([README](bounded-contexts/identity/README.md), `@chase-sets/identity`): owned nouns `user`, `account`, `membership`, `invitation`, `api-key`, `consent`, `shipping-address`, `user-preference`.

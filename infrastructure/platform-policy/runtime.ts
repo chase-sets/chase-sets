@@ -32,6 +32,25 @@ import {
 } from "./queries";
 import { createPolicyResolver, type ResolvedPolicy } from "./resolver";
 
+/**
+ * Policy document streams are keyed by document id under this fixed,
+ * mechanism-level prefix -- deliberately NOT the mounting context's own
+ * stream prefix (e.g. `commercial-terms.`), since one shared aggregate type
+ * is reused by every context that adopts `definePolicy`. The generic
+ * bounded-context-runtime auto-wires each unmapped `ProjectionHandlerSet`
+ * into a "local projection subscription" that defaults its stream-prefix
+ * filter to `${contextName}.` -- without declaring this prefix explicitly
+ * below, that default would never match `platform-policy.document-*`
+ * streams, and the projection would silently never catch up (a mounting
+ * context's own read model would stay empty regardless of how many policy
+ * documents are created).
+ */
+const POLICY_DOCUMENT_STREAM_PREFIX = "platform-policy.document-";
+
+function policyDocumentStreamId(documentId: string): string {
+  return `${POLICY_DOCUMENT_STREAM_PREFIX}${documentId}`;
+}
+
 export type PolicyRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgQueryable;
@@ -114,7 +133,7 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
       });
       const command = buildCreatePolicyDocumentCommand(definition, { ...params, documentId });
       const result = await commandHandler({
-        streamId: `platform-policy.document-${documentId}`,
+        streamId: policyDocumentStreamId(documentId),
         command,
         context,
       });
@@ -130,7 +149,7 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
       });
       const command = buildRevisePolicyDocumentCommand(definition, params);
       const result = await commandHandler({
-        streamId: `platform-policy.document-${documentId}`,
+        streamId: policyDocumentStreamId(documentId),
         command,
         context,
       });
@@ -145,6 +164,7 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
       createProjectionHandlerSet({
         projectionName: "platform-policy-document-projection",
         handlers: buildPolicyDocumentProjectionHandlers(deps.db, { onPolicyRevised: cache.invalidate }),
+        streamPrefixes: [POLICY_DOCUMENT_STREAM_PREFIX],
       }),
     ],
   };

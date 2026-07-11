@@ -11,12 +11,13 @@ Commercial Terms owns the marketplace sales fee policy that determines seller-si
 - Commercial Terms resolution for seller-confirmed listing and offer fee previews
 - Seller-side marketplace sales fee amounts
 - Seller net calculations
+- The checkout processing-fee policy (buyer-side Marketplace Checkout Fee values: base bps/fixed terms, per-payment-method-category adjustments, enabled jurisdictions) via the shared `@chase-sets/platform-policy` machinery -- see `features/checkout-processing-fee`. Payments quotes against the resolved value through the `checkoutProcessingFeePolicyResolver` host port; it never reads Commercial Terms storage directly.
 
 ## Does Not Own
 
 - Listing lifecycle
 - Checkout orchestration
-- Buyer marketplace checkout fees and payment processor state
+- Buyer marketplace checkout fee quoting, confirmation, or payment processor state (Payments owns the quote math and the fingerprint/staleness flow; Commercial Terms only owns the policy *values* it quotes against)
 - Ledger postings
 
 ## Ubiquitous Language

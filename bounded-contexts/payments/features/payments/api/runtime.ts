@@ -101,14 +101,17 @@ import {
 import { decideRefund, evolveRefund, initialRefundState, type RefundEvent } from "../../refunds/domain/domain";
 import type { RefundServices } from "../../refunds/api/runtime";
 import {
+  defaultMarketplaceCheckoutFeePolicyValue,
   marketplaceCheckoutFeePaymentMethodCategories,
   marketplaceCheckoutFeePolicy,
   normalizeMarketplaceCheckoutFeePaymentMethodCategory,
   quoteMarketplaceCheckoutFee,
   type MarketplaceCheckoutFeePaymentMethodCategory,
   type MarketplaceCheckoutFeePolicy,
+  type MarketplaceCheckoutFeePolicyValue,
   type MarketplaceCheckoutFeeQuote,
 } from "./marketplace-checkout-fee-policy";
+import type { CheckoutProcessingFeePolicyResolver } from "./checkout-processing-fee-policy-resolver";
 
 type PaymentRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -117,8 +120,29 @@ type PaymentRuntimeDeps = Readonly<{
   processorGateway: PaymentProcessorGateway;
   refunds?: Pick<RefundServices, "issueRefund">;
   balanceCreditResolver?: BalanceCreditResolver;
+  checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
   notificationOutbox?: NotificationOutbox;
 }>;
+
+/**
+ * Resolves the checkout processing-fee policy in effect at quote time. When
+ * no resolver is wired (standalone/dev usage without Commercial Terms
+ * mounted) this falls back to the compiled launch values -- an empty or
+ * absent policy table can never break the checkout hot path.
+ */
+async function resolveMarketplaceCheckoutFeePolicy(
+  deps: Pick<PaymentRuntimeDeps, "checkoutProcessingFeePolicyResolver">,
+  at?: string,
+): Promise<Readonly<{ value: MarketplaceCheckoutFeePolicyValue; effectiveFrom: string | null }>> {
+  if (!deps.checkoutProcessingFeePolicyResolver) {
+    return { value: defaultMarketplaceCheckoutFeePolicyValue, effectiveFrom: null };
+  }
+
+  const resolved = await deps.checkoutProcessingFeePolicyResolver.resolveCheckoutProcessingFeePolicy(
+    at ? { at } : undefined,
+  );
+  return { value: resolved.value, effectiveFrom: resolved.effectiveFrom };
+}
 
 export class PaymentsRateLimitExceededError extends Error {
   readonly code = "rate_limited";
@@ -494,7 +518,7 @@ function buildCardAuthenticationAssessment(
 }
 
 async function buildCheckoutStatusFromAmount(
-  deps: Pick<PaymentRuntimeDeps, "balanceCreditResolver">,
+  deps: Pick<PaymentRuntimeDeps, "balanceCreditResolver" | "checkoutProcessingFeePolicyResolver">,
   params: Readonly<{
     accountId: AccountId;
     orderIds: readonly OrderId[];
@@ -537,13 +561,17 @@ async function buildCheckoutStatusFromAmount(
     },
   );
   const paymentMethodCategory = normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory);
+  const checkoutProcessingFeePolicy = await resolveMarketplaceCheckoutFeePolicy(deps);
   const paymentMethodQuotes = marketplaceCheckoutFeePaymentMethodCategories.map((method) =>
-    quoteMarketplaceCheckoutFee({
-      orderAmount: amount,
-      externalBasisAmount: externalAmount,
-      balanceCreditAmount: appliedAmount,
-      paymentMethodCategory: method,
-    }),
+    quoteMarketplaceCheckoutFee(
+      {
+        orderAmount: amount,
+        externalBasisAmount: externalAmount,
+        balanceCreditAmount: appliedAmount,
+        paymentMethodCategory: method,
+      },
+      checkoutProcessingFeePolicy.value,
+    ),
   );
   const marketplaceCheckoutFee =
     paymentMethodQuotes.find((quote) => quote.payment_method_category === paymentMethodCategory) ??
@@ -1363,7 +1391,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       });
     },
     async getMarketplaceCheckoutFeePolicy() {
-      return marketplaceCheckoutFeePolicy();
+      const resolved = await resolveMarketplaceCheckoutFeePolicy(deps);
+      return marketplaceCheckoutFeePolicy(resolved.value, { effectiveAt: resolved.effectiveFrom });
     },
     listSavedCheckoutInstruments: (accountId) => listSavedCheckoutInstruments(deps.db, accountId),
     ensureProviderCustomer: (params) => ensureProviderCustomer(deps, params),
@@ -1621,12 +1650,16 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           "Platform credit must cover the order balance before it can be used as the payment method.",
         );
       }
-      const marketplaceCheckoutFeeQuote = quoteMarketplaceCheckoutFee({
-        orderAmount: amount,
-        externalBasisAmount,
-        balanceCreditAmount,
-        paymentMethodCategory,
-      });
+      const checkoutProcessingFeePolicy = await resolveMarketplaceCheckoutFeePolicy(deps);
+      const marketplaceCheckoutFeeQuote = quoteMarketplaceCheckoutFee(
+        {
+          orderAmount: amount,
+          externalBasisAmount,
+          balanceCreditAmount,
+          paymentMethodCategory,
+        },
+        checkoutProcessingFeePolicy.value,
+      );
       if (params.marketplaceCheckoutFeeQuoteFingerprint !== marketplaceCheckoutFeeQuote.quote_fingerprint) {
         throw new PaymentsDomainError(`fee_quote_stale:${JSON.stringify(marketplaceCheckoutFeeQuote)}`);
       }

@@ -188,6 +188,23 @@ function createFakePolicyDb() {
 }
 
 describe("platform policy runtime (define -> create -> revise -> resolve -> invalidate)", () => {
+  it("declares its own stream prefix on the projector (not the mounting context's default)", async () => {
+    // Policy document streams are always `platform-policy.document-<id>`,
+    // regardless of which bounded context mounts this runtime. The generic
+    // bounded-context-runtime auto-wires any projector that doesn't declare
+    // `streamPrefixes` to default to `${mountingContextName}.` -- for a
+    // context whose own stream prefix isn't "platform-policy.", that default
+    // would never match these streams, so the projection would silently
+    // never catch up and every context-owned read model built on this
+    // machinery would stay empty forever. This regression-guards the fix.
+    const { eventStore } = createInMemoryEventStore();
+    const { db } = createFakePolicyDb();
+    const runtime = createPolicyRuntime({ eventStore, db });
+
+    expect(runtime.projectors).toHaveLength(1);
+    expect(runtime.projectors[0]?.streamPrefixes).toEqual(["platform-policy.document-"]);
+  });
+
   it("resolves the compiled default before any document exists", async () => {
     const { eventStore } = createInMemoryEventStore();
     const { db } = createFakePolicyDb();
