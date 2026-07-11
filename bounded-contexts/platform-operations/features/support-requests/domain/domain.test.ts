@@ -879,4 +879,268 @@ describe("support request domain", () => {
       ).toThrow("Support review reminders only apply while a case is ready for support review.");
     });
   });
+
+  describe("return-for-refund refund gate", () => {
+    function resolveReturnForRefund() {
+      const opened = openReturnRequest();
+      const evidence = submitReturnEvidence(fold(opened));
+      const state = fold([...opened, ...evidence]);
+      const resolved = decideSupportRequest(state, {
+        type: "ResolveSupportRequest",
+        resolutionType: "return-for-refund",
+        summary: "Seller accepted the return.",
+        resolvedByAccountId: "acc_seller" as never,
+        resolvedByRole: "seller",
+        resolvedAt: "2026-05-09T14:00:00.000Z",
+      });
+      return [...opened, ...evidence, ...resolved];
+    }
+
+    it("opens the gate at awaiting-return-delivery when a return-for-refund resolution fires, without issuing a refund event", () => {
+      const events = resolveReturnForRefund();
+      const state = fold(events);
+
+      expect(state.status).toBe("resolved");
+      expect(state.returnRefundGateStatus).toBe("awaiting-return-delivery");
+      expect(state.returnDeliveredAt).toBeNull();
+      expect(state.returnRefundReleaseDueAt).toBeNull();
+    });
+
+    it("leaves the return-refund gate null for full-refund, partial-refund, and cancel-order resolutions", () => {
+      const fullOpened = openProductNotReceived();
+      const fullResolved = decideSupportRequest(fold(fullOpened), {
+        type: "ResolveSupportRequest",
+        resolutionType: "full-refund",
+        summary: "Delivery could not be proven.",
+        resolvedByAccountId: null,
+        resolvedByRole: null,
+        resolvedAt: "2026-05-11T12:00:00.000Z",
+      });
+      expect(fold([...fullOpened, ...fullResolved]).returnRefundGateStatus).toBeNull();
+
+      const offerOpened = openProductNotAsDescribed();
+      const offered = recordPartialRefundOffer(fold(offerOpened));
+      const accepted = decideSupportRequest(fold([...offerOpened, ...offered]), {
+        type: "AcceptSupportOffer",
+        offerId: "sof_01",
+        acceptedByAccountId: "acc_buyer" as never,
+        acceptedByRole: "buyer",
+        acceptedAt: "2026-05-09T14:00:00.000Z",
+      });
+      expect(fold([...offerOpened, ...offered, ...accepted]).returnRefundGateStatus).toBeNull();
+
+      const cancelOpened = decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: "sup_cancel_gate" as never,
+        orderId: "ord_01" as never,
+        orderTotalAmount: "25.00",
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        flowType: "buyer-cancel-request",
+        openedByAccountId: "acc_buyer" as never,
+        openedByRole: "buyer",
+        openedAt,
+      });
+      const confirmed = decideSupportRequest(fold(cancelOpened), {
+        type: "RecordSupportResponse",
+        responseId: "rsp_cancel_gate",
+        submittedByAccountId: "acc_seller" as never,
+        submittedByRole: "seller",
+        responseType: "confirm-cancellation",
+        summary: "Seller confirms cancellation.",
+        submittedAt: "2026-05-09T13:05:00.000Z",
+      });
+      expect(fold([...cancelOpened, ...confirmed]).returnRefundGateStatus).toBeNull();
+    });
+
+    it("records return delivery and starts the 5-day inspection window", () => {
+      const events = resolveReturnForRefund();
+      const delivered = decideSupportRequest(fold(events), {
+        type: "RecordReturnDelivery",
+        deliveredAt: "2026-05-20T00:00:00.000Z",
+        recordedByAccountId: "acc_seller" as never,
+        recordedByRole: "seller",
+      });
+
+      expect(delivered[0]).toMatchObject({
+        type: "support.support-request.return-delivered",
+        data: {
+          deliveredAt: "2026-05-20T00:00:00.000Z",
+          returnRefundReleaseDueAt: "2026-05-25T00:00:00.000Z",
+          recordedByRole: "seller",
+        },
+      });
+      const state = fold([...events, ...delivered]);
+      expect(state.returnRefundGateStatus).toBe("awaiting-return-inspection");
+      expect(state.returnDeliveredAt).toBe("2026-05-20T00:00:00.000Z");
+      expect(state.returnRefundReleaseDueAt).toBe("2026-05-25T00:00:00.000Z");
+    });
+
+    it("rejects recording return delivery outside the awaiting-return-delivery gate", () => {
+      const opened = openProductNotReceived();
+      const state = fold(opened);
+
+      expect(() =>
+        decideSupportRequest(state, {
+          type: "RecordReturnDelivery",
+          deliveredAt: "2026-05-20T00:00:00.000Z",
+          recordedByRole: "seller",
+        }),
+      ).toThrow("This case has no return-for-refund refund awaiting return delivery.");
+    });
+
+    it("rejects a duplicate return delivery recording", () => {
+      const events = resolveReturnForRefund();
+      const delivered = decideSupportRequest(fold(events), {
+        type: "RecordReturnDelivery",
+        deliveredAt: "2026-05-20T00:00:00.000Z",
+        recordedByRole: "seller",
+      });
+      const state = fold([...events, ...delivered]);
+
+      expect(() =>
+        decideSupportRequest(state, {
+          type: "RecordReturnDelivery",
+          deliveredAt: "2026-05-21T00:00:00.000Z",
+          recordedByRole: "seller",
+        }),
+      ).toThrow("This case has no return-for-refund refund awaiting return delivery.");
+    });
+
+    it("lets the seller dispute the returned item's condition within the inspection window", () => {
+      const events = resolveReturnForRefund();
+      const delivered = decideSupportRequest(fold(events), {
+        type: "RecordReturnDelivery",
+        deliveredAt: "2026-05-20T00:00:00.000Z",
+        recordedByRole: "seller",
+      });
+      const afterDelivery = fold([...events, ...delivered]);
+      const disputed = decideSupportRequest(afterDelivery, {
+        type: "DisputeReturnCondition",
+        disputedAt: "2026-05-21T00:00:00.000Z",
+        reason: "The card came back with a bent corner that was not present at delivery.",
+        disputedByAccountId: "acc_seller" as never,
+      });
+
+      expect(disputed[0]).toMatchObject({
+        type: "support.support-request.return-condition-disputed",
+        data: { disputedAt: "2026-05-21T00:00:00.000Z" },
+      });
+      const state = fold([...events, ...delivered, ...disputed]);
+      expect(state.returnRefundGateStatus).toBe("return-condition-disputed");
+      expect(state.returnConditionDisputedAt).toBe("2026-05-21T00:00:00.000Z");
+    });
+
+    it("rejects a condition dispute before the return has been recorded as delivered", () => {
+      const events = resolveReturnForRefund();
+      const state = fold(events);
+
+      expect(() =>
+        decideSupportRequest(state, {
+          type: "DisputeReturnCondition",
+          disputedAt: "2026-05-21T00:00:00.000Z",
+          reason: "Too early.",
+        }),
+      ).toThrow("This case has no return awaiting inspection to dispute.");
+    });
+
+    it("auto-releases the return refund once the inspection window elapses with no dispute", () => {
+      const events = resolveReturnForRefund();
+      const delivered = decideSupportRequest(fold(events), {
+        type: "RecordReturnDelivery",
+        deliveredAt: "2026-05-20T00:00:00.000Z",
+        recordedByRole: "seller",
+      });
+      const afterDelivery = fold([...events, ...delivered]);
+
+      expect(() =>
+        decideSupportRequest(afterDelivery, {
+          type: "ReleaseReturnRefund",
+          releasedAt: "2026-05-24T23:59:59.000Z",
+          releasedByRole: null,
+        }),
+      ).toThrow("The return refund inspection window has not elapsed yet.");
+
+      const released = decideSupportRequest(afterDelivery, {
+        type: "ReleaseReturnRefund",
+        releasedAt: "2026-05-25T00:00:00.000Z",
+        releasedByRole: null,
+      });
+      expect(released[0]).toMatchObject({
+        type: "support.support-request.return-refund-released",
+        data: { releasedByRole: null, releasedByAccountId: null },
+      });
+      expect(fold([...events, ...delivered, ...released]).returnRefundGateStatus).toBe("return-refund-released");
+    });
+
+    it("rejects automatic release once the seller has disputed the return's condition", () => {
+      const events = resolveReturnForRefund();
+      const delivered = decideSupportRequest(fold(events), {
+        type: "RecordReturnDelivery",
+        deliveredAt: "2026-05-20T00:00:00.000Z",
+        recordedByRole: "seller",
+      });
+      const disputed = decideSupportRequest(fold([...events, ...delivered]), {
+        type: "DisputeReturnCondition",
+        disputedAt: "2026-05-21T00:00:00.000Z",
+        reason: "Item condition changed.",
+      });
+      const state = fold([...events, ...delivered, ...disputed]);
+
+      expect(() =>
+        decideSupportRequest(state, {
+          type: "ReleaseReturnRefund",
+          releasedAt: "2026-05-25T00:00:00.000Z",
+          releasedByRole: null,
+        }),
+      ).toThrow("This case has no return refund awaiting automatic release.");
+    });
+
+    it("lets support manually release a disputed return refund without waiting for a deadline", () => {
+      const events = resolveReturnForRefund();
+      const delivered = decideSupportRequest(fold(events), {
+        type: "RecordReturnDelivery",
+        deliveredAt: "2026-05-20T00:00:00.000Z",
+        recordedByRole: "seller",
+      });
+      const disputed = decideSupportRequest(fold([...events, ...delivered]), {
+        type: "DisputeReturnCondition",
+        disputedAt: "2026-05-21T00:00:00.000Z",
+        reason: "Item condition changed.",
+      });
+      const state = fold([...events, ...delivered, ...disputed]);
+
+      const released = decideSupportRequest(state, {
+        type: "ReleaseReturnRefund",
+        releasedAt: "2026-05-21T12:00:00.000Z",
+        releasedByAccountId: "acc_support" as never,
+        releasedByRole: "support",
+      });
+      expect(released[0]).toMatchObject({
+        type: "support.support-request.return-refund-released",
+        data: { releasedByRole: "support", releasedByAccountId: "acc_support" },
+      });
+      expect(fold([...events, ...delivered, ...disputed, ...released]).returnRefundGateStatus).toBe(
+        "return-refund-released",
+      );
+    });
+
+    it("lets support release early from awaiting-return-inspection without waiting for the deadline", () => {
+      const events = resolveReturnForRefund();
+      const delivered = decideSupportRequest(fold(events), {
+        type: "RecordReturnDelivery",
+        deliveredAt: "2026-05-20T00:00:00.000Z",
+        recordedByRole: "seller",
+      });
+      const state = fold([...events, ...delivered]);
+
+      const released = decideSupportRequest(state, {
+        type: "ReleaseReturnRefund",
+        releasedAt: "2026-05-20T01:00:00.000Z",
+        releasedByAccountId: "acc_support" as never,
+        releasedByRole: "support",
+      });
+      expect(released).toHaveLength(1);
+    });
+  });
 });

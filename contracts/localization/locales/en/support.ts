@@ -15,6 +15,9 @@ export const supportEnglishTranslations = {
   "support.features.support_requests.api.route.authentication.context.missing.6": "Support closure context is missing.",
   "support.features.support_requests.api.route.authentication.context.missing.7":
     "Support cancellation context is missing.",
+  "support.features.support_requests.api.route.authentication.context.missing.8": "Return delivery context is missing.",
+  "support.features.support_requests.api.route.authentication.context.missing.9":
+    "Return refund release context is missing.",
   "support.features.supportRequests.ui.supportRequestListPage.title": "Support",
   "support.features.supportRequests.ui.supportRequestListPage.description":
     "Track structured order workflows without direct back and forth.",

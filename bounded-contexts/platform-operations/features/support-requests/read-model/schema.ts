@@ -48,6 +48,12 @@ ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS support_review_reminder_sent_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS auto_close_due_at timestamptz NULL;
 
+ALTER TABLE support_request_pages
+  ADD COLUMN IF NOT EXISTS return_refund_gate_status text NULL,
+  ADD COLUMN IF NOT EXISTS return_delivered_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS return_refund_release_due_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS return_condition_disputed_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS support_request_pages_buyer_idx
   ON support_request_pages (buyer_account_id, updated_at DESC, support_request_id DESC);
 
@@ -67,5 +73,10 @@ CREATE INDEX IF NOT EXISTS support_request_pages_seller_silence_sweep_idx
 CREATE INDEX IF NOT EXISTS support_request_pages_review_sweep_idx
   ON support_request_pages (support_review_due_at)
   WHERE status = 'ready-for-support';
+
+
+CREATE INDEX IF NOT EXISTS support_request_pages_return_refund_disputed_idx
+  ON support_request_pages (updated_at DESC)
+  WHERE return_refund_gate_status = 'return-condition-disputed';
 
 `;

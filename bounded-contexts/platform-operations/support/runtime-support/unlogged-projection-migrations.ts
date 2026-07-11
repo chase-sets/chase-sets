@@ -26,4 +26,13 @@ export const platformOperationsUnloggedProjectionSchemaMigrations: readonly BcSc
   WHERE status = 'resolved'`,
     ],
   },
+  {
+    migrationId: "20260711_support_request_return_refund_release_sweep_index",
+    description: "Index return-gated support requests by release deadline for the deadline sweep.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS support_request_pages_return_refund_release_sweep_idx
+  ON support_request_pages (return_refund_release_due_at)
+  WHERE return_refund_gate_status = 'awaiting-return-inspection'`,
+    ],
+  },
 ];

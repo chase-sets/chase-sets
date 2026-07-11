@@ -688,4 +688,200 @@ describe("support request runtime", () => {
       expect(closedEvent?.payload).toMatchObject({ supportRequestId: pendingId });
     });
   });
+
+  describe("return-for-refund refund gate", () => {
+    const orderSourceRow = {
+      order_id: "ord_1",
+      buyer_account_id: "acc_buyer",
+      seller_account_id: "acc_seller",
+      status: "ready-for-fulfillment",
+      total_amount: "24.00",
+      return_context: [],
+    };
+
+    function createDb(getPendingId: () => string) {
+      return {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM support_order_sources")) {
+            return { rows: [orderSourceRow] };
+          }
+          if (sql.includes("FROM support_request_pages") && sql.includes("WHERE order_id")) {
+            return { rows: [] };
+          }
+          if (sql.includes("return_refund_gate_status = 'awaiting-return-inspection'")) {
+            const pendingId = getPendingId();
+            return pendingId ? { rows: [{ support_request_id: pendingId }] } : { rows: [] };
+          }
+          if (sql.includes("FROM support_request_pages") && sql.includes("support_request_id = $1")) {
+            const pendingId = getPendingId();
+            return pendingId
+              ? {
+                  rows: [
+                    { support_request_id: pendingId, buyer_account_id: "acc_buyer", seller_account_id: "acc_seller" },
+                  ],
+                }
+              : { rows: [] };
+          }
+          if (sql.includes("FROM support_request_pages")) {
+            return { rows: [] };
+          }
+          throw new Error(`Unexpected query: ${sql}`);
+        }),
+      };
+    }
+
+    async function openAndResolveReturnRequest(
+      runtime: ReturnType<typeof createSupportRequestRuntime>,
+      setPendingId: (id: string) => void,
+    ) {
+      const opened = await runtime.openSupportRequest(
+        { orderId: "ord_1", accountId: "acc_buyer", flowType: "return-request", openedByRole: "buyer" },
+        context,
+      );
+      const supportRequestId = opened.supportRequestId;
+      setPendingId(supportRequestId);
+
+      await runtime.submitEvidence(
+        {
+          supportRequestId,
+          accountId: "acc_buyer",
+          submittedByRole: "buyer",
+          evidenceType: "return-reason",
+          summary: "Changed my mind within the return window.",
+          scope: "operations",
+        },
+        context,
+      );
+      await runtime.submitEvidence(
+        {
+          supportRequestId,
+          accountId: "acc_buyer",
+          submittedByRole: "buyer",
+          evidenceType: "photo",
+          summary: "As-received front and back photos.",
+          attachments: ["att_1"],
+          scope: "operations",
+        },
+        context,
+      );
+      await runtime.submitEvidence(
+        {
+          supportRequestId,
+          accountId: "acc_buyer",
+          submittedByRole: "buyer",
+          evidenceType: "condition-notes",
+          summary: "Card appears unchanged from delivery.",
+          scope: "operations",
+        },
+        context,
+      );
+      await runtime.resolveSupportRequest(
+        {
+          supportRequestId,
+          accountId: "acc_support",
+          resolutionType: "return-for-refund",
+          summary: "Return accepted.",
+          scope: "operations",
+        },
+        context,
+      );
+
+      return supportRequestId;
+    }
+
+    it("gates a return-request refund on return delivery and auto-releases it after the 5-day inspection window elapses", async () => {
+      let pendingId = "";
+      const db = createDb(() => pendingId);
+      const { allEvents, eventStore } = createInMemoryEventStore();
+      const runtime = createSupportRequestRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+      });
+
+      await openAndResolveReturnRequest(runtime, (id) => {
+        pendingId = id;
+      });
+
+      const resolvedEvent = allEvents.find((event) => event.eventType === "support.support-request.resolved");
+      expect(resolvedEvent?.payload).toMatchObject({ resolution: { resolutionType: "return-for-refund" } });
+      expect(allEvents.some((event) => event.eventType === "support.support-request.return-refund-released")).toBe(
+        false,
+      );
+
+      await runtime.recordReturnDelivery(
+        {
+          supportRequestId: pendingId,
+          accountId: "acc_seller",
+          deliveredAt: "2026-06-01T00:00:00.000Z",
+          scope: "operations",
+        },
+        context,
+      );
+      const deliveredEvent = allEvents.find((event) => event.eventType === "support.support-request.return-delivered");
+      expect(deliveredEvent?.payload).toMatchObject({
+        deliveredAt: "2026-06-01T00:00:00.000Z",
+        returnRefundReleaseDueAt: "2026-06-06T00:00:00.000Z",
+      });
+
+      const tooEarly = await runtime.sweepSupportRequestDeadlines({ now: "2026-06-05T23:00:00.000Z" }, context);
+      expect(tooEarly.returnRefundsReleased).toBe(0);
+
+      const result = await runtime.sweepSupportRequestDeadlines({ now: "2026-06-06T00:00:00.000Z" }, context);
+      expect(result.returnRefundsReleased).toBe(1);
+      const releasedEvent = allEvents.find(
+        (event) => event.eventType === "support.support-request.return-refund-released",
+      );
+      expect(releasedEvent?.payload).toMatchObject({ releasedByRole: null, releasedByAccountId: null });
+    });
+
+    it("rejects a return-condition dispute from the buyer, accepts it from the seller, and lets support manually release it", async () => {
+      let pendingId = "";
+      const db = createDb(() => pendingId);
+      const { allEvents, eventStore } = createInMemoryEventStore();
+      const runtime = createSupportRequestRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+      });
+
+      await openAndResolveReturnRequest(runtime, (id) => {
+        pendingId = id;
+      });
+      await runtime.recordReturnDelivery(
+        {
+          supportRequestId: pendingId,
+          accountId: "acc_seller",
+          deliveredAt: "2026-06-01T00:00:00.000Z",
+          scope: "operations",
+        },
+        context,
+      );
+
+      await expect(
+        runtime.disputeReturnCondition(
+          { supportRequestId: pendingId, accountId: "acc_buyer", reason: "The buyer should not be able to do this." },
+          context,
+        ),
+      ).rejects.toThrow("Only the seller can dispute the returned item's condition.");
+
+      await runtime.disputeReturnCondition(
+        { supportRequestId: pendingId, accountId: "acc_seller", reason: "Card came back with new damage." },
+        context,
+      );
+      const disputedEvent = allEvents.find(
+        (event) => event.eventType === "support.support-request.return-condition-disputed",
+      );
+      expect(disputedEvent?.payload).toMatchObject({ reason: "Card came back with new damage." });
+
+      const sweepResult = await runtime.sweepSupportRequestDeadlines({ now: "2026-06-10T00:00:00.000Z" }, context);
+      expect(sweepResult.returnRefundsReleased).toBe(0);
+
+      await runtime.releaseReturnRefund({ supportRequestId: pendingId, accountId: "acc_support" }, context);
+      const releasedEvent = allEvents.find(
+        (event) => event.eventType === "support.support-request.return-refund-released",
+      );
+      expect(releasedEvent?.payload).toMatchObject({ releasedByRole: "support", releasedByAccountId: "acc_support" });
+    });
+  });
 });

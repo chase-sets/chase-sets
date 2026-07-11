@@ -330,6 +330,65 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
     }
   });
 
+  app.post("/ops/:id/return-delivery", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const contextResult = requireCommandContext(
+      c,
+      "support.features.support_requests.api.route.authentication.context.missing.8",
+    );
+    if (contextResult.response) {
+      return contextResult.response;
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const result = await services.recordReturnDelivery(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          deliveredAt: typeof body.deliveredAt === "string" ? body.deliveredAt : undefined,
+          scope: "operations",
+        },
+        contextResult.context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "return-delivered" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/ops/:id/return-refund/release", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const contextResult = requireCommandContext(
+      c,
+      "support.features.support_requests.api.route.authentication.context.missing.9",
+    );
+    if (contextResult.response) {
+      return contextResult.response;
+    }
+
+    try {
+      const result = await services.releaseReturnRefund(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+        },
+        contextResult.context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "return-refund-released" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/ops/:id/close", async (c) => {
     const access = requireSupportAccess(c, "support.manage");
     if (access.response) {
@@ -629,6 +688,41 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
         context,
       );
       return c.json({ id: result.supportRequestId, version: result.version, status: "escalated" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/return-condition-dispute", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.8"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json();
+    try {
+      const result = await services.disputeReturnCondition(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          reason: String(body.reason ?? ""),
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "return-condition-disputed" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

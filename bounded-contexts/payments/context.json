@@ -42,7 +42,12 @@
       "sourceContextName": "platform-operations",
       "projectionName": "payments-support-refund-effect",
       "subscriptionVersion": 1,
-      "eventTypes": ["support.support-request.resolved"],
+      "eventTypes": [
+        "support.support-request.resolved",
+        "support.support-request.return-delivered",
+        "support.support-request.return-condition-disputed",
+        "support.support-request.return-refund-released"
+      ],
       "order": 70,
       "projectionHandlerSetNames": ["payments-support-refund-effect"]
     },
