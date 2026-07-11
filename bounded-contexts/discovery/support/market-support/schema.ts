@@ -43,6 +43,14 @@ ALTER TABLE discovery_market_accounts
 ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS created_at timestamptz NULL;
 
+-- Account badges mirror (m87 badge facts, m108 #4271): mirrors Identity's
+-- identity.account.badge-assigned/-removed events the same way marketplace's
+-- marketplace_account_pages.badges already does, so the public profile and
+-- item-detail seller block can render the trusted-seller badge (and any
+-- future badge) without a new cross-context runtime dependency on identity.
+ALTER TABLE discovery_market_accounts
+  ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb;
+
 CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
   review_id text PRIMARY KEY,
   author_account_id text NOT NULL DEFAULT '',

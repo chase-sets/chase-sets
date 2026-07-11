@@ -19,6 +19,8 @@ import {
   type MarketplaceSellerListingAvailability,
   type MarketplaceSellerListingStatusCounts,
 } from "../support/request-support/api-client";
+import { createSellerMetricsRequestApiClient } from "../support/request-support/seller-metrics-api-client";
+import type { SellerBehavioralMetricsSummary } from "../support/request-support/seller-metrics-client";
 import type { MarketplaceListingBulkActionOutcome } from "../features/listings/ui/contracts";
 import {
   resolveMarketplacePostWriteRequest,
@@ -63,6 +65,7 @@ function accountAccessRequired(returnTo: string) {
       updated_at: "1970-01-01T00:00:00.000Z",
     },
     filters: { status: "all", search: "" },
+    sellerBehavioralMetrics: null,
   };
 }
 
@@ -195,13 +198,28 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const { listings, feeLockReport, listingAvailability } = pageReads;
 
+  // m108 #4271: best-effort, outside the write-freshness machinery above --
+  // behavioral metrics have no write path on this page, so there is nothing
+  // to stay fresh against; a transient failure degrades the KPI panel to
+  // "not enough orders yet" rather than failing the whole listings page.
+  const sellerBehavioralMetrics = await fetchSellerBehavioralMetrics(resolvedRequest);
+
   return {
     accountAccessRequired: null,
     listings,
     feeLockReport,
     listingAvailability,
     filters,
+    sellerBehavioralMetrics,
   };
+}
+
+async function fetchSellerBehavioralMetrics(request: Request): Promise<SellerBehavioralMetricsSummary | null> {
+  try {
+    return await createSellerMetricsRequestApiClient(request).getOwnBehavioralMetrics();
+  } catch {
+    return null;
+  }
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -397,6 +415,7 @@ function MarketplaceAccountListingsRealtimeView({
       filters={data.filters}
       bulkActionOutcomes={actionData?.bulkActionOutcomes ?? null}
       errorMessage={actionData?.error ?? null}
+      sellerBehavioralMetrics={data.sellerBehavioralMetrics}
     />
   );
 }

@@ -6,6 +6,8 @@ import { marketplaceSupplyProjectionSchemaSql } from "../../features/listings/in
 import { marketplaceOfferSchemaSql } from "../../features/offers/read-model/schema";
 import { marketplaceReviewSourceProjectionSchemaSql } from "../../features/reviews/integrations/source/source-schema";
 import { reviewSchemaSql } from "../../features/reviews/read-model/schema";
+import { marketplaceSellerMetricsSourceSchemaSql } from "../../features/seller-metrics/integrations/source/source-schema";
+import { marketplaceSellerMetricsSummarySchemaSql } from "../../features/seller-metrics/read-model/schema";
 
 export const marketplaceSchemaSql = [
   eventCorePostgresSchemaSql,
@@ -14,6 +16,8 @@ export const marketplaceSchemaSql = [
   marketplaceOfferSchemaSql,
   marketplaceReviewSourceProjectionSchemaSql,
   reviewSchemaSql,
+  marketplaceSellerMetricsSourceSchemaSql,
+  marketplaceSellerMetricsSummarySchemaSql,
   realtimeOutboxSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the listing-gate policy -- see ../../features/listings/domain/listing-gate-policy.

@@ -85,7 +85,7 @@ function isResolved(request: SupportRequestSnapshot): boolean {
   return request.status === "resolved";
 }
 
-function isSellerFaultCancel(request: SupportRequestSnapshot): boolean {
+export function isSellerFaultCancel(request: SupportRequestSnapshot): boolean {
   return (
     isResolved(request) &&
     request.resolutionType === "cancel-order" &&
@@ -98,6 +98,17 @@ function isRefundClass(request: SupportRequestSnapshot): boolean {
     isResolved(request) &&
     (REFUND_RESOLUTION_TYPES.includes(request.resolutionType ?? "") || isSellerFaultCancel(request))
   );
+}
+
+// m108 #4271 (behavioral seller metrics) reuses this same resolution-class
+// judgment for its dispute-rate numerator ("support requests resolved
+// against seller / orders"): a resolution counts against the seller exactly
+// when it is refund-class or a seller-caused cancel-order. Exporting the
+// already-reviewed predicate under a name meaningful outside the
+// review-eligibility matrix keeps both consumers on one definition instead
+// of two independently-maintained copies of the same taxonomy.
+export function isResolutionAgainstSeller(request: SupportRequestSnapshot): boolean {
+  return isRefundClass(request);
 }
 
 function suppressesBuyerToSeller(request: SupportRequestSnapshot): boolean {

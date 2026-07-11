@@ -34,6 +34,7 @@ import type {
   MarketplaceSellerListingAvailability,
   MarketplaceSellerListingStatusCounts,
 } from "./contracts";
+import type { SellerBehavioralMetricsSummary } from "../../../support/request-support/seller-metrics-client";
 
 const SELLER_LISTING_STATUS_FILTERS = ["all", "draft", "active", "paused", "withdrawn"] as const;
 
@@ -94,6 +95,17 @@ function termsSource(row: MarketplaceListingFeeLockReportEntry) {
 
 function formatTimestamp(value: string | null) {
   return value ? new Date(value).toLocaleString() : t("marketplace.features.listings.ui.listingListPage.not.set");
+}
+
+// m108 #4271: the own-account seller-metrics read is never N-gated (see
+// listing-list-page prop doc comment), but a brand-new seller's denominator
+// is legitimately zero -- the rate column is null, not a misleading 0%.
+function formatBehavioralMetricRate(rate: string | null) {
+  if (rate === null) {
+    return t("marketplace.features.listings.ui.listingListPage.not.enough.orders.yet");
+  }
+
+  return new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 }).format(Number(rate));
 }
 
 function availabilityTone(status: MarketplaceSellerListingAvailability["status"]) {
@@ -174,6 +186,7 @@ export function MarketplaceListingListPage({
   filters = { status: "all", search: "" },
   bulkActionOutcomes,
   errorMessage,
+  sellerBehavioralMetrics = null,
 }: {
   data: { items: readonly MarketplaceListingListItem[] };
   statusCounts?: MarketplaceSellerListingStatusCounts;
@@ -183,6 +196,8 @@ export function MarketplaceListingListPage({
   filters?: Readonly<{ status: string; search: string }>;
   bulkActionOutcomes?: readonly MarketplaceListingBulkActionOutcome[] | null;
   errorMessage?: string | null;
+  /** m108 #4271: the seller's own rolling-window behavioral metrics, own-account read only -- no display gating (a seller may always see their own raw counts). Null while unauthenticated/unavailable. */
+  sellerBehavioralMetrics?: SellerBehavioralMetricsSummary | null;
 }) {
   const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(new Set());
   const activeListings = statusCounts
@@ -321,6 +336,36 @@ export function MarketplaceListingListPage({
             label: t("marketplace.features.listings.ui.listingListPage.withdrawn.listings"),
             value: withdrawnListings,
             detail: t("marketplace.features.listings.ui.listingListPage.withdrawn.listings.detail"),
+          },
+        ]}
+      />
+
+      <MarketplaceDashboardPanel
+        title={t("marketplace.features.listings.ui.listingListPage.seller.reliability")}
+        description={t("marketplace.features.listings.ui.listingListPage.seller.reliability.description", {
+          windowDays: sellerBehavioralMetrics?.window_days ?? 90,
+        })}
+        metrics={[
+          {
+            label: t("marketplace.features.listings.ui.listingListPage.on.time.shipment.rate"),
+            value: formatBehavioralMetricRate(sellerBehavioralMetrics?.on_time_shipment_rate ?? null),
+            detail: t("marketplace.features.listings.ui.listingListPage.on.time.shipment.rate.detail", {
+              count: sellerBehavioralMetrics?.shipments_dispatched_count ?? 0,
+            }),
+          },
+          {
+            label: t("marketplace.features.listings.ui.listingListPage.cancellation.rate"),
+            value: formatBehavioralMetricRate(sellerBehavioralMetrics?.cancellation_rate ?? null),
+            detail: t("marketplace.features.listings.ui.listingListPage.cancellation.rate.detail", {
+              count: sellerBehavioralMetrics?.orders_created_count ?? 0,
+            }),
+          },
+          {
+            label: t("marketplace.features.listings.ui.listingListPage.dispute.rate"),
+            value: formatBehavioralMetricRate(sellerBehavioralMetrics?.dispute_rate ?? null),
+            detail: t("marketplace.features.listings.ui.listingListPage.dispute.rate.detail", {
+              count: sellerBehavioralMetrics?.orders_created_count ?? 0,
+            }),
           },
         ]}
       />

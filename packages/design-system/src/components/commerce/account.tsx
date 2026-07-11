@@ -53,6 +53,8 @@ export interface AccountCredibilityHeaderProps {
   name: ReactNode;
   verification: ReactNode;
   summary?: ReactNode;
+  /** Account badges (m87 badge facts), rendered beside the verification badge -- e.g. a trusted-seller badge list. */
+  badges?: ReactNode;
   facts: Array<{ label: ReactNode; value: ReactNode }>;
   policies?: Array<{ label: ReactNode; value: ReactNode }>;
   contactAction?: ReactNode;
@@ -63,6 +65,7 @@ export function AccountCredibilityHeader({
   name,
   verification,
   summary,
+  badges,
   facts,
   policies = [],
   contactAction,
@@ -75,6 +78,7 @@ export function AccountCredibilityHeader({
           <Inline gap={2}>
             <h2 className="m-0 text-2xl font-bold leading-8 text-foreground">{name}</h2>
             <TrustBadge>{verification}</TrustBadge>
+            {badges}
           </Inline>
           {summary ? <p className="m-0 max-w-3xl text-sm leading-6 text-secondary">{summary}</p> : null}
         </Stack>

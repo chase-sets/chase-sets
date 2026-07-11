@@ -36,6 +36,19 @@
       "sourceWakePosture": "wave-1-listened",
       "issue": "#2779",
       "migration": "Project listing report submission data required by the public listing route into Discovery's listing view."
+    },
+    {
+      "id": "bounded-contexts/discovery/routes/public-account.tsx:marketplace:createSellerMetricsRequestApiClient.getBehavioralMetricsChips#1",
+      "consumerContextName": "discovery",
+      "sourceContextName": "marketplace",
+      "file": "bounded-contexts/discovery/routes/public-account.tsx",
+      "line": 322,
+      "clientFactory": "createSellerMetricsRequestApiClient",
+      "methodName": "getBehavioralMetricsChips",
+      "classification": "composite-projection-servable",
+      "sourceWakePosture": "wave-1-listened",
+      "issue": "#4271",
+      "migration": "m108 #4271: marketplace computes seller behavioral-metrics rates exactly once (the AC's 'compute once' requirement); this request-path call keeps that single computation authoritative for discovery's public-profile chip surface instead of duplicating the rolling-window SQL into a second discovery-owned projection. If discovery later needs the same chips at higher read volume/latency sensitivity, project only the pre-thresholded boolean chip facts (never the raw rates) into discovery's own market-account mirror, fed by a chips-changed event marketplace would need to start emitting."
     }
   ]
 }

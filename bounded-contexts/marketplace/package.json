@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/reviews/tests/review-eligibility-sql.db.test.ts",
-    "test:db": "vitest run --config ./tests/vitest.config.mjs features/reviews/tests/review-eligibility-sql.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/reviews/tests/review-eligibility-sql.db.test.ts --exclude features/seller-metrics/tests/behavioral-metrics-sql.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/reviews/tests/review-eligibility-sql.db.test.ts features/seller-metrics/tests/behavioral-metrics-sql.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "chaseSets": {

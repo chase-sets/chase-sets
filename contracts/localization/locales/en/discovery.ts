@@ -1,4 +1,7 @@
 export const discoveryEnglishTranslations = {
+  "discovery.features.itemDetail.ui.accountBadges.trusted.seller": "Trusted seller",
+  "discovery.features.itemDetail.ui.accountBadges.trusted.seller.explainer":
+    "Operations has approved this seller for standard high-dollar listing and payout-release policies.",
   "discovery.features.itemDetail.ui.similarItems.title": "More like this",
   "discovery.features.itemDetail.ui.similarItems.viewItem": "View item",
   "discovery.features.categories.api.route.category.not.found": "Category not found.",
@@ -633,6 +636,9 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicAccount.as.buyer": "As buyer",
   "discovery.routes.publicAccount.as.seller": "As seller",
   "discovery.routes.publicAccount.building.trust": "Building trust",
+  "discovery.routes.publicAccount.chips.ships.on.time": "Ships on time",
+  "discovery.routes.publicAccount.chips.rarely.cancels": "Rarely cancels",
+  "discovery.routes.publicAccount.chips.rarely.disputed": "Rarely disputed",
   "discovery.routes.publicAccount.buyer.confidence": "Order confidence",
   "discovery.routes.publicAccount.buyer.protection": "Order protection",
   "discovery.routes.publicAccount.buyer.protection.description":

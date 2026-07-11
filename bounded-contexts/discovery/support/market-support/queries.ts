@@ -14,6 +14,8 @@ export type DiscoveryPublicListingRow = Readonly<{
   seller_listing_available_again_on: string | null;
   seller_average_rating: string | null;
   seller_review_count: number;
+  /** Account badges mirror (m87 badge facts, m108 reputation) -- e.g. "trusted-seller". */
+  seller_badges: readonly string[];
   google_shopping_structured_data_payload: unknown | null;
   inventory_item_id: string;
   catalog_catalog_item_id: string;
@@ -54,6 +56,8 @@ export type DiscoveryPublicAccountRow = Readonly<{
   account_display_name: string | null;
   status: string;
   created_at: string | null;
+  /** Account badges mirror (m87 badge facts, m108 reputation) -- e.g. "trusted-seller". */
+  badges: readonly string[];
   average_rating_as_seller: string | null;
   review_count_as_seller: number;
   rating_1_count_as_seller: number;
@@ -107,6 +111,15 @@ function normalizeReviewPageParams(params: Readonly<{ limit?: number; offset?: n
   };
 }
 
+// Defensive jsonb->array normalization (mirrors marketplace's
+// normalizeBadgeArray in features/listings/read-model/queries.ts) --
+// account badges are a small, closed vocabulary rendered directly, so a
+// malformed or unexpected jsonb shape degrades to "no badges" rather than
+// throwing.
+function normalizeBadgeArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
 function mapListing(row: DiscoveryPublicListingDbRow): DiscoveryPublicListingRow {
   const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicRow } = row;
   void product_measure_snapshot;
@@ -117,6 +130,7 @@ function mapListing(row: DiscoveryPublicListingDbRow): DiscoveryPublicListingRow
     ...publicRow,
     selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
     google_shopping_structured_data_payload: objectValue(row.google_shopping_structured_data_payload),
+    seller_badges: normalizeBadgeArray(row.seller_badges),
   };
 }
 
@@ -136,6 +150,7 @@ export async function getDiscoveryPublicListingBySlug(
          account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
          account.average_rating_as_seller::text AS seller_average_rating,
          COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
+         COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
          google_feed.payload AS google_shopping_structured_data_payload,
        ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
@@ -205,6 +220,7 @@ export async function getDiscoveryPublicAccountBySlug(
        COALESCE(account.rating_3_count_as_buyer, 0)::integer AS rating_3_count_as_buyer,
        COALESCE(account.rating_4_count_as_buyer, 0)::integer AS rating_4_count_as_buyer,
        COALESCE(account.rating_5_count_as_buyer, 0)::integer AS rating_5_count_as_buyer,
+       COALESCE(account.badges, '[]'::jsonb) AS badges,
        account.updated_at::text AS updated_at
      FROM discovery_market_accounts AS account
      LEFT JOIN discovery_slug_redirects AS redirect
@@ -220,11 +236,13 @@ export async function getDiscoveryPublicAccountBySlug(
      LIMIT 1`,
     [slug],
   );
-  const account = accountResult.rows[0];
+  const rawAccount = accountResult.rows[0];
 
-  if (!account) {
+  if (!rawAccount) {
     return null;
   }
+
+  const account = { ...rawAccount, badges: normalizeBadgeArray(rawAccount.badges) };
 
   // Privacy pass (m108, #4268): a suspended or closed account renders a
   // minimal "unavailable" profile -- no listings, no review content, no
@@ -259,6 +277,7 @@ export async function getDiscoveryPublicAccountBySlug(
            account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
            account.average_rating_as_seller::text AS seller_average_rating,
            COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
+           COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
            NULL::jsonb AS google_shopping_structured_data_payload,
            ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
          FROM discovery_market_listings AS listing

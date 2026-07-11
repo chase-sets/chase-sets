@@ -145,6 +145,22 @@ Notes:
 
 A **Review Summary** is the canonical aggregate snapshot for an account derived from active reviews, including average rating, review count, and distribution. Review summaries are projected read models, not emitted domain events.
 
+## Seller Reliability
+
+**Seller Reliability** is the marketplace-owned rolling-window view of a seller Account's objective, event-derived transaction-outcome behavior: On-Time Shipment Rate, Cancellation Rate, and Dispute Rate. It is a projected read model, not an emitted domain event, computed from `ordering`, `fulfillment`, and `support` events -- never from Review content, and never from data a party can unilaterally game (attribution reuses the same resolution-class taxonomy the review-eligibility matrix already applies). Every metric carries a minimum-order-count display threshold; a metric with too few underlying orders is withheld rather than shown as a misleading rate. The seller's own dashboard shows the full metrics unconditionally; buyer-facing surfaces show only threshold-gated qualitative chips (never raw percentages), behind a rollout gate.
+
+## On-Time Shipment Rate
+
+**On-Time Shipment Rate** is the Seller Reliability metric measuring the share of a seller's dispatched shipments (in the rolling window) that dispatched within the platform's dispatch window of the order becoming ready for fulfillment.
+
+## Dispute Rate
+
+**Dispute Rate** is the Seller Reliability metric measuring the share of a seller's orders (in the rolling window) with a support request resolved against the seller (a refund-class resolution, or a seller-caused cancellation resolved through support).
+
+## Cancellation Rate
+
+**Cancellation Rate** is the Seller Reliability metric measuring the share of a seller's orders (in the rolling window) the seller directly cancelled -- buyer-initiated and payment-deadline cancellations are not seller-caused and are excluded.
+
 ## Planned Reputation And Authenticity
 
 These planned terms pre-register upcoming reputation and authenticity language. They are not shipped behavior until their owning milestone adds events, read models, APIs, and UI.
@@ -213,24 +229,10 @@ A **Feedback Tag** is the planned structured label an account can attach to a Re
 
 An **Account Trust Signal** is the planned account-level input Marketplace may consume for trust, reputation, or listing publication decisions.
 
-### Seller Reliability
-
-**Seller Reliability** is the planned transaction-outcome reputation view focused on listing, fulfillment, cancellation, and dispute behavior.
-
 ### Buyer Reliability
 
 **Buyer Reliability** is the planned transaction-outcome reputation view focused on payment, cancellation, dispute, and offer behavior.
 
-### On-Time Shipment Rate
-
-**On-Time Shipment Rate** is the planned seller reliability metric derived from eligible fulfillment facts.
-
-### Dispute Rate
-
-**Dispute Rate** is the planned reputation metric derived from eligible support, payment, or authenticity disputes.
-
-### Cancellation Rate
-
-**Cancellation Rate** is the planned reputation metric derived from eligible cancelled transaction commitments.
+Seller Reliability, On-Time Shipment Rate, Dispute Rate, and Cancellation Rate moved out of this Planned section (m108, #4271): they are shipped behavior now -- see the main glossary body above.
 
 Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reason Code, and related concepts) moved to the [Authenticity](../authenticity/GLOSSARY.md) bounded context ahead of the m109 Authenticity Check milestone (epic #4284); Marketplace does not own that vocabulary.
