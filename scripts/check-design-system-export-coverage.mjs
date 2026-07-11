@@ -18,6 +18,8 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "ActivitySheet",
   "ActorIdentityCue",
   "AddressBlock",
+  "AdminResourceDetailPage",
+  "AdminResourceListPage",
   "AdminShell",
   "AlertDialog",
   "AppliedFilterChips",

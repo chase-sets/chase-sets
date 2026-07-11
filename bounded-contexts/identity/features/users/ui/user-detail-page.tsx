@@ -1,6 +1,15 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Inline, NativeSelect, Stack, Text, TextInput } from "@chase-sets/design-system";
-import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
+import {
+  AdminResourceDetailPage,
+  HiddenInput,
+  Form,
+  Button,
+  Inline,
+  NativeSelect,
+  Stack,
+  Text,
+  TextInput,
+} from "@chase-sets/design-system";
 import type { User } from "./contracts";
 import type { OneTimeApiKeySecret } from "../../api-keys/ui/contracts";
 import { ApiKeySecretReveal } from "../../api-keys/ui/api-key-secret-reveal";
@@ -15,7 +24,7 @@ const authMethodItems = [
 
 export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSecret?: OneTimeApiKeySecret | null }) {
   return (
-    <AdminDetailPage
+    <AdminResourceDetailPage
       breadcrumbs={[
         { label: t("identity.features.users.ui.userListPage.users"), href: "/access/users" },
         { label: data.display_name },

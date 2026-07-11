@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  AdminResourceListPage,
   AppliedFilterChips,
   Form,
   Inline,
@@ -10,8 +11,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { useAdminResourceListPageChange } from "@chase-sets/design-system/react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { AdminListPage } from "./admin-pages";
 import type { Session } from "./contracts";
 import { AUTH_SESSION_STATUSES, type AuthSessionListFilters } from "./list-filters";
 
@@ -92,9 +93,10 @@ export function SessionListPage({
   filters?: AuthSessionListFilters;
 }) {
   const appliedFilters = buildSessionAppliedFilters(filters);
+  const onPageChange = useAdminResourceListPageChange(listPagination(initialData));
 
   return (
-    <AdminListPage
+    <AdminResourceListPage
       title={t("auth.features.sessions.ui.sessionListPage.sessions")}
       items={initialData.items}
       columns={columns}
@@ -149,6 +151,7 @@ export function SessionListPage({
         </>
       }
       pagination={listPagination(initialData)}
+      onPageChange={onPageChange}
     />
   );
 }

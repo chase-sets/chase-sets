@@ -1,6 +1,13 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
-import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
+import {
+  AdminResourceDetailPage,
+  HiddenInput,
+  Form,
+  Button,
+  Inline,
+  NativeSelect,
+  Stack,
+} from "@chase-sets/design-system";
 import type { Membership } from "./contracts";
 import { grantableRoleSelectItems } from "./role-select-items";
 
@@ -9,7 +16,7 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
   const account = data.account_display_name ?? data.account_name ?? data.account_id;
 
   return (
-    <AdminDetailPage
+    <AdminResourceDetailPage
       breadcrumbs={[
         { label: t("identity.features.memberships.ui.membershipListPage.memberships"), href: "/access/memberships" },
         { label: user },

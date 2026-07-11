@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  AdminResourceListPage,
   AppliedFilterChips,
   HiddenInput,
   Form,
@@ -12,8 +13,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { useAdminResourceListPageChange } from "@chase-sets/design-system/react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import { IDENTITY_INVITATION_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
 import type { Account } from "../../accounts/ui/contracts";
@@ -104,9 +105,10 @@ export function InvitationListPage({
   }));
   const hasAccounts = accountSelectItems.length > 0;
   const appliedFilters = buildInvitationAppliedFilters(filters);
+  const onPageChange = useAdminResourceListPageChange(initialData);
 
   return (
-    <AdminListPage
+    <AdminResourceListPage
       title={t("identity.features.invitations.ui.invitationListPage.invitations")}
       items={initialData.items}
       columns={columns}
@@ -191,6 +193,7 @@ export function InvitationListPage({
       emptyMessage={t("identity.features.invitations.ui.invitationListPage.no.invitations.yet")}
       getHref={(row) => `/access/invitations/${row.invitation_id}`}
       pagination={initialData}
+      onPageChange={onPageChange}
     />
   );
 }

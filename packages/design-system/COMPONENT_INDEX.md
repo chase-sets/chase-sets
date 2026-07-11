@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 359
-- Source modules covered: 125
+- Runtime exports indexed: 361
+- Source modules covered: 126
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -17,13 +17,15 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `AccountProfileHeader` | `packages/design-system/src/components/commerce/account.tsx` | Purpose not documented; symbol name suggests: Account Profile Header. | `No production consumer yet.` |
 | `AccountReputationSummary` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Account Reputation Summary. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `AccountTrustCard` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Account Trust Card. | `bounded-contexts/discovery/routes/public-listing.tsx` |
-| `ActionBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Action Bar. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
+| `ActionBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Action Bar. | `bounded-contexts/catalog/support/shell-support/ui/entity-detail-page.tsx` |
 | `ActionRow` | `packages/design-system/src/components/checkout/actions.tsx` | Purpose not documented; symbol name suggests: Action Row. | `bounded-contexts/checkout/features/sessions/ui/checkout-page.tsx` |
 | `ActionStack` | `packages/design-system/src/components/checkout/actions.tsx` | Purpose not documented; symbol name suggests: Action Stack. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `ActivityList` | `packages/design-system/src/components/data-display/timeline.tsx` | Purpose not documented; symbol name suggests: Activity List. | `No production consumer yet.` |
 | `ActivitySheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Activity Sheet. | `No production consumer yet.` |
 | `ActorIdentityCue` | `packages/design-system/src/components/data-display/actor-identity-cue.tsx` | Purpose not documented; symbol name suggests: Actor Identity Cue. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
 | `AddressBlock` | `packages/design-system/src/components/data-display/operational-workflow/address-block.tsx` | Address block: a titled card listing the lines of a postal address with an optional one-tap copy control, used for ship-to and bill-to detail on a fulfillment workstation. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
+| `AdminResourceDetailPage` | `packages/design-system/src/patterns/admin-resource-shell.tsx` | Purpose not documented; symbol name suggests: Admin Resource Detail Page. | `bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx` |
+| `AdminResourceListPage` | `packages/design-system/src/patterns/admin-resource-shell.tsx` | Purpose not documented; symbol name suggests: Admin Resource List Page. | `bounded-contexts/auth/features/sessions/ui/session-list-page.tsx` |
 | `AdminShell` | `packages/design-system/src/patterns/app-shells/shells.tsx` | Purpose not documented; symbol name suggests: Admin Shell. | `bounded-contexts/catalog/support/shell-support/shell/layout.tsx` |
 | `AlertDialog` | `packages/design-system/src/components/feedback/alert-dialog.tsx` | Purpose not documented; symbol name suggests: Alert Dialog. | `bounded-contexts/catalog/features/catalog-items/ui/catalog-item-list-page.tsx` |
 | `AppliedFilterChips` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: Applied Filter Chips. | `bounded-contexts/auth/features/sessions/ui/session-list-page.tsx` |
@@ -98,7 +100,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `createStripeElementsAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: create Stripe Elements Appearance. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `CurrencyInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Currency Input. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
 | `cx` | `packages/design-system/src/utils/cx.ts` | Purpose not documented; symbol name only: cx. | `No production consumer yet.` |
-| `DataTable` | `packages/design-system/src/components/data-display/data-table.tsx` | Purpose not documented; symbol name suggests: Data Table. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
+| `DataTable` | `packages/design-system/src/components/data-display/data-table.tsx` | Purpose not documented; symbol name suggests: Data Table. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
 | `DateInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Date Input. | `bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx` |
 | `DatePicker` | `packages/design-system/src/components/forms/date-picker.tsx` | A date field rendered as a popover-backed calendar. | `No production consumer yet.` |
 | `defaultToastManager` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: default Toast Manager. | `No production consumer yet.` |
@@ -218,7 +220,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `PageHeader` | `packages/design-system/src/patterns/app-shells/page-layouts.tsx` | Purpose not documented; symbol name suggests: Page Header. | `bounded-contexts/catalog/support/shell-support/ui/entity-detail-page.tsx` |
 | `PageSection` | `packages/design-system/src/patterns/app-shells/page-layouts.tsx` | Purpose not documented; symbol name suggests: Page Section. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
 | `PageStepper` | `packages/design-system/src/components/actions/page-stepper.tsx` | Purpose not documented; symbol name suggests: Page Stepper. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/primary-steps-module.tsx` |
-| `Pagination` | `packages/design-system/src/components/actions/pagination.tsx` | Purpose not documented; symbol name suggests: Pagination. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
+| `Pagination` | `packages/design-system/src/components/actions/pagination.tsx` | Purpose not documented; symbol name suggests: Pagination. | `bounded-contexts/commercial-terms/features/agreements/ui/agreement-list-page.tsx` |
 | `PanelSectionAccordion` | `packages/design-system/src/components/feedback/accordion.tsx` | Purpose not documented; symbol name suggests: Panel Section Accordion. | `bounded-contexts/discovery/features/item-detail/ui/commerce/action-cards.tsx` |
 | `PasswordInput` | `packages/design-system/src/components/forms/password-input.tsx` | Purpose not documented; symbol name suggests: Password Input. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `PaymentRecoveryPanel` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Payment Recovery Panel. | `bounded-contexts/payments/features/payments/ui/account-payment/account-payment-error-boundary.tsx` |
@@ -298,7 +300,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Stagger` | `packages/design-system/src/motion/primitives.tsx` | Purpose not documented; symbol name suggests: Stagger. | `No production consumer yet.` |
 | `Stat` | `packages/design-system/src/components/data-display/stat.tsx` | Purpose not documented; symbol name suggests: Stat. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx` |
 | `StatGrid` | `packages/design-system/src/components/data-display/stat.tsx` | Purpose not documented; symbol name suggests: Stat Grid. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx` |
-| `StatusPill` | `packages/design-system/src/components/feedback/badge.tsx` | Purpose not documented; symbol name suggests: Status Pill. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
+| `StatusPill` | `packages/design-system/src/components/feedback/badge.tsx` | Purpose not documented; symbol name suggests: Status Pill. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-list-page.tsx` |
 | `StatusReasonList` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Status Reason List. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx` |
 | `StickyBar` | `packages/design-system/src/primitives/layout.tsx` | Position-agnostic sticky action bar pinned to the top or bottom edge. | `No production consumer yet.` |
 | `StickyCtaBar` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Sticky Cta Bar. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |

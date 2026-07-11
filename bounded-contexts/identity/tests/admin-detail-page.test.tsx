@@ -1,9 +1,9 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { AdminResourceDetailPage } from "@chase-sets/design-system";
 import { AccountDetailPage } from "../features/accounts/ui/account-detail-page";
 import { ApiKeyDetailPage } from "../features/api-keys/ui/api-key-detail-page";
 import { UserDetailPage } from "../features/users/ui/user-detail-page";
-import { AdminDetailPage } from "../support/shell-support/ui/admin-pages";
 
 const account = {
   account_id: "acc_card_vault",
@@ -46,10 +46,10 @@ const user = {
   updated_at: "2026-05-13T12:00:00.000Z",
 };
 
-describe("Access AdminDetailPage", () => {
+describe("Access AdminResourceDetailPage", () => {
   it("renders the canonical detail frame with breadcrumbs, actions, status, and details", () => {
     const html = renderToString(
-      <AdminDetailPage
+      <AdminResourceDetailPage
         breadcrumbs={[{ label: "Accounts", href: "/access/accounts" }, { label: "Card Vault" }]}
         title="Card Vault"
         status="active"
@@ -70,14 +70,16 @@ describe("Access AdminDetailPage", () => {
   });
 
   it("standardizes loading, error, and not-found states", () => {
-    const loadingHtml = renderToString(<AdminDetailPage title="Loading account" loading sections={[]} />);
-    const errorHtml = renderToString(<AdminDetailPage title="Broken account" error="Database timeout" sections={[]} />);
-    const notFoundHtml = renderToString(<AdminDetailPage title="Missing account" notFound sections={[]} />);
+    const loadingHtml = renderToString(<AdminResourceDetailPage title="Loading account" loading sections={[]} />);
+    const errorHtml = renderToString(
+      <AdminResourceDetailPage title="Broken account" error="Database timeout" sections={[]} />,
+    );
+    const notFoundHtml = renderToString(<AdminResourceDetailPage title="Missing account" notFound sections={[]} />);
 
-    expect(loadingHtml).toContain("Loading identity record");
-    expect(errorHtml).toContain("Unable to load identity record");
+    expect(loadingHtml).toContain("Loading record");
+    expect(errorHtml).toContain("Unable to load record");
     expect(errorHtml).toContain("Database timeout");
-    expect(notFoundHtml).toContain("Identity record not found");
+    expect(notFoundHtml).toContain("Record not found");
     expect(notFoundHtml).toContain("does not exist or is no longer available");
   });
 });

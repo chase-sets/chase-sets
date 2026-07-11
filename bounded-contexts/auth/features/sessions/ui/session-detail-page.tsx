@@ -1,6 +1,13 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
-import { AdminDetailPage } from "./admin-pages";
+import {
+  AdminResourceDetailPage,
+  HiddenInput,
+  Form,
+  Button,
+  Inline,
+  NativeSelect,
+  Stack,
+} from "@chase-sets/design-system";
 import type { Session } from "./contracts";
 
 export function SessionDetailPage({ data }: { data: Session }) {
@@ -8,7 +15,11 @@ export function SessionDetailPage({ data }: { data: Session }) {
   const account = data.account_display_name ?? data.account_name ?? data.account_id;
 
   return (
-    <AdminDetailPage
+    <AdminResourceDetailPage
+      breadcrumbs={[
+        { label: t("auth.features.sessions.ui.sessionListPage.sessions"), href: "/access/sessions" },
+        { label: user },
+      ]}
       title={t("auth.features.sessions.ui.sessionDetailPage.title", { user })}
       status={data.status}
       actions={

@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  AdminResourceListPage,
   AppliedFilterChips,
   Form,
   Inline,
@@ -10,8 +11,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { useAdminResourceListPageChange } from "@chase-sets/design-system/react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import { IDENTITY_USER_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import type { User } from "./contracts";
 
@@ -82,9 +83,10 @@ export function UserListPage({
   filters?: IdentityListFilters;
 }) {
   const appliedFilters = buildUserAppliedFilters(filters);
+  const onPageChange = useAdminResourceListPageChange(initialData);
 
   return (
-    <AdminListPage
+    <AdminResourceListPage
       title={t("identity.features.users.ui.userListPage.users")}
       items={initialData.items}
       columns={columns}
@@ -139,6 +141,7 @@ export function UserListPage({
         </>
       }
       pagination={initialData}
+      onPageChange={onPageChange}
     />
   );
 }

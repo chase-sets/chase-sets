@@ -320,13 +320,6 @@ export const identityEnglishTranslations = {
   "identity.support.shellSupport.ui.useFetch.unknown.error": "Unknown error",
   "identity.features.consents.ui.consentHistoryPage.policy.title": "{policyKey} {policyVersion}",
   "identity.features.memberships.ui.accountTeamPage.membership.summary": "{role} · {status}",
-  "identity.support.shellSupport.ui.adminPages.item.count": "{count} items",
-  "identity.support.shellSupport.ui.adminPages.identity.record.not.found": "Identity record not found",
-  "identity.support.shellSupport.ui.adminPages.loading.identity.record": "Loading identity record",
-  "identity.support.shellSupport.ui.adminPages.the.requested.identity.record.does.not.exist.or.is.no.longer.available":
-    "The requested identity record does not exist or is no longer available.",
-  "identity.support.shellSupport.ui.adminPages.unable.to.load.identity.record": "Unable to load identity record",
-  "identity.support.shellSupport.ui.adminPages.view": "View",
   "identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses": "Manage shipping addresses",
   "identity.features.accounts.ui.accountProfilePage.manage.ship.from.locations": "Manage ship-from locations",
   "identity.features.shippingAddresses.api.route.authentication.context.missing": "Authentication context missing.",

@@ -1,6 +1,13 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, DateInput, Inline, Stack } from "@chase-sets/design-system";
-import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
+import {
+  AdminResourceDetailPage,
+  HiddenInput,
+  Form,
+  Button,
+  DateInput,
+  Inline,
+  Stack,
+} from "@chase-sets/design-system";
 import type { Invitation } from "./contracts";
 
 export function InvitationDetailPage({ data }: { data: Invitation }) {
@@ -12,7 +19,7 @@ export function InvitationDetailPage({ data }: { data: Invitation }) {
     t("identity.features.invitations.ui.invitationDetailPage.pending");
 
   return (
-    <AdminDetailPage
+    <AdminResourceDetailPage
       breadcrumbs={[
         { label: t("identity.features.invitations.ui.invitationListPage.invitations"), href: "/access/invitations" },
         { label: data.email },
