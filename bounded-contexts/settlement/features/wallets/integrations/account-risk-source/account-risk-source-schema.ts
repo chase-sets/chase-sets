@@ -57,10 +57,16 @@ ALTER TABLE settlement_account_risk_sources
 ALTER TABLE settlement_account_risk_sources
   ADD COLUMN IF NOT EXISTS velocity_alert_flags jsonb NOT NULL DEFAULT '[]'::jsonb;
 
+-- author_role records the review AUTHOR's role (m108): the SUBJECT played the
+-- opposite role, so payout-risk inputs must filter WHERE author_role = 'buyer'
+-- to isolate reviews earned AS A SELLER. Buyer-role reputation (being a
+-- pleasant buyer) is not evidence a seller ships cards and must never move
+-- review_count/average_rating on settlement_account_risk_sources.
 CREATE TABLE IF NOT EXISTS settlement_account_review_sources (
   review_id text PRIMARY KEY,
   order_id text NOT NULL DEFAULT '',
   subject_account_id text NOT NULL,
+  author_role text NOT NULL DEFAULT '',
   rating integer NOT NULL,
   status text NOT NULL,
   updated_at timestamptz NOT NULL
@@ -70,7 +76,8 @@ CREATE INDEX IF NOT EXISTS settlement_account_review_sources_subject_idx
   ON settlement_account_review_sources (subject_account_id, status);
 
 ALTER TABLE settlement_account_review_sources
-  ADD COLUMN IF NOT EXISTS order_id text NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS order_id text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS settlement_order_trust_signal_sources (
   order_id text PRIMARY KEY,

@@ -43,6 +43,12 @@ describeDb("settlement money maturity query persistence boundary", () => {
     await seedWallet("acc_default_risk");
     await seedWallet("acc_linked_risk");
     await seedTrustedSeller("acc_linked_risk", { sharedInstrumentClusterCount: 1 });
+    // m108: review_count now reflects as-seller reviews only. A trusted,
+    // unlinked account whose reputation is entirely buyer-role (a heavy buyer with
+    // zero sales) still has review_count = 0 and must stay on the 7-day tier for
+    // its first sales, isolating that conjunct from trusted_seller/link risk.
+    await seedWallet("acc_trusted_buyer_only_reviews");
+    await seedTrustedSeller("acc_trusted_buyer_only_reviews", { reviewCount: 0, averageRating: null });
 
     await seedMaturityCandidate({
       ledgerEntryId: "led_ready_default_risk_long",
@@ -209,9 +215,26 @@ describeDb("settlement money maturity query persistence boundary", () => {
       postedDaysAgo: 8,
       deliveredDaysAgo: 8,
     });
+    await seedMaturityCandidate({
+      ledgerEntryId: "led_blocked_buyer_only_reviews_short",
+      accountId: "acc_trusted_buyer_only_reviews",
+      orderId: "ord_blocked_buyer_only_reviews_short",
+      amount: "40.00",
+      postedDaysAgo: 3,
+      deliveredDaysAgo: 3,
+    });
+    await seedMaturityCandidate({
+      ledgerEntryId: "led_ready_buyer_only_reviews_long",
+      accountId: "acc_trusted_buyer_only_reviews",
+      orderId: "ord_ready_buyer_only_reviews_long",
+      amount: "40.00",
+      postedDaysAgo: 8,
+      deliveredDaysAgo: 8,
+    });
 
     await expect(listPendingCreditEntriesMaturedBy(pool, { now })).resolves.toEqual([
       expect.objectContaining({ ledger_entry_id: "led_ready_balance_funded_long" }),
+      expect.objectContaining({ ledger_entry_id: "led_ready_buyer_only_reviews_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_default_risk_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_high_value_long" }),
       expect.objectContaining({ ledger_entry_id: "led_ready_inactive_hold" }),
@@ -270,8 +293,15 @@ describeDb("settlement money maturity query persistence boundary", () => {
 
   async function seedTrustedSeller(
     accountId: string,
-    risk: { sharedInstrumentClusterCount?: number; sharedAddressClusterCount?: number } = {},
+    risk: {
+      sharedInstrumentClusterCount?: number;
+      sharedAddressClusterCount?: number;
+      reviewCount?: number;
+      averageRating?: number | null;
+    } = {},
   ) {
+    const reviewCount = risk.reviewCount ?? 4;
+    const averageRating = risk.averageRating === undefined ? 4.75 : risk.averageRating;
     await pool.query(
       `INSERT INTO settlement_account_risk_sources (
          account_id,
@@ -283,8 +313,16 @@ describeDb("settlement money maturity query persistence boundary", () => {
          review_count,
          average_rating,
          updated_at
-       ) VALUES ($1, $2, TRUE, FALSE, $3, $4, 4, 4.75, $5)`,
-      [accountId, daysAgo(365), risk.sharedInstrumentClusterCount ?? 0, risk.sharedAddressClusterCount ?? 0, now],
+       ) VALUES ($1, $2, TRUE, FALSE, $3, $4, $5, $6, $7)`,
+      [
+        accountId,
+        daysAgo(365),
+        risk.sharedInstrumentClusterCount ?? 0,
+        risk.sharedAddressClusterCount ?? 0,
+        reviewCount,
+        averageRating,
+        now,
+      ],
     );
   }
 

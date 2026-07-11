@@ -51,6 +51,7 @@ describe("settlement account risk source projection", () => {
           reviewId: "rev_1",
           orderId: "ord_1",
           subjectAccountId: "acc_seller",
+          authorRole: "buyer",
           rating: 5,
           submittedAt: "2026-05-03T00:00:00.000Z",
         },
@@ -66,9 +67,13 @@ describe("settlement account risk source projection", () => {
     expect(db.query).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("INSERT INTO settlement_account_review_sources"),
-      ["rev_1", "ord_1", "acc_seller", 5, "2026-05-03T00:00:00.000Z"],
+      ["rev_1", "ord_1", "acc_seller", "buyer", 5, "2026-05-03T00:00:00.000Z"],
     );
     expect(db.query).toHaveBeenNthCalledWith(3, expect.stringContaining("review_count"), [
+      "acc_seller",
+      "2026-05-03T00:00:00.000Z",
+    ]);
+    expect(db.query).toHaveBeenNthCalledWith(3, expect.stringContaining("author_role = 'buyer'"), [
       "acc_seller",
       "2026-05-03T00:00:00.000Z",
     ]);
@@ -219,6 +224,7 @@ describe("settlement account risk source projection", () => {
           orderId: "ord_2",
           authorAccountId: "acc_reviewer",
           subjectAccountId: "acc_seller",
+          authorRole: "buyer",
           rating: 5,
           submittedAt: "2026-07-07T00:00:00.000Z",
         },
