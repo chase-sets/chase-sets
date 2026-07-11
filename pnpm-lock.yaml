@@ -1167,6 +1167,9 @@ importers:
       '@chase-sets/public-presence':
         specifier: workspace:*
         version: link:../../bounded-contexts/public-presence
+      '@chase-sets/settlement':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/settlement
       '@react-router/node':
         specifier: 7.14.0
         version: 7.14.0(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(typescript@7.0.2)

@@ -1,8 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createSettlementRequestApiClient,
   type SettlementPayoutRow,
@@ -31,21 +29,24 @@ type MoneyHealthData = Readonly<{
   }>;
 }>;
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "payouts.reconcile",
-  });
-  const settlementApi = createSettlementRequestApiClient(request);
-
-  return settlementApi.getMoneyHealth();
+export function resolveSettlementMarketplaceOrigin() {
+  const configured = process.env.CHASE_SETS_MARKETPLACE_ORIGIN?.trim();
+  return configured || null;
 }
 
-export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: t("settlement.routes.marketplace.accountMoneyHealth.money.health.marketplace") });
+export async function loader({ request }: LoaderFunctionArgs) {
+  const settlementApi = createSettlementRequestApiClient(request);
+  const data = (await settlementApi.getMoneyHealth()) as MoneyHealthData;
 
-export default function MarketplaceAccountMoneyHealthRoute() {
-  const data = useLoaderData<typeof loader>() as MoneyHealthData;
+  return { ...data, marketplaceOrigin: resolveSettlementMarketplaceOrigin() };
+}
+
+export const meta: MetaFunction = () => [
+  { title: t("settlement.routes.admin.moneyHealth.money.health.settlement.admin") },
+];
+
+export default function AdminMoneyHealthRoute() {
+  const data = useLoaderData<typeof loader>();
 
   return (
     <SettlementMoneyHealthPage
@@ -54,6 +55,7 @@ export default function MarketplaceAccountMoneyHealthRoute() {
       reconciliationRuns={data.reconciliation_runs}
       platformBalanceForecast={data.platform_balance_forecast}
       providerHealth={data.provider_health}
+      marketplaceOrigin={data.marketplaceOrigin}
     />
   );
 }

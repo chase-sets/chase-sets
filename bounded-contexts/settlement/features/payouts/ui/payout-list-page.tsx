@@ -107,7 +107,6 @@ export function SettlementPayoutListPage({
   payoutConfirmation,
   canRequestPayouts = false,
   canSetupPayouts = false,
-  showOperations = false,
   setupNotice = null,
 }: {
   wallet: SettlementWalletRow;
@@ -129,9 +128,9 @@ export function SettlementPayoutListPage({
   }> | null;
   canRequestPayouts?: boolean;
   canSetupPayouts?: boolean;
-  showOperations?: boolean;
   setupNotice?: string | null;
 }) {
+  const attentionCount = payouts.filter((row) => row.status === "failed").length;
   const setupFresh = Boolean(payoutReadiness?.updated_at);
   const canRequestPayout =
     canRequestPayouts &&
@@ -152,22 +151,22 @@ export function SettlementPayoutListPage({
         title={t("settlement.features.payouts.ui.payoutListPage.payouts")}
         description={t("settlement.features.payouts.ui.payoutListPage.request.payouts.from.your.available.wallet")}
         actions={
-          <Stack direction="row" gap={2}>
-            {showOperations ? (
-              <LinkButton href="/account/payout-operations" tone="secondary">
-                {t("settlement.features.payouts.ui.payoutListPage.operations")}
-              </LinkButton>
-            ) : null}
-            <LinkButton href="/account/settlement" tone="secondary">
-              {t("settlement.features.payouts.ui.payoutListPage.view.wallet")}
-            </LinkButton>
-          </Stack>
+          <LinkButton href="/account/settlement" tone="secondary">
+            {t("settlement.features.payouts.ui.payoutListPage.view.wallet")}
+          </LinkButton>
         }
       />
 
       {errorMessage ? (
         <Card>
           <Text>{errorMessage}</Text>
+        </Card>
+      ) : null}
+      {attentionCount > 0 ? (
+        <Card>
+          <Text weight="semibold">
+            {t("settlement.features.payouts.ui.payoutListPage.n.payouts.need.attention", { count: attentionCount })}
+          </Text>
         </Card>
       ) : null}
       {setupNotice ? (

@@ -182,6 +182,7 @@ const adminContextRouteSuiteOwnership = new Map([
   ["ordering", ["admin_commerce"]],
   ["platform-operations", ["admin_support", "admin_platform"]],
   ["public-presence", ["admin_growth"]],
+  ["settlement", ["admin_commerce"]],
 ]);
 
 const e2eSpecSuiteOwnership = [

@@ -1,8 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   type SettlementProviderIdempotencyKeyRow,
   type SettlementPayoutRow,
@@ -30,12 +28,12 @@ type ReconciliationJobSnapshot = Readonly<{
   errorMessage?: string | null;
 }>;
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "payouts.reconcile",
-  });
+export function resolveSettlementMarketplaceOrigin() {
+  const configured = process.env.CHASE_SETS_MARKETPLACE_ORIGIN?.trim();
+  return configured || null;
+}
 
+export async function loader({ request }: LoaderFunctionArgs) {
   const settlementApi = createSettlementRequestApiClient(request);
   const requestUrl = new URL(request.url);
   const filter = requestUrl.searchParams.get("filter") ?? "all";
@@ -46,15 +44,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
     settlementApi.getPayoutReadiness(),
   ]);
 
-  return { payouts, idempotencyKeys, payoutReadiness, filter };
+  return {
+    payouts,
+    idempotencyKeys,
+    payoutReadiness,
+    filter,
+    marketplaceOrigin: resolveSettlementMarketplaceOrigin(),
+  };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "payouts.reconcile",
-  });
-
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   if (intent !== "run-reconciliation") {
@@ -65,12 +64,11 @@ export async function action({ request }: ActionFunctionArgs) {
   return settlementApi.runPayoutReconciliation({ limit: 100 });
 }
 
-export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({
-    title: t("settlement.routes.marketplace.accountPayoutOperations.payout.operations.marketplace"),
-  });
+export const meta: MetaFunction = () => [
+  { title: t("settlement.routes.admin.payoutOperations.payout.operations.settlement.admin") },
+];
 
-export default function MarketplaceAccountPayoutOperationsRoute() {
+export default function AdminPayoutOperationsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData() as ReconciliationJobSnapshot | null;
 
@@ -82,6 +80,7 @@ export default function MarketplaceAccountPayoutOperationsRoute() {
       runResult={actionData}
       currentFilter={data.filter}
       lastCheckedAt={actionData ? new Date().toISOString() : null}
+      marketplaceOrigin={data.marketplaceOrigin}
     />
   );
 }

@@ -17,12 +17,21 @@ function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
 }
 
+function payoutDetailHref(payoutId: string, marketplaceOrigin?: string | null) {
+  if (!marketplaceOrigin) {
+    return null;
+  }
+
+  return new URL(`/account/payouts/${payoutId}`, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();
+}
+
 export function SettlementMoneyHealthPage({
   payouts,
   negativeBalanceAccounts,
   reconciliationRuns,
   platformBalanceForecast,
   providerHealth,
+  marketplaceOrigin,
 }: {
   payouts: readonly SettlementPayoutRow[];
   negativeBalanceAccounts: readonly SettlementWalletRow[];
@@ -40,6 +49,7 @@ export function SettlementMoneyHealthPage({
     platform_balance_supported: boolean;
     connected_account_payouts_supported: boolean;
   }>;
+  marketplaceOrigin?: string | null;
 }) {
   return (
     <Page>
@@ -50,7 +60,7 @@ export function SettlementMoneyHealthPage({
           "settlement.features.payouts.ui.moneyHealthPage.review.payout.demand.reconciliation.history.and",
         )}
         actions={
-          <LinkButton href="/account/payout-operations" tone="secondary">
+          <LinkButton href="/commerce/payout-operations" tone="secondary">
             {t("settlement.features.payouts.ui.moneyHealthPage.payout.operations")}
           </LinkButton>
         }
@@ -206,11 +216,21 @@ export function SettlementMoneyHealthPage({
             {
               key: "action",
               header: t("settlement.features.payouts.ui.moneyHealthPage.action"),
-              cell: (row) => (
-                <LinkButton href={`/account/payouts/${row.payout_id}`} tone="secondary" size="sm">
-                  {t("settlement.features.payouts.ui.moneyHealthPage.open")}
-                </LinkButton>
-              ),
+              cell: (row) => {
+                const href = payoutDetailHref(row.payout_id, marketplaceOrigin);
+                return href ? (
+                  <LinkButton
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    trailingIcon="externalLink"
+                    tone="secondary"
+                    size="sm"
+                  >
+                    {t("settlement.features.payouts.ui.moneyHealthPage.open")}
+                  </LinkButton>
+                ) : null;
+              },
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.moneyHealthPage.no.payout.issues")}

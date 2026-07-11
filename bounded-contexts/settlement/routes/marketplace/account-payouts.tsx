@@ -64,7 +64,6 @@ function accountAccessRequired(returnTo: string) {
     payoutReadiness: null,
     canRequestPayouts: false,
     canSetupPayouts: false,
-    canReconcilePayouts: false,
     setupNotice: null,
   };
 }
@@ -119,7 +118,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
     payoutReadiness,
     canRequestPayouts: actor.permissions.includes("payouts.request"),
     canSetupPayouts: actor.permissions.includes("payouts.setup"),
-    canReconcilePayouts: actor.permissions.includes("payouts.reconcile"),
     setupNotice:
       requestUrl.searchParams.get("setup") === "updated"
         ? t("settlement.routes.marketplace.accountPayouts.payout.setup.status.was.refreshed")
@@ -244,7 +242,6 @@ export default function MarketplaceAccountPayoutsRoute() {
       payoutConfirmation={actionData?.confirmation ?? null}
       canRequestPayouts={data.canRequestPayouts}
       canSetupPayouts={data.canSetupPayouts}
-      showOperations={data.canReconcilePayouts}
       setupNotice={actionData?.setupNotice ?? data.setupNotice}
     />
   );

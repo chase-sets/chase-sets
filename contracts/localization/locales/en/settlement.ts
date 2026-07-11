@@ -344,8 +344,8 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutListPage.note.2": "Note",
   "settlement.features.payouts.ui.payoutListPage.note.summary": "Note: {note}",
   "settlement.features.payouts.ui.payoutListPage.on.the.way": "On the way",
+  "settlement.features.payouts.ui.payoutListPage.n.payouts.need.attention": "{count} payouts need attention",
   "settlement.features.payouts.ui.payoutListPage.open": "Open",
-  "settlement.features.payouts.ui.payoutListPage.operations": "Operations",
   "settlement.features.payouts.ui.payoutListPage.optional.memo": "Optional memo",
   "settlement.features.payouts.ui.payoutListPage.paid": "Paid",
   "settlement.features.payouts.ui.payoutListPage.payout.account": "Payout account",
@@ -374,7 +374,6 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutOperationsPage.amount": "Amount",
   "settlement.features.payouts.ui.payoutOperationsPage.account.cannot.request.payouts.until":
     "Account payouts stay blocked until setup is ready",
-  "settlement.features.payouts.ui.payoutOperationsPage.back.to.payouts": "Back to payouts",
   "settlement.features.payouts.ui.payoutOperationsPage.checked": "Checked ",
   "settlement.features.payouts.ui.payoutOperationsPage.confirmed": "Confirmed",
   "settlement.features.payouts.ui.payoutOperationsPage.count": "Count",
@@ -539,7 +538,8 @@ export const settlementEnglishTranslations = {
     "Track your pending and available balances, and review all ledger activity.",
   "settlement.features.wallets.ui.walletPage.view.payouts": "View payouts",
   "settlement.features.wallets.ui.walletPage.wallet": "Wallet",
-  "settlement.routes.marketplace.accountMoneyHealth.money.health.marketplace": "Money Health | Marketplace",
+  "settlement.routes.admin.moneyHealth.money.health.settlement.admin": "Money Health | Settlement Admin",
+  "settlement.routes.admin.payoutOperations.payout.operations.settlement.admin": "Payout Operations | Settlement Admin",
   "settlement.routes.marketplace.accountPayout.payout.marketplace": "Payout | Marketplace",
   "settlement.routes.marketplace.accountPayout.payout.not.found": "Payout not found.",
   "settlement.routes.marketplace.accountPayout.payout.preparing": "Preparing payout",
@@ -560,8 +560,6 @@ export const settlementEnglishTranslations = {
   "settlement.routes.marketplace.accountPayoutSetup.use.an.account.with.payout.setup.access":
     "Choose an account with payout setup access to continue. If this is the wrong account, use a different sign-in and return to this page.",
   "settlement.routes.marketplace.accountPayoutSetup.view.account": "View account",
-  "settlement.routes.marketplace.accountPayoutOperations.payout.operations.marketplace":
-    "Payout Operations | Marketplace",
   "settlement.routes.marketplace.accountPayouts.account.access": "Account access",
   "settlement.routes.marketplace.accountPayouts.account.access.required.description":
     "This signed-in account can browse the marketplace, but it is not authorized to view or request payouts.",
