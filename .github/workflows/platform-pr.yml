@@ -1294,6 +1294,11 @@ jobs:
     name: Compose Boot Smoke
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Job-level so every docker compose invocation (boot, status, logs,
+      # teardown) can interpolate docker-compose.pr-smoke.yml -- a step-level
+      # value here broke the diagnostic steps on the first real run.
+      CHASE_SETS_COMPOSE_SMOKE_IMAGE: chase-sets-platform:compose-smoke
     # #4864: app-code PRs that would previously have earned a full
     # chase-sets-pr-<n> cluster preview (dockerImageRequired) but do not
     # touch a deploy surface (cluster_preview) get this cheaper compose
@@ -1345,8 +1350,6 @@ jobs:
         run: node ./scripts/platform-compose-smoke.mjs render-env-all --out-dir artifacts/compose-smoke/env
 
       - name: Boot compose stack
-        env:
-          CHASE_SETS_COMPOSE_SMOKE_IMAGE: chase-sets-platform:compose-smoke
         run: docker compose -f docker-compose.pr-smoke.yml up --detach --wait --wait-timeout 300
 
       - name: Compose service status
