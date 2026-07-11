@@ -94,11 +94,11 @@ Revisit trigger: compliance or revenue exposure requires bucket-loss recovery, a
 
 ## Preview Hosts
 
-Each pull request receives its own `pr-<number>` preview environment:
+Each pull request receives its own `pr-<number>` preview environment. Every preview host is a single label under `preview.chasesets.com` (#4857) so the one shared `*.preview.chasesets.com` wildcard certificate covers all of them:
 
 - `pr-<number>.preview.chasesets.com`: landing `public-web`.
-- `marketplace.pr-<number>.preview.chasesets.com`: marketplace web.
-- `admin.pr-<number>.preview.chasesets.com`: admin web.
+- `pr-<number>-marketplace.preview.chasesets.com`: marketplace web.
+- `pr-<number>-admin.preview.chasesets.com`: admin web.
 
 Preview app components:
 
@@ -109,11 +109,16 @@ Preview app components:
 
 The preview workflow deploys these components with the platform Helm chart into namespace/release `chase-sets-pr-<number>`. The chart enables `previewPostgres` only for `DEPLOYMENT_ENVIRONMENT=preview`; runtime secret generation creates the disposable Postgres credentials and per-context database URLs, and bootstrap creates the preview databases/users before schema reconciliation. The workflow deletes and recreates the preview namespace before deploy, so teardown removes the Postgres Deployment, Service, Secrets, and all preview data. Preview workflows must not apply the platform Terraform root or create `chase-sets-pr-<number>-postgres` DigitalOcean managed database clusters. The preview Helm deploy pins every preview workload, including the in-cluster preview Postgres, to the dedicated staging `preview` node pool with a `chase-sets.com/pool=preview` nodeSelector and the matching `chase-sets.com/preview-only` taint toleration; the pool itself is defined in the DOKS foundation root (see [DOKS Platform Operations](./doks-platform-operations.md)).
 
-### Preview DNS
+### Preview DNS And TLS
 
-A single `*.preview.chasesets.com` wildcard only matches one label, so it covers the apex host `pr-<number>.preview.chasesets.com` but never the two-label app hosts `admin.pr-<number>.preview.chasesets.com` and `marketplace.pr-<number>.preview.chasesets.com`. Before the Helm deploy creates the Ingress (so cert-manager's ACME HTTP-01 challenge resolves) and before the ingress-readiness wait, the deploy publishes this preview's own `pr-<number>.preview.chasesets.com` apex A record and a `*.pr-<number>.preview.chasesets.com` wildcard, both pointing at the DOKS ingress load balancer. The target IPv4 comes from the `DOKS_INGRESS_TARGET` repository variable and falls back to the live ingress-nginx controller Service load balancer IP; it is never hardcoded. These records are created outside Terraform (`scripts/digitalocean-preview-cleanup-sweep.mjs apply-dns`), so Terraform destroy does not remove them: the preview cleanup workflow deletes them on PR close and the daily closed-PR sweep treats any leftover `pr-<number>` apex or wildcard record as a cleanup target, symmetric with leaked managed database clusters.
+Preview hosts are single-label (`pr-<number>`, `pr-<number>-marketplace`, `pr-<number>-admin`) under `preview.chasesets.com`, so ONE shared `*.preview.chasesets.com` DNS wildcard A record and ONE shared `*.preview.chasesets.com` TLS certificate cover every preview, present and future (#4857). Neither is created per-PR:
 
-Because DNS only goes live at deploy time, cert-manager can only start ACME HTTP-01 validation then, and issuing the `pr-<number>-platform-tls` certificate (SANs for the landing, marketplace, and admin hosts) across all three hosts takes several minutes for a cold preview. The deploy therefore blocks on `kubectl wait --for=condition=Ready certificate/pr-<number>-platform-tls` (up to 10 minutes) before the https ingress-readiness probes, so those probes then pass quickly; the admin and marketplace `/health/ready` https checks remain the final end-to-end gate proving TLS, routing, and app health. On certificate timeout the step dumps `kubectl describe certificate` plus certificaterequest/order/challenge states for diagnosis.
+- **DNS**: a single wildcard A record at `preview.chasesets.com`, pointing at the DOKS ingress load balancer, applied once (idempotently — re-running is a safe no-op unless the load balancer IP changed) by `node ./scripts/digitalocean-preview-cleanup-sweep.mjs apply-shared-dns --target <load-balancer-ipv4>` as part of the DOKS foundation bootstrap in [DOKS Platform Operations](./doks-platform-operations.md#ingress-controller-cert-manager-and-load-balancer). No preview deploy touches DNS.
+- **TLS**: a single wildcard `Certificate` for `*.preview.chasesets.com`, rendered by `infrastructure/helm/doks-ingress` (`previewWildcardCertificate`), issued via cert-manager's ACME DNS-01 solver (the only way to legally prove a wildcard name) into the stable `cert-manager` namespace as Secret `preview-wildcard-tls`. Each preview deploy copies that ONE secret into its own `chase-sets-pr-<number>` namespace before `helm upgrade --install` (`copyPreviewWildcardTlsSecret` in `scripts/platform-kubernetes-deployment.mjs`) and points the preview Ingress's `tls.secretName` at the copy, with no `cert-manager.io/cluster-issuer` annotation — so a preview deploy performs zero ACME issuance. A high-throughput PR day that used to issue one certificate per preview namespace exhausted Let's Encrypt's 50-certificates-per-168h-per-domain quota and blocked every PR behind "PR Required" for three hours; this shared-secret design makes that structurally impossible regardless of merge velocity.
+
+Because the wildcard secret already exists (bootstrapped once, renewed automatically by cert-manager thereafter), the deploy step that used to block up to 10 minutes on `kubectl wait --for=condition=Ready certificate/pr-<number>-platform-tls` is now a fast presence check (`kubectl get secret/preview-wildcard-tls`) run immediately after deploy, not a poll. If the copy step cannot find the shared secret it fails the deploy immediately with a message pointing at the bootstrap command above, rather than deploying a preview with dead TLS.
+
+If the shared certificate ever needs to re-issue (renewal, or the DNS-01 order hits a transient Let's Encrypt rate limit and is retrying), diagnose it in the `cert-manager` namespace, not a preview namespace: `kubectl describe certificate preview-wildcard -n cert-manager` and `kubectl describe order -n cert-manager` (cert-manager auto-retries a `rateLimited` order until it succeeds; that is expected and does not require operator action). Staging and production keep their existing per-environment `letsencrypt-production` HTTP-01 issuance, entirely unaffected by this change.
 
 In staging and production, `platform-bootstrap` runs only the long-lived data profiles: `critical-bootstrap` and `catalog-integration-bootstrap`. Bootstrap receives `DEPLOYMENT_ENVIRONMENT=<environment>` so staging and production policy checks evaluate the same environment identity used by runtime services. Bootstrap reconciles schemas, required operating data, and Catalog integration structure. It does not run host-level projection, subscription, outbox, job, or Catalog seed projector drains in these long-lived environments; worker components own that catch-up after deployment. Preview keeps the full bootstrap drain because `scenario-seed` depends on cross-context scenario projections and local Catalog read models. Staging representative marketplace data is handled separately through the `representative-commerce-state` operator flow described in [Staging Representative Commerce State](./staging-representative-commerce-state.md); it is not part of ordinary deployment bootstrap and is blocked in production.
 
@@ -275,7 +280,7 @@ Preview and staging Terraform validation requires test-mode provider values:
 
 - `STRIPE_SECRET_KEY` starts with `sk_test`.
 - `STRIPE_PUBLISHABLE_KEY` starts with `pk_test`.
-- Preview uses `https://marketplace.pr-<number>.preview.chasesets.com/account/payouts` and `https://marketplace.pr-<number>.preview.chasesets.com/account/payouts/setup`.
+- Preview uses `https://pr-<number>-marketplace.preview.chasesets.com/account/payouts` and `https://pr-<number>-marketplace.preview.chasesets.com/account/payouts/setup`.
 - Staging uses `https://marketplace.staging.chasesets.com/account/payouts` and `https://marketplace.staging.chasesets.com/account/payouts/setup`.
 - `EASYPOST_API_KEY` starts with `EZTK`.
 - `EASYPOST_MODE` is `test`.
@@ -494,11 +499,10 @@ The workflow:
 3. Configures `kubectl` for the shared staging DOKS cluster.
 4. Deletes and recreates namespace `chase-sets-pr-<number>` so stale runtime objects and preview database state cannot carry forward.
 5. Applies preview runtime secrets, including the in-cluster Postgres superuser and application credentials.
-6. Publishes the per-preview `pr-<number>.preview.chasesets.com` apex A record and `*.pr-<number>.preview.chasesets.com` wildcard at the DOKS ingress load balancer so ACME HTTP-01 and the app hosts resolve.
-7. Deploys the platform Helm release with `previewPostgres.enabled=true`, the pushed image digest, and preview ingress hosts under `pr-<number>.preview.chasesets.com`.
-8. Waits (up to 10 minutes) for the cert-manager Certificate `pr-<number>-platform-tls` to become Ready before probing https, dumping `kubectl describe certificate` and challenge states on timeout.
-9. Waits for preview ingress hosts to become reachable over https and fails with Kubernetes diagnostics if rollout does not complete.
-10. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict preview smoke requirements.
+6. Copies the shared `preview-wildcard-tls` Secret (the ONE `*.preview.chasesets.com` certificate, bootstrapped once — see [Preview DNS And TLS](#preview-dns-and-tls)) from the `cert-manager` namespace into this preview's namespace, then deploys the platform Helm release with `previewPostgres.enabled=true`, the pushed image digest, and single-label preview ingress hosts (`pr-<number>[.,-marketplace.,-admin.]preview.chasesets.com`) pointing at that copied secret. No ACME issuance happens in this step or anywhere else in a preview deploy.
+7. Verifies the copied TLS secret is present (a fast presence check, not a poll — the copy in the previous step already failed loudly if the shared secret was missing).
+8. Waits for preview ingress hosts to become reachable over https and fails with Kubernetes diagnostics if rollout does not complete.
+9. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict preview smoke requirements.
 
 The preview Kubernetes workloads share the same runtime image and differ only by run command, environment, scaling, health checks, and ingress routing. Staging and production App Platform components keep their existing managed database paths until their own DOKS cutover work explicitly changes them.
 
