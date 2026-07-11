@@ -42,6 +42,14 @@ export const marketplaceEnglishTranslations = {
   "marketplace.app.routes.sitemap.xml.version.1.0.encoding.utf": '<?xml version="1.0" encoding="UTF-8"?>',
   "marketplace.app.seo.browse.the.chase.sets.marketplace.with":
     "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.",
+  "marketplace.features.listings.api.listingGatePolicyRoute.authentication.context.missing":
+    "Authentication context missing.",
+  "marketplace.features.listings.api.listingGatePolicyRoute.authentication.context.missing.2":
+    "Authentication context missing.",
+  "marketplace.features.listings.api.listingGatePolicyRoute.authentication.required": "Authentication required.",
+  "marketplace.features.listings.api.listingGatePolicyRoute.document.not.found": "Policy document not found.",
+  "marketplace.features.listings.api.listingGatePolicyRoute.forbidden": "Forbidden.",
+  "marketplace.features.listings.api.listingGatePolicyRoute.request.failed": "Request failed.",
   "marketplace.features.listings.api.route.authentication.context.missing": "Authentication context missing.",
   "marketplace.features.listings.api.route.authentication.context.missing.2": "Authentication context missing.",
   "marketplace.features.listings.api.route.authentication.context.missing.3": "Authentication context missing.",

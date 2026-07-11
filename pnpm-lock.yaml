@@ -567,6 +567,9 @@ importers:
       '@chase-sets/platform-operations':
         specifier: workspace:*
         version: link:../platform-operations
+      '@chase-sets/platform-policy':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-policy
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime

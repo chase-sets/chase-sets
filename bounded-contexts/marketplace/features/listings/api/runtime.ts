@@ -31,6 +31,7 @@ import {
   type MarketplaceListingEvent,
   type MarketplaceListingState,
 } from "../domain/domain";
+import { marketplaceListingGatePolicy, type MarketplaceListingGatePolicyValue } from "../domain/listing-gate-policy";
 import { normalizeListingPhoto } from "./listing-photo-normalization";
 import {
   decideSellerListingAvailability,
@@ -60,12 +61,7 @@ import {
 
 const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as TenantId;
 const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as UserId;
-const MAX_LISTING_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const HIGH_DOLLAR_LISTING_AMOUNT = 250;
-const MIN_TRUSTED_REPUTATION_REVIEWS = 3;
-const ANONYMOUS_LISTING_DRAFT_TTL_MS = 1000 * 60 * 60 * 24 * 30;
-const MAX_ACTIVE_ANONYMOUS_LISTING_DRAFTS = 20;
 
 function createMarketplaceSystemContext(accountId: string): EventStoreContext {
   return {
@@ -375,6 +371,20 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     decide: decideSellerListingAvailability,
   });
 
+  /**
+   * Resolves the marketplace listing-gate policy currently in effect. When
+   * no `policies` runtime is wired (standalone/test usage) this falls back
+   * to the compiled launch values -- an empty or absent policy table can
+   * never break listing creation or publication.
+   */
+  async function resolveListingGatePolicy(): Promise<MarketplaceListingGatePolicyValue> {
+    if (!deps.policies) {
+      return marketplaceListingGatePolicy.defaultValue;
+    }
+    const resolved = await deps.policies.resolvePolicy(marketplaceListingGatePolicy);
+    return resolved.value;
+  }
+
   async function ensureActiveCapacity(
     inventoryItemId: string,
     requestedQuantityCap: number,
@@ -446,7 +456,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
   async function assertListingPublicationRiskAccepted(listing: MarketplaceListingState) {
     const priceAmount = Number.parseFloat(listing.priceAmount ?? "0");
-    if (!Number.isFinite(priceAmount) || priceAmount < HIGH_DOLLAR_LISTING_AMOUNT) {
+    const gatePolicy = await resolveListingGatePolicy();
+    const highDollarListingAmount = Number.parseFloat(gatePolicy.highDollarListingAmount);
+    if (!Number.isFinite(priceAmount) || priceAmount < highDollarListingAmount) {
       return;
     }
 
@@ -455,7 +467,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const badges = new Set(accountRisk.badges);
     const trusted =
       badges.has("trusted-seller") ||
-      (accountRisk.review_count >= MIN_TRUSTED_REPUTATION_REVIEWS && !badges.has("manual-payout-review"));
+      (accountRisk.review_count >= gatePolicy.minTrustedReputationReviews && !badges.has("manual-payout-review"));
 
     assert(
       listing.listingPhotos.length > 0,
@@ -522,6 +534,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     assert(catalogItemId, "Listing draft catalog item is required.");
     assert(productId, "Listing draft product is required.");
 
+    const gatePolicy = await resolveListingGatePolicy();
+
     await expireAnonymousListingDraftIntents(anonymousOwnerId);
 
     const existingResult = await deps.db.query<AnonymousListingDraftIntentRow>(
@@ -553,7 +567,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       ],
     );
 
-    const expiresAt = new Date(Date.now() + ANONYMOUS_LISTING_DRAFT_TTL_MS).toISOString();
+    const anonymousListingDraftTtlMs = gatePolicy.anonymousListingDraftTtlDays * 24 * 60 * 60 * 1000;
+    const expiresAt = new Date(Date.now() + anonymousListingDraftTtlMs).toISOString();
 
     if (existingResult.rows[0]) {
       const result = await deps.db.query<AnonymousListingDraftIntentRow>(
@@ -579,7 +594,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       [anonymousOwnerId],
     );
     assert(
-      Number(countResult.rows[0]?.count ?? 0) < MAX_ACTIVE_ANONYMOUS_LISTING_DRAFTS,
+      Number(countResult.rows[0]?.count ?? 0) < gatePolicy.maxActiveAnonymousListingDrafts,
       "Too many saved listing drafts. Review or finish registration before saving another listing draft.",
     );
 
@@ -675,13 +690,18 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     }
     assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
 
+    const gatePolicy = await resolveListingGatePolicy();
+    const maxListingPhotoUploadMb = gatePolicy.maxListingPhotoUploadBytes / (1024 * 1024);
     const generatedAt = new Date().toISOString();
     const photos: MarketplaceListingPhoto[] = [];
     for (const [index, upload] of params.listingPhotoUploads.entries()) {
       const contentType = upload.contentType.toLowerCase();
       assert(LISTING_PHOTO_UPLOAD_CONTENT_TYPES.has(contentType), "Listing photos must be JPEG, PNG, or WebP images.");
       assert(upload.body.byteLength > 0, "Listing photo uploads cannot be empty.");
-      assert(upload.body.byteLength <= MAX_LISTING_PHOTO_UPLOAD_BYTES, "Listing photo uploads cannot exceed 10 MB.");
+      assert(
+        upload.body.byteLength <= gatePolicy.maxListingPhotoUploadBytes,
+        `Listing photo uploads cannot exceed ${maxListingPhotoUploadMb} MB.`,
+      );
 
       const photoId = createId("lpho");
       photos.push(

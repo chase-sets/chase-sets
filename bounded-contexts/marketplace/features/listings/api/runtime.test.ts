@@ -1121,4 +1121,228 @@ describe("marketplace listing runtime", () => {
       ),
     ).rejects.toThrow("Listing quantity caps cannot exceed available listing stock.");
   });
+
+  it("blocks high-dollar publication using a revised (lower) listing-gate policy threshold from the injected platform-policy runtime", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                product_measure_snapshot: productMeasureSnapshot,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+
+        if (sql.includes("FROM marketplace_account_pages")) {
+          return { rows: [{ account_id: "acc_seller", badges: [], review_count: 0, average_rating: null }] };
+        }
+
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const resolvePolicy = vi.fn(async () => ({
+      policyKey: "marketplace.listing-gate",
+      value: {
+        highDollarListingAmount: "50.00",
+        minTrustedReputationReviews: 3,
+        maxActiveAnonymousListingDrafts: 20,
+        anonymousListingDraftTtlDays: 30,
+        maxListingPhotoUploadBytes: 10 * 1024 * 1024,
+      },
+      source: "policy" as const,
+      documentId: "pol_listing_gate",
+      effectiveFrom: "2026-04-01T00:00:00.000Z",
+      effectiveUntil: null,
+      resolvedAt: "2026-04-17T00:00:00.000Z",
+    }));
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "5.00",
+          sellerNetUnitAmount: "95.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        })),
+      } as never,
+      policies: { resolvePolicy } as never,
+    });
+
+    // $100 is below the compiled $250 default but at/above the revised $50 threshold.
+    const created = await services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "100.00",
+        quantityCap: 1,
+        listingIdOverride: "lst_revised_threshold" as never,
+      },
+      context,
+    );
+
+    await expect(
+      services.publishListing(
+        {
+          accountId: "acc_seller",
+          listingId: "lst_revised_threshold",
+          feeQuoteFingerprint: created.feeQuoteFingerprint,
+        },
+        context,
+      ),
+    ).rejects.toThrow("High-dollar listings require at least one listing photo before publication.");
+    expect(resolvePolicy).toHaveBeenCalledWith(expect.objectContaining({ policyKey: "marketplace.listing-gate" }));
+  });
+
+  it("allows a $100 listing to publish under the compiled default listing-gate threshold when no policies runtime is wired", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                product_measure_snapshot: productMeasureSnapshot,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "5.00",
+          sellerNetUnitAmount: "95.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        })),
+      } as never,
+    });
+
+    const created = await services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "100.00",
+        quantityCap: 1,
+        listingIdOverride: "lst_default_threshold" as never,
+      },
+      context,
+    );
+
+    await expect(
+      services.publishListing(
+        {
+          accountId: "acc_seller",
+          listingId: "lst_default_threshold",
+          feeQuoteFingerprint: created.feeQuoteFingerprint,
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ listingId: "lst_default_threshold" });
+  });
+
+  it("enforces a revised (lower) anonymous listing draft cap from the injected platform-policy runtime", async () => {
+    const { db } = createDraftIntentDb();
+    const resolvePolicy = vi.fn(async () => ({
+      policyKey: "marketplace.listing-gate",
+      value: {
+        highDollarListingAmount: "250.00",
+        minTrustedReputationReviews: 3,
+        maxActiveAnonymousListingDrafts: 1,
+        anonymousListingDraftTtlDays: 30,
+        maxListingPhotoUploadBytes: 10 * 1024 * 1024,
+      },
+      source: "policy" as const,
+      documentId: "pol_listing_gate",
+      effectiveFrom: "2026-04-01T00:00:00.000Z",
+      effectiveUntil: null,
+      resolvedAt: "2026-04-17T00:00:00.000Z",
+    }));
+    const { eventStore } = createInMemoryEventStore();
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(),
+      } as never,
+      policies: { resolvePolicy } as never,
+    });
+
+    await services.createAnonymousListingDraftIntent({
+      anonymousOwnerId: "anon_capped_draft",
+      sourcePath: "/items/charizard?market=sell",
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      selectedOptions: [],
+      priceAmount: "20.00",
+      quantityCap: 1,
+    });
+
+    await expect(
+      services.createAnonymousListingDraftIntent({
+        anonymousOwnerId: "anon_capped_draft",
+        sourcePath: "/items/blastoise?market=sell",
+        catalogItemId: "cat_blastoise",
+        productId: "cat_blastoise::form:raw",
+        selectedOptions: [],
+        priceAmount: "30.00",
+        quantityCap: 1,
+      }),
+    ).rejects.toThrow(
+      "Too many saved listing drafts. Review or finish registration before saving another listing draft.",
+    );
+    expect(resolvePolicy).toHaveBeenCalledWith(expect.objectContaining({ policyKey: "marketplace.listing-gate" }));
+  });
 });

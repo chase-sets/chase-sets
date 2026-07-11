@@ -7,6 +7,7 @@ import {
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { ListingPhotoStorage } from ".";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
@@ -25,6 +26,8 @@ export type MarketplaceServices = Readonly<{
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
   reports: ReturnType<typeof createMarketplaceReportRuntime>;
   reviews: ReturnType<typeof createReviewRuntime>;
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (listing-gate policy). */
+  policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   commercialTermsResolver: CommercialTermsResolver;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
@@ -43,11 +46,13 @@ export function createMarketplaceServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const commercialTermsResolver = options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db);
+  const policies = createPolicyRuntime({ eventStore, db });
   const deps = {
     eventStore,
     checkpointStore,
     db,
     commercialTermsResolver,
+    policies,
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
@@ -66,7 +71,8 @@ export function createMarketplaceServices(
     offers,
     reports,
     reviews,
-    projectors: [...listings.projectors, ...offers.projectors, ...reviews.projectors],
+    policies,
+    projectors: [...listings.projectors, ...offers.projectors, ...reviews.projectors, ...policies.projectors],
     commercialTermsResolver,
     rateLimitPolicyResolver: options.rateLimitPolicyResolver,
     pool,

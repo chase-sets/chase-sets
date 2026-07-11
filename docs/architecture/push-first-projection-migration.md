@@ -99,6 +99,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-review-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
 | `marketplace:marketplace-review-support-source-projection` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-settlement-negative-balance-projection` | Marketplace | **settlement** | push-enabled | 1/1 |
+| `marketplace:platform-policy-document-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `notifications:notifications-source-facts-outbox-projection` | Notifications | fulfillment, **ordering** | push-eligible | 1/2 |
 | `ordering:ordering-account-projection` | Ordering | **identity** | push-enabled | 1/1 |
 | `ordering:ordering-fulfillment-cancellation-inputs` | Ordering | fulfillment | push-eligible | 0/1 |
@@ -139,7 +140,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 85 `push-enabled`, 15 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 86 `push-enabled`, 15 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (70)
 

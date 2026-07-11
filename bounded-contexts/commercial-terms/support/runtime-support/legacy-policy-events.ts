@@ -6,7 +6,7 @@ import type {
 } from "@chase-sets/platform-policy/domain";
 import { commercialTermsAgreementPolicyKey, commercialTermsSchedulePolicyKey } from "./terms-policy";
 import type { CommercialTermsAgreementPolicyValue, CommercialTermsSchedulePolicyValue } from "./terms-policy";
-import type { CommercialAccountType } from "./common";
+import { DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS, type CommercialAccountType } from "./common";
 
 /**
  * Pre-convergence event shapes. These are immutable history -- streams already
@@ -85,8 +85,6 @@ export type LegacyCommercialTermsPolicyEvent =
   | LegacyAgreementCreatedEvent
   | LegacyAgreementRevisedEvent;
 
-const DEFAULT_SHIPPING_ALLOWANCE_BPS = 500;
-
 export function upcastLegacyScheduleCreated(
   event: LegacyScheduleCreatedEvent,
   fallbackActorUserId: string,
@@ -96,7 +94,8 @@ export function upcastLegacyScheduleCreated(
     accountType: event.data.accountType,
     marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
     marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,
-    shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_BPS,
+    shippingAllowancePercentageBps:
+      event.data.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   };
 
   return {
@@ -147,7 +146,8 @@ export function upcastLegacyAgreementCreated(
     accountId: event.data.accountId,
     marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
     marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,
-    shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_BPS,
+    shippingAllowancePercentageBps:
+      event.data.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   };
 
   return {

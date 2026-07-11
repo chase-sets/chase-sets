@@ -4,6 +4,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createCommercialTermsResolver, type CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { MarketplaceServices } from "./support/runtime-support/services";
 import { createPublicListingRoutes, createAccountListingRoutes } from "./features/listings/api/route";
+import { createListingGatePolicyRoutes } from "./features/listings/api/listing-gate-policy-route";
 import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./features/offers/api/route";
 import { createMarketplaceReportRoutes } from "./features/reports/api/route";
 
@@ -23,6 +24,7 @@ export function buildMarketplaceApi(services: MarketplaceServices) {
   app.route("/account", createAccountOfferMatchRoutes(services.offers));
   app.route("/", createPublicListingRoutes(services.listings, services.rateLimitPolicyResolver));
   app.route("/", createMarketplaceReportRoutes(services.reports));
+  app.route("/listing-gate-policy", createListingGatePolicyRoutes(services.policies));
 
   return app;
 }

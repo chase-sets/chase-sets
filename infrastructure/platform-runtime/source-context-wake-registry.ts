@@ -413,6 +413,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-listing-projection",
       "marketplace:marketplace-offer-projection",
       "marketplace:marketplace-review-projection",
+      "marketplace:platform-policy-document-projection",
       "ordering:ordering-marketplace-offer-acceptance",
       "ordering:ordering-marketplace-supply-input-projection",
       "ordering:ordering-order-review-opportunity-projection",

@@ -266,6 +266,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "marketplace-settlement-negative-balance-projection",
       "sourceContextNames": ["settlement"],
       "ownedTables": [],
@@ -854,6 +861,23 @@
           "bounded-contexts/marketplace/tests/account-listing-route.test.ts",
           "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
         ]
+      }
+    },
+    {
+      "id": "marketplace.listing-gate-policy-api-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/listings/api/listing-gate-policy-route.ts:POST /",
+        "api-route:bounded-contexts/marketplace/features/listings/api/listing-gate-policy-route.ts:PUT /:id"
+      ],
+      "visibleDestination": {
+        "description": "The listing-gate policy create/revise routes are the shared platform-policy document commands and respond with the command-local id/version snapshot before any projection read -- no browser destination exists for this policy yet (admin UI is tracked as follow-up work), matching the settlement clearance-window/payout-bounds precedent (m110 #4285/#4287)."
+      },
+      "proof": {
+        "authoritativeResponse": "createListingGatePolicyRoutes responds from the platform-policy runtime's createPolicyDocument/revisePolicyDocument command result, never from a projection read.",
+        "tests": ["bounded-contexts/marketplace/features/listings/api/listing-gate-policy-route.test.ts"]
       }
     },
     {
