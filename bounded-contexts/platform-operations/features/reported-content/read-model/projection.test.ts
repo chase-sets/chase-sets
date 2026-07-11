@@ -166,4 +166,83 @@ describe("reported content projection", () => {
       last_action_by_user_id: "usr_ops",
     });
   });
+
+  it("maps review-scoped moderation actions to review-specific queue statuses (m108, #4269)", async () => {
+    const db = createDb();
+    const handlers = buildReportedContentProjectionHandlers(db);
+
+    await handlers["marketplace.report.submitted"]!(
+      event(
+        "marketplace.report.submitted",
+        {
+          reportId: "rpt_1",
+          targetType: "review",
+          targetId: "rev_1",
+          targetOwnerAccountId: "acc_seller",
+          reporterKind: "account",
+          reporterKey: "account:acc_buyer",
+          reporterAccountId: "acc_buyer",
+          reason: "other",
+          details: "Abusive language in the feedback.",
+          submittedAt: "2026-07-07T00:00:00.000Z",
+        },
+        "marketplace.report-review-rev_1-account:acc_buyer",
+      ),
+    );
+
+    await handlers["platform-operations.reported-content.action-recorded"]!(
+      event(
+        "platform-operations.reported-content.action-recorded",
+        {
+          targetType: "review",
+          targetId: "rev_1",
+          action: "withdraw-review",
+          note: "Abusive language.",
+          operatorUserId: "usr_ops",
+          recordedAt: "2026-07-07T01:00:00.000Z",
+        },
+        "platform-operations.reported-content-review-rev_1",
+      ),
+    );
+
+    expect(db.rows.get("review:rev_1")).toMatchObject({
+      status: "review-withdrawn",
+      last_action: "withdraw-review",
+      last_action_note: "Abusive language.",
+    });
+
+    await handlers["platform-operations.reported-content.action-recorded"]!(
+      event(
+        "platform-operations.reported-content.action-recorded",
+        {
+          targetType: "review",
+          targetId: "rev_1",
+          action: "redact-review-feedback",
+          note: "PII in the text.",
+          operatorUserId: "usr_ops",
+          recordedAt: "2026-07-07T02:00:00.000Z",
+        },
+        "platform-operations.reported-content-review-rev_1",
+      ),
+    );
+
+    expect(db.rows.get("review:rev_1")).toMatchObject({ status: "review-feedback-redacted" });
+
+    await handlers["platform-operations.reported-content.action-recorded"]!(
+      event(
+        "platform-operations.reported-content.action-recorded",
+        {
+          targetType: "review",
+          targetId: "rev_1",
+          action: "withdraw-review-reply",
+          note: "Reply contained PII.",
+          operatorUserId: "usr_ops",
+          recordedAt: "2026-07-07T03:00:00.000Z",
+        },
+        "platform-operations.reported-content-review-rev_1",
+      ),
+    );
+
+    expect(db.rows.get("review:rev_1")).toMatchObject({ status: "review-reply-withdrawn" });
+  });
 });

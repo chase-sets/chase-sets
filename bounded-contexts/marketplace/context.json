@@ -185,6 +185,19 @@
       "projectionHandlerSetNames": ["marketplace-settlement-negative-balance-projection"]
     }
   ],
+  "eventReactions": [
+    {
+      "sourceContextName": "platform-operations",
+      "reactionName": "marketplace-review-moderation-reaction",
+      "subscriptionVersion": 1,
+      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "order": 92,
+      "reactionHandlerSetNames": ["marketplace-review-moderation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "marketplace-catalog-item-projection",
@@ -271,6 +284,14 @@
       "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "marketplace-review-moderation-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "marketplace-settlement-negative-balance-projection",
@@ -800,6 +821,33 @@
           "behavior": "Review submission redirects with the SubmitReview command receipt; the account review loader forwards it to the review detail read and treats valid fresh-write not-found, projection freshness timeout, and opaque gateway timeout responses as temporary review preparation while the review projection catches up."
         }
       }
+    },
+    {
+      "id": "marketplace.review-reply-to-detail",
+      "owner": "marketplace",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["account-review"],
+        "actions": ["Post subject response to a review"],
+        "command": "SubmitReviewReply",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "account-review",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/reviews/:id",
+        "readModelTables": ["marketplace_review_pages"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The subject reply form redirects back to the review detail with the SubmitReviewReply command receipt; the loader forwards it to the review detail read so the posted response renders once the review projection catches up."
+        }
+      }
     }
   ],
   "mutationConsistencyInventory": [
@@ -948,13 +996,14 @@
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/reviews/api/route.ts:POST /",
         "api-route:bounded-contexts/marketplace/features/reviews/api/route.ts:POST /:id/update",
-        "api-route:bounded-contexts/marketplace/features/reviews/api/route.ts:POST /:id/withdraw"
+        "api-route:bounded-contexts/marketplace/features/reviews/api/route.ts:POST /:id/withdraw",
+        "api-route:bounded-contexts/marketplace/features/reviews/api/route.ts:POST /:id/reply"
       ],
       "visibleDestination": {
-        "description": "Review API commands return command-owned review id/version/status snapshots; review submission routes use the receipt for a fresh review detail read."
+        "description": "Review API commands return command-owned review id/version/status snapshots; review submission routes use the receipt for a fresh review detail read. The subject reply route (m108, #4269) returns the command-owned reply id alongside the review id."
       },
       "proof": {
-        "authoritativeResponse": "SubmitReview, UpdateReview, and WithdrawReview respond from the command result with review id, stream version, and status before any review read-model projection is consulted.",
+        "authoritativeResponse": "SubmitReview, UpdateReview, WithdrawReview, and SubmitReviewReply respond from the command result with review id (and replyId for the reply route), stream version, and status before any review read-model projection is consulted.",
         "tests": [
           "bounded-contexts/marketplace/features/reviews/api/route.test.ts",
           "bounded-contexts/marketplace/features/reviews/api/runtime.test.ts",
@@ -1150,16 +1199,45 @@
       }
     },
     {
+      "id": "marketplace.review-reply-fresh-read-form",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-detail-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/marketplace/routes/marketplace/account-review.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-review",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/reviews/:id",
+        "readModelTables": ["marketplace_review_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The subject reply form posts to the account review route action and redirects back to the review detail with a SubmitReviewReply commit receipt; the loader forwards afterWrite to the review detail read so the posted response renders once the review projection catches up."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/reviews/ui/review-detail-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-review-route.test.ts"
+        ]
+      }
+    },
+    {
       "id": "marketplace.report-listing-command-snapshots",
       "owner": "marketplace",
       "risk": "important",
       "strategy": "snapshot-return",
-      "surfaces": ["api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /listings/:id/report"],
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /listings/:id/report",
+        "api-route:bounded-contexts/marketplace/features/reports/api/route.ts:POST /reviews/:id/report"
+      ],
       "visibleDestination": {
-        "description": "Report Listing returns the command-owned report id, version, target, distinct report count, threshold, and auto-unlisted flag. The public listing action redirects with a static reported marker and does not depend on a just-written projection."
+        "description": "Report Listing returns the command-owned report id, version, target, distinct report count, threshold, and auto-unlisted flag. The public listing action redirects with a static reported marker and does not depend on a just-written projection. Report Review (m108, #4269) returns the same command-owned report id/version/target shape, feeding the same reported-content moderation queue with no auto-unlist equivalent."
       },
       "proof": {
-        "authoritativeResponse": "Report listing writes return the report submission snapshot directly from the Marketplace report command and the immediate event-stream threshold count.",
+        "authoritativeResponse": "Report listing writes return the report submission snapshot directly from the Marketplace report command and the immediate event-stream threshold count. Report review writes return the report submission snapshot directly from the same Marketplace report command.",
         "tests": ["bounded-contexts/marketplace/features/reports/api/runtime.test.ts"]
       }
     }

@@ -461,6 +461,14 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                             {review.feedback ?? t("discovery.routes.publicAccount.no.written.feedback")}
                           </Text>
                         </Stack>
+                        {review.reply_feedback ? (
+                          <Text size="sm" tone="secondary">
+                            <Text as="span" size="sm" weight="semibold">
+                              {t("discovery.routes.publicAccount.review.reply.label")}
+                            </Text>{" "}
+                            {review.reply_feedback}
+                          </Text>
+                        ) : null}
                       </Card>
                     );
                   })}

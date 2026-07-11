@@ -59,6 +59,7 @@ export function createMarketplaceServices(
   const offers = createMarketplaceOfferRuntime(deps);
   const reports = createMarketplaceReportRuntime({
     eventStore,
+    db,
   });
   const reviews = createReviewRuntime({
     eventStore,

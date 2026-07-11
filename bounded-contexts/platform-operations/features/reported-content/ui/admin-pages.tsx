@@ -46,6 +46,15 @@ const statusItems = [
     value: "suspension-escalated",
     label: t("platformOperations.reportedContent.status.suspensionEscalated"),
   },
+  { value: "review-withdrawn", label: t("platformOperations.reportedContent.status.reviewWithdrawn") },
+  {
+    value: "review-feedback-redacted",
+    label: t("platformOperations.reportedContent.status.reviewFeedbackRedacted"),
+  },
+  {
+    value: "review-reply-withdrawn",
+    label: t("platformOperations.reportedContent.status.reviewReplyWithdrawn"),
+  },
 ];
 
 const targetTypeItems = [
@@ -62,7 +71,13 @@ function statusTone(status: string) {
   if (status === "dismissed") {
     return "neutral";
   }
-  if (status === "manually-unlisted" || status === "suspension-escalated") {
+  if (
+    status === "manually-unlisted" ||
+    status === "suspension-escalated" ||
+    status === "review-withdrawn" ||
+    status === "review-feedback-redacted" ||
+    status === "review-reply-withdrawn"
+  ) {
     return "danger";
   }
   return status === "auto-unlisted" ? "warning" : "accent";
@@ -82,6 +97,12 @@ function actionLabel(action: string) {
       return t("platformOperations.reportedContent.actionLabel.unlist");
     case "escalate-account-suspension":
       return t("platformOperations.reportedContent.actionLabel.escalate");
+    case "withdraw-review":
+      return t("platformOperations.reportedContent.actionLabel.withdrawReview");
+    case "redact-review-feedback":
+      return t("platformOperations.reportedContent.actionLabel.redactReviewFeedback");
+    case "withdraw-review-reply":
+      return t("platformOperations.reportedContent.actionLabel.withdrawReviewReply");
     default:
       return action;
   }
@@ -262,9 +283,30 @@ export function ReportedContentAdminDetailPage({
               <Button type="submit" name="action" value="contact-seller" tone="secondary" leadingIcon="message">
                 {t("platformOperations.reportedContent.action.contactSeller")}
               </Button>
-              <Button type="submit" name="action" value="unlist" tone="danger" leadingIcon="warning">
-                {t("platformOperations.reportedContent.action.unlist")}
-              </Button>
+              {item.target_type === "listing" ? (
+                <Button type="submit" name="action" value="unlist" tone="danger" leadingIcon="warning">
+                  {t("platformOperations.reportedContent.action.unlist")}
+                </Button>
+              ) : null}
+              {item.target_type === "review" ? (
+                <>
+                  <Button type="submit" name="action" value="withdraw-review" tone="danger" leadingIcon="warning">
+                    {t("platformOperations.reportedContent.action.withdrawReview")}
+                  </Button>
+                  <Button
+                    type="submit"
+                    name="action"
+                    value="redact-review-feedback"
+                    tone="danger"
+                    leadingIcon="warning"
+                  >
+                    {t("platformOperations.reportedContent.action.redactReviewFeedback")}
+                  </Button>
+                  <Button type="submit" name="action" value="withdraw-review-reply" tone="danger" leadingIcon="warning">
+                    {t("platformOperations.reportedContent.action.withdrawReviewReply")}
+                  </Button>
+                </>
+              ) : null}
               <Button
                 type="submit"
                 name="action"
@@ -275,6 +317,9 @@ export function ReportedContentAdminDetailPage({
                 {t("platformOperations.reportedContent.action.escalate")}
               </Button>
             </Stack>
+            <Text size="sm" tone="secondary">
+              {t("platformOperations.reportedContent.reviewActionsRequireNote")}
+            </Text>
           </Form>
           {item.last_action ? (
             <Text size="sm" tone="secondary">

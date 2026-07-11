@@ -344,6 +344,10 @@ export interface DiscoveryPublicAccountReview {
   feedback: string | null;
   submitted_at: string | null;
   updated_at: string;
+  // Subject reply mirror (m108): a single threaded response.
+  reply_feedback: string | null;
+  reply_status: string | null;
+  reply_submitted_at: string | null;
 }
 
 export interface DiscoverySitemapUrl {

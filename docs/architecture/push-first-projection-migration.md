@@ -94,6 +94,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-account-source-projection` | Marketplace | **identity** | push-enabled | 1/1 |
+| `marketplace:marketplace-review-moderation-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
@@ -216,6 +217,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `platform-operations.platform-feedback-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-list-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `public-presence.waitlist-signup-to-admin-review` | public-presence | critical | exact wait | push wake enabled |
+| `marketplace.review-reply-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `settlement.payout-readiness-self-refresh` | settlement | critical | exact wait | push-accelerated |
 | `settlement.payout-request-to-detail` | settlement | critical | exact wait | push-accelerated |

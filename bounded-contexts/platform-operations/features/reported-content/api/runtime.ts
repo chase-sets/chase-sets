@@ -3,7 +3,12 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { ReportedContentModerationAction } from "./contracts";
+import {
+  REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE,
+  REPORTED_CONTENT_ACTIONS_REQUIRING_NOTE,
+  type ReportedContentModerationAction,
+  type ReportedContentTargetType,
+} from "./contracts";
 import { buildReportedContentProjectionHandlers } from "../read-model/projection";
 import {
   getReportedContentQueueItem,
@@ -41,6 +46,17 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
     getReportedContentQueueItem: (targetType, targetId) => getReportedContentQueueItem(deps.db, targetType, targetId),
     getReportedContentQueueMetrics: () => getReportedContentQueueMetrics(deps.db),
     recordModerationAction: async (params, context) => {
+      const targetType = params.targetType as ReportedContentTargetType;
+      const allowedActions = REPORTED_CONTENT_ACTIONS_BY_TARGET_TYPE[targetType];
+      if (!allowedActions || !allowedActions.includes(params.action)) {
+        throw new Error(`Action '${params.action}' is not valid for target type '${params.targetType}'.`);
+      }
+      if (REPORTED_CONTENT_ACTIONS_REQUIRING_NOTE.includes(params.action) && !params.note?.trim()) {
+        // Every moderation action is an event with actor/reason (m108):
+        // review-scoped actions require the operator to state why.
+        throw new Error(`Action '${params.action}' requires a note.`);
+      }
+
       const actionId = createId("rca");
       const recordedAt = new Date().toISOString();
       await deps.eventStore.appendToStream({

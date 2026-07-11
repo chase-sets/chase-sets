@@ -665,6 +665,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicAccount.return.refund.policy": "Return/refund policy",
   "discovery.routes.publicAccount.review.byline": "{author} | {date}",
   "discovery.routes.publicAccount.review.history": "Review history",
+  "discovery.routes.publicAccount.review.reply.label": "Seller response:",
   "discovery.routes.publicAccount.reviews.visible.after.orders": "Reviews visible after orders",
   "discovery.routes.publicAccount.reputation.rating": "{rating} from {count} reviews",
   "discovery.routes.publicAccount.secure.checkout": "Secure checkout",

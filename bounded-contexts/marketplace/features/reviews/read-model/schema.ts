@@ -34,6 +34,22 @@ ALTER TABLE marketplace_review_pages
   ADD COLUMN IF NOT EXISTS review_window_expires_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS reveal_reason text NULL;
 
+-- Moderation + subject reply (m108, #4269). withdrawn_by_actor_type
+-- distinguishes an author withdrawal from an operator one;
+-- moderation_operator_user_id/moderation_reason hold the latest operator
+-- withdraw-or-redact reason for display (the authoritative audit trail is
+-- the event stream). Reply columns hold the single threaded subject reply.
+ALTER TABLE marketplace_review_pages
+  ADD COLUMN IF NOT EXISTS withdrawn_by_actor_type text NULL,
+  ADD COLUMN IF NOT EXISTS moderation_operator_user_id text NULL,
+  ADD COLUMN IF NOT EXISTS moderation_reason text NULL,
+  ADD COLUMN IF NOT EXISTS feedback_redacted_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS reply_id text NULL,
+  ADD COLUMN IF NOT EXISTS reply_feedback text NULL,
+  ADD COLUMN IF NOT EXISTS reply_status text NULL,
+  ADD COLUMN IF NOT EXISTS reply_submitted_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS reply_withdrawn_at timestamptz NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS marketplace_active_review_direction_idx
   ON marketplace_review_pages (order_id, author_account_id, subject_account_id)
   WHERE status = 'active';

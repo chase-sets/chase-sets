@@ -278,7 +278,10 @@
         "marketplace.review.submitted",
         "marketplace.review.updated",
         "marketplace.review.withdrawn",
-        "marketplace.review.revealed"
+        "marketplace.review.revealed",
+        "marketplace.review.feedback-redacted",
+        "marketplace.review.reply-submitted",
+        "marketplace.review.reply-withdrawn"
       ],
       "order": 30,
       "projectionHandlerSetNames": ["discovery-market-projection"]

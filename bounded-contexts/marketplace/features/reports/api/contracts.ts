@@ -16,3 +16,17 @@ export type ReportListingRequest = Readonly<{
   details?: string | null;
   sourceRoutePath?: string | null;
 }>;
+
+export type ReportReviewRequest = Readonly<{
+  reason: MarketplaceReportReason;
+  details?: string | null;
+  sourceRoutePath?: string | null;
+}>;
+
+export type MarketplaceReviewReportSubmissionSnapshot = Readonly<{
+  id: string;
+  version: number;
+  status: "submitted";
+  targetType: "review";
+  targetId: string;
+}>;

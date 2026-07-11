@@ -99,6 +99,9 @@ export function ReviewListPage({
                       </Stack>
                     }
                     verified
+                    sellerResponse={
+                      review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined
+                    }
                   />
                   <LinkButton href={`${reviewDetailBasePath}/${review.review_id}`} tone="secondary">
                     {t("reputation.features.reviews.ui.reviewListPage.open.review")}

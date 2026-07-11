@@ -1474,6 +1474,63 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshAccountReputation(db, subjectAccountId, data.revealedAt);
       await emitAccountReputationPatches(db, event, subjectAccountId);
     },
+    "marketplace.review.feedback-redacted": async (event) => {
+      const data = event.data as { reviewId: string; redactedAt: string };
+
+      // No reputation/patch refresh: the rating stands and reputation
+      // counters never store feedback text -- only the mirrored row's own
+      // display needs updating.
+      await db.query(
+        `UPDATE discovery_market_account_reviews
+         SET feedback = NULL,
+             feedback_redacted_at = $2,
+             updated_at = $2
+         WHERE review_id = $1`,
+        [data.reviewId, data.redactedAt],
+      );
+    },
+    "marketplace.review.reply-submitted": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        replyId: string;
+        feedback: string;
+        submittedAt: string;
+      };
+
+      const updated = await db.query<{ subject_account_id: string }>(
+        `UPDATE discovery_market_account_reviews
+         SET reply_id = $2,
+             reply_feedback = $3,
+             reply_status = 'active',
+             reply_submitted_at = $4,
+             reply_withdrawn_at = NULL,
+             updated_at = $4
+         WHERE review_id = $1
+         RETURNING subject_account_id`,
+        [data.reviewId, data.replyId, data.feedback, data.submittedAt],
+      );
+      const subjectAccountId = updated.rows[0]?.subject_account_id;
+      if (subjectAccountId) {
+        await emitAccountReputationPatches(db, event, subjectAccountId);
+      }
+    },
+    "marketplace.review.reply-withdrawn": async (event) => {
+      const data = event.data as { reviewId: string; withdrawnAt: string };
+
+      const updated = await db.query<{ subject_account_id: string }>(
+        `UPDATE discovery_market_account_reviews
+         SET reply_status = 'withdrawn',
+             reply_withdrawn_at = $2,
+             updated_at = $2
+         WHERE review_id = $1
+         RETURNING subject_account_id`,
+        [data.reviewId, data.withdrawnAt],
+      );
+      const subjectAccountId = updated.rows[0]?.subject_account_id;
+      if (subjectAccountId) {
+        await emitAccountReputationPatches(db, event, subjectAccountId);
+      }
+    },
   };
 }
 

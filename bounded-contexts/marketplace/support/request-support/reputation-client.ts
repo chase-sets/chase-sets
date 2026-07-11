@@ -147,6 +147,15 @@ export function createReputationApiClient({
         }),
       );
     },
+    async submitReviewReply(reviewId: string, body: Readonly<{ feedback: string }>) {
+      return parseJsonResponse(
+        await client.reviews[":id"].reply.$post({
+          param: { id: reviewId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
   };
 }
 

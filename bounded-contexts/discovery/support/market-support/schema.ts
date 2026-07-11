@@ -66,6 +66,18 @@ ALTER TABLE discovery_market_account_reviews
 ALTER TABLE discovery_market_account_reviews
   ADD COLUMN IF NOT EXISTS revealed_at timestamptz NULL;
 
+-- Moderation + subject reply mirror (m108, #4269): the public profile is a
+-- consumer of these too, so the discovery mirror carries the same
+-- redaction marker and single threaded reply the marketplace source of
+-- truth does.
+ALTER TABLE discovery_market_account_reviews
+  ADD COLUMN IF NOT EXISTS feedback_redacted_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS reply_id text NULL,
+  ADD COLUMN IF NOT EXISTS reply_feedback text NULL,
+  ADD COLUMN IF NOT EXISTS reply_status text NULL,
+  ADD COLUMN IF NOT EXISTS reply_submitted_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS reply_withdrawn_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS discovery_market_account_reviews_subject_idx
   ON discovery_market_account_reviews (subject_account_id, status);
 
