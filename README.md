@@ -48,6 +48,7 @@ artifacts/             Generated local logs, screenshots, observability output, 
 Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those files as the local source of truth before editing behavior. The list below is generated from `bounded-contexts/*/context.json`; directories without a manifest are not implemented contexts.
 
 - `auth` ([README](bounded-contexts/auth/README.md), `@chase-sets/auth`): owned nouns `authentication`, `session-journey`, `account-selection`.
+- `authenticity` ([README](bounded-contexts/authenticity/README.md), `@chase-sets/authenticity`): owned nouns `authenticity-case`.
 - `catalog` ([README](bounded-contexts/catalog/README.md), `@chase-sets/catalog`): owned nouns `catalog-item`, `category`, `blueprint`, `field`, `component`, `dimension`, `display-template`, `product-contents`, `product-measure-profile`, `provider-scope-mapping`, `reference-type`, `reference-record`, `scope-record`.
 - `checkout` ([README](bounded-contexts/checkout/README.md), `@chase-sets/checkout`): owned nouns `cart`, `sell list`, `checkout session`.
 - `commercial-terms` ([README](bounded-contexts/commercial-terms/README.md), `@chase-sets/commercial-terms`): owned nouns `commercial-terms-schedule`, `commercial-agreement`, `commercial-terms-resolution`.

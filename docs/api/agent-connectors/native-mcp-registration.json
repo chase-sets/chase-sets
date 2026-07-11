@@ -45,6 +45,37 @@
   },
   "tools": [
     {
+      "name": "authenticity.get-case-status",
+      "title": "Get Authenticity Case Status",
+      "description": "Read the authenticity case status for an order.",
+      "service_id": "authenticity",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "authenticity.view"
+      ],
+      "required_scopes": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderId"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "Order identifier."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to check whether an order's authenticity check has passed, failed, or is still in progress."
+      ]
+    },
+    {
       "name": "identity.get-account",
       "title": "Get Account",
       "description": "Read account profile, status, and membership summary.",
@@ -6035,6 +6066,20 @@
     }
   ],
   "resources": [
+    {
+      "uri_template": "chase-sets://authenticity/cases/{caseId}",
+      "title": "Authenticity Case",
+      "description": "Authenticity case read model: lifecycle status, verdict, and reason codes.",
+      "service_id": "authenticity",
+      "access_scope": "account",
+      "required_permissions": [
+        "authenticity.view"
+      ],
+      "required_scopes": [],
+      "expected_usage": [
+        "Use to read the full case record once the case id is known."
+      ]
+    },
     {
       "uri_template": "chase-sets://identity/{accountId}/account",
       "title": "Account",

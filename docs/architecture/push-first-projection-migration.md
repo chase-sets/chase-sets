@@ -40,6 +40,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `auth:auth-identity-account-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-invitation-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-membership-projection` | Auth | **identity** | push-enabled | 1/1 |
+| `authenticity:authenticity-case-projection` | Authenticity | **authenticity** | push-enabled | 1/1 |
 | `auth:auth-identity-user-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-agent-order-webhook-projection` | Auth | fulfillment, **ordering**, **payments** | push-eligible | 2/3 |
 | `auth:auth-session-projection` | Auth | auth | push-eligible | 0/1 |

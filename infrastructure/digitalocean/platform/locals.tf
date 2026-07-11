@@ -550,6 +550,7 @@ locals {
 
   platform_context_names = [
     "auth",
+    "authenticity",
     "catalog",
     "checkout",
     "commercial-terms",

@@ -1,5 +1,6 @@
 import { adminWebEnglishTranslations } from "./en/admin-web";
 import { authEnglishTranslations } from "./en/auth";
+import { authenticityEnglishTranslations } from "./en/authenticity";
 import { catalogEnglishTranslations } from "./en/catalog";
 import { fulfillmentEnglishTranslations } from "./en/fulfillment";
 import { orderingEnglishTranslations } from "./en/ordering";
@@ -23,6 +24,7 @@ import { supportEnglishTranslations } from "./en/support";
 export const englishTranslations = {
   ...adminWebEnglishTranslations,
   ...authEnglishTranslations,
+  ...authenticityEnglishTranslations,
   ...catalogEnglishTranslations,
   ...fulfillmentEnglishTranslations,
   ...orderingEnglishTranslations,

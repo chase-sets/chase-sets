@@ -42,6 +42,12 @@
       "@chase-sets/auth/web": [
         "./bounded-contexts/auth/web.ts"
       ],
+      "@chase-sets/authenticity": [
+        "./bounded-contexts/authenticity/index.ts"
+      ],
+      "@chase-sets/authenticity/context": [
+        "./bounded-contexts/authenticity/context.json"
+      ],
       "@chase-sets/bounded-context-module": [
         "./contracts/bounded-context-module/index.ts"
       ],

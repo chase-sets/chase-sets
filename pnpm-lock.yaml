@@ -133,6 +133,30 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
 
+  bounded-contexts/authenticity:
+    dependencies:
+      '@chase-sets/bounded-context-module':
+        specifier: workspace:*
+        version: link:../../contracts/bounded-context-module
+      '@chase-sets/event-core':
+        specifier: workspace:*
+        version: link:../../contracts/event-core
+      '@chase-sets/event-core-postgres':
+        specifier: workspace:*
+        version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/localization':
+        specifier: workspace:*
+        version: link:../../contracts/localization
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-runtime
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
+      hono:
+        specifier: ^4.12.12
+        version: 4.12.18
+
   bounded-contexts/catalog:
     dependencies:
       '@chase-sets/bounded-context-module':
