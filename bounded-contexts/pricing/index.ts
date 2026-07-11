@@ -12,6 +12,7 @@ import {
   buildPricingMarketplaceInputProjectionHandlers,
   buildPricingOrderingInputProjectionHandlers,
 } from "./features/recommendations/integrations/source/source-projection";
+import { buildPricingMarketTradesProjectionHandlers } from "./features/market-trades/integrations/source/source-projection";
 import { pricingSchemaSql } from "./support/runtime-support/schema";
 import { pricingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedPricingDatabase } from "./support/runtime-support/seed";
@@ -27,8 +28,10 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
   buildApis: (services) => [buildPricingApi(services)],
   buildMcpHandlers: (services) => createPricingRecommendationMcpHandlers(services.recommendations),
   projectionHandlerSets: (services) => services.projectors,
-  buildSubscriptions: (services) =>
-    buildEventSubscriptionsFromManifest({
+  buildSubscriptions: (services) => {
+    const marketTradesHandlers = buildPricingMarketTradesProjectionHandlers(services.db);
+
+    return buildEventSubscriptionsFromManifest({
       contextName: "pricing",
       manifest: contextManifest,
       handlers: {
@@ -42,7 +45,16 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
         "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),
         "fulfillment.pricing-fulfillment-input-projection": () =>
           buildPricingFulfillmentInputProjectionHandlers(services.db),
+        "ordering.pricing-market-trades-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => marketTradesHandlers,
+        },
+        "fulfillment.pricing-market-trades-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => marketTradesHandlers,
+        },
       },
-    }),
+    });
+  },
   seed: seedPricingDatabase,
 });

@@ -32,6 +32,10 @@ A **Price Recommendation** is the suggested listing or offer strategy generated 
 
 A **Historical Price Trend** is an analysis view over prior Market Price Snapshots used for trend analysis and forecasting.
 
+## Trades Tape
+
+The **Trades Tape** is the normalized, ordered history of completed marketplace trades used as pricing evidence: one row per order line that reaches a sale, backfilled in full by projection replay over Ordering and Fulfillment events. Each entry carries the sale channel, the payment (`sold_at`) and delivery (`settled_at`) timestamps, a verified-sale marker (m109), and an exclusion flag with reason for refunded or cancelled trades. Tape-integrity exclusions (fraud, self-dealing) are a later addition (#4304).
+
 ## Planned Market Analytics And Repricing
 
 These planned terms pre-register upcoming market, analytics, and repricing language. They are not shipped behavior until Pricing adds the corresponding projections, policies, commands, and UI.
@@ -39,10 +43,6 @@ These planned terms pre-register upcoming market, analytics, and repricing langu
 ### Price Observation
 
 A **Price Observation** is a planned Pricing input captured from a marketplace, provider, or commerce fact before it becomes a Price Signal.
-
-### Trades Tape
-
-A **Trades Tape** is the planned ordered stream of eligible market transactions used as pricing evidence.
 
 ### Market-Value Estimate
 

@@ -1,10 +1,10 @@
 {
   "contextName": "pricing",
   "packageName": "@chase-sets/pricing",
-  "ownedNouns": ["market-price-snapshot", "price-recommendation", "price-signal"],
+  "ownedNouns": ["market-price-snapshot", "price-recommendation", "price-signal", "trades-tape"],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["recommendations", "price-signals"],
+  "slices": ["recommendations", "price-signals", "market-trades"],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
@@ -78,6 +78,26 @@
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
       "order": 50,
       "projectionHandlerSetNames": ["pricing-fulfillment-input-projection"]
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "pricing-market-trades-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "order": 60,
+      "projectionHandlerSetNames": ["pricing-market-trades-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "pricing-market-trades-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
+      "order": 70,
+      "projectionHandlerSetNames": ["pricing-market-trades-projection"]
     }
   ],
   "projectionGroups": [
@@ -113,6 +133,13 @@
       "projectionName": "pricing-fulfillment-input-projection",
       "sourceContextNames": ["fulfillment"],
       "ownedTables": ["pricing_fulfillment_signal_lines"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "pricing-market-trades-projection",
+      "sourceContextNames": ["ordering", "fulfillment"],
+      "ownedTables": ["pricing_market_trades"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }
@@ -249,6 +276,11 @@
     "price-signals": {
       "classification": "slice",
       "purpose": "Own provider market evidence ingestion and normalized Price Signal records for the pricing context.",
+      "expectedConsumers": ["Internal pricing module composition"]
+    },
+    "market-trades": {
+      "classification": "slice",
+      "purpose": "Own the pricing trades-tape: the normalized, replay-backfilled trade history projected from Ordering and Fulfillment events.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
     "runtime-support": {
