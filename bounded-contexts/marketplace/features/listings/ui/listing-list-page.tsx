@@ -1,4 +1,4 @@
-import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   HiddenInput,
@@ -42,7 +42,7 @@ function formatMoney(amount: string | null) {
     return t("marketplace.features.listings.ui.listingListPage.not.set");
   }
 
-  return `$${amount}`;
+  return formatMoneyDisplay(amount, "USD");
 }
 
 function statusTone(status: string) {

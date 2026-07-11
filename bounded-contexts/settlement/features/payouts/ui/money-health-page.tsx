@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -12,10 +12,6 @@ import {
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow, SettlementReconciliationRunRow } from "../read-model/queries";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
-
-function formatMoney(amount: string, currencyCode: string) {
-  return `${amount} ${currencyCode.toUpperCase()}`;
-}
 
 function payoutDetailHref(payoutId: string, marketplaceOrigin?: string | null) {
   if (!marketplaceOrigin) {

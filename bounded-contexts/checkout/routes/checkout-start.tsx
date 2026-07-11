@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { redirect, redirectDocument } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
@@ -739,9 +739,9 @@ export default function CheckoutStartRoute() {
       }
       price={
         source.type === "offer-intent"
-          ? `$${source.offerPriceAmount}`
+          ? formatMoney(source.offerPriceAmount, "USD")
           : source.priceAmount
-            ? `$${source.priceAmount}`
+            ? formatMoney(source.priceAmount, "USD")
             : t("checkout.routes.checkoutStart.price.confirmed.before.payment")
       }
       quantity={formatMarketplaceNumber(
@@ -801,9 +801,9 @@ export default function CheckoutStartRoute() {
                   label: t("checkout.routes.checkoutStart.price"),
                   value:
                     source.type === "offer-intent"
-                      ? `$${source.offerPriceAmount}`
+                      ? formatMoney(source.offerPriceAmount, "USD")
                       : source.priceAmount
-                        ? `$${source.priceAmount}`
+                        ? formatMoney(source.priceAmount, "USD")
                         : t("checkout.routes.checkoutStart.price.confirmed.before.payment"),
                 },
                 {

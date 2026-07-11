@@ -21,7 +21,7 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
 import { CheckoutPolicyLinks } from "../../sessions/ui/checkout-policy-links";
@@ -108,10 +108,7 @@ function moneyNumber(value: string | null | undefined) {
 }
 
 function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(value);
+  return formatMoneyDisplay(value.toFixed(2), "USD");
 }
 
 function lineValue(line: CheckoutSellListLineRow) {

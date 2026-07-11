@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
 import { navigateAfterWrite } from "@chase-sets/http/responses";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
@@ -55,7 +55,7 @@ function statusTone(status: string) {
 }
 
 function money(amount: string | null) {
-  return amount ? `$${amount}` : t("inventory.features.importBatches.ui.importBatchPage.not.set");
+  return amount ? formatMoneyDisplay(amount, "USD") : t("inventory.features.importBatches.ui.importBatchPage.not.set");
 }
 
 function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {

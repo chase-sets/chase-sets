@@ -1,4 +1,5 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
+import { centsToMoneyAmount } from "@chase-sets/primitives/money";
 import {
   HiddenInput,
   Form,
@@ -294,7 +295,7 @@ export function FulfillmentShipmentDetailPage({
                 title: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage"),
                 description:
                   shipment.postage_amount_cents != null
-                    ? `${(shipment.postage_amount_cents / 100).toFixed(2)} ${shipment.postage_currency ?? "USD"}`
+                    ? formatMoney(centsToMoneyAmount(shipment.postage_amount_cents), shipment.postage_currency ?? "USD")
                     : t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4"),
               },
             ]}

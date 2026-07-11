@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { DiscoveryMarketListing, DiscoveryOffer } from "../../../support/client-support/contracts";
 
 export function formatFieldValue(value: unknown): string {
@@ -53,7 +53,7 @@ export function formatUpdatedAt(value: string): string {
 }
 
 export function formatMoney(value: string | null): string {
-  return value ? `$${value}` : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
+  return value ? formatMoneyDisplay(value, "USD") : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
 }
 
 function toFiniteNumber(value: unknown): number | null {

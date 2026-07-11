@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   Badge,
@@ -22,13 +22,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { AccountPaymentOrderView, AccountPaymentPageProps } from "./account-payment-contracts";
-import {
-  formatMoney,
-  formatPaymentTimestamp,
-  paymentStatusCopy,
-  providerEventLabel,
-  statusTone,
-} from "./account-payment-display";
+import { formatPaymentTimestamp, paymentStatusCopy, providerEventLabel, statusTone } from "./account-payment-display";
 import { StripeConfirmationCard } from "./stripe-confirmation-card";
 
 function PaymentTimestamp({ value }: { value: string }) {
@@ -84,19 +78,19 @@ export function AccountPaymentPage({
                 },
                 {
                   label: t("payments.routes.marketplace.accountPayment.wallet.balance.used"),
-                  value: formatMoney(payment.balance_credit_amount),
+                  value: formatMoney(payment.balance_credit_amount, "USD"),
                 },
                 {
                   label: t("payments.routes.marketplace.accountPayment.external.payment"),
-                  value: formatMoney(payment.processor_amount),
+                  value: formatMoney(payment.processor_amount, "USD"),
                 },
                 {
                   label: t("payments.routes.marketplace.accountPayment.marketplace.sales.fee"),
-                  value: formatMoney(payment.marketplace_sales_fee_amount),
+                  value: formatMoney(payment.marketplace_sales_fee_amount, "USD"),
                 },
                 {
                   label: t("payments.routes.marketplace.accountPayment.marketplace.checkout.fee"),
-                  value: formatMoney(payment.marketplace_checkout_fee_amount),
+                  value: formatMoney(payment.marketplace_checkout_fee_amount, "USD"),
                 },
                 {
                   label: t("payments.routes.marketplace.accountPayment.payment.method"),
@@ -104,14 +98,14 @@ export function AccountPaymentPage({
                 },
                 {
                   label: t("payments.routes.marketplace.accountPayment.seller.payout"),
-                  value: formatMoney(payment.seller_payout_amount),
+                  value: formatMoney(payment.seller_payout_amount, "USD"),
                 },
                 {
                   label: t("payments.routes.marketplace.accountPayment.processor"),
                   value: payment.processor_name,
                 },
               ]}
-              total={formatMoney(payment.amount)}
+              total={formatMoney(payment.amount, "USD")}
               totalLabel={t("payments.routes.marketplace.accountPayment.payment.summary")}
               reassurance={
                 <SecurePaymentIndicator label={t("payments.routes.marketplace.accountPayment.secure.payment")} />
@@ -371,13 +365,13 @@ export function AccountPaymentPage({
                         <Text size="sm" tone="secondary">
                           {t("payments.routes.marketplace.accountPayment.total")}
                         </Text>
-                        <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
+                        <Text weight="semibold">{formatMoney(order.total_amount, "USD")}</Text>
                       </Stack>
                       <Stack gap={1}>
                         <Text size="sm" tone="secondary">
                           {t("payments.routes.marketplace.accountPayment.seller.payout")}
                         </Text>
-                        <Text>{formatMoney(order.seller_payout_amount)}</Text>
+                        <Text>{formatMoney(order.seller_payout_amount, "USD")}</Text>
                       </Stack>
                     </Grid>
                     <Divider />

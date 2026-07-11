@@ -3,7 +3,7 @@ import {
   publicClientRequestKey,
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { MarketplaceApiEnv } from "../../../api";
@@ -132,7 +132,7 @@ function offerAbuseControlMessage(error: MarketplaceOfferAbuseControlError) {
       });
     case "offer_price_floor_not_met":
       return t("marketplace.features.offers.api.route.offer.price.floor.not.met", {
-        amount: `$${error.details.minimumOfferAmount}`,
+        amount: formatMoney(String(error.details.minimumOfferAmount ?? "0.00"), "USD"),
       });
     case "offer_lowball_cooldown":
       return t("marketplace.features.offers.api.route.offer.lowball.cooldown");

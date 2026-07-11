@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   HiddenInput,
@@ -36,10 +36,6 @@ function statusTone(status: string) {
   }
 }
 
-function formatMoney(amount: string) {
-  return `$${amount}`;
-}
-
 function formatAllowancePercentage(bps: number) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
@@ -53,13 +49,13 @@ function formatPriceGap(amount: string) {
 
   if (value > 0) {
     return t("marketplace.features.offers.ui.offerMatchDetailPage.below.ask", {
-      amount: formatMoney(value.toFixed(2)),
+      amount: formatMoney(value.toFixed(2), "USD"),
     });
   }
 
   if (value < 0) {
     return t("marketplace.features.offers.ui.offerMatchDetailPage.over.ask", {
-      amount: formatMoney(Math.abs(value).toFixed(2)),
+      amount: formatMoney(Math.abs(value).toFixed(2), "USD"),
     });
   }
 
@@ -164,7 +160,7 @@ export function MarketplaceOfferMatchDetailPage({
                   <Badge tone={offer.can_fulfill ? "success" : "warning"}>{fulfillmentLabel}</Badge>
                 </Inline>
                 <Text size="lg" weight="semibold">
-                  {formatMoney(offer.price_amount)}
+                  {formatMoney(offer.price_amount, "USD")}
                 </Text>
                 <Text tone="secondary">
                   {t("marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask", {
@@ -195,7 +191,7 @@ export function MarketplaceOfferMatchDetailPage({
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),
-                    value: formatMoney(offer.listing_price_amount),
+                    value: formatMoney(offer.listing_price_amount, "USD"),
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.vs.ask"),
@@ -231,15 +227,15 @@ export function MarketplaceOfferMatchDetailPage({
               lines={[
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price"),
-                  value: formatMoney(offer.price_amount),
+                  value: formatMoney(offer.price_amount, "USD"),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),
-                  value: formatMoney(offer.listing_price_amount),
+                  value: formatMoney(offer.listing_price_amount, "USD"),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee"),
-                  value: formatMoney(acceptanceTerms.marketplace_sales_fee_unit_amount),
+                  value: formatMoney(acceptanceTerms.marketplace_sales_fee_unit_amount, "USD"),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.shipping.allowance.rate"),
@@ -250,7 +246,7 @@ export function MarketplaceOfferMatchDetailPage({
                   value: termsSourceLabel(acceptanceTerms),
                 },
               ]}
-              total={formatMoney(acceptanceTerms.seller_net_unit_amount)}
+              total={formatMoney(acceptanceTerms.seller_net_unit_amount, "USD")}
               totalLabel={t("marketplace.features.offers.ui.offerMatchDetailPage.seller.net")}
             />
           ) : null}
@@ -321,7 +317,7 @@ export function MarketplaceOfferMatchDetailPage({
 
       {acceptOfferAction ? (
         <StickyCtaBar
-          price={formatMoney(offer.price_amount)}
+          price={formatMoney(offer.price_amount, "USD")}
           context={
             offer.can_fulfill
               ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")

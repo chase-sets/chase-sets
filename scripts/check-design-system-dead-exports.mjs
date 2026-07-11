@@ -89,7 +89,6 @@ const canonicalReserveZeroConsumerExports = [
   "NumberField",
   "packingSlipPrintStyles",
   "Popover",
-  "PriceDisplay",
   "ProductCard",
   "ProductMediaImage",
   "ProductMediaModule",

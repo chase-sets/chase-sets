@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -169,7 +169,7 @@ export default function DiscoverySetRoute() {
                     imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
                     imageFallbackSizes="(min-width: 768px) 164px, 124px"
                     imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
-                    price={lowestPrice ? `$${lowestPrice}` : undefined}
+                    price={lowestPrice ? formatMoney(lowestPrice, "USD") : undefined}
                     primaryAction={
                       <LinkButton href={href} size="sm">
                         {t("discovery.routes.set.view.card")}

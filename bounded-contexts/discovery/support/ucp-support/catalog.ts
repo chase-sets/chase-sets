@@ -1,3 +1,4 @@
+import { formatMoney } from "@chase-sets/localization";
 import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import type { DiscoveryItemsServices } from "../item-support/runtime";
@@ -280,7 +281,7 @@ function price(amount: string | null) {
 }
 
 function priceDisplay(amount: string | null) {
-  return amount ? `$${Number(amount).toFixed(2)}` : "Not currently listed";
+  return amount ? formatMoney(amount, "USD") : "Not currently listed";
 }
 
 function availability(summary: DiscoverySearchItemRow["market_summary"]) {

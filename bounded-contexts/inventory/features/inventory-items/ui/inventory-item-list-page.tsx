@@ -1,4 +1,4 @@
-import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   HiddenInput,
@@ -45,7 +45,7 @@ function displayItemLabel(item: InventoryItemListItem) {
 
 function displayCost(item: InventoryItemListItem) {
   return item.acquisition_cost_amount
-    ? `$${item.acquisition_cost_amount}`
+    ? formatMoney(item.acquisition_cost_amount, "USD")
     : t("inventory.features.inventoryItems.ui.inventoryItemListPage.not.set");
 }
 

@@ -1,4 +1,4 @@
-import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import {
   Text,
@@ -72,7 +72,7 @@ function formatPrice(item: DiscoverySearchItem): string | undefined {
   const lowestPrice = item.market_summary?.lowest_price_amount;
 
   return lowestPrice
-    ? t("discovery.features.search.ui.searchPage.from.price", { price: `$${lowestPrice}` })
+    ? t("discovery.features.search.ui.searchPage.from.price", { price: formatMoney(lowestPrice, "USD") })
     : undefined;
 }
 

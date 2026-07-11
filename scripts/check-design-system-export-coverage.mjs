@@ -201,7 +201,6 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "PlatformCredibilityCue",
   "Popover",
   "PriceBreakdown",
-  "PriceDisplay",
   "ProductCard",
   "ProductMediaImage",
   "ProductMediaModule",

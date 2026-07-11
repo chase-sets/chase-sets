@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -18,10 +18,6 @@ import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-mode
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
 import { sellerFundsAvailableAt, sellerFundsHoldPolicy } from "../domain/funds-hold-policy";
-
-function formatMoney(amount: string, currencyCode: string) {
-  return `${amount} ${currencyCode.toUpperCase()}`;
-}
 
 function directionTone(direction: string): Tone {
   return direction === "credit" ? "success" : "danger";

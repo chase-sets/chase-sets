@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatMoney, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
@@ -16,10 +16,6 @@ import {
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow, SettlementProviderIdempotencyKeyRow } from "../read-model/queries";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
-
-function formatMoney(amount: string, currencyCode: string) {
-  return `${amount} ${currencyCode.toUpperCase()}`;
-}
 
 function operationsTone(row: SettlementPayoutRow): Tone {
   if (row.status === "failed") {

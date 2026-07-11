@@ -1,31 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { cx } from "../../utils/cx";
 import { Badge, type BadgeProps } from "../../components/feedback";
 import { ChaseSetsLogo } from "../../brand/chase-sets-logo";
-
-export interface PriceDisplayProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
-  amount: number;
-  currency?: string;
-  emphasis?: boolean;
-  locale?: string;
-}
-
-export function PriceDisplay({ amount, currency = "USD", emphasis = false, locale, ...rest }: PriceDisplayProps) {
-  return (
-    <span
-      {...rest}
-      className={cx(
-        "font-heading",
-        emphasis ? "text-2xl font-semibold text-foreground" : "text-lg font-semibold text-foreground",
-      )}
-    >
-      {new Intl.NumberFormat(locale, {
-        style: "currency",
-        currency,
-      }).format(amount)}
-    </span>
-  );
-}
 
 export interface ConditionBadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   condition: "NM" | "LP" | "MP" | "HP" | "DMG";

@@ -29,7 +29,7 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import { useState } from "react";
 import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
 import { sellListConfirmationSupportReference } from "../read-model/support-reference";
@@ -144,15 +144,15 @@ function formatMoney(value: string | number | null) {
     return "-";
   }
 
-  const amount = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(amount)) {
+  if (typeof value === "string") {
+    return formatMoneyDisplay(value, "USD");
+  }
+
+  if (!Number.isFinite(value)) {
     return String(value);
   }
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(amount);
+  return formatMoneyDisplay(value.toFixed(2), "USD");
 }
 
 const confirmationStatusLabelKeys = {
