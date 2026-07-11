@@ -42,6 +42,19 @@ function ManualProbe() {
   );
 }
 
+function ConnectionProbe({ connectionStaleAfterMs }: { connectionStaleAfterMs?: number }) {
+  const realtime = useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.catalogItems(), {
+    debounceMs: 25,
+    connectionStaleAfterMs,
+  });
+
+  return (
+    <span>
+      {realtime.connectionStatus}:{realtime.connectionStaleSince ? "since" : "never"}
+    </span>
+  );
+}
+
 describe("useCatalogRealtimeRevalidation", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -214,5 +227,32 @@ describe("useCatalogRealtimeRevalidation", () => {
 
     expect(mocks.revalidate).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "0:sync" })).toBeTruthy();
+  });
+
+  it("tracks connection health independently of patch activity", () => {
+    render(<ConnectionProbe connectionStaleAfterMs={1_000} />);
+    const options = mocks.subscribeRealtimePatches.mock.calls[0]?.[0];
+
+    expect(screen.getByText("connecting:never")).toBeTruthy();
+
+    act(() => {
+      options.onConnectionStateChange(true);
+    });
+    expect(screen.getByText("live:never")).toBeTruthy();
+
+    act(() => {
+      options.onConnectionStateChange(false);
+    });
+    expect(screen.getByText("connecting:never")).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(screen.getByText("connecting:never")).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.getByText("stale:since")).toBeTruthy();
   });
 });

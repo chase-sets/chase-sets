@@ -621,6 +621,9 @@
       "@chase-sets/platform-runtime/http": [
         "./infrastructure/platform-runtime/http.ts"
       ],
+      "@chase-sets/platform-runtime/live-connection-status": [
+        "./infrastructure/platform-runtime/live-connection-status.ts"
+      ],
       "@chase-sets/platform-runtime/mcp": [
         "./infrastructure/platform-runtime/mcp.ts"
       ],

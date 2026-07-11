@@ -9,10 +9,10 @@
     "exempt": ["packages/design-system/src/primitives/**", "leading @ds-leaf marker comment"]
   },
   "summary": {
-    "governedFileCount": 115,
+    "governedFileCount": 116,
     "exemptFileCount": 6,
     "exemptByReason": { "ds-leaf-marker": 2, "primitive": 4 },
-    "totalRawClassNameCount": 632,
+    "totalRawClassNameCount": 633,
     "topBudgets": [
       { "file": "packages/design-system/src/components/checkout/marketplace.tsx", "budget": 41 },
       { "file": "packages/design-system/src/components/checkout/summary.tsx", "budget": 38 },
@@ -74,6 +74,7 @@
     "packages/design-system/src/components/data-display/key-value-list.tsx": 4,
     "packages/design-system/src/components/data-display/operational-workflow/address-block.tsx": 1,
     "packages/design-system/src/components/data-display/operational-workflow/checklist-card.tsx": 1,
+    "packages/design-system/src/components/data-display/operational-workflow/connection-status-indicator.tsx": 1,
     "packages/design-system/src/components/data-display/operational-workflow/index.ts": 0,
     "packages/design-system/src/components/data-display/operational-workflow/operational-lock-banner.tsx": 0,
     "packages/design-system/src/components/data-display/operational-workflow/operational-status-banner.tsx": 0,

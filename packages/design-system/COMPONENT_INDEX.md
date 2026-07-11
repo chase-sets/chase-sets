@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 359
-- Source modules covered: 124
+- Runtime exports indexed: 360
+- Source modules covered: 125
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -91,6 +91,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ComparisonListRowGrid` | `packages/design-system/src/components/data-display/comparison-list.tsx` | Purpose not documented; symbol name suggests: Comparison List Row Grid. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx` |
 | `ComparisonModule` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Comparison Module. | `No production consumer yet.` |
 | `ConditionBadge` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Condition Badge. | `No production consumer yet.` |
+| `ConnectionStatusIndicator` | `packages/design-system/src/components/data-display/operational-workflow/connection-status-indicator.tsx` | Connection live/stale indicator: a compact "live" badge with a reduced- motion-aware pulse while a realtime stream or poll is actually advancing, escalating to an `OperationalStatusBanner` once the connection has gone quiet past the caller's staleness threshold. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module.tsx` |
 | `Container` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Container. | `bounded-contexts/auth/routes/access-admin/sign-in.tsx` |
 | `CopyButton` | `packages/design-system/src/components/actions/copy-button.tsx` | Purpose not documented; symbol name suggests: Copy Button. | `bounded-contexts/identity/features/api-keys/ui/api-key-secret-reveal.tsx` |
 | `createStripeConnectAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: create Stripe Connect Appearance. | `bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx` |

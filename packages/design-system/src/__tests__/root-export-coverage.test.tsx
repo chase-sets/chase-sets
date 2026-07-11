@@ -13,6 +13,7 @@ import {
   ComparisonListPrice,
   ComparisonListRow,
   ComparisonListRowGrid,
+  ConnectionStatusIndicator,
   EmptyState,
   FileDropzone,
   OperationalStatusBanner,
@@ -259,6 +260,34 @@ describe("root export coverage smoke tests", () => {
     expect(screen.getByText("Packing blocked")).toBeTruthy();
     expect(screen.getByText("Resolve the inventory hold before printing.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resolve hold" })).toBeTruthy();
+  });
+
+  it("renders ConnectionStatusIndicator live and stale states in a shared status region", () => {
+    const { rerender } = render(
+      <ConnectionStatusIndicator status="live" liveLabel="Live" staleLabel="Stale since 10:32 AM" />,
+    );
+
+    const liveRegion = screen.getByRole("status");
+    expect(liveRegion.getAttribute("aria-live")).toBe("polite");
+    expect(screen.getByText("Live")).toBeTruthy();
+
+    rerender(
+      <ConnectionStatusIndicator
+        status="stale"
+        liveLabel="Live"
+        staleLabel="Stale since 10:32 AM"
+        staleDescription="Data may be out of date until it reconnects."
+        action={<Button>Reload</Button>}
+      />,
+    );
+
+    expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
+    expect(screen.getByText("Stale since 10:32 AM")).toBeTruthy();
+    expect(screen.getByText("Data may be out of date until it reconnects.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
+
+    rerender(<ConnectionStatusIndicator status="connecting" liveLabel="Live" connectingLabel="Connecting…" />);
+    expect(screen.getByText("Connecting…")).toBeTruthy();
   });
 
   it("renders PackingSlipPrintDocument and format-specific print styles", async () => {

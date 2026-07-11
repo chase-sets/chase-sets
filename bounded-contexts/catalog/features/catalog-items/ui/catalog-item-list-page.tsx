@@ -242,9 +242,15 @@ function isLifecycleOperation(action: CatalogItemBulkOperation): action is "arch
 type CatalogItemListPageProps = CatalogListRouteData<CatalogItemListItem> &
   Readonly<{
     realtimeReloadActionBar?: ReactNode;
+    connectionStatus?: ReactNode;
   }>;
 
-export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: CatalogItemListPageProps) {
+export function CatalogItemListPage({
+  data,
+  query,
+  realtimeReloadActionBar,
+  connectionStatus,
+}: CatalogItemListPageProps) {
   const listControls = useCatalogListQueryControls(query);
   const revalidator = useRevalidator();
   const columns = useMemo(() => buildColumns(), []);
@@ -769,6 +775,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
           ) : null
         }
         realtimeReloadActionBar={realtimeReloadActionBar}
+        connectionStatus={connectionStatus}
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}

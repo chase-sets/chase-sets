@@ -57,6 +57,11 @@ export const catalogSupportEnglishTranslations = {
   "catalog.support.shellSupport.ui.entityListPage.all.value.types": "All Value Types",
   "catalog.support.shellSupport.ui.entityListPage.no": "No",
   "catalog.support.shellSupport.ui.entityListPage.yes": "Yes",
+  "catalog.support.shellSupport.ui.realtimeConnectionStatus.connecting": "Connecting…",
+  "catalog.support.shellSupport.ui.realtimeConnectionStatus.live": "Live",
+  "catalog.support.shellSupport.ui.realtimeConnectionStatus.staleDescription":
+    "The live connection dropped. Data may be out of date until it reconnects.",
+  "catalog.support.shellSupport.ui.realtimeConnectionStatus.staleSince": "Stale since {value}",
   "catalog.support.shellSupport.ui.realtimeReloadActionBar.changed": "{count} {entityName} changed",
   "catalog.support.shellSupport.ui.realtimeReloadActionBar.reload": "Reload",
   "catalog.support.shellSupport.ui.realtimeReloadActionBar.sync.required": "{entityName} changed",

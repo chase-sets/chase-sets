@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectionOperationsPage } from "./projection-operations-page";
@@ -41,6 +41,7 @@ describe("ProjectionOperationsPage", () => {
   const originalEventSource = globalThis.EventSource;
 
   afterEach(() => {
+    vi.useRealTimers();
     FakeEventSource.instances = [];
     Object.defineProperty(globalThis, "EventSource", {
       value: originalEventSource,
@@ -251,6 +252,52 @@ describe("ProjectionOperationsPage", () => {
     expect(await screen.findByText("rebuild-projection-group / succeeded")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     expect(onOperationTerminal).toHaveBeenCalledOnce();
+  });
+
+  it("flips a watched operation's connection indicator to stale once its SSE stream drops", () => {
+    Object.defineProperty(globalThis, "EventSource", {
+      value: FakeEventSource,
+      configurable: true,
+    });
+    vi.useFakeTimers();
+
+    const data = normalizeProjectionOperationsSnapshot({
+      summary: { status: "ok" },
+      operations: [
+        {
+          operationId: "op_running",
+          operationKind: "rebuild-projection-group",
+          state: "running",
+          contextName: "catalog",
+          projectionName: "catalog-item-projection",
+          requestedAt: "2026-05-26T00:00:00.000Z",
+          updatedAt: "2026-05-26T00:01:00.000Z",
+        },
+      ],
+    });
+
+    render(<ProjectionOperationsPage data={data} filters={emptyFilters} connectionStaleAfterMs={1_000} />);
+
+    act(() => {
+      FakeEventSource.instances[0]?.emit("open", {});
+    });
+    expect(screen.getByText("Live")).toBeTruthy();
+
+    act(() => {
+      FakeEventSource.instances[0]?.emit("error", {});
+    });
+    expect(screen.queryByText("Live")).toBeNull();
+    expect(screen.queryByText(/^Stale since/)).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(screen.queryByText(/^Stale since/)).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.getByText(/^Stale since/)).toBeTruthy();
   });
 
   it("renders a quiet healthy overview when no attention signals exist", () => {

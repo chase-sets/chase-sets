@@ -574,6 +574,30 @@ describe("CatalogItemListPage", () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
+  it("renders the connection status indicator in the page header", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{
+          ...defaultQuery,
+          search: "",
+          status: "draft",
+          language: "",
+          source: "tcgplayer",
+          page: 0,
+          pageSize: 50,
+        }}
+        connectionStatus={<span>Live indicator probe</span>}
+      />,
+    );
+
+    expect(screen.getByText("Live indicator probe")).toBeTruthy();
+  });
+
   it("previews matching bulk edits from a single side-panel action surface", async () => {
     const user = userEvent.setup();
     mockUseNavigation.mockReturnValue({ state: "idle" });
