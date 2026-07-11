@@ -1245,6 +1245,7 @@ function createScheduledJobRunners(
     | "reviewWindowSweepIntervalMs"
     | "sellerFundsReleaseIntervalMs"
     | "payoutReconciliationIntervalMs"
+    | "marketRollupsCloserIntervalMs"
     | "googleMerchant"
     | "googleShoppingMaintenanceIntervalMs"
     | "googleShoppingMaintenanceBatchSize"
@@ -1290,6 +1291,17 @@ function createScheduledJobRunners(
           params: { now?: string; limit?: number },
           context: typeof SYSTEM_CONTEXT,
         ) => Promise<{ counterpartPairsRevealed: number; windowExpiredRevealed: number }>;
+      }
+    | undefined;
+  const pricing = services.pricing as
+    | {
+        marketRollups?: {
+          runDailyRollupCloser?: (params?: { now?: string; trailingWindowDays?: number; limit?: number }) => Promise<{
+            rollupDaysRecomputed: number;
+            marketStateSnapshotsRecomputed: number;
+            productAggregatesRecomputed: number;
+          }>;
+        };
       }
     | undefined;
   const settlement = services.settlement as SettlementServices | undefined;
@@ -1420,6 +1432,27 @@ function createScheduledJobRunners(
             result,
           });
           return result.counterpartPairsRevealed + result.windowExpiredRevealed;
+        },
+      ),
+    );
+  }
+
+  const runDailyRollupCloser = pricing?.marketRollups?.runDailyRollupCloser;
+  if (runDailyRollupCloser && input.marketRollupsCloserIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "pricing.market-rollups-closer",
+        input.marketRollupsCloserIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await runDailyRollupCloser({ limit: 500 });
+          logger.info("Pricing market-rollups closer completed.", {
+            type: "pricing.market-rollups-closer",
+            result,
+          });
+          return (
+            result.rollupDaysRecomputed + result.marketStateSnapshotsRecomputed + result.productAggregatesRecomputed
+          );
         },
       ),
     );

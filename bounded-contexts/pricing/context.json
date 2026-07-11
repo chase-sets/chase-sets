@@ -1,10 +1,17 @@
 {
   "contextName": "pricing",
   "packageName": "@chase-sets/pricing",
-  "ownedNouns": ["market-price-snapshot", "price-recommendation", "price-signal", "trades-tape"],
+  "ownedNouns": [
+    "market-price-snapshot",
+    "price-recommendation",
+    "price-signal",
+    "trades-tape",
+    "daily-product-rollup",
+    "market-state-snapshot"
+  ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["recommendations", "price-signals", "market-trades"],
+  "slices": ["recommendations", "price-signals", "market-trades", "market-rollups"],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
@@ -281,6 +288,11 @@
     "market-trades": {
       "classification": "slice",
       "purpose": "Own the pricing trades-tape: the normalized, replay-backfilled trade history projected from Ordering and Fulfillment events.",
+      "expectedConsumers": ["Internal pricing module composition"]
+    },
+    "market-rollups": {
+      "classification": "slice",
+      "purpose": "Own the daily-product-rollup and market-state-snapshot read models, and the denormalized product market aggregate, computed from the trades-tape and current listing/offer state, plus the query API that serves them.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
     "runtime-support": {
