@@ -64,6 +64,7 @@ export async function listWaitlistSignups(
        role,
        interests,
        email_consent_accepted_at::text AS email_consent_accepted_at,
+       marketing_consent_accepted_at::text AS marketing_consent_accepted_at,
        page_path,
        referrer,
        utm_source,

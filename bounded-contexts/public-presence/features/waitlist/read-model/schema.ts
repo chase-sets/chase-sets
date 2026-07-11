@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS public_presence_waitlist_signups (
   updated_at timestamptz NOT NULL
 );
 
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS marketing_consent_accepted_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS public_presence_waitlist_signups_role_idx
   ON public_presence_waitlist_signups (role, updated_at DESC);
 

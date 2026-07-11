@@ -16,6 +16,7 @@ async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, ti
        role,
        interests,
        email_consent_accepted_at,
+       marketing_consent_accepted_at,
        page_path,
        referrer,
        utm_source,
@@ -26,13 +27,14 @@ async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, ti
        submitted_at,
        updated_at
      ) VALUES (
-       $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13
+       $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14
      )
      ON CONFLICT (signup_id) DO UPDATE
      SET email = EXCLUDED.email,
          role = EXCLUDED.role,
          interests = EXCLUDED.interests,
          email_consent_accepted_at = EXCLUDED.email_consent_accepted_at,
+         marketing_consent_accepted_at = EXCLUDED.marketing_consent_accepted_at,
          page_path = EXCLUDED.page_path,
          referrer = EXCLUDED.referrer,
          utm_source = EXCLUDED.utm_source,
@@ -47,6 +49,7 @@ async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, ti
       data.role,
       JSON.stringify(data.interests),
       data.emailConsentAcceptedAt,
+      data.marketingConsentAcceptedAt ?? null,
       data.source.pagePath,
       data.source.referrer,
       data.source.utmSource,

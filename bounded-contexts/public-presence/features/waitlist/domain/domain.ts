@@ -1,6 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
-  assert,
   assertNever,
   ensureIsoTimestamp,
   normalizeEmail,
@@ -20,6 +19,7 @@ export type WaitlistSignupState = Readonly<{
   role: WaitlistCommerceIntent | null;
   interests: readonly WaitlistInterest[];
   emailConsentAcceptedAt: string | null;
+  marketingConsentAcceptedAt: string | null;
   source: WaitlistSource | null;
   submittedAt: string | null;
   updatedAt: string | null;
@@ -31,6 +31,7 @@ export const initialWaitlistSignupState: WaitlistSignupState = {
   role: null,
   interests: [],
   emailConsentAcceptedAt: null,
+  marketingConsentAcceptedAt: null,
   source: null,
   submittedAt: null,
   updatedAt: null,
@@ -41,7 +42,8 @@ export type RecordWaitlistSignupCommand = Readonly<{
   email: string;
   role: string;
   interests: readonly string[];
-  emailConsentAcceptedAt: string | null;
+  /** Optional consent to additional product updates beyond early-access notifications. Early-access consent is implied by signing up and is not user-optional. */
+  marketingConsentAcceptedAt: string | null;
   source: WaitlistSource;
   recordedAt: string;
 }>;
@@ -56,6 +58,7 @@ export type WaitlistSignupRecordedEvent = DomainEvent<
     role: WaitlistCommerceIntent;
     interests: WaitlistInterest[];
     emailConsentAcceptedAt: string;
+    marketingConsentAcceptedAt: string | null;
     source: WaitlistSource;
     recordedAt: string;
   }>
@@ -69,6 +72,7 @@ export type WaitlistSignupUpdatedEvent = DomainEvent<
     role: WaitlistCommerceIntent;
     interests: WaitlistInterest[];
     emailConsentAcceptedAt: string;
+    marketingConsentAcceptedAt: string | null;
     source: WaitlistSource;
     updatedAt: string;
   }>
@@ -87,11 +91,12 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
       const role = normalizeWaitlistCommerceIntent(command.role);
       const interests = normalizeWaitlistInterests(command.interests);
       const recordedAt = ensureIsoTimestamp(command.recordedAt, "Waitlist signup must record a timestamp.");
-      const consentAcceptedAt = command.emailConsentAcceptedAt
-        ? ensureIsoTimestamp(command.emailConsentAcceptedAt, "Email consent must record a timestamp.")
+      // Early-access consent is implied by signing up, not a user-optional
+      // control, so it is always granted at the moment the signup records.
+      const emailConsentAcceptedAt = recordedAt;
+      const marketingConsentAcceptedAt = command.marketingConsentAcceptedAt
+        ? ensureIsoTimestamp(command.marketingConsentAcceptedAt, "Marketing consent must record a timestamp.")
         : null;
-
-      assert(consentAcceptedAt !== null, "Email consent is required.");
 
       if (state.signupId !== null) {
         return [
@@ -102,7 +107,8 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
               email,
               role,
               interests,
-              emailConsentAcceptedAt: consentAcceptedAt,
+              emailConsentAcceptedAt,
+              marketingConsentAcceptedAt,
               source: normalizeSource(command.source),
               updatedAt: recordedAt,
             },
@@ -118,7 +124,8 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
             email,
             role,
             interests,
-            emailConsentAcceptedAt: consentAcceptedAt,
+            emailConsentAcceptedAt,
+            marketingConsentAcceptedAt,
             source: normalizeSource(command.source),
             recordedAt,
           },
@@ -139,6 +146,7 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         role: event.data.role,
         interests: event.data.interests,
         emailConsentAcceptedAt: event.data.emailConsentAcceptedAt,
+        marketingConsentAcceptedAt: event.data.marketingConsentAcceptedAt ?? null,
         source: event.data.source,
         submittedAt: event.data.recordedAt,
         updatedAt: event.data.recordedAt,
@@ -150,6 +158,7 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         role: event.data.role,
         interests: event.data.interests,
         emailConsentAcceptedAt: event.data.emailConsentAcceptedAt,
+        marketingConsentAcceptedAt: event.data.marketingConsentAcceptedAt ?? null,
         source: event.data.source,
         updatedAt: event.data.updatedAt,
       };

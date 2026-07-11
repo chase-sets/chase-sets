@@ -52,14 +52,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const api = createPublicPresenceRequestApiClient(request);
-  const emailConsent = formData.get("emailConsent");
+  const marketingConsent = formData.get("marketingConsent");
 
   try {
     const result = await api.submitWaitlistSignup({
       email: String(formData.get("email") ?? ""),
       role: String(formData.get("role") ?? "both") as SubmitWaitlistSignupRequest["role"],
       interests: formData.getAll("interests").map(String) as SubmitWaitlistSignupRequest["interests"],
-      emailConsent: emailConsent === "yes" || emailConsent === "on",
+      marketingConsent: marketingConsent === "yes" || marketingConsent === "on",
       website: optional(formData.get("website")),
       source: {
         pagePath: String(formData.get("pagePath") ?? "/"),

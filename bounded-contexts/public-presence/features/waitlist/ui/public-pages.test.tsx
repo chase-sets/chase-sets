@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("public waitlist form migration smoke", () => {
-  it("keeps conversion, anti-spam, consent, and analytics fields in the shared Form", () => {
+  it("keeps the hero form to email + intent, with no required consent control", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -35,8 +35,10 @@ describe("public waitlist form migration smoke", () => {
       throw new Error("Expected hero waitlist panel to render a form.");
     }
 
+    expect(form.querySelector('input[name="marketingConsent"]')).toBeNull();
+    expect(form.querySelector('input[type="checkbox"]')).toBeNull();
+
     fireEvent.change(form.querySelector('input[name="email"]')!, { target: { value: "seller@example.com" } });
-    fireEvent.click(form.querySelector('input[name="emailConsent"]')!);
 
     const formData = new FormData(form);
     expect(form.getAttribute("method")).toBe("post");
@@ -44,7 +46,7 @@ describe("public waitlist form migration smoke", () => {
     expect(formData.get("email")).toBe("seller@example.com");
     expect(formData.get("role")).toBe("both");
     expect(formData.get("interests")).toBe("low-sales-fees");
-    expect(formData.get("emailConsent")).toBe("yes");
+    expect(formData.get("marketingConsent")).toBeNull();
     expect(formData.get("website")).toBe("");
     expect(formData.get("pagePath")).toBe("/?utm_source=smoke");
     expect(formData.get("referrer")).toBe("https://example.test/cards");
@@ -53,5 +55,39 @@ describe("public waitlist form migration smoke", () => {
     expect(formData.get("utmCampaign")).toBe("form-migration");
     expect(formData.get("utmContent")).toBe("hero");
     expect(formData.get("utmTerm")).toBe("pokemon");
+  });
+
+  it("keeps the final-CTA form's marketing consent checkbox optional", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const panel = document.getElementById("waitlist-form-final");
+    const form = panel?.querySelector("form");
+    if (!form) {
+      throw new Error("Expected final-CTA waitlist panel to render a form.");
+    }
+
+    const consentCheckbox = form.querySelector<HTMLInputElement>('input[name="marketingConsent"]');
+    if (!consentCheckbox) {
+      throw new Error("Expected the final-CTA panel to render an optional marketing-consent checkbox.");
+    }
+    expect(consentCheckbox.required).toBe(false);
+
+    fireEvent.change(form.querySelector('input[name="email"]')!, { target: { value: "buyer@example.com" } });
+
+    const formDataBeforeConsent = new FormData(form);
+    expect(formDataBeforeConsent.get("marketingConsent")).toBeNull();
+
+    fireEvent.click(consentCheckbox);
+
+    const formDataAfterConsent = new FormData(form);
+    expect(formDataAfterConsent.get("marketingConsent")).toBe("yes");
   });
 });

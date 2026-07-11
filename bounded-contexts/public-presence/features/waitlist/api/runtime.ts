@@ -37,7 +37,7 @@ export type WaitlistServices = Readonly<{
       email: string;
       role: string;
       interests: readonly string[];
-      emailConsent: boolean;
+      marketingConsent?: boolean;
       source: WaitlistSource;
     }>,
     context: EventStoreContext,
@@ -69,7 +69,7 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
           email: params.email,
           role: params.role,
           interests: params.interests,
-          emailConsentAcceptedAt: params.emailConsent ? now : null,
+          marketingConsentAcceptedAt: params.marketingConsent ? now : null,
           source: params.source,
           recordedAt: now,
         },

@@ -521,7 +521,10 @@ export type WaitlistSignupRecordedPayload = Readonly<{
   email: string;
   role: string;
   interests: readonly string[];
+  /** Implied early-access consent, granted automatically at signup time (never user-optional). */
   emailConsentAcceptedAt: string;
+  /** Optional consent to additional product updates beyond early-access notifications. */
+  marketingConsentAcceptedAt: string | null;
   source: WaitlistSourcePayload;
   recordedAt?: string;
 }>;

@@ -117,7 +117,7 @@ const validSignup = {
   email: "todd@example.com",
   role: "both",
   interests: ["low-sales-fees"],
-  emailConsent: true,
+  marketingConsent: true,
   source: {
     pagePath: "/",
     referrer: null,
@@ -148,7 +148,7 @@ describe("public presence API", () => {
         email: "todd@example.com",
         role: "both",
         interests: ["low-sales-fees"],
-        emailConsent: true,
+        marketingConsent: true,
       }),
       expect.objectContaining({
         tenantId: "tnt_public_presence",
@@ -156,17 +156,8 @@ describe("public presence API", () => {
     );
   });
 
-  it("rejects honeypot submissions and missing consent", async () => {
-    const app = publicAppFor(
-      createServices({
-        submitWaitlistSignup: vi.fn(async (params) => {
-          if (!params.emailConsent) {
-            throw new Error("Email consent is required.");
-          }
-          return { signupId: "wls_test", version: 1 };
-        }),
-      }),
-    );
+  it("rejects honeypot submissions", async () => {
+    const app = publicAppFor(createServices());
     const honeypot = await app.request("/waitlist", {
       method: "POST",
       headers: {
@@ -175,17 +166,28 @@ describe("public presence API", () => {
       },
       body: JSON.stringify({ ...validSignup, website: "https://spam.example" }),
     });
-    const missingConsent = await app.request("/waitlist", {
+
+    expect(honeypot.status).toBe(400);
+  });
+
+  it("accepts a signup without optional marketing consent", async () => {
+    const submitWaitlistSignup = vi.fn(async () => ({ signupId: "wls_test", version: 1 }));
+    const app = publicAppFor(createServices({ submitWaitlistSignup }));
+    const { marketingConsent: _marketingConsent, ...signupWithoutConsent } = validSignup;
+    const response = await app.request("/waitlist", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-forwarded-for": "203.0.113.12",
       },
-      body: JSON.stringify({ ...validSignup, emailConsent: false }),
+      body: JSON.stringify(signupWithoutConsent),
     });
 
-    expect(honeypot.status).toBe(400);
-    expect(missingConsent.status).toBe(400);
+    expect(response.status).toBe(201);
+    expect(submitWaitlistSignup).toHaveBeenCalledWith(
+      expect.objectContaining({ marketingConsent: false }),
+      expect.anything(),
+    );
   });
 
   it("rate limits repeated public submissions", async () => {

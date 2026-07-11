@@ -608,7 +608,7 @@ async function main() {
         email: syntheticEmail,
         role: "both",
         interests: ["low-sales-fees"],
-        emailConsent: true,
+        marketingConsent: true,
         website: "",
         source: {
           pagePath: smokePagePath,
