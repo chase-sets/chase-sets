@@ -78,6 +78,7 @@ export type OrderingOrderListRow = Readonly<{
   cancellation_unavailable_reason: "payment-pending" | "fulfillment-started" | "already-cancelled" | null;
   line_count: number;
   total_quantity: number;
+  item_titles: readonly string[];
 }>;
 
 export type OrderingOrderDetailRow = OrderingOrderListRow &
@@ -133,6 +134,7 @@ type BaseOrderPageRow = Readonly<{
   cancellation_unavailable_reason: "payment-pending" | "fulfillment-started" | "already-cancelled" | null;
   line_count: number;
   total_quantity: number;
+  item_titles: readonly string[];
 }>;
 
 type OrderLinePageRow = Readonly<{
@@ -221,7 +223,8 @@ const baseOrderSelect = `
       ELSE 'payment-pending'
     END AS cancellation_unavailable_reason,
     COALESCE(line_stats.line_count, 0) AS line_count,
-    COALESCE(line_stats.total_quantity, 0) AS total_quantity
+    COALESCE(line_stats.total_quantity, 0) AS total_quantity,
+    COALESCE(line_stats.item_titles, ARRAY[]::text[]) AS item_titles
   FROM ordering_order_pages AS page
   LEFT JOIN ordering_account_pages AS buyer
     ON buyer.account_id = page.buyer_account_id
@@ -230,7 +233,8 @@ const baseOrderSelect = `
   LEFT JOIN LATERAL (
     SELECT
       COUNT(*)::integer AS line_count,
-      COALESCE(SUM(quantity), 0)::integer AS total_quantity
+      COALESCE(SUM(quantity), 0)::integer AS total_quantity,
+      COALESCE(array_agg(item_title ORDER BY line_index ASC), ARRAY[]::text[]) AS item_titles
     FROM ordering_order_line_pages AS line
     WHERE line.order_id = page.order_id
   ) AS line_stats

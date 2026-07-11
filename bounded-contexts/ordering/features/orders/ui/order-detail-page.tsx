@@ -107,6 +107,55 @@ export function OrderingOrderDetailPage({
     role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
       ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")
       : t("ordering.features.orders.ui.orderDetailPage.open.support");
+  const statusLine = {
+    label: t("ordering.features.orders.ui.orderDetailPage.status"),
+    value: <Badge tone={statusTone(order.status)}>{order.status}</Badge>,
+  };
+  const itemSubtotalLine = {
+    label: t("ordering.features.orders.ui.orderDetailPage.item.subtotal"),
+    value: formatMoney(order.item_subtotal_amount),
+  };
+  // Role-scoped money lines: buyers see what they paid (subtotal/shipping/tax/total).
+  // Sellers see their own economics (fee/net/payout). Neither role ever sees the
+  // other side's numbers rendered from this list.
+  const priceBreakdownLines =
+    role === "buyer"
+      ? [
+          statusLine,
+          itemSubtotalLine,
+          {
+            label: t("ordering.features.orders.ui.orderDetailPage.shipping"),
+            value: formatMoney(order.shipping_charge_amount),
+          },
+          {
+            label: t("ordering.features.orders.ui.orderDetailPage.tax"),
+            value: formatMoney(order.sales_tax_amount),
+          },
+        ]
+      : [
+          statusLine,
+          itemSubtotalLine,
+          {
+            label: t("ordering.features.orders.ui.orderDetailPage.shipping.allowance"),
+            value: formatMoney(order.shipping_allowance_amount),
+          },
+          {
+            label: t("ordering.features.orders.ui.orderDetailPage.shipping.overage"),
+            value: formatMoney(order.shipping_overage_amount),
+          },
+          {
+            label: t("ordering.features.orders.ui.orderDetailPage.marketplace.fee"),
+            value: formatMoney(order.marketplace_sales_fee_amount),
+          },
+          {
+            label: t("ordering.features.orders.ui.orderDetailPage.seller.item.net"),
+            value: formatMoney(order.seller_item_net_amount),
+          },
+          {
+            label: t("ordering.features.orders.ui.orderDetailPage.seller.payout"),
+            value: formatMoney(order.seller_payout_amount),
+          },
+        ];
 
   return (
     <Page>
@@ -142,36 +191,7 @@ export function OrderingOrderDetailPage({
         summary={
           <Stack gap={4}>
             <PriceBreakdown
-              lines={[
-                {
-                  label: t("ordering.features.orders.ui.orderDetailPage.status"),
-                  value: <Badge tone={statusTone(order.status)}>{order.status}</Badge>,
-                },
-                {
-                  label: t("ordering.features.orders.ui.orderDetailPage.item.subtotal"),
-                  value: formatMoney(order.item_subtotal_amount),
-                },
-                {
-                  label: t("ordering.features.orders.ui.orderDetailPage.shipping.allowance"),
-                  value: formatMoney(order.shipping_allowance_amount),
-                },
-                {
-                  label: t("ordering.features.orders.ui.orderDetailPage.shipping.overage"),
-                  value: formatMoney(order.shipping_overage_amount),
-                },
-                {
-                  label: t("ordering.features.orders.ui.orderDetailPage.marketplace.fee"),
-                  value: formatMoney(order.marketplace_sales_fee_amount),
-                },
-                {
-                  label: t("ordering.features.orders.ui.orderDetailPage.seller.item.net"),
-                  value: formatMoney(order.seller_item_net_amount),
-                },
-                {
-                  label: t("ordering.features.orders.ui.orderDetailPage.seller.payout"),
-                  value: formatMoney(order.seller_payout_amount),
-                },
-              ]}
+              lines={priceBreakdownLines}
               total={formatMoney(order.total_amount)}
               totalLabel={t("ordering.features.orders.ui.orderDetailPage.summary.title", {
                 projectionLabel,
@@ -321,34 +341,36 @@ export function OrderingOrderDetailPage({
             </Stack>
           </PageSection>
 
-          <PageSection title={t("ordering.features.orders.ui.orderDetailPage.inventory.holds")}>
-            <Stack gap={3}>
-              {order.inventory_holds.map((hold) => (
-                <Surface key={hold.hold_id} elevated>
-                  <Grid columns={{ base: 1, md: 3 }} gap={3}>
-                    <Stack gap={1}>
-                      <Text weight="semibold">{t("ordering.features.orders.ui.orderDetailPage.reserved.item")}</Text>
-                      <Text size="sm" tone="secondary">
-                        {t("ordering.features.orders.ui.orderDetailPage.inventory.is.reserved")}
-                      </Text>
-                    </Stack>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("ordering.features.orders.ui.orderDetailPage.quantity.2")}
-                      </Text>
-                      <Text>{hold.quantity}</Text>
-                    </Stack>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("ordering.features.orders.ui.orderDetailPage.status.2")}
-                      </Text>
-                      <Badge tone="accent">{hold.status}</Badge>
-                    </Stack>
-                  </Grid>
-                </Surface>
-              ))}
-            </Stack>
-          </PageSection>
+          {role === "seller" ? (
+            <PageSection title={t("ordering.features.orders.ui.orderDetailPage.inventory.holds")}>
+              <Stack gap={3}>
+                {order.inventory_holds.map((hold) => (
+                  <Surface key={hold.hold_id} elevated>
+                    <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                      <Stack gap={1}>
+                        <Text weight="semibold">{t("ordering.features.orders.ui.orderDetailPage.reserved.item")}</Text>
+                        <Text size="sm" tone="secondary">
+                          {t("ordering.features.orders.ui.orderDetailPage.inventory.is.reserved")}
+                        </Text>
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">
+                          {t("ordering.features.orders.ui.orderDetailPage.quantity.2")}
+                        </Text>
+                        <Text>{hold.quantity}</Text>
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">
+                          {t("ordering.features.orders.ui.orderDetailPage.status.2")}
+                        </Text>
+                        <Badge tone="accent">{hold.status}</Badge>
+                      </Stack>
+                    </Grid>
+                  </Surface>
+                ))}
+              </Stack>
+            </PageSection>
+          ) : null}
         </Stack>
       </CheckoutLayout>
     </Page>

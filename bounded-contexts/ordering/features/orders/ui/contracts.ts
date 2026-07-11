@@ -47,6 +47,7 @@ export interface OrderingOrderProjection {
   cancellation_unavailable_reason: "payment-pending" | "fulfillment-started" | "already-cancelled" | null;
   line_count: number;
   total_quantity: number;
+  item_titles: readonly string[];
 }
 
 export interface OrderingOrderProjectionLine {
