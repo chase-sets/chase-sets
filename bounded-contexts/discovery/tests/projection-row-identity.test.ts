@@ -509,6 +509,7 @@ describeDb("discovery projection row identity", () => {
     {
       "catalog_item_id": "item_1",
       "slug": "charizard-base-set-item-1-1i58wji",
+      "resolved_aliases": {},
       "language_code": "en",
       "title_i18n": {
         "values": {
@@ -604,6 +605,7 @@ describeDb("discovery projection row identity", () => {
       "reference_record_id": "ref_charizard",
       "type_key": "pokemon",
       "key": "charizard",
+      "slug": "",
       "name": "Charizard",
       "attributes": {
         "number": "4/102"
@@ -1035,6 +1037,10 @@ describeDb("discovery projection row identity", () => {
       "max_units_per_day": 4,
       "max_units_per_customer_account": 6,
       "status": "active",
+      "active_held_quantity": null,
+      "graded_card": null,
+      "product_measure_snapshot": null,
+      "supply_total_quantity": null,
       "created_at": "2026-06-12T12:42:00.000Z",
       "updated_at": "2026-06-12T12:47:00.000Z"
     }
