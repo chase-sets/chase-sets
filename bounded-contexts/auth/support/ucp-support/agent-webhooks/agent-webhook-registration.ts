@@ -28,6 +28,8 @@ const MAX_CALLBACK_URL_LENGTH = 2048;
 
 export type ParsedWebhookRegistration = Readonly<{ callbackUrl: string }>;
 
+export type ParsedWebhookConfiguration = Readonly<{ callbackUrl: string | null }>;
+
 /**
  * Parse the optional `webhook`/`webhook_callback_url` metadata from a client
  * registration body. Returns `undefined` when no webhook is requested, or an
@@ -47,6 +49,28 @@ export function parseWebhookRegistration(
     return { ok: false, error: "webhook callback URL must be an HTTPS URL or a localhost HTTP URL." };
   }
   return { ok: true, registration: { callbackUrl } };
+}
+
+/** Parse the account-facing webhook management payload. `null` disables delivery. */
+export function parseWebhookConfiguration(
+  body: Readonly<Record<string, unknown>> | null,
+): { ok: true; configuration: ParsedWebhookConfiguration } | { ok: false; error: string } {
+  if (!body || !Object.prototype.hasOwnProperty.call(body, "callback_url")) {
+    return { ok: false, error: "callback_url is required and must be an HTTPS URL or null." };
+  }
+
+  if (body.callback_url === null) {
+    return { ok: true, configuration: { callbackUrl: null } };
+  }
+
+  const result = parseWebhookRegistration({ webhook_callback_url: body.callback_url });
+  if (!result.ok) {
+    return result;
+  }
+  if (!result.registration) {
+    return { ok: false, error: "callback_url is required and must be an HTTPS URL or null." };
+  }
+  return { ok: true, configuration: { callbackUrl: result.registration.callbackUrl } };
 }
 
 function readCallbackUrl(body: Readonly<Record<string, unknown>>): string | undefined {

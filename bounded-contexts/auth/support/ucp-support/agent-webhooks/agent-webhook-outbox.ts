@@ -134,7 +134,11 @@ export type AgentWebhookOutbox = Readonly<{
   ) => Promise<boolean>;
   markDelivered: (input: MarkAgentWebhookDeliverySentInput) => Promise<void>;
   markFailed: (input: MarkAgentWebhookDeliveryFailedInput) => Promise<void>;
-  listForClient: (clientId: string, limit?: number) => Promise<readonly AgentWebhookDeliverySummary[]>;
+  listForClient: (
+    clientId: string,
+    limit?: number,
+    accountId?: string,
+  ) => Promise<readonly AgentWebhookDeliverySummary[]>;
   listDeadLettered: (limit?: number) => Promise<readonly AgentWebhookDeliverySummary[]>;
 }>;
 
@@ -338,16 +342,19 @@ export function createPostgresAgentWebhookOutbox(options: PostgresAgentWebhookOu
       );
     },
 
-    async listForClient(clientId, limit = 100) {
+    async listForClient(clientId, limit = 100, accountId) {
+      const boundedLimit = Math.max(1, Math.floor(limit));
+      const accountFilter = accountId ? " AND account_id = $2" : "";
+      const limitParameter = accountId ? "$3" : "$2";
       const result = await db.query<SummaryRow>(
         `SELECT outbox_id, delivery_id, client_id, account_id, callback_url, source_event_id, event_type,
                 order_id, order_status, payload_json, status, attempt_count, max_attempts, next_attempt_at,
                 last_error, last_response_status, created_at, updated_at, delivered_at
          FROM ${tableName}
-         WHERE client_id = $1
+         WHERE client_id = $1${accountFilter}
          ORDER BY created_at DESC, outbox_id DESC
-         LIMIT $2`,
-        [clientId, Math.max(1, Math.floor(limit))],
+         LIMIT ${limitParameter}`,
+        accountId ? [clientId, accountId, boundedLimit] : [clientId, boundedLimit],
       );
       return result.rows.map(rowToSummary);
     },

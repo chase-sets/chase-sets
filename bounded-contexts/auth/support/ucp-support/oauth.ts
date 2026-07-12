@@ -19,8 +19,9 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
 import type { AuthServices } from "../runtime-support/services";
+import type { AgentWebhookOutbox } from "./agent-webhooks/agent-webhook-outbox";
 import { generateAgentWebhookSigningSecret, previewAgentWebhookSigningSecret } from "./agent-webhooks/webhook-signing";
-import { parseWebhookRegistration } from "./agent-webhooks/agent-webhook-registration";
+import { parseWebhookConfiguration, parseWebhookRegistration } from "./agent-webhooks/agent-webhook-registration";
 
 export const authUcpOAuthSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_ucp_oauth_clients (
@@ -147,6 +148,8 @@ export type UcpOAuthRoutesOptions = Readonly<{
   // Read model over the MCP audit sink (infrastructure/platform-runtime/mcp-audit-log.ts),
   // filtered to one grant. Powers the connected-agents activity view.
   agentGrantActivity?: AgentGrantActivityDirectory;
+  /** Auth-owned delivery summaries for the connected-agent endpoint and ops consumers. */
+  agentWebhookOutbox?: AgentWebhookOutbox;
 }>;
 
 const MAX_CLIENT_METADATA_URL_LENGTH = 2048;
@@ -621,6 +624,94 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     });
   });
 
+  // Webhook configuration is owned by the OAuth client, but the connected-agent
+  // surface addresses it through a grant so account ownership is checked before
+  // the client registration is read or replaced.
+  app.get("/authorizations/:id/webhook", async (c) => {
+    const actor = await options.resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "login_required" }, 401);
+    }
+
+    const authorization = await resolveAccountAuthorization(options, actor.accountId, c.req.param("id"));
+    if (!authorization) {
+      return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
+    }
+
+    const client = await resolveWebhookClient(options.auth.db, authorization.client_id);
+    if (!client) {
+      return c.json({ error: "not_found", error_description: "The OAuth client registration no longer exists." }, 404);
+    }
+    return c.json({ webhook: webhookConfigurationToJson(client) });
+  });
+
+  app.put("/authorizations/:id/webhook", async (c) => {
+    const actor = await options.resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "login_required" }, 401);
+    }
+
+    const authorization = await resolveAccountAuthorization(options, actor.accountId, c.req.param("id"));
+    if (!authorization) {
+      return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
+    }
+
+    const parsed = parseWebhookConfiguration(readObject(await c.req.json().catch(() => null)));
+    if (!parsed.ok) {
+      return c.json({ error: "invalid_request", error_description: parsed.error }, 400);
+    }
+
+    const updatedAt = new Date().toISOString();
+    const signingSecret = parsed.configuration.callbackUrl ? generateAgentWebhookSigningSecret() : null;
+    const updated = await options.auth.db.query(
+      `UPDATE identity_ucp_oauth_clients
+       SET webhook_callback_url = $1,
+           webhook_signing_secret = $2,
+           webhook_signing_secret_created_at = $3::timestamptz
+       WHERE client_id = $4
+       RETURNING webhook_callback_url, webhook_signing_secret, webhook_signing_secret_created_at`,
+      [parsed.configuration.callbackUrl, signingSecret, signingSecret ? updatedAt : null, authorization.client_id],
+    );
+    if (updated.rows.length === 0) {
+      return c.json({ error: "not_found", error_description: "The OAuth client registration no longer exists." }, 404);
+    }
+
+    return c.json({
+      webhook: signingSecret
+        ? {
+            callback_url: parsed.configuration.callbackUrl,
+            signing_secret: signingSecret,
+            signing_secret_preview: previewAgentWebhookSigningSecret(signingSecret),
+          }
+        : null,
+    });
+  });
+
+  app.get("/authorizations/:id/webhook-deliveries", async (c) => {
+    const actor = await options.resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "login_required" }, 401);
+    }
+    if (!options.agentWebhookOutbox) {
+      return c.json({ error: "unsupported", error_description: "Webhook delivery history is not configured." }, 404);
+    }
+
+    const authorization = await resolveAccountAuthorization(options, actor.accountId, c.req.param("id"));
+    if (!authorization) {
+      return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
+    }
+
+    const requestedLimit = Number.parseInt(c.req.query("limit") ?? "50", 10);
+    const limit = Number.isInteger(requestedLimit) ? Math.min(100, Math.max(1, requestedLimit)) : 50;
+    const status = c.req.query("status");
+    const deliveries = await options.agentWebhookOutbox.listForClient(authorization.client_id, limit, actor.accountId);
+    return c.json({
+      deliveries: deliveries
+        .filter((delivery) => delivery.accountId === actor.accountId)
+        .filter((delivery) => status !== "dead-letter" || delivery.status === "failed"),
+    });
+  });
+
   app.post("/authorizations/:id/revoke", async (c) => {
     const actor = await options.resolveActor(c.req.raw);
     if (!actor) {
@@ -679,6 +770,40 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   return app;
+}
+
+async function resolveAccountAuthorization(options: UcpOAuthRoutesOptions, accountId: string, authorizationId: string) {
+  const authorizations = await options.linkedPlatformAuthorizations.listForAccount(accountId);
+  return authorizations.find((authorization) => authorization.authorization_id === authorizationId) ?? null;
+}
+
+type WebhookClientRow = Readonly<{
+  webhook_callback_url: string | null;
+  webhook_signing_secret: string | null;
+  webhook_signing_secret_created_at: string | Date | null;
+}>;
+
+async function resolveWebhookClient(db: AuthServices["db"], clientId: string): Promise<WebhookClientRow | null> {
+  const result = await db.query<WebhookClientRow>(
+    `SELECT webhook_callback_url, webhook_signing_secret, webhook_signing_secret_created_at
+     FROM identity_ucp_oauth_clients
+     WHERE client_id = $1
+     LIMIT 1`,
+    [clientId],
+  );
+  return result.rows[0] ?? null;
+}
+
+function webhookConfigurationToJson(client: WebhookClientRow) {
+  return client.webhook_callback_url
+    ? {
+        callback_url: client.webhook_callback_url,
+        signing_secret_preview: client.webhook_signing_secret
+          ? previewAgentWebhookSigningSecret(client.webhook_signing_secret)
+          : null,
+        signing_secret_created_at: client.webhook_signing_secret_created_at,
+      }
+    : null;
 }
 
 function mandateToJson(mandate: AgentSpendingMandate) {

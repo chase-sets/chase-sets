@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   AGENT_WEBHOOK_ORDER_SCOPE,
+  parseWebhookConfiguration,
   parseWebhookRegistration,
   resolveAgentWebhookSigningSecret,
   resolveAgentWebhookTargets,
@@ -35,6 +36,26 @@ describe("parseWebhookRegistration", () => {
   it("allows localhost http callbacks for local development", () => {
     const result = parseWebhookRegistration({ webhook_callback_url: "http://localhost:4000/hooks" });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("parseWebhookConfiguration", () => {
+  it("accepts a replacement callback", () => {
+    expect(parseWebhookConfiguration({ callback_url: "https://agent.example/new-hooks" })).toEqual({
+      ok: true,
+      configuration: { callbackUrl: "https://agent.example/new-hooks" },
+    });
+  });
+
+  it("accepts null as an explicit disable operation", () => {
+    expect(parseWebhookConfiguration({ callback_url: null })).toEqual({
+      ok: true,
+      configuration: { callbackUrl: null },
+    });
+  });
+
+  it("requires the callback field", () => {
+    expect(parseWebhookConfiguration({})).toMatchObject({ ok: false });
   });
 });
 

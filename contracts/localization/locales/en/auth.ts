@@ -112,6 +112,18 @@ export const authEnglishTranslations = {
     "When on, this agent can only complete a purchase while you are actively reviewing it in a trusted checkout.",
   "auth.features.agentGrants.ui.agentGrantDetailPage.mandate.allowed.rails": "Allowed payment methods",
   "auth.features.agentGrants.ui.agentGrantDetailPage.mandate.save": "Save spending mandate",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook": "Order-update webhook",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.description":
+    "Send signed order updates to this agent platform. Use an HTTPS callback or leave it disabled.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.callback.url": "Callback URL",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.save": "Save webhook endpoint",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.disable": "Disable webhook",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.preview": "Signing secret",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.once":
+    "Copy this new signing secret now; it will not be shown again.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.label": "New signing secret",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.copy": "Copy secret",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.webhook.secret.copied": "Copied",
   "auth.features.agentGrants.ui.agentGrantDetailPage.activity": "Activity",
   "auth.features.agentGrants.ui.agentGrantDetailPage.no.activity.yet": "No activity yet.",
   "auth.features.agentGrants.ui.agentGrantDetailPage.activity.when": "When",
