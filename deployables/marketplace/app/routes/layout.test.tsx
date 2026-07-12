@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render as renderWithoutRouter, screen, waitFor, within, type RenderOptions } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
@@ -24,7 +25,18 @@ vi.mock("react-router", async () => {
   };
 });
 
+import { MemoryRouter } from "react-router";
 import MarketplaceLayoutRoute from "./layout";
+
+// DiscoveryShellLayout registers the DS RouterLinkAdapter, so rendering it requires
+// router context — exactly as it has in the production app tree.
+function ssr(ui: ReactElement) {
+  return renderToString(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
+function render(ui: ReactNode, options?: RenderOptions) {
+  return renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
+}
 
 const actorDisplay = {
   account: {
@@ -84,7 +96,7 @@ describe("marketplace route layout", () => {
       actorDisplay,
     });
 
-    const html = renderToString(<MarketplaceLayoutRoute />);
+    const html = ssr(<MarketplaceLayoutRoute />);
     const topNav = resolveMarketplaceNavItems("top-nav", actor);
     const sellNav = topNav.find((item) => item.key === "selling-workspace");
     const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
@@ -288,7 +300,7 @@ describe("marketplace route layout", () => {
       cartCount: 0,
     });
 
-    const html = renderToString(<MarketplaceLayoutRoute />);
+    const html = ssr(<MarketplaceLayoutRoute />);
 
     expect(resolveMarketplaceNavItems("bottom-nav", null).map((item) => item.href)).toEqual([
       "/search",
@@ -309,7 +321,7 @@ describe("marketplace route layout", () => {
       colorMode: "dark",
     });
 
-    const html = renderToString(<MarketplaceLayoutRoute />);
+    const html = ssr(<MarketplaceLayoutRoute />);
 
     expect(html).toContain('data-color-mode="dark"');
   });
@@ -327,7 +339,7 @@ describe("marketplace route layout", () => {
       },
     });
 
-    const html = renderToString(<MarketplaceLayoutRoute />);
+    const html = ssr(<MarketplaceLayoutRoute />);
 
     expect(html).toContain('data-color-mode="dark"');
     expect(html).toContain('data-reduced-motion="true"');
@@ -339,7 +351,7 @@ describe("marketplace route layout", () => {
       cartCount: 2,
     });
 
-    const html = renderToString(<MarketplaceLayoutRoute />);
+    const html = ssr(<MarketplaceLayoutRoute />);
 
     expect(resolveMarketplaceNavItems("top-nav", null, { cartCount: 2 }).map((item) => item.href)).toEqual([
       "/search",
@@ -367,7 +379,7 @@ describe("marketplace route layout", () => {
       cartCount: 2,
     });
 
-    const html = renderToString(<MarketplaceLayoutRoute />);
+    const html = ssr(<MarketplaceLayoutRoute />);
 
     expect(resolveMarketplaceNavItems("top-nav", actor, { cartCount: 2 }).map((item) => item.href)).toEqual([
       "/search",
@@ -403,7 +415,7 @@ describe("marketplace route layout", () => {
       actorDisplay,
     });
 
-    const html = renderToString(<MarketplaceLayoutRoute />);
+    const html = ssr(<MarketplaceLayoutRoute />);
 
     expect(html).toContain("Add a passkey to secure your account");
     expect(html).toContain("Passkeys help protect your account");

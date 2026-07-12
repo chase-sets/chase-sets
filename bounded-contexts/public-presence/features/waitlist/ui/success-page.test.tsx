@@ -1,6 +1,14 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render as renderWithoutRouter, screen, waitFor, type RenderOptions } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WaitlistSuccessPage } from "./success-page";
+
+// PublicPresencePageShell registers the DS RouterLinkAdapter, so rendering it
+// requires router context — exactly as it has in the production app tree.
+function render(ui: ReactNode, options?: RenderOptions) {
+  return renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
+}
 
 afterEach(() => {
   cleanup();

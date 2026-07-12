@@ -5,6 +5,7 @@ import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { ReactNode } from "react";
 import { AdminShell, ChaseRoot, Text, type NavigationItem } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { AdminAccountMenu } from "./admin-account-menu";
 
 export function AdminRootShell({
@@ -24,7 +25,11 @@ export function AdminRootShell({
   const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode);
 
   return (
-    <ChaseRoot colorMode={colorMode} reducedMotion={viewer?.preferences?.reducedMotion}>
+    <ChaseRoot
+      colorMode={colorMode}
+      reducedMotion={viewer?.preferences?.reducedMotion}
+      linkComponent={RouterLinkAdapter}
+    >
       <AdminShell
         brand={<Text weight="semibold">{t("adminWeb.app.root.brand")}</Text>}
         topNavItems={sections}

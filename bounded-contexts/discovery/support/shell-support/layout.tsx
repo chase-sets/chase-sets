@@ -8,6 +8,7 @@ import {
   type NavigationItem,
   type ColorMode,
 } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 
 export function DiscoveryShellLayout({
   activeKey = "search",
@@ -29,7 +30,7 @@ export function DiscoveryShellLayout({
   children: ReactNode;
 }) {
   return (
-    <ChaseRoot colorMode={colorMode} reducedMotion={reducedMotion}>
+    <ChaseRoot colorMode={colorMode} reducedMotion={reducedMotion} linkComponent={RouterLinkAdapter}>
       <MarketplaceShell
         brand={<BrandLink label={t("discovery.support.shellSupport.layout.chase.sets")} />}
         topNavItems={[...topNavItems]}

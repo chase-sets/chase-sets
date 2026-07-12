@@ -49,6 +49,7 @@ vi.mock("react-router", async () => {
   };
 });
 
+import { MemoryRouter } from "react-router";
 import MarketplaceAccountPaymentRoute from "@chase-sets/payments/routes/marketplace/account-payment";
 import MarketplaceLayoutRoute from "./layout";
 
@@ -168,7 +169,13 @@ describe("marketplace payment layout hydration", () => {
 
   it("keeps the account menu interactive after hydrating a mounted Stripe payment surface", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const route = <MarketplaceLayoutRoute />;
+    // DiscoveryShellLayout registers the DS RouterLinkAdapter, so both the SSR pass
+    // and hydration need router context — exactly as they have in the production app.
+    const route = (
+      <MemoryRouter>
+        <MarketplaceLayoutRoute />
+      </MemoryRouter>
+    );
     const container = document.createElement("div");
     let root: Root | undefined;
 

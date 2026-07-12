@@ -5,6 +5,7 @@ import { ChaseSetsLogo } from "../../brand/chase-sets-logo";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
 import { Cluster, Container, Inline, layoutWidthClasses, Show, type LayoutWidth } from "../../primitives/layout";
+import { AnchorLink, useLinkComponent, type LinkComponent } from "../../theme/link-adapter";
 import { useChaseMotion, usePortalRoots } from "../../theme/provider";
 import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
@@ -42,6 +43,7 @@ function renderNavigationItem(
   onSelect?: (key: string) => void,
   activeKey?: string,
   reducedMotion = false,
+  Link: LinkComponent = AnchorLink,
 ) {
   const content = (
     <>
@@ -78,6 +80,7 @@ function renderNavigationItem(
         onSelect={onSelect}
         activeKey={activeKey}
         reducedMotion={reducedMotion}
+        Link={Link}
       />
     );
   }
@@ -94,16 +97,17 @@ function renderNavigationItem(
         onSelect={onSelect}
         activeKey={activeKey}
         reducedMotion={reducedMotion}
+        Link={Link}
       />
     );
   }
 
   if (item.href) {
     return (
-      <a key={item.key} href={item.href} aria-current={active ? "page" : undefined} className={className}>
+      <Link key={item.key} href={item.href} aria-current={active ? "page" : undefined} className={className}>
         {active && groupId ? renderActivePill(groupId, "default", reducedMotion) : null}
         <NavItemContent>{content}</NavItemContent>
-      </a>
+      </Link>
     );
   }
 
@@ -124,6 +128,7 @@ function NavigationItemGroup({
   onSelect,
   activeKey,
   reducedMotion,
+  Link,
 }: {
   item: NavigationItem;
   active: boolean;
@@ -133,6 +138,7 @@ function NavigationItemGroup({
   onSelect?: (key: string) => void;
   activeKey?: string;
   reducedMotion: boolean;
+  Link: LinkComponent;
 }) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
@@ -164,7 +170,16 @@ function NavigationItemGroup({
             })}
           >
             {item.children?.map((child) =>
-              renderNavigationItem(child, child.key === activeKey, "vertical", undefined, onSelect, activeKey),
+              renderNavigationItem(
+                child,
+                child.key === activeKey,
+                "vertical",
+                undefined,
+                onSelect,
+                activeKey,
+                undefined,
+                Link,
+              ),
             )}
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
@@ -191,6 +206,7 @@ function NavigationTreeItem({
   onSelect,
   activeKey,
   reducedMotion,
+  Link,
 }: {
   item: NavigationItem;
   active: boolean;
@@ -200,6 +216,7 @@ function NavigationTreeItem({
   onSelect?: (key: string) => void;
   activeKey?: string;
   reducedMotion: boolean;
+  Link: LinkComponent;
 }) {
   const regionId = useId();
   const [open, setOpen] = useState(active);
@@ -242,6 +259,7 @@ function NavigationTreeItem({
             onSelect,
             activeKey,
             reducedMotion,
+            Link,
           ),
         )}
       </div>
@@ -256,6 +274,7 @@ function renderBottomNavigationItem(
   onSelect?: (key: string) => void,
   activeKey?: string,
   reducedMotion = false,
+  Link: LinkComponent = AnchorLink,
 ) {
   const content = (
     <>
@@ -296,6 +315,8 @@ function renderBottomNavigationItem(
               undefined,
               onSelect,
               activeKey,
+              undefined,
+              Link,
             ),
           )}
         </div>
@@ -305,10 +326,10 @@ function renderBottomNavigationItem(
 
   if (item.href) {
     return (
-      <a key={item.key} href={item.href} className={className}>
+      <Link key={item.key} href={item.href} className={className}>
         {active && groupId ? renderActivePill(groupId, "default", reducedMotion) : null}
         <NavItemContent className="w-full min-w-0 flex-col justify-center">{content}</NavItemContent>
-      </a>
+      </Link>
     );
   }
 
@@ -349,6 +370,7 @@ function TopNavActionsMenu({
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
+  const Link = useLinkComponent();
 
   useEffect(() => {
     if (!open) {
@@ -404,7 +426,16 @@ function TopNavActionsMenu({
           {items.length > 0 ? (
             <div className="flex flex-col gap-1">
               {items.map((item) =>
-                renderNavigationItem(item, isNavigationItemActive(item, activeKey), "vertical", undefined, onSelect),
+                renderNavigationItem(
+                  item,
+                  isNavigationItemActive(item, activeKey),
+                  "vertical",
+                  undefined,
+                  onSelect,
+                  undefined,
+                  undefined,
+                  Link,
+                ),
               )}
             </div>
           ) : null}
@@ -427,6 +458,7 @@ export function TopNav({
 }: TopNavProps) {
   const groupId = useId();
   const motionSettings = useChaseMotion();
+  const Link = useLinkComponent();
   const navLabel = rest["aria-label"] ?? "Primary navigation";
   const primaryItems = items.filter((item) => item.placement !== "utility");
   const utilityItems = items
@@ -467,6 +499,7 @@ export function TopNav({
                       onSelect,
                       activeKey,
                       motionSettings.reducedMotion,
+                      Link,
                     ),
                   )}
                 </Inline>
@@ -507,6 +540,7 @@ export function TopNav({
                           onSelect,
                           activeKey,
                           motionSettings.reducedMotion,
+                          Link,
                         ),
                       )}
                     </Inline>
@@ -526,15 +560,17 @@ export interface BrandLinkProps {
 }
 
 export function BrandLink({ href = "/", label }: BrandLinkProps) {
+  const Link = useLinkComponent();
+
   return (
-    <a
+    <Link
       href={href}
       aria-label={label}
       className="focus-ring inline-flex items-center gap-2 rounded-tokenSm px-1 py-1 text-sm font-semibold text-foreground transition hover:text-accent"
     >
       <ChaseSetsLogo decorative size={20} />
       <span>{label}</span>
-    </a>
+    </Link>
   );
 }
 
@@ -547,6 +583,7 @@ export interface SideNavProps extends Omit<HTMLAttributes<HTMLElement>, "classNa
 export function SideNav({ items, activeKey, onSelect, ...rest }: SideNavProps) {
   const groupId = useId();
   const motionSettings = useChaseMotion();
+  const Link = useLinkComponent();
 
   return (
     <nav
@@ -565,6 +602,7 @@ export function SideNav({ items, activeKey, onSelect, ...rest }: SideNavProps) {
             onSelect,
             activeKey,
             motionSettings.reducedMotion,
+            Link,
           ),
         ),
       )}
@@ -582,6 +620,7 @@ export interface BottomNavProps extends Omit<HTMLAttributes<HTMLElement>, "class
 export function BottomNav({ items, activeKey, onSelect, width = "full", ...rest }: BottomNavProps) {
   const groupId = useId();
   const motionSettings = useChaseMotion();
+  const Link = useLinkComponent();
   const visibleItems = items;
   const gridColumnsClass =
     visibleItems.length > 5
@@ -613,6 +652,7 @@ export function BottomNav({ items, activeKey, onSelect, width = "full", ...rest 
               onSelect,
               activeKey,
               motionSettings.reducedMotion,
+              Link,
             ),
           )}
         </div>,
@@ -630,6 +670,7 @@ export interface NavRailProps extends Omit<HTMLAttributes<HTMLElement>, "classNa
 export function NavRail({ items, activeKey, onSelect, ...rest }: NavRailProps) {
   const groupId = useId();
   const motionSettings = useChaseMotion();
+  const Link = useLinkComponent();
 
   return (
     <nav
@@ -648,6 +689,7 @@ export function NavRail({ items, activeKey, onSelect, ...rest }: NavRailProps) {
             onSelect,
             activeKey,
             motionSettings.reducedMotion,
+            Link,
           ),
         ),
       )}

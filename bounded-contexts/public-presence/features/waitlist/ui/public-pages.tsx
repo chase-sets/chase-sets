@@ -39,6 +39,7 @@ import {
   ToneIcon,
   type PromoBarMessage,
 } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
 import prelaunchHero800wUrl from "./assets/chase-sets-prelaunch-hero-800w.webp?url";
 import prelaunchHero1200wUrl from "./assets/chase-sets-prelaunch-hero-1200w.webp?url";
@@ -287,7 +288,7 @@ export function PublicPresencePageShell({ children }: { children: ReactNode }) {
   const promoBarMessages = usePromoBarMessages();
 
   return (
-    <ChaseRoot colorMode="system">
+    <ChaseRoot colorMode="system" linkComponent={RouterLinkAdapter}>
       <SkipLink />
       <MobileStickyInset>
         <Container width="wide">

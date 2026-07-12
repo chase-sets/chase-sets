@@ -1,5 +1,5 @@
 import type React from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render as renderWithoutRouter, screen, waitFor, within, type RenderOptions } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,7 @@ vi.mock("react-router", async () => {
   };
 });
 
+import { MemoryRouter } from "react-router";
 import AccessLayout from "./routes/access-layout";
 import CatalogLayout from "./routes/catalog-layout";
 import CommerceLayout from "./routes/commerce-layout";
@@ -50,11 +51,32 @@ const allSectionsActor = {
   ],
 };
 
+// The admin shells register the DS RouterLinkAdapter, so rendering them requires
+// router context — exactly as they have in the production app tree.
+function ssr(ui: React.ReactElement) {
+  return renderToString(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
+function render(ui: React.ReactNode, options?: RenderOptions) {
+  return renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
+}
+
 function renderAdminRoute(Component: () => React.ReactElement, pathname: string) {
   mockUseLoaderData.mockReturnValue({ actor: allSectionsActor });
   mockUseLocation.mockReturnValue({ pathname });
 
-  return renderToString(<Component />);
+  return ssr(<Component />);
+}
+
+// Attribute order on rendered anchors is an implementation detail of the registered
+// link component (raw `<a>` vs the DS RouterLinkAdapter), so assert the active link
+// semantically: some single anchor tag carries both the href and aria-current="page".
+function expectActiveLink(html: string, href: string) {
+  const anchors = html.match(/<a [^>]*>/g) ?? [];
+
+  expect(anchors.some((anchor) => anchor.includes(`href="${href}"`) && anchor.includes('aria-current="page"'))).toBe(
+    true,
+  );
 }
 
 function occurrenceCount(source: string, value: string) {
@@ -135,7 +157,7 @@ describe("admin web section layouts", () => {
       expect(html).toContain("Growth");
       expect(html).toContain("Support");
       expect(html).toContain("Platform");
-      expect(html).toContain(`href="${activeHref}" aria-current="page"`);
+      expectActiveLink(html, activeHref);
       expect(html).toContain(localNavLabel);
       expect(html).toContain('aria-label="Account menu"');
       expect(html).toContain('action="/access/sign-out"');
@@ -146,7 +168,7 @@ describe("admin web section layouts", () => {
   it("keeps Reference Data active for Catalog reference type routes", () => {
     const html = renderAdminRoute(CatalogLayout, "/catalog/reference-types");
 
-    expect(html).toContain('href="/catalog/reference-records" aria-current="page"');
+    expectActiveLink(html, "/catalog/reference-records");
     expect(html).toContain("Reference Data");
   });
 
@@ -160,7 +182,7 @@ describe("admin web section layouts", () => {
     });
     mockUseLocation.mockReturnValue({ pathname: "/catalog/dimensions" });
 
-    const html = renderToString(<CatalogLayout />);
+    const html = ssr(<CatalogLayout />);
 
     expect(html).toContain('data-color-mode="dark"');
   });
@@ -260,7 +282,7 @@ describe("admin web root hub", () => {
       ],
     });
 
-    const html = renderToString(<AdminIndex />);
+    const html = ssr(<AdminIndex />);
 
     expect(html).toContain("Admin sections");
     expect(html).toContain('aria-label="Account menu"');
@@ -274,7 +296,7 @@ describe("admin web root hub", () => {
   it("renders a no-access state when no sections are visible", () => {
     mockUseLoaderData.mockReturnValue({ actor: allSectionsActor, sections: [] });
 
-    const html = renderToString(<AdminIndex />);
+    const html = ssr(<AdminIndex />);
 
     expect(html).toContain("Admin");
     expect(html).toContain('aria-label="Account menu"');
@@ -292,7 +314,7 @@ describe("admin web root hub", () => {
       },
     });
 
-    const html = renderToString(<AdminIndex />);
+    const html = ssr(<AdminIndex />);
 
     expect(html).toContain('data-color-mode="dark"');
   });
@@ -307,14 +329,14 @@ describe("admin web root hub", () => {
     });
     mockUseLocation.mockReturnValue({ pathname: "/catalog/dimensions" });
 
-    const html = renderToString(<CatalogLayout />);
+    const html = ssr(<CatalogLayout />);
 
     expect(html).toContain('data-color-mode="dark"');
     expect(html).toContain('data-reduced-motion="true"');
   });
 
   it("renders the offline fallback inside the admin shell", () => {
-    const html = renderToString(<OfflineRoute />);
+    const html = ssr(<OfflineRoute />);
 
     expect(html).toContain("Admin");
     expect(html).toContain("Admin is offline");

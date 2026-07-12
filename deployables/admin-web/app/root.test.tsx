@@ -23,6 +23,7 @@ vi.mock("react-router", async () => {
   };
 });
 
+import { MemoryRouter } from "react-router";
 import { ErrorBoundary, Layout } from "./root";
 
 describe("admin root layout", () => {
@@ -71,7 +72,13 @@ describe("admin root layout", () => {
   it("renders root errors inside the admin shell without a Catalog-specific recovery action", () => {
     mockUseRouteError.mockReturnValue(new Error("boom"));
 
-    const html = renderToString(<ErrorBoundary />);
+    // AdminRootShell registers the DS RouterLinkAdapter, so rendering it requires
+    // router context — exactly as it has in the production app tree.
+    const html = renderToString(
+      <MemoryRouter>
+        <ErrorBoundary />
+      </MemoryRouter>,
+    );
 
     expect(html).toContain("Admin");
     expect(html).toContain("Admin Error");

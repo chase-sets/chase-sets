@@ -1,8 +1,9 @@
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
-import { forwardRef } from "react";
+import { forwardRef, useMemo } from "react";
 import { motion } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
+import { useLinkComponent } from "../../theme/link-adapter";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
@@ -138,6 +139,13 @@ export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(functio
   ref,
 ) {
   const motionSettings = useChaseMotion();
+  const Link = useLinkComponent();
+  // Motion-enable whatever link component ChaseRoot registered (a plain `<a>` by
+  // default, a router `Link` when the host app opted in) instead of hardcoding
+  // `motion.a`, so LinkButton gets SPA transitions for free. Memoized on `Link` so
+  // the motion-wrapped component keeps a stable identity across renders — recreating
+  // it every render would remount the anchor and drop hover/tap state.
+  const MotionLink = useMemo(() => motion.create(Link), [Link]);
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
     motionSettings.interactiveScale,
@@ -146,7 +154,7 @@ export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(functio
   const nativeProps = toMotionDomProps(rest);
 
   return (
-    <motion.a
+    <MotionLink
       {...nativeProps}
       ref={ref}
       {...interactiveMotion}
@@ -155,7 +163,7 @@ export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(functio
       {renderLeadingIcon(leadingIcon, tone)}
       <span className="min-w-0">{children}</span>
       {trailingIcon ? <Icon name={trailingIcon} size="sm" tone={iconTone(tone)} /> : null}
-    </motion.a>
+    </MotionLink>
   );
 });
 

@@ -17,6 +17,7 @@ export * from "./primitives/layout";
 export { ToneIcon, type ToneIconProps, type ToneIconSize, type ToneIconTone } from "./primitives/tone-icon";
 export * from "./primitives/typography";
 export * from "./theme/provider";
+export type { LinkAdapterProps, LinkComponent } from "./theme/link-adapter";
 export * from "./theme/stripe-appearance";
 export { ThemePreferenceControl, type ThemePreference, type ThemePreferenceControlProps } from "./theme/theme-toggle";
 export {
