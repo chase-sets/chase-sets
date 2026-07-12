@@ -441,7 +441,7 @@ export async function resolveStandardScheduleTerms(
 ): Promise<PublishedStandardScheduleTerms> {
   const accountType = params.accountType ?? "personal";
   const effectiveAt = params.effectiveAt ?? new Date().toISOString();
-  const schedule = await getActiveSchedule(db, accountType, effectiveAt);
+  const schedule = await getActiveSchedule(db, effectiveAt);
 
   return {
     accountType,
