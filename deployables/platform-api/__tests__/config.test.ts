@@ -1106,6 +1106,7 @@ describe("platform api config", () => {
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_staging_connect_test";
     process.env.REALTIME_STREAM_LIMITER = "local";
     process.env.REALTIME_WAKE_SIGNAL_ENABLED = "false";
     process.env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED = "false";
