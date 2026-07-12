@@ -13,12 +13,15 @@ import { loader as sitemapLoader } from "./sitemap";
 import { waitlistAnalyticsBridgeScript } from "../root";
 
 describe("public web deployable", () => {
-  it("mounts public-presence routes without marketplace browse routes", () => {
+  it("mounts public-presence and pricing public market routes without marketplace browse routes", () => {
     const routeRecords = resolvePublicRouteConfigRecords();
     const routePaths = routeRecords.map((routeRecord) => routeRecord.routePath);
 
-    expect(new Set(routeRecords.map((routeRecord) => routeRecord.contextName))).toEqual(new Set(["public-presence"]));
+    expect(new Set(routeRecords.map((routeRecord) => routeRecord.contextName))).toEqual(
+      new Set(["pricing", "public-presence"]),
+    );
     expect(routePaths).toEqual([
+      "market/:slug",
       "",
       "welcome",
       "faq",
@@ -54,7 +57,7 @@ describe("public web deployable", () => {
 
   it("serves a prelaunch-only sitemap and robots file", async () => {
     vi.stubEnv("CHASE_SETS_PUBLIC_INDEXING", "true");
-    const sitemap = sitemapLoader({
+    const sitemap = await sitemapLoader({
       request: new Request("https://example.test/sitemap.xml"),
       params: {},
       context: undefined,

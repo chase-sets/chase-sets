@@ -101,6 +101,10 @@ A **Product Market Aggregate** is the denormalized, always-current summary for a
 
 **Sell-Through Rate** is the ratio of a resolved product's sold quantity to its available quantity (sold plus still-listed) over a trailing pricing window, recorded on its Product Market Aggregate.
 
+## Public Market Page
+
+A **Public Market Page** is the unauthenticated, SEO-indexable page published per catalog item at `/market/{slug}` on public-web: a public-safe view over that catalog item's Daily Product Rollup series, Product Market Aggregate, and Market-State Snapshot for its most-traded resolved product. It never carries account identifiers or individual buyer/seller attribution -- see Trades Tape, whose per-trade counterparty detail never reaches this surface. Noindex-gated behind public-web's sitewide indexing flag until the launch decision.
+
 ## Planned Market Analytics And Repricing
 
 These planned terms pre-register upcoming market, analytics, and repricing language. They are not shipped behavior until Pricing adds the corresponding projections, policies, commands, and UI.

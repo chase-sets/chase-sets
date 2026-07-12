@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   subtitle text NULL,
   status text NOT NULL,
   category_ids text[] NOT NULL DEFAULT '{}',
+  slug text NULL,
   updated_at timestamptz NOT NULL
 );
 
@@ -14,6 +15,13 @@ ALTER TABLE pricing_catalog_item_inputs
 
 ALTER TABLE pricing_catalog_item_inputs
   ADD COLUMN IF NOT EXISTS category_ids text[] NOT NULL DEFAULT '{}';
+-- Public market pages address catalog items by slug. Minted locally
+-- (see ../../../../support/runtime-support/slugs.ts) from title/subtitle/id
+-- already carried on the events this projection already consumes -- no new
+-- event subscription needed, just a subscriptionVersion bump so replay
+-- backfills the column for every pre-existing row.
+ALTER TABLE pricing_catalog_item_inputs
+  ADD COLUMN IF NOT EXISTS slug text NULL;
 
 CREATE TABLE IF NOT EXISTS pricing_inventory_item_inputs (
   item_id text PRIMARY KEY,

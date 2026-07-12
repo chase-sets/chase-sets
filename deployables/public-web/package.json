@@ -14,6 +14,7 @@
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/observability": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/pricing": "workspace:*",
     "@chase-sets/public-presence": "workspace:*",
     "@react-router/node": "7.14.0",
     "@react-router/serve": "7.14.0",

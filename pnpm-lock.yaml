@@ -1641,6 +1641,9 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
+      '@chase-sets/pricing':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/pricing
       '@chase-sets/public-presence':
         specifier: workspace:*
         version: link:../../bounded-contexts/public-presence
