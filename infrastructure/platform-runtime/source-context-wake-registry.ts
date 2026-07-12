@@ -154,7 +154,7 @@ export const sourceContextWakeRegistry = [
     priorityLane: "bulk",
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: ["authenticity:authenticity-case-projection"],
+    affectedProjectionNames: ["authenticity:authenticity-case-projection", "pricing:pricing-market-trades-projection"],
     routeDependencyIds: [],
   }),
   registryEntry({
@@ -330,6 +330,7 @@ export const sourceContextWakeRegistry = [
       "ordering:ordering-account-projection",
       "payments:payments-account-risk-source-projection",
       "platform-operations:risk-alert-queue-projection",
+      "pricing:pricing-market-trades-projection",
       "settlement:settlement-account-risk-source-projection",
     ],
     routeDependencyIds: [
@@ -517,6 +518,7 @@ export const sourceContextWakeRegistry = [
       "payments:payments-order-cancellation-refund-effect",
       "payments:payments-payment-projection",
       "platform-operations:risk-alert-queue-projection",
+      "pricing:pricing-market-trades-projection",
       "settlement:settlement-account-risk-source-projection",
       "settlement:settlement-support-hold-projection",
       "settlement:settlement-payment-input-projection",

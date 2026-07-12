@@ -19,7 +19,16 @@
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
-  "seedRequirements": ["catalog", "identity", "inventory", "marketplace", "ordering", "fulfillment"],
+  "seedRequirements": [
+    "catalog",
+    "identity",
+    "inventory",
+    "marketplace",
+    "ordering",
+    "fulfillment",
+    "payments",
+    "authenticity"
+  ],
   "eventSubscriptions": [
     {
       "sourceContextName": "catalog",
@@ -111,6 +120,31 @@
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
       "order": 70,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "pricing-market-trades-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account.badge-assigned"],
+      "order": 80,
+      "projectionHandlerSetNames": ["pricing-market-trades-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "pricing-market-trades-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["payments.payment-fraud-warning-received"],
+      "order": 90,
+      "projectionHandlerSetNames": ["pricing-market-trades-projection"]
+    },
+    {
+      "sourceContextName": "authenticity",
+      "sourceContextMount": "when-mounted",
+      "projectionName": "pricing-market-trades-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["authenticity.case.opened", "authenticity.case.verdict-recorded"],
+      "order": 100,
+      "projectionHandlerSetNames": ["pricing-market-trades-projection"]
     }
   ],
   "projectionGroups": [
@@ -151,8 +185,9 @@
     },
     {
       "projectionName": "pricing-market-trades-projection",
-      "sourceContextNames": ["ordering", "fulfillment"],
-      "ownedTables": ["pricing_market_trades"],
+      "sourceContextNames": ["ordering", "fulfillment", "identity", "payments", "authenticity"],
+      "optionalSourceContextNames": ["authenticity"],
+      "ownedTables": ["pricing_market_trades", "pricing_market_trade_authenticity_cases"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }
@@ -293,7 +328,7 @@
     },
     "market-trades": {
       "classification": "slice",
-      "purpose": "Own the pricing trades-tape: the normalized, replay-backfilled trade history projected from Ordering and Fulfillment events.",
+      "purpose": "Own the pricing trades-tape: the normalized, replay-backfilled trade history projected from Ordering and Fulfillment events, plus its tape-integrity reactions (fraud exclusions from Identity/Payments risk flags, verified markers from Authenticity verdicts) and stat-hygiene policy.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
     "market-rollups": {

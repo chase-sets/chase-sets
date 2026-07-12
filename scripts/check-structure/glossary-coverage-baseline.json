@@ -27,6 +27,12 @@
       "noun": "item",
       "terms": ["Inventory Item"],
       "reason": "Inventory events use the shorter stream noun while the ubiquitous term is Inventory Item."
+    },
+    {
+      "contextName": "authenticity",
+      "noun": "case",
+      "terms": ["Authenticity Case"],
+      "reason": "Authenticity's event-type noun is the shorter stream noun (case) while the ubiquitous glossary term is Authenticity Case (#4304, pricing's first subscriber to authenticity.case.* events)."
     }
   ],
   "allowlist": [
