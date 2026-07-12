@@ -25,7 +25,7 @@ import { consentRoutes } from "./features/consents/api/route";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
-import { buildCurrentActorDisplay } from "./support/request-support/current-actor-display";
+import { buildCurrentActorDisplay } from "./support/shell-support/current-actor-display";
 
 export type IdentityApiEnv = {
   Variables: {

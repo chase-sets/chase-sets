@@ -13,7 +13,12 @@ import { createIdentityApiClient, IdentityApiError } from "./support/request-sup
 import { hasPermission } from "./support/request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
-export type { CurrentActorDisplay } from "./support/request-support/current-actor-display";
+export type { CurrentActorDisplay } from "./support/shell-support/current-actor-display";
+export {
+  displayActorAccountName,
+  displayActorUserName,
+  displayRole,
+} from "./support/shell-support/current-actor-display";
 export { resolveIdentityShellViewer } from "./support/shell-support/viewer";
 export type { IdentityShellViewer, IdentityShellViewerPreferences } from "./support/shell-support/viewer";
 export {

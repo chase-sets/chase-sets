@@ -4,6 +4,12 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { buildIdentityApi, type IdentityApiEnv } from "../api";
 import type { IdentityServices } from "../support/runtime-support/services";
+import {
+  displayActorAccountName,
+  displayActorUserName,
+  displayRole,
+  type CurrentActorDisplay,
+} from "../support/shell-support/current-actor-display";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -199,5 +205,80 @@ describe("current actor display", () => {
     const response = await buildApp(buildServices(), null).request("/current-actor-display");
 
     expect(response.status).toBe(401);
+  });
+});
+
+describe("current actor display labels", () => {
+  function display(
+    overrides: {
+      account?: Partial<CurrentActorDisplay["account"]>;
+      user?: Partial<CurrentActorDisplay["user"]>;
+    } = {},
+  ): CurrentActorDisplay {
+    return {
+      account: {
+        account_id: "acc_card_vault",
+        display_name: null,
+        name: null,
+        badges: [],
+        ...overrides.account,
+      },
+      membership: {
+        membership_id: "mbr_card_vault_alex",
+        role_key: "fulfillment_manager",
+      },
+      user: {
+        user_id: "usr_alex",
+        display_name: null,
+        primary_email: null,
+        ...overrides.user,
+      },
+    };
+  }
+
+  describe("displayActorAccountName", () => {
+    it("prefers display_name", () => {
+      expect(
+        displayActorAccountName(display({ account: { display_name: "Card Vault", name: "Card Vault LLC" } })),
+      ).toBe("Card Vault");
+    });
+
+    it("falls back to name when display_name is missing", () => {
+      expect(displayActorAccountName(display({ account: { name: "Card Vault LLC" } }))).toBe("Card Vault LLC");
+    });
+
+    it("falls back to the account id when neither name is available", () => {
+      expect(displayActorAccountName(display())).toBe("acc_card_vault");
+    });
+  });
+
+  describe("displayActorUserName", () => {
+    it("prefers display_name", () => {
+      expect(
+        displayActorUserName(display({ user: { display_name: "Alex Clerk", primary_email: "alex@example.com" } })),
+      ).toBe("Alex Clerk");
+    });
+
+    it("falls back to primary_email when display_name is missing", () => {
+      expect(displayActorUserName(display({ user: { primary_email: "alex@example.com" } }))).toBe("alex@example.com");
+    });
+
+    it("falls back to the user id when neither name nor email is available", () => {
+      expect(displayActorUserName(display())).toBe("usr_alex");
+    });
+  });
+
+  describe("displayRole", () => {
+    it("formats underscore-separated role keys", () => {
+      expect(displayRole("fulfillment_manager")).toBe("Fulfillment Manager");
+    });
+
+    it("formats hyphen-separated role keys", () => {
+      expect(displayRole("platform-admin")).toBe("Platform Admin");
+    });
+
+    it("leaves already-readable role keys untouched", () => {
+      expect(displayRole("owner")).toBe("Owner");
+    });
   });
 });

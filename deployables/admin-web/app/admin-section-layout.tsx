@@ -1,5 +1,5 @@
 import { Outlet, useLoaderData, useLocation } from "react-router";
-import type { IdentityShellViewer } from "@chase-sets/identity/server";
+import type { CurrentActorDisplay, IdentityShellViewer } from "@chase-sets/identity/server";
 import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { WebHostSection } from "@chase-sets/platform-runtime/web";
@@ -17,12 +17,13 @@ type SectionConfig = Readonly<{
 
 type AdminSectionLoaderData = Readonly<{
   actor: ResolvedActor;
+  actorDisplay?: CurrentActorDisplay | null;
   viewer?: IdentityShellViewer;
 }>;
 
 export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig }>) {
   const location = useLocation();
-  const { actor, viewer } = useLoaderData() as AdminSectionLoaderData;
+  const { actor, actorDisplay, viewer } = useLoaderData() as AdminSectionLoaderData;
   const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode);
 
   return (
@@ -33,7 +34,7 @@ export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig 
         topNavActiveKey={config.section}
         activeKey={resolveActiveKey(location.pathname, config)}
         navItems={resolveAdminWebNavItems(actor, { section: config.section })}
-        actions={<AdminAccountMenu actor={actor} preferences={preferences} />}
+        actions={<AdminAccountMenu actor={actor} actorDisplay={actorDisplay} preferences={preferences} />}
       >
         <Outlet />
       </AdminShell>

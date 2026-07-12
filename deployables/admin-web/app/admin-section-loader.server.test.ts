@@ -9,7 +9,7 @@ const {
   mockCreateUserPreferencesColorModeCookieSeedHeaders,
 } = vi.hoisted(() => ({
   mockCreateIdentityRequestApiClient: vi.fn(),
-  mockIdentityApi: { getUserPreferences: vi.fn() },
+  mockIdentityApi: { getUserPreferences: vi.fn(), getCurrentActorDisplay: vi.fn() },
   mockRequireAdminSectionActor: vi.fn(),
   mockRequestWithoutFreshWrite: vi.fn((request: Request) => {
     const url = new URL(request.url);
@@ -63,6 +63,7 @@ describe("admin section loader", () => {
     mockRequireAdminSectionActor.mockResolvedValue({ permissions: [] });
     mockCreateIdentityRequestApiClient.mockReturnValue(mockIdentityApi);
     mockResolveIdentityShellViewer.mockResolvedValue({ actor: null, preferences: null });
+    mockIdentityApi.getCurrentActorDisplay.mockResolvedValue(null);
     mockCreateUserPreferencesColorModeCookieSeedHeaders.mockReturnValue(null);
   });
 
@@ -93,9 +94,15 @@ describe("admin section loader", () => {
   it("folds the resolved actor and Identity preferences into the shell viewer read model", async () => {
     const actor = { permissions: ["catalog.view"], userId: "usr_admin" };
     const viewer = { actor, preferences: { colorMode: "dark", reducedMotion: "user" } };
+    const actorDisplay = {
+      account: { account_id: "acc_admin", display_name: "Card Vault", name: "Card Vault LLC", badges: [] },
+      membership: { membership_id: "mbr_admin", role_key: "owner" },
+      user: { user_id: "usr_admin", display_name: "Alex Clerk", primary_email: "alex@example.com" },
+    };
     const cookieHeaders = new Headers({ "Set-Cookie": "chase_sets_color_mode=dark" });
     mockRequireAdminSectionActor.mockResolvedValue(actor);
     mockResolveIdentityShellViewer.mockResolvedValue(viewer);
+    mockIdentityApi.getCurrentActorDisplay.mockResolvedValue(actorDisplay);
     mockCreateUserPreferencesColorModeCookieSeedHeaders.mockReturnValue(cookieHeaders);
     const loader = createAdminSectionLoader({ section: "catalog", fallbackPermission: "catalog.view" });
     const request = new Request("https://admin.test/catalog?afterWrite=fresh-route-receipt");
@@ -104,6 +111,7 @@ describe("admin section loader", () => {
 
     expect(unwrapLoaderData(result)).toEqual({
       actor,
+      actorDisplay,
       viewer,
     });
     expect(loaderHeaders(result).get("Set-Cookie")).toBe("chase_sets_color_mode=dark");
@@ -113,7 +121,21 @@ describe("admin section loader", () => {
       expect.objectContaining({ url: "https://admin.test/catalog" }),
     );
     expect(mockResolveIdentityShellViewer).toHaveBeenCalledWith(mockIdentityApi, actor);
+    expect(mockIdentityApi.getCurrentActorDisplay).toHaveBeenCalled();
     expect(mockCreateUserPreferencesColorModeCookieSeedHeaders).toHaveBeenCalledWith(request, "dark");
+  });
+
+  it("falls back to a null actor display when Identity's current-actor-display read fails", async () => {
+    const actor = { permissions: ["catalog.view"], userId: "usr_admin" };
+    mockRequireAdminSectionActor.mockResolvedValue(actor);
+    mockResolveIdentityShellViewer.mockResolvedValue({ actor, preferences: null });
+    mockIdentityApi.getCurrentActorDisplay.mockRejectedValue(new Error("boom"));
+    const loader = createAdminSectionLoader({ section: "catalog", fallbackPermission: "catalog.view" });
+    const request = new Request("https://admin.test/catalog");
+
+    const result = await loader({ request, params: {}, context: {}, url: new URL(request.url), pattern: "/catalog" });
+
+    expect(unwrapLoaderData(result)).toMatchObject({ actorDisplay: null });
   });
 
   it("challenges section home routes for sign-in before resolving the actor-visible default", async () => {
