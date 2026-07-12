@@ -26,6 +26,9 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
     account_id: "acc_test" as never,
     status: "not-started",
     missing_requirements: [],
+    advisory_requirements: [],
+    disabled_reason: null,
+    requirements_deadline: null,
     provider_reference: null,
     contact_email: null,
     onboarding_status: "not-started",
@@ -165,6 +168,23 @@ describe("payout setup page", () => {
     expect(html).toContain("Contact support");
     expect(html).not.toContain("individual.verification.document");
     expect(html).not.toContain("external_account");
+  });
+
+  it("does not mount seller verification for platform posture review", () => {
+    const html = renderPage(
+      readiness({
+        status: "pending",
+        provider_reference: "acct_test",
+        onboarding_status: "pending",
+        missing_requirements: ["provider_dashboard_posture"],
+        updated_at: "2026-06-01T15:00:00.000Z",
+      }),
+    );
+
+    expect(html).toContain("Platform review — contact support");
+    expect(html).toContain("Contact support");
+    expect(html).not.toContain("Loading secure payout setup");
+    expect(html).not.toContain("provider_dashboard_posture");
   });
 
   it("renders the ready state without mounting setup by default", () => {

@@ -18,7 +18,10 @@ describe("money movement contract", () => {
       lossesCollector: "application",
       feesCollector: "application",
       requirementsCollector: "application",
-      missingRequirements: [],
+      blockingRequirements: [],
+      advisoryRequirements: [],
+      disabledReason: null,
+      requirementsDeadline: null,
     } satisfies ProviderPayoutReadiness;
 
     expect(readiness).toMatchObject({
@@ -38,7 +41,10 @@ describe("money movement contract", () => {
       lossesCollector: "application",
       feesCollector: "application",
       requirementsCollector: "stripe",
-      missingRequirements: ["external_account"],
+      blockingRequirements: ["external_account"],
+      advisoryRequirements: [],
+      disabledReason: null,
+      requirementsDeadline: null,
     } satisfies ProviderPayoutReadiness;
     const setupSession = {
       providerReference: "acct_test",
@@ -55,7 +61,7 @@ describe("money movement contract", () => {
     } satisfies CreatedPayoutAccountManagementSession;
 
     expect(setupSession.components).toEqual(["payout-setup"]);
-    expect(setupSession.readiness.missingRequirements).toEqual(["external_account"]);
+    expect(setupSession.readiness.blockingRequirements).toEqual(["external_account"]);
     expect(setupSession.readiness.payoutAccountDashboard).toBe("express");
     expect(managementSession.components).toEqual(["payout-account-management"]);
   });
@@ -71,7 +77,10 @@ describe("money movement contract", () => {
       lossesCollector: "application",
       feesCollector: "application",
       requirementsCollector: "application",
-      missingRequirements: ["provider-onboarding"],
+      blockingRequirements: ["provider-onboarding"],
+      advisoryRequirements: [],
+      disabledReason: null,
+      requirementsDeadline: null,
     } satisfies ProviderPayoutReadiness;
     const setupLink = {
       providerReference: "acct_test",

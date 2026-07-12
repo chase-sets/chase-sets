@@ -142,6 +142,8 @@ function localizedRequirementGroupLabel(group: MissingRequirementGroup) {
       return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.identity.and.business.details");
     case "account-agreement":
       return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.account.agreement");
+    case "platform-review":
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.platform.review");
     default:
       return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.verification.review");
   }
@@ -155,6 +157,8 @@ function localizedRequirementGroupDetail(group: MissingRequirementGroup) {
       return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.account.identity.or.business");
     case "account-agreement":
       return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.and.accept.the.required.account");
+    case "platform-review":
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.platform.review.description");
     default:
       return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.the.remaining.verification.details");
   }
@@ -169,15 +173,33 @@ function recoveryGuidance(
   }
 
   if (payoutReadiness.status === "restricted") {
+    const disabledReason = payoutReadiness.disabled_reason?.toLowerCase() ?? "";
+    const description = disabledReason.includes("past_due")
+      ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.past.due")
+      : disabledReason.includes("review") || disabledReason.includes("pending")
+        ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.review")
+        : disabledReason.includes("rejected") || disabledReason.includes("fraud")
+          ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.rejected")
+          : disabledReason.includes("paused") || disabledReason.includes("inactivity")
+            ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.paused")
+            : t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted.description");
     return {
       tone: "warning" as const,
       title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted"),
-      description: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted.description"),
+      description,
       supportEscalationRecommended: true,
     };
   }
 
   if (missingRequirementGroups.length > 0) {
+    if (missingRequirementGroups.every((group) => group.id === "platform-review")) {
+      return {
+        tone: "warning" as const,
+        title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.platform.review"),
+        description: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.platform.review.description"),
+        supportEscalationRecommended: true,
+      };
+    }
     const groupLabels = missingRequirementGroups.map(localizedRequirementGroupLabel).join(", ");
     return {
       tone: "warning" as const,
@@ -237,6 +259,9 @@ export function PayoutReadinessPanel({
 }) {
   const hasProviderAccount = Boolean(payoutReadiness.provider_reference);
   const missingRequirementGroups = buildMissingRequirementGroups(payoutReadiness.missing_requirements);
+  const advisoryRequirementGroups = buildMissingRequirementGroups(payoutReadiness.advisory_requirements);
+  const onlyPlatformReview =
+    missingRequirementGroups.length > 0 && missingRequirementGroups.every((group) => group.id === "platform-review");
   const progress = buildPayoutSetupProgress(payoutReadiness);
   const recovery = recoveryGuidance(payoutReadiness, missingRequirementGroups);
   const canReceivePayouts = payoutReadiness.status === "ready";
@@ -282,6 +307,14 @@ export function PayoutReadinessPanel({
         />
       ) : null}
 
+      {advisoryRequirementGroups.length > 0 ? (
+        <Banner
+          tone="info"
+          title={t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.future.requirements")}
+          description={t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.future.requirements.description")}
+        />
+      ) : null}
+
       <Stack gap={3}>
         {progress.steps.map((step) => (
           <Surface key={step.id}>
@@ -323,6 +356,14 @@ export function PayoutReadinessPanel({
                 label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.destination"),
                 value: setupStatusLabel(payoutReadiness.payout_destination_status),
               },
+              ...(payoutReadiness.requirements_deadline
+                ? [
+                    {
+                      label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirements.deadline"),
+                      value: formatDateTime(payoutReadiness.requirements_deadline),
+                    },
+                  ]
+                : []),
             ]}
           />
 
@@ -342,6 +383,19 @@ export function PayoutReadinessPanel({
               ))}
             </Stack>
           ) : null}
+
+          {advisoryRequirementGroups.length > 0 ? (
+            <Stack gap={1}>
+              <Text size="sm" weight="semibold">
+                {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.upcoming.requirements")}
+              </Text>
+              {advisoryRequirementGroups.map((group) => (
+                <Text key={group.id} size="sm" tone="secondary">
+                  {localizedRequirementGroupLabel(group)}: {localizedRequirementGroupDetail(group)}
+                </Text>
+              ))}
+            </Stack>
+          ) : null}
         </Stack>
       </ProgressiveDisclosure>
       {canReceivePayouts ? (
@@ -351,7 +405,7 @@ export function PayoutReadinessPanel({
       ) : null}
       {showActions ? (
         <Inline>
-          {payoutReadiness.status === "ready" ? null : (
+          {payoutReadiness.status === "ready" || onlyPlatformReview ? null : (
             <Form spacing="none" method="post">
               <HiddenInput type="hidden" name="intent" value="start-payout-setup" />
               <Button type="submit">{primaryActionLabel(payoutReadiness.status)}</Button>

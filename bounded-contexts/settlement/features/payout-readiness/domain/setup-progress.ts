@@ -11,6 +11,7 @@ export type MissingRequirementGroupId =
   | "payout-account"
   | "identity-and-business"
   | "account-agreement"
+  | "platform-review"
   | "verification-review";
 
 export type MissingRequirementGroup = Readonly<{
@@ -26,6 +27,9 @@ export type PayoutSetupProgress = Readonly<{
   ready: boolean;
   last_checked_at: string | null;
   missing_requirement_groups: readonly MissingRequirementGroup[];
+  advisory_requirement_groups: readonly MissingRequirementGroup[];
+  disabled_reason: string | null;
+  requirements_deadline: string | null;
   steps: readonly PayoutSetupProgressStep[];
 }>;
 
@@ -58,6 +62,9 @@ function hasRequirement(readiness: SettlementPayoutReadinessRow, patterns: reado
 
 function missingRequirementGroupId(requirement: string): MissingRequirementGroupId {
   const normalized = requirement.toLowerCase();
+  if (normalized.startsWith("provider_") && normalized.endsWith("_posture")) {
+    return "platform-review";
+  }
   if (normalized.includes("external_account") || normalized.includes("bank") || normalized.includes("payout")) {
     return "payout-account";
   }
@@ -89,6 +96,8 @@ function groupLabel(id: MissingRequirementGroupId) {
       return "Identity and business details";
     case "account-agreement":
       return "Account agreement";
+    case "platform-review":
+      return "Platform review";
     default:
       return "Verification review";
   }
@@ -102,6 +111,8 @@ function groupDetail(id: MissingRequirementGroupId) {
       return "Review the account, identity, or business details requested during setup.";
     case "account-agreement":
       return "Review and accept the required account terms.";
+    case "platform-review":
+      return "Contact support while Chase Sets reviews the payout provider configuration.";
     default:
       return "Review the remaining verification details requested during setup.";
   }
@@ -116,21 +127,21 @@ export function buildMissingRequirementGroups(requirements: readonly string[]): 
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
 
-  return (["payout-account", "identity-and-business", "account-agreement", "verification-review"] as const).flatMap(
-    (id) => {
-      const count = counts.get(id) ?? 0;
-      return count > 0
-        ? [
-            {
-              id,
-              label: groupLabel(id),
-              count,
-              detail: groupDetail(id),
-            },
-          ]
-        : [];
-    },
-  );
+  return (
+    ["payout-account", "identity-and-business", "account-agreement", "platform-review", "verification-review"] as const
+  ).flatMap((id) => {
+    const count = counts.get(id) ?? 0;
+    return count > 0
+      ? [
+          {
+            id,
+            label: groupLabel(id),
+            count,
+            detail: groupDetail(id),
+          },
+        ]
+      : [];
+  });
 }
 
 export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow): PayoutSetupProgress {
@@ -161,6 +172,9 @@ export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow
     ready: readiness.status === "ready",
     last_checked_at: readiness.updated_at,
     missing_requirement_groups: buildMissingRequirementGroups(readiness.missing_requirements),
+    advisory_requirement_groups: buildMissingRequirementGroups(readiness.advisory_requirements),
+    disabled_reason: readiness.disabled_reason,
+    requirements_deadline: readiness.requirements_deadline,
     steps: [
       {
         id: "payout-setup",

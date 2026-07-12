@@ -53,6 +53,9 @@ export type SettlementOperationEvent = Readonly<{
   payoutDestinationStatus?: string;
   payoutAccountDashboard?: string;
   missingRequirementCount?: number;
+  advisoryRequirementCount?: number;
+  disabledReason?: string | null;
+  requirementsDeadline?: string | null;
   staleReadiness?: boolean;
   safeCategory?:
     | SettlementProviderErrorCategory

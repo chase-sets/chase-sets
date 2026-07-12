@@ -79,8 +79,15 @@ type StripeAccountResponse = Readonly<{
     currently_due?: readonly string[];
     eventually_due?: readonly string[];
     past_due?: readonly string[];
+    current_deadline?: number | string | null;
     disabled_reason?: string | null;
     entries?: readonly StripeRequirementEntry[];
+    summary?: Readonly<{
+      minimum_deadline?: Readonly<{
+        status?: string | null;
+        time?: string | null;
+      }> | null;
+    }> | null;
   }> | null;
   configuration?: Readonly<{
     recipient?: Readonly<{
@@ -310,9 +317,14 @@ function requirementEntryStatuses(entry: StripeRequirementEntry) {
   ].filter((status): status is NonNullable<ReturnType<typeof normalizedRequirementStatus>> => Boolean(status));
 }
 
-function requirementEntryIsActionable(entry: StripeRequirementEntry) {
+function requirementEntryIsBlocking(entry: StripeRequirementEntry) {
   const statuses = requirementEntryStatuses(entry);
   return statuses.length === 0 || statuses.some((status) => status === "currently_due" || status === "past_due");
+}
+
+function requirementEntryIsAdvisory(entry: StripeRequirementEntry) {
+  const statuses = requirementEntryStatuses(entry);
+  return statuses.length > 0 && statuses.every((status) => status === "eventually_due");
 }
 
 function requirementEntryKey(entry: StripeRequirementEntry) {
@@ -363,8 +375,11 @@ function requirementEntryKey(entry: StripeRequirementEntry) {
   return "verification_review";
 }
 
-function collectRequirementEntries(account: StripeAccountResponse) {
-  return (account.requirements?.entries ?? []).filter(requirementEntryIsActionable).map(requirementEntryKey);
+function collectRequirementEntries(
+  account: StripeAccountResponse,
+  predicate: (entry: StripeRequirementEntry) => boolean,
+) {
+  return (account.requirements?.entries ?? []).filter(predicate).map(requirementEntryKey);
 }
 
 function statusDetailsArray(
@@ -392,12 +407,11 @@ function collectCapabilityRequirements(
   });
 }
 
-function collectRequirements(account: StripeAccountResponse) {
+function collectBlockingRequirements(account: StripeAccountResponse) {
   return [
     ...(account.requirements?.currently_due ?? []),
     ...(account.requirements?.past_due ?? []),
-    ...(account.requirements?.eventually_due ?? []),
-    ...collectRequirementEntries(account),
+    ...collectRequirementEntries(account, requirementEntryIsBlocking),
     ...(account.launchPostureRequirements ?? []),
     ...collectCapabilityRequirements(
       "stripe_balance.stripe_transfers",
@@ -410,6 +424,28 @@ function collectRequirements(account: StripeAccountResponse) {
   ]
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function collectAdvisoryRequirements(account: StripeAccountResponse) {
+  return [
+    ...(account.requirements?.eventually_due ?? []),
+    ...collectRequirementEntries(account, requirementEntryIsAdvisory),
+  ]
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function requirementDeadline(account: StripeAccountResponse) {
+  const deadline =
+    account.requirements?.summary?.minimum_deadline?.time ?? account.requirements?.current_deadline ?? null;
+  if (deadline === null || deadline === undefined || deadline === "") {
+    return null;
+  }
+  const date =
+    typeof deadline === "number" || /^\d+$/.test(String(deadline))
+      ? new Date(Number(deadline) * 1000)
+      : new Date(String(deadline));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutReadiness {
@@ -427,13 +463,16 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
       account.capabilities?.payouts ??
       (account.payouts_enabled === true ? "active" : account.payouts_enabled === false ? "inactive" : undefined),
   );
-  const missingRequirements = [...new Set(collectRequirements(account))].sort((left, right) =>
+  const blockingRequirements = [...new Set(collectBlockingRequirements(account))].sort((left, right) =>
     left.localeCompare(right),
   );
+  const advisoryRequirements = [...new Set(collectAdvisoryRequirements(account))]
+    .filter((requirement) => !blockingRequirements.includes(requirement))
+    .sort((left, right) => left.localeCompare(right));
   const payoutDestinationStatus =
-    payoutCapabilityStatus === "active" && missingRequirements.length === 0
+    payoutCapabilityStatus === "active" && blockingRequirements.length === 0
       ? "ready"
-      : missingRequirements.some(
+      : blockingRequirements.some(
             (requirement) => requirement.includes("external_account") || requirement.includes("payout"),
           )
         ? "missing"
@@ -442,7 +481,7 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
   return {
     providerReference,
     contactEmail: normalizeContactEmail(account.email),
-    onboardingStatus: missingRequirements.length === 0 ? "complete" : "pending",
+    onboardingStatus: blockingRequirements.length === 0 ? "complete" : "pending",
     transferCapabilityStatus,
     payoutCapabilityStatus,
     payoutDestinationStatus,
@@ -459,7 +498,10 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
     requirementsCollector: collectorToPayoutAccountResponsibility(
       account.defaults?.responsibilities?.requirements_collector ?? account.controller?.requirement_collection,
     ),
-    missingRequirements,
+    blockingRequirements,
+    advisoryRequirements,
+    disabledReason: account.requirements?.disabled_reason?.trim() || null,
+    requirementsDeadline: requirementDeadline(account),
   };
 }
 

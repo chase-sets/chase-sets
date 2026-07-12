@@ -56,7 +56,10 @@ function readyReadiness(providerReference: string): ProviderPayoutReadiness {
     lossesCollector: "application",
     feesCollector: "application",
     requirementsCollector: "application",
-    missingRequirements: [],
+    blockingRequirements: [],
+    advisoryRequirements: [],
+    disabledReason: null,
+    requirementsDeadline: null,
   };
 }
 
@@ -71,7 +74,10 @@ function pendingReadiness(providerReference: string): ProviderPayoutReadiness {
     lossesCollector: "application",
     feesCollector: "application",
     requirementsCollector: "application",
-    missingRequirements: ["provider-onboarding"],
+    blockingRequirements: ["provider-onboarding"],
+    advisoryRequirements: [],
+    disabledReason: null,
+    requirementsDeadline: null,
   };
 }
 

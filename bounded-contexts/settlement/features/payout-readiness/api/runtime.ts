@@ -129,6 +129,9 @@ export type PayoutReadinessServices = Readonly<{
       lossesCollector?: string;
       feesCollector?: string;
       requirementsCollector?: string;
+      advisoryRequirements?: readonly string[];
+      disabledReason?: string | null;
+      requirementsDeadline?: string | null;
       recordedAt?: string;
     }>,
     context: EventStoreContext,
@@ -142,7 +145,7 @@ function readinessStatus(readiness: ProviderPayoutReadiness): PayoutReadinessSta
     readiness.transferCapabilityStatus === "active" &&
     readiness.payoutCapabilityStatus === "active" &&
     readiness.payoutDestinationStatus === "ready" &&
-    readiness.missingRequirements.length === 0
+    readiness.blockingRequirements.length === 0
   ) {
     return "ready";
   }
@@ -200,7 +203,10 @@ function payoutReadinessRowFromProviderReadiness(
   return {
     account_id: accountId,
     status: readinessStatus(readiness),
-    missing_requirements: readiness.missingRequirements,
+    missing_requirements: readiness.blockingRequirements,
+    advisory_requirements: readiness.advisoryRequirements,
+    disabled_reason: readiness.disabledReason,
+    requirements_deadline: readiness.requirementsDeadline,
     provider_reference: readiness.providerReference,
     contact_email: readiness.contactEmail ?? null,
     onboarding_status: readiness.onboardingStatus,
@@ -255,7 +261,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
       payoutCapabilityStatus: readiness.payoutCapabilityStatus,
       payoutDestinationStatus: readiness.payoutDestinationStatus,
       payoutAccountDashboard: readiness.payoutAccountDashboard,
-      missingRequirementCount: readiness.missingRequirements.length,
+      missingRequirementCount: readiness.blockingRequirements.length,
+      advisoryRequirementCount: readiness.advisoryRequirements.length,
+      disabledReason: readiness.disabledReason,
+      requirementsDeadline: readiness.requirementsDeadline,
     };
   }
 
@@ -375,6 +384,9 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
       lossesCollector?: string;
       feesCollector?: string;
       requirementsCollector?: string;
+      advisoryRequirements?: readonly string[];
+      disabledReason?: string | null;
+      requirementsDeadline?: string | null;
       recordedAt?: string;
     }>,
     context: EventStoreContext,
@@ -389,6 +401,9 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         accountId: params.accountId,
         status: normalizePayoutReadinessStatus(params.status),
         missingRequirements: params.missingRequirements ?? [],
+        advisoryRequirements: params.advisoryRequirements ?? [],
+        disabledReason: params.disabledReason ?? null,
+        requirementsDeadline: params.requirementsDeadline ?? null,
         providerReference: params.providerReference ?? null,
         contactEmail: params.contactEmail ?? null,
         onboardingStatus: params.onboardingStatus ?? "not-started",
@@ -440,7 +455,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           {
             accountId: params.accountId,
             status: readinessStatus(ensured),
-            missingRequirements: ensured.missingRequirements,
+            missingRequirements: ensured.blockingRequirements,
+            advisoryRequirements: ensured.advisoryRequirements,
+            disabledReason: ensured.disabledReason,
+            requirementsDeadline: ensured.requirementsDeadline,
             providerReference: ensured.providerReference,
             contactEmail: ensured.contactEmail ?? params.contactEmail ?? existing.contact_email,
             onboardingStatus: ensured.onboardingStatus,
@@ -471,7 +489,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           {
             accountId: params.accountId,
             status: readinessStatus(session.readiness),
-            missingRequirements: session.readiness.missingRequirements,
+            missingRequirements: session.readiness.blockingRequirements,
+            advisoryRequirements: session.readiness.advisoryRequirements,
+            disabledReason: session.readiness.disabledReason,
+            requirementsDeadline: session.readiness.requirementsDeadline,
             providerReference: session.providerReference,
             contactEmail: session.readiness.contactEmail ?? params.contactEmail ?? existing.contact_email,
             onboardingStatus: session.readiness.onboardingStatus,
@@ -540,7 +561,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           {
             accountId: params.accountId,
             status: readinessStatus(ensured),
-            missingRequirements: ensured.missingRequirements,
+            missingRequirements: ensured.blockingRequirements,
+            advisoryRequirements: ensured.advisoryRequirements,
+            disabledReason: ensured.disabledReason,
+            requirementsDeadline: ensured.requirementsDeadline,
             providerReference: ensured.providerReference,
             contactEmail: ensured.contactEmail ?? params.contactEmail ?? existing.contact_email,
             onboardingStatus: ensured.onboardingStatus,
@@ -573,7 +597,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           {
             accountId: params.accountId,
             status: readinessStatus(link.readiness),
-            missingRequirements: link.readiness.missingRequirements,
+            missingRequirements: link.readiness.blockingRequirements,
+            advisoryRequirements: link.readiness.advisoryRequirements,
+            disabledReason: link.readiness.disabledReason,
+            requirementsDeadline: link.readiness.requirementsDeadline,
             providerReference: link.providerReference,
             contactEmail: link.readiness.contactEmail ?? params.contactEmail ?? existing.contact_email,
             onboardingStatus: link.readiness.onboardingStatus,
@@ -716,7 +743,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           {
             accountId: params.accountId,
             status: readinessStatus(canonicalReadiness),
-            missingRequirements: canonicalReadiness.missingRequirements,
+            missingRequirements: canonicalReadiness.blockingRequirements,
+            advisoryRequirements: canonicalReadiness.advisoryRequirements,
+            disabledReason: canonicalReadiness.disabledReason,
+            requirementsDeadline: canonicalReadiness.requirementsDeadline,
             providerReference: canonicalReadiness.providerReference,
             contactEmail: canonicalReadiness.contactEmail ?? params.contactEmail ?? existing.contact_email,
             onboardingStatus: canonicalReadiness.onboardingStatus,
@@ -773,7 +803,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         {
           accountId: existing.account_id as AccountId,
           status: readinessStatus(params.readiness),
-          missingRequirements: params.readiness.missingRequirements,
+          missingRequirements: params.readiness.blockingRequirements,
+          advisoryRequirements: params.readiness.advisoryRequirements,
+          disabledReason: params.readiness.disabledReason,
+          requirementsDeadline: params.readiness.requirementsDeadline,
           providerReference: params.readiness.providerReference,
           contactEmail: params.readiness.contactEmail ?? existing.contact_email,
           onboardingStatus: params.readiness.onboardingStatus,

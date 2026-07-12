@@ -4,6 +4,9 @@ export type SettlementPayoutReadinessRow = Readonly<{
   account_id: string;
   status: "not-started" | "pending" | "ready" | "restricted";
   missing_requirements: readonly string[];
+  advisory_requirements: readonly string[];
+  disabled_reason: string | null;
+  requirements_deadline: string | null;
   provider_reference: string | null;
   contact_email: string | null;
   onboarding_status: "not-started" | "pending" | "complete";
@@ -19,10 +22,14 @@ export type SettlementPayoutReadinessRow = Readonly<{
   updated_at: string | null;
 }>;
 
-type PayoutReadinessPageRow = Omit<SettlementPayoutReadinessRow, "status" | "missing_requirements"> &
+type PayoutReadinessPageRow = Omit<
+  SettlementPayoutReadinessRow,
+  "status" | "missing_requirements" | "advisory_requirements"
+> &
   Readonly<{
     status: string;
     missing_requirements: unknown;
+    advisory_requirements: unknown;
     onboarding_status: string;
     transfer_capability_status: string;
     payout_capability_status: string;
@@ -110,6 +117,9 @@ function mapPayoutReadiness(row: PayoutReadinessPageRow): SettlementPayoutReadin
     missing_requirements: Array.isArray(row.missing_requirements)
       ? row.missing_requirements.filter((value): value is string => typeof value === "string")
       : [],
+    advisory_requirements: Array.isArray(row.advisory_requirements)
+      ? row.advisory_requirements.filter((value): value is string => typeof value === "string")
+      : [],
   };
 }
 
@@ -118,6 +128,9 @@ export function createEmptyPayoutReadiness(accountId: string): SettlementPayoutR
     account_id: accountId,
     status: "not-started",
     missing_requirements: ["provider-onboarding", "seller-agreement"],
+    advisory_requirements: [],
+    disabled_reason: null,
+    requirements_deadline: null,
     provider_reference: null,
     contact_email: null,
     onboarding_status: "not-started",
@@ -140,6 +153,9 @@ export async function getPayoutReadiness(db: PgQueryable, accountId: string): Pr
        account_id,
        status,
        missing_requirements,
+       advisory_requirements,
+       disabled_reason,
+       requirements_deadline,
        provider_reference,
        contact_email,
        onboarding_status,
@@ -171,6 +187,9 @@ export async function getPayoutReadinessByProviderReference(
        account_id,
        status,
        missing_requirements,
+       advisory_requirements,
+       disabled_reason,
+       requirements_deadline,
        provider_reference,
        contact_email,
        onboarding_status,

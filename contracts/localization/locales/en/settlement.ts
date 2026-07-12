@@ -51,6 +51,9 @@ export const settlementEnglishTranslations = {
     "Continue the Chase Sets setup page before requesting payouts.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.eligible.seller.balances":
     "Eligible account balances can move to the connected payout account after fulfillment and settlement checks are complete.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.future.requirements": "Upcoming payout requirements",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.future.requirements.description":
+    "These details will be needed later, but they do not prevent payouts today.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.finish.setup.to.receive.payouts":
     "Finish setup to receive payouts",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.fix.payout.setup": "Fix payout setup",
@@ -77,6 +80,9 @@ export const settlementEnglishTranslations = {
     "Payout setup needs attention",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts": "Payouts: ",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts.are.ready": "Payouts are ready",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.platform.review": "Platform review",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.platform.review.description":
+    "Contact support while Chase Sets reviews the payout provider configuration.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready": "Ready",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready.2": "Ready",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready.3": "Ready",
@@ -94,6 +100,15 @@ export const settlementEnglishTranslations = {
     "Review and accept the required account agreement in the secure setup form.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.the.remaining.verification.details":
     "Review the remaining verification details in the secure setup form.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirements.deadline": "Act by",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.past.due":
+    "Required payout details are overdue. Complete them now to restore payouts.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.paused":
+    "The payout account is paused. Contact support to restore payouts.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.rejected":
+    "The payout provider cannot enable this account. Contact support for next steps.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.restricted.review":
+    "The payout provider is reviewing this account. No payout can be requested until the review finishes.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.set.up.payouts": "Set up payouts",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.can.continue": "Payout setup can continue",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.can.continue.description":
@@ -107,6 +122,7 @@ export const settlementEnglishTranslations = {
     "Some payout details need to be corrected before payouts can be requested.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.start.payout.setup": "Start payout setup",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers": "Transfers: ",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.upcoming.requirements": "Upcoming requirements",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.verification.review": "Verification review",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention": "What needs attention",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.add.the.required.account.and":
@@ -134,6 +150,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutSetupPage.needs.attention": "Needs attention",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.not.started": "Not started",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.account": "Payout account",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.platform.review": "Platform review — contact support",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup": "Payout setup",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.is.complete.and.available":
     "Payout setup is complete and eligible balances can be requested after settlement checks.",

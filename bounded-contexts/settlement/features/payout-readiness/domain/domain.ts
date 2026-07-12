@@ -21,6 +21,9 @@ export type PayoutReadinessState = Readonly<{
   accountId: AccountId | null;
   status: PayoutReadinessStatus;
   missingRequirements: readonly string[];
+  advisoryRequirements: readonly string[];
+  disabledReason: string | null;
+  requirementsDeadline: string | null;
   providerReference: string | null;
   contactEmail: string | null;
   onboardingStatus: ProviderSetupStatus;
@@ -40,6 +43,9 @@ export const initialPayoutReadinessState: PayoutReadinessState = {
   accountId: null,
   status: "not-started",
   missingRequirements: [],
+  advisoryRequirements: [],
+  disabledReason: null,
+  requirementsDeadline: null,
   providerReference: null,
   contactEmail: null,
   onboardingStatus: "not-started",
@@ -60,6 +66,9 @@ export type RecordPayoutReadinessCommand = Readonly<{
   accountId: AccountId;
   status: PayoutReadinessStatus;
   missingRequirements?: readonly string[];
+  advisoryRequirements?: readonly string[];
+  disabledReason?: string | null;
+  requirementsDeadline?: string | null;
   providerReference?: string | null;
   contactEmail?: string | null;
   onboardingStatus?: ProviderSetupStatus | string;
@@ -83,6 +92,9 @@ export type PayoutReadinessRecordedEvent = DomainEvent<
     accountId: AccountId;
     status: PayoutReadinessStatus;
     missingRequirements: string[];
+    advisoryRequirements: string[];
+    disabledReason: string | null;
+    requirementsDeadline: string | null;
     providerReference: string | null;
     contactEmail: string | null;
     onboardingStatus: ProviderSetupStatus;
@@ -121,6 +133,11 @@ export const decidePayoutReadiness: AggregateDecider<
             accountId: command.accountId,
             status: normalizePayoutReadinessStatus(command.status),
             missingRequirements: normalizeRequirements(command.missingRequirements),
+            advisoryRequirements: normalizeRequirements(command.advisoryRequirements),
+            disabledReason: normalizeOptionalText(command.disabledReason),
+            requirementsDeadline: command.requirementsDeadline
+              ? ensureIsoTimestamp(command.requirementsDeadline, "Requirement deadline must be a timestamp.")
+              : null,
             providerReference: normalizeOptionalText(command.providerReference),
             contactEmail: normalizeOptionalText(command.contactEmail),
             onboardingStatus: normalizeProviderSetupStatus(command.onboardingStatus ?? "not-started"),
@@ -158,6 +175,9 @@ export const evolvePayoutReadiness: AggregateEvolver<PayoutReadinessState, Payou
         accountId: event.data.accountId,
         status: event.data.status,
         missingRequirements: event.data.missingRequirements,
+        advisoryRequirements: event.data.advisoryRequirements ?? [],
+        disabledReason: event.data.disabledReason ?? null,
+        requirementsDeadline: event.data.requirementsDeadline ?? null,
         providerReference: event.data.providerReference,
         contactEmail: event.data.contactEmail,
         onboardingStatus: event.data.onboardingStatus,

@@ -184,6 +184,8 @@ function requirementGroupLabel(group: MissingRequirementGroup) {
       return t("settlement.features.payoutReadiness.ui.payoutSetupPage.identity.and.business.details");
     case "account-agreement":
       return t("settlement.features.payoutReadiness.ui.payoutSetupPage.account.agreement");
+    case "platform-review":
+      return t("settlement.features.payoutReadiness.ui.payoutSetupPage.platform.review");
     default:
       return t("settlement.features.payoutReadiness.ui.payoutSetupPage.verification.review");
   }
@@ -354,8 +356,12 @@ export function PayoutSetupPage({
   onProviderExit?: () => void;
 }) {
   const hasProviderAccount = Boolean(payoutReadiness.provider_reference);
-  const canRenderProviderComponent = mode === "setup" ? payoutReadiness.status !== "ready" : hasProviderAccount;
   const missingRequirementGroups = buildMissingRequirementGroups(payoutReadiness.missing_requirements);
+  const hasSellerActionableRequirement = missingRequirementGroups.some((group) => group.id !== "platform-review");
+  const canRenderProviderComponent =
+    mode === "setup"
+      ? payoutReadiness.status !== "ready" && (missingRequirementGroups.length === 0 || hasSellerActionableRequirement)
+      : hasProviderAccount;
   const missingRequirementCount = missingRequirementGroups.reduce((count, group) => count + group.count, 0);
   const showSupportEscalation =
     payoutReadiness.status === "restricted" || providerErrorMessage !== null || missingRequirementCount > 0;
