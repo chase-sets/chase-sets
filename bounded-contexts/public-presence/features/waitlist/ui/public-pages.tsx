@@ -24,6 +24,7 @@ import {
   MobileStickyBar,
   MobileStickyInset,
   NativeSelect,
+  OfferCard,
   Page,
   PageHeader,
   PageSection,
@@ -469,12 +470,12 @@ export function PublicPresenceHomePage({
             description={t("publicPresence.home.description")}
             highlights={[
               {
-                label: t("publicPresence.home.heroHighlight.lowValue.label"),
-                value: t("publicPresence.home.heroHighlight.lowValue.value"),
+                label: t("publicPresence.home.heroHighlight.offers.label"),
+                value: t("publicPresence.home.heroHighlight.offers.value"),
               },
               {
-                label: t("publicPresence.home.heroHighlight.workflow.label"),
-                value: t("publicPresence.home.heroHighlight.workflow.value"),
+                label: t("publicPresence.home.heroHighlight.lowValue.label"),
+                value: t("publicPresence.home.heroHighlight.lowValue.value"),
               },
               {
                 label: t("publicPresence.home.heroHighlight.launch.label"),
@@ -494,6 +495,8 @@ export function PublicPresenceHomePage({
             }
           />
         </Stack>
+
+        <OpenOffersSection />
 
         <SellerEconomicsSection />
 
@@ -520,6 +523,91 @@ export function PublicPresenceHomePage({
         <FaqPreview />
       </Page>
     </PublicPresencePageShell>
+  );
+}
+
+// The "everywhere else" card describes the generic pattern of buy/sell social
+// groups (unlisted, unprotected, seller-hunts-a-stranger), not any single
+// named platform — same anonymization call as the fee-comparison table above.
+function OpenOffersSection() {
+  return (
+    <PageSection
+      data-public-presence-section="open_offers"
+      title={t("publicPresence.home.openOffers.title")}
+      description={t("publicPresence.home.openOffers.description")}
+    >
+      <Grid columns={{ base: 1, lg: 2 }} gap={4}>
+        <Surface tone="subtle" elevated>
+          <Stack gap={3}>
+            <BadgeRow>
+              <Badge tone="warning">{t("publicPresence.home.openOffers.before.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={3}>{t("publicPresence.home.openOffers.before.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.openOffers.before.description")}</Text>
+            <List
+              items={[
+                t("publicPresence.home.openOffers.before.point.post"),
+                t("publicPresence.home.openOffers.before.point.replies"),
+                t("publicPresence.home.openOffers.before.point.payment"),
+                t("publicPresence.home.openOffers.before.point.risk"),
+              ]}
+            />
+          </Stack>
+        </Surface>
+        <Surface tone="subtle" elevated>
+          <Stack gap={3}>
+            <BadgeRow>
+              <Badge tone="success">{t("publicPresence.home.openOffers.after.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={3}>{t("publicPresence.home.openOffers.after.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.openOffers.after.description")}</Text>
+            <OfferCard
+              title={t("publicPresence.home.openOffers.after.offerCard.title")}
+              amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
+              status={t("publicPresence.home.openOffers.after.offerCard.status")}
+              details={t("publicPresence.home.openOffers.after.offerCard.details")}
+            />
+            <List
+              items={[
+                t("publicPresence.home.openOffers.after.point.accept"),
+                t("publicPresence.home.openOffers.after.point.checkout"),
+                t("publicPresence.home.openOffers.after.point.record"),
+              ]}
+            />
+          </Stack>
+        </Surface>
+      </Grid>
+      <Grid columns={{ base: 1, md: 3 }} gap={3}>
+        {[
+          "publicPresence.home.openOffers.step.post",
+          "publicPresence.home.openOffers.step.accept",
+          "publicPresence.home.openOffers.step.checkout",
+        ].map((key, index) => (
+          <Surface key={key} elevated>
+            <Stack gap={2}>
+              <Badge tone="neutral">{index + 1}</Badge>
+              <Text tone="secondary">{t(key)}</Text>
+            </Stack>
+          </Surface>
+        ))}
+      </Grid>
+      <Surface tone="subtle">
+        <Stack gap={2}>
+          <BadgeRow>
+            <Badge tone="info">{t("publicPresence.home.openOffers.demo.badge")}</Badge>
+          </BadgeRow>
+          <Inline gap={3} align="center">
+            <ToneIcon name="play" tone="info" size="lg" label={t("publicPresence.home.openOffers.demo.title")} />
+            <Stack gap={1}>
+              <Text weight="semibold">{t("publicPresence.home.openOffers.demo.title")}</Text>
+              <Text size="sm" tone="secondary">
+                {t("publicPresence.home.openOffers.demo.description")}
+              </Text>
+            </Stack>
+          </Inline>
+        </Stack>
+      </Surface>
+    </PageSection>
   );
 }
 
@@ -565,6 +653,7 @@ function AudiencePathSection({
             <Text tone="secondary">{t("publicPresence.home.paths.buy.description")}</Text>
             <List
               items={[
+                t("publicPresence.home.paths.buy.point.offers"),
                 t("publicPresence.home.paths.buy.point.total"),
                 t("publicPresence.home.paths.buy.point.shipping"),
                 t("publicPresence.home.paths.buy.point.trust"),
