@@ -55,3 +55,10 @@ First experiments to run:
 The OpenTelemetry bridge is directional funnel observability, not transactional truth. It may duplicate client events and must never block the landing page or waitlist submission. Durable signup truth remains the Public Presence waitlist domain and read model.
 
 Adding a third-party provider later still requires an adapter outside the page component that listens for `chase-sets:waitlist-analytics` or drains `window.dataLayer`, maps the provider-neutral event names to provider calls, and preserves consent/privacy requirements.
+
+## Campaign analytics (issue #4071)
+
+Campaign analytics splits across the same durable-vs-directional boundary this doc already draws, rather than inventing a new data path:
+
+- **Funnel by channel** (visit -> hero form start -> signup succeeded -> Discord CTA click-through -> referral share, grouped by `utm_source`) is a Grafana dashboard (`infrastructure/observability/stack/grafana/dashboards/public-presence-waitlist.json`, "Campaign funnel by channel" panel), built from LogQL over the same sanitized structured logs described above. It is directional, not transactional truth, matching every other funnel metric on this page. "Discord join" is measured as a click-through on the Discord invite CTA (`cta_clicked` with `target=discord`); there is no Discord API/OAuth integration in this codebase to confirm actual guild membership, so the click-through is the honest proxy.
+- **Wave-1 cohort quality** (games sold, existing store link, inventory-size bucket), **channel/content-piece attribution of signups**, and the **wave-1 admission bar** (`bounded-contexts/public-presence/features/waitlist/read-model/campaign-admission-bar-policy.ts`) are transactional truth: captured on the durable Waitlist Signup read model at signup time (sell/both intent only, never a condition of joining) and surfaced on the `/campaign-analytics` admin page (`public-presence.view` permission), which cross-links to the Grafana funnel dashboard for the directional half.

@@ -131,6 +131,10 @@ export function createPublicWaitlistRoutes(services: WaitlistServices, resolveRa
           interests: Array.isArray(body.interests) ? body.interests.map(String) : [],
           marketingConsent: Boolean(body.marketingConsent),
           referredBySignupId: typeof body.referredBySignupId === "string" ? body.referredBySignupId : null,
+          games: Array.isArray(body.games) ? body.games.map(String) : [],
+          hasStoreLink: Boolean(body.hasStoreLink),
+          storeUrl: typeof body.storeUrl === "string" ? body.storeUrl : null,
+          inventorySize: typeof body.inventorySize === "string" ? body.inventorySize : null,
           source: {
             pagePath: String(body.source?.pagePath ?? "/"),
             referrer: typeof body.source?.referrer === "string" ? body.source.referrer : null,
@@ -216,6 +220,21 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
     return c.json(await services.getWaitlistMetrics());
   });
 
+  app.get("/waitlist/campaign-analytics", async (c) => {
+    const access = requireActor(c, "public-presence.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const [quality, channelAttribution, admissionBar] = await Promise.all([
+      services.getCampaignQualityMetrics(),
+      services.getCampaignChannelAttribution(),
+      services.getWaveOneAdmissionBarStatus(),
+    ]);
+
+    return c.json({ quality, channelAttribution, admissionBar });
+  });
+
   app.get("/waitlist/export", async (c) => {
     const access = requireActor(c, "public-presence.view");
     if (access.response) {
@@ -242,6 +261,10 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
         "utm_campaign",
         "referred_by_signup_id",
         "referral_count",
+        "games",
+        "has_store_link",
+        "store_url",
+        "inventory_size",
         "submitted_at",
         "updated_at",
       ],
@@ -256,6 +279,10 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
         item.utm_campaign,
         item.referred_by_signup_id,
         item.referral_count,
+        item.games,
+        item.has_store_link,
+        item.store_url,
+        item.inventory_size,
         item.submitted_at,
         item.updated_at,
       ]),

@@ -201,4 +201,147 @@ describe("waitlist signup domain", () => {
     const updatedState = evolveWaitlistSignup(state, updated);
     expect(updatedState.referredBySignupId).toBe("wls_abc123");
   });
+
+  it("captures cohort quality signals for a sell-intent signup", async () => {
+    const events = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "seller@example.com",
+      role: "sell",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon", "yu-gi-oh", "pokemon"],
+      hasStoreLink: true,
+      storeUrl: "https://example-store.com/shop",
+      inventorySize: "500_to_2000",
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+
+    const recorded = expectRecorded(events[0]);
+    expect(recorded.data.cohortQuality.games).toEqual(["pokemon", "yu-gi-oh"]);
+    expect(recorded.data.cohortQuality.hasStoreLink).toBe(true);
+    expect(recorded.data.cohortQuality.storeUrl).toBe("https://example-store.com/shop");
+    expect(recorded.data.cohortQuality.inventorySize).toBe("500_to_2000");
+  });
+
+  it("drops cohort quality signals for a buy-only signup even if sent", async () => {
+    const events = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "buyer@example.com",
+      role: "buy",
+      interests: ["set-completion"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon"],
+      hasStoreLink: true,
+      storeUrl: "https://example-store.com/shop",
+      inventorySize: "2000_plus",
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+
+    const recorded = expectRecorded(events[0]);
+    expect(recorded.data.cohortQuality).toEqual({
+      games: [],
+      hasStoreLink: false,
+      storeUrl: null,
+      inventorySize: null,
+    });
+  });
+
+  it("drops an unrecognized game and an unrecognized inventory-size bucket instead of rejecting the signup", async () => {
+    const events = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "seller2@example.com",
+      role: "both",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon", "not-a-real-game"],
+      hasStoreLink: false,
+      inventorySize: "not-a-real-bucket",
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+
+    const recorded = expectRecorded(events[0]);
+    expect(recorded.data.cohortQuality.games).toEqual(["pokemon"]);
+    expect(recorded.data.cohortQuality.inventorySize).toBeNull();
+  });
+
+  it("drops a store URL when hasStoreLink is false, even if one is sent", async () => {
+    const events = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "seller3@example.com",
+      role: "sell",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon"],
+      hasStoreLink: false,
+      storeUrl: "https://example-store.com/shop",
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+
+    const recorded = expectRecorded(events[0]);
+    expect(recorded.data.cohortQuality.hasStoreLink).toBe(false);
+    expect(recorded.data.cohortQuality.storeUrl).toBeNull();
+  });
+
+  it("drops a malformed store URL even when hasStoreLink is true", async () => {
+    const events = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "seller4@example.com",
+      role: "sell",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon"],
+      hasStoreLink: true,
+      storeUrl: "not a url",
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+
+    const recorded = expectRecorded(events[0]);
+    expect(recorded.data.cohortQuality.storeUrl).toBeNull();
+  });
+
+  it("refreshes cohort quality signals on an update event", async () => {
+    const [recorded] = await decideWaitlistSignup(initialWaitlistSignupState, {
+      type: "RecordWaitlistSignup",
+      email: "todd@example.com",
+      role: "sell",
+      interests: ["low-sales-fees"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon"],
+      hasStoreLink: false,
+      inventorySize: "under_100",
+      recordedAt: "2026-05-07T12:00:00.000Z",
+    });
+    const state = evolveWaitlistSignup(initialWaitlistSignupState, recorded);
+
+    const [updated] = await decideWaitlistSignup(state, {
+      type: "RecordWaitlistSignup",
+      email: "todd@example.com",
+      role: "both",
+      interests: ["bulk-listing"],
+      marketingConsentAcceptedAt: null,
+      source,
+      games: ["pokemon", "magic-the-gathering"],
+      hasStoreLink: true,
+      storeUrl: "https://example-store.com",
+      inventorySize: "2000_plus",
+      recordedAt: "2026-05-07T12:05:00.000Z",
+    });
+
+    expect(updated.type).toBe("public-presence.waitlist-signup.updated");
+    if (updated.type !== "public-presence.waitlist-signup.updated") {
+      throw new Error("expected an updated event");
+    }
+    expect(updated.data.cohortQuality.games).toEqual(["magic-the-gathering", "pokemon"]);
+    expect(updated.data.cohortQuality.hasStoreLink).toBe(true);
+    expect(updated.data.cohortQuality.inventorySize).toBe("2000_plus");
+
+    const updatedState = evolveWaitlistSignup(state, updated);
+    expect(updatedState.cohortQuality.inventorySize).toBe("2000_plus");
+  });
 });

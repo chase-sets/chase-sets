@@ -516,6 +516,14 @@ export type WaitlistSourcePayload = Readonly<{
   utmTerm: string | null;
 }>;
 
+/** Wave-1 cohort quality signals, captured only from sell/both-intent signups. */
+export type WaitlistCohortQualityPayload = Readonly<{
+  games: readonly string[];
+  hasStoreLink: boolean;
+  storeUrl: string | null;
+  inventorySize: string | null;
+}>;
+
 export type WaitlistSignupRecordedPayload = Readonly<{
   signupId: string;
   email: string;
@@ -528,6 +536,8 @@ export type WaitlistSignupRecordedPayload = Readonly<{
   source: WaitlistSourcePayload;
   /** Referring signup's id, set once at initial signup only. Additive/optional so legacy events without it replay as unattributed. */
   referredBySignupId?: string | null;
+  /** Additive/optional so legacy events without it replay as an empty cohort-quality record. */
+  cohortQuality?: WaitlistCohortQualityPayload;
   recordedAt?: string;
 }>;
 

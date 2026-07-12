@@ -26,6 +26,36 @@ function createServices(overrides: Partial<WaitlistServices> = {}) {
     })),
     getWaitlistReferralSummary: vi.fn(async () => ({ referralCount: 0, referralGoal: 3 })),
     getWaitlistCounter: vi.fn(async () => ({ displayCount: null })),
+    getCampaignQualityMetrics: vi.fn(async () => ({
+      totalSignups: 0,
+      sellerSignupCount: 0,
+      qualifiedSellerCount: 0,
+      storeLinkCount: 0,
+      storeLinkPercent: 0,
+      inventorySizeDistribution: {
+        under_100: 0,
+        "100_to_500": 0,
+        "500_to_2000": 0,
+        "2000_plus": 0,
+      },
+      qualifiedSellersByGame: {
+        pokemon: 0,
+        "magic-the-gathering": 0,
+        "yu-gi-oh": 0,
+        "disney-lorcana": 0,
+        "one-piece-card-game": 0,
+      },
+    })),
+    getCampaignChannelAttribution: vi.fn(async () => []),
+    getWaveOneAdmissionBarStatus: vi.fn(async () => ({
+      totalSignups: 0,
+      qualifiedSellerCount: 0,
+      totalSignupsMet: false,
+      qualifiedSellersMet: false,
+      gameCoverage: [],
+      allGamesCovered: false,
+      admitted: false,
+    })),
     projectors: [],
   } satisfies WaitlistServices;
 
@@ -231,6 +261,55 @@ describe("public presence API", () => {
       search: "todd",
       sort: undefined,
     });
+  });
+
+  it("requires public-presence.view for the campaign analytics dashboard and returns its three sections", async () => {
+    const services = createServices();
+    const forbidden = await adminAppFor(services, actorWithPermissions()).request("/waitlist/campaign-analytics");
+    expect(forbidden.status).toBe(403);
+
+    const app = adminAppFor(services);
+    const response = await app.request("/waitlist/campaign-analytics");
+
+    expect(response.status).toBe(200);
+    expect(services.getCampaignQualityMetrics).toHaveBeenCalledTimes(1);
+    expect(services.getCampaignChannelAttribution).toHaveBeenCalledTimes(1);
+    expect(services.getWaveOneAdmissionBarStatus).toHaveBeenCalledTimes(1);
+    const body = (await response.json()) as { quality: unknown; channelAttribution: unknown; admissionBar: unknown };
+    expect(body).toHaveProperty("quality");
+    expect(body).toHaveProperty("channelAttribution");
+    expect(body).toHaveProperty("admissionBar");
+  });
+
+  it("forwards cohort-quality signup fields to submitWaitlistSignup", async () => {
+    const submitWaitlistSignup = vi.fn(async () => ({ signupId: "wls_seller", version: 1 }));
+    const app = publicAppFor(createServices({ submitWaitlistSignup }));
+    const response = await app.request("/waitlist", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.30",
+      },
+      body: JSON.stringify({
+        ...validSignup,
+        role: "sell",
+        games: ["pokemon", "yu-gi-oh"],
+        hasStoreLink: true,
+        storeUrl: "https://example-store.com",
+        inventorySize: "500_to_2000",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(submitWaitlistSignup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        games: ["pokemon", "yu-gi-oh"],
+        hasStoreLink: true,
+        storeUrl: "https://example-store.com",
+        inventorySize: "500_to_2000",
+      }),
+      expect.anything(),
+    );
   });
 
   it("passes an admin sort selection through to the read model", async () => {

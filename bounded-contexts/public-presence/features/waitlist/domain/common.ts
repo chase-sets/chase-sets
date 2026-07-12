@@ -6,6 +6,39 @@ export type WaitlistInterest =
   | "pricing-tools"
   | "efficient-shipping";
 
+/**
+ * The five trading card games the wave-1 admission bar (campaign-admission-bar-policy.ts)
+ * measures seller coverage against. Sourced from the games the Catalog
+ * bounded context already integrates provider data for (see
+ * `bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts`);
+ * this is the first place a runtime enum of them is needed, so it is defined
+ * here rather than duplicated informally per call site.
+ */
+export type WaitlistGame = "pokemon" | "magic-the-gathering" | "yu-gi-oh" | "disney-lorcana" | "one-piece-card-game";
+
+export const WAITLIST_GAMES: readonly WaitlistGame[] = [
+  "pokemon",
+  "magic-the-gathering",
+  "yu-gi-oh",
+  "disney-lorcana",
+  "one-piece-card-game",
+];
+
+/**
+ * Bucketed self-reported inventory size, captured only from sell/both-intent
+ * signups as a wave-1 cohort quality signal. Buckets rather than an exact
+ * count: precise inventory counts are not verifiable at waitlist time and
+ * would imply a false precision the campaign quality bar does not need.
+ */
+export type WaitlistInventorySize = "under_100" | "100_to_500" | "500_to_2000" | "2000_plus";
+
+export const WAITLIST_INVENTORY_SIZES: readonly WaitlistInventorySize[] = [
+  "under_100",
+  "100_to_500",
+  "500_to_2000",
+  "2000_plus",
+];
+
 export type WaitlistSource = Readonly<{
   pagePath: string;
   referrer: string | null;
@@ -66,6 +99,44 @@ export function normalizeWaitlistInterests(values: readonly string[]): WaitlistI
 export function ensureIsoTimestamp(value: string, message: string): string {
   assert(!Number.isNaN(Date.parse(value)), message);
   return value;
+}
+
+const waitlistGameSet = new Set<WaitlistGame>(WAITLIST_GAMES);
+
+/**
+ * Normalizes a candidate games list to the bounded {@link WaitlistGame} set,
+ * silently dropping unrecognized values (the same forgiving shape as
+ * {@link normalizeWaitlistInterests}) rather than rejecting the whole signup
+ * over a stale client build sending an unknown game slug.
+ */
+export function normalizeWaitlistGames(values: readonly string[] | undefined | null): WaitlistGame[] {
+  const games = (values ?? []).filter((value): value is WaitlistGame => waitlistGameSet.has(value as WaitlistGame));
+  return [...new Set(games)].sort((left, right) => left.localeCompare(right));
+}
+
+const waitlistInventorySizeSet = new Set<WaitlistInventorySize>(WAITLIST_INVENTORY_SIZES);
+
+/** Normalizes a candidate inventory-size bucket, treating anything unrecognized as absent. */
+export function normalizeWaitlistInventorySize(value: string | null | undefined): WaitlistInventorySize | null {
+  return value && waitlistInventorySizeSet.has(value as WaitlistInventorySize)
+    ? (value as WaitlistInventorySize)
+    : null;
+}
+
+const storeUrlPattern = /^https?:\/\/[^\s]+\.[^\s]{2,}[^\s]*$/i;
+
+/**
+ * Normalizes an optional existing-store URL. Only meaningful when
+ * `hasStoreLink` is true; a malformed value is dropped (treated as "no URL
+ * given") rather than failing the whole waitlist signup over a cohort
+ * quality field, which is never a condition of joining the waitlist.
+ */
+export function normalizeWaitlistStoreUrl(hasStoreLink: boolean, value: string | null | undefined): string | null {
+  if (!hasStoreLink) {
+    return null;
+  }
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 && trimmed.length <= 300 && storeUrlPattern.test(trimmed) ? trimmed : null;
 }
 
 export function normalizeSource(source: WaitlistSource): WaitlistSource {

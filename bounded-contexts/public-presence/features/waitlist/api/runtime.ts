@@ -16,14 +16,20 @@ import {
   type WaitlistSignupEvent,
   type WaitlistSignupState,
 } from "../domain/domain";
+import {
+  evaluateWaveOneAdmissionBar,
+  type WaveOneAdmissionBarStatus,
+} from "../read-model/campaign-admission-bar-policy";
 import { buildWaitlistProjectionHandlers } from "../read-model/projection";
 import {
+  getCampaignChannelAttribution,
+  getCampaignQualityMetrics,
   getWaitlistMetrics,
   getWaitlistReferralSummary,
   getWaitlistSignupCount,
   listWaitlistSignups,
 } from "../read-model/queries";
-import type { WaitlistCounter } from "./contracts";
+import type { CampaignChannelAttributionRow, CampaignQualityMetrics, WaitlistCounter } from "./contracts";
 import {
   PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
   buildWaitlistTransactionalEmailProjectionHandlers,
@@ -45,6 +51,10 @@ export type WaitlistServices = Readonly<{
       interests: readonly string[];
       marketingConsent?: boolean;
       referredBySignupId?: string | null;
+      games?: readonly string[];
+      hasStoreLink?: boolean;
+      storeUrl?: string | null;
+      inventorySize?: string | null;
       source: WaitlistSource;
     }>,
     context: EventStoreContext,
@@ -53,6 +63,9 @@ export type WaitlistServices = Readonly<{
   getWaitlistMetrics: () => ReturnType<typeof getWaitlistMetrics>;
   getWaitlistReferralSummary: (signupId: string) => ReturnType<typeof getWaitlistReferralSummary>;
   getWaitlistCounter: () => Promise<WaitlistCounter>;
+  getCampaignQualityMetrics: () => Promise<CampaignQualityMetrics>;
+  getCampaignChannelAttribution: () => Promise<readonly CampaignChannelAttributionRow[]>;
+  getWaveOneAdmissionBarStatus: () => Promise<WaveOneAdmissionBarStatus>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -83,6 +96,10 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
           interests: params.interests,
           marketingConsentAcceptedAt: params.marketingConsent ? now : null,
           referredBySignupId: params.referredBySignupId ?? null,
+          games: params.games,
+          hasStoreLink: params.hasStoreLink,
+          storeUrl: params.storeUrl,
+          inventorySize: params.inventorySize,
           source: params.source,
           recordedAt: now,
         },
@@ -94,6 +111,16 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
     listWaitlistSignups: (params) => listWaitlistSignups(deps.db, params),
     getWaitlistMetrics: () => getWaitlistMetrics(deps.db),
     getWaitlistReferralSummary: (signupId) => getWaitlistReferralSummary(deps.db, signupId),
+    getCampaignQualityMetrics: () => getCampaignQualityMetrics(deps.db),
+    getCampaignChannelAttribution: () => getCampaignChannelAttribution(deps.db),
+    async getWaveOneAdmissionBarStatus() {
+      const quality = await getCampaignQualityMetrics(deps.db);
+      return evaluateWaveOneAdmissionBar({
+        totalSignups: quality.totalSignups,
+        qualifiedSellerCount: quality.qualifiedSellerCount,
+        qualifiedSellersByGame: quality.qualifiedSellersByGame,
+      });
+    },
     async getWaitlistCounter() {
       // The counter renders on every landing view and is bucketed to 25s for display,
       // so a briefly stale value is invisible; the TTL keeps this public unauthenticated

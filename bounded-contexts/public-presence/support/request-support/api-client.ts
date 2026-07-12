@@ -2,6 +2,9 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 export { createPublicPresenceApiClient, PublicPresenceApiError, publicPresenceApi } from "../../client";
 export type {
   PublicPresenceApiClientOptions,
+  CampaignAnalyticsSnapshot,
+  CampaignChannelAttributionRow,
+  CampaignQualityMetrics,
   PromoBarMessage,
   PromoBarMessageTone,
   SavePromoBarMessageRequest,
@@ -10,6 +13,7 @@ export type {
   WaitlistMetrics,
   WaitlistReferralSummary,
   WaitlistSignupListItem,
+  WaveOneAdmissionBarStatus,
 } from "../../client";
 import { createPublicPresenceApiClient } from "../../client";
 
