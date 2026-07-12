@@ -351,6 +351,12 @@
       "@chase-sets/event-core/aggregate-command-handler": [
         "./contracts/event-core/aggregate-command-handler.ts"
       ],
+      "@chase-sets/event-core/aggregate-repository": [
+        "./contracts/event-core/aggregate-repository.ts"
+      ],
+      "@chase-sets/event-core/aggregate-snapshot-store": [
+        "./contracts/event-core/aggregate-snapshot-store.ts"
+      ],
       "@chase-sets/event-core/codec": [
         "./contracts/event-core/codec.ts"
       ],

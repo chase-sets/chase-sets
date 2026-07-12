@@ -3,6 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createPostgresAggregateSnapshotStore } from "@chase-sets/event-core-postgres";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { createId, type AccountId, type ListingId, type TenantId, type UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogItemId } from "@chase-sets/primitives/typed-ids";
@@ -72,6 +73,21 @@ import {
 const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as TenantId;
 const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as UserId;
 const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+/**
+ * Bump whenever `evolveMarketplaceListing`'s fold shape changes in a way
+ * that would make an old snapshot's stored state incompatible. A stored
+ * snapshot with a different schema version is ignored -- load() falls back
+ * to full replay, exactly as if no snapshot existed.
+ */
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 1;
+/**
+ * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
+ * listings accumulate hundreds of `UpdateListingPrice` events, and every
+ * subsequent interactive command replayed the whole stream before this.
+ * Snapshotting every 100 events bounds that replay to at most 99 events
+ * while keeping write-behind amplification to 1% of appended events.
+ */
+const MARKETPLACE_LISTING_SNAPSHOT_EVERY_N_EVENTS = 100;
 
 function createMarketplaceSystemContext(accountId: string): EventStoreContext {
   return {
@@ -410,6 +426,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
     decide: decideMarketplaceListing,
+    snapshots: {
+      store: createPostgresAggregateSnapshotStore<MarketplaceListingState>({ db: deps.db }),
+      schemaVersion: MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION,
+      everyNEvents: MARKETPLACE_LISTING_SNAPSHOT_EVERY_N_EVENTS,
+    },
   });
   const { commandHandler: sellerAvailabilityCommandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,

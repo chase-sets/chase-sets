@@ -17,6 +17,10 @@ const requiredKnownTables = new Map([
 // records whose deletion needs a separate accounting/security decision.
 export const retentionCoverageExemptions = new Map([
   ["event_store_events", "Canonical event ledgers are permanent and are never age-swept."],
+  [
+    "event_store_aggregate_snapshots",
+    "Bounded one-row-per-stream load-time cache (m113: aggregate snapshots in event-core), not unbounded history; rows are replaced in place and already cascade-deleted with their event_store_streams row via ON DELETE CASCADE.",
+  ],
   ["payments_work_claims", "Claim rows are mutable coordination state, not append-only history."],
   ["settlement_work_claims", "Claim rows are mutable coordination state, not append-only history."],
   ["platform_control_lease_fencing_tokens", "Monotonic fencing tokens must survive lease row cleanup."],

@@ -71,6 +71,7 @@ async function resetEventCorePostgresSchema(pool: PgTransactionalPool): Promise<
       event_projection_blocked_streams,
       event_projection_poison_events,
       event_projection_checkpoints,
+      event_store_aggregate_snapshots,
       event_store_events,
       event_store_streams
     RESTART IDENTITY CASCADE
