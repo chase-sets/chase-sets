@@ -12,6 +12,7 @@ import { MotionConfig } from "motion/react";
 import { resolveChaseMotion, type ChaseMotionSettings, type ReducedMotionSetting } from "../motion/config";
 import { cx } from "../utils/cx";
 import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../components/control-sizing";
+import { AnchorLink, LinkAdapterProvider, type LinkComponent } from "./link-adapter";
 import { resolveThemeOverrideStyle, type ColorMode, type DensityMode, type ThemeOverrides } from "./tokens";
 
 interface PortalContextValue {
@@ -33,6 +34,13 @@ export interface ChaseRootProps extends PropsWithChildren, RootFrameProps {
   reducedMotion?: ReducedMotionSetting;
   colorMode?: ColorMode;
   theme?: ThemeOverrides;
+  /**
+   * The component DS nav surfaces (NavigationItem, LinkButton, Breadcrumbs, ...) render
+   * hrefs through. Defaults to a plain `<a>` (full document navigation). Apps with a
+   * router register it once here — see `RouterLinkAdapter` in
+   * `@chase-sets/design-system/react-router` for the React Router 7 implementation.
+   */
+  linkComponent?: LinkComponent;
 }
 
 function subscribeToReducedMotion(callback: () => void) {
@@ -66,6 +74,7 @@ export function ChaseRoot({
   reducedMotion = "user",
   colorMode = "system",
   theme,
+  linkComponent = AnchorLink,
   ...rest
 }: ChaseRootProps) {
   const [overlayNode, setOverlayNode] = useState<HTMLDivElement | null>(null);
@@ -85,35 +94,37 @@ export function ChaseRoot({
   }, []);
 
   return (
-    <DensityContext.Provider value={density}>
-      <MotionContext.Provider value={motionSettings}>
-        <PortalContext.Provider value={{ overlayNode, toastNode }}>
-          <MotionConfig
-            reducedMotion={motionReducedMotion}
-            transition={{
-              duration: motionSettings.durations.base,
-              ease: motionSettings.easing,
-            }}
-          >
-            <div
-              {...rest}
-              data-chase-theme=""
-              data-color-mode={colorMode}
-              data-density={density}
-              data-reduced-motion={resolvedReducedMotion ? "true" : "false"}
-              className={cx(
-                "chase-root relative isolate min-h-screen w-full min-w-0 max-w-full overflow-x-clip bg-background font-body text-foreground",
-              )}
-              style={resolveThemeOverrideStyle(theme)}
+    <LinkAdapterProvider value={linkComponent}>
+      <DensityContext.Provider value={density}>
+        <MotionContext.Provider value={motionSettings}>
+          <PortalContext.Provider value={{ overlayNode, toastNode }}>
+            <MotionConfig
+              reducedMotion={motionReducedMotion}
+              transition={{
+                duration: motionSettings.durations.base,
+                ease: motionSettings.easing,
+              }}
             >
-              {children}
-              <div ref={setOverlayNode} data-chase-overlay-root="" />
-              <div ref={setToastNode} data-chase-toast-root="" />
-            </div>
-          </MotionConfig>
-        </PortalContext.Provider>
-      </MotionContext.Provider>
-    </DensityContext.Provider>
+              <div
+                {...rest}
+                data-chase-theme=""
+                data-color-mode={colorMode}
+                data-density={density}
+                data-reduced-motion={resolvedReducedMotion ? "true" : "false"}
+                className={cx(
+                  "chase-root relative isolate min-h-screen w-full min-w-0 max-w-full overflow-x-clip bg-background font-body text-foreground",
+                )}
+                style={resolveThemeOverrideStyle(theme)}
+              >
+                {children}
+                <div ref={setOverlayNode} data-chase-overlay-root="" />
+                <div ref={setToastNode} data-chase-toast-root="" />
+              </div>
+            </MotionConfig>
+          </PortalContext.Provider>
+        </MotionContext.Provider>
+      </DensityContext.Provider>
+    </LinkAdapterProvider>
   );
 }
 

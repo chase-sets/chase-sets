@@ -1,6 +1,14 @@
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PublicPresenceHomePage } from "./public-pages";
+
+// PublicPresencePageShell registers the DS RouterLinkAdapter, so rendering it
+// requires router context — exactly as it has in the production app tree.
+function render(ui: ReactNode, options?: RenderOptions) {
+  return renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
+}
 
 const source = {
   pagePath: "/?utm_source=smoke",

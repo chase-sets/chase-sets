@@ -4,6 +4,7 @@ import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { WebHostSection } from "@chase-sets/platform-runtime/web";
 import { AdminShell, ChaseRoot, Text } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { type ActiveKeyConfig, resolveActiveKey } from "./admin-section-active-key";
 import { AdminAccountMenu } from "./admin-account-menu";
 import { resolveAdminWebNavItems, resolveAdminWebSectionNavItems } from "./host";
@@ -27,7 +28,11 @@ export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig 
   const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode);
 
   return (
-    <ChaseRoot colorMode={colorMode} reducedMotion={viewer?.preferences?.reducedMotion}>
+    <ChaseRoot
+      colorMode={colorMode}
+      reducedMotion={viewer?.preferences?.reducedMotion}
+      linkComponent={RouterLinkAdapter}
+    >
       <AdminShell
         brand={<Text weight="semibold">{config.brand}</Text>}
         topNavItems={resolveAdminWebSectionNavItems(actor)}

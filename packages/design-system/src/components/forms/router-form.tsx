@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, type ComponentPropsWithoutRef, type ReactNode } from "react";
-import { Form as ReactRouterForm, useLocation, useNavigate } from "react-router";
+import { Form as ReactRouterForm, Link as ReactRouterLink, useLocation, useNavigate } from "react-router";
 import { cx } from "../../utils/cx";
+import type { LinkAdapterProps, LinkComponent } from "../../theme/link-adapter";
 import { FormProvider, type FormStatus } from "./form";
 
 export interface RouterFormProps extends Omit<ComponentPropsWithoutRef<typeof ReactRouterForm>, "style"> {
@@ -93,3 +94,20 @@ export function useAdminResourceListPageChange(
     [navigate, location, pagination],
   );
 }
+
+/**
+ * React Router 7 implementation of the DS's `LinkComponent` contract. Pass this as
+ * `ChaseRoot`'s `linkComponent` prop to give every DS nav surface (NavigationItem,
+ * LinkButton, Breadcrumbs, ...) client-side transitions: `<Link>` still renders a
+ * real `<a href>`, so keyboard activation, middle-click, and cmd/ctrl-click to open a
+ * new tab keep working exactly as they do for a plain anchor.
+ */
+export const RouterLinkAdapter: LinkComponent = forwardRef<HTMLAnchorElement, LinkAdapterProps>(
+  function RouterLinkAdapter({ href, children, ...rest }, ref) {
+    return (
+      <ReactRouterLink ref={ref} to={href ?? ""} {...rest}>
+        {children}
+      </ReactRouterLink>
+    );
+  },
+);
