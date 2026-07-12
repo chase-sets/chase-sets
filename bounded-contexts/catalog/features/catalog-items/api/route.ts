@@ -362,6 +362,40 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
     return c.json(commandSnapshotResponse(itemId, result));
   });
 
+  app.put("/:id/gtins/:gtin", async (c) => {
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
+    const body = await c.req.json().catch(() => ({}));
+    const context = c.get("context");
+
+    const result = await services.commandHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "LinkCatalogItemGtin",
+        gtin: c.req.param("gtin"),
+        productForm: typeof body.productForm === "string" ? body.productForm : null,
+      },
+      context,
+    });
+
+    return c.json(commandSnapshotResponse(itemId, result));
+  });
+
+  app.delete("/:id/gtins/:gtin", async (c) => {
+    const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
+    const context = c.get("context");
+
+    const result = await services.commandHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "UnlinkCatalogItemGtin",
+        gtin: c.req.param("gtin"),
+      },
+      context,
+    });
+
+    return c.json(commandSnapshotResponse(itemId, result));
+  });
+
   app.post("/:id/archive", async (c) => {
     const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const context = c.get("context");
@@ -418,6 +452,19 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       missingRequiredFields,
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
+  });
+
+  app.get("/gtin-lookup/:gtin", async (c) => {
+    const result = await services.getCatalogItemByGtin(c.req.param("gtin"));
+
+    if (!result) {
+      return c.json(
+        { error: { code: "not_found", message: t("catalog.features.catalogItems.api.route.gtin.was.not.found") } },
+        404,
+      );
+    }
+
+    return c.json(result);
   });
 
   app.get("/:id", async (c) => {

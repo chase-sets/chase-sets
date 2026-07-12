@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const inventoryCatalogItemSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_catalog_items (
   catalog_item_id text PRIMARY KEY,
@@ -16,8 +18,8 @@ ALTER TABLE inventory_catalog_items
 CREATE INDEX IF NOT EXISTS inventory_catalog_items_blueprint_idx
   ON inventory_catalog_items (blueprint_id);
 
-CREATE INDEX IF NOT EXISTS inventory_catalog_items_language_idx
-  ON inventory_catalog_items (language_code);
+-- inventory_catalog_items_language_idx moved to the schemaMigrations ledger
+-- (boot-time indexes on migration-added columns are forbidden by the structure gate).
 
 CREATE INDEX IF NOT EXISTS inventory_catalog_items_status_idx
   ON inventory_catalog_items (status);
@@ -78,4 +80,26 @@ CREATE TABLE IF NOT EXISTS inventory_catalog_external_catalog_item_references (
 
 CREATE INDEX IF NOT EXISTS inventory_catalog_external_catalog_item_references_catalog_item_idx
   ON inventory_catalog_external_catalog_item_references (catalog_item_id);
+
+CREATE TABLE IF NOT EXISTS inventory_catalog_gtins (
+  gtin text PRIMARY KEY,
+  catalog_item_id text NOT NULL,
+  product_form text NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS inventory_catalog_gtins_catalog_item_idx
+  ON inventory_catalog_gtins (catalog_item_id);
 `;
+
+export const inventoryCatalogItemSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260711_inventory_catalog_items_language_idx",
+    description: "Recreate the catalog-item mirror language filter index through the ledger.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_catalog_items_language_idx
+  ON inventory_catalog_items (language_code)`,
+    ],
+  },
+];

@@ -89,5 +89,31 @@ export function buildInventoryCatalogItemProjectionHandlers(db: PgQueryable): Pr
         [providerKey, externalKey],
       );
     },
+    "catalog.catalog-item.gtin-linked": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, CATALOG_ITEM_STREAM_PREFIX);
+      const { gtin, productForm } = event.data as {
+        gtin: string;
+        productForm: string | null;
+      };
+
+      await db.query(
+        `INSERT INTO inventory_catalog_gtins (
+           gtin,
+           catalog_item_id,
+           product_form,
+           updated_at
+         ) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (gtin) DO UPDATE SET
+           catalog_item_id = EXCLUDED.catalog_item_id,
+           product_form = EXCLUDED.product_form,
+           updated_at = EXCLUDED.updated_at`,
+        [gtin, itemId, productForm, event.timing.recordedAt],
+      );
+    },
+    "catalog.catalog-item.gtin-unlinked": async (event) => {
+      const { gtin } = event.data as { gtin: string };
+
+      await db.query(`DELETE FROM inventory_catalog_gtins WHERE gtin = $1`, [gtin]);
+    },
   };
 }

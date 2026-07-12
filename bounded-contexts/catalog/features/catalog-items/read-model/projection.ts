@@ -325,6 +325,36 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
+    "catalog.catalog-item.gtin-linked": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { gtin, productForm } = event.data as {
+        gtin: string;
+        productForm: string | null;
+      };
+
+      await projectionDb.query(
+        `INSERT INTO catalog_item_gtins (
+           gtin,
+           catalog_item_id,
+           product_form,
+           updated_at
+         ) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (gtin) DO UPDATE SET
+           catalog_item_id = EXCLUDED.catalog_item_id,
+           product_form = EXCLUDED.product_form,
+           updated_at = EXCLUDED.updated_at`,
+        [gtin, itemId, productForm, event.timing.recordedAt],
+      );
+    },
+
+    "catalog.catalog-item.gtin-unlinked": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const { gtin } = event.data as { gtin: string };
+
+      await projectionDb.query(`DELETE FROM catalog_item_gtins WHERE gtin = $1`, [gtin]);
+    },
+
     "catalog.catalog-item.retired": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);

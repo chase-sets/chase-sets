@@ -97,6 +97,7 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
     },
     listCatalogItems: async () => ({ items: [], total: 0 }),
     getCatalogItemDetail: async () => null as never,
+    getCatalogItemByGtin: async () => null,
     previewBulkPublish: async () => ({
       mode: "ids",
       item_ids: [],
@@ -231,6 +232,7 @@ describe("catalog item mutation consistency", () => {
           selectedOptions: [{ dimensionId: "dim_finish", optionId: "opt_holo" }],
         },
       ],
+      gtins: [],
     } satisfies CatalogItemState;
     const commandHandler = vi.fn(async () => commandResult(commandSnapshot, 9));
     const app = buildApp(createServices({ commandHandler, getCatalogItemDetail }));

@@ -19,6 +19,7 @@ function services(overrides: Partial<InventoryCatalogItemServices> = {}): Invent
     searchCatalogItems: vi.fn(async () => ({ items: [catalogItem], total: 1 })),
     getExternalProductReference: vi.fn(async () => null),
     getExternalCatalogItemReference: vi.fn(async () => null),
+    getCatalogItemByGtin: vi.fn(async () => null),
     projectors: [],
     ...overrides,
   } as InventoryCatalogItemServices;

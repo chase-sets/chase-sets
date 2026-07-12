@@ -28,6 +28,7 @@ import {
   evolveCatalogItem,
 } from "../domain/domain";
 import {
+  getCatalogItemByGtin,
   getCatalogItemDetail,
   listCatalogItemsForBulkEdit,
   listCatalogItemBulkRows,
@@ -35,6 +36,7 @@ import {
   listCatalogItemIdsForBulkPublishFilter,
   listCatalogItems,
   listCatalogItemsForBulkPublish,
+  type CatalogItemGtinLookupRow,
   type CatalogItemListParams,
   type BulkEditCatalogItemRow,
   type BulkPublishCatalogItemRow,
@@ -143,6 +145,7 @@ export type CatalogItemServices = Readonly<{
   commandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
   listCatalogItems: (params?: Parameters<typeof listCatalogItems>[1]) => ReturnType<typeof listCatalogItems>;
   getCatalogItemDetail: (itemId: string) => ReturnType<typeof getCatalogItemDetail>;
+  getCatalogItemByGtin: (gtin: string) => Promise<CatalogItemGtinLookupRow | null>;
   previewBulkPublish: (selection: BulkPublishSelection) => Promise<BulkPublishPreview>;
   publishBulk: (
     itemIds: readonly string[],
@@ -216,6 +219,7 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
     commandHandler,
     listCatalogItems: (params) => listCatalogItems(deps.db, params),
     getCatalogItemDetail: (itemId) => getCatalogItemDetail(deps.db, itemId),
+    getCatalogItemByGtin: (gtin) => getCatalogItemByGtin(deps.db, gtin),
     previewBulkPublish: async (selection) => previewBulkPublish(deps, selection),
     publishBulk: async (itemIds, context, options) => publishBulk(deps, commandHandler, itemIds, context, options),
     previewBulkEdit: async (selection, operation) => previewBulkEdit(deps, selection, operation),

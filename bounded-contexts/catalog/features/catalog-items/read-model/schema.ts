@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const catalogCatalogItemSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_items (
   catalog_item_id text PRIMARY KEY,
   language_code text NOT NULL DEFAULT 'en',
@@ -34,6 +36,16 @@ CREATE TABLE IF NOT EXISTS catalog_external_catalog_item_references (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (provider_key, external_key)
 );
+
+CREATE TABLE IF NOT EXISTS catalog_item_gtins (
+  gtin text PRIMARY KEY,
+  catalog_item_id text NOT NULL REFERENCES catalog_items(catalog_item_id) ON DELETE CASCADE,
+  product_form text NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS catalog_item_gtins_catalog_item_idx
+  ON catalog_item_gtins (catalog_item_id);
 
 CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_list_pages (
   catalog_item_id text PRIMARY KEY REFERENCES catalog_items(catalog_item_id) ON DELETE CASCADE,
@@ -161,8 +173,8 @@ CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_status_idx
   ON catalog_admin_catalog_item_list_pages (status);
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_blueprint_idx
   ON catalog_admin_catalog_item_list_pages (blueprint_id);
-CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_language_idx
-  ON catalog_admin_catalog_item_list_pages (language_code);
+-- catalog_admin_catalog_item_list_pages_language_idx moved to the schemaMigrations ledger
+-- (boot-time indexes on migration-added columns are forbidden by the structure gate).
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_title_idx
   ON catalog_admin_catalog_item_list_pages USING gin (to_tsvector('simple', title || ' ' || COALESCE(subtitle, '')));
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_tags_idx
@@ -177,5 +189,26 @@ CREATE INDEX IF NOT EXISTS catalog_item_display_identities_hash_idx
   ON catalog_item_display_identities (display_identity_hash);
 CREATE INDEX IF NOT EXISTS catalog_item_display_identities_template_idx
   ON catalog_item_display_identities (display_template_key);
-CREATE INDEX IF NOT EXISTS catalog_item_display_identity_recompute_work_status_idx
-  ON catalog_item_display_identity_recompute_work (status, available_at, updated_at);`;
+-- catalog_item_display_identity_recompute_work_status_idx moved to the schemaMigrations ledger
+-- (boot-time indexes on migration-added columns are forbidden by the structure gate).`;
+
+export const catalogCatalogItemSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260711_catalog_admin_list_pages_language_idx",
+    description: "Recreate the admin list-pages language filter index through the ledger.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_admin_catalog_item_list_pages_language_idx
+  ON catalog_admin_catalog_item_list_pages (language_code)`,
+    ],
+  },
+  {
+    migrationId: "20260711_catalog_display_identity_recompute_work_status_idx",
+    description: "Recreate the display-identity recompute work-queue index through the ledger.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_item_display_identity_recompute_work_status_idx
+  ON catalog_item_display_identity_recompute_work (status, available_at, updated_at)`,
+    ],
+  },
+];

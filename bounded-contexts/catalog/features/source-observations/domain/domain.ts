@@ -157,6 +157,15 @@ export type SourceObservationProviderProductNormalized = JsonObject &
     productLineName: string | null;
     productCategoryName: string | null;
     skuReferences: readonly SourceObservationExternalProductReference[];
+    /**
+     * Barcode/GTIN evidence, present when the provider supplies it. The
+     * generic provider-product kind is what TCGplayer's active One Piece and
+     * Lorcana sealed-product profiles normalize into (see
+     * provider-integration-profiles.ts), so this is where their barcode
+     * evidence actually lands even though the dedicated
+     * *-sealed-product kinds also declare the field.
+     */
+    barcode?: string | null;
   }>;
 
 export type SourceObservationMagicCardPrintNormalized = JsonObject &

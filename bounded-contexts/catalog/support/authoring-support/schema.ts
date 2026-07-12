@@ -4,7 +4,10 @@ import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durabl
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { catalogAliasEquivalenceSchemaSql } from "../../features/alias-equivalence/read-model/schema";
 import { catalogBlueprintSchemaSql } from "../../features/blueprints/read-model/schema";
-import { catalogCatalogItemSchemaSql } from "../../features/catalog-items/read-model/schema";
+import {
+  catalogCatalogItemSchemaMigrations,
+  catalogCatalogItemSchemaSql,
+} from "../../features/catalog-items/read-model/schema";
 import { catalogCategorySchemaSql } from "../../features/categories/read-model/schema";
 import { catalogComponentSchemaSql } from "../../features/components/read-model/schema";
 import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/schema";
@@ -53,4 +56,5 @@ export const catalogAuthoringSchemaMigrations = [
     jobsTable: "catalog_authoring_bulk_jobs",
   }),
   ...catalogSourceObservationSchemaMigrations,
+  ...catalogCatalogItemSchemaMigrations,
 ] as const;

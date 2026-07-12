@@ -11,7 +11,8 @@ export type InventoryImportCandidateTargetIntent =
   | "catalog-item-reference"
   | "account-sku"
   | "source-listing-reference"
-  | "source-product-reference";
+  | "source-product-reference"
+  | "gtin-reference";
 
 export type InventoryImportValueTransform = "clean" | "decimal" | "integer" | "positive-integer-or-empty";
 
@@ -69,8 +70,18 @@ export const inventoryImportSourceProfiles = [
     adapterVersion: 1,
     nativePassthrough: true,
     displayNameValueKeys: [],
-    values: [defaultStorage, { targetKey: "sellerSku", headers: ["sellerSku", "Seller SKU"] }],
+    values: [
+      defaultStorage,
+      { targetKey: "sellerSku", headers: ["sellerSku", "Seller SKU"] },
+      { targetKey: "gtin", headers: ["gtin", "GTIN", "Barcode", "UPC", "EAN"] },
+    ],
     externalReferenceCandidates: [
+      {
+        providerKey: "gtin",
+        externalKeyPrefix: "",
+        valueKey: "gtin",
+        targetIntent: "gtin-reference",
+      },
       {
         providerKey: "account",
         externalKeyPrefix: "sku:",
@@ -177,8 +188,8 @@ export const inventoryImportSourceProfiles = [
       },
       { providerKey: "ebay", externalKeyPrefix: "sku:", valueKey: "sellerSku", targetIntent: "account-sku" },
       { providerKey: "ebay", externalKeyPrefix: "epid:", valueKey: "ebayEpid", targetIntent: "catalog-item-reference" },
-      { providerKey: "ebay", externalKeyPrefix: "gtin:", valueKey: "gtin", targetIntent: "catalog-item-reference" },
-      { providerKey: "ebay", externalKeyPrefix: "upc:", valueKey: "barcode", targetIntent: "catalog-item-reference" },
+      { providerKey: "gtin", externalKeyPrefix: "", valueKey: "gtin", targetIntent: "gtin-reference" },
+      { providerKey: "gtin", externalKeyPrefix: "", valueKey: "barcode", targetIntent: "gtin-reference" },
     ],
     selectedOptionInference: [{ dimensionKey: "condition", headers: ["Condition", "Condition Name"] }],
   },
@@ -221,12 +232,7 @@ export const inventoryImportSourceProfiles = [
         targetIntent: "catalog-item-reference",
       },
       { providerKey: "shopify", externalKeyPrefix: "sku:", valueKey: "sellerSku", targetIntent: "account-sku" },
-      {
-        providerKey: "shopify",
-        externalKeyPrefix: "barcode:",
-        valueKey: "barcode",
-        targetIntent: "catalog-item-reference",
-      },
+      { providerKey: "gtin", externalKeyPrefix: "", valueKey: "barcode", targetIntent: "gtin-reference" },
       {
         providerKey: "shopify",
         externalKeyPrefix: "handle:",

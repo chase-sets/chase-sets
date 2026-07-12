@@ -71,6 +71,7 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
     },
     listCatalogItems: async () => ({ items: [], total: 0 }),
     getCatalogItemDetail: async () => null as never,
+    getCatalogItemByGtin: async () => null,
     previewBulkPublish: async () => ({
       mode: "ids",
       item_ids: [],

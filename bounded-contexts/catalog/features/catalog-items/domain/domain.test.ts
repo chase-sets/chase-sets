@@ -199,6 +199,54 @@ describe("CatalogItem aggregate", () => {
       });
     });
 
+    it("links and unlinks a GTIN, normalizing it to canonical GTIN-14 form", () => {
+      const linkedEvents = decide(decideCatalogItem, createdState(), {
+        type: "LinkCatalogItemGtin" as const,
+        gtin: "307418529636",
+        productForm: " booster-box ",
+      });
+      const linkedState = givenEvents(createdState(), evolveCatalogItem, linkedEvents as CatalogItemEvent[]);
+      const unlinkedEvents = decide(decideCatalogItem, linkedState, {
+        type: "UnlinkCatalogItemGtin" as const,
+        gtin: "307418529636",
+      });
+
+      expect(linkedEvents[0]).toMatchObject({
+        type: "catalog.catalog-item.gtin-linked",
+        data: {
+          gtin: "00307418529636",
+          productForm: "booster-box",
+        },
+      });
+      expect(linkedState.gtins).toEqual([{ gtin: "00307418529636", productForm: "booster-box" }]);
+      expect(unlinkedEvents[0]).toMatchObject({
+        type: "catalog.catalog-item.gtin-unlinked",
+        data: { gtin: "00307418529636" },
+      });
+    });
+
+    it("rejects linking a GTIN with an invalid check digit", () => {
+      expectDomainError(
+        () =>
+          decide(decideCatalogItem, createdState(), {
+            type: "LinkCatalogItemGtin" as const,
+            gtin: "307418529637",
+          }),
+        "GTIN must be a valid GTIN-8, GTIN-12, GTIN-13, or GTIN-14 barcode.",
+      );
+    });
+
+    it("rejects unlinking a GTIN that is not linked to the item", () => {
+      expectDomainError(
+        () =>
+          decide(decideCatalogItem, createdState(), {
+            type: "UnlinkCatalogItemGtin" as const,
+            gtin: "307418529636",
+          }),
+        "GTIN is not linked to this item.",
+      );
+    });
+
     it("clears a field value", () => {
       const state = givenEvents(createdState(), evolveCatalogItem, [
         { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },

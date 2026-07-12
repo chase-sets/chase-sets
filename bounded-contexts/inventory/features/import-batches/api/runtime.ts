@@ -371,6 +371,10 @@ function normalizeExternalReferences(row: NormalizedInventoryImportRow): readonl
   });
 }
 
+function gtinCandidatePriority(candidate: InventoryImportExternalReference): number {
+  return candidate.targetIntent === "gtin-reference" ? 0 : 1;
+}
+
 function sellerSkuFromAccountSkuReference(
   reference: InventoryImportExternalReference,
   row: NormalizedInventoryImportRow,
@@ -761,7 +765,26 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     let resolutionError: string | null = null;
 
     if (!catalogItemId && externalReferences.length > 0) {
-      for (const candidate of externalReferences) {
+      // GTIN candidates resolve first: a scanned/imported barcode is a global,
+      // check-digit-validated identifier, so it should win over an account's own
+      // SKU mapping (and provider SKU/product-id mappings) before falling back to
+      // those looser, account- or provider-scoped candidates.
+      const orderedCandidates = [...externalReferences].sort(
+        (left, right) => gtinCandidatePriority(left) - gtinCandidatePriority(right),
+      );
+
+      for (const candidate of orderedCandidates) {
+        if (candidate.targetIntent === "gtin-reference") {
+          externalReference = candidate;
+          const gtinMapping = await deps.catalogItems.getCatalogItemByGtin(candidate.externalKey);
+          if (gtinMapping) {
+            catalogItemId = gtinMapping.catalog_item_id;
+            resolutionStatus = "resolved";
+            break;
+          }
+          continue;
+        }
+
         if (candidate.targetIntent === "account-sku") {
           externalReference = candidate;
           const sellerSku = sellerSkuFromAccountSkuReference(candidate, row);

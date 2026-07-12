@@ -44,6 +44,12 @@ Provider sync jobs may add or refresh Source Observations, provider integration 
 
 Inventory import and sync adapters consume the Catalog projection of external references. If a provider export row carries multiple identifiers, Inventory may try each candidate in adapter order and use the first Catalog-owned reference that resolves. A Product-level SKU reference can resolve selected Options directly. A Catalog Item-level Product ID reference can resolve only the Catalog Item; the row still needs selected Options or a later review path when the Catalog Item's Product schema requires options.
 
+## GTIN Lookup
+
+A GTIN (barcode) is not a provider external reference: no single provider owns it, and it needs its own normalization (GTIN-8/12/13/14 collapse to a canonical 14-digit form) and GS1 check-digit validation before it can be trusted as a lookup key. Catalog Items therefore link GTINs through a dedicated mechanism (`LinkCatalogItemGtin` / `UnlinkCatalogItemGtin`), not through `LinkExternalCatalogItemReference` with a synthetic `providerKey`. The catalog projection maintains a `gtin -> catalog item (+ product form)` read model, UNIQUE on the normalized GTIN, queryable via `getCatalogItemByGtin`. Inventory mirrors the same facts (`catalog.catalog-item.gtin-linked` / `-unlinked`) into its own read model so import resolution and a future camera-scan seller-intake flow can resolve a scanned barcode without round-tripping through Catalog.
+
+Inventory import wiring: a `barcode`/`gtin`/`upc` column resolves through the GTIN lookup before falling back to account-owned SKU mappings or other provider-scoped candidates -- a scanned barcode is a global, check-digit-validated identifier and should win over a looser SKU guess.
+
 ## Pressure Tests
 
 - Replaying a Catalog external-reference event must keep Inventory resolution deterministic.
@@ -53,3 +59,4 @@ Inventory import and sync adapters consume the Catalog projection of external re
 - A TCGplayer Product ID must not be treated as a TCGplayer SKU.
 - A TCGplayer SKU must not be treated as a Catalog Item-level product page mapping.
 - Title parsing must never silently publish Catalog truth; it can only produce review evidence.
+- A GTIN must remain unique across the whole Catalog; it is never provider-scoped like other external references.

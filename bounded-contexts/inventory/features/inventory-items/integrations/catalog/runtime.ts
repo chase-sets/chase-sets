@@ -3,6 +3,7 @@ import type { InventoryRuntimeDeps } from "../../../../support/runtime-support";
 import { buildInventoryCatalogItemProjectionHandlers } from "./projection";
 import {
   getInventoryCatalogItem,
+  getInventoryCatalogItemByGtin,
   getInventoryExternalCatalogItemReference,
   getInventoryExternalProductReference,
   searchInventoryCatalogItems,
@@ -21,6 +22,7 @@ export type InventoryCatalogItemServices = Readonly<{
     providerKey: string,
     externalKey: string,
   ) => ReturnType<typeof getInventoryExternalCatalogItemReference>;
+  getCatalogItemByGtin: (gtin: string) => ReturnType<typeof getInventoryCatalogItemByGtin>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -32,6 +34,7 @@ export function createInventoryCatalogItemRuntime(deps: InventoryRuntimeDeps): I
       getInventoryExternalProductReference(deps.db, providerKey, externalKey),
     getExternalCatalogItemReference: (providerKey, externalKey) =>
       getInventoryExternalCatalogItemReference(deps.db, providerKey, externalKey),
+    getCatalogItemByGtin: (gtin) => getInventoryCatalogItemByGtin(deps.db, gtin),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "inventory-catalog-item-projection",
