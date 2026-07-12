@@ -7,7 +7,7 @@ import {
   DataTable,
   LinkButton,
   NativeSelect,
-  NumberInput,
+  NumberField,
   Page,
   PageHeader,
   PageSection,
@@ -135,12 +135,12 @@ export function AgreementDetailPage({
                 defaultValue={agreement.label}
                 required
               />
-              <NumberInput
+              <NumberField
                 label={t("commercialTerms.features.agreements.ui.agreementDetailPage.marketplace.fee.bps")}
                 name="marketplaceSalesFeePercentageBps"
-                min="0"
-                max="10000"
-                defaultValue={String(agreement.marketplace_sales_fee_percentage_bps)}
+                min={0}
+                max={10000}
+                defaultValue={agreement.marketplace_sales_fee_percentage_bps}
                 required
               />
               <TextInput
@@ -150,12 +150,12 @@ export function AgreementDetailPage({
                 defaultValue={agreement.marketplace_sales_fee_fixed_amount}
                 required
               />
-              <NumberInput
+              <NumberField
                 label={t("commercialTerms.features.agreements.ui.agreementDetailPage.shipping.allowance.bps")}
                 name="shippingAllowancePercentageBps"
-                min="0"
-                max="10000"
-                defaultValue={String(agreement.shipping_allowance_percentage_bps)}
+                min={0}
+                max={10000}
+                defaultValue={agreement.shipping_allowance_percentage_bps}
                 required
               />
               <NativeSelect

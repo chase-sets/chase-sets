@@ -13,7 +13,7 @@ import {
   Inline,
   LinkButton,
   LinkText,
-  NumberInput,
+  NumberField,
   ProductOptions,
   OrderProtectionBadge,
   Stack,
@@ -452,11 +452,11 @@ export function CheckoutPurchaseIntentSection({
           />
         ) : null}
         {addToCartError ? <Banner tone="danger" title={addToCartError} /> : null}
-        <NumberInput
+        <NumberField
           label={t("discovery.routes.itemDetail.quantity")}
           name="quantity"
-          min="1"
-          defaultValue="1"
+          min={1}
+          defaultValue={1}
           required
         />
         {actions !== undefined ? actions : defaultActions}

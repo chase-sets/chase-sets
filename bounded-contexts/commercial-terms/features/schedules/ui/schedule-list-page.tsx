@@ -15,7 +15,7 @@ import {
   Stack,
   Text,
   TextInput,
-  NumberInput,
+  NumberField,
   NativeSelect,
 } from "@chase-sets/design-system";
 import type { CommercialTermsScheduleViewModel } from "./contracts";
@@ -106,11 +106,12 @@ export function ScheduleListPage({
                   },
                 ]}
               />
-              <NumberInput
+              <NumberField
                 label={t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee.bps")}
                 name="marketplaceSalesFeePercentageBps"
-                min="0"
-                defaultValue="850"
+                min={0}
+                max={10000}
+                defaultValue={850}
                 required
               />
               <TextInput
@@ -120,11 +121,12 @@ export function ScheduleListPage({
                 defaultValue="0.10"
                 required
               />
-              <NumberInput
+              <NumberField
                 label={t("commercialTerms.features.schedules.ui.scheduleListPage.shipping.allowance.bps")}
                 name="shippingAllowancePercentageBps"
-                min="0"
-                defaultValue="500"
+                min={0}
+                max={10000}
+                defaultValue={500}
                 required
               />
               <NativeSelect

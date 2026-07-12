@@ -7,7 +7,7 @@ import {
   DataTable,
   LinkButton,
   NativeSelect,
-  NumberInput,
+  NumberField,
   Page,
   PageHeader,
   PageSection,
@@ -131,12 +131,12 @@ export function ScheduleDetailPage({
                 defaultValue={schedule.label}
                 required
               />
-              <NumberInput
+              <NumberField
                 label={t("commercialTerms.features.schedules.ui.scheduleDetailPage.marketplace.fee.bps")}
                 name="marketplaceSalesFeePercentageBps"
-                min="0"
-                max="10000"
-                defaultValue={String(schedule.marketplace_sales_fee_percentage_bps)}
+                min={0}
+                max={10000}
+                defaultValue={schedule.marketplace_sales_fee_percentage_bps}
                 required
               />
               <TextInput
@@ -146,12 +146,12 @@ export function ScheduleDetailPage({
                 defaultValue={schedule.marketplace_sales_fee_fixed_amount}
                 required
               />
-              <NumberInput
+              <NumberField
                 label={t("commercialTerms.features.schedules.ui.scheduleDetailPage.shipping.allowance.bps")}
                 name="shippingAllowancePercentageBps"
-                min="0"
-                max="10000"
-                defaultValue={String(schedule.shipping_allowance_percentage_bps)}
+                min={0}
+                max={10000}
+                defaultValue={schedule.shipping_allowance_percentage_bps}
                 required
               />
               <NativeSelect

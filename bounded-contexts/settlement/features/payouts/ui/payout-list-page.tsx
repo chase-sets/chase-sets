@@ -292,14 +292,14 @@ export function SettlementPayoutListPage({
                   <CurrencyInput
                     label={t("settlement.features.payouts.ui.payoutListPage.amount.2")}
                     name="amount"
+                    currencyCode={wallet.currency_code}
                     placeholder="0.00"
-                    inputMode="decimal"
                     min={payoutAmountPolicy.minimumAmount}
                     max={payoutAmountPolicy.maximumAmount}
                     step="0.01"
                     required
                     disabled={!canRequestPayout}
-                    defaultValue={payoutDraft?.amount ?? ""}
+                    defaultValue={payoutDraft?.amount}
                   />
                   <Stack direction="row" gap={2}>
                     <Button

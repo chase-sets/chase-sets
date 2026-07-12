@@ -14,7 +14,7 @@ import {
   MarketplaceNotice,
   MarketplaceStatusTimeline,
   NativeSelect,
-  NumberInput,
+  NumberField,
   Page,
   PageHeader,
   PageSection,
@@ -675,37 +675,37 @@ export function FulfillmentShipmentDetailPage({
                       name="overrideReason"
                       rows={3}
                     />
-                    <NumberInput
+                    <NumberField
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.length.in")}
                       name="packageLengthInches"
-                      min="0.1"
-                      step="0.1"
+                      min={0.1}
+                      step={0.1}
                       required
-                      defaultValue="7"
+                      defaultValue={7}
                     />
-                    <NumberInput
+                    <NumberField
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.width.in")}
                       name="packageWidthInches"
-                      min="0.1"
-                      step="0.1"
+                      min={0.1}
+                      step={0.1}
                       required
-                      defaultValue="5"
+                      defaultValue={5}
                     />
-                    <NumberInput
+                    <NumberField
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.height.in")}
                       name="packageHeightInches"
-                      min="0.1"
-                      step="0.1"
+                      min={0.1}
+                      step={0.1}
                       required
-                      defaultValue="1"
+                      defaultValue={1}
                     />
-                    <NumberInput
+                    <NumberField
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.weight.oz")}
                       name="packageWeightOunces"
-                      min="0.1"
-                      step="0.1"
+                      min={0.1}
+                      step={0.1}
                       required
-                      defaultValue="4"
+                      defaultValue={4}
                     />
                     <Button type="submit" name="intent" value="purchase-label">
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.usps.label")}

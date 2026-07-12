@@ -12,7 +12,7 @@
     "governedFileCount": 116,
     "exemptFileCount": 6,
     "exemptByReason": { "ds-leaf-marker": 2, "primitive": 4 },
-    "totalRawClassNameCount": 633,
+    "totalRawClassNameCount": 635,
     "topBudgets": [
       { "file": "packages/design-system/src/components/checkout/marketplace.tsx", "budget": 41 },
       { "file": "packages/design-system/src/components/checkout/summary.tsx", "budget": 38 },
@@ -126,7 +126,7 @@
     "packages/design-system/src/components/forms/hidden-input.tsx": 0,
     "packages/design-system/src/components/forms/index.ts": 0,
     "packages/design-system/src/components/forms/input-addon.tsx": 2,
-    "packages/design-system/src/components/forms/number-field.tsx": 0,
+    "packages/design-system/src/components/forms/number-field.tsx": 3,
     "packages/design-system/src/components/forms/password-input.tsx": 2,
     "packages/design-system/src/components/forms/product-selection-fields.tsx": 0,
     "packages/design-system/src/components/forms/quantity-stepper.tsx": 0,
@@ -137,7 +137,7 @@
     "packages/design-system/src/components/forms/slider.tsx": 2,
     "packages/design-system/src/components/forms/switch.tsx": 4,
     "packages/design-system/src/components/forms/tag-input.tsx": 4,
-    "packages/design-system/src/components/forms/text-input.tsx": 3,
+    "packages/design-system/src/components/forms/text-input.tsx": 2,
     "packages/design-system/src/components/forms/textarea.tsx": 1,
     "packages/design-system/src/components/forms/validation-summary.tsx": 8,
     "packages/design-system/src/components/print/index.ts": 0

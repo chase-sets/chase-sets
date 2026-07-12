@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 361
+- Runtime exports indexed: 360
 - Source modules covered: 126
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -98,7 +98,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `CopyButton` | `packages/design-system/src/components/actions/copy-button.tsx` | Purpose not documented; symbol name suggests: Copy Button. | `bounded-contexts/identity/features/api-keys/ui/api-key-secret-reveal.tsx` |
 | `createStripeConnectAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: create Stripe Connect Appearance. | `bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx` |
 | `createStripeElementsAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: create Stripe Elements Appearance. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
-| `CurrencyInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Currency Input. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
+| `CurrencyInput` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Currency Input. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
 | `cx` | `packages/design-system/src/utils/cx.ts` | Purpose not documented; symbol name only: cx. | `No production consumer yet.` |
 | `DataTable` | `packages/design-system/src/components/data-display/data-table.tsx` | Purpose not documented; symbol name suggests: Data Table. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
 | `DateInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Date Input. | `bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx` |
@@ -205,8 +205,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `NoResultsRecovery` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: No Results Recovery. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `normalizeFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: normalize Form Errors. | `No production consumer yet.` |
 | `NotificationCenterSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Notification Center Sheet. | `bounded-contexts/notifications/features/notification-center/ui/notification-center-shell.tsx` |
-| `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `No production consumer yet.` |
-| `NumberInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Number Input. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
+| `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
 | `observeStripeAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: observe Stripe Appearance. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `OfferCard` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Offer Card. | `bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx` |
 | `OperationalLockBanner` | `packages/design-system/src/components/data-display/operational-workflow/operational-lock-banner.tsx` | Lock notice: a warning-toned surface with a padlock glyph that signals a workstation task is frozen against edits while it is in progress. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |

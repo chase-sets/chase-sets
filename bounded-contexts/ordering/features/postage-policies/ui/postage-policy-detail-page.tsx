@@ -9,7 +9,7 @@ import {
   DataTable,
   LinkButton,
   NativeSelect,
-  NumberInput,
+  NumberField,
   Page,
   PageHeader,
   PageSection,
@@ -172,43 +172,43 @@ export function PostagePolicyDetailPage({
                   defaultValue="25.00"
                   required
                 />
-                <NumberInput
+                <NumberField
                   label={t("ordering.features.postagePolicies.ui.detail.quantity")}
                   name="previewQuantity"
-                  min="1"
-                  defaultValue="1"
+                  min={1}
+                  defaultValue={1}
                   required
                 />
-                <NumberInput
+                <NumberField
                   label={t("ordering.features.postagePolicies.ui.detail.unit.length.in")}
                   name="previewUnitLengthInches"
-                  min="0.01"
-                  step="0.01"
-                  defaultValue="3.5"
+                  min={0.01}
+                  step={0.01}
+                  defaultValue={3.5}
                   required
                 />
-                <NumberInput
+                <NumberField
                   label={t("ordering.features.postagePolicies.ui.detail.unit.width.in")}
                   name="previewUnitWidthInches"
-                  min="0.01"
-                  step="0.01"
-                  defaultValue="2.5"
+                  min={0.01}
+                  step={0.01}
+                  defaultValue={2.5}
                   required
                 />
-                <NumberInput
+                <NumberField
                   label={t("ordering.features.postagePolicies.ui.detail.unit.thickness.in")}
                   name="previewUnitHeightInches"
-                  min="0.001"
-                  step="0.001"
-                  defaultValue="0.016"
+                  min={0.001}
+                  step={0.001}
+                  defaultValue={0.016}
                   required
                 />
-                <NumberInput
+                <NumberField
                   label={t("ordering.features.postagePolicies.ui.detail.unit.weight.oz")}
                   name="previewUnitWeightOunces"
-                  min="0.001"
-                  step="0.001"
-                  defaultValue="0.05"
+                  min={0.001}
+                  step={0.001}
+                  defaultValue={0.05}
                   required
                 />
               </Grid>

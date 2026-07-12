@@ -1948,6 +1948,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.4.1
         version: 1.4.1(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
       '@fontsource/ibm-plex-sans':
         specifier: ^5.2.8
         version: 5.2.8

@@ -4,7 +4,7 @@ import {
   Form,
   Button,
   Card,
-  NumberInput,
+  NumberField,
   PageSection,
   ProductOptions,
   Stack,
@@ -60,11 +60,11 @@ export function CheckoutAddToCartSection({
               </Text>
             </Stack>
             {errorMessage ? <Text>{errorMessage}</Text> : null}
-            <NumberInput
+            <NumberField
               label={t("checkout.features.cart.ui.addToCartSection.quantity")}
               name="quantity"
-              min="1"
-              defaultValue="1"
+              min={1}
+              defaultValue={1}
               required
             />
             <Button type="submit">{t("checkout.features.cart.ui.addToCartSection.add.to.cart.2")}</Button>

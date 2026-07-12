@@ -532,19 +532,6 @@
   select {
     font: inherit;
   }
-
-  /* Suppress native number-spinner chevrons for all DS number controls
-     (NumberInput, CurrencyInput, QuantityStepper). The DS provides its own
-     −/+ UI; the browser-native spinners would create a double-control. */
-  input[type="number"] {
-    -moz-appearance: textfield;
-  }
-
-  input[type="number"]::-webkit-inner-spin-button,
-  input[type="number"]::-webkit-outer-spin-button {
-    appearance: none;
-    margin: 0;
-  }
 }
 
 @layer utilities {

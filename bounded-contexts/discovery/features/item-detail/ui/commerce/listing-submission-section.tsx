@@ -9,7 +9,7 @@ import {
   type FormPanelVariant,
   Inline,
   LinkButton,
-  NumberInput,
+  NumberField,
   ProductOptions,
   Stack,
   Text,
@@ -215,17 +215,18 @@ export function MarketplaceListingSubmissionSection({
             <CurrencyInput
               label={t("discovery.routes.itemDetail.listing.price")}
               name="priceAmount"
-              defaultValue={listPrice}
+              currencyCode="USD"
+              defaultValue={listPrice || undefined}
               placeholder="24.99"
               min="0"
               step="0.01"
               required
             />
-            <NumberInput
+            <NumberField
               label={t("discovery.routes.itemDetail.quantity")}
               name="quantityCap"
-              min="1"
-              defaultValue={String(defaultQuantity)}
+              min={1}
+              defaultValue={defaultQuantity}
               required
             />
           </>

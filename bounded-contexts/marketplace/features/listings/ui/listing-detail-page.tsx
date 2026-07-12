@@ -24,7 +24,7 @@ import {
   Stack,
   Text,
   TextInput,
-  NumberInput,
+  NumberField,
   ProductOptions,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
@@ -521,11 +521,11 @@ export function MarketplaceListingDetailPage({
               <Stack gap={3}>
                 <HiddenInput type="hidden" name="intent" value="update-quantity-cap" />
                 <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
-                <NumberInput
+                <NumberField
                   label={t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.2")}
                   name="quantityCap"
-                  defaultValue={String(listing.quantity_cap)}
-                  min="1"
+                  defaultValue={listing.quantity_cap}
+                  min={1}
                   required
                 />
                 <Text size="sm" tone="secondary">
@@ -548,27 +548,23 @@ export function MarketplaceListingDetailPage({
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="intent" value="update-purchase-limits" />
                   <Inline>
-                    <NumberInput
+                    <NumberField
                       label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.order")}
                       name="maxUnitsPerOrder"
-                      defaultValue={listing.max_units_per_order == null ? "" : String(listing.max_units_per_order)}
-                      min="1"
+                      defaultValue={listing.max_units_per_order ?? undefined}
+                      min={1}
                     />
-                    <NumberInput
+                    <NumberField
                       label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.day")}
                       name="maxUnitsPerDay"
-                      defaultValue={listing.max_units_per_day == null ? "" : String(listing.max_units_per_day)}
-                      min="1"
+                      defaultValue={listing.max_units_per_day ?? undefined}
+                      min={1}
                     />
-                    <NumberInput
+                    <NumberField
                       label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.customer")}
                       name="maxUnitsPerCustomerAccount"
-                      defaultValue={
-                        listing.max_units_per_customer_account == null
-                          ? ""
-                          : String(listing.max_units_per_customer_account)
-                      }
-                      min="1"
+                      defaultValue={listing.max_units_per_customer_account ?? undefined}
+                      min={1}
                     />
                   </Inline>
                   <Text size="sm" tone="secondary">

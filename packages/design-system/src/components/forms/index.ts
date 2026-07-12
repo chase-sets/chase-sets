@@ -35,10 +35,6 @@ export { HiddenInput, HoneypotInput, type HiddenInputProps, type HoneypotInputPr
 export {
   TextInput,
   type TextInputProps,
-  NumberInput,
-  type NumberInputProps,
-  CurrencyInput,
-  type CurrencyInputProps,
   SearchInput,
   type SearchInputProps,
   DateInput,
@@ -55,7 +51,7 @@ export {
 } from "./product-selection-fields";
 export { Combobox, type ComboboxProps } from "./combobox";
 export { Autocomplete, type AutocompleteItem, type AutocompleteProps } from "./autocomplete";
-export { NumberField, type NumberFieldProps } from "./number-field";
+export { NumberField, type NumberFieldProps, CurrencyInput, type CurrencyInputProps } from "./number-field";
 export { QuantityStepper, type QuantityStepperProps } from "./quantity-stepper";
 export { Checkbox, type CheckboxProps, CheckboxGroup, type CheckboxGroupProps } from "./checkbox";
 export { RadioGroup, type RadioGroupProps } from "./radio-group";

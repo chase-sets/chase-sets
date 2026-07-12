@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, HiddenInput, NativeSelect, NumberInput, Stack, TextInput } from "@chase-sets/design-system";
+import { Button, HiddenInput, NativeSelect, NumberField, Stack, TextInput } from "@chase-sets/design-system";
 
 export function AgreementCreateFields({ accountId }: { accountId?: string }) {
   return (
@@ -20,11 +20,12 @@ export function AgreementCreateFields({ accountId }: { accountId?: string }) {
           required
         />
       )}
-      <NumberInput
+      <NumberField
         label={t("commercialTerms.features.agreements.ui.agreementListPage.marketplace.fee.bps")}
         name="marketplaceSalesFeePercentageBps"
-        min="0"
-        defaultValue="700"
+        min={0}
+        max={10000}
+        defaultValue={700}
         required
       />
       <TextInput
@@ -34,11 +35,12 @@ export function AgreementCreateFields({ accountId }: { accountId?: string }) {
         defaultValue="0.05"
         required
       />
-      <NumberInput
+      <NumberField
         label={t("commercialTerms.features.agreements.ui.agreementListPage.shipping.allowance.bps")}
         name="shippingAllowancePercentageBps"
-        min="0"
-        defaultValue="500"
+        min={0}
+        max={10000}
+        defaultValue={500}
         required
       />
       <NativeSelect

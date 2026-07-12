@@ -10,7 +10,7 @@ import {
   type FormPanelVariant,
   Inline,
   KeyValueList,
-  NumberInput,
+  NumberField,
   ProductOptions,
   Stack,
   Text,
@@ -416,11 +416,11 @@ export function ProductSellListIntentSection({
               />
             </Stack>
           ) : null}
-          <NumberInput
+          <NumberField
             label={t("discovery.routes.itemDetail.quantity")}
             name="quantity"
-            min="1"
-            defaultValue="1"
+            min={1}
+            defaultValue={1}
             required
           />
           {errorMessage ? <Text>{errorMessage}</Text> : null}

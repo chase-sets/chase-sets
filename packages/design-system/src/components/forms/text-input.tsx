@@ -1,6 +1,5 @@
 import { useId, type InputHTMLAttributes } from "react";
 import { Icon } from "../../icons";
-import { VisuallyHidden } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
 import { InputAddon } from "./input-addon";
 import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
@@ -51,76 +50,6 @@ export function TextInput({
         aria-invalid={!!error || undefined}
         className={cx(controlClass, !!error && controlErrorClass)}
       />
-    </FieldChrome>
-  );
-}
-
-export interface NumberInputProps extends TextInputProps {}
-
-export function NumberInput(props: NumberInputProps) {
-  return <TextInput {...props} type="number" inputMode="numeric" />;
-}
-
-export interface CurrencyInputProps extends TextInputProps {
-  currencyLabel?: string;
-  currencySymbol?: string;
-}
-
-export function CurrencyInput({
-  id,
-  label,
-  description,
-  error,
-  status,
-  counter,
-  required,
-  hideLabel,
-  currencyLabel = "US dollars",
-  currencySymbol = "$",
-  "aria-label": ariaLabel,
-  "aria-describedby": ariaDescribedBy,
-  ...rest
-}: CurrencyInputProps) {
-  const fallbackId = useId();
-  const inputId = id ?? fallbackId;
-  const currencyDescription = (
-    <>
-      {description}
-      <VisuallyHidden> Amount in {currencyLabel}.</VisuallyHidden>
-    </>
-  );
-
-  return (
-    <FieldChrome
-      label={label}
-      description={currencyDescription}
-      error={error}
-      status={status}
-      counter={counter}
-      required={required}
-      hideLabel={hideLabel}
-      htmlFor={inputId}
-    >
-      <InputAddon start={{ content: currencySymbol, muted: true }}>
-        <input
-          {...rest}
-          id={inputId}
-          required={required}
-          type="number"
-          inputMode="decimal"
-          aria-label={ariaLabel}
-          aria-describedby={fieldDescribedBy({
-            inputId,
-            description: currencyDescription,
-            error,
-            status,
-            counter,
-            describedBy: ariaDescribedBy,
-          })}
-          aria-invalid={!!error || undefined}
-          className={cx(controlClass, !!error && controlErrorClass, "pl-[calc(var(--control-md-px)+1rem)]")}
-        />
-      </InputAddon>
     </FieldChrome>
   );
 }
