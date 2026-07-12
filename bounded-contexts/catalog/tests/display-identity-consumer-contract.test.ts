@@ -20,10 +20,10 @@ describe("display identity consumer subscription contract", () => {
     // Version 4 added category-assigned/category-removed for repricing-policy
     // catalog-filter scope resolution; still display-identity-resolved, never
     // metadata-revised.
-    expect(catalogEventTypes("../../pricing/context.json", "pricing-catalog-input-projection", 4)).toEqual(
+    expect(catalogEventTypes("../../pricing/context.json", "pricing-catalog-input-projection", 5)).toEqual(
       expect.arrayContaining(["catalog.catalog-item.display-identity-resolved"]),
     );
-    expect(catalogEventTypes("../../pricing/context.json", "pricing-catalog-input-projection", 4)).not.toContain(
+    expect(catalogEventTypes("../../pricing/context.json", "pricing-catalog-input-projection", 5)).not.toContain(
       "catalog.catalog-item.metadata-revised",
     );
   });

@@ -37,3 +37,12 @@ export const ROLLUP_CONVENIENCE_LOOKBACK_DAYS = Object.freeze({
  * incrementally patched.
  */
 export const ROLLUP_CLOSER_TRAILING_WINDOW_DAYS = 3;
+
+/**
+ * Trailing window the public market pages slice charts: long enough
+ * to show a meaningful price-history trend for an SEO landing page, short
+ * enough to keep the per-page rollup-series query and rendered chart small.
+ * Same "hard-coded seam, single call site" rationale as the constants above
+ * -- move to resolved m110 policy when the policy-consolidation slice lands.
+ */
+export const PUBLIC_MARKET_PAGE_HISTORY_WINDOW_DAYS = 180;

@@ -183,8 +183,7 @@ const defaultAllowedZeroConsumerExports = [
   },
   {
     symbol: "Sparkline",
-    reason:
-      "m111 chart primitive (#4306); the item-detail market panel (#4307) adopted TimeSeriesChart only -- Sparkline's first consumer (an inline trend cell) is still pending a future surface",
+    reason: "m111 chart primitive (#4306); first consumer is the item-detail market panel (#4307), landing after this",
   },
 ];
 

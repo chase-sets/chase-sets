@@ -2,6 +2,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
+import { createPricingCatalogItemSlug } from "../../../../support/runtime-support/slugs";
 
 type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   catalogItemId: string;
@@ -24,6 +25,7 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
         data.subtitle === null || data.subtitle === undefined
           ? null
           : resolveLocalizedTextMap(coerceLocalizedTextMap(data.subtitle)) || null;
+      const slug = createPricingCatalogItemSlug([titleText, subtitleText], data.itemId);
 
       await db.query(
         `INSERT INTO pricing_catalog_item_inputs (
@@ -32,33 +34,32 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
            title,
            subtitle,
            status,
+           slug,
            updated_at
-         ) VALUES ($1, $2, $3, $4, 'draft', $5)
+         ) VALUES ($1, $2, $3, $4, 'draft', $5, $6)
          ON CONFLICT (catalog_item_id) DO UPDATE
          SET language_code = EXCLUDED.language_code,
              title = EXCLUDED.title,
              subtitle = EXCLUDED.subtitle,
+             slug = EXCLUDED.slug,
              updated_at = EXCLUDED.updated_at`,
-        [data.itemId, data.languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
+        [data.itemId, data.languageCode ?? "en", titleText, subtitleText, slug, event.timing.recordedAt],
       );
     },
     "catalog.catalog-item.display-identity-resolved": async (event) => {
       const data = event.data as CatalogItemDisplayIdentityResolvedEventData;
+      const subtitleText = data.subtitle?.trim() || null;
+      const slug = createPricingCatalogItemSlug([data.title, subtitleText], data.catalogItemId);
 
       await db.query(
         `UPDATE pricing_catalog_item_inputs
          SET language_code = $2,
              title = $3,
              subtitle = $4,
-             updated_at = $5
+             slug = $5,
+             updated_at = $6
          WHERE catalog_item_id = $1`,
-        [
-          data.catalogItemId,
-          data.languageCode ?? "en",
-          data.title,
-          data.subtitle?.trim() || null,
-          event.timing.recordedAt,
-        ],
+        [data.catalogItemId, data.languageCode ?? "en", data.title, subtitleText, slug, event.timing.recordedAt],
       );
     },
     "catalog.catalog-item.published": async (event) => {

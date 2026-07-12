@@ -10,12 +10,14 @@ import { createPriceSignalRuntime } from "../../features/price-signals/api/runti
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
 import { createMarketRollupsRuntime } from "../../features/market-rollups/api/runtime";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
+import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 
 export type PricingServices = Readonly<{
   priceSignals: ReturnType<typeof createPriceSignalRuntime>;
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime>;
+  publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -36,12 +38,14 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
   });
   const marketRollups = createMarketRollupsRuntime({ db });
   const repricingPolicies = createRepricingPolicyRuntime({ eventStore, db });
+  const publicMarketPages = createPublicMarketPagesRuntime({ db });
 
   return {
     priceSignals,
     recommendations,
     marketRollups,
     repricingPolicies,
+    publicMarketPages,
     projectors: [...priceSignals.projectors, ...recommendations.projectors, ...repricingPolicies.projectors],
     pool,
     db,

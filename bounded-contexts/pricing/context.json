@@ -15,7 +15,14 @@
   ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["recommendations", "price-signals", "market-trades", "market-rollups", "repricing-policies"],
+  "slices": [
+    "recommendations",
+    "price-signals",
+    "market-trades",
+    "market-rollups",
+    "repricing-policies",
+    "public-market-pages"
+  ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
@@ -33,7 +40,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
-      "subscriptionVersion": 4,
+      "subscriptionVersion": 5,
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.display-identity-resolved",
@@ -289,6 +296,18 @@
           "sourceContext": "pricing"
         }
       ]
+    },
+    {
+      "deployable": "public-web",
+      "routes": [
+        {
+          "routeId": "market-price-history",
+          "routePath": "market/:slug",
+          "fileExport": "./routes/marketplace/market-price-history",
+          "routeType": "route",
+          "sourceContext": "pricing"
+        }
+      ]
     }
   ],
   "shellContributions": [
@@ -341,10 +360,15 @@
       "purpose": "Own the RepricingPolicy aggregate (seller-owned rule pipeline: anchor chain, offset, floor, ceiling, tolerance, budgets, scope) and the resolved listing-to-policy assignment read model that is the repricing evaluation engine's work queue input.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
+    "public-market-pages": {
+      "classification": "slice",
+      "purpose": "Own the public, unauthenticated, SEO-indexable market price-history page per catalog item: the public-safe read composition over the catalog item identity and the market-rollups query API, its API routes, and its UI.",
+      "expectedConsumers": ["Internal pricing module composition", "public-web"]
+    },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
-      "expectedConsumers": ["Root pricing composition"]
+      "expectedConsumers": ["recommendations"]
     },
     "realtime-support": {
       "classification": "support",
@@ -354,7 +378,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["recommendations"],
+      "expectedConsumers": ["recommendations", "public-market-pages"],
       "crossCuttingRuntimeComposition": true
     },
     "routes": {

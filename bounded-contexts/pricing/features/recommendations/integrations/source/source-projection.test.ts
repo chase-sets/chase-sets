@@ -31,7 +31,14 @@ describe("pricing marketplace source projection", () => {
     } as never);
 
     expect(calls[0]?.sql).toContain("pricing_catalog_item_inputs");
-    expect(calls[0]?.params).toEqual(["cat_1", "ja", "Charizard", "Japanese Base Set", "2026-05-09T00:00:00.000Z"]);
+    expect(calls[0]?.params).toEqual([
+      "cat_1",
+      "ja",
+      "Charizard",
+      "Japanese Base Set",
+      "charizard-japanese-base-set-cat-1-5e05dn",
+      "2026-05-09T00:00:00.000Z",
+    ]);
   });
 
   it("updates catalog input labels from Catalog display identity facts", async () => {
@@ -64,6 +71,7 @@ describe("pricing marketplace source projection", () => {
       "en",
       "Charizard 4/102",
       "Base Set Rare Holo",
+      "charizard-4-102-base-set-rare-holo-cat-1-5e05dn",
       "2026-05-09T00:00:00.000Z",
     ]);
   });

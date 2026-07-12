@@ -23,4 +23,13 @@ export const pricingUnloggedProjectionSchemaMigrations: readonly BcSchemaMigrati
     description: "Store the replayable RepricingPolicy read-model projection as an unlogged table.",
     statements: ["SET lock_timeout = '5s';", "ALTER TABLE pricing_repricing_policies SET UNLOGGED;"],
   },
+  {
+    migrationId: "20260711_pricing_catalog_item_slug_index",
+    description: "Index the public market pages' catalog item slug lookup for public market pages.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_catalog_item_inputs_slug_idx
+  ON pricing_catalog_item_inputs (slug)`,
+    ],
+  },
 ];

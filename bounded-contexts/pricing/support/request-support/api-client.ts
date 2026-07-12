@@ -6,6 +6,10 @@ import type { buildPricingApi } from "../../api";
 import type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 import type { PricingRecommendationJobStatus } from "../../features/recommendations/api/runtime";
 import type {
+  PublicMarketPageData,
+  PublicMarketPageSitemapEntry,
+} from "../../features/public-market-pages/read-model/queries";
+import type {
   GetProductRollupSeriesParams,
   ProductMarketStatsSnapshot,
   ProductRollupSeriesPoint,
@@ -20,6 +24,10 @@ export type {
   ProductRollupSeriesPoint,
   RollupGranularity,
 } from "../../features/market-rollups/read-model/queries";
+export type {
+  PublicMarketPageData,
+  PublicMarketPageSitemapEntry,
+} from "../../features/public-market-pages/read-model/queries";
 
 type PricingApiApp = ReturnType<typeof buildPricingApi>;
 
@@ -140,6 +148,25 @@ export function createPricingApiClient({
       return parseJsonResponse(
         await client["market-rollups"][":catalogItemId"][":productId"].stats.$get({
           param: { catalogItemId: params.catalogItemId, productId: params.productId },
+          header: headers,
+        }),
+      );
+    },
+    /** Public, unauthenticated -- returns null on 404 rather than throwing. */
+    async getPublicMarketPage(slug: string): Promise<PublicMarketPageData | null> {
+      const response = await client.public["market-pages"][":slug"].$get({
+        param: { slug },
+        header: headers,
+      });
+      if (response.status === 404) {
+        return null;
+      }
+      return parseJsonResponse(response);
+    },
+    async listPublicMarketPageSlugs(limit?: number): Promise<{ items: readonly PublicMarketPageSitemapEntry[] }> {
+      return parseJsonResponse(
+        await client.public["market-pages"].$get({
+          query: limit ? { limit: String(limit) } : {},
           header: headers,
         }),
       );
