@@ -1844,6 +1844,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(notifyProductionDeployIncidentJob).toContain("notify-production-deploy-incident:");
     expect(notifyProductionDeployIncidentJob).toContain("name: Notify Production Deploy Incident");
     expect(notifyProductionDeployIncidentJob).toContain("issues: write");
+    expect(notifyProductionDeployIncidentJob).toContain("name: Classify deploy outcome");
+    expect(notifyProductionDeployIncidentJob).toContain("id: classify_deploy_outcome");
+    expect(notifyProductionDeployIncidentJob).toContain("node ./scripts/platform-deploy-incident.mjs");
+    expect(notifyProductionDeployIncidentJob).toContain(
+      "STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}",
+    );
+    expect(notifyProductionDeployIncidentJob).toContain("needs.deploy-staging.outputs.applied != 'true'");
     expect(notifyProductionDeployIncidentJob).toContain("gh issue create");
     expect(notifyProductionDeployIncidentJob).toContain('incident_milestone_title="Incidents"');
     expect(notifyProductionDeployIncidentJob).toContain(
@@ -1854,11 +1861,11 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(notifyProductionDeployIncidentJob).not.toContain('--milestone "Incidents"');
     expect(notifyProductionDeployIncidentJob).toContain("Incident: Platform Deploy failed for");
-    expect(notifyProductionDeployIncidentJob).not.toContain(
-      "Incident: Platform Deploy superseded before production for",
-    );
     expect(notifyProductionDeployIncidentJob).not.toContain("Kind: production-superseded");
-    expect(notifyProductionDeployIncidentJob).not.toContain("needs.deploy-production.outputs.superseded == 'true'");
+    expect(notifyProductionDeployIncidentJob).toContain("needs.deploy-production.outputs.superseded == 'true'");
+    expect(notifyProductionDeployIncidentJob).toContain('gh issue close "${issue_number}"');
+    expect(notifyProductionDeployIncidentJob).toContain("--command classify-issue");
+    expect(notifyProductionDeployIncidentJob).toContain("--command build-comment");
     expect(notifyProductionDeployIncidentJob).toContain(
       'contains(fromJSON(\'["failure", "cancelled"]\'), needs.deploy-production.result)',
     );
