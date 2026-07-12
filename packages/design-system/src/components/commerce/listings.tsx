@@ -1,4 +1,4 @@
-import { useId, useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { Inline, Stack } from "../../primitives/layout";
@@ -63,9 +63,10 @@ export interface ListingCardProps {
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
   compareAction?: ReactNode;
-  saveLabel?: string;
-  savedLabel?: string;
-  watchingLabel?: string;
+  detailLinkLabel: string;
+  saveLabel: string;
+  savedLabel: string;
+  watchingLabel: string;
   saved?: boolean;
   watching?: boolean;
   density?: MarketplaceDensity;
@@ -120,15 +121,15 @@ export function ListingCard({
   primaryAction,
   secondaryAction,
   compareAction,
-  saveLabel = "Save",
-  savedLabel = "Saved",
-  watchingLabel = "Watching",
+  detailLinkLabel,
+  saveLabel,
+  savedLabel,
+  watchingLabel,
   saved = false,
   watching = false,
   density = "compact",
   className,
 }: ListingCardProps) {
-  const titleId = useId();
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const primaryImage =
@@ -220,8 +221,6 @@ export function ListingCard({
   const contentClassName = isSearchResultLayout
     ? "gap-2.5 py-3 pl-1 pr-3 md:gap-2.5 md:py-4 md:pl-1 md:pr-4"
     : cx("gap-3", densityClasses[density]);
-  const detailLinkLabel = `View details for ${title}`;
-
   return (
     <article
       className={cx(
@@ -305,15 +304,16 @@ export function ListingCard({
               {availability ? <span className="text-xs font-medium text-secondary">{availability}</span> : null}
             </Inline>
           ) : null}
-          <h3
-            aria-labelledby={titleId}
-            className={cx(
-              "relative m-0 line-clamp-2 font-semibold text-foreground",
-              isLinked && "transition-colors hover:text-accent",
-              isSearchResultLayout ? "text-sm leading-5 md:text-base md:leading-6" : "text-base leading-6",
-            )}
-          >
-            <span id={titleId}>{title}</span>
+          <div className="relative">
+            <h3
+              className={cx(
+                "m-0 line-clamp-2 font-semibold text-foreground",
+                isLinked && "transition-colors hover:text-accent",
+                isSearchResultLayout ? "text-sm leading-5 md:text-base md:leading-6" : "text-base leading-6",
+              )}
+            >
+              {title}
+            </h3>
             {href ? (
               <a
                 href={href}
@@ -321,7 +321,7 @@ export function ListingCard({
                 className="focus-ring pointer-events-auto absolute inset-0 z-30 rounded-tokenSm"
               />
             ) : null}
-          </h3>
+          </div>
           {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-foreground">{subtitle}</p> : null}
           {valueCue ? (
             <p className={cx("m-0 text-sm leading-5 text-secondary", truncateValueCue && "line-clamp-2")}>{valueCue}</p>
@@ -377,15 +377,10 @@ export function ListingCard({
         >
           {primaryAction}
           {secondaryAction ?? (
-            <IconButton
-              label={`${saved ? savedLabel : saveLabel} ${title}`}
-              icon="heart"
-              tone="secondary"
-              aria-pressed={saved}
-            />
+            <IconButton label={saved ? savedLabel : saveLabel} icon="heart" tone="secondary" aria-pressed={saved} />
           )}
           {compareAction}
-          {watching ? <IconButton label={`${watchingLabel} ${title}`} icon="eye" tone="ghost" aria-pressed /> : null}
+          {watching ? <IconButton label={watchingLabel} icon="eye" tone="ghost" aria-pressed /> : null}
         </div>
       </div>
     </article>

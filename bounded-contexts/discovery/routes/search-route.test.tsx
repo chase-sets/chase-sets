@@ -299,7 +299,9 @@ describe("marketplace search route", () => {
 
     render(<SearchRoute />);
 
-    expect(screen.getByRole("link", { name: "View details for Pikachu" }).getAttribute("href")).toBe("/items/pikachu");
+    expect(
+      screen.getByRole("link", { name: "View details for Pikachu — Jungle 60/64 Common" }).getAttribute("href"),
+    ).toBe("/items/pikachu");
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
       "/items/pikachu?market=buy",
     );

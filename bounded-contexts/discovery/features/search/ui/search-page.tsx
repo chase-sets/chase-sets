@@ -1,4 +1,4 @@
-import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
+import { formatDisplayIdentity, formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import {
   Text,
@@ -775,6 +775,7 @@ export function SearchPage({
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
                 const itemDetailHref = buildItemDetailHref(item.slug, dynamicFilters);
+                const displayIdentity = formatDisplayIdentity(item.title, item.subtitle);
                 const productAssetImage = buildDiscoveryProductAssetImage(
                   item.product_asset_sets,
                   "search-card",
@@ -833,14 +834,16 @@ export function SearchPage({
                     image={productAssetImage ?? undefined}
                     imageSrc={imageSrc}
                     imageSlot="compact-product"
-                    imageAlt={item.title}
+                    imageAlt={displayIdentity}
                     imageFallbackSrc={item.image_fallback?.url}
-                    imageFallbackAlt={
-                      item.image_fallback?.alt ?? t("discovery.features.search.ui.searchPage.default.product.image")
-                    }
+                    imageFallbackAlt={displayIdentity}
                     imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
                     imageFallbackSizes="(min-width: 1280px) 18rem, (min-width: 640px) 15rem, 100vw"
                     imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
+                    detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
+                    saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
+                    savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
+                    watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
                     price={hasActiveListings ? formatPrice(item) : undefined}
                     subtitle={formatSearchIdentityLine(item)}
                     valueCue={formatSearchResultMetadata(item)}

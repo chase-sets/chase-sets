@@ -206,7 +206,7 @@ describe("SearchPage", () => {
       },
     });
 
-    const image = screen.getByRole("img", { name: "Prismatic Evolutions Booster Pack" });
+    const image = screen.getByRole("img", { name: "Prismatic Evolutions Booster Pack — Pokemon sealed product" });
     expect(image.getAttribute("src")).toBe("https://assets.example/search-card-224w.webp");
     expect(image.getAttribute("srcset")).toBe(
       "https://assets.example/search-card-224w.webp 224w, https://assets.example/search-card-448w.webp 448w",
@@ -327,6 +327,8 @@ describe("SearchPage", () => {
     expect(screen.queryByText("Offers open")).toBeNull();
     expect(screen.queryByText("Offer or list yours")).toBeNull();
     expect(screen.queryByText("No active listings")).toBeNull();
+    expect(screen.getByRole("link", { name: "View details for Abra — Base Set 43 Standard Set Common" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Abra — Base Set 43 Standard Set Common" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Add product to Sell List" }).textContent).toBe("Sell");
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).textContent).toBe("Buy");
     expect(screen.getByRole("link", { name: "Watch product" }).textContent).toBe("Watch");

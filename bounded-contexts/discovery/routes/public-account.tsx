@@ -1,4 +1,4 @@
-import { formatDate, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatDate, formatDisplayIdentity, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -571,6 +571,10 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               });
               const limitLabel = purchaseLimitLabel(listing);
               const availabilityDetail = limitLabel ? `${availability} | ${limitLabel}` : availability;
+              const displayIdentity = formatDisplayIdentity(
+                listing.item_title ?? t("discovery.routes.publicAccount.marketplace.listing"),
+                listing.product_summary,
+              );
               return (
                 <ListingCard
                   key={listing.listing_id}
@@ -581,6 +585,10 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                     options: productOptionsFromSummary(listing.product_summary),
                     fallback: t("discovery.routes.publicAccount.pokemon.card.back"),
                   })}
+                  detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
+                  saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
+                  savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
+                  watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
                   price={formatMoney(listing.price_amount)}
                   priceDetail={availabilityDetail}
                   sellerName={account.account_display_name ?? t("discovery.routes.publicAccount.account")}

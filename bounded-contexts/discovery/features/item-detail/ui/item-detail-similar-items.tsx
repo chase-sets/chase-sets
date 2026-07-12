@@ -1,5 +1,5 @@
 import { Grid, LinkButton, ListingCard, PageSection } from "@chase-sets/design-system";
-import { t } from "@chase-sets/localization";
+import { formatDisplayIdentity, t } from "@chase-sets/localization";
 import type { DiscoverySimilarItem } from "../../../support/client-support/contracts";
 import { imageVariantSrcSet } from "../../../support/client-support/assets";
 import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
@@ -13,6 +13,7 @@ export function ItemDetailSimilarItems({ items }: { items: readonly DiscoverySim
       <Grid columns={{ base: 1, lg: 2 }} gap={4}>
         {items.map((item) => {
           const href = `/items/${item.slug || item.catalog_item_id}`;
+          const displayIdentity = formatDisplayIdentity(item.title, item.subtitle);
           const productAssetImage = buildDiscoveryProductAssetImage(
             item.product_asset_sets,
             "search-card",
@@ -32,12 +33,16 @@ export function ItemDetailSimilarItems({ items }: { items: readonly DiscoverySim
               image={productAssetImage ?? undefined}
               imageSrc={imageSrc}
               imageSlot="compact-product"
-              imageAlt={item.title}
+              imageAlt={displayIdentity}
               imageFallbackSrc={item.image_fallback?.url}
-              imageFallbackAlt={item.image_fallback?.alt ?? item.title}
+              imageFallbackAlt={displayIdentity}
               imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
               imageFallbackSizes="(min-width: 768px) 164px, 124px"
               imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
+              detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
+              saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
+              savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
+              watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
               primaryAction={
                 <LinkButton
                   href={href}

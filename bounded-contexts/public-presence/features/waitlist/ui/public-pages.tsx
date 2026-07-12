@@ -803,6 +803,16 @@ function ProductSignalPreview() {
           model="product"
           imageSrc={pikachuIllustrationRareUrl}
           imageAlt={t("publicPresence.preview.listing.imageAlt")}
+          detailLinkLabel={t("publicPresence.preview.listing.viewDetails", {
+            identity: t("publicPresence.preview.listing.title"),
+          })}
+          saveLabel={t("publicPresence.preview.listing.save", { identity: t("publicPresence.preview.listing.title") })}
+          savedLabel={t("publicPresence.preview.listing.saved", {
+            identity: t("publicPresence.preview.listing.title"),
+          })}
+          watchingLabel={t("publicPresence.preview.listing.watching", {
+            identity: t("publicPresence.preview.listing.title"),
+          })}
           imageLoading="lazy"
           imageFetchPriority="low"
           imageDecoding="async"

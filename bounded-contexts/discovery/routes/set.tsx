@@ -1,4 +1,4 @@
-import { formatDate, formatMoney, t } from "@chase-sets/localization";
+import { formatDate, formatDisplayIdentity, formatMoney, t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -132,6 +132,7 @@ export default function DiscoverySetRoute() {
             <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
               {setPage.items.map((item) => {
                 const href = `/items/${item.slug || item.catalog_item_id}`;
+                const displayIdentity = formatDisplayIdentity(item.title, item.subtitle);
                 const productAssetImage = buildDiscoveryProductAssetImage(
                   item.product_asset_sets,
                   "search-card",
@@ -153,12 +154,16 @@ export default function DiscoverySetRoute() {
                     image={productAssetImage ?? undefined}
                     imageSrc={imageSrc}
                     imageSlot="compact-product"
-                    imageAlt={item.title}
+                    imageAlt={displayIdentity}
                     imageFallbackSrc={item.image_fallback?.url}
-                    imageFallbackAlt={item.image_fallback?.alt ?? item.title}
+                    imageFallbackAlt={displayIdentity}
                     imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
                     imageFallbackSizes="(min-width: 768px) 164px, 124px"
                     imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
+                    detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
+                    saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
+                    savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
+                    watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
                     price={lowestPrice ? formatMoney(lowestPrice, "USD") : undefined}
                     primaryAction={
                       <LinkButton href={href} size="sm">
