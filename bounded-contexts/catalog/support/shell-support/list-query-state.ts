@@ -312,9 +312,9 @@ export function useCatalogListQueryControls(query: CatalogListQuery, debounceMs 
   // fires synchronously when a pointerdown lands elsewhere — BEFORE the subsequent
   // `click` runs a link's client-side navigation — so the search commit always starts
   // ahead of the user's navigation and the navigation (issued last) wins. Without
-  // this, a debounce firing mid-navigation cancels the in-flight detail navigation
-  // (issue #4955). The only focused element while a search debounce is pending is the
-  // search input itself, so any focusout with a live timer means the operator left it.
+  // this, a debounce firing mid-navigation cancels the in-flight detail navigation.
+  // The only focused element while a search debounce is pending is the search input
+  // itself, so any focusout with a live timer means the operator left it.
   useEffect(() => {
     if (typeof document === "undefined") {
       return;
