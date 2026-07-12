@@ -62,11 +62,10 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
            display_reference
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13,
-           $14::jsonb, $15::jsonb, $16::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, $17
+           $14::jsonb, $15::jsonb, $16::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, NULL, $17
          )
          ON CONFLICT (support_request_id) DO UPDATE
           SET status = EXCLUDED.status,
-              display_reference = EXCLUDED.display_reference,
              priority = EXCLUDED.priority,
              updated_at = EXCLUDED.updated_at,
              seller_response_due_at = EXCLUDED.seller_response_due_at,
