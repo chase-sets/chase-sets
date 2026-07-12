@@ -114,7 +114,9 @@ function resetConfigEnv() {
   delete process.env.STRIPE_SECRET_KEY;
   delete process.env.STRIPE_PUBLISHABLE_KEY;
   delete process.env.STRIPE_WEBHOOK_SECRET;
+  delete process.env.STRIPE_WEBHOOK_SECRET_PREVIOUS;
   delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS;
   delete process.env.STRIPE_CONNECT_ACCOUNTS_API;
   delete process.env.STRIPE_API_BASE_URL;
   delete process.env.EASYPOST_API_KEY;
@@ -478,7 +480,9 @@ describe("platform api config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_shared";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_shared";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_shared";
+    process.env.STRIPE_WEBHOOK_SECRET_PREVIOUS = "whsec_previous_shared";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_shared";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS = "whsec_connect_previous_shared";
     process.env.STRIPE_API_BASE_URL = "https://stripe.shared.test";
     process.env.EASYPOST_API_KEY = "EZAK_shared";
     process.env.EASYPOST_WEBHOOK_SECRET = "whsec_easypost_shared";
@@ -506,6 +510,7 @@ describe("platform api config", () => {
         max: 18,
         idleTimeoutMillis: 45_000,
         connectionTimeoutMillis: 7_000,
+        idleInTransactionSessionTimeoutMillis: undefined,
       },
       catalogAssetStorage: {
         kind: "s3",
@@ -522,12 +527,14 @@ describe("platform api config", () => {
         secretKey: "sk_test_shared",
         publishableKey: "pk_test_shared",
         webhookSecret: "whsec_shared",
+        previousWebhookSecrets: ["whsec_previous_shared"],
         apiBaseUrl: "https://stripe.shared.test",
       },
       moneyMovement: {
         kind: "stripe",
         secretKey: "sk_test_shared",
         webhookSecret: "whsec_connect_shared",
+        previousWebhookSecrets: ["whsec_connect_previous_shared"],
         connectAccountsApi: "v2",
         apiBaseUrl: "https://stripe.shared.test",
       },
@@ -633,6 +640,7 @@ describe("platform api config", () => {
       kind: "stripe",
       secretKey: "sk_test",
       webhookSecret: "whsec_connect_test",
+      previousWebhookSecrets: [],
       connectAccountsApi: "v2",
       apiBaseUrl: "https://stripe.test",
     });
@@ -649,6 +657,7 @@ describe("platform api config", () => {
       kind: "stripe",
       secretKey: "sk_test",
       webhookSecret: "whsec_connect_test",
+      previousWebhookSecrets: [],
       connectAccountsApi: "v1",
       apiBaseUrl: undefined,
     });

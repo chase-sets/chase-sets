@@ -1229,4 +1229,55 @@ describe("Stripe payment processor gateway", () => {
       processorStatus: "deactivated",
     });
   });
+
+  it("verifies every v1 signature and accepts configured previous secrets during rotation", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const rawBody = JSON.stringify({
+      id: "evt_rotated",
+      type: "payment_intent.succeeded",
+      created: now,
+      data: { object: { id: "pi_rotated", status: "canceled", metadata: { payment_id: "pay_rotated" } } },
+    });
+    const currentDigest = signature(rawBody, "whsec_current", now).split("v1=")[1];
+    const previousDigest = signature(rawBody, "whsec_previous", now).split("v1=")[1];
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_current",
+      previousWebhookSecrets: ["whsec_previous"],
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody,
+        signatureHeader: `t=${now},v1=${"0".repeat(64)},v1=${previousDigest},v1=${currentDigest}`,
+      }),
+    ).resolves.toMatchObject({ eventId: "evt_rotated" });
+
+    const withoutPrevious = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_current",
+    });
+    await expect(
+      withoutPrevious.parseWebhook({ rawBody, signatureHeader: `t=${now},v1=${previousDigest}` }),
+    ).rejects.toThrow("Stripe webhook signature verification failed.");
+  });
+
+  it("rejects tampered webhook payloads even when the original payload was signed", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const originalBody = JSON.stringify({ id: "evt_original", type: "payment_intent.succeeded", data: {} });
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody: `${originalBody} `,
+        signatureHeader: signature(originalBody, "whsec_test", now),
+      }),
+    ).rejects.toThrow("Stripe webhook signature verification failed.");
+  });
 });

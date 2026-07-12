@@ -114,6 +114,7 @@ const paymentProcessorGateway =
         secretKey: config.paymentProcessor.secretKey,
         publishableKey: config.paymentProcessor.publishableKey,
         webhookSecret: config.paymentProcessor.webhookSecret,
+        previousWebhookSecrets: config.paymentProcessor.previousWebhookSecrets,
         apiBaseUrl: config.paymentProcessor.apiBaseUrl,
       })
     : createFakePaymentProcessorGateway();
@@ -122,6 +123,7 @@ const moneyMovementGateway =
     ? createStripeConnectMoneyMovementGateway({
         secretKey: config.moneyMovement.secretKey,
         webhookSecret: config.moneyMovement.webhookSecret,
+        previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
         accountsApi: config.moneyMovement.connectAccountsApi,
         apiBaseUrl: config.moneyMovement.apiBaseUrl,
       })

@@ -53,12 +53,18 @@ Stripe mode uses:
 - `STRIPE_PUBLISHABLE_KEY`: buyer-facing Stripe key returned with payment intent client data.
 - `STRIPE_WEBHOOK_SECRET`: signing secret used to verify inbound Stripe Payments webhook payloads.
 - `STRIPE_CONNECT_WEBHOOK_SECRET`: distinct signing secret used to verify inbound Stripe Connect money-movement webhook payloads. Staging startup fails if this variable is missing; it must not silently reuse `STRIPE_WEBHOOK_SECRET`.
+- `STRIPE_WEBHOOK_SECRET_PREVIOUS`: optional comma-separated prior Payments webhook secrets accepted during rotation overlap.
+- `STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS`: optional comma-separated prior Connect webhook secrets accepted during rotation overlap.
 - `STRIPE_CONNECT_ACCOUNTS_API`: connected payout-account API posture. Use `v1` for launch while Accounts v2 approval is pending; use `v2` only after provider approval and migration readiness are complete.
 - `STRIPE_API_BASE_URL`: optional override for Stripe API calls in non-default environments or tests.
 
 For local development, keep real Stripe values in `deployables/platform-api/.env.local` when you want to exercise real Stripe flows. If any required Stripe value is missing, the platform API falls back to the fake payment gateway so local startup works without webhook forwarding.
 
 Webhook callbacks are mounted by the platform API at `/api/payments/provider/webhooks`. The account payment routes stay under `/api/marketplace/account/payments`.
+
+### Rotate Stripe webhook secrets
+
+Rotate Payments and Connect endpoint secrets independently. Before changing a current secret, copy it into the matching comma-separated `*_WEBHOOK_SECRET_PREVIOUS` variable and deploy. Roll the endpoint secret in Stripe, promote the new value into the current variable, and deploy again while retaining the prior value. Confirm signed deliveries succeed, then clear the previous-secret variable and deploy once more. Never log or paste webhook secrets or raw `Stripe-Signature` headers into deployment evidence.
 
 When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET` into the current worktree's `.env.sandbox.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `pnpm run stripe:listen` manually if you want the listener in a separate terminal; it forwards payment events to `/api/payments/provider/webhooks` and Connect events to `/api/settlement/provider/money-movement/webhooks` by default.
 

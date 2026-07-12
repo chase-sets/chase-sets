@@ -14,6 +14,7 @@ import {
 export type StripeConnectMoneyMovementOptions = Readonly<{
   secretKey: string;
   webhookSecret: string;
+  previousWebhookSecrets?: readonly string[];
   accountsApi?: StripeConnectAccountsApi;
   apiBaseUrl?: string;
   webhookToleranceSeconds?: number;
@@ -223,22 +224,22 @@ function parseStripeSignature(signatureHeader: string | null) {
     .find((part) => part.trim().startsWith("t="))
     ?.split("=")[1]
     ?.trim();
-  const signature = parts
-    .find((part) => part.trim().startsWith("v1="))
-    ?.split("=")[1]
-    ?.trim();
+  const signatures = parts
+    .filter((part) => part.trim().startsWith("v1="))
+    .map((part) => part.split("=")[1]?.trim())
+    .filter((signature): signature is string => Boolean(signature));
 
-  if (!timestamp || !signature) {
+  if (!timestamp || signatures.length === 0) {
     throw new Error("Stripe webhook signature is malformed.");
   }
 
-  return { timestamp, signature };
+  return { timestamp, signatures };
 }
 
 function verifyStripeSignature(
   rawBody: string,
   signatureHeader: string | null,
-  webhookSecret: string,
+  webhookSecrets: readonly string[],
   toleranceSeconds: number,
 ) {
   const parsed = parseStripeSignature(signatureHeader);
@@ -252,11 +253,17 @@ function verifyStripeSignature(
   }
 
   const payload = `${parsed.timestamp}.${rawBody}`;
-  const expected = createHmac("sha256", webhookSecret).update(payload).digest("hex");
-  const expectedBuffer = Buffer.from(expected, "hex");
-  const receivedBuffer = Buffer.from(parsed.signature, "hex");
+  let verified = false;
+  for (const webhookSecret of webhookSecrets) {
+    const expectedBuffer = Buffer.from(createHmac("sha256", webhookSecret).update(payload).digest("hex"), "hex");
+    for (const signature of parsed.signatures) {
+      const receivedBuffer = Buffer.from(signature, "hex");
+      verified =
+        (expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer)) || verified;
+    }
+  }
 
-  if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
+  if (!verified) {
     throw new Error("Stripe webhook signature verification failed.");
   }
 }
@@ -626,6 +633,7 @@ export function createStripeConnectMoneyMovementGateway(
   const accountsApi = options.accountsApi ?? "v2";
   const authorization = `Basic ${encodeBasicAuth(options.secretKey)}`;
   const webhookToleranceSeconds = options.webhookToleranceSeconds ?? 300;
+  const webhookSecrets = [options.webhookSecret, ...(options.previousWebhookSecrets ?? [])];
 
   async function stripeRequest<T>(
     path: string,
@@ -1029,7 +1037,7 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async parseMoneyMovementWebhook(input) {
-      verifyStripeSignature(input.rawBody, input.signatureHeader, options.webhookSecret, webhookToleranceSeconds);
+      verifyStripeSignature(input.rawBody, input.signatureHeader, webhookSecrets, webhookToleranceSeconds);
       const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
       const object = event.data?.object;
 
