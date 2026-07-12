@@ -1367,6 +1367,7 @@ describe("money movement adapters", () => {
         object: {
           id: "po_123",
           status: "failed",
+          metadata: { payout_id: "pyo_123" },
           failure_code: "account_closed",
           failure_message: "The account is closed.",
         },
@@ -1381,6 +1382,7 @@ describe("money movement adapters", () => {
     ).resolves.toEqual({
       kind: "payout-failed",
       providerEventId: "stripe:payout.failed:po_123",
+      payoutId: "pyo_123",
       providerPayoutReference: "po_123",
       providerStatus: "failed",
       failureCode: "account_closed",

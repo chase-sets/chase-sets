@@ -214,6 +214,15 @@ function moneyFromMinorUnits(amount: number) {
   return (amount / 100).toFixed(2);
 }
 
+function metadataValue(object: Record<string, unknown>, key: string) {
+  const metadata = object.metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function parseStripeSignature(signatureHeader: string | null) {
   if (!signatureHeader) {
     throw new Error("Stripe-Signature header is required.");
@@ -259,7 +268,8 @@ function verifyStripeSignature(
     for (const signature of parsed.signatures) {
       const receivedBuffer = Buffer.from(signature, "hex");
       verified =
-        (expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer)) || verified;
+        (expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer)) ||
+        verified;
     }
   }
 
@@ -1071,6 +1081,10 @@ export function createStripeConnectMoneyMovementGateway(
         return {
           kind: "payout-completed",
           providerEventId: providerEventIdFromEvent(event, providerPayoutReference),
+          payoutId: metadataValue(object, "payout_id") as Extract<
+            MoneyMovementWebhookEvent,
+            { kind: "payout-completed" }
+          >["payoutId"],
           providerPayoutReference,
           providerStatus: String(object.status ?? "paid"),
           occurredAt,
@@ -1085,6 +1099,10 @@ export function createStripeConnectMoneyMovementGateway(
         return {
           kind: "payout-failed",
           providerEventId: providerEventIdFromEvent(event, providerPayoutReference),
+          payoutId: metadataValue(object, "payout_id") as Extract<
+            MoneyMovementWebhookEvent,
+            { kind: "payout-failed" }
+          >["payoutId"],
           providerPayoutReference,
           providerStatus: String(object.status ?? "failed"),
           failureCode: typeof object.failure_code === "string" ? object.failure_code : null,

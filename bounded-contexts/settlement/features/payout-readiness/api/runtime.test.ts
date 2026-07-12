@@ -40,7 +40,7 @@ function createEventStore() {
       },
     ),
     readStream: vi.fn(async (input: { streamId: string }) => streams.get(input.streamId) ?? []),
-    readAll: vi.fn(async () => []),
+    readAll: vi.fn(async () => [...streams.values()].flat()),
   };
 }
 
@@ -823,6 +823,57 @@ describe("payout readiness runtime", () => {
         safeCategory: "missing_provider_account",
       }),
     );
+  });
+
+  it("records account webhooks from committed readiness before its projection catches up", async () => {
+    const eventStore = createEventStore();
+    const services = createPayoutReadinessRuntime({
+      eventStore: eventStore as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) } as never,
+      moneyMovementGateway: {
+        providerName: "stripe",
+      } as never,
+    });
+
+    await services.recordProviderReadiness(
+      {
+        accountId: "acc_seller" as never,
+        status: "pending",
+        providerReference: "acct_before_projection",
+        contactEmail: "seller@example.test",
+        recordedAt: "2026-06-01T17:00:00.000Z",
+      },
+      context,
+    );
+
+    await expect(
+      services.recordProviderReadinessFromWebhook(
+        {
+          providerReference: "acct_before_projection",
+          readiness: {
+            providerReference: "acct_before_projection",
+            contactEmail: "seller@example.test",
+            onboardingStatus: "complete",
+            transferCapabilityStatus: "active",
+            payoutCapabilityStatus: "active",
+            payoutDestinationStatus: "ready",
+            payoutAccountDashboard: "none",
+            lossesCollector: "application",
+            feesCollector: "application",
+            requirementsCollector: "application",
+            missingRequirements: [],
+          },
+          recordedAt: "2026-06-01T17:01:00.000Z",
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ accountId: "acc_seller" });
+
+    expect(eventStore.appendToStream).toHaveBeenCalledTimes(2);
   });
 
   it("returns fresh provider readiness from refresh without waiting for projection catch-up", async () => {

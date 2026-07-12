@@ -1763,6 +1763,72 @@ describe("settlement payout runtime", () => {
     ).toBe(false);
   });
 
+  it("fails and reverses a payout from webhook metadata before the payout projection catches up", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const { db } = createPayoutProviderOperationDb(() => []);
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+    });
+    await seedAvailableWallet(wallets);
+    const requested = await payouts.requestPayout({ accountId: "acc_seller" as never, amount: "12.50" }, context);
+
+    await expect(
+      payouts.processMoneyMovementWebhook(
+        {
+          rawBody: JSON.stringify({
+            kind: "payout-failed",
+            providerEventId: "evt_failed_before_projection",
+            payoutId: requested.payoutId,
+            providerPayoutReference: `po_${requested.payoutId}`,
+          }),
+          signatureHeader: null,
+        },
+        context,
+      ),
+    ).resolves.toEqual({ received: true, ignored: false });
+
+    expect(
+      readAllEvents().filter(
+        (event) =>
+          event.eventType === "settlement.wallet.ledger-entry-posted" &&
+          (event.payload as { kind?: string }).kind === "payout-reversal",
+      ),
+    ).toHaveLength(1);
+    expect(readAllEvents().map((event) => event.eventType)).toContain("settlement.payout.failed");
+
+    await expect(
+      payouts.processMoneyMovementWebhook(
+        {
+          rawBody: JSON.stringify({
+            kind: "payout-failed",
+            providerEventId: "evt_failed_before_projection",
+            payoutId: requested.payoutId,
+            providerPayoutReference: `po_${requested.payoutId}`,
+          }),
+          signatureHeader: null,
+        },
+        context,
+      ),
+    ).resolves.toEqual({ received: true, ignored: true });
+    expect(
+      readAllEvents().filter(
+        (event) =>
+          event.eventType === "settlement.wallet.ledger-entry-posted" &&
+          (event.payload as { kind?: string }).kind === "payout-reversal",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("processes duplicate payout failure webhooks without duplicate reversals", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     let payoutRow: Record<string, unknown> | null = null;

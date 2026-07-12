@@ -4,7 +4,7 @@ import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -252,6 +252,45 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
     });
   }
 
+  async function findCommittedPayoutReadinessByProviderReference(providerReference: string) {
+    const latestByStream = new Map<
+      string,
+      {
+        accountId: AccountId;
+        providerReference: string | null;
+        contactEmail: string | null;
+        payoutDestinationFingerprint: string | null;
+        payoutDestinationChangedAt: string | null;
+      }
+    >();
+    let afterGlobalPosition: GlobalPosition | undefined;
+
+    for (;;) {
+      const events = await deps.eventStore.readAll({
+        ...(afterGlobalPosition === undefined ? {} : { afterGlobalPosition }),
+        eventTypes: ["settlement.payout-readiness.recorded"],
+        streamPrefixes: ["settlement.payout-readiness-"],
+        limit: 500,
+      });
+      for (const event of events) {
+        const payload = event.payload as PayoutReadinessEvent["data"];
+        latestByStream.set(event.streamId, {
+          accountId: payload.accountId,
+          providerReference: payload.providerReference,
+          contactEmail: payload.contactEmail,
+          payoutDestinationFingerprint: payload.payoutDestinationFingerprint,
+          payoutDestinationChangedAt: payload.payoutDestinationChangedAt,
+        });
+      }
+      if (events.length < 500) {
+        break;
+      }
+      afterGlobalPosition = events[events.length - 1]?.globalPosition;
+    }
+
+    return [...latestByStream.values()].find((entry) => entry.providerReference === providerReference) ?? null;
+  }
+
   function readinessOperationFields(readiness: ProviderPayoutReadiness) {
     return {
       providerReference: readiness.providerReference,
@@ -284,7 +323,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
   }
 
   function payoutDestinationChange(
-    existing: SettlementPayoutReadinessRow,
+    existing: Pick<SettlementPayoutReadinessRow, "payout_destination_fingerprint" | "payout_destination_changed_at">,
     readiness: ProviderPayoutReadiness,
     recordedAt: string,
   ) {
@@ -787,7 +826,20 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
       }
     },
     async recordProviderReadinessFromWebhook(params, context) {
-      const existing = await getPayoutReadinessByProviderReference(deps.db, params.providerReference);
+      const projected = await getPayoutReadinessByProviderReference(deps.db, params.providerReference);
+      const committed = projected
+        ? null
+        : await findCommittedPayoutReadinessByProviderReference(params.providerReference);
+      const existing =
+        projected ??
+        (committed
+          ? {
+              account_id: committed.accountId,
+              contact_email: committed.contactEmail,
+              payout_destination_fingerprint: committed.payoutDestinationFingerprint,
+              payout_destination_changed_at: committed.payoutDestinationChangedAt,
+            }
+          : null);
       if (!existing) {
         await recordOperation({
           kind: "payout-readiness-webhook-ignored",
