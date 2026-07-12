@@ -1081,7 +1081,13 @@ describeDb("discovery projection row identity", () => {
       "status": "withdrawn",
       "submitted_at": "2026-06-12T13:02:00.000Z",
       "updated_at": "2026-06-12T13:04:00.000Z",
-      "revealed_at": null
+      "revealed_at": null,
+      "feedback_redacted_at": null,
+      "reply_id": null,
+      "reply_feedback": null,
+      "reply_status": null,
+      "reply_submitted_at": null,
+      "reply_withdrawn_at": null
     }
   ]
 }`),
