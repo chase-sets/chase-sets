@@ -51,16 +51,27 @@ type PricingRecommendationRuntimeDeps = Readonly<{
   db: PgQueryable;
 }>;
 
+export type PricingMarketplaceListingOutcome = Readonly<{
+  listingId: string;
+  outcome: "applied" | "no_op" | "conflict" | "error";
+  version: number;
+  message?: string;
+}>;
+
+/**
+ * The Marketplace ports `applyRecommendations` drives. Price updates for an
+ * account's selected recommendations go through ONE bulk call, part of the
+ * m113 repricing-at-scale throughput lane, instead of a
+ * `previewListingTerms` + `updateListingPrice` round trip per listing --
+ * Marketplace resolves the account's terms session and applies every
+ * listing's price server-side, so there is nothing left to preview or
+ * confirm from this side.
+ */
 export type PricingMarketplaceListingGateway = Readonly<{
-  previewListingTerms: (
-    body: Readonly<{ priceAmount: string }>,
+  applyBulkListingPriceUpdates: (
+    body: Readonly<{ updates: readonly Readonly<{ listingId: string; priceAmount: string }>[] }>,
     options?: Readonly<{ signal?: AbortSignal }>,
-  ) => Promise<{ fee_quote_fingerprint: string }>;
-  updateListingPrice: (
-    listingId: string,
-    body: Readonly<{ priceAmount: string; feeQuoteFingerprint?: string | null }>,
-    options?: Readonly<{ signal?: AbortSignal }>,
-  ) => Promise<unknown>;
+  ) => Promise<Readonly<{ items: readonly PricingMarketplaceListingOutcome[] }>>;
   createListing: (
     body: Readonly<{
       inventoryItemId: string;
@@ -70,7 +81,6 @@ export type PricingMarketplaceListingGateway = Readonly<{
     }>,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<{ id?: string; listing_id?: string }>;
-  staleFeeQuoteFingerprint?: (error: unknown) => string | null;
 }>;
 
 type RefreshCandidate = Readonly<{
@@ -535,6 +545,70 @@ export function createPricingRecommendationRuntime(
     let failedCount = 0;
     let completed = 0;
 
+    // m113 repricing-at-scale throughput lane: every listing-price-update
+    // row for this account batches into ONE Marketplace bulk call instead
+    // of a previewListingTerms + updateListingPrice round trip per row --
+    // Marketplace resolves the account's terms session once and applies
+    // each listing's price server-side. Draft-listing-create rows are
+    // unaffected; they never previewed terms (createListing quotes
+    // internally).
+    const priceUpdateOutcomeByRecommendationId = new Map<
+      string,
+      Readonly<{ status: "applied"; appliedListingId: string }> | Readonly<{ status: "failed"; errorMessage: string }>
+    >();
+    const bulkUpdates: Readonly<{ recommendationId: string; listingId: string; priceAmount: string }>[] = [];
+
+    for (const row of selectedRows) {
+      if (row.action_type !== "active-listing-price-update" && row.action_type !== "draft-listing-price-update") {
+        continue;
+      }
+      if (row.recommended_list_amount === null) {
+        priceUpdateOutcomeByRecommendationId.set(row.recommendation_id, {
+          status: "failed",
+          errorMessage: "Recommendation is missing a recommended price.",
+        });
+        continue;
+      }
+      if (!row.listing_id) {
+        priceUpdateOutcomeByRecommendationId.set(row.recommendation_id, {
+          status: "failed",
+          errorMessage: "Recommendation is missing a listing target.",
+        });
+        continue;
+      }
+      bulkUpdates.push({
+        recommendationId: row.recommendation_id,
+        listingId: row.listing_id,
+        priceAmount: moneyString(Number(row.recommended_list_amount)),
+      });
+    }
+
+    if (bulkUpdates.length > 0) {
+      jobContext?.throwIfCancelled();
+      const bulkResult = await runPricingJobSideEffect(jobContext, (signal) =>
+        params.marketplaceListings.applyBulkListingPriceUpdates(
+          { updates: bulkUpdates.map(({ listingId, priceAmount }) => ({ listingId, priceAmount })) },
+          { signal },
+        ),
+      );
+      const outcomeByListingId = new Map(bulkResult.items.map((outcome) => [outcome.listingId, outcome] as const));
+
+      for (const update of bulkUpdates) {
+        const outcome = outcomeByListingId.get(update.listingId);
+        if (outcome && (outcome.outcome === "applied" || outcome.outcome === "no_op")) {
+          priceUpdateOutcomeByRecommendationId.set(update.recommendationId, {
+            status: "applied",
+            appliedListingId: update.listingId,
+          });
+        } else {
+          priceUpdateOutcomeByRecommendationId.set(update.recommendationId, {
+            status: "failed",
+            errorMessage: outcome?.message ?? "Bulk listing price update did not run.",
+          });
+        }
+      }
+    }
+
     for (const row of selectedRows) {
       jobContext?.throwIfCancelled();
       try {
@@ -546,45 +620,11 @@ export function createPricingRecommendationRuntime(
         let appliedListingId = row.listing_id;
 
         if (row.action_type === "active-listing-price-update" || row.action_type === "draft-listing-price-update") {
-          if (!row.listing_id) {
-            throw new Error("Recommendation is missing a listing target.");
+          const outcome = priceUpdateOutcomeByRecommendationId.get(row.recommendation_id);
+          if (!outcome || outcome.status === "failed") {
+            throw new Error(outcome?.status === "failed" ? outcome.errorMessage : "Recommendation apply failed.");
           }
-          const listingId = row.listing_id;
-          const quote = await runPricingJobSideEffect(jobContext, (signal) =>
-            params.marketplaceListings.previewListingTerms(
-              {
-                priceAmount: price,
-              },
-              { signal },
-            ),
-          );
-          try {
-            await runPricingJobSideEffect(jobContext, (signal) =>
-              params.marketplaceListings.updateListingPrice(
-                listingId,
-                {
-                  priceAmount: price,
-                  feeQuoteFingerprint: quote.fee_quote_fingerprint,
-                },
-                { signal },
-              ),
-            );
-          } catch (error) {
-            const retryFingerprint = params.marketplaceListings.staleFeeQuoteFingerprint?.(error);
-            if (!retryFingerprint) {
-              throw error;
-            }
-            await runPricingJobSideEffect(jobContext, (signal) =>
-              params.marketplaceListings.updateListingPrice(
-                listingId,
-                {
-                  priceAmount: price,
-                  feeQuoteFingerprint: retryFingerprint,
-                },
-                { signal },
-              ),
-            );
-          }
+          appliedListingId = outcome.appliedListingId;
         } else {
           if (!row.inventory_item_id) {
             throw new Error("Recommendation is missing an inventory target.");

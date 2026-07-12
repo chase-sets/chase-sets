@@ -58,6 +58,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.authentication.context.missing.4": "Authentication context missing.",
   "marketplace.features.listings.api.route.authentication.context.missing.5": "Authentication context missing.",
   "marketplace.features.listings.api.route.authentication.context.missing.6": "Authentication context missing.",
+  "marketplace.features.listings.api.route.authentication.context.missing.7": "Authentication context missing.",
   "marketplace.features.listings.api.route.anonymous.listing.draft.required":
     "Listing draft session is missing. Start a new listing draft from the item page.",
   "marketplace.features.listings.api.route.anonymous.request.rate.limited":

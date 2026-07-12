@@ -1523,6 +1523,23 @@ describe("marketplace listing runtime", () => {
           agreementId: null,
           resolvedAt: "2026-07-09T00:00:00.000Z",
         })),
+        openListingTermsSession: vi.fn(async ({ accountId }: { accountId: string }) => ({
+          accountId,
+          accountType: "business" as const,
+          scheduleId: "cts_bulk",
+          agreementId: null,
+          resolvedAt: "2026-07-09T00:00:00.000Z",
+          quote: (amount: string) => ({
+            accountId,
+            accountType: "business" as const,
+            basisAmount: amount,
+            marketplaceSalesFeeUnitAmount: "1.00",
+            sellerNetUnitAmount: "19.00",
+            scheduleId: "cts_bulk",
+            agreementId: null,
+            resolvedAt: "2026-07-09T00:00:00.000Z",
+          }),
+        })),
       };
     }
 
@@ -1697,6 +1714,170 @@ describe("marketplace listing runtime", () => {
       expect(appendSpy.mock.calls[1]?.[0]).toHaveLength(1);
       expect(resolvePolicy).toHaveBeenCalledWith(
         expect.objectContaining({ policyKey: "marketplace.listing-bulk-price-update" }),
+      );
+    });
+
+    it("resolves the terms session once for the whole batch when it fits in a single chunk -- not once per listing (#4327)", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const termsResolver = bulkTermsResolver();
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: termsResolver as never,
+      });
+
+      const listingIds = ["lst_session_1", "lst_session_2", "lst_session_3", "lst_session_4", "lst_session_5"];
+      for (const listingId of listingIds) {
+        await services.createListing(
+          {
+            accountId: "acc_seller" as never,
+            inventoryItemId: "inv_1",
+            priceAmount: "20.00",
+            quantityCap: 1,
+            listingIdOverride: listingId as never,
+          },
+          context,
+        );
+      }
+
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: listingIds.map((listingId, index) => ({
+            listingId,
+            priceAmount: `${21 + index}.00`,
+          })),
+        },
+        context,
+      );
+
+      expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
+      // 5 listings, default chunkSize 50 -> one wave -> the terms session
+      // resolves once for the whole batch, never once per listing, and no
+      // per-item fee-quote fingerprint is required to apply. (`createListing`
+      // above uses `resolveListingTerms` for its own per-listing preview --
+      // that's unrelated to the bulk path and isn't part of this assertion.)
+      expect(termsResolver.openListingTermsSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("revalidates the terms session between chunks so a mid-run schedule revision never bakes stale terms into a later chunk (#4327)", async () => {
+      const { eventStore } = createInMemoryEventStore();
+      const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
+        if (policy.policyKey === "marketplace.listing-bulk-price-update") {
+          return {
+            policyKey: policy.policyKey,
+            // chunkSize 1 forces one wave per listing, so the second listing's
+            // wave revalidates the session after the "revision" below lands.
+            value: { chunkSize: 1, yieldIntervalMs: 0 },
+            source: "policy" as const,
+            documentId: "pol_bulk_chunk",
+            effectiveFrom: "2026-07-01T00:00:00.000Z",
+            effectiveUntil: null,
+            resolvedAt: "2026-07-09T00:00:00.000Z",
+          };
+        }
+        throw new Error(`Unexpected policy resolution in test: ${policy.policyKey}`);
+      });
+
+      let revision = "cts_before_revision";
+      let openSessionCalls = 0;
+      const revisableTermsResolver = {
+        // Used by `createListing` while seeding the two listings below --
+        // unrelated to the bulk path's revalidation behavior under test.
+        resolveListingTerms: vi.fn(async ({ amount, accountId }: { amount: string; accountId: string }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "1.00",
+          sellerNetUnitAmount: "19.00",
+          scheduleId: "cts_seed",
+          agreementId: null,
+          resolvedAt: "2026-07-09T00:00:00.000Z",
+        })),
+        openListingTermsSession: vi.fn(async ({ accountId }: { accountId: string }) => {
+          openSessionCalls += 1;
+          // The schedule revises after the FIRST session is opened --
+          // simulating a document change that lands mid-run, between chunks.
+          if (openSessionCalls === 2) {
+            revision = "cts_after_revision";
+          }
+          const scheduleId = revision;
+          return {
+            accountId,
+            accountType: "business" as const,
+            scheduleId,
+            agreementId: null,
+            resolvedAt: "2026-07-09T00:00:00.000Z",
+            quote: (amount: string) => ({
+              accountId,
+              accountType: "business" as const,
+              basisAmount: amount,
+              marketplaceSalesFeeUnitAmount: "1.00",
+              sellerNetUnitAmount: "19.00",
+              scheduleId,
+              agreementId: null,
+              resolvedAt: "2026-07-09T00:00:00.000Z",
+            }),
+          };
+        }),
+      };
+
+      const services = createMarketplaceListingRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: bulkListingsDb() as never,
+        commercialTermsResolver: revisableTermsResolver as never,
+        policies: { resolvePolicy } as never,
+      });
+
+      const listingIds = ["lst_revision_1", "lst_revision_2"];
+      for (const listingId of listingIds) {
+        await services.createListing(
+          {
+            accountId: "acc_seller" as never,
+            inventoryItemId: "inv_1",
+            priceAmount: "20.00",
+            quantityCap: 1,
+            listingIdOverride: listingId as never,
+          },
+          context,
+        );
+      }
+
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: "acc_seller",
+          updates: [
+            { listingId: "lst_revision_1", priceAmount: "21.00" },
+            { listingId: "lst_revision_2", priceAmount: "22.00" },
+          ],
+        },
+        context,
+      );
+
+      expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
+      // Two listings at chunkSize 1 -> two waves -> the session is opened
+      // (and, per the mock, revalidated) once per wave, not once total.
+      expect(revisableTermsResolver.openListingTermsSession).toHaveBeenCalledTimes(2);
+
+      const firstListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_1" });
+      const secondListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_2" });
+      const firstPriceUpdate = firstListingEvents.find(
+        (event) => event.eventType === "marketplace.listing.price-updated",
+      );
+      const secondPriceUpdate = secondListingEvents.find(
+        (event) => event.eventType === "marketplace.listing.price-updated",
+      );
+
+      // The first wave applied at the terms active BEFORE the revision; the
+      // second wave -- after the session was revalidated -- applied at the
+      // NEW terms. No stale fingerprint from the first wave's session ever
+      // reaches the second wave's listing.
+      expect((firstPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_before_revision");
+      expect((secondPriceUpdate?.payload as { termsScheduleId?: string })?.termsScheduleId).toBe("cts_after_revision");
+      expect((firstPriceUpdate?.payload as { feeQuoteFingerprint?: string })?.feeQuoteFingerprint).not.toBe(
+        (secondPriceUpdate?.payload as { feeQuoteFingerprint?: string })?.feeQuoteFingerprint,
       );
     });
 

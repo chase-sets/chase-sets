@@ -6,6 +6,7 @@ import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
   MarketplaceSalesFeeQuoteStaleError,
+  type MarketplaceBulkListingPriceUpdateInput,
   type MarketplaceListingPhotoUpload,
   type MarketplaceListingServices,
 } from "./runtime";
@@ -197,6 +198,32 @@ function parseAnonymousListingDraftBody(body: Record<string, unknown>) {
     quantityCap: Number(body.quantityCap ?? body.quantity_cap ?? 0),
     purchaseLimits: parsePurchaseLimits(body),
   };
+}
+
+function parseBulkListingPriceUpdates(body: Record<string, unknown>): MarketplaceBulkListingPriceUpdateInput[] {
+  const rawUpdates = Array.isArray(body.updates) ? body.updates : [];
+
+  return rawUpdates.flatMap((entry): MarketplaceBulkListingPriceUpdateInput[] => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    const listingId = String(record.listingId ?? record.listing_id ?? "").trim();
+    const priceAmount = String(record.priceAmount ?? record.price_amount ?? "");
+    const rawFingerprint = record.feeQuoteFingerprint ?? record.fee_quote_fingerprint;
+
+    if (!listingId) {
+      return [];
+    }
+
+    return [
+      {
+        listingId,
+        priceAmount,
+        feeQuoteFingerprint: typeof rawFingerprint === "string" ? rawFingerprint : null,
+      },
+    ];
+  });
 }
 
 function parseJsonObject(value: string): unknown {
@@ -697,6 +724,42 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       if (response) {
         return response;
       }
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/listings/prices/bulk", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing.7"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      const outcomes = await services.applyBulkListingPriceUpdates(
+        {
+          accountId: access.actor.accountId,
+          updates: parseBulkListingPriceUpdates(body),
+        },
+        context,
+      );
+
+      return c.json({ items: outcomes, total: outcomes.length, count: outcomes.length });
+    } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });

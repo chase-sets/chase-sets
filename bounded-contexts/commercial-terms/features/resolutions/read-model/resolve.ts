@@ -25,6 +25,28 @@ export type ResolvedCommercialTerms = Readonly<{
   resolvedAt: string;
 }>;
 
+/**
+ * A per-account listing-terms session, part of the m113 repricing-at-scale
+ * throughput lane: the account's active schedule/agreement resolved ONCE,
+ * with `quote` applying
+ * the SAME `applyFeeFormula` code path as `resolveListingTerms` locally
+ * (pure, synchronous, no DB) for as many prices as the caller needs -- so a
+ * bulk caller pays one resolution instead of one per listing, and every
+ * `quote(amount)` result is byte-identical to what `resolveListingTerms`
+ * would have returned for that amount at `resolvedAt`. `scheduleId` and
+ * `agreementId` are the session's revision identity: a caller processing a
+ * long-running batch in chunks can open a fresh session between chunks and
+ * compare identity to detect a mid-run schedule/agreement revision.
+ */
+export type ResolvedListingTermsSession = Readonly<{
+  accountId: string;
+  accountType: CommercialAccountType;
+  scheduleId: string | null;
+  agreementId: string | null;
+  resolvedAt: string;
+  quote: (amount: string) => ResolvedCommercialTerms;
+}>;
+
 export type ResolvedPublicStandardCommercialTerms = Readonly<{
   accountType: CommercialAccountType;
   basisAmount: string;
@@ -59,6 +81,12 @@ export type CommercialTermsResolver = Readonly<{
       effectiveAt?: string;
     }>,
   ) => Promise<ResolvedPublicStandardCommercialTerms>;
+  openListingTermsSession: (
+    params: Readonly<{
+      accountId: string;
+      effectiveAt?: string;
+    }>,
+  ) => Promise<ResolvedListingTermsSession>;
 }>;
 
 type ProjectedAccount = Readonly<{
@@ -192,20 +220,35 @@ async function getActiveAgreement(db: PgQueryable, accountId: string, effectiveA
   return result.rows[0] ?? null;
 }
 
-async function resolveTerms(
+/**
+ * The account's resolved fee formula, independent of any specific price --
+ * everything `resolveTerms` needs to compute a quote EXCEPT the amount.
+ * Extracted so a listing-terms session (`openListingTermsSession`) can
+ * resolve this ONCE and apply it locally to many prices, while a
+ * single-price call (`resolveTerms`) resolves it and applies it once, both
+ * through the exact same `quoteFromListingTermsBasis` code path -- the
+ * guarantee that session quotes are byte-identical to individual ones.
+ */
+type ListingTermsBasis = Readonly<{
+  accountId: string;
+  accountType: CommercialAccountType;
+  scheduleId: string | null;
+  agreementId: string | null;
+  resolvedAt: string;
+  percentageBps: number;
+  fixedAmount: string;
+  shippingAllowancePercentageBps: number;
+}>;
+
+async function resolveListingTermsBasis(
   db: PgQueryable,
   accountSource: CommercialTermsAccountSource | undefined,
   params: Readonly<{
     accountId: string;
-    amount: string;
     effectiveAt?: string;
   }>,
-): Promise<ResolvedCommercialTerms> {
+): Promise<ListingTermsBasis> {
   const effectiveAt = params.effectiveAt ?? new Date().toISOString();
-  const amount = normalizeMoneyAmount(params.amount, {
-    fieldName: "Commercial terms amount",
-    allowZero: true,
-  });
   const account = await getCommercialTermsAccount(db, accountSource, params.accountId);
   assert(account, `Account ${params.accountId} is not available for commercial terms.`);
   assert(account.status === "active", `Account ${params.accountId} is not active.`);
@@ -218,26 +261,76 @@ async function resolveTerms(
 
   assert(schedule || agreement, `No active commercial terms were found for account ${params.accountId}.`);
 
-  const marketplaceSalesFeeUnitAmount = applyFeeFormula(amount, {
+  return {
+    accountId: params.accountId,
+    accountType: account.account_type,
+    scheduleId: schedule?.schedule_id ?? null,
+    agreementId: agreement?.agreement_id ?? null,
+    resolvedAt: effectiveAt,
     percentageBps:
       agreement?.marketplace_sales_fee_percentage_bps ?? schedule?.marketplace_sales_fee_percentage_bps ?? 0,
     fixedAmount:
       agreement?.marketplace_sales_fee_fixed_amount ?? schedule?.marketplace_sales_fee_fixed_amount ?? "0.00",
-  });
-
-  return {
-    accountId: params.accountId,
-    accountType: account.account_type,
-    basisAmount: amount,
-    marketplaceSalesFeeUnitAmount,
-    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
     shippingAllowancePercentageBps:
       agreement?.shipping_allowance_percentage_bps ??
       schedule?.shipping_allowance_percentage_bps ??
       DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
-    scheduleId: schedule?.schedule_id ?? null,
-    agreementId: agreement?.agreement_id ?? null,
-    resolvedAt: effectiveAt,
+  };
+}
+
+function quoteFromListingTermsBasis(basis: ListingTermsBasis, rawAmount: string): ResolvedCommercialTerms {
+  const amount = normalizeMoneyAmount(rawAmount, {
+    fieldName: "Commercial terms amount",
+    allowZero: true,
+  });
+  const marketplaceSalesFeeUnitAmount = applyFeeFormula(amount, {
+    percentageBps: basis.percentageBps,
+    fixedAmount: basis.fixedAmount,
+  });
+
+  return {
+    accountId: basis.accountId,
+    accountType: basis.accountType,
+    basisAmount: amount,
+    marketplaceSalesFeeUnitAmount,
+    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
+    shippingAllowancePercentageBps: basis.shippingAllowancePercentageBps,
+    scheduleId: basis.scheduleId,
+    agreementId: basis.agreementId,
+    resolvedAt: basis.resolvedAt,
+  };
+}
+
+async function resolveTerms(
+  db: PgQueryable,
+  accountSource: CommercialTermsAccountSource | undefined,
+  params: Readonly<{
+    accountId: string;
+    amount: string;
+    effectiveAt?: string;
+  }>,
+): Promise<ResolvedCommercialTerms> {
+  const basis = await resolveListingTermsBasis(db, accountSource, params);
+  return quoteFromListingTermsBasis(basis, params.amount);
+}
+
+async function openListingTermsSession(
+  db: PgQueryable,
+  accountSource: CommercialTermsAccountSource | undefined,
+  params: Readonly<{
+    accountId: string;
+    effectiveAt?: string;
+  }>,
+): Promise<ResolvedListingTermsSession> {
+  const basis = await resolveListingTermsBasis(db, accountSource, params);
+
+  return {
+    accountId: basis.accountId,
+    accountType: basis.accountType,
+    scheduleId: basis.scheduleId,
+    agreementId: basis.agreementId,
+    resolvedAt: basis.resolvedAt,
+    quote: (amount) => quoteFromListingTermsBasis(basis, amount),
   };
 }
 
@@ -283,6 +376,7 @@ export function createCommercialTermsResolver(
     resolveListingTerms: (params) => resolveTerms(deps.db, deps.accountSource, params),
     resolveOrderTerms: (params) => resolveTerms(deps.db, deps.accountSource, params),
     resolvePublicStandardListingTerms: (params) => resolvePublicStandardTerms(deps.db, params),
+    openListingTermsSession: (params) => openListingTermsSession(deps.db, deps.accountSource, params),
   };
 }
 
@@ -325,6 +419,35 @@ export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
         scheduleLabel: "Standard seller terms",
         scheduleUpdatedAt: params.effectiveAt ?? new Date().toISOString(),
         resolvedAt: params.effectiveAt ?? new Date().toISOString(),
+      };
+    },
+    openListingTermsSession: async (params) => {
+      const resolvedAt = params.effectiveAt ?? new Date().toISOString();
+
+      return {
+        accountId: params.accountId,
+        accountType: "business" as const,
+        scheduleId: null,
+        agreementId: null,
+        resolvedAt,
+        quote: (amount) => {
+          const normalized = normalizeMoneyAmount(amount, {
+            fieldName: "Commercial terms amount",
+            allowZero: true,
+          });
+
+          return {
+            accountId: params.accountId,
+            accountType: "business" as const,
+            basisAmount: normalized,
+            marketplaceSalesFeeUnitAmount: "0.00",
+            sellerNetUnitAmount: normalized,
+            shippingAllowancePercentageBps: DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+            scheduleId: null,
+            agreementId: null,
+            resolvedAt,
+          };
+        },
       };
     },
   };

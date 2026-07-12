@@ -232,7 +232,8 @@ function resolveBulkAppendOutcome<Event extends DomainEvent>(
   };
 }
 
-function chunkItems<T>(items: readonly T[], size: number): readonly (readonly T[])[] {
+/** Exported for callers that need to pre-split work into the same chunk boundaries this lane uses internally (see `defaultLaneYield`'s doc comment). */
+export function chunkItems<T>(items: readonly T[], size: number): readonly (readonly T[])[] {
   if (items.length === 0) {
     return [];
   }
@@ -244,7 +245,15 @@ function chunkItems<T>(items: readonly T[], size: number): readonly (readonly T[
   return chunks;
 }
 
-function defaultLaneYield(ms: number): Promise<void> {
+/**
+ * The lane's between-chunk yield, exported so callers that split their own
+ * work into lane-sized waves around this lane (e.g. marketplace's
+ * `applyBulkListingPriceUpdates`, which revalidates a per-account terms
+ * session between chunks as part of the m113 repricing-at-scale throughput
+ * lane) can reuse the exact same yield semantics for their own inter-wave
+ * pause instead of re-implementing it.
+ */
+export function defaultLaneYield(ms: number): Promise<void> {
   if (ms <= 0) {
     return new Promise((resolve) => setImmediate(resolve));
   }

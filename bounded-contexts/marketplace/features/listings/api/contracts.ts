@@ -1,4 +1,6 @@
 export type {
+  MarketplaceBulkListingPriceUpdateInput,
+  MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
   MarketplaceListingDetail,
   MarketplaceListingFeeLockReportEntry,
