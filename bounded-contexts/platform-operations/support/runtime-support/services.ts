@@ -22,7 +22,14 @@ import { supportDeadlinePolicy } from "../../features/support-requests/domain/su
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
 import type { PolicyConsoleCrossContextPort, PolicyConsoleEntry } from "../../features/policy-console/api/contracts";
 import { createSupportReferenceLookupRuntime } from "../../features/support-reference-lookup/api/runtime";
-import type { SupportReferenceLookupCrossContextPort } from "../../features/support-reference-lookup/api/contracts";
+import type {
+  SupportReferenceLookupCrossContextPort,
+  SupportReferenceLookupSource,
+} from "../../features/support-reference-lookup/api/contracts";
+import {
+  getSupportRequestByDisplayReference,
+  getSupportRequestById,
+} from "../../features/support-requests/read-model/queries";
 
 export type PlatformOperationsHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
@@ -124,8 +131,37 @@ export function createPlatformOperationsServices(
     ),
   ];
 
+  const ownSupportReferenceLookup: SupportReferenceLookupSource = {
+    contextName: "platform-operations",
+    lookupByReference: async (reference) => {
+      const row = await getSupportRequestByDisplayReference(db, reference);
+      return row
+        ? {
+            contextName: "platform-operations",
+            entityType: "support-case",
+            displayReference: row.display_reference || null,
+            status: row.status,
+            summary: `Support case ${row.display_reference || row.support_request_id}`,
+            adminHref: `/support/requests/${encodeURIComponent(row.support_request_id)}`,
+          }
+        : null;
+    },
+    lookupById: async (id) => {
+      const row = await getSupportRequestById(db, id);
+      return row
+        ? {
+            contextName: "platform-operations",
+            entityType: "support-case",
+            displayReference: row.display_reference || null,
+            status: row.status,
+            summary: `Support case ${row.display_reference || row.support_request_id}`,
+            adminHref: `/support/requests/${encodeURIComponent(row.support_request_id)}`,
+          }
+        : null;
+    },
+  };
   const supportReferenceLookup = createSupportReferenceLookupRuntime({
-    sources: ports.supportReferenceLookupCrossContext?.sources ?? [],
+    sources: [ownSupportReferenceLookup, ...(ports.supportReferenceLookupCrossContext?.sources ?? [])],
   });
 
   return {

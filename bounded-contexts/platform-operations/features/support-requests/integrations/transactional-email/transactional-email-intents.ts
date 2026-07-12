@@ -1,5 +1,6 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
+import type { AccountId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 
 export type SupportRequestEmailIntentInput = Readonly<{
   buyerEmail: string;
@@ -13,17 +14,20 @@ export type SupportRequestEmailIntentInput = Readonly<{
 export function mapSupportRequestOpenedToTransactionalEmail(
   input: SupportRequestEmailIntentInput,
 ): NotificationMessage {
+  const supportReference = deriveDisplayReferenceOrRaw(input.supportRequestId as SupportRequestId);
+
   return createTransactionalEmailNotificationMessage({
     messageType: "support.support-request.opened",
     criticality: "operational",
     recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
-    subject: `Support request opened for order ${input.orderId}`,
+    subject: `Support request ${supportReference} opened for order ${input.orderId}`,
     templateId: "support_request_opened",
     templateVersion: 1,
     locale: "en",
     templateData: {
       supportRequestId: input.supportRequestId,
+      supportReference,
       orderId: input.orderId,
       flowType: input.flowType,
     },
@@ -36,17 +40,20 @@ export function mapSupportRequestOpenedToTransactionalEmail(
 export function mapSupportRequestResolvedToTransactionalEmail(
   input: SupportRequestEmailIntentInput & Readonly<{ resolutionType: string }>,
 ): NotificationMessage {
+  const supportReference = deriveDisplayReferenceOrRaw(input.supportRequestId as SupportRequestId);
+
   return createTransactionalEmailNotificationMessage({
     messageType: "support.support-request.resolved",
     criticality: "operational",
     recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
-    subject: `Support request resolved for order ${input.orderId}`,
+    subject: `Support request ${supportReference} resolved for order ${input.orderId}`,
     templateId: "support_request_resolved",
     templateVersion: 1,
     locale: "en",
     templateData: {
       supportRequestId: input.supportRequestId,
+      supportReference,
       orderId: input.orderId,
       flowType: input.flowType,
       resolutionType: input.resolutionType,

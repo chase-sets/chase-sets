@@ -1,6 +1,13 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
+const supportRequestDisplayReferenceUniqueIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS support_request_pages_display_reference_key
+  ON support_request_pages (display_reference)
+  WHERE display_reference <> '';`;
+
 export const supportRequestSchemaSql = `
 CREATE TABLE IF NOT EXISTS support_request_pages (
   support_request_id text PRIMARY KEY,
+  display_reference text NOT NULL DEFAULT '',
   order_id text NOT NULL,
   buyer_account_id text NOT NULL,
   seller_account_id text NOT NULL,
@@ -29,6 +36,9 @@ CREATE TABLE IF NOT EXISTS support_request_pages (
 
 ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS offers jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE support_request_pages
+  ADD COLUMN IF NOT EXISTS display_reference text NOT NULL DEFAULT '';
 
 ALTER TABLE support_request_pages
   ADD COLUMN IF NOT EXISTS affected_line_items jsonb NOT NULL DEFAULT '[]'::jsonb;
@@ -84,3 +94,14 @@ CREATE INDEX IF NOT EXISTS support_request_pages_return_refund_disputed_idx
   WHERE return_refund_gate_status = 'return-condition-disputed';
 
 `;
+
+export const supportRequestSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260712_support_request_display_reference_unique_idx",
+    description:
+      "Add the support-safe support-case display reference unique index outside boot-time schema SQL. Rows written " +
+      "before this migration ran keep the empty-string default and are excluded from the uniqueness check; the " +
+      "projector always populates a real reference for every live support request.",
+    statements: [`SET lock_timeout = '5s'`, supportRequestDisplayReferenceUniqueIndexSql],
+  },
+];

@@ -20,10 +20,12 @@ describe("display reference primitive", () => {
       ord: "ORD",
       shp: "SHP",
       pyo: "PYO",
+      sup: "SUP",
     });
     expect(displayReferencePrefixForTypedIdPrefix("ord")).toBe("ORD");
     expect(displayReferencePrefixForTypedIdPrefix("shp")).toBe("SHP");
     expect(displayReferencePrefixForTypedIdPrefix("pyo")).toBe("PYO");
+    expect(displayReferencePrefixForTypedIdPrefix("sup")).toBe("SUP");
   });
 
   it("rejects unsupported typed-id prefixes", () => {
@@ -44,6 +46,13 @@ describe("display reference primitive", () => {
     expect(() => deriveDisplayReference(shipmentId, { suffixLength: 9 as never })).toThrow(
       "Display reference suffix length must be one of 8, 10, 12.",
     );
+  });
+
+  it("derives a stable support-case reference from the canonical ULID", () => {
+    const supportRequestId = "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9" as TypedUlid<"sup">;
+
+    expect(deriveDisplayReference(supportRequestId)).toBe("SUP-E6K7M8N9");
+    expect(deriveDisplayReference(supportRequestId, { suffixLength: 10 })).toBe("SUP-N5E6K7M8N9");
   });
 
   it("uppercases the ULID suffix", () => {

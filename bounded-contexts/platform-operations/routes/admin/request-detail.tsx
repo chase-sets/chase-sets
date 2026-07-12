@@ -81,7 +81,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
   {
     title: data?.supportRequest
       ? t("support.routes.admin.operationsRequestDetail.meta.title", {
-          id: data.supportRequest.support_request_id,
+          id: data.supportRequest.display_reference || data.supportRequest.support_request_id,
         })
       : t("support.routes.admin.operationsQueue.meta.title"),
   },

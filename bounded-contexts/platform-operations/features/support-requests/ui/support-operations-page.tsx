@@ -338,6 +338,11 @@ function SupportOperationsQueue({
       emptyDescription={t("support.features.supportRequests.ui.supportOperationsPage.no.requests.description")}
       columns={[
         {
+          key: "reference",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.reference"),
+          cell: (request) => request.display_reference || request.support_request_id,
+        },
+        {
           key: "issue",
           header: t("support.features.supportRequests.ui.supportOperationsPage.issue"),
           cell: (request) => (
@@ -346,7 +351,7 @@ function SupportOperationsQueue({
                 {request.flow_type}
               </Text>
               <Text element="span" size="xs" tone="secondary">
-                {request.support_request_id}
+                {request.display_reference || request.support_request_id}
               </Text>
             </Stack>
           ),
@@ -405,6 +410,10 @@ function SupportOperationsQueue({
 
 function detailRows(request: SupportRequestDetail) {
   return [
+    [
+      t("support.features.supportRequests.ui.supportOperationsPage.reference"),
+      request.display_reference || request.support_request_id,
+    ],
     [t("support.features.supportRequests.ui.supportOperationsPage.issue"), request.flow_type],
     [t("support.features.supportRequests.ui.supportOperationsPage.status"), request.status],
     [t("support.features.supportRequests.ui.supportOperationsPage.priority"), request.priority],
@@ -467,7 +476,7 @@ export function SupportOperationsDetailPage({
       <PageHeader
         title={t("support.features.supportRequests.ui.supportOperationsPage.detail.title")}
         description={t("support.features.supportRequests.ui.supportOperationsPage.detail.description", {
-          id: request.support_request_id,
+          id: request.display_reference || request.support_request_id,
         })}
         actions={
           <LinkButton href="/support/requests" tone="secondary">

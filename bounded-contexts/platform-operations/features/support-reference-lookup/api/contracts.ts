@@ -1,7 +1,7 @@
 /**
  * Unified support-reference lookup: an operator pastes any support-safe
- * display reference (`ORD-`, `SHP-`, `PYO-`, `CSG-`, `CS-SL-`) or a raw
- * typed ULID (`ord_`, `shp_`, `pyo_`) and lands on the owning entity's
+ * display reference (`ORD-`, `SHP-`, `PYO-`, `SUP-`, `CSG-`, `CS-SL-`) or a raw
+ * typed ULID (`ord_`, `shp_`, `pyo_`, `sup_`) and lands on the owning entity's
  * admin surface. Routing is a pure function
  * (`@chase-sets/primitives/support-reference`); resolution stays with each
  * owning context's own read model.

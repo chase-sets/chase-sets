@@ -7,6 +7,8 @@ import type {
   SupportResolution,
   SupportResponse,
 } from "../domain/common";
+import { withSupportRequestDisplayReference } from "./display-reference";
+import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
 
 export function buildSupportRequestProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -30,8 +32,9 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
         checklist: readonly SupportChecklistItem[];
       };
 
-      await db.query(
-        `INSERT INTO support_request_pages (
+      await withSupportRequestDisplayReference(data.supportRequestId as SupportRequestId, (displayReference) =>
+        db.query(
+          `INSERT INTO support_request_pages (
            support_request_id,
            order_id,
            buyer_account_id,
@@ -55,13 +58,15 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
            pending_offer,
            resolution,
            closed_at,
-           cancellation_reason
+           cancellation_reason,
+           display_reference
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13,
-           $14::jsonb, $15::jsonb, $16::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, NULL
+           $14::jsonb, $15::jsonb, $16::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, $17
          )
          ON CONFLICT (support_request_id) DO UPDATE
-         SET status = EXCLUDED.status,
+          SET status = EXCLUDED.status,
+              display_reference = EXCLUDED.display_reference,
              priority = EXCLUDED.priority,
              updated_at = EXCLUDED.updated_at,
              seller_response_due_at = EXCLUDED.seller_response_due_at,
@@ -70,24 +75,26 @@ export function buildSupportRequestProjectionHandlers(db: PgQueryable): Projecto
              order_return_context = EXCLUDED.order_return_context,
              return_investigation = EXCLUDED.return_investigation,
              checklist = EXCLUDED.checklist`,
-        [
-          data.supportRequestId,
-          data.orderId,
-          data.buyerAccountId,
-          data.sellerAccountId,
-          data.flowType,
-          data.status,
-          data.priority,
-          data.openedByAccountId,
-          data.openedByRole,
-          data.openedAt,
-          data.sellerResponseDueAt,
-          data.supportReviewDueAt,
-          data.sellerConditionAttestationDueAt,
-          JSON.stringify(data.orderReturnContext ?? []),
-          data.returnInvestigation ? JSON.stringify(data.returnInvestigation) : null,
-          JSON.stringify(data.checklist),
-        ],
+          [
+            data.supportRequestId,
+            data.orderId,
+            data.buyerAccountId,
+            data.sellerAccountId,
+            data.flowType,
+            data.status,
+            data.priority,
+            data.openedByAccountId,
+            data.openedByRole,
+            data.openedAt,
+            data.sellerResponseDueAt,
+            data.supportReviewDueAt,
+            data.sellerConditionAttestationDueAt,
+            JSON.stringify(data.orderReturnContext ?? []),
+            data.returnInvestigation ? JSON.stringify(data.returnInvestigation) : null,
+            JSON.stringify(data.checklist),
+            displayReference,
+          ],
+        ),
       );
     },
     "support.support-request.evidence-submitted": async (event) => {

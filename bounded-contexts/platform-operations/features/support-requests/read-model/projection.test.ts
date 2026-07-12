@@ -20,6 +20,38 @@ const pendingOffer = {
 } as const;
 
 describe("support request projection", () => {
+  it("persists the derived display reference when a support case opens", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const handlers = buildSupportRequestProjectionHandlers(db);
+
+    await handlers["support.support-request.opened"]?.({
+      type: "support.support-request.opened",
+      data: {
+        supportRequestId: "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+        orderId: "ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        flowType: "item-not-as-described",
+        status: "waiting-on-seller",
+        priority: "normal",
+        openedByAccountId: "acc_buyer",
+        openedByRole: "buyer",
+        openedAt: "2026-07-12T00:00:00.000Z",
+        sellerResponseDueAt: "2026-07-13T00:00:00.000Z",
+        supportReviewDueAt: null,
+        sellerConditionAttestationDueAt: null,
+        orderReturnContext: [],
+        returnInvestigation: null,
+        checklist: [],
+      },
+    } as never);
+
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("display_reference"),
+      expect.arrayContaining(["sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9", "SUP-E6K7M8N9"]),
+    );
+  });
+
   it("projects the affected line-item amount contract after the additive case event", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const handlers = buildSupportRequestProjectionHandlers(db);

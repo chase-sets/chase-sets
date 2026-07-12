@@ -109,6 +109,29 @@ function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): reado
     ];
   }
 
+  if (message.templateId === "support_request_opened") {
+    return [
+      "Your Chase Sets support request was opened.",
+      `Support reference: ${String(message.templateData.supportReference ?? message.templateData.supportRequestId ?? "")}`,
+      `Order: ${String(message.templateData.orderId ?? "")}`,
+      `Issue: ${String(message.templateData.flowType ?? "")}`,
+      "",
+      "Chase Sets",
+    ];
+  }
+
+  if (message.templateId === "support_request_resolved") {
+    return [
+      "Your Chase Sets support request was resolved.",
+      `Support reference: ${String(message.templateData.supportReference ?? message.templateData.supportRequestId ?? "")}`,
+      `Order: ${String(message.templateData.orderId ?? "")}`,
+      `Issue: ${String(message.templateData.flowType ?? "")}`,
+      `Resolution: ${String(message.templateData.resolutionType ?? "")}`,
+      "",
+      "Chase Sets",
+    ];
+  }
+
   if (message.templateId === "payment_captured") {
     return [
       "Your Chase Sets payment was received.",
