@@ -3,7 +3,12 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { batchE2eSuiteIds, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
+import {
+  batchE2eSuiteIds,
+  e2eSuiteIdsForChangedFile,
+  isDesignSystemNavigationFile,
+  orderE2eSuiteIds,
+} from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
@@ -14,6 +19,35 @@ const contextMetadataRoutePatterns = [
   /^bounded-contexts\/[^/]+\/context\.json$/,
   /^infrastructure\/platform-runtime\/source-context-wake-registry\.ts$/,
   /^docs\/architecture\/push-first-projection-migration\.md$/,
+];
+
+const integrationRiskPatterns = [
+  {
+    reason: "Bounded-context metadata, including event subscriptions, changed",
+    patterns: [/^bounded-contexts\/[^/]+\/context\.json$/],
+  },
+  {
+    reason: "Cross-context subscription or runtime composition changed",
+    patterns: [
+      /^infrastructure\/bounded-context-runtime\//,
+      /^infrastructure\/platform-runtime\//,
+      /^deployables\/(?:platform-api|platform-worker)\/src\/generated\/.*context-registry\.ts$/,
+      /^deployables\/(?:admin-web|marketplace|public-web)\/app\/generated\/web-context-registry\.ts$/,
+    ],
+  },
+  {
+    reason: "Shared application shell or router changed",
+    patterns: [
+      /^deployables\/admin-web\/app\/(?:admin-root-shell|host|routes)\.[cm]?[tj]sx?$/,
+      /^deployables\/admin-web\/app\/routes\/[^/]+-layout\.[cm]?[tj]sx?$/,
+      /^deployables\/marketplace\/app\/(?:root|routes)\.[cm]?[tj]sx?$/,
+      /^deployables\/marketplace\/app\/routes\/layout\.[cm]?[tj]sx?$/,
+    ],
+  },
+  {
+    reason: "Design-system navigation changed",
+    matches: isDesignSystemNavigationFile,
+  },
 ];
 
 const workflowPatterns = [/^\.github\/workflows\//, /^\.github\/actions\//];
@@ -226,11 +260,18 @@ export function classifyChanges({
   let scriptOrConfigChanged = false;
   const selectedE2eSuiteIds = new Set();
   const exposurePostureCategories = new Set();
+  const integrationRiskReasons = new Set();
   let nonDocumentationChanged = false;
   const platformApiWorkspace = platformApiWorkspaceName(workspaces);
   const platformRuntimeWorkspace = platformRuntimeWorkspaceName(workspaces);
 
   for (const filePath of normalizedFiles) {
+    for (const integrationRiskPattern of integrationRiskPatterns) {
+      if (integrationRiskPattern.matches?.(filePath) || matchesAny(filePath, integrationRiskPattern.patterns ?? [])) {
+        integrationRiskReasons.add(integrationRiskPattern.reason);
+      }
+    }
+
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
       if (matchesAny(filePath, patterns)) {
         exposurePostureCategories.add(category);
@@ -408,6 +449,9 @@ export function classifyChanges({
     dbTestsRequired,
     e2eSuiteIds,
     e2eTestsRequired: e2eSuiteIds.length > 0,
+    integrationRiskRequired: integrationRiskReasons.size > 0,
+    integrationRiskReason:
+      integrationRiskReasons.size > 0 ? [...integrationRiskReasons].join("; ") : "No integration-risk change detected",
     buildRequired: runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged,
     dockerImageRequired,
     terraformRequired,
@@ -478,6 +522,8 @@ export function toOutputMap(scope) {
     e2e_suites: scope.e2eSuiteIds.join(","),
     e2e_suites_json: JSON.stringify(scope.e2eSuiteIds),
     e2e_suite_batches_json: JSON.stringify(batchE2eSuiteIds(scope.e2eSuiteIds)),
+    integration_risk_required: String(scope.integrationRiskRequired),
+    integration_risk_reason: scope.integrationRiskReason,
     build: String(scope.buildRequired),
     docker_image: String(scope.dockerImageRequired),
     terraform: String(scope.terraformRequired),
