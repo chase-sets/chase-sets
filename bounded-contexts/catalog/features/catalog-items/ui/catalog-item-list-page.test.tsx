@@ -34,6 +34,7 @@ const {
 }));
 
 vi.mock("react-router", () => ({
+  useLocation: () => ({ pathname: "/catalog/catalog-items", search: "", hash: "", state: null, key: "test" }),
   useNavigation: mockUseNavigation,
   useRevalidator: mockUseRevalidator,
   useSearchParams: mockUseSearchParams,

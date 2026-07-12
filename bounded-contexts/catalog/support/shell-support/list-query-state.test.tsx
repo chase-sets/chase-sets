@@ -3,12 +3,20 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockUseNavigation, mockUseSearchParams } = vi.hoisted(() => ({
+const { mockUseLocation, mockUseNavigation, mockUseSearchParams } = vi.hoisted(() => ({
+  mockUseLocation: vi.fn(() => ({
+    pathname: "/catalog/catalog-items",
+    search: "",
+    hash: "",
+    state: null,
+    key: "test",
+  })),
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
+  useLocation: mockUseLocation,
   useNavigation: mockUseNavigation,
   useSearchParams: mockUseSearchParams,
 }));
