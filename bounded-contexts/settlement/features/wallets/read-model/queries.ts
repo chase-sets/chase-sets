@@ -441,3 +441,34 @@ export async function getAccountActiveSupportHoldAmount(db: PgQueryable, account
 
   return Number.parseFloat(result.rows[0]?.amount ?? "0").toFixed(2);
 }
+
+/**
+ * SUM of every 'sale' credit ledger entry posted within a calendar month --
+ * the settlement-ledger side of platform-operations' tape-vs-ledger GMV
+ * reconciliation drift alarm.
+ *
+ * This is NOT expected to equal pricing's gross Platform Daily Rollup GMV
+ * for the same month: 'sale' credits are posted net of the marketplace
+ * sales fee (see wallets/integrations/payment-source/payment-source-projection.ts,
+ * which posts `payout.sellerItemNetAmount`), so the ledger total is
+ * systematically lower than gross tape GMV by roughly the platform's take
+ * rate, plus settlement-timing lag near the month boundary. The
+ * reconciliation check this feeds compares the two against an expected
+ * drift band, not equality -- see platform-operations'
+ * insights-dashboards/read-model/reconciliation.ts.
+ */
+export async function getLedgerSaleCreditTotalForMonth(
+  db: PgQueryable,
+  params: Readonly<{ /** YYYY-MM */ yearMonth: string }>,
+): Promise<string> {
+  const result = await db.query<{ amount: string | null }>(
+    `SELECT COALESCE(SUM(amount), 0)::numeric(14, 2) AS amount
+     FROM settlement_ledger_entry_pages
+     WHERE direction = 'credit'
+       AND kind = 'sale'
+       AND date_trunc('month', posted_at) = to_date($1, 'YYYY-MM')`,
+    [params.yearMonth],
+  );
+
+  return result.rows[0]?.amount ?? "0.00";
+}

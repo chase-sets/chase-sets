@@ -83,6 +83,7 @@ export type PlatformWorkerConfig = Readonly<{
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
   marketRollupsCloserIntervalMs: number | null;
+  gmvReconciliationIntervalMs: number | null;
   googleShoppingMaintenanceIntervalMs: number | null;
   googleShoppingMaintenanceBatchSize: number;
   googleShoppingRefreshWindowDays: number;
@@ -449,6 +450,11 @@ export function loadConfig(): PlatformWorkerConfig {
     // recently-closed days pick up a late refund/cancel exclusion within minutes, cheap
     // enough (bounded per-pass tuple limit) to run that often.
     marketRollupsCloserIntervalMs: getOptionalPositiveNumberEnv("MARKET_ROLLUPS_CLOSER_INTERVAL_MS", 300_000),
+    // Tape-vs-ledger GMV reconciliation drift alarm: a coarse sanity check
+    // over a monthly aggregate, not a hot path -- once a day is plenty
+    // often enough for an operator to notice drift without accumulating an
+    // excessive number of audit rows for the same month.
+    gmvReconciliationIntervalMs: getOptionalPositiveNumberEnv("GMV_RECONCILIATION_INTERVAL_MS", 86_400_000),
     googleShoppingMaintenanceIntervalMs: getOptionalPositiveNumberEnv(
       "GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS",
       86_400_000,

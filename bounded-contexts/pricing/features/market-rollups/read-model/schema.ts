@@ -83,4 +83,31 @@ CREATE TABLE IF NOT EXISTS pricing_product_market_aggregates (
   updated_at timestamptz NOT NULL,
   PRIMARY KEY (catalog_catalog_item_id, product_id)
 );
+
+/**
+ * Platform Daily Rollup: the platform-wide sibling of the daily
+ * PRODUCT rollup above -- one row per calendar day, summed across every
+ * product, instead of one row per (product, day). Only additive fields
+ * live here (GMV amount, trade/order/unit counts): additive columns can be
+ * safely re-summed across a wider date_trunc bucket at query time (see
+ * platform-queries.ts) without a double-counting risk. Distinct-count KPIs
+ * (active buyer/seller counts) are NOT stored here, deliberately -- summing
+ * daily distinct-account counts across a week/month would double-count a
+ * buyer or seller active on more than one day in the window. Those are
+ * computed directly off the Trades Tape for the exact requested range
+ * instead (getPlatformKpiSummary in platform-queries.ts).
+ *
+ * Maintained by the same recompute-safe daily closer job as the per-product
+ * rollup (see rollup-maintenance.ts); same retention-forever, same
+ * excluded-trade omission convention.
+ */
+CREATE TABLE IF NOT EXISTS pricing_platform_daily_rollups (
+  day date PRIMARY KEY,
+  gmv_amount numeric(14, 2) NOT NULL DEFAULT 0,
+  trade_count integer NOT NULL DEFAULT 0,
+  unit_volume integer NOT NULL DEFAULT 0,
+  order_count integer NOT NULL DEFAULT 0,
+  verified_trade_count integer NOT NULL DEFAULT 0,
+  updated_at timestamptz NOT NULL
+);
 `;

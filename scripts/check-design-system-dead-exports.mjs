@@ -185,10 +185,6 @@ const defaultAllowedZeroConsumerExports = [
     symbol: "Sparkline",
     reason: "m111 chart primitive (#4306); first consumer is the item-detail market panel (#4307), landing after this",
   },
-  {
-    symbol: "TimeSeriesChart",
-    reason: "m111 chart primitive (#4306); first consumer is the item-detail market panel (#4307), landing after this",
-  },
 ];
 
 function isSourceFile(filePath) {

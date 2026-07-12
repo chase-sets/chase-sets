@@ -1247,6 +1247,7 @@ function createScheduledJobRunners(
     | "sellerFundsReleaseIntervalMs"
     | "payoutReconciliationIntervalMs"
     | "marketRollupsCloserIntervalMs"
+    | "gmvReconciliationIntervalMs"
     | "googleMerchant"
     | "googleShoppingMaintenanceIntervalMs"
     | "googleShoppingMaintenanceBatchSize"
@@ -1284,6 +1285,14 @@ function createScheduledJobRunners(
             returnRefundsReleased: number;
           }>;
         };
+        opsDashboard?: {
+          recordReconciliationRun?: (params: {
+            yearMonth: string;
+            tapeGmvAmount: string;
+            ledgerSaleAmount: string;
+            now?: string;
+          }) => Promise<{ status: "ok" | "drift-alarm" }>;
+        };
       }
     | undefined;
   const marketplaceReviews = (services.marketplace as { reviews?: unknown } | undefined)?.reviews as
@@ -1305,7 +1314,9 @@ function createScheduledJobRunners(
             rollupDaysRecomputed: number;
             marketStateSnapshotsRecomputed: number;
             productAggregatesRecomputed: number;
+            platformDaysRecomputed: number;
           }>;
+          getPlatformGmvForMonth?: (params: { yearMonth: string }) => Promise<string>;
         };
       }
     | undefined;
@@ -1477,6 +1488,51 @@ function createScheduledJobRunners(
           return (
             result.rollupDaysRecomputed + result.marketStateSnapshotsRecomputed + result.productAggregatesRecomputed
           );
+        },
+      ),
+    );
+  }
+
+  const getPlatformGmvForMonth = pricing?.marketRollups?.getPlatformGmvForMonth;
+  const getLedgerSaleCreditTotalForMonth = settlement?.wallets?.getLedgerSaleCreditTotalForMonth;
+  const recordReconciliationRun = platformOperations?.opsDashboard?.recordReconciliationRun;
+  if (
+    getPlatformGmvForMonth &&
+    getLedgerSaleCreditTotalForMonth &&
+    recordReconciliationRun &&
+    input.gmvReconciliationIntervalMs
+  ) {
+    runners.push(
+      createScheduledJobRunner(
+        "platform-operations.gmv-reconciliation",
+        input.gmvReconciliationIntervalMs,
+        controlPlane,
+        async () => {
+          // Reconciles the most recently completed calendar month: on any
+          // given day, the current month is still accumulating trades and
+          // settlements, so comparing it would show expected, not
+          // anomalous, "drift". A trailing re-check of the last completed
+          // month (rather than a strict once-per-month run) mirrors the
+          // rollup closer's own trailing-window re-derivation, catching a
+          // late refund or settlement correction that lands after the
+          // month first closes.
+          const lastMonthDate = new Date();
+          lastMonthDate.setUTCDate(0);
+          const yearMonth = lastMonthDate.toISOString().slice(0, 7);
+          const [tapeGmvAmount, ledgerSaleAmount] = await Promise.all([
+            getPlatformGmvForMonth({ yearMonth }),
+            getLedgerSaleCreditTotalForMonth({ yearMonth }),
+          ]);
+          const run = await recordReconciliationRun({ yearMonth, tapeGmvAmount, ledgerSaleAmount });
+          const log = run.status === "drift-alarm" ? logger.warn : logger.info;
+          log("Platform-operations GMV reconciliation completed.", {
+            type: "platform-operations.gmv-reconciliation",
+            yearMonth,
+            tapeGmvAmount,
+            ledgerSaleAmount,
+            status: run.status,
+          });
+          return 1;
         },
       ),
     );

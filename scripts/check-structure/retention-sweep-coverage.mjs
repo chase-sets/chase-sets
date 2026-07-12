@@ -36,6 +36,10 @@ export const retentionCoverageExemptions = new Map([
     "pricing_market_state_snapshots",
     "Daily market-state history is product data retained forever, like the Trades Tape it derives from (#4303); never age-swept (#4305).",
   ],
+  [
+    "platform_operations_gmv_reconciliation_runs",
+    "Tape-vs-ledger reconciliation results are a permanent ops audit trail over forever-retained source data; never age-swept.",
+  ],
 ]);
 
 export async function validateRetentionSweepCoverage({ repoRoot }) {

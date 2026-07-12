@@ -40,6 +40,7 @@ export type PermissionKey =
   | "fulfillment.view"
   | "google-shopping.manage"
   | "google-shopping.view"
+  | "insights-dashboards.view"
   | "memberships.manage"
   | "memberships.view"
   | "inventory.manage"

@@ -13,6 +13,8 @@ import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
 import { createDashboardQueryService } from "../../features/insights-dashboards/read-model/queries";
+import { createOpsDashboardRuntime } from "../../features/insights-dashboards/api/ops-runtime";
+import type { OpsMarketAnalyticsCrossContextPort } from "../../features/insights-dashboards/api/ops-contracts";
 import { rateLimitPolicy } from "../../features/rate-limit-policy/domain/rate-limit-policy";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
@@ -39,11 +41,20 @@ export type PlatformOperationsHostPorts = Readonly<{
    * never imports those contexts' domain code directly.
    */
   supportReferenceLookupCrossContext?: SupportReferenceLookupCrossContextPort;
+  /**
+   * Pricing's platform-wide GMV/liquidity reads for the ops dashboard,
+   * assembled once in the `platform-api` composition root from
+   * pricing's own exported query functions bound to pricing's pool -- this
+   * context never queries `pricing_market_trades` or the rollup tables
+   * directly (see `allowedContextDependencies` in `context.json`).
+   */
+  opsMarketAnalyticsCrossContext?: OpsMarketAnalyticsCrossContextPort;
 }>;
 
 export type PlatformOperationsServices = Readonly<{
   db: PgTransactionalPool;
   insightsDashboards: ReturnType<typeof createDashboardQueryService>;
+  opsDashboard: ReturnType<typeof createOpsDashboardRuntime>;
   platformFeedback: ReturnType<typeof createPlatformFeedbackRuntime>;
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
@@ -120,6 +131,7 @@ export function createPlatformOperationsServices(
   return {
     db: pool,
     insightsDashboards: createDashboardQueryService(new Map()),
+    opsDashboard: createOpsDashboardRuntime({ db, crossContext: ports.opsMarketAnalyticsCrossContext }),
     platformFeedback,
     reportedContent,
     riskAlerts,

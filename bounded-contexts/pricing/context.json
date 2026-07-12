@@ -7,6 +7,8 @@
     "price-signal",
     "trades-tape",
     "daily-product-rollup",
+    "platform-daily-rollup",
+    "gross-merchandise-value",
     "market-state-snapshot",
     "repricing-policy",
     "repricing-policy-assignment"

@@ -23,6 +23,14 @@
 - Source Workflow: The user task that produced a platform-feedback prompt, such as checkout payment, listing publish, offer submit, offer accept, inventory create, or inventory adjust.
 - Prompt Dismissal: A record that a user chose not to leave platform feedback for a Source Workflow at that time.
 - Review Queue Status: The internal lifecycle state for Platform Feedback: new, reviewed, or archived.
+## Ops Dashboard
+
+The **Ops Dashboard** is the platform-wide, operator-facing analytics surface showing Gross Merchandise Value, order/trade counts, active buyer/seller counts, and liquidity indicators over a selectable date range, with time-series charts and a top-catalog-items breakdown. It reads pricing's published Platform Daily Rollup and Trades Tape query API exclusively -- Platform Operations never computes a second Gross Merchandise Value figure of its own.
+
+## GMV Reconciliation Run
+
+A **GMV Reconciliation Run** is a recorded comparison, for one calendar month, between pricing's tape-derived Gross Merchandise Value and settlement's ledger 'sale' credit total -- a drift-alarm sanity check (not a penny-accurate fee reconciliation) that flags implausible gaps between the two for operator review.
+
 ## Reported Content
 
 **Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report facts.

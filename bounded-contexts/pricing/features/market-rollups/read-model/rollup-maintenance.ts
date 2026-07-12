@@ -56,6 +56,7 @@ export type DailyRollupCloserResult = Readonly<{
   rollupDaysRecomputed: number;
   marketStateSnapshotsRecomputed: number;
   productAggregatesRecomputed: number;
+  platformDaysRecomputed: number;
 }>;
 
 const DEFAULT_CLOSER_LIMIT = 500;
@@ -81,10 +82,20 @@ export async function runDailyRollupCloser(
     await recomputeProductMarketAggregate(db, tuple, now);
   }
 
+  // Platform Daily Rollup: re-derives the same trailing window of
+  // days as the per-product rollup above, deduped -- one row per DAY instead
+  // of one row per (product, day), so a day already re-derived for several
+  // products above is only recomputed once here.
+  const platformDays = [...new Set(rollupTuples.map((tuple) => tuple.day))];
+  for (const day of platformDays) {
+    await recomputePlatformDailyRollup(db, day);
+  }
+
   return {
     rollupDaysRecomputed: rollupTuples.length,
     marketStateSnapshotsRecomputed: productTuples.length,
     productAggregatesRecomputed: productTuples.length,
+    platformDaysRecomputed: platformDays.length,
   };
 }
 
@@ -381,6 +392,60 @@ export async function recomputeProductMarketAggregate(
       window90.tradeCount,
       sellThroughRate,
       nowIso,
+    ],
+  );
+}
+
+/**
+ * Recomputes one day's Platform Daily Rollup entirely from
+ * `pricing_market_trades`, summed across every product -- the platform-wide
+ * counterpart to `recomputeDailyProductRollup`. Deterministic and idempotent
+ * for the same reason: the row is fully re-derived from the tape, never
+ * incrementally patched, so re-running it for an unchanged day reproduces
+ * the same row (replay-convergent).
+ */
+export async function recomputePlatformDailyRollup(db: PgQueryable, day: string): Promise<void> {
+  const aggregate = await db.query<{
+    gmv_amount: string | null;
+    trade_count: number;
+    unit_volume: number;
+    order_count: number;
+    verified_trade_count: number;
+  }>(
+    `SELECT
+       COALESCE(SUM(unit_price_amount * quantity) FILTER (WHERE excluded = false), 0)::numeric(14, 2)
+         AS gmv_amount,
+       COUNT(*) FILTER (WHERE excluded = false)::integer AS trade_count,
+       COALESCE(SUM(quantity) FILTER (WHERE excluded = false), 0)::integer AS unit_volume,
+       COUNT(DISTINCT order_id) FILTER (WHERE excluded = false)::integer AS order_count,
+       COUNT(*) FILTER (WHERE excluded = false AND verified = true)::integer AS verified_trade_count
+     FROM pricing_market_trades
+     WHERE sold_at >= ($1::date)::timestamp AT TIME ZONE 'UTC'
+       AND sold_at < ($1::date + 1)::timestamp AT TIME ZONE 'UTC'`,
+    [day],
+  );
+  const row = aggregate.rows[0];
+  const updatedAt = new Date().toISOString();
+
+  await db.query(
+    `INSERT INTO pricing_platform_daily_rollups (
+       day, gmv_amount, trade_count, unit_volume, order_count, verified_trade_count, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (day) DO UPDATE
+     SET gmv_amount = EXCLUDED.gmv_amount,
+         trade_count = EXCLUDED.trade_count,
+         unit_volume = EXCLUDED.unit_volume,
+         order_count = EXCLUDED.order_count,
+         verified_trade_count = EXCLUDED.verified_trade_count,
+         updated_at = EXCLUDED.updated_at`,
+    [
+      day,
+      row?.gmv_amount ?? "0",
+      row?.trade_count ?? 0,
+      row?.unit_volume ?? 0,
+      row?.order_count ?? 0,
+      row?.verified_trade_count ?? 0,
+      updatedAt,
     ],
   );
 }
