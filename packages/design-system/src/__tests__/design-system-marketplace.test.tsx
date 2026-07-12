@@ -1060,6 +1060,9 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Raw");
     expect(markup).toContain("Quantity");
     expect(markup).toContain("Update quantity");
+    expect(markup).toContain("line-clamp-2");
+    expect(markup).toContain("grid-cols-2 md:grid-cols-1");
+    expect(markup).not.toContain("min-[420px]");
   });
 
   it("renders listing purchase panels with one primary action region", () => {

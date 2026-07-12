@@ -122,6 +122,9 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Review quantities and remove anything you do not want before checkout.");
     expect(markup).toContain("Charizard");
     expect(markup).toContain("Base Set 4/102 Holo Rare");
+    expect(markup).toContain("line-clamp-2");
+    expect(markup).toContain("grid-cols-2 md:grid-cols-1");
+    expect(markup).not.toContain("min-[420px]");
     expect(markup).toContain("Japanese");
     expect(markup).toContain(">Raw</span>");
     expect(markup).toContain(">Near Mint</span>");
