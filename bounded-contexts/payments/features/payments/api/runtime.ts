@@ -803,6 +803,7 @@ export type PaymentServices = Readonly<{
   createAccountPayment: (
     params: Readonly<{
       accountId: AccountId;
+      isGuestCheckout?: boolean;
       orderIds: readonly OrderId[];
       currencyCode?: string;
       sourceContext?: string | null;
@@ -831,6 +832,7 @@ export type PaymentServices = Readonly<{
   recoverCheckoutPayment: (
     params: Readonly<{
       accountId: AccountId;
+      isGuestCheckout?: boolean;
       orderIds: readonly OrderId[];
       currencyCode?: string;
       requestedBalanceCreditAmount?: string | null;
@@ -1735,10 +1737,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           "active_payment_exists_for_order_set",
         );
       }
+      let paymentProviderCustomer: ProviderCustomerRow | null = null;
       let savePaymentProviderCustomer: ProviderCustomerRow | null = null;
-      if (shouldSavePaymentMethod) {
+      if (!params.isGuestCheckout && compareMoney(processorAmount, "0.00") > 0) {
         try {
-          savePaymentProviderCustomer = await ensureProviderCustomer(deps, { accountId });
+          paymentProviderCustomer = await ensureProviderCustomer(deps, { accountId });
         } catch (error) {
           await markPaymentCreationReservationInactive(deps.db, {
             paymentId,
@@ -1746,6 +1749,9 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           });
           throw error;
         }
+      }
+      if (shouldSavePaymentMethod) {
+        savePaymentProviderCustomer = paymentProviderCustomer ?? (await ensureProviderCustomer(deps, { accountId }));
       }
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
       const returnUrlPath = resolvePaymentReturnPath(params.returnUrlPath, paymentId);
@@ -1758,6 +1764,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         amount: processorAmount,
         currencyCode,
         paymentMethodCategory,
+        providerCustomerReference: paymentProviderCustomer?.provider_customer_reference ?? null,
         returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
         clientRiskContext: params.clientRiskContext ?? null,
         cardAuthentication,
@@ -1811,6 +1818,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   amount: processorAmount,
                   currencyCode,
                   paymentMethodCategory,
+                  providerCustomerReference: providerRequest.providerCustomerReference,
                   description:
                     orderIds.length === 1
                       ? `Chase Sets order ${orderIds[0]}`
@@ -1831,6 +1839,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   amount: processorAmount,
                   currencyCode,
                   paymentMethodCategory,
+                  providerCustomerReference: providerRequest.providerCustomerReference,
                   description:
                     orderIds.length === 1
                       ? `Chase Sets order ${orderIds[0]}`

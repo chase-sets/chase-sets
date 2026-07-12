@@ -278,6 +278,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       const payment = await services.createAccountPayment(
         {
           accountId: access.actor.accountId as AccountId,
+          isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
           orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
           currencyCode: String(body.currencyCode ?? "usd"),
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
@@ -598,6 +599,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       const payment = await services.recoverCheckoutPayment(
         {
           accountId: access.actor.accountId as AccountId,
+          isGuestCheckout: access.actor.permissions.includes("guest-checkout.manage"),
           orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
           currencyCode: String(body.currencyCode ?? "usd"),
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
