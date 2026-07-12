@@ -18,7 +18,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `AccountReputationSummary` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Account Reputation Summary. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `AccountTrustCard` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Account Trust Card. | `bounded-contexts/discovery/routes/public-listing.tsx` |
 | `ActionBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Action Bar. | `bounded-contexts/catalog/support/shell-support/ui/entity-detail-page.tsx` |
-| `ActionRow` | `packages/design-system/src/components/checkout/actions.tsx` | Purpose not documented; symbol name suggests: Action Row. | `bounded-contexts/checkout/features/sessions/ui/checkout-page.tsx` |
+| `ActionRow` | `packages/design-system/src/components/checkout/actions.tsx` | Purpose not documented; symbol name suggests: Action Row. | `bounded-contexts/checkout/features/sessions/ui/checkout-commit-actions.tsx` |
 | `ActionStack` | `packages/design-system/src/components/checkout/actions.tsx` | Purpose not documented; symbol name suggests: Action Stack. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `ActivityList` | `packages/design-system/src/components/data-display/timeline.tsx` | Purpose not documented; symbol name suggests: Activity List. | `No production consumer yet.` |
 | `ActivitySheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Activity Sheet. | `No production consumer yet.` |
@@ -281,7 +281,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `selectCheckoutNotice` | `packages/design-system/src/components/checkout/notices.tsx` | Pick the single highest-priority active notice from the candidate ladder. | `No production consumer yet.` |
 | `SelectionToolbar` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Selection Toolbar. | `No production consumer yet.` |
 | `SellerBadge` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Seller Badge. | `bounded-contexts/catalog/support/shell-support/shell/layout.tsx` |
-| `Show` | `packages/design-system/src/primitives/layout.tsx` | Responsive visibility wrapper. | `bounded-contexts/checkout/features/sessions/ui/checkout-page.tsx` |
+| `Show` | `packages/design-system/src/primitives/layout.tsx` | Responsive visibility wrapper. | `bounded-contexts/checkout/features/sessions/ui/checkout-commit-actions.tsx` |
 | `showToast` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: show Toast. | `No production consumer yet.` |
 | `Sidebar` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Sidebar. | `No production consumer yet.` |
 | `sidebarWidthClasses` | `packages/design-system/src/primitives/layout.tsx` | Named sidebar widths for use in grid layouts. | `No production consumer yet.` |
