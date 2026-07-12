@@ -35,6 +35,7 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Incoming Dependencies
 
 - Identity for account references and account type projections
+- Public Presence for the compiled `/sales-fees` article and its strictly whitelisted live policy-value contract; Commercial Terms retains ownership of the public route and loader.
 
 ## Outgoing Integration Events
 

@@ -15,7 +15,8 @@ describe("public help pages", () => {
     render(<HelpHubPage />, { wrapper: MemoryRouter });
     expect(screen.getByRole("heading", { name: "How can we help?" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "For buyers" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "For sellers" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "For sellers" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Browse Selling/ }).getAttribute("href")).toBe("/help/selling");
     expect(screen.queryByRole("heading", { name: "For developers" })).toBeNull();
   });
 
@@ -36,5 +37,26 @@ describe("public help pages", () => {
     expect(screen.getByRole("navigation", { name: "On this page" })).toBeTruthy();
     expect(screen.getByText("Last reviewed July 12, 2026")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Related articles" })).toBeTruthy();
+  });
+
+  it("renders future-effective policy changes as dated callouts", () => {
+    const article = publicHelpArticles.find((candidate) => candidate.slug === "order-protection");
+    expect(article).toBeDefined();
+    render(
+      <HelpArticlePage
+        article={{
+          ...article!,
+          policyChanges: [
+            {
+              effectiveFrom: "2026-07-20T00:00:00.000Z",
+              description: "The published policy values on this page will update automatically on this date.",
+            },
+          ],
+        }}
+        related={[]}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    expect(screen.getByText("Changing on July 20, 2026")).toBeTruthy();
   });
 });

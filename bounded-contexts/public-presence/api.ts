@@ -13,6 +13,7 @@ import type { PromoBarServices } from "./features/promo-bar/api/runtime";
 import { createWaitlistAnalyticsRoutes } from "./features/waitlist/api/analytics";
 import type { WaitlistServices } from "./features/waitlist/api/runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { createPublicPolicyValuesRoutes } from "./features/help/api/public-policy-values";
 
 export type PublicPresenceApiEnv = AuthenticatedApiEnv;
 export { createWaitlistAnalyticsRoutes } from "./features/waitlist/api/analytics";
@@ -441,6 +442,7 @@ export function buildPublicPresencePublicApi(services: PublicPresenceServices) {
   app.route("/", createWaitlistAnalyticsRoutes(services.waitlistAnalyticsRecorder));
   app.route("/", createPublicWaitlistRoutes(services.waitlist, services.rateLimitPolicyResolver));
   app.route("/", createPublicPromoBarRoutes(services.promoBar));
+  app.route("/", createPublicPolicyValuesRoutes(services.publicPolicyValues));
   return app;
 }
 

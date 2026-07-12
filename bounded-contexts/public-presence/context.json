@@ -64,6 +64,11 @@
       "portName": "rateLimitPolicyResolver",
       "providedBy": "platform-operations",
       "purpose": "Resolve the runtime-configurable rate-limit policy for waitlist signup submission without Public Presence querying Platform Operations storage."
+    },
+    {
+      "portName": "publicPolicySources",
+      "providedBy": "platform-api",
+      "purpose": "Resolve only explicitly whitelisted policy values used by public articles from each owning bounded context."
     }
   ],
   "apiDeployables": ["platform-api"],

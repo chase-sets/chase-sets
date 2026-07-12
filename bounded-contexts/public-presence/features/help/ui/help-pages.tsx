@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
   Breadcrumbs,
+  Banner,
   Grid,
   Heading,
   Inline,
@@ -196,6 +197,16 @@ export function HelpArticlePage({ article, related }: { article: HelpArticle; re
         <Text size="sm" tone="tertiary">
           {t("publicPresence.help.lastReviewed", { date: formatRevisionDate(article.revisionDate, article.locale) })}
         </Text>
+        {article.policyChanges?.map((change) => (
+          <Banner
+            key={change.effectiveFrom}
+            tone="info"
+            title={t("publicPresence.help.changingOn", {
+              date: formatRevisionDate(change.effectiveFrom.slice(0, 10), article.locale),
+            })}
+            description={change.description}
+          />
+        ))}
         {hasTableOfContents ? (
           <SplitPane
             primary={articleBody}
@@ -254,6 +265,9 @@ function InlineContent({ content }: { content: readonly HelpArticleInline[] }) {
     if (inline.type === "strong") return <strong key={key}>{inline.value}</strong>;
     if (inline.type === "emphasis") return <em key={key}>{inline.value}</em>;
     if (inline.type === "code") return <code key={key}>{inline.value}</code>;
+    if (inline.type === "policy-value") {
+      throw new Error(`Article policy value '${inline.key}' reached rendering without resolution.`);
+    }
     return inline.value;
   });
 }

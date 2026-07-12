@@ -51,12 +51,14 @@ import {
 import {
   createRateLimitPolicyResolver,
   type OfferEconomicsCrossContextPort,
+  rateLimitPolicy,
   type OpsMarketAnalyticsCrossContextPort,
   type PolicyConsoleCrossContextPort,
   type PolicyConsoleWritePort,
   type SupportReferenceLookupCrossContextPort,
   type SupportReferenceLookupResult,
 } from "@chase-sets/platform-operations/server";
+import type { PublicPolicySource } from "@chase-sets/public-presence/server";
 import {
   getPlatformGmvSeries,
   getPlatformKpiSummary,
@@ -131,6 +133,8 @@ import type { PlatformApiRuntimeProfile } from "@chase-sets/platform-runtime/run
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
+import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
+import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
@@ -291,6 +295,22 @@ export function createPlatformApiHost(
   }
   const policyConsoleCrossContext: PolicyConsoleCrossContextPort | undefined =
     policyConsoleCrossContextSources.length > 0 ? { sources: policyConsoleCrossContextSources } : undefined;
+  const publicPolicySources: PublicPolicySource[] = [];
+  if (commercialTermsPool) {
+    publicPolicySources.push(
+      createPublicPolicySource(commercialTermsPool, marketplaceSalesFeeSchedulePolicy),
+      createPublicPolicySource(commercialTermsPool, checkoutProcessingFeePolicy),
+    );
+  }
+  if (settlementPool) {
+    publicPolicySources.push(
+      createPublicPolicySource(settlementPool, settlementClearancePolicy),
+      createPublicPolicySource(settlementPool, settlementPayoutBoundsPolicy),
+    );
+  }
+  if (platformOperationsPool) {
+    publicPolicySources.push(createPublicPolicySource(platformOperationsPool, rateLimitPolicy));
+  }
   const supportReferenceLookupCrossContextSources: SupportReferenceLookupCrossContextPort["sources"][number][] = [];
   if (orderingPool) {
     supportReferenceLookupCrossContextSources.push({
@@ -360,10 +380,36 @@ export function createPlatformApiHost(
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
+      publicPolicySources,
       draftListingCreator,
     },
   });
   return runtime;
+}
+
+function createPublicPolicySource<Value>(
+  db: PgTransactionalPool,
+  definition: PolicyDefinition<Value>,
+): PublicPolicySource {
+  return {
+    policyKey: definition.policyKey,
+    read: async (at) => {
+      // A fresh resolver per public read prevents a long-lived SSR cache from
+      // outliving the documented CDN propagation window.
+      const current = await createPolicyResolver({ db }).resolvePolicy(definition, { at });
+      const candidates = await listActivePolicyDocuments(db, definition.policyKey);
+      return {
+        current: { value: current.value, effectiveFrom: current.effectiveFrom },
+        upcoming: candidates
+          .filter((candidate) => Date.parse(candidate.effective_from) > Date.parse(at))
+          .map((candidate) => ({
+            value: definition.decodeValue(candidate.value as JsonValue),
+            effectiveFrom: candidate.effective_from,
+            effectiveUntil: candidate.effective_until,
+          })),
+      };
+    },
+  };
 }
 
 function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {

@@ -351,6 +351,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.help.audience.seller.title": "For sellers",
   "publicPresence.help.breadcrumb": "Help",
   "publicPresence.help.browseCategory": "Browse {category}",
+  "publicPresence.help.changingOn": "Changing on {date}",
   "publicPresence.help.category.buying.description": "Payment, protection, refunds, and return guidance for buyers.",
   "publicPresence.help.category.buying.title": "Buying",
   "publicPresence.help.category.eyebrow": "Help category",

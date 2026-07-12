@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { format } from "prettier";
 import { parse } from "yaml";
+import { publicPolicyValueKeys, publicPolicyValueWhitelist } from "../domain/public-policy-value-whitelist.mjs";
 
 const integrationsDirectory = dirname(fileURLToPath(import.meta.url));
 const helpDirectory = resolve(integrationsDirectory, "..");
@@ -20,7 +21,11 @@ const allowedFrontmatter = new Set([
   "citedPolicies",
   "relatedFlows",
   "promiseTable",
+  "path",
 ]);
+const publicPolicyPermissionsByKey = new Map(
+  publicPolicyValueWhitelist.map((permission) => [permission.key, permission]),
+);
 
 export function compileHelpArticleSource(fileName, source) {
   const match = /^(.+)\.([a-z]{2}(?:-[A-Z]{2})?)\.md$/.exec(fileName);
@@ -66,6 +71,20 @@ export function compileHelpArticleSource(fileName, source) {
     .filter((block) => block.type === "heading")
     .map(({ level, id, text }) => ({ level, id, text }));
 
+  const path =
+    frontmatter.path === undefined ? `/help/${category}/${slug}` : requiredString(frontmatter.path, fileName, "path");
+  assert(/^\/[a-z0-9]+(?:[/-][a-z0-9]+)*$/.test(path), fileName, "path must be an absolute kebab-case public path");
+  const policyValueKeys = [...new Set(blocks.flatMap(blockPolicyValueKeys))];
+  for (const key of policyValueKeys) {
+    const permission = publicPolicyPermissionsByKey.get(key);
+    assert(permission, fileName, `policy value token '${key}' has no public permission`);
+    assert(
+      citedPolicies.includes(permission.policyKey),
+      fileName,
+      `citedPolicies must include '${permission.policyKey}' for policy value token '${key}'`,
+    );
+  }
+
   return {
     slug,
     locale,
@@ -77,9 +96,10 @@ export function compileHelpArticleSource(fileName, source) {
     citedPolicies,
     relatedFlows,
     promiseTable,
-    href: `/help/${category}/${slug}`,
+    href: path,
     headings,
     blocks,
+    policyValueKeys,
   };
 }
 
@@ -203,14 +223,34 @@ function compileMarkdown(markdown, fileName) {
 }
 
 function compileInline(value, fileName) {
+  const policyMarkers = [...value.matchAll(/\{\{policy:([^{}]+)\}\}/g)];
+  if (value.includes("{{policy:")) {
+    assert(policyMarkers.length > 0, fileName, "policy value token is malformed");
+  }
+  for (const marker of policyMarkers) {
+    assert(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(marker[1]), fileName, `policy value token '${marker[1]}' is malformed`);
+    assert(
+      publicPolicyValueKeys.has(marker[1]),
+      fileName,
+      `policy value token '${marker[1]}' is not publicly whitelisted`,
+    );
+  }
   const tokens = [];
-  const pattern = /(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  const pattern = /(\{\{policy:[a-z0-9]+(?:[.-][a-z0-9]+)*\}\}|\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
   let cursor = 0;
   for (const match of value.matchAll(pattern)) {
     if (match.index > cursor) tokens.push({ type: "text", value: value.slice(cursor, match.index) });
     const token = match[0];
+    const policyValue = /^\{\{policy:([^}]+)\}\}$/.exec(token);
     const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
-    if (link) tokens.push({ type: "link", label: link[1], href: link[2] });
+    if (policyValue) {
+      assert(
+        publicPolicyValueKeys.has(policyValue[1]),
+        fileName,
+        `policy value token '${policyValue[1]}' is not publicly whitelisted`,
+      );
+      tokens.push({ type: "policy-value", key: policyValue[1] });
+    } else if (link) tokens.push({ type: "link", label: link[1], href: link[2] });
     else if (token.startsWith("**")) tokens.push({ type: "strong", value: token.slice(2, -2) });
     else if (token.startsWith("*")) tokens.push({ type: "emphasis", value: token.slice(1, -1) });
     else if (token.startsWith("`")) tokens.push({ type: "code", value: token.slice(1, -1) });
@@ -218,12 +258,24 @@ function compileInline(value, fileName) {
   }
   if (cursor < value.length) tokens.push({ type: "text", value: value.slice(cursor) });
   assert(tokens.length > 0, fileName, "inline content must not be empty");
+  assert(
+    tokens.filter(({ type }) => type === "policy-value").length === policyMarkers.length,
+    fileName,
+    "policy value tokens cannot be nested inside links, emphasis, strong text, or code",
+  );
   return tokens;
 }
 
 function blockLinks(block) {
   const inlineGroups = block.type === "list" ? block.items : [block.content];
   return inlineGroups.flatMap((group) => group.filter((inline) => inline.type === "link"));
+}
+
+function blockPolicyValueKeys(block) {
+  const inlineGroups = block.type === "list" ? block.items : [block.content];
+  return inlineGroups.flatMap((group) =>
+    group.filter((inline) => inline.type === "policy-value").map(({ key }) => key),
+  );
 }
 
 function validateLink(article, link, validHelpPaths, headingIds) {

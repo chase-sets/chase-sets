@@ -253,6 +253,7 @@ export const helpArticles = [
         ],
       },
     ],
+    policyValueKeys: [],
   },
   {
     slug: "refunds-and-returns",
@@ -360,6 +361,7 @@ export const helpArticles = [
         ],
       },
     ],
+    policyValueKeys: [],
   },
   {
     slug: "frequently-asked-questions",
@@ -513,6 +515,214 @@ export const helpArticles = [
           },
         ],
       },
+    ],
+    policyValueKeys: [],
+  },
+  {
+    slug: "sales-fees",
+    locale: "en",
+    title: "Marketplace sales and checkout fees",
+    description: "See the live standard sales-fee schedule and buyer checkout processing fees before you transact.",
+    audience: "seller",
+    category: "selling",
+    revisionDate: "2026-07-12",
+    citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+    relatedFlows: ["listing-confirmation", "checkout-price-breakdown"],
+    promiseTable: [
+      {
+        claim: "Published fee figures resolve from the current ratified policy documents.",
+        issues: ["#4353"],
+        tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"],
+      },
+    ],
+    href: "/sales-fees",
+    headings: [
+      {
+        level: 2,
+        id: "one-standard-sales-fee",
+        text: "One standard sales fee",
+      },
+      {
+        level: 2,
+        id: "checkout-processing-fees",
+        text: "Checkout processing fees",
+      },
+      {
+        level: 2,
+        id: "when-policy-values-change",
+        text: "When policy values change",
+      },
+    ],
+    blocks: [
+      {
+        type: "heading",
+        level: 2,
+        id: "one-standard-sales-fee",
+        text: "One standard sales fee",
+        content: [
+          {
+            type: "text",
+            value: "One standard sales fee",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Personal, business, and enterprise accounts all use the same standard schedule: ",
+          },
+          {
+            type: "policy-value",
+            key: "marketplace-sales-fee.standard.bps",
+          },
+          {
+            type: "text",
+            value: " of the item price plus ",
+          },
+          {
+            type: "policy-value",
+            key: "marketplace-sales-fee.standard.fixed",
+          },
+          {
+            type: "text",
+            value: ", capped at ",
+          },
+          {
+            type: "policy-value",
+            key: "marketplace-sales-fee.standard.cap",
+          },
+          {
+            type: "text",
+            value: " per item.",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "There is no separate listing fee. You see the applicable sales fee before confirming a listing, and the locked amount does not change for that transaction if the published schedule is revised later.",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "checkout-processing-fees",
+        text: "Checkout processing fees",
+        content: [
+          {
+            type: "text",
+            value: "Checkout processing fees",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "Buyers see the applicable checkout fee before payment. The current processing rates are:",
+          },
+        ],
+      },
+      {
+        type: "list",
+        ordered: false,
+        items: [
+          [
+            {
+              type: "text",
+              value: "Card: ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.card.bps",
+            },
+            {
+              type: "text",
+              value: " plus ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.card.fixed",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Bank account: ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.bank-account.bps",
+            },
+            {
+              type: "text",
+              value: " plus ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.bank-account.fixed",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Chase Sets credit: ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.platform-credit.bps",
+            },
+            {
+              type: "text",
+              value: " plus ",
+            },
+            {
+              type: "policy-value",
+              key: "checkout-processing-fee.platform-credit.fixed",
+            },
+          ],
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
+        id: "when-policy-values-change",
+        text: "When policy values change",
+        content: [
+          {
+            type: "text",
+            value: "When policy values change",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value:
+              "This page reads the effective policy values when it renders and refreshes within six minutes. If a scheduled revision is within 30 days, the page shows its effective date before the change takes effect.",
+          },
+        ],
+      },
+    ],
+    policyValueKeys: [
+      "marketplace-sales-fee.standard.bps",
+      "marketplace-sales-fee.standard.fixed",
+      "marketplace-sales-fee.standard.cap",
+      "checkout-processing-fee.card.bps",
+      "checkout-processing-fee.card.fixed",
+      "checkout-processing-fee.bank-account.bps",
+      "checkout-processing-fee.bank-account.fixed",
+      "checkout-processing-fee.platform-credit.bps",
+      "checkout-processing-fee.platform-credit.fixed",
     ],
   },
 ] as const satisfies readonly HelpArticle[];

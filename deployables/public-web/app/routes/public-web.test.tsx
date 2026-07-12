@@ -73,6 +73,7 @@ describe("public web deployable", () => {
     expect(sitemapBody).toContain("<loc>https://chasesets.com/faq</loc>");
     expect(sitemapBody).toContain("<loc>https://chasesets.com/help</loc>");
     expect(sitemapBody).toContain("<loc>https://chasesets.com/help/buying/order-protection</loc>");
+    expect(sitemapBody).toContain("<loc>https://chasesets.com/help/selling</loc>");
     expect(sitemapBody).not.toContain("https://chasesets.com/search");
     expect(sitemapBody).not.toContain("/items/");
 

@@ -6,11 +6,20 @@ export type { HelpArticle, HelpArticleBlock, HelpArticleInline, HelpAudience, He
 
 export const publicHelpArticles: readonly HelpArticle[] = helpArticles;
 export const publicHelpArticlePaths = helpArticles.map((article) => article.href);
+export const publicHelpCategoryPaths = [...new Set(helpArticles.map((article) => `/help/${article.category}`))];
 
 export function findHelpArticle(category: string | undefined, slug: string | undefined, locale = "en") {
   return helpArticles.find(
-    (article) => article.locale === locale && article.category === category && article.slug === slug,
+    (article) =>
+      article.locale === locale &&
+      article.category === category &&
+      article.slug === slug &&
+      article.href === `/help/${category}/${slug}`,
   );
+}
+
+export function findPublicHelpArticleByPath(path: string, locale = "en") {
+  return helpArticles.find((article) => article.locale === locale && article.href === path);
 }
 
 export function isHelpCategory(value: string | undefined): value is HelpCategory {

@@ -1,2 +1,2 @@
 export { publicPresenceHasTranslation, publicPresenceT } from "../../features/waitlist/ui/public-presence-translator";
-export { publicHelpArticlePaths } from "./help";
+export { publicHelpArticlePaths, publicHelpCategoryPaths } from "./help";

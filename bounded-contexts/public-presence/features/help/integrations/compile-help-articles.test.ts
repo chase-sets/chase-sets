@@ -72,4 +72,45 @@ describe("help article compiler", () => {
       compileHelpArticleCorpus([{ fileName: "example.en.md", source: validSource.replace("/help", "other.md") }]),
     ).toThrow("relative link 'other.md' is not allowed");
   });
+
+  it("compiles reviewed policy tokens and rejects every non-whitelisted key", () => {
+    const compiled = compileHelpArticleSource(
+      "example.en.md",
+      validSource
+        .replace("citedPolicies: []", 'citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule"]')
+        .replace("Read the [help hub](/help).", "The fee is {{policy:marketplace-sales-fee.standard.bps}}."),
+    );
+    expect(compiled).toMatchObject({
+      policyValueKeys: ["marketplace-sales-fee.standard.bps"],
+      blocks: expect.arrayContaining([
+        expect.objectContaining({
+          content: expect.arrayContaining([{ type: "policy-value", key: "marketplace-sales-fee.standard.bps" }]),
+        }),
+      ]),
+    });
+    expect(() =>
+      compileHelpArticleSource(
+        "example.en.md",
+        validSource.replace("Read the [help hub](/help).", "{{policy:commercial-terms.authenticity-fee.internal}}"),
+      ),
+    ).toThrow("is not publicly whitelisted");
+    expect(() =>
+      compileHelpArticleSource(
+        "example.en.md",
+        validSource.replace("Read the [help hub](/help).", "**{{policy:marketplace-sales-fee.standard.bps}}**"),
+      ),
+    ).toThrow("cannot be nested");
+    expect(() =>
+      compileHelpArticleSource(
+        "example.en.md",
+        validSource.replace("Read the [help hub](/help).", "{{policy:NOT_VALID}}"),
+      ),
+    ).toThrow("is malformed");
+    expect(() =>
+      compileHelpArticleSource(
+        "example.en.md",
+        validSource.replace("Read the [help hub](/help).", "{{policy:marketplace-sales-fee.standard.bps}}"),
+      ),
+    ).toThrow("citedPolicies must include 'commercial-terms.marketplace-sales-fee-schedule'");
+  });
 });

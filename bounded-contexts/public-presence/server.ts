@@ -1,1 +1,5 @@
 export { createPublicPresenceRequestApiClient } from "./support/request-support/api-client";
+export { loadPublicPolicyValues } from "./features/help/integrations/public-policy-values-client";
+export { resolveArticlePolicyValues } from "./features/help/domain/resolve-article-policy-values";
+export { findPublicHelpArticleByPath } from "./features/help/domain/article-catalog";
+export type { PublicPolicySource, PublicPolicyValuesResponse } from "./features/help/api/public-policy-values";
