@@ -9,6 +9,7 @@ const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
 const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
+const doksMain = readFileSync(resolve("infrastructure/digitalocean/doks/main.tf"), "utf8");
 const observabilityMain = readFileSync(resolve("infrastructure/digitalocean/observability/main.tf"), "utf8");
 const observabilityLocals = readFileSync(resolve("infrastructure/digitalocean/observability/locals.tf"), "utf8");
 const observabilityOutputs = readFileSync(resolve("infrastructure/digitalocean/observability/outputs.tf"), "utf8");
@@ -35,6 +36,8 @@ const observabilityPrometheusTemplate = readFileSync(
 );
 const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
+const objectStorageMain = readFileSync(resolve("infrastructure/object-storage/index.ts"), "utf8");
+const stateBootstrapMain = readFileSync(resolve("infrastructure/digitalocean/state-bootstrap/main.tf"), "utf8");
 const environmentDnsMain = readFileSync(resolve("infrastructure/digitalocean/environment-dns/main.tf"), "utf8");
 const environmentDnsLocals = readFileSync(resolve("infrastructure/digitalocean/environment-dns/locals.tf"), "utf8");
 const environmentDnsOutputs = readFileSync(resolve("infrastructure/digitalocean/environment-dns/outputs.tf"), "utf8");
@@ -141,6 +144,25 @@ const adminWebViteConfig = readFileSync(resolve("deployables/admin-web/vite.conf
 
 function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
+}
+
+function expectGuardedTerraformResource(source, resourceType, resourceName) {
+  const declaration = `resource "${resourceType}" "${resourceName}" {`;
+  const start = source.indexOf(declaration);
+  expect(start).toBeGreaterThanOrEqual(0);
+
+  const nextBlockStart =
+    [
+      source.indexOf("\nresource ", start + declaration.length),
+      source.indexOf("\ncheck ", start + declaration.length),
+      source.indexOf("\nmoved ", start + declaration.length),
+    ]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right)[0] ?? source.length;
+  const resource = source.slice(start, nextBlockStart);
+
+  expect(resource).toContain("lifecycle {");
+  expect(resource).toContain("prevent_destroy = true");
 }
 
 function listFilesRecursively(rootDir, prefix = "") {
@@ -589,6 +611,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("catalog_asset_public_base_url");
     expect(platformProductionWorkflow).toContain("Catalog asset CDN root returned expected protected status 403.");
     expect(platformProductionWorkflow).not.toContain('"${catalog_asset_public_base_url}/" >/dev/null');
+  });
+
+  it("pins destroy guards on every durable DigitalOcean state root and preserves object delivery", () => {
+    expectGuardedTerraformResource(platformMain, "digitalocean_database_cluster", "postgres");
+    expectGuardedTerraformResource(observabilityMain, "digitalocean_volume", "observability_data");
+    expectGuardedTerraformResource(catalogAssetsMain, "digitalocean_spaces_bucket", "catalog_assets");
+    expectGuardedTerraformResource(stateBootstrapMain, "digitalocean_spaces_bucket", "terraform_state");
+    expectGuardedTerraformResource(doksMain, "digitalocean_kubernetes_cluster", "platform");
+    expectGuardedTerraformResource(environmentDnsMain, "digitalocean_domain", "environment");
+
+    expect(objectStorageMain).toContain('ACL: "public-read"');
+    expect(digitaloceanPlatformRunbook).toContain("Stateful Destroy Guard Override");
+    expect(digitaloceanPlatformRunbook).toContain("temporary source edit locally");
   });
 
   it("routes non-production UCP agent discovery and transport paths to platform-api", () => {

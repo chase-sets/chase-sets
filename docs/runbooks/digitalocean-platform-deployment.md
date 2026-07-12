@@ -650,7 +650,7 @@ Production destructive-change overrides must be explicit in the pull request. Ad
 
 ### Stateful Destroy Guard Override
 
-Default Terraform plans must not delete or replace stateful roots. A deliberate `terraform plan -destroy -target=digitalocean_database_cluster.postgres`, `digitalocean_volume.observability_data`, `digitalocean_spaces_bucket.catalog_assets`, `digitalocean_spaces_bucket.terraform_state`, or `digitalocean_domain.environment` should fail at plan time because the resource has `prevent_destroy`.
+Default Terraform plans must not delete or replace stateful roots. A deliberate `terraform plan -destroy -target=digitalocean_database_cluster.postgres[0]`, `digitalocean_volume.observability_data`, `digitalocean_spaces_bucket.catalog_assets`, `digitalocean_spaces_bucket.terraform_state`, or `digitalocean_domain.environment` should fail at plan time because the resource has `prevent_destroy`.
 
 Use the guard bypass only for an approved destructive workflow or an incident-specific recovery plan. The approved preview cleanup and staging reset workflows run `node scripts/disable-terraform-prevent-destroy.mjs <main.tf>` inside their ephemeral checkout immediately before `terraform destroy`; they do not commit the bypass. For any other case, document the incident or migration reference, name the exact resource address, take the required restore point or backup first, perform the same temporary source edit locally, run and capture the plan, apply only after review, and then restore the guard in source before merging follow-up work.
 
