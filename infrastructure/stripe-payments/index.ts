@@ -28,6 +28,8 @@ import {
 
 const STRIPE_API_VERSION = "2026-03-25.dahlia";
 const STRIPE_METADATA_VALUE_MAX_LENGTH = 500;
+export const DEFAULT_STRIPE_STATEMENT_DESCRIPTOR_SUFFIX = "CHASESETS";
+const STRIPE_STATEMENT_DESCRIPTOR_SUFFIX_PATTERN = /^[A-Za-z0-9 ._-]{1,10}$/;
 
 export type StripePaymentProcessorGatewayOptions = Readonly<{
   secretKey: string;
@@ -35,6 +37,7 @@ export type StripePaymentProcessorGatewayOptions = Readonly<{
   webhookSecret: string;
   apiBaseUrl?: string;
   webhookToleranceSeconds?: number;
+  statementDescriptorSuffix?: string;
 }>;
 
 type StripeCheckoutSessionResponse = Readonly<{
@@ -229,6 +232,21 @@ function moneyToMinorUnits(amount: string) {
 function normalizeOptionalText(value?: string | null) {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
+}
+
+function resolveStatementDescriptorSuffix(value?: string | null) {
+  const suffix = normalizeOptionalText(value) ?? DEFAULT_STRIPE_STATEMENT_DESCRIPTOR_SUFFIX;
+  if (!STRIPE_STATEMENT_DESCRIPTOR_SUFFIX_PATTERN.test(suffix)) {
+    throw new Error(
+      "Stripe statement descriptor suffix must be 1-10 characters and contain only letters, numbers, spaces, periods, hyphens, or underscores.",
+    );
+  }
+  return suffix;
+}
+
+function stripeCustomerEntry(providerCustomerReference?: string | null): Record<string, string> {
+  const customer = normalizeOptionalText(providerCustomerReference);
+  return customer ? { customer } : {};
 }
 
 function stripeSearchLiteral(value: string) {
@@ -1104,6 +1122,7 @@ export function createStripePaymentProcessorGateway(
   const apiBaseUrl = options.apiBaseUrl?.trim() || "https://api.stripe.com";
   const authorization = `Basic ${encodeBasicAuth(options.secretKey)}`;
   const webhookToleranceSeconds = options.webhookToleranceSeconds ?? 300;
+  const statementDescriptorSuffix = resolveStatementDescriptorSuffix(options.statementDescriptorSuffix);
 
   const publicConfiguration: PaymentProcessorPublicConfig = {
     processorName: "stripe",
@@ -1311,12 +1330,15 @@ export function createStripePaymentProcessorGateway(
             body: toFormBody({
               amount: String(amount),
               currency: input.currencyCode,
-              customer: input.savedCheckoutInstrument.providerCustomerReference ?? "",
+              ...stripeCustomerEntry(
+                input.savedCheckoutInstrument.providerCustomerReference ?? input.providerCustomerReference,
+              ),
               payment_method: input.savedCheckoutInstrument.providerReference,
               confirm: "true",
               off_session:
                 input.savedCheckoutInstrument.confirmationExperience === "off-session-token" ? "true" : "false",
               description: input.description,
+              statement_descriptor_suffix: statementDescriptorSuffix,
               transfer_group: `payment:${input.paymentId}`,
               ...cardAuthenticationEntries(input),
               ...paymentMetadataEntries(input, {
@@ -1365,6 +1387,10 @@ export function createStripePaymentProcessorGateway(
             "line_items[0][price_data][unit_amount]": String(amount),
             "line_items[0][price_data][product_data][name]": input.description,
             "payment_intent_data[transfer_group]": `payment:${input.paymentId}`,
+            "payment_intent_data[statement_descriptor_suffix]": statementDescriptorSuffix,
+            ...stripeCustomerEntry(
+              input.providerCustomerReference ?? input.savePaymentMethod?.providerCustomerReference,
+            ),
             ...cardAuthenticationEntries(input, "payment_intent_data"),
             ...paymentMetadataEntries(input, {}, "payment_intent_data[metadata]"),
             ...cardAuthenticationMetadataEntries(input, "payment_intent_data[metadata]"),
@@ -1429,9 +1455,11 @@ export function createStripePaymentProcessorGateway(
           body: toFormBody({
             amount: String(amount),
             currency: input.currencyCode,
+            ...stripeCustomerEntry(input.providerCustomerReference),
             shared_payment_granted_token: input.agenticPayment.sharedPaymentGrantedToken,
             confirm: "true",
             description: input.description,
+            statement_descriptor_suffix: statementDescriptorSuffix,
             transfer_group: `payment:${input.paymentId}`,
             ...cardAuthenticationEntries(input),
             ...paymentMetadataEntries(input, {

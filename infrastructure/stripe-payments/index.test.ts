@@ -12,6 +12,17 @@ function formSnapshot(body: BodyInit | null | undefined) {
 }
 
 describe("Stripe payment processor gateway", () => {
+  it("rejects statement descriptor suffixes outside Stripe's constraints", () => {
+    expect(() =>
+      createStripePaymentProcessorGateway({
+        secretKey: "sk_test",
+        publishableKey: "pk_test",
+        webhookSecret: "whsec_test",
+        statementDescriptorSuffix: "TOO-LONG-SUFFIX",
+      }),
+    ).toThrow("Stripe statement descriptor suffix must be 1-10 characters");
+  });
+
   it("submits dispute evidence with Stripe evidence fields and idempotency", async () => {
     const fetchMock = vi.fn(
       async () =>
@@ -105,6 +116,7 @@ describe("Stripe payment processor gateway", () => {
       currencyCode: "usd",
       paymentMethodCategory: "card",
       description: "Test payment",
+      providerCustomerReference: "cus_123",
       returnUrl: "https://marketplace.test/account/payments/pay_123",
       marketplaceRiskMetadata: {
         seller_account_ids: "acc_seller",
@@ -135,6 +147,8 @@ describe("Stripe payment processor gateway", () => {
       ui_mode: "elements",
       return_url: "https://marketplace.test/account/payments/pay_123",
       client_reference_id: "pay_123",
+      customer: "cus_123",
+      "payment_intent_data[statement_descriptor_suffix]": "CHASESETS",
       "line_items[0][price_data][product_data][name]": "Test payment",
       "metadata[funds_strategy]": "platform-held",
       "metadata[explicit_payment_method_selection]": "true",
@@ -416,6 +430,7 @@ describe("Stripe payment processor gateway", () => {
       amount: "2605",
       currency: "usd",
       customer: "cus_123",
+      statement_descriptor_suffix: "CHASESETS",
       payment_method: "pm_123",
       confirm: "true",
       off_session: "true",
@@ -543,6 +558,7 @@ describe("Stripe payment processor gateway", () => {
       currencyCode: "usd",
       paymentMethodCategory: "card",
       description: "Agentic payment",
+      providerCustomerReference: "cus_123",
       idempotencyKey: "idem_agentic",
       agenticPayment: {
         kind: "stripe-shared-payment-token",
@@ -570,6 +586,8 @@ describe("Stripe payment processor gateway", () => {
       currency: "usd",
       shared_payment_granted_token: "spt_123",
       confirm: "true",
+      customer: "cus_123",
+      statement_descriptor_suffix: "CHASESETS",
       "metadata[payment_id]": "pay_agentic",
       "metadata[order_ids]": "ord_agentic",
       "metadata[ucp_payment_handler]": "stripe-shared-payment-token",
