@@ -71,6 +71,23 @@ CREATE INDEX IF NOT EXISTS event_store_events_context_category_type_global_idx
 CREATE INDEX IF NOT EXISTS event_store_events_context_category_global_idx
   ON event_store_events (stream_context_name, stream_category, global_position ASC);
 
+-- Load-time cache, never a source of truth: the event stream
+-- above stays canonical, and this table must always be safe to truncate or
+-- fully rebuild from events. `schema_version` lets the aggregate repository
+-- detect a stale snapshot after an evolver change and fall back to full
+-- replay instead of misapplying it. See contracts/event-core/README.md.
+CREATE TABLE IF NOT EXISTS event_store_aggregate_snapshots (
+  stream_id text PRIMARY KEY,
+  stream_version bigint NOT NULL CHECK (stream_version > 0),
+  schema_version integer NOT NULL CHECK (schema_version >= 1),
+  state jsonb NOT NULL,
+  updated_at timestamptz NOT NULL,
+  CONSTRAINT event_store_aggregate_snapshots_stream_fk
+    FOREIGN KEY (stream_id)
+    REFERENCES event_store_streams (stream_id)
+    ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   projector_name text PRIMARY KEY,
   last_global_position bigint NOT NULL CHECK (last_global_position >= 0),

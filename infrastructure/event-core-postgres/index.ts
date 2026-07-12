@@ -1,3 +1,4 @@
+export * from "./aggregate-snapshot-store";
 export * from "./catalog-mirror";
 export * from "./event-store-indexes";
 export * from "./event-store";

@@ -29,6 +29,21 @@ export function createCommandHandler<State, Command, Event extends DomainEvent>(
     const state = applyEvents(loaded.state, config.evolve, newEvents);
     const version = storedEvents.length === 0 ? loaded.version : storedEvents[storedEvents.length - 1].streamVersion;
 
+    // Write-behind snapshot scheduling happens after commit, outside the
+    // append critical path, and must never fail a command -- scheduleSnapshot
+    // itself is non-throwing (see aggregate-repository-internal.ts), but this
+    // stays defensive against a future implementation change.
+    try {
+      config.repository.scheduleSnapshot?.({
+        streamId: input.streamId,
+        priorVersion: loaded.version,
+        version,
+        state,
+      });
+    } catch {
+      // Snapshotting is a cache optimization; swallow and continue.
+    }
+
     return {
       state,
       version,
