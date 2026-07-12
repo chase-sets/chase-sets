@@ -70,6 +70,17 @@ describe("waitlist success page", () => {
     expect(events).not.toContain("waitlist_signup_attributed");
   });
 
+  it("links the founders offer terms page from the signup confirmation", async () => {
+    vi.stubGlobal("fetch", stubFetch(0));
+    window.dataLayer = [];
+
+    render(<WaitlistSuccessPage signupId="wls_public" publicOrigin="https://chasesets.com" discordInviteUrl={null} />);
+
+    const foundersLinks = screen.getAllByRole("link", { name: "Founders offer terms" });
+    expect(foundersLinks.length).toBeGreaterThan(0);
+    foundersLinks.forEach((link) => expect(link.getAttribute("href")).toBe("/founders"));
+  });
+
   it("only shows the Discord share action when an invite URL is configured", async () => {
     vi.stubGlobal("fetch", stubFetch(0));
     window.dataLayer = [];

@@ -280,6 +280,14 @@
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
+        },
+        {
+          "routeId": "founders",
+          "routePath": "founders",
+          "fileExport": "./routes/marketplace/founders",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
         }
       ]
     },

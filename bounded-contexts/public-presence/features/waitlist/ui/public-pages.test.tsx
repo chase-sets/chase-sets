@@ -279,6 +279,45 @@ describe("public waitlist form migration smoke", () => {
     expect(previewSection.textContent).not.toContain("Order protectionIncluded");
   });
 
+  it("concretizes the founders offer with cap, numbered badge, and 60-day window, linked ahead of the audience paths and from the footer", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
+    const audienceSection = container.querySelector('[data-public-presence-section="audience_paths"]');
+    if (!feeComparisonSection || !foundersSection || !audienceSection) {
+      throw new Error("Expected fee-comparison, founders-offer, and audience-path sections to render.");
+    }
+
+    // DOCUMENT_POSITION_FOLLOWING (4) means the founders section renders
+    // after fee comparison and ahead of the audience paths, per the
+    // "immediately after the fees section" placement in #4081.
+    expect(feeComparisonSection.compareDocumentPosition(foundersSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(foundersSection.compareDocumentPosition(audienceSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    expect(foundersSection.textContent).toContain("500");
+    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.badge"));
+    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.window"));
+    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.expiry"));
+    expect(foundersSection.querySelector('a[href="/founders"]')).not.toBeNull();
+
+    expect(container.querySelector('footer a[href="/founders"]')?.textContent).toBe(
+      t("publicPresence.nav.foundersTerms"),
+    );
+  });
+
   it("shows seller cohort-quality fields on the final-CTA form by default (role defaults to both)", () => {
     vi.stubGlobal(
       "fetch",
