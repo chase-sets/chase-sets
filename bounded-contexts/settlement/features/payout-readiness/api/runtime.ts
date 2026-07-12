@@ -140,12 +140,13 @@ export type PayoutReadinessServices = Readonly<{
 }>;
 
 function readinessStatus(readiness: ProviderPayoutReadiness): PayoutReadinessStatus {
+  const blockingRequirements = Array.isArray(readiness.blockingRequirements) ? readiness.blockingRequirements : null;
   if (
     readiness.onboardingStatus === "complete" &&
     readiness.transferCapabilityStatus === "active" &&
     readiness.payoutCapabilityStatus === "active" &&
     readiness.payoutDestinationStatus === "ready" &&
-    readiness.blockingRequirements.length === 0
+    blockingRequirements?.length === 0
   ) {
     return "ready";
   }
@@ -300,8 +301,12 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
       payoutCapabilityStatus: readiness.payoutCapabilityStatus,
       payoutDestinationStatus: readiness.payoutDestinationStatus,
       payoutAccountDashboard: readiness.payoutAccountDashboard,
-      missingRequirementCount: readiness.blockingRequirements.length,
-      advisoryRequirementCount: readiness.advisoryRequirements.length,
+      missingRequirementCount: Array.isArray(readiness.blockingRequirements)
+        ? readiness.blockingRequirements.length
+        : undefined,
+      advisoryRequirementCount: Array.isArray(readiness.advisoryRequirements)
+        ? readiness.advisoryRequirements.length
+        : undefined,
       disabledReason: readiness.disabledReason,
       requirementsDeadline: readiness.requirementsDeadline,
     };
