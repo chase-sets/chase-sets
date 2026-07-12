@@ -133,7 +133,7 @@ describe("inventory import source adapters", () => {
         { providerKey: "ebay", externalKey: "listing:1001" },
         { providerKey: "ebay", externalKey: "sku:box-1" },
         { providerKey: "ebay", externalKey: "epid:epid-1" },
-        { providerKey: "ebay", externalKey: "upc:012345678905" },
+        { providerKey: "gtin", externalKey: "012345678905" },
       ],
       values: {
         totalQuantity: "2",
@@ -155,7 +155,7 @@ describe("inventory import source adapters", () => {
       externalReferences: [
         { providerKey: "shopify", externalKey: "variant:987" },
         { providerKey: "shopify", externalKey: "sku:box-1" },
-        { providerKey: "shopify", externalKey: "barcode:012345678905" },
+        { providerKey: "gtin", externalKey: "012345678905" },
         { providerKey: "shopify", externalKey: "handle:base-charizard" },
       ],
       values: {

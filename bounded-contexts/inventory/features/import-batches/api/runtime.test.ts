@@ -434,6 +434,18 @@ function catalogServices(): InventoryCatalogItemServices {
 
       return null;
     },
+    getCatalogItemByGtin: async (gtin) => {
+      if (gtin === "00307418529636") {
+        return {
+          gtin,
+          catalog_item_id: "cat_active",
+          product_form: "booster-box",
+          updated_at: now,
+        };
+      }
+
+      return null;
+    },
     getCatalogItem: async (itemId) => {
       if (itemId === "cat_unknown") {
         return null;

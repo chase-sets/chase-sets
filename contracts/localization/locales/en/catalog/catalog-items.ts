@@ -1,5 +1,6 @@
 export const catalogItemsEnglishTranslations = {
   "catalog.features.catalogItems.api.route.catalog.item.not.found": "Catalog item not found.",
+  "catalog.features.catalogItems.api.route.gtin.was.not.found": "GTIN was not found.",
   "catalog.features.catalogItems.api.seed.a.black.star.promo.mewtwo.used":
     "A Black Star Promo Mewtwo used by the marketplace seed as a listings-only market case.",
   "catalog.features.catalogItems.api.seed.a.catalog.only.item.used.by":

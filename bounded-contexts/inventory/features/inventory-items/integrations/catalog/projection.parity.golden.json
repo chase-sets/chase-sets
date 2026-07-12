@@ -13,6 +13,8 @@
     "catalog.catalog-item.external-catalog-item-reference-unlinked",
     "catalog.catalog-item.external-product-reference-linked",
     "catalog.catalog-item.external-product-reference-unlinked",
+    "catalog.catalog-item.gtin-linked",
+    "catalog.catalog-item.gtin-unlinked",
     "catalog.catalog-item.published",
     "catalog.catalog-item.retired",
     "catalog.dimension.created",

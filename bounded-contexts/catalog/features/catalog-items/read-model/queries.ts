@@ -5,7 +5,19 @@ import {
   type ListResult,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
+import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
+
+export type CatalogItemGtinLookupRow = Readonly<{
+  gtin: string;
+  catalog_item_id: string;
+  product_form: string | null;
+  title: string;
+  subtitle: string | null;
+  status: string;
+  blueprint_id: string | null;
+  updated_at: string;
+}>;
 
 export type CatalogItemListRow = Readonly<{
   catalog_item_id: string;
@@ -127,6 +139,37 @@ export async function getCatalogItemDetail(db: PgQueryable, itemId: string) {
   const result = await db.query<CatalogItemDetailRow>(
     `SELECT * FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`,
     [itemId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Resolves a scanned barcode to its Catalog Item, normalizing the input to
+ * canonical GTIN-14 form first (see `@chase-sets/primitives/gtin`). Used by
+ * inventory import resolution and, eventually, a camera-scan seller intake
+ * flow. Returns `null` for both "not a valid GTIN" and "no item linked".
+ */
+export async function getCatalogItemByGtin(db: PgQueryable, gtin: string): Promise<CatalogItemGtinLookupRow | null> {
+  const normalized = normalizeGtin(gtin);
+  if (!normalized) {
+    return null;
+  }
+
+  const result = await db.query<CatalogItemGtinLookupRow>(
+    `SELECT
+       link.gtin,
+       link.catalog_item_id,
+       link.product_form,
+       item.title,
+       item.subtitle,
+       item.status,
+       item.blueprint_id,
+       link.updated_at
+     FROM catalog_item_gtins AS link
+     JOIN catalog_items AS item ON item.catalog_item_id = link.catalog_item_id
+     WHERE link.gtin = $1`,
+    [normalized],
   );
 
   return result.rows[0] ?? null;

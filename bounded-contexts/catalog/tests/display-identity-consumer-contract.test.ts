@@ -10,10 +10,10 @@ describe("display identity consumer subscription contract", () => {
       "catalog.catalog-item.metadata-revised",
     );
 
-    expect(catalogEventTypes("../../inventory/context.json", "inventory-catalog-item-projection")).toEqual(
+    expect(catalogEventTypes("../../inventory/context.json", "inventory-catalog-item-projection", 4)).toEqual(
       expect.arrayContaining(["catalog.catalog-item.display-identity-resolved"]),
     );
-    expect(catalogEventTypes("../../inventory/context.json", "inventory-catalog-item-projection")).not.toContain(
+    expect(catalogEventTypes("../../inventory/context.json", "inventory-catalog-item-projection", 4)).not.toContain(
       "catalog.catalog-item.metadata-revised",
     );
 

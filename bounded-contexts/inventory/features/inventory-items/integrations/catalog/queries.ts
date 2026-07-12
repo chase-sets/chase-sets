@@ -1,4 +1,5 @@
 import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
+import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import type { InventoryProductSchema } from "./versioning";
 import { toInventoryItemProductSchema } from "./versioning";
 
@@ -31,6 +32,13 @@ export type InventoryExternalCatalogItemReference = Readonly<{
   provider_key: string;
   external_key: string;
   catalog_item_id: string;
+  updated_at: string;
+}>;
+
+export type InventoryCatalogItemGtinLookup = Readonly<{
+  gtin: string;
+  catalog_item_id: string;
+  product_form: string | null;
   updated_at: string;
 }>;
 
@@ -184,6 +192,31 @@ export async function getInventoryExternalProductReference(
       ? (row.selected_options as InventoryExternalProductReference["selected_options"])
       : [],
   };
+}
+
+/**
+ * Resolves a scanned barcode to the mirrored Catalog Item, using the same
+ * `catalog.catalog-item.gtin-linked` facts Catalog projects into its own
+ * `catalog_item_gtins` read model. Normalizes the input to canonical
+ * GTIN-14 form before lookup (see `@chase-sets/primitives/gtin`).
+ */
+export async function getInventoryCatalogItemByGtin(
+  db: PgQueryable,
+  gtin: string,
+): Promise<InventoryCatalogItemGtinLookup | null> {
+  const normalized = normalizeGtin(gtin);
+  if (!normalized) {
+    return null;
+  }
+
+  const result = await db.query<InventoryCatalogItemGtinLookup>(
+    `SELECT gtin, catalog_item_id, product_form, updated_at
+     FROM inventory_catalog_gtins
+     WHERE gtin = $1`,
+    [normalized],
+  );
+
+  return result.rows[0] ?? null;
 }
 
 export async function getInventoryExternalCatalogItemReference(

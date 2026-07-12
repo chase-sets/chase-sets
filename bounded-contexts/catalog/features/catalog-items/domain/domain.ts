@@ -1,4 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -37,6 +38,20 @@ export type CatalogExternalCatalogItemReference = Readonly<{
   externalKey: string;
 }>;
 
+/**
+ * A GTIN-8/12/13/14 barcode linked to a Catalog Item, normalized to its
+ * canonical 14-digit form. Unlike provider external references, a GTIN is
+ * not scoped to any single provider -- it is the manufacturer's own
+ * identifier, so it is unique across the whole Catalog. `productForm`
+ * carries the sealed-product form (e.g. "booster-box") observed alongside
+ * the barcode, so a lookup can distinguish sellable forms without a second
+ * round trip.
+ */
+export type CatalogItemGtinLink = Readonly<{
+  gtin: string;
+  productForm: string | null;
+}>;
+
 export type CatalogItemImageFallbackUsage = "permanent" | "loading-only";
 
 export type CatalogItemImageVariantDensity = Readonly<{
@@ -67,6 +82,7 @@ export type CatalogItemState = Readonly<{
   imageFallback: CatalogItemImageFallback | null;
   externalCatalogItemReferences: readonly CatalogExternalCatalogItemReference[];
   externalProductReferences: readonly CatalogExternalProductReference[];
+  gtins: readonly CatalogItemGtinLink[];
 }>;
 
 export const initialCatalogItemState: CatalogItemState = {
@@ -85,6 +101,7 @@ export const initialCatalogItemState: CatalogItemState = {
   imageFallback: null,
   externalCatalogItemReferences: [],
   externalProductReferences: [],
+  gtins: [],
 };
 
 export type CreateCatalogItemCommand = Readonly<{
@@ -229,6 +246,17 @@ export type UnlinkExternalCatalogItemReferenceCommand = Readonly<{
   externalKey: string;
 }>;
 
+export type LinkCatalogItemGtinCommand = Readonly<{
+  type: "LinkCatalogItemGtin";
+  gtin: string;
+  productForm?: string | null;
+}>;
+
+export type UnlinkCatalogItemGtinCommand = Readonly<{
+  type: "UnlinkCatalogItemGtin";
+  gtin: string;
+}>;
+
 export type ArchiveCatalogItemCommand = Readonly<{
   type: "ArchiveCatalogItem";
 }>;
@@ -257,6 +285,8 @@ export type CatalogItemCommand =
   | LinkExternalProductReferenceCommand
   | UnlinkExternalCatalogItemReferenceCommand
   | UnlinkExternalProductReferenceCommand
+  | LinkCatalogItemGtinCommand
+  | UnlinkCatalogItemGtinCommand
   | ArchiveCatalogItemCommand
   | RemoveDraftCatalogItemCommand;
 
@@ -396,6 +426,15 @@ export type ItemExternalCatalogItemReferenceUnlinkedEvent = DomainEvent<
   CatalogExternalCatalogItemReference
 >;
 
+export type ItemGtinLinkedEvent = DomainEvent<"catalog.catalog-item.gtin-linked", CatalogItemGtinLink>;
+
+export type ItemGtinUnlinkedEvent = DomainEvent<
+  "catalog.catalog-item.gtin-unlinked",
+  Readonly<{
+    gtin: string;
+  }>
+>;
+
 export type ItemRetiredEvent = DomainEvent<"catalog.catalog-item.retired", EmptyEventData>;
 
 export type ItemArchivedEvent = DomainEvent<"catalog.catalog-item.archived", EmptyEventData>;
@@ -422,6 +461,8 @@ export type CatalogItemEvent =
   | ItemExternalProductReferenceLinkedEvent
   | ItemExternalCatalogItemReferenceUnlinkedEvent
   | ItemExternalProductReferenceUnlinkedEvent
+  | ItemGtinLinkedEvent
+  | ItemGtinUnlinkedEvent
   | ItemRetiredEvent
   | ItemArchivedEvent
   | ItemDraftRemovedEvent;
@@ -715,6 +756,34 @@ export const decideCatalogItem: AggregateDecider<CatalogItemState, CatalogItemCo
         },
       ];
     }
+    case "LinkCatalogItemGtin": {
+      requireCreatedItem(state);
+      assertCatalogItemCanBeModified(state);
+      const link = normalizeGtinLink(command);
+
+      return [
+        {
+          type: "catalog.catalog-item.gtin-linked",
+          data: link,
+        },
+      ];
+    }
+    case "UnlinkCatalogItemGtin": {
+      requireCreatedItem(state);
+      assertCatalogItemCanBeModified(state);
+      const gtin = requireNormalizedGtin(command.gtin);
+      assert(
+        state.gtins.some((link) => link.gtin === gtin),
+        "GTIN is not linked to this item.",
+      );
+
+      return [
+        {
+          type: "catalog.catalog-item.gtin-unlinked",
+          data: { gtin },
+        },
+      ];
+    }
     case "ArchiveCatalogItem":
       requireCreatedItem(state);
       assert(state.status === "active", "Only active items can be archived.");
@@ -860,6 +929,16 @@ export const evolveCatalogItem: AggregateEvolver<CatalogItemState, CatalogItemEv
           (reference) =>
             reference.providerKey !== event.data.providerKey || reference.externalKey !== event.data.externalKey,
         ),
+      };
+    case "catalog.catalog-item.gtin-linked":
+      return {
+        ...state,
+        gtins: normalizeGtinLinks([...state.gtins.filter((link) => link.gtin !== event.data.gtin), event.data]),
+      };
+    case "catalog.catalog-item.gtin-unlinked":
+      return {
+        ...state,
+        gtins: state.gtins.filter((link) => link.gtin !== event.data.gtin),
       };
     case "catalog.catalog-item.retired":
       return {
@@ -1149,6 +1228,27 @@ function normalizeExternalCatalogItemReferences(
     (reference) => `${reference.providerKey}:${reference.externalKey}`,
     "External catalog item references must be unique per provider and key.",
   );
+
+  return normalized;
+}
+
+function requireNormalizedGtin(gtin: string): string {
+  const normalized = normalizeGtin(gtin);
+  assert(normalized !== null, "GTIN must be a valid GTIN-8, GTIN-12, GTIN-13, or GTIN-14 barcode.");
+  return normalized as string;
+}
+
+function normalizeGtinLink(command: LinkCatalogItemGtinCommand): CatalogItemGtinLink {
+  return {
+    gtin: requireNormalizedGtin(command.gtin),
+    productForm: normalizeNullableString(command.productForm ?? null),
+  };
+}
+
+function normalizeGtinLinks(links: readonly CatalogItemGtinLink[]): readonly CatalogItemGtinLink[] {
+  const normalized = [...links].sort((left, right) => left.gtin.localeCompare(right.gtin));
+
+  ensureUniqueBy(normalized, (link) => link.gtin, "GTINs must be unique per item.");
 
   return normalized;
 }

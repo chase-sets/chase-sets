@@ -13,7 +13,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "inventory-catalog-item-projection",
-      "subscriptionVersion": 3,
+      "subscriptionVersion": 4,
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
@@ -23,6 +23,8 @@
         "catalog.catalog-item.external-catalog-item-reference-unlinked",
         "catalog.catalog-item.external-product-reference-linked",
         "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.gtin-linked",
+        "catalog.catalog-item.gtin-unlinked",
         "catalog.catalog-item.retired",
         "catalog.catalog-item.archived",
         "catalog.blueprint.created",
