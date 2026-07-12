@@ -8,10 +8,21 @@ import {
   runPostgresGrowthEvidence,
   validatePostgresGrowthEvidenceOptions,
 } from "./postgres-growth-evidence.mjs";
+import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/postgres-connection.mjs";
 
 const checkedAt = "2026-07-03T14:30:00.000Z";
 
 describe("postgres growth evidence", () => {
+  it("uses encrypted but unverified TLS for DigitalOcean sslmode=require URLs", () => {
+    const connectionString = normalizePostgresConnectionString(
+      "postgresql://user:secret@db.example:25060/database?sslmode=require",
+    );
+
+    expect(connectionString).toContain("sslmode=require");
+    expect(connectionString).toContain("uselibpqcompat=true");
+    expect(resolvePostgresSsl(connectionString)).toEqual({ rejectUnauthorized: false });
+  });
+
   it("parses options and database URLs from flags and environment", () => {
     const options = parsePostgresGrowthEvidenceArgs(
       [

@@ -4,6 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { normalizePostgresConnectionString, resolvePostgresSsl } from "./lib/postgres-connection.mjs";
 
 const { Client } = pg;
 
@@ -162,7 +163,8 @@ export function buildPostgresGrowthEvidence(input) {
 }
 
 export async function collectPostgresDatabaseGrowth(database, options) {
-  const client = new Client({ connectionString: database.url });
+  const connectionString = normalizePostgresConnectionString(database.url);
+  const client = new Client({ connectionString, ssl: resolvePostgresSsl(connectionString) });
   try {
     await client.connect();
     return await collectPostgresDatabaseGrowthWithClient(client, database, options);

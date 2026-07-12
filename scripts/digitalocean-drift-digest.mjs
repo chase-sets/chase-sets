@@ -254,7 +254,7 @@ async function collectDigitalOceanSnapshot(options, exec) {
       continue;
     }
     const collectionName = `databaseBackups:${clusterName}`;
-    const backups = await collect(collectionName, ["databases", "backups", "list", clusterId, "--output", "json"]);
+    const backups = await collect(collectionName, ["databases", "backups", clusterId, "--output", "json"]);
     databaseBackups.push({
       clusterId,
       clusterName,

@@ -10,6 +10,8 @@ export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
     githubEnvPath: readOption(argv, "--github-env") ?? readEnv("GITHUB_ENV", env),
     environmentName: readOption(argv, "--environment") ?? readEnv("DEPLOYMENT_ENVIRONMENT", env) ?? "staging",
     contexts: parseContexts(readOption(argv, "--contexts") ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONTEXTS", env)),
+    connectionMode:
+      readOption(argv, "--connection-mode") ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONNECTION_MODE", env) ?? "direct",
   };
 }
 
@@ -26,6 +28,7 @@ export async function exportTerraformStateDatabaseUrls(options, dependencies = {
   const urls = databaseUrlsFromTerraformState(state, {
     contexts: options.contexts,
     environmentName: options.environmentName,
+    connectionMode: options.connectionMode,
   });
   const lines = githubEnvLinesForDatabaseUrls(urls);
 
@@ -49,8 +52,15 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
   const users = resources.find(
     (resource) => resource.type === "digitalocean_database_user" && resource.name === "contexts",
   );
+  const pools = resources.find(
+    (resource) => resource.type === "digitalocean_database_connection_pool" && resource.name === "contexts",
+  );
+  const connectionMode = options.connectionMode ?? "direct";
   const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
-  if (!clusterAttrs.host || !clusterAttrs.port) {
+  if (!["direct", "pooled"].includes(connectionMode)) {
+    throw new Error(`Unsupported Terraform state database connection mode '${connectionMode}'.`);
+  }
+  if (connectionMode === "direct" && (!clusterAttrs.host || !clusterAttrs.port)) {
     throw new Error(
       `${environmentLabel(environmentName)} Terraform state does not contain a usable DigitalOcean database cluster.`,
     );
@@ -58,18 +68,27 @@ export function databaseUrlsFromTerraformState(state, options = {}) {
 
   const databaseByContext = indexedResourceMap(databases);
   const userByContext = indexedResourceMap(users);
+  const poolByContext = indexedResourceMap(pools);
   const contextNames = contextNamesForSelection(options.contexts, databaseByContext, userByContext, environmentName);
 
   return contextNames.map((contextName) => {
     const database = databaseByContext.get(contextName);
     const user = userByContext.get(contextName);
-    if (!contextName || !database?.name || !user?.name || !user?.password) {
+    const pool = poolByContext.get(contextName);
+    const connection = connectionMode === "pooled" ? pool : { host: clusterAttrs.host, port: clusterAttrs.port };
+    const username = connectionMode === "pooled" ? pool?.user || user?.name : user?.name;
+    const password = connectionMode === "pooled" ? pool?.password || user?.password : user?.password;
+    const databaseName = connectionMode === "pooled" ? pool?.name : database?.name;
+    if (!contextName || !databaseName || !connection?.host || !connection?.port || !username || !password) {
       throw new Error(`Terraform state is missing database/user data for '${contextName ?? "unknown"}'.`);
+    }
+    if (connectionMode === "pooled" && pool.mode && pool.mode !== "transaction") {
+      throw new Error(`Terraform state database pool for '${contextName}' is not a transaction pool.`);
     }
 
     const url =
-      `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
-      `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
+      `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}` +
+      `@${connection.host}:${connection.port}/${encodeURIComponent(databaseName)}?sslmode=require`;
     return {
       contextName,
       envName: envNameForContext(contextName),

@@ -64,7 +64,7 @@ describe("digitalocean-drift-digest", () => {
     ]);
     expect(result.record.collections["databaseBackups:chase-sets-postgres"]).toMatchObject({
       status: "success",
-      command: ["doctl", "databases", "backups", "list", "db-prod", "--output", "json"],
+      command: ["doctl", "databases", "backups", "db-prod", "--output", "json"],
       count: 1,
     });
     expect(result.record.resources.apps).toEqual([
@@ -180,7 +180,7 @@ describe("digitalocean-drift-digest", () => {
   it("warns when the newest production database backup is stale", async () => {
     const result = await runDigitalOceanDriftDigest(BASE_OPTIONS, {
       execFile: async (_command, args) => {
-        if (args.join(" ") === "databases backups list db-prod --output json") {
+        if (args.join(" ") === "databases backups db-prod --output json") {
           return { stdout: JSON.stringify([{ id: "backup-old", created_at: "2026-06-30T00:00:00.000Z" }]) };
         }
         return { stdout: JSON.stringify(responseFor(args)) };
@@ -215,7 +215,7 @@ describe("digitalocean-drift-digest", () => {
   it("warns when a managed database backup list is empty", async () => {
     const result = await runDigitalOceanDriftDigest(BASE_OPTIONS, {
       execFile: async (_command, args) => {
-        if (args.join(" ") === "databases backups list db-prod --output json") {
+        if (args.join(" ") === "databases backups db-prod --output json") {
           return { stdout: JSON.stringify([]) };
         }
         return { stdout: JSON.stringify(responseFor(args)) };
@@ -250,7 +250,7 @@ describe("digitalocean-drift-digest", () => {
   it("records database backup collection failures without adding stale or missing findings", async () => {
     const result = await runDigitalOceanDriftDigest(BASE_OPTIONS, {
       execFile: async (_command, args) => {
-        if (args.join(" ") === "databases backups list db-prod --output json") {
+        if (args.join(" ") === "databases backups db-prod --output json") {
           const error = new Error("backup collection failed");
           error.stderr = "backup permission denied";
           throw error;
@@ -373,7 +373,7 @@ function responseFor(args) {
       },
     ];
   }
-  if (command === "databases backups list db-prod --output json") {
+  if (command === "databases backups db-prod --output json") {
     return [{ id: "backup-recent", created_at: "2026-07-01T00:00:00.000Z", size_gigabytes: 12 }];
   }
   if (command === "registry repository list-tags chase-sets-platform --output json") {
