@@ -975,16 +975,29 @@ describe("marketplace search", () => {
 
   it("can rebuild the search index idempotently", async () => {
     await pools.discovery.query(
-      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`,
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, display_badges, status, updated_at)
+       VALUES (
+         'cat_test',
+         'Test Card',
+         '[{"kind":"rarity","label":"Rare"},{"kind":"number","label":"7/100"}]'::jsonb,
+         'active',
+         now()
+       )`,
     );
 
     await rebuildDiscoverySearchIndex(pools.discovery);
     await rebuildDiscoverySearchIndex(pools.discovery);
 
-    const result = await pools.discovery.query(
-      `SELECT COUNT(*) AS count FROM discovery_search_items WHERE catalog_item_id = 'cat_test'`,
+    const result = await pools.discovery.query<{ count: string; display_badges: unknown }>(
+      `SELECT display_badges, COUNT(*) OVER()::text AS count
+       FROM discovery_search_items
+       WHERE catalog_item_id = 'cat_test'`,
     );
     expect(Number(result.rows[0].count)).toBe(1);
+    expect(result.rows[0].display_badges).toEqual([
+      { kind: "rarity", label: "Rare" },
+      { kind: "number", label: "7/100" },
+    ]);
   });
 
   it("does not expose draft catalog items through public status params or bulk preview", async () => {
