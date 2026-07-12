@@ -7,6 +7,8 @@ import {
   type EmailWebhookGateway,
   type MobileMessageProviderWebhookEvent,
   type MobileMessageWebhookGateway,
+  type NotificationChannelPreference,
+  type NotificationPreferenceResolver,
 } from "@chase-sets/outbound-messaging";
 import { createPostgresWebNotificationFeed } from "@chase-sets/web-notifications";
 import {
@@ -39,6 +41,7 @@ export type NotificationsServices = Readonly<{
   mobileMessages: MobileMessageProviderEventStore;
   mobileMessageWebhookGateway: MobileMessageWebhookGateway;
   notificationOutbox: ReturnType<typeof createPostgresNotificationOutbox>;
+  notificationPreferenceResolver: NotificationPreferenceResolver;
   preferences: NotificationPreferenceStore;
 }>;
 
@@ -59,6 +62,8 @@ export function createNotificationsServices(
   db: PgQueryable,
   ports: NotificationsHostPorts = {},
 ): NotificationsServices {
+  const preferences = createPostgresNotificationPreferenceStore(db);
+
   return {
     emailMessages: createPostgresEmailProviderEventStore(db),
     emailWebhookGateway: ports.emailWebhookGateway ?? createNoopEmailWebhookGateway(),
@@ -66,7 +71,32 @@ export function createNotificationsServices(
     mobileMessages: createPostgresMobileMessageProviderEventStore(db),
     mobileMessageWebhookGateway: ports.mobileMessageWebhookGateway ?? createNoopMobileMessageWebhookGateway(),
     notificationOutbox: createPostgresNotificationOutbox({ db }),
-    preferences: createPostgresNotificationPreferenceStore(db),
+    notificationPreferenceResolver: createNotificationPreferenceResolver(preferences),
+    preferences,
+  };
+}
+
+function createNotificationPreferenceResolver(store: NotificationPreferenceStore): NotificationPreferenceResolver {
+  return {
+    async listPreferences(accountId) {
+      const preferences = await store.listPreferences(accountId);
+      return preferences.map(toChannelPreference);
+    },
+  };
+}
+
+function toChannelPreference(preference: NotificationPreference): NotificationChannelPreference {
+  if (preference.key === "product-alerts") {
+    return {
+      channel: null,
+      category: "product-alerts",
+      enabled: preference.enabled,
+    };
+  }
+
+  return {
+    channel: preference.key,
+    enabled: preference.enabled,
   };
 }
 

@@ -1,9 +1,10 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
-import type { OrderId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 
 export type PaymentEmailIntentInput = Readonly<{
   buyerEmail: string;
+  recipientAccountId?: AccountId | null;
   paymentId: string;
   orderIds: readonly string[];
   amount: string;
@@ -26,6 +27,7 @@ export function mapPaymentCapturedToTransactionalEmail(input: PaymentEmailIntent
   return createTransactionalEmailNotificationMessage({
     messageType: "payments.payment-captured",
     criticality: "commerce",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
     subject: `Payment received for ${paymentReference}`,
     templateId: "payment_captured",

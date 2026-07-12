@@ -1,9 +1,10 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
-import type { OrderId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 
 export type OrderConfirmedEmailIntentInput = Readonly<{
   buyerEmail: string;
+  recipientAccountId?: AccountId | null;
   orderId: string;
   orderTotal: string;
   correlationId: string;
@@ -11,6 +12,7 @@ export type OrderConfirmedEmailIntentInput = Readonly<{
 
 export type OrderPaymentDeadlineCancelledEmailIntentInput = Readonly<{
   buyerEmail: string;
+  recipientAccountId?: AccountId | null;
   orderId: string;
   correlationId: string;
 }>;
@@ -21,6 +23,7 @@ export function mapOrderConfirmedToTransactionalEmail(input: OrderConfirmedEmail
   return createTransactionalEmailNotificationMessage({
     messageType: "ordering.order.created",
     criticality: "commerce",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
     subject: `Order ${orderReference} confirmed`,
     templateId: "order_confirmed",
@@ -41,6 +44,7 @@ export function mapOrderPaymentDeadlineCancelledToTransactionalEmail(
   return createTransactionalEmailNotificationMessage({
     messageType: "ordering.order.cancelled.payment-deadline",
     criticality: "commerce",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
     subject: `Order ${orderReference} cancelled after payment deadline`,
     templateId: "order_payment_deadline_cancelled",

@@ -8,9 +8,11 @@ export type KnownNotificationProviderName =
   | "twilio"
   | "web-notification-feed"
   | "push-notification-service"
+  | "preference-filter"
   | "noop";
 export type NotificationProviderName = KnownNotificationProviderName | (string & {});
 export type NotificationCriticality = "security" | "commerce" | "operational";
+export type NotificationCategory = "security" | "order-critical" | "product-alerts" | "operational" | "legal";
 export type NotificationMessageType = `${string}.${string}`;
 export type NotificationTemplateData = Readonly<Record<string, string | number | boolean | null>>;
 export type NotificationProviderMetadata = Readonly<Record<string, string | number | boolean | null>>;
@@ -115,6 +117,10 @@ export type NotificationChannel =
 export type NotificationMessage = Readonly<{
   messageType: NotificationMessageType;
   criticality: NotificationCriticality;
+  /** Optional override for the preference category; criticality supplies the default. */
+  category?: NotificationCategory;
+  /** Account whose preferences govern this notification. Null is used for anonymous recipients. */
+  recipientAccountId?: AccountId | null;
   title: string;
   body: string;
   actionHref?: string | null;
@@ -137,6 +143,8 @@ export type TransactionalEmailAddress = NotificationEmailAddress;
 export type TransactionalEmailMessage = Readonly<{
   messageType: TransactionalEmailMessageType;
   criticality: TransactionalEmailCriticality;
+  category?: NotificationCategory;
+  recipientAccountId?: AccountId | null;
   to: readonly [TransactionalEmailAddress, ...TransactionalEmailAddress[]];
   cc?: readonly TransactionalEmailAddress[];
   bcc?: readonly TransactionalEmailAddress[];
@@ -175,6 +183,8 @@ export function createTransactionalEmailNotificationMessage(message: Transaction
   return {
     messageType: message.messageType,
     criticality: message.criticality,
+    ...(message.category ? { category: message.category } : {}),
+    ...(message.recipientAccountId !== undefined ? { recipientAccountId: message.recipientAccountId } : {}),
     title: message.subject,
     body: message.subject,
     templateId: message.templateId,
@@ -395,17 +405,65 @@ export function createNoopEmailWebhookGateway(): EmailWebhookGateway {
 }
 
 export type NotificationChannelPreference = Readonly<{
-  channel: NotificationChannelName;
+  channel: NotificationChannelName | null;
   enabled: boolean;
   messageType?: NotificationMessageType | null;
+  category?: NotificationCategory | null;
 }>;
+
+export interface NotificationPreferenceResolver {
+  listPreferences(accountId: AccountId): Promise<readonly NotificationChannelPreference[]>;
+}
+
+export function notificationCategory(
+  message: Pick<NotificationMessage, "category" | "criticality">,
+): NotificationCategory {
+  if (message.criticality === "security") {
+    return "security";
+  }
+
+  if (message.category) {
+    return message.category;
+  }
+
+  return message.criticality === "commerce" ? "order-critical" : "operational";
+}
+
+export function isNotificationPreferenceMandatory(
+  message: Pick<NotificationMessage, "category" | "criticality">,
+): boolean {
+  const category = notificationCategory(message);
+  return category === "security" || category === "order-critical" || category === "legal";
+}
+
+export function notificationRecipientAccountId(message: NotificationMessage): AccountId | null {
+  if (message.recipientAccountId !== undefined) {
+    return message.recipientAccountId;
+  }
+
+  if (message.actor.accountId) {
+    return message.actor.accountId;
+  }
+
+  const webChannel = message.channels.find((channel): channel is WebNotificationChannel => channel.channel === "web");
+  return webChannel?.recipient.accountId ?? null;
+}
 
 export function applyNotificationChannelPreferences(
   message: NotificationMessage,
   preferences: readonly NotificationChannelPreference[],
 ): NotificationMessage | null {
-  if (message.criticality === "security") {
+  if (isNotificationPreferenceMandatory(message)) {
     return message;
+  }
+
+  const category = notificationCategory(message);
+  const categoryPreference = preferences.find(
+    (preference) =>
+      preference.channel === null && preference.category === category && (preference.messageType ?? null) === null,
+  );
+  if (categoryPreference && !categoryPreference.enabled) {
+    return null;
   }
 
   const channels = message.channels.filter((channel) =>

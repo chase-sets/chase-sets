@@ -5,6 +5,7 @@ import {
   mapOrderConfirmedToTransactionalEmail,
   mapOrderPaymentDeadlineCancelledToTransactionalEmail,
 } from "./transactional-email-intents";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export const ORDERING_TRANSACTIONAL_EMAIL_PROJECTION = "ordering-order-transactional-email-projection";
 
@@ -14,6 +15,7 @@ export type OrderingOrderCreatedEmailEvent = Readonly<
     data: Readonly<{
       orderId: string;
       sourceType?: string | null;
+      buyerAccountId: AccountId;
       totalAmount: string;
       shippingDestinationSnapshot: Readonly<{ email?: string | null }>;
     }>;
@@ -49,6 +51,7 @@ export async function projectOrderingEventToTransactionalEmail(
     await outbox.enqueueNotification({
       message: mapOrderPaymentDeadlineCancelledToTransactionalEmail({
         buyerEmail,
+        recipientAccountId: event.audit?.forAccountId ?? null,
         orderId: data.orderId,
         correlationId: correlationIdFromEvent(event),
       }),
@@ -71,6 +74,7 @@ export async function projectOrderingEventToTransactionalEmail(
   await outbox.enqueueNotification({
     message: mapOrderConfirmedToTransactionalEmail({
       buyerEmail,
+      recipientAccountId: data.buyerAccountId,
       orderId: data.orderId,
       orderTotal: data.totalAmount,
       correlationId: correlationIdFromEvent(event),

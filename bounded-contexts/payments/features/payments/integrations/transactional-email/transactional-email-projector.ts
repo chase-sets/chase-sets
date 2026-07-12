@@ -2,6 +2,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { mapPaymentCapturedToTransactionalEmail } from "./transactional-email-intents";
 
 export const PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION = "payments-payment-transactional-email-projection";
@@ -20,8 +21,8 @@ function correlationIdFromEvent(event: TransportEvent) {
 async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly string[]) {
   if (orderIds.length === 0) return null;
 
-  const result = await db.query<{ buyer_email: string | null }>(
-    `SELECT buyer_email
+  const result = await db.query<{ buyer_email: string | null; buyer_account_id: string | null }>(
+    `SELECT buyer_email, buyer_account_id
      FROM payments_order_inputs
      WHERE order_id = ANY($1)
        AND buyer_email IS NOT NULL
@@ -30,7 +31,8 @@ async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly strin
     [orderIds],
   );
 
-  return result.rows[0]?.buyer_email?.trim() || null;
+  const row = result.rows[0];
+  return row?.buyer_email?.trim() ? { email: row.buyer_email.trim(), accountId: row.buyer_account_id } : null;
 }
 
 export async function projectPaymentEventToTransactionalEmail(
@@ -41,12 +43,13 @@ export async function projectPaymentEventToTransactionalEmail(
 ) {
   if (event.type !== "payments.payment-captured") return;
   const data = event.data as PaymentEmailEventData;
-  const buyerEmail = await findBuyerEmailForOrders(db, data.orderIds);
-  if (!buyerEmail) return;
+  const buyer = await findBuyerEmailForOrders(db, data.orderIds);
+  if (!buyer) return;
 
   await outbox.enqueueNotification({
     message: mapPaymentCapturedToTransactionalEmail({
-      buyerEmail,
+      buyerEmail: buyer.email,
+      recipientAccountId: buyer.accountId as AccountId | null,
       paymentId: data.paymentId,
       orderIds: data.orderIds,
       amount: data.amount,

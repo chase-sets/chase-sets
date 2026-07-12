@@ -84,6 +84,7 @@ export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInp
   return {
     messageType: "ordering.order.created",
     criticality: "commerce",
+    recipientAccountId: input.buyerAccountId,
     title,
     body,
     actionHref,
@@ -240,6 +241,7 @@ export function mapShipmentDeliveredToNotification(input: ShipmentDeliveredNotif
   return {
     messageType: "fulfillment.shipment.delivered",
     criticality: "operational",
+    recipientAccountId: input.buyerAccountId,
     title,
     body,
     actionHref,
@@ -282,6 +284,7 @@ function sellerWebNotification(
   return {
     messageType: input.messageType,
     criticality: input.criticality,
+    recipientAccountId: input.sellerAccountId,
     title: input.title,
     body: input.body,
     actionHref: input.actionHref,

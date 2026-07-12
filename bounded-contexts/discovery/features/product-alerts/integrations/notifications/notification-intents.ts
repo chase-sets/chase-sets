@@ -35,6 +35,8 @@ export function mapProductAlertMatchToNotification(input: ProductAlertNotificati
   return {
     messageType: `discovery.product-alert.${input.marketSide}`,
     criticality: "commerce",
+    category: "product-alerts",
+    recipientAccountId: input.accountId as AccountId,
     title,
     body,
     actionHref,
