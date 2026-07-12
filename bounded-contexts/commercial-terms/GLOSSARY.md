@@ -2,6 +2,10 @@
 
 This glossary defines the canonical terminology for the Commercial Terms bounded context.
 
+## Policy Document
+
+A **Policy Document** is a dated, operator-revisable Commercial Terms policy value recorded through the shared platform-policy machinery. Commercial Terms owns the stream and business meaning; the shared namespace describes its storage and revision mechanics.
+
 ## Commercial Terms Schedule
 
 A **Commercial Terms Schedule** is a dormant account-type-targeted fee policy retained for possible future differentiation. It is not a published launch schedule.

@@ -5,8 +5,10 @@ description: Short answers about marketplace availability, seller fees, shipping
 audience: buyer
 category: getting-started
 revisionDate: "2026-07-12"
+reviewedAt: "2026-07-12"
 citedPolicies: ["commercial-terms.checkout-processing-fee"]
 relatedFlows: []
+claimCategories: ["protection", "fees", "payouts", "shipping"]
 promiseTable:
   - claim: Marketplace checkout is not open during prelaunch.
     issues: ["#4352"]

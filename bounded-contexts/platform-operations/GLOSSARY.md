@@ -1,5 +1,13 @@
 # Platform Operations Glossary
 
+## Public Doc Article Review
+
+A **Public Doc Article Review** is the operator attention item opened when a revised policy is cited by a public Help Article. It remains visibly aged in Policy Console until an operator confirms that the surrounding prose still matches the revised policy or updates the article before confirmation.
+
+## Support Request
+
+A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.
+
 - Projection Operation: A durable control-plane request for operator-triggered projection work such as rebuild, retry, or cancellation.
 - Projection Group: A bounded-context declared projection owner for one read-model group and its source subscriptions.
 - Subscription: A projection group's declared source-context event consumer and checkpoint boundary.

@@ -4,9 +4,10 @@ title: Order protection
 description: How Chase Sets applies buyer and seller safeguards around payment, fulfillment, disputes, returns, payout release, and negative balances.
 audience: buyer
 category: buying
-revisionDate: "2026-07-12"
+reviewedAt: "2026-07-12"
 citedPolicies: []
 relatedFlows: []
+claimCategories: ["protection", "payouts", "shipping"]
 promiseTable:
   - claim: Payment risk, disputes, refunds, and evidence follow provider-backed workflows.
     issues: ["#4352"]

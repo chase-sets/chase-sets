@@ -13,9 +13,10 @@ Every article requires:
 - `description`: locale-specific summary for cards and metadata.
 - `audience`: `buyer`, `seller`, or `developer`.
 - `category`: `getting-started`, `buying`, or `selling`.
-- `revisionDate`: ISO calendar date for the last truth review.
+- `reviewedAt`: ISO calendar date for the last truth review.
 - `citedPolicies`: policy keys consumed by the later freshness slice; use `[]` when none are cited.
 - `relatedFlows`: flow types consumed by the later deflection slice; use `[]` when none apply.
+- `claimCategories`: any public claim families the article covers: `protection`, `fees`, `payouts`, or `shipping`. Claim-bearing articles must have at least one promise entry.
 - `promiseTable`: behavioral claims with at least one issue or test reference each.
 
 Example:
@@ -27,9 +28,10 @@ title: Example
 description: What this article explains.
 audience: buyer
 category: buying
-revisionDate: "2026-07-12"
+reviewedAt: "2026-07-12"
 citedPolicies: []
 relatedFlows: []
+claimCategories: []
 promiseTable:
   - claim: The public route renders the compiled article.
     issues: ["#4352"]

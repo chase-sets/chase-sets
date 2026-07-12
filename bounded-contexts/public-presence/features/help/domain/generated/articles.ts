@@ -11,9 +11,10 @@ export const helpArticles = [
       "How Chase Sets applies buyer and seller safeguards around payment, fulfillment, disputes, returns, payout release, and negative balances.",
     audience: "buyer",
     category: "buying",
-    revisionDate: "2026-07-12",
+    reviewedAt: "2026-07-12",
     citedPolicies: [],
     relatedFlows: [],
+    claimCategories: ["protection", "payouts", "shipping"],
     promiseTable: [
       {
         claim: "Payment risk, disputes, refunds, and evidence follow provider-backed workflows.",
@@ -263,9 +264,10 @@ export const helpArticles = [
       "How refund and return handling relates to order status, payment outcome, shipment progress, and support review.",
     audience: "buyer",
     category: "buying",
-    revisionDate: "2026-07-12",
+    reviewedAt: "2026-07-12",
     citedPolicies: [],
     relatedFlows: [],
+    claimCategories: ["protection", "shipping"],
     promiseTable: [
       {
         claim: "Refund and return outcomes are tied to durable payment and shipment behavior.",
@@ -370,9 +372,10 @@ export const helpArticles = [
     description: "Short answers about marketplace availability, seller fees, shipping, and order protection.",
     audience: "buyer",
     category: "getting-started",
-    revisionDate: "2026-07-12",
-    citedPolicies: ["commercial-terms.checkout-processing-fee"],
+    reviewedAt: "2026-07-12",
+    citedPolicies: [],
     relatedFlows: [],
+    claimCategories: ["protection", "fees", "payouts", "shipping"],
     promiseTable: [
       {
         claim: "Marketplace checkout is not open during prelaunch.",
@@ -467,55 +470,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              " explains the standard seller fee, per-item cap, and listing-time fee confirmation. Buyers pay only payment processing at cost, shown before payment: ",
-          },
-          {
-            type: "policy-value",
-            key: "checkout-processing-fee.card.bps",
-          },
-          {
-            type: "text",
-            value: " plus ",
-          },
-          {
-            type: "policy-value",
-            key: "checkout-processing-fee.card.fixed",
-          },
-          {
-            type: "text",
-            value: " by card, ",
-          },
-          {
-            type: "policy-value",
-            key: "checkout-processing-fee.bank-account.bps",
-          },
-          {
-            type: "text",
-            value: " plus ",
-          },
-          {
-            type: "policy-value",
-            key: "checkout-processing-fee.bank-account.fixed",
-          },
-          {
-            type: "text",
-            value: " by bank account, and ",
-          },
-          {
-            type: "policy-value",
-            key: "checkout-processing-fee.platform-credit.bps",
-          },
-          {
-            type: "text",
-            value: " plus ",
-          },
-          {
-            type: "policy-value",
-            key: "checkout-processing-fee.platform-credit.fixed",
-          },
-          {
-            type: "text",
-            value: " with Chase Sets credit.",
+              " explains the standard seller fee, per-item cap, and listing-time fee confirmation. Buyers see any checkout fee before payment.",
           },
         ],
       },
@@ -564,14 +519,7 @@ export const helpArticles = [
         ],
       },
     ],
-    policyValueKeys: [
-      "checkout-processing-fee.card.bps",
-      "checkout-processing-fee.card.fixed",
-      "checkout-processing-fee.bank-account.bps",
-      "checkout-processing-fee.bank-account.fixed",
-      "checkout-processing-fee.platform-credit.bps",
-      "checkout-processing-fee.platform-credit.fixed",
-    ],
+    policyValueKeys: [],
   },
   {
     slug: "sales-fees",
@@ -580,9 +528,10 @@ export const helpArticles = [
     description: "See the live standard sales-fee schedule and buyer checkout processing fees before you transact.",
     audience: "seller",
     category: "selling",
-    revisionDate: "2026-07-12",
+    reviewedAt: "2026-07-12",
     citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
     relatedFlows: ["listing-confirmation", "checkout-price-breakdown"],
+    claimCategories: ["fees"],
     promiseTable: [
       {
         claim: "Published fee figures resolve from the current ratified policy documents.",

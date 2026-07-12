@@ -7,9 +7,10 @@ title: Example article
 description: An honest example.
 audience: buyer
 category: buying
-revisionDate: "2026-07-12"
+reviewedAt: "2026-07-12"
 citedPolicies: []
 relatedFlows: []
+claimCategories: []
 promiseTable:
   - claim: The example renders.
     issues: ["#4352"]
@@ -47,10 +48,21 @@ describe("help article compiler", () => {
     ).toThrow("title must be a non-empty string");
   });
 
-  it("rejects impossible revision dates", () => {
+  it("rejects impossible review dates", () => {
     expect(() => compileHelpArticleSource("example.en.md", validSource.replace("2026-07-12", "2026-02-31"))).toThrow(
-      "revisionDate must be a real date",
+      "reviewedAt must be a real date",
     );
+  });
+
+  it("requires promises for claim-bearing categories", () => {
+    expect(() =>
+      compileHelpArticleSource(
+        "example.en.md",
+        validSource
+          .replace("claimCategories: []", 'claimCategories: ["shipping"]')
+          .replace(/promiseTable:[\s\S]*?---\n/, "promiseTable: []\n---\n"),
+      ),
+    ).toThrow("claim-bearing article categories (shipping) require promiseTable entries");
   });
 
   it("fails the corpus for a broken internal help link", () => {

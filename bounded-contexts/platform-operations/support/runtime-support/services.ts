@@ -12,6 +12,7 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
+import { createPublicDocReviewRuntime } from "../../features/public-doc-reviews/api/runtime";
 import { createDashboardQueryService } from "../../features/insights-dashboards/read-model/queries";
 import { createOpsDashboardRuntime } from "../../features/insights-dashboards/api/ops-runtime";
 import type { OpsMarketAnalyticsCrossContextPort } from "../../features/insights-dashboards/api/ops-contracts";
@@ -74,6 +75,7 @@ export type PlatformOperationsServices = Readonly<{
   opsDashboard: ReturnType<typeof createOpsDashboardRuntime>;
   offerEconomics: ReturnType<typeof createOfferEconomicsRuntime>;
   platformFeedback: ReturnType<typeof createPlatformFeedbackRuntime>;
+  publicDocReviews: ReturnType<typeof createPublicDocReviewRuntime>;
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
@@ -103,6 +105,7 @@ export function createPlatformOperationsServices(
     checkpointStore,
     db,
   });
+  const publicDocReviews = createPublicDocReviewRuntime({ db, eventStore });
   const reportedContent = createReportedContentRuntime({ db, eventStore });
   const riskAlerts = createRiskAlertRuntime({ db, eventStore });
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
@@ -181,6 +184,7 @@ export function createPlatformOperationsServices(
     opsDashboard: createOpsDashboardRuntime({ db, crossContext: ports.opsMarketAnalyticsCrossContext }),
     offerEconomics: createOfferEconomicsRuntime({ crossContext: ports.offerEconomicsCrossContext }),
     platformFeedback,
+    publicDocReviews,
     reportedContent,
     riskAlerts,
     supportRequests,
@@ -189,6 +193,7 @@ export function createPlatformOperationsServices(
     supportReferenceLookup,
     projectors: [
       ...platformFeedback.projectors,
+      ...publicDocReviews.projectors,
       ...reportedContent.projectors,
       ...riskAlerts.projectors,
       ...supportRequests.projectors,

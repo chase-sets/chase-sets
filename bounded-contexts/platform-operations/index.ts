@@ -12,6 +12,10 @@ import { createInsightsDashboardMcpHandlers } from "./features/insights-dashboar
 import { createOfferEconomicsMcpHandlers } from "./features/offer-economics/api/mcp";
 import { buildExperienceApi } from "./features/platform-feedback/api/http";
 import {
+  buildCommercialTermsPublicDocReviewProjectionHandlers,
+  buildPlatformOperationsPublicDocReviewProjectionHandlers,
+} from "./features/public-doc-reviews/read-model/projection";
+import {
   buildMarketplaceReportedContentProjectionHandlers,
   buildPlatformOperationsReportedContentProjectionHandlers,
 } from "./features/reported-content/read-model/projection";
@@ -101,6 +105,14 @@ export const module = defineBoundedContextModule<
         "platform-operations.reported-content-queue-projection": {
           subscriptionName: "platform-operations.reported-content-queue-projection",
           buildHandlers: () => buildPlatformOperationsReportedContentProjectionHandlers(services.db),
+        },
+        "commercial-terms.public-doc-review-queue-projection": {
+          subscriptionName: "platform-operations.public-doc-review-queue-projection",
+          buildHandlers: () => buildCommercialTermsPublicDocReviewProjectionHandlers(services.db),
+        },
+        "platform-operations.public-doc-review-queue-projection": {
+          subscriptionName: "platform-operations.public-doc-review-queue-projection",
+          buildHandlers: () => buildPlatformOperationsPublicDocReviewProjectionHandlers(services.db),
         },
         "identity.risk-alert-queue-projection": {
           subscriptionName: "platform-operations.risk-alert-queue-projection",
