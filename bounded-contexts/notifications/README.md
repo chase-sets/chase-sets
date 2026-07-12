@@ -45,6 +45,29 @@ Notifications terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 3. Product Alert rules remain Discovery-owned and appear as a `Product alerts` category inside notification settings.
 4. The marketplace notification center is a shell side sheet on desktop and bottom sheet on mobile, not a primary full-page account destination.
 
+## Delivery policy
+
+All durable notification deliveries pass through the shared notification outbox dispatcher in
+`infrastructure/notification-outbox`. The dispatcher resolves the recipient account's current
+preferences from Notifications and applies them immediately before the channel adapter sends.
+This is the only preference-enforcement site; projections and API senders only create notification
+messages and enqueue them.
+
+Notification categories use the existing `criticality` as their default:
+
+- `security`, `order-critical`, and `legal` are mandatory and ignore channel opt-outs.
+- `operational` is suppressible by channel preference.
+- `product-alerts` is suppressible by the Product alerts category preference.
+
+Commerce-critical messages default to `order-critical`; Product Alert intents explicitly override
+that default to `product-alerts`. Anonymous messages have no account preference to resolve and are
+delivered unless their category is otherwise mandatory.
+
+The audited producer paths are the Notifications source-fact projector, Discovery and Marketplace
+notification projectors, Auth session/API senders, and transactional-email projectors in Ordering,
+Fulfillment, Payments, Settlement, Platform Operations, and Public Presence. They all enqueue into
+the same outbox dispatcher; provider adapters do not send independently.
+
 ## Tests
 
 Run `pnpm --filter @chase-sets/notifications run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/notifications run test` before opening a PR.

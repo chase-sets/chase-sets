@@ -1,7 +1,11 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { createNoopNotificationAdapter, type NotificationChannelAdapter } from "@chase-sets/outbound-messaging";
+import {
+  createNoopNotificationAdapter,
+  type NotificationChannelAdapter,
+  type NotificationPreferenceResolver,
+} from "@chase-sets/outbound-messaging";
 import {
   createPostgresTcgplayerAutomationHttpConfigStore,
   createTcgplayerAutomationCatalogClient,
@@ -2410,6 +2414,14 @@ function createNotificationDispatchRunners(
   emailAdapter: NotificationChannelAdapter,
 ): readonly WorkerRunner[] {
   const notificationCenterContext = runtime.mountedContexts.find((context) => context.contextName === "notifications");
+  const preferenceResolver = (
+    notificationCenterContext?.services as
+      | { notificationPreferenceResolver?: NotificationPreferenceResolver }
+      | undefined
+  )?.notificationPreferenceResolver;
+  if (!preferenceResolver) {
+    throw new Error("Notifications preference resolver is unavailable for notification dispatch.");
+  }
   const mobileMessageAdapters: readonly NotificationChannelAdapter[] =
     config.mobileMessaging.kind === "twilio"
       ? [
@@ -2445,6 +2457,7 @@ function createNotificationDispatchRunners(
       const webNotificationDb = notificationCenterContext?.pool ?? context.pool;
       const dispatcher = createNotificationOutboxDispatcher({
         outbox: createPostgresNotificationOutbox({ db: context.pool }),
+        preferenceResolver,
         adapters: [
           emailAdapter,
           ...mobileMessageAdapters,

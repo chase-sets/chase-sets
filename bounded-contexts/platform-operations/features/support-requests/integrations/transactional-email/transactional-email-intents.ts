@@ -1,7 +1,9 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export type SupportRequestEmailIntentInput = Readonly<{
   buyerEmail: string;
+  recipientAccountId?: AccountId | null;
   supportRequestId: string;
   orderId: string;
   flowType: string;
@@ -14,6 +16,7 @@ export function mapSupportRequestOpenedToTransactionalEmail(
   return createTransactionalEmailNotificationMessage({
     messageType: "support.support-request.opened",
     criticality: "operational",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
     subject: `Support request opened for order ${input.orderId}`,
     templateId: "support_request_opened",
@@ -36,6 +39,7 @@ export function mapSupportRequestResolvedToTransactionalEmail(
   return createTransactionalEmailNotificationMessage({
     messageType: "support.support-request.resolved",
     criticality: "operational",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
     subject: `Support request resolved for order ${input.orderId}`,
     templateId: "support_request_resolved",

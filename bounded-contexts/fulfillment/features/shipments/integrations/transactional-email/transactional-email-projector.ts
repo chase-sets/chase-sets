@@ -1,6 +1,7 @@
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { mapShipmentDeliveredToTransactionalEmail } from "./transactional-email-intents";
 
 export const FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION = "fulfillment-shipment-transactional-email-projection";
@@ -11,6 +12,7 @@ export type FulfillmentShipmentDeliveredEmailEvent = Readonly<
     data: Readonly<{
       shipmentId: string;
       orderId: string;
+      buyerAccountId: AccountId;
       trackingIdentifier: string | null;
       shippingDestinationSnapshot: Readonly<{ email?: string | null }>;
     }>;
@@ -34,6 +36,7 @@ export async function projectFulfillmentEventToTransactionalEmail(
   await outbox.enqueueNotification({
     message: mapShipmentDeliveredToTransactionalEmail({
       buyerEmail,
+      recipientAccountId: data.buyerAccountId,
       orderId: data.orderId,
       trackingNumber: data.trackingIdentifier ?? data.shipmentId,
       correlationId: correlationIdFromEvent(event),

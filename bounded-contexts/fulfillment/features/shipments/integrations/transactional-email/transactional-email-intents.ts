@@ -1,9 +1,10 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
-import type { OrderId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 
 export type ShipmentDeliveredEmailIntentInput = Readonly<{
   buyerEmail: string;
+  recipientAccountId?: AccountId | null;
   orderId: string;
   trackingNumber: string;
   correlationId: string;
@@ -17,6 +18,7 @@ export function mapShipmentDeliveredToTransactionalEmail(
   return createTransactionalEmailNotificationMessage({
     messageType: "fulfillment.shipment.delivered",
     criticality: "operational",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
     subject: `Shipment delivered for order ${orderReference}`,
     templateId: "shipment_delivered",

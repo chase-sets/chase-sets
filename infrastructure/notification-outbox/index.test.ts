@@ -50,6 +50,17 @@ const message: NotificationMessage = {
   actor: { userId: null, accountId: null },
 };
 
+const preferenceResolver = {
+  listPreferences: vi.fn(async () => []),
+};
+
+const messageSource = {
+  sourceEventId: "evt_1",
+  sourceGlobalPosition: "12",
+  projectionName: "ordering-order-notification-projection",
+  occurredAt: "2026-05-09T00:00:00.000Z",
+};
+
 describe("notification outbox", () => {
   it("records one delivery per requested channel", async () => {
     const expandedChannelMessage: NotificationMessage = {
@@ -166,6 +177,7 @@ describe("notification outbox", () => {
       outbox,
       adapters: [adapter],
       claimOwnerId: "worker_1",
+      preferenceResolver,
       now: () => new Date("2026-05-09T00:00:00.000Z"),
     });
 
@@ -182,6 +194,118 @@ describe("notification outbox", () => {
     ]);
     expect(adapter.sendNotificationChannel).toHaveBeenCalledWith(delivery);
     expect(outbox.sent).toEqual([delivery.deliveryId]);
+  });
+
+  it("suppresses opted-out email and web deliveries at the dispatcher chokepoint", async () => {
+    const preferenceMessage: NotificationMessage = {
+      ...message,
+      recipientAccountId: "acc_buyer" as never,
+      category: "operational",
+      channels: [message.channels[0], message.channels[3]],
+    };
+    const deliveries = [
+      {
+        outboxId: "1",
+        deliveryId: "email_delivery",
+        message: preferenceMessage,
+        channel: preferenceMessage.channels[0],
+      },
+      {
+        outboxId: "2",
+        deliveryId: "web_delivery",
+        message: preferenceMessage,
+        channel: preferenceMessage.channels[1],
+      },
+    ].map((delivery, index) => ({
+      ...delivery,
+      source: messageSource,
+      status: "sending" as const,
+      attemptCount: 1,
+      maxAttempts: 3,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+      nextAttemptAt: "2026-05-09T00:00:00.000Z",
+      lastError: null,
+      outboxId: String(index + 1),
+    }));
+    const outbox = createMemoryOutbox(deliveries);
+    const adapter = {
+      channel: "web" as const,
+      sendNotificationChannel: vi.fn(async () => {
+        throw new Error("An opted-out delivery must not reach an adapter.");
+      }),
+    };
+    const preferenceResolverForTest = {
+      listPreferences: vi.fn(async () => [
+        { channel: "email" as const, enabled: false },
+        { channel: "web" as const, enabled: false },
+      ]),
+    };
+    const dispatcher = createNotificationOutboxDispatcher({
+      outbox,
+      adapters: [adapter],
+      claimOwnerId: "worker_1",
+      preferenceResolver: preferenceResolverForTest,
+      now: () => new Date("2026-05-09T00:00:00.000Z"),
+    });
+
+    await dispatcher.runOnce();
+
+    expect(preferenceResolverForTest.listPreferences).toHaveBeenCalledOnce();
+    expect(adapter.sendNotificationChannel).not.toHaveBeenCalled();
+    expect(outbox.sent).toEqual(["email_delivery", "web_delivery"]);
+  });
+
+  it("uses the latest preference state for subsequent sends while mandatory notifications still deliver", async () => {
+    const preferenceMessage: NotificationMessage = {
+      ...message,
+      recipientAccountId: "acc_buyer" as never,
+      criticality: "operational",
+      channels: [message.channels[3]],
+    };
+    const delivery = {
+      outboxId: "1",
+      deliveryId: "web_delivery",
+      message: preferenceMessage,
+      channel: preferenceMessage.channels[0],
+      source: messageSource,
+      status: "sending" as const,
+      attemptCount: 1,
+      maxAttempts: 3,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+      nextAttemptAt: "2026-05-09T00:00:00.000Z",
+      lastError: null,
+    };
+    const outbox = createMemoryOutbox([delivery]);
+    let enabled = false;
+    const preferenceResolverForTest = {
+      listPreferences: vi.fn(async () => [{ channel: "web" as const, enabled }]),
+    };
+    const adapter = {
+      channel: "web" as const,
+      sendNotificationChannel: vi.fn(async () => ({
+        channel: "web" as const,
+        providerName: "web-notification-feed" as const,
+        providerMessageId: "web_1",
+        acceptedAt: "2026-05-09T00:00:01.000Z",
+        attemptCount: 1,
+      })),
+    };
+    const dispatcher = createNotificationOutboxDispatcher({
+      outbox,
+      adapters: [adapter],
+      claimOwnerId: "worker_1",
+      preferenceResolver: preferenceResolverForTest,
+      now: () => new Date("2026-05-09T00:00:00.000Z"),
+    });
+
+    await dispatcher.runOnce();
+    enabled = true;
+    await dispatcher.runOnce();
+
+    expect(preferenceResolverForTest.listPreferences).toHaveBeenCalledTimes(2);
+    expect(adapter.sendNotificationChannel).toHaveBeenCalledOnce();
   });
 
   it("renews a claimed delivery before sending so another dispatcher cannot claim it mid-batch", async () => {
@@ -222,6 +346,7 @@ describe("notification outbox", () => {
       outbox,
       adapters: [adapter],
       claimOwnerId: "worker_1",
+      preferenceResolver,
       claimTtlMs: 120_000,
       now: () => new Date("2026-05-09T00:00:00.000Z"),
     });
@@ -288,6 +413,7 @@ describe("notification outbox", () => {
       outbox,
       adapters: [adapter],
       claimOwnerId: "worker_1",
+      preferenceResolver,
       now: () => new Date("2026-05-15T00:00:00.000Z"),
     });
 
@@ -329,6 +455,7 @@ describe("notification outbox", () => {
       outbox,
       adapters: [adapter],
       claimOwnerId: "worker_1",
+      preferenceResolver,
       retryDelayMs: () => 60_000,
       now: () => new Date("2026-05-09T00:00:00.000Z"),
     });

@@ -1,6 +1,7 @@
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { mapPayoutCompletedToTransactionalEmail } from "./transactional-email-intents";
 
 export const SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION = "settlement-payout-transactional-email-projection";
@@ -11,6 +12,7 @@ export type SettlementPayoutCompletedEmailEvent = Readonly<
     data: Readonly<{
       notificationEmail: string | null;
       payoutId: string;
+      accountId: AccountId;
       amount: string;
     }>;
   }
@@ -33,6 +35,7 @@ export async function projectSettlementPayoutEventToTransactionalEmail(
   await outbox.enqueueNotification({
     message: mapPayoutCompletedToTransactionalEmail({
       sellerEmail,
+      recipientAccountId: data.accountId,
       payoutId: data.payoutId,
       amount: data.amount,
       correlationId: correlationIdFromEvent(event),

@@ -4,6 +4,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createNotificationChannelAdapterRegistry,
   createNotificationDeliveryId,
+  applyNotificationChannelPreferences,
   type ClaimNotificationDeliveriesInput,
   type ClaimedNotificationDelivery,
   type EnqueueNotificationInput,
@@ -12,7 +13,10 @@ import {
   type NotificationChannel,
   type NotificationChannelAdapter,
   type NotificationMessage,
+  type NotificationPreferenceResolver,
   type NotificationOutboxStore,
+  isNotificationPreferenceMandatory,
+  notificationRecipientAccountId,
   type RenewClaimedNotificationDeliveryInput,
 } from "@chase-sets/outbound-messaging";
 
@@ -325,6 +329,7 @@ export function createNotificationOutboxDispatcher(
     claimTtlMs?: number;
     retryDelayMs?: (attemptCount: number) => number;
     now?: () => Date;
+    preferenceResolver: NotificationPreferenceResolver;
   }>,
 ): NotificationOutboxDispatcher {
   const now = options.now ?? (() => new Date());
@@ -341,6 +346,21 @@ export function createNotificationOutboxDispatcher(
         claimTtlMs,
         now: now().toISOString(),
       });
+      const preferencesByAccount = new Map<
+        string,
+        Awaited<ReturnType<NotificationPreferenceResolver["listPreferences"]>>
+      >();
+
+      async function preferencesForAccount(accountId: NonNullable<ReturnType<typeof notificationRecipientAccountId>>) {
+        const cached = preferencesByAccount.get(accountId);
+        if (cached) {
+          return cached;
+        }
+
+        const preferences = await options.preferenceResolver.listPreferences(accountId);
+        preferencesByAccount.set(accountId, preferences);
+        return preferences;
+      }
 
       for (const delivery of deliveries) {
         const claimRenewed = await options.outbox.renewClaimedNotificationDelivery({
@@ -355,6 +375,32 @@ export function createNotificationOutboxDispatcher(
         }
 
         try {
+          const recipientAccountId = notificationRecipientAccountId(delivery.message);
+          const preferences = isNotificationPreferenceMandatory(delivery.message)
+            ? []
+            : recipientAccountId
+              ? await preferencesForAccount(recipientAccountId)
+              : [];
+          const preferenceFilteredMessage = applyNotificationChannelPreferences(
+            { ...delivery.message, channels: [delivery.channel] },
+            preferences,
+          );
+
+          if (!preferenceFilteredMessage) {
+            await options.outbox.markNotificationDeliverySent({
+              deliveryId: delivery.deliveryId,
+              receipt: {
+                channel: delivery.channel.channel,
+                providerName: "preference-filter",
+                providerMessageId: `suppressed:${delivery.deliveryId}`,
+                acceptedAt: now().toISOString(),
+                attemptCount: 0,
+              },
+              now: now().toISOString(),
+            });
+            continue;
+          }
+
           const adapter = adapterRegistry.adapterForChannel(delivery.channel.channel);
           if (!adapter) {
             throw new Error(`No notification adapter configured for '${delivery.channel.channel}'.`);

@@ -1,7 +1,9 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export type RefundEmailIntentInput = Readonly<{
   buyerEmail: string;
+  recipientAccountId?: AccountId | null;
   refundId: string;
   paymentId: string;
   orderIds: readonly string[];
@@ -14,6 +16,7 @@ export function mapRefundIssuedToTransactionalEmail(input: RefundEmailIntentInpu
   return createTransactionalEmailNotificationMessage({
     messageType: "payments.refund-issued",
     criticality: "commerce",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
     subject: `Refund issued for ${input.orderIds.length === 1 ? input.orderIds[0] : input.paymentId}`,
     templateId: "refund_issued",
@@ -36,6 +39,7 @@ export function mapRefundFailedToTransactionalEmail(input: RefundEmailIntentInpu
   return createTransactionalEmailNotificationMessage({
     messageType: "payments.refund-failed",
     criticality: "commerce",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.buyerEmail }],
     subject: `Refund needs review for ${input.orderIds.length === 1 ? input.orderIds[0] : input.paymentId}`,
     templateId: "refund_failed",

@@ -2,6 +2,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   mapSupportRequestOpenedToTransactionalEmail,
   mapSupportRequestResolvedToTransactionalEmail,
@@ -21,15 +22,16 @@ function correlationIdFromEvent(event: TransportEvent) {
 }
 
 async function findBuyerEmailForOrder(db: PgQueryable, orderId: string) {
-  const result = await db.query<{ buyer_email: string | null }>(
-    `SELECT buyer_email
+  const result = await db.query<{ buyer_email: string | null; buyer_account_id: string | null }>(
+    `SELECT buyer_email, buyer_account_id
      FROM support_order_sources
      WHERE order_id = $1
      LIMIT 1`,
     [orderId],
   );
 
-  return result.rows[0]?.buyer_email?.trim() || null;
+  const row = result.rows[0];
+  return row?.buyer_email?.trim() ? { email: row.buyer_email.trim(), accountId: row.buyer_account_id } : null;
 }
 
 export async function projectSupportRequestEventToTransactionalEmail(
@@ -40,11 +42,12 @@ export async function projectSupportRequestEventToTransactionalEmail(
 ) {
   if (event.type !== "support.support-request.opened" && event.type !== "support.support-request.resolved") return;
   const data = event.data as SupportRequestEmailEventData;
-  const buyerEmail = await findBuyerEmailForOrder(db, data.orderId);
-  if (!buyerEmail) return;
+  const buyer = await findBuyerEmailForOrder(db, data.orderId);
+  if (!buyer) return;
 
   const common = {
-    buyerEmail,
+    buyerEmail: buyer.email,
+    recipientAccountId: buyer.accountId as AccountId | null,
     supportRequestId: data.supportRequestId,
     orderId: data.orderId,
     flowType: data.flowType,

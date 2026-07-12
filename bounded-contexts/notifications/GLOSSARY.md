@@ -31,3 +31,31 @@ Notes:
 - Notification Preferences are owned by Notifications.
 - Preferences may control channels, categories, quieting, suppression, or future frequency rules.
 - Preferences do not redefine source-context business rules such as Product Alert match criteria.
+
+## Notification Category
+
+A **Notification Category** classifies delivery policy independently from message wording.
+
+Notes:
+
+- `security`, `order-critical`, and `legal` categories are mandatory.
+- `operational` and `product-alerts` categories are suppressible by Notification Preferences.
+- Message criticality supplies the default category: security maps to `security`, commerce maps to
+  `order-critical`, and operational maps to `operational`.
+
+## Mandatory Notification
+
+A **Mandatory Notification** is a security, order-critical, or legal notification that must reach
+its recipient through its requested channel even when that channel is disabled in preferences.
+
+## Suppressible Notification
+
+A **Suppressible Notification** is an operational or Product Alert notification whose channel
+delivery may be removed by the recipient's current Notification Preferences. Preference resolution
+happens at the shared outbox dispatcher immediately before adapter delivery.
+
+## Recipient Account
+
+A **Recipient Account** is the account whose Notification Preferences govern a notification. The
+recipient account is carried on the outbound message when known; anonymous messages have no
+recipient account and therefore have no account-level opt-out to apply.

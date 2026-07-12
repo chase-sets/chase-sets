@@ -15,6 +15,7 @@ describe("notifications contract", () => {
     const message: NotificationMessage = {
       messageType: "ordering.order.created",
       criticality: "commerce",
+      category: "operational",
       title: "Order confirmed",
       body: "Order ord_123 is confirmed.",
       actionHref: "/account/purchases/ord_123",
@@ -230,6 +231,7 @@ describe("notifications contract", () => {
     const commerceMessage: NotificationMessage = {
       messageType: "ordering.order.created",
       criticality: "commerce",
+      category: "operational",
       title: "Order confirmed",
       body: "Order ord_123 is confirmed.",
       templateId: "order_confirmed",
@@ -272,9 +274,22 @@ describe("notifications contract", () => {
 
     expect(
       applyNotificationChannelPreferences(
+        { ...commerceMessage, category: undefined },
+        [
+          { channel: "email", enabled: false },
+          { channel: "sms", enabled: false },
+          { channel: "rcs", enabled: false },
+          { channel: "web", enabled: false },
+        ],
+      )?.channels.map((channel) => channel.channel),
+    ).toEqual(["email", "sms", "rcs", "web"]);
+
+    expect(
+      applyNotificationChannelPreferences(
         {
           ...commerceMessage,
           criticality: "security",
+          category: "security",
         },
         [
           { channel: "email", enabled: false },
@@ -284,5 +299,15 @@ describe("notifications contract", () => {
         ],
       )?.channels.map((channel) => channel.channel),
     ).toEqual(["email", "sms", "rcs", "web"]);
+
+    expect(
+      applyNotificationChannelPreferences(
+        {
+          ...commerceMessage,
+          category: "product-alerts",
+        },
+        [{ channel: null, category: "product-alerts", enabled: false }],
+      ),
+    ).toBeNull();
   });
 });

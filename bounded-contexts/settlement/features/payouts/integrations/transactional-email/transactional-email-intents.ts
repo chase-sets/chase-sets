@@ -1,9 +1,10 @@
 import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
-import type { PayoutId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, PayoutId } from "@chase-sets/primitives/typed-ids";
 
 export type PayoutCompletedEmailIntentInput = Readonly<{
   sellerEmail: string;
+  recipientAccountId?: AccountId | null;
   payoutId: string;
   amount: string;
   correlationId: string;
@@ -15,6 +16,7 @@ export function mapPayoutCompletedToTransactionalEmail(input: PayoutCompletedEma
   return createTransactionalEmailNotificationMessage({
     messageType: "settlement.payout.completed",
     criticality: "commerce",
+    recipientAccountId: input.recipientAccountId,
     to: [{ email: input.sellerEmail }],
     subject: `Payout ${payoutReference} completed`,
     templateId: "payout_completed",

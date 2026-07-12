@@ -2,6 +2,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   mapRefundFailedToTransactionalEmail,
   mapRefundIssuedToTransactionalEmail,
@@ -24,8 +25,8 @@ function correlationIdFromEvent(event: TransportEvent) {
 async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly string[]) {
   if (orderIds.length === 0) return null;
 
-  const result = await db.query<{ buyer_email: string | null }>(
-    `SELECT buyer_email
+  const result = await db.query<{ buyer_email: string | null; buyer_account_id: string | null }>(
+    `SELECT buyer_email, buyer_account_id
      FROM payments_order_inputs
      WHERE order_id = ANY($1)
        AND buyer_email IS NOT NULL
@@ -34,7 +35,8 @@ async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly strin
     [orderIds],
   );
 
-  return result.rows[0]?.buyer_email?.trim() || null;
+  const row = result.rows[0];
+  return row?.buyer_email?.trim() ? { email: row.buyer_email.trim(), accountId: row.buyer_account_id } : null;
 }
 
 export async function projectRefundEventToTransactionalEmail(
@@ -45,15 +47,16 @@ export async function projectRefundEventToTransactionalEmail(
 ) {
   if (event.type !== "payments.refund-issued" && event.type !== "payments.refund-failed") return;
   const data = event.data as RefundEmailEventData;
-  const buyerEmail = await findBuyerEmailForOrders(db, data.orderIds);
-  if (!buyerEmail) return;
+  const buyer = await findBuyerEmailForOrders(db, data.orderIds);
+  if (!buyer) return;
 
   const mapper =
     event.type === "payments.refund-issued" ? mapRefundIssuedToTransactionalEmail : mapRefundFailedToTransactionalEmail;
 
   await outbox.enqueueNotification({
     message: mapper({
-      buyerEmail,
+      buyerEmail: buyer.email,
+      recipientAccountId: buyer.accountId as AccountId | null,
       refundId: data.refundId,
       paymentId: data.paymentId,
       orderIds: data.orderIds,
