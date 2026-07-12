@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryItemDetailProjectionHandlers } from "../features/item-detail/read-model/projection";
-import { buildDiscoverySearchItemProjectionHandlers } from "../features/search/read-model/projection";
+import {
+  buildDiscoverySearchItemProjectionHandlers,
+  rebuildDiscoverySearchIndex,
+} from "../features/search/read-model/projection";
 
 class DiscoveryProjectionDb implements PgQueryable {
   public readonly searchCatalogItems = new Map<string, Record<string, unknown>>();
   public readonly detailCatalogItems = new Map<string, Record<string, unknown>>();
   public readonly redirectWrites: unknown[][] = [];
   public readonly derivedWrites: string[] = [];
+  public readonly searchDisplayBadges: unknown[][] = [];
+  public readonly detailDisplayBadges: unknown[][] = [];
   public readonly queries: string[] = [];
 
   constructor() {
@@ -41,7 +46,8 @@ class DiscoveryProjectionDb implements PgQueryable {
         title: values[4],
         subtitle_i18n: values[5] === null ? null : JSON.parse(String(values[5])),
         subtitle: values[6],
-        updated_at: values[7],
+        display_badges: JSON.parse(String(values[7])),
+        updated_at: values[8],
       });
       return { rows: [], rowCount: 1 };
     }
@@ -75,7 +81,8 @@ class DiscoveryProjectionDb implements PgQueryable {
         title: values[4],
         subtitle_i18n: values[5] === null ? null : JSON.parse(String(values[5])),
         subtitle: values[6],
-        updated_at: values[7],
+        display_badges: JSON.parse(String(values[7])),
+        updated_at: values[8],
       });
       return { rows: [], rowCount: 1 };
     }
@@ -105,6 +112,18 @@ class DiscoveryProjectionDb implements PgQueryable {
       sql.includes("UPDATE discovery_item_detail_catalog_dimension_options")
     ) {
       return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("TRUNCATE discovery_search_items")) {
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (
+      sql.includes("SELECT catalog_item_id") &&
+      sql.includes("FROM discovery_search_catalog_items") &&
+      sql.includes("ORDER BY catalog_item_id")
+    ) {
+      return { rows: [{ catalog_item_id: "cat_1" }] as Row[], rowCount: 1 };
     }
 
     if (
@@ -138,6 +157,7 @@ class DiscoveryProjectionDb implements PgQueryable {
 
     if (sql.includes("INSERT INTO discovery_search_items")) {
       this.derivedWrites.push("search");
+      this.searchDisplayBadges.push(JSON.parse(String(values[7])) as unknown[]);
       return { rows: [], rowCount: 1 };
     }
 
@@ -147,6 +167,7 @@ class DiscoveryProjectionDb implements PgQueryable {
 
     if (sql.includes("INSERT INTO discovery_item_detail_pages")) {
       this.derivedWrites.push("detail");
+      this.detailDisplayBadges.push(JSON.parse(String(values[7])) as unknown[]);
       return { rows: [], rowCount: 1 };
     }
 
@@ -193,6 +214,7 @@ function catalogItemRow(slug: string): Record<string, unknown> {
     title: "Old Title",
     subtitle_i18n: null,
     subtitle: null,
+    display_badges: [],
     description_i18n: { defaultLocale: "en", values: { en: "Description" } },
     description: "Description",
     blueprint_id: null,
@@ -220,6 +242,11 @@ function displayIdentityEvent(): TransportEvent {
       languageCode: "en",
       title: "Charizard 4/102",
       subtitle: "Base Set Rare Holo",
+      badges: [
+        { kind: "set-code", label: "BS" },
+        { kind: "number", label: "4/102" },
+        { kind: "rarity", label: "Rare Holo" },
+      ],
     } as never,
     metadata: {},
     audit: {
@@ -294,9 +321,26 @@ describe("Discovery display identity projection", () => {
       language_code: "en",
       title: "Charizard 4/102",
       subtitle: "Base Set Rare Holo",
+      display_badges: [
+        { kind: "set-code", label: "BS" },
+        { kind: "number", label: "4/102" },
+        { kind: "rarity", label: "Rare Holo" },
+      ],
     });
     expect(db.redirectWrites[0]?.slice(0, 3)).toEqual(["item", "old-title-cat-1", "cat_1"]);
     expect(db.derivedWrites).toContain("search");
+    expect(db.searchDisplayBadges.at(-1)).toEqual([
+      { kind: "set-code", label: "BS" },
+      { kind: "number", label: "4/102" },
+      { kind: "rarity", label: "Rare Holo" },
+    ]);
+
+    await rebuildDiscoverySearchIndex(db);
+    expect(db.searchDisplayBadges.at(-1)).toEqual([
+      { kind: "set-code", label: "BS" },
+      { kind: "number", label: "4/102" },
+      { kind: "rarity", label: "Rare Holo" },
+    ]);
   });
 
   it("updates item detail source and derived rows from Catalog display identity facts", async () => {
@@ -309,9 +353,19 @@ describe("Discovery display identity projection", () => {
       language_code: "en",
       title: "Charizard 4/102",
       subtitle: "Base Set Rare Holo",
+      display_badges: [
+        { kind: "set-code", label: "BS" },
+        { kind: "number", label: "4/102" },
+        { kind: "rarity", label: "Rare Holo" },
+      ],
     });
     expect(db.redirectWrites[0]?.slice(0, 3)).toEqual(["item", "old-title-cat-1", "cat_1"]);
     expect(db.derivedWrites).toContain("detail");
+    expect(db.detailDisplayBadges.at(-1)).toEqual([
+      { kind: "set-code", label: "BS" },
+      { kind: "number", label: "4/102" },
+      { kind: "rarity", label: "Rare Holo" },
+    ]);
   });
 
   it("keeps search display labels and slug stable when fallback metadata is revised", async () => {

@@ -33,6 +33,7 @@ describe("item detail market listing facts", () => {
                 title: "Charizard",
                 subtitle_i18n: null,
                 subtitle: null,
+                display_badges: [{ kind: "rarity", label: "Rare Holo" }],
                 description_i18n: {},
                 description: "",
                 blueprint_id: null,
@@ -105,6 +106,7 @@ describe("item detail market listing facts", () => {
     const listingsCall = calls.find((call) => call.sql.includes("listing.graded_card"));
 
     expect(listingsCall?.sql).toContain("listing.graded_card");
+    expect(result?.display_badges).toEqual([{ kind: "rarity", label: "Rare Holo" }]);
     expect(result?.market_listings[0]?.graded_card).toEqual(gradedCard);
   });
 });

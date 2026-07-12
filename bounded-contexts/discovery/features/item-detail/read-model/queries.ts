@@ -7,6 +7,7 @@ import {
 } from "../../../support/market-support/listing-visibility";
 import type {
   DiscoveryAccountOfferMatchWithTerms,
+  DiscoveryDisplayBadge,
   DiscoveryGradedCardDetails,
   DiscoveryItemDetailSellerOverlay,
   DiscoveryMarketListing,
@@ -25,6 +26,7 @@ export type DiscoveryItemDetailRow = Readonly<{
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_badges: readonly DiscoveryDisplayBadge[];
   description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
@@ -283,6 +285,7 @@ export async function getDiscoveryItemDetail(
        page.title,
        page.subtitle_i18n,
        page.subtitle,
+       page.display_badges,
        page.description_i18n,
        page.description,
        page.blueprint_id,
@@ -477,6 +480,7 @@ export async function getDiscoveryItemDetail(
 
   return {
     ...item,
+    display_badges: asArray<DiscoveryDisplayBadge>(item.display_badges),
     categories: normalizeCategoryRefs(item.categories),
     tags: normalizeStringArray(item.tags),
     image_urls: normalizeStringArray(item.image_urls),

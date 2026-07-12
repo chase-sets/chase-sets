@@ -164,6 +164,7 @@ function itemDetail(overrides: Partial<DiscoveryItemDetail> = {}): DiscoveryItem
     title: "Charizard",
     subtitle_i18n: {},
     subtitle: "Base Set 4/102 Holo Rare",
+    display_badges: [],
     description_i18n: {},
     description: "The iconic Base Set Charizard.",
     blueprint_id: "bp_pokemon_card",

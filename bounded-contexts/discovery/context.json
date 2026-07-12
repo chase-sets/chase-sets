@@ -84,7 +84,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
-      "subscriptionVersion": 5,
+      "subscriptionVersion": 6,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -136,7 +136,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-item-detail-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
