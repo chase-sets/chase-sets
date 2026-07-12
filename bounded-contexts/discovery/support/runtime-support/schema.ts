@@ -2,7 +2,10 @@ import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { discoveryCategorySchemaSql } from "../../features/categories/read-model/schema";
-import { discoveryItemDetailSchemaSql } from "../../features/item-detail/read-model/schema";
+import {
+  discoveryItemDetailSchemaMigrations,
+  discoveryItemDetailSchemaSql,
+} from "../../features/item-detail/read-model/schema";
 import { discoveryProductAlertSchemaSql } from "../../features/product-alerts/read-model/schema";
 import { discoveryGoogleShoppingSchemaSql } from "../../features/google-shopping-operations/api/schema";
 import { discoveryMarketSchemaMigrations, discoveryMarketSchemaSql } from "../market-support/schema";
@@ -25,4 +28,5 @@ export const discoverySchemaSql = [
 export const discoverySchemaMigrations = [
   ...discoveryMarketSchemaMigrations,
   ...discoverySearchSchemaMigrations,
+  ...discoveryItemDetailSchemaMigrations,
 ] as const;

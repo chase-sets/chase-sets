@@ -11,6 +11,7 @@ function searchRow(overrides: Record<string, unknown> = {}) {
     title: "Charizard",
     subtitle_i18n: {},
     subtitle: "Base Set",
+    display_badges: [],
     description_i18n: {},
     description: "A fiery card.",
     blueprint_id: "blueprint_card",

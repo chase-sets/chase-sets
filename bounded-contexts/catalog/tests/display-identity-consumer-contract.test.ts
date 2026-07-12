@@ -27,6 +27,15 @@ describe("display identity consumer subscription contract", () => {
       "catalog.catalog-item.metadata-revised",
     );
   });
+
+  it("replays structured display identity facts into Discovery search and item detail projections", () => {
+    expect(catalogEventTypes("../../discovery/context.json", "discovery-search-item-projection", 6)).toEqual(
+      expect.arrayContaining(["catalog.catalog-item.display-identity-resolved"]),
+    );
+    expect(catalogEventTypes("../../discovery/context.json", "discovery-item-detail-projection", 3)).toEqual(
+      expect.arrayContaining(["catalog.catalog-item.display-identity-resolved"]),
+    );
+  });
 });
 
 function catalogEventTypes(contextPath: string, projectionName: string, expectedSubscriptionVersion = 3): string[] {
