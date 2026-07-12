@@ -221,6 +221,30 @@ export const doksStagingWorkerEnvOverrides = {
   WORKER_PROJECTION_WAKE_RELAY_ENABLED: "true",
 };
 
+export const platformWorkerWakeDepthQuery =
+  "SELECT COUNT(*)::integer FROM platform_projection_wake_intents WHERE state IN ('queued', 'failed') AND next_eligible_at <= now() AND expires_at > now()";
+
+export const doksStagingWorkerAutoscaling = {
+  // The base chart keeps this disabled for previews, where KEDA and the
+  // shared work-signal database are intentionally not part of the estate.
+  enabled: false,
+  minReplicaCount: 1,
+  maxReplicaCount: 4,
+  pollingInterval: 15,
+  cooldownPeriod: 300,
+  triggers: [
+    {
+      type: "postgresql",
+      metadata: {
+        connectionFromEnv: "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+        query: platformWorkerWakeDepthQuery,
+        targetQueryValue: "1",
+        activationTargetQueryValue: "0",
+      },
+    },
+  ],
+};
+
 export const doksStagingApiOverrides = {
   // The cutover-evidence battery fans authenticated setup across many
   // clients. Keep one API available while another is briefly busy or rolling,
@@ -472,6 +496,10 @@ export function buildPlatformHelmStagingValues(options = {}) {
     components: {
       "platform-api": doksStagingApiOverrides,
       "platform-worker": {
+        autoscaling: {
+          ...doksStagingWorkerAutoscaling,
+          enabled: true,
+        },
         envOverrides: doksStagingWorkerEnvOverrides,
       },
     },
@@ -479,7 +507,14 @@ export function buildPlatformHelmStagingValues(options = {}) {
 }
 
 export function renderPlatformHelmStagingValues() {
-  return `${renderYaml(buildPlatformHelmStagingValues())}\n`;
+  return `${renderYaml(buildPlatformHelmStagingValues())}\n`.replace(
+    "  platform-worker:\n",
+    [
+      "  platform-worker:",
+      "    # Keep one warm worker for health and deploy continuity; KEDA adds up to four pods when eligible wake intents accumulate.",
+      "    # The cap preserves the staging database connection budget while covering representative wake and import bursts.",
+    ].join("\n") + "\n",
+  );
 }
 
 export function buildDoksIngressValues(options = {}) {
@@ -647,6 +682,10 @@ function toHelmComponent(component) {
     podAnnotations: {},
     podLabels: {},
   };
+
+  if (component.name === "platform-worker") {
+    result.autoscaling = { ...doksStagingWorkerAutoscaling };
+  }
 
   if (component.port) {
     result.port = component.port;

@@ -675,6 +675,29 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
+  it("pins KEDA to the worker deployment and keeps the scaler opt-in to staging", () => {
+    const chartValues = readFileSync("infrastructure/helm/platform/values.yaml", "utf8");
+    const stagingValues = readFileSync("infrastructure/helm/platform/values.staging.yaml", "utf8");
+    const scaledObjectTemplate = readFileSync("infrastructure/helm/platform/templates/scaledobject.yaml", "utf8");
+
+    const baseWorker = chartValues.slice(chartValues.indexOf("  platform-worker:"));
+    expect(baseWorker).toContain("autoscaling:");
+    expect(baseWorker).toContain("enabled: false");
+    expect(stagingValues).toContain("  platform-worker:");
+    expect(stagingValues).toContain("    autoscaling:");
+    expect(stagingValues).toContain("      enabled: true");
+    expect(stagingValues).toContain('connectionFromEnv: "PLATFORM_WORK_SIGNAL_DATABASE_URL"');
+    expect(stagingValues).toContain("platform_projection_wake_intents");
+    expect(stagingValues).toContain("state IN ('queued', 'failed')");
+
+    expect(scaledObjectTemplate).toContain("apiVersion: keda.sh/v1alpha1");
+    expect(scaledObjectTemplate).toContain("kind: ScaledObject");
+    expect(scaledObjectTemplate).toContain("scaleTargetRef:");
+    expect(scaledObjectTemplate).toContain('name: {{ include "chase-sets-platform.componentName"');
+    expect(scaledObjectTemplate).toContain("minReplicaCount:");
+    expect(scaledObjectTemplate).toContain("maxReplicaCount:");
+  });
+
   it("deploys with Helm and waits for every runtime deployment", async () => {
     const calls = [];
     const result = await deployPlatformToKubernetes({
