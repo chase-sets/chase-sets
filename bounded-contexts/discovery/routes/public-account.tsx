@@ -30,7 +30,12 @@ import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/r
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import { applyDiscoveryPublicAccountPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
-import { hasTrustedSellerBadge, TrustedSellerBadge } from "../features/item-detail/ui/account-badges";
+import {
+  FounderBadge,
+  hasFounderBadge,
+  hasTrustedSellerBadge,
+  TrustedSellerBadge,
+} from "../features/item-detail/ui/account-badges";
 import { createSellerMetricsRequestApiClient, type SellerBehavioralMetricsChips } from "@chase-sets/marketplace/server";
 
 const ACCOUNT_REVIEW_PAGE_SIZE = 10;
@@ -405,7 +410,12 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               ? t("discovery.routes.publicAccount.verified.account")
               : t("discovery.routes.publicAccount.building.trust")
           }
-          badges={hasTrustedSellerBadge(account.badges) ? <TrustedSellerBadge /> : null}
+          badges={
+            <>
+              {hasTrustedSellerBadge(account.badges) ? <TrustedSellerBadge /> : null}
+              {hasFounderBadge(account.badges) ? <FounderBadge /> : null}
+            </>
+          }
           summary={
             account.active_listing_count > 0
               ? t("discovery.routes.publicAccount.verified.marketplace.account.profile")
