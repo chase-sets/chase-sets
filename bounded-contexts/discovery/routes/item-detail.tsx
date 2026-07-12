@@ -130,7 +130,7 @@ export {
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({
     title: data?.item
-      ? `${data.item.title} | Marketplace`
+      ? t("discovery.routes.itemDetail.meta.title", { title: data.item.title })
       : t("discovery.routes.itemDetail.item.not.found.marketplace"),
     description: data?.item?.description ? data.item.description : MARKETPLACE_DESCRIPTION,
     imageUrl: data?.item

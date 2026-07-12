@@ -1854,6 +1854,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
+      '@chase-sets/localization':
+        specifier: workspace:*
+        version: link:../../contracts/localization
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives

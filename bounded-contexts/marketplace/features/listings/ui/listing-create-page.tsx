@@ -326,6 +326,11 @@ export function MarketplaceListingCreatePage({
                       label={t("marketplace.features.listings.ui.listingCreatePage.price")}
                       name="priceAmount"
                       currencyCode="USD"
+                      currencyAccessibleDescription={t("localization.currency.amountIn", {
+                        currency: t("localization.currency.usd"),
+                      })}
+                      decrementLabel={t("localization.currency.decreaseAmount")}
+                      incrementLabel={t("localization.currency.increaseAmount")}
                       placeholder="24.99"
                       defaultValue={createForm?.priceAmount ?? undefined}
                       required

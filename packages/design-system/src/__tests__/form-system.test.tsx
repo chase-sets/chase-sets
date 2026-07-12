@@ -608,11 +608,20 @@ describe("form system", () => {
   });
 
   it("hides decorative currency prefixes while naming the currency, derived from currencyCode", () => {
-    const { container } = render(<CurrencyInput id="price" label="Price" currencyCode="USD" />);
+    const { container } = render(
+      <CurrencyInput
+        id="price"
+        label="Price"
+        currencyCode="USD"
+        currencyAccessibleDescription="Amount in US dollars."
+        decrementLabel="Decrease amount"
+        incrementLabel="Increase amount"
+      />,
+    );
 
     const input = screen.getByRole("spinbutton", { name: "Price" });
     expect(input).toBeTruthy();
-    expect(screen.getByRole("spinbutton", { description: /US Dollar/ })).toBe(input);
+    expect(screen.getByRole("spinbutton", { description: /US dollars/ })).toBe(input);
 
     const prefix = container.querySelector("span[aria-hidden='true']");
 
@@ -620,9 +629,18 @@ describe("form system", () => {
   });
 
   it("derives the currency symbol and accessible name from a different currencyCode — no hardcoded dollar", () => {
-    const { container } = render(<CurrencyInput id="price-eur" label="Price" currencyCode="eur" />);
+    const { container } = render(
+      <CurrencyInput
+        id="price-eur"
+        label="Price"
+        currencyCode="eur"
+        currencyAccessibleDescription="Amount in euros."
+        decrementLabel="Decrease amount"
+        incrementLabel="Increase amount"
+      />,
+    );
 
-    expect(screen.getByRole("spinbutton", { description: /Euro/ })).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { description: /euros/ })).toBeTruthy();
     const prefix = container.querySelector("span[aria-hidden='true']");
     expect(prefix?.textContent).toBe("€");
   });
@@ -631,7 +649,16 @@ describe("form system", () => {
     const user = userEvent.setup();
     const onValueChange = vi.fn();
 
-    render(<CurrencyInput label="Amount" currencyCode="USD" onValueChange={onValueChange} />);
+    render(
+      <CurrencyInput
+        label="Amount"
+        currencyCode="USD"
+        currencyAccessibleDescription="Amount in US dollars."
+        decrementLabel="Decrease amount"
+        incrementLabel="Increase amount"
+        onValueChange={onValueChange}
+      />,
+    );
 
     const input = screen.getByRole("spinbutton", { name: "Amount" });
     await user.click(input);

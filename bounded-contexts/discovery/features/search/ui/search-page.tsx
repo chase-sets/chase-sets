@@ -1,4 +1,4 @@
-import { formatDisplayIdentity, formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
+import { formatDisplayIdentity, formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import {
   Text,
@@ -38,16 +38,10 @@ import type { DiscoveryBulkCartPreview } from "../read-model/queries";
 import { imageVariantSrcSet } from "../../../support/client-support/assets";
 import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
 import { productAlertSettingsHref } from "./product-alert-settings-link";
+import { formatMoney } from "../../../support/ui-support/formatting";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
 const FACET_OPTION_SEARCH_THRESHOLD = 8;
-
-const sortOptions = [
-  { label: t("discovery.features.search.ui.searchPage.relevance"), value: "relevance" },
-  { label: t("discovery.features.search.ui.searchPage.title.a.z"), value: "title_asc" },
-  { label: t("discovery.features.search.ui.searchPage.title.z.a"), value: "title_desc" },
-  { label: t("discovery.features.search.ui.searchPage.newest"), value: "newest" },
-];
 
 type DynamicSearchFilterSelection = Readonly<{
   kind: "field" | "reference" | "dimension";
@@ -56,23 +50,11 @@ type DynamicSearchFilterSelection = Readonly<{
 }>;
 type MarketActivityFilter = "" | "any" | "listings" | "offers";
 
-const languageOptions = [
-  { label: t("discovery.features.search.ui.searchPage.english"), value: "en" },
-  { label: t("discovery.features.search.ui.searchPage.japanese"), value: "ja" },
-];
-
-const marketActivityOptions: Array<{ label: string; value: MarketActivityFilter }> = [
-  { label: t("discovery.features.search.ui.searchPage.any.market.activity"), value: "" },
-  { label: t("discovery.features.search.ui.searchPage.listings.or.offers"), value: "any" },
-  { label: t("discovery.features.search.ui.searchPage.listings"), value: "listings" },
-  { label: t("discovery.features.search.ui.searchPage.offers"), value: "offers" },
-];
-
 function formatPrice(item: DiscoverySearchItem): string | undefined {
   const lowestPrice = item.market_summary?.lowest_price_amount;
 
   return lowestPrice
-    ? t("discovery.features.search.ui.searchPage.from.price", { price: formatMoney(lowestPrice, "USD") })
+    ? t("discovery.features.search.ui.searchPage.from.price", { price: formatMoney(lowestPrice) })
     : undefined;
 }
 
@@ -88,12 +70,15 @@ function formatSearchIdentityLine(item: DiscoverySearchItem): string | undefined
   return item.subtitle?.trim() || undefined;
 }
 
-function findLanguageLabel(language: string): string {
-  return languageOptions.find((item) => item.value === language)?.label ?? language;
+function findLanguageLabel(language: string, options: readonly { label: string; value: string }[]): string {
+  return options.find((item) => item.value === language)?.label ?? language;
 }
 
-function findMarketActivityLabel(marketActivity: MarketActivityFilter): string {
-  return marketActivityOptions.find((item) => item.value === marketActivity)?.label ?? marketActivity;
+function findMarketActivityLabel(
+  marketActivity: MarketActivityFilter,
+  options: readonly { label: string; value: MarketActivityFilter }[],
+): string {
+  return options.find((item) => item.value === marketActivity)?.label ?? marketActivity;
 }
 
 function formatFacetDescription(facet: DiscoveryFacetGroup): string {
@@ -263,6 +248,22 @@ export function SearchPage({
   onDynamicFilterClear,
   onLoadMore,
 }: SearchPageProps) {
+  const sortOptions = [
+    { label: t("discovery.features.search.ui.searchPage.relevance"), value: "relevance" },
+    { label: t("discovery.features.search.ui.searchPage.title.a.z"), value: "title_asc" },
+    { label: t("discovery.features.search.ui.searchPage.title.z.a"), value: "title_desc" },
+    { label: t("discovery.features.search.ui.searchPage.newest"), value: "newest" },
+  ];
+  const languageOptions = [
+    { label: t("discovery.features.search.ui.searchPage.english"), value: "en" },
+    { label: t("discovery.features.search.ui.searchPage.japanese"), value: "ja" },
+  ];
+  const marketActivityOptions: Array<{ label: string; value: MarketActivityFilter }> = [
+    { label: t("discovery.features.search.ui.searchPage.any.market.activity"), value: "" },
+    { label: t("discovery.features.search.ui.searchPage.listings.or.offers"), value: "any" },
+    { label: t("discovery.features.search.ui.searchPage.listings"), value: "listings" },
+    { label: t("discovery.features.search.ui.searchPage.offers"), value: "offers" },
+  ];
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
@@ -275,10 +276,10 @@ export function SearchPage({
     categories.find((item) => item.slug === category)?.name ??
     t("discovery.features.search.ui.searchPage.all.categories");
   const activeLanguageLabel = language
-    ? findLanguageLabel(language)
+    ? findLanguageLabel(language, languageOptions)
     : t("discovery.features.search.ui.searchPage.all.languages");
   const activeMarketActivityLabel = marketActivity
-    ? findMarketActivityLabel(marketActivity)
+    ? findMarketActivityLabel(marketActivity, marketActivityOptions)
     : t("discovery.features.search.ui.searchPage.any.market.activity");
   const activeDynamicFilterCount = dynamicFilters.length;
   const dynamicFacets = data?.facets ?? [];
@@ -372,6 +373,9 @@ export function SearchPage({
   const filterRail = (
     <Stack gap={3}>
       <MarketplaceFacetRail
+        title={t("discovery.features.search.ui.searchPage.browse.categories")}
+        description={t("discovery.features.search.ui.searchPage.mobile.categories.description")}
+        allLabel={t("discovery.features.search.ui.searchPage.all.categories")}
         items={categories.map((item) => ({
           id: item.slug,
           label: item.name,
@@ -484,6 +488,7 @@ export function SearchPage({
   return (
     <SearchResultsLayout
       filters={filterRail}
+      filtersLabel={t("discovery.features.search.ui.searchPage.desktop.search.filters")}
       summary={
         hasFocusedResults ? null : (
           <Stack gap={6}>
@@ -549,6 +554,7 @@ export function SearchPage({
           <SearchControlBar
             search={
               <SearchInput
+                label={t("discovery.features.search.ui.searchPage.marketplace.search")}
                 hideLabel
                 placeholder={t("discovery.features.search.ui.searchPage.search.catalog.items")}
                 value={search}

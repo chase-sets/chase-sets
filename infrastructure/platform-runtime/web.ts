@@ -6,6 +6,7 @@ import type {
   BcShellContributionSlot,
   BcShellContributionVisibility,
 } from "@chase-sets/bounded-context-module";
+import { t } from "@chase-sets/localization";
 import type { NavigationItem } from "@chase-sets/design-system";
 
 export type WebHostName = "admin-web" | "marketplace-web" | "public-web";
@@ -188,7 +189,7 @@ function filterShellContributionTree<T extends ShellContributionItemRecord>(
 function toNavigationItem(contribution: ShellContributionItemRecord): NavigationItem {
   return {
     key: contribution.key,
-    label: contribution.label,
+    label: contribution.labelKey ? t(contribution.labelKey) : contribution.label,
     icon: contribution.icon as NavigationItem["icon"],
     ...(contribution.href ? { href: contribution.href } : {}),
     ...(contribution.children?.length

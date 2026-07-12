@@ -313,6 +313,11 @@ export function ProductLineRow({
               label={t("checkout.features.sellList.ui.sellListPage.listing.price")}
               name={`priceAmount:${line.line_id}`}
               currencyCode="USD"
+              currencyAccessibleDescription={t("localization.currency.amountIn", {
+                currency: t("localization.currency.usd"),
+              })}
+              decrementLabel={t("localization.currency.decreaseAmount")}
+              incrementLabel={t("localization.currency.increaseAmount")}
               defaultValue={defaultPrice || undefined}
               min="0.01"
               step="0.01"

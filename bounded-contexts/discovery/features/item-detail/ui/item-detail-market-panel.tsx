@@ -14,6 +14,7 @@ import {
   formatSpread,
   formatVerifiedSaleMarkerLabel,
 } from "../domain/item-detail-market-panel-formatting";
+import { formatMoney } from "../domain/item-detail-formatting";
 import {
   MARKET_HISTORY_RANGE_KEYS,
   type MarketHistoryRangeKey,
@@ -82,7 +83,7 @@ function toChartSeries(
 }
 
 function formatChartValue(value: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+  return formatMoney(value.toFixed(2));
 }
 
 export type ItemDetailMarketPanelProps = Readonly<{

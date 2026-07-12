@@ -216,6 +216,11 @@ export function MarketplaceListingSubmissionSection({
               label={t("discovery.routes.itemDetail.listing.price")}
               name="priceAmount"
               currencyCode="USD"
+              currencyAccessibleDescription={t("localization.currency.amountIn", {
+                currency: t("localization.currency.usd"),
+              })}
+              decrementLabel={t("localization.currency.decreaseAmount")}
+              incrementLabel={t("localization.currency.increaseAmount")}
               defaultValue={listPrice || undefined}
               placeholder="24.99"
               min="0"

@@ -1,5 +1,6 @@
-import { formatDateTime, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import type { DiscoveryMarketListing, DiscoveryOffer } from "../../../support/client-support/contracts";
+export { formatMoney } from "../../../support/ui-support/formatting";
 
 export function formatFieldValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -36,10 +37,6 @@ export function formatRelationshipType(value: string): string {
 
 export function formatUpdatedAt(value: string): string {
   return formatDateTime(value);
-}
-
-export function formatMoney(value: string | null): string {
-  return value ? formatMoneyDisplay(value, "USD") : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
 }
 
 function toFiniteNumber(value: unknown): number | null {

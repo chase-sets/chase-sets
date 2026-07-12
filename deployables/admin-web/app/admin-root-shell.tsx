@@ -39,6 +39,7 @@ export function AdminRootShell({
             <AdminAccountMenu actor={resolvedActor} actorDisplay={actorDisplay} preferences={preferences} />
           ) : undefined
         }
+        moreLabel={t("adminWeb.app.adminShell.more")}
       >
         {children}
       </AdminShell>

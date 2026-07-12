@@ -67,11 +67,16 @@ export interface AdminShellProps {
   navItems: NavigationItem[];
   activeKey?: string;
   actions?: ReactNode;
+  moreLabel?: string;
   children?: ReactNode;
   width?: LayoutWidth;
 }
 
-function compactAdminMobileNavItems(navItems: NavigationItem[], activeKey?: string): NavigationItem[] {
+function compactAdminMobileNavItems(
+  navItems: NavigationItem[],
+  activeKey: string | undefined,
+  moreLabel: string,
+): NavigationItem[] {
   if (navItems.length <= 4) {
     return navItems;
   }
@@ -89,7 +94,7 @@ function compactAdminMobileNavItems(navItems: NavigationItem[], activeKey?: stri
     ...visibleItems,
     {
       key: "admin-more",
-      label: "More",
+      label: moreLabel,
       icon: "menu",
       children: overflowItems,
     },
@@ -109,11 +114,12 @@ export function AdminShell({
   navItems,
   activeKey,
   actions,
+  moreLabel = "More",
   children,
   width = "full",
 }: AdminShellProps) {
   const hasLocalNav = navItems.length > 0;
-  const mobileNavItems = compactAdminMobileNavItems(navItems, activeKey);
+  const mobileNavItems = compactAdminMobileNavItems(navItems, activeKey, moreLabel);
 
   return (
     <div className="min-h-screen bg-background">
