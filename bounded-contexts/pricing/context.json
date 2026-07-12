@@ -7,11 +7,13 @@
     "price-signal",
     "trades-tape",
     "daily-product-rollup",
-    "market-state-snapshot"
+    "market-state-snapshot",
+    "repricing-policy",
+    "repricing-policy-assignment"
   ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["recommendations", "price-signals", "market-trades", "market-rollups"],
+  "slices": ["recommendations", "price-signals", "market-trades", "market-rollups", "repricing-policies"],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
@@ -20,7 +22,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
-      "subscriptionVersion": 3,
+      "subscriptionVersion": 4,
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.display-identity-resolved",
@@ -28,7 +30,9 @@
         "catalog.catalog-item.retired",
         "catalog.catalog-item.archived",
         "catalog.catalog-item.external-product-reference-linked",
-        "catalog.catalog-item.external-product-reference-unlinked"
+        "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed"
       ],
       "order": 10,
       "projectionHandlerSetNames": ["pricing-catalog-input-projection"]
@@ -36,7 +40,7 @@
     {
       "sourceContextName": "inventory",
       "projectionName": "pricing-inventory-input-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
@@ -293,6 +297,11 @@
     "market-rollups": {
       "classification": "slice",
       "purpose": "Own the daily-product-rollup and market-state-snapshot read models, and the denormalized product market aggregate, computed from the trades-tape and current listing/offer state, plus the query API that serves them.",
+      "expectedConsumers": ["Internal pricing module composition"]
+    },
+    "repricing-policies": {
+      "classification": "slice",
+      "purpose": "Own the RepricingPolicy aggregate (seller-owned rule pipeline: anchor chain, offset, floor, ceiling, tolerance, budgets, scope) and the resolved listing-to-policy assignment read model that is the repricing evaluation engine's work queue input.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
     "runtime-support": {

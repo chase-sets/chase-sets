@@ -63,6 +63,8 @@ export type InventoryItemId = TypedUlid<"inv">;
 
 export type ListingId = TypedUlid<"lst">;
 
+export type RepricingPolicyId = TypedUlid<"rpp">;
+
 export type OfferId = TypedUlid<"off">;
 
 export type OrderId = TypedUlid<"ord">;

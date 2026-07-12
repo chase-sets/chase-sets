@@ -88,6 +88,30 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
         [extractIdFromStreamId(event.streamId, "catalog.item-"), event.timing.recordedAt],
       );
     },
+    // Category membership is Pricing's only cross-context signal for repricing-policy catalog-filter
+    // scope resolution: RepricingPolicy's `catalog-filter` scope matches on these ids -- Catalog's
+    // category hierarchy covers both "game" and finer-grained category filtering, so no separate
+    // "game" field is projected. Categories are a set, so upsert/remove by array membership.
+    "catalog.catalog-item.category-assigned": async (event) => {
+      const data = event.data as { categoryId: string };
+      await db.query(
+        `UPDATE pricing_catalog_item_inputs
+         SET category_ids = ARRAY(SELECT DISTINCT unnest(category_ids || ARRAY[$2::text])),
+             updated_at = $3
+         WHERE catalog_item_id = $1`,
+        [extractIdFromStreamId(event.streamId, "catalog.item-"), data.categoryId, event.timing.recordedAt],
+      );
+    },
+    "catalog.catalog-item.category-removed": async (event) => {
+      const data = event.data as { categoryId: string };
+      await db.query(
+        `UPDATE pricing_catalog_item_inputs
+         SET category_ids = array_remove(category_ids, $2::text),
+             updated_at = $3
+         WHERE catalog_item_id = $1`,
+        [extractIdFromStreamId(event.streamId, "catalog.item-"), data.categoryId, event.timing.recordedAt],
+      );
+    },
   };
 }
 
@@ -122,6 +146,7 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
         catalogItemId: string;
         productId: string;
         totalQuantity: number;
+        acquisitionCostAmount?: string | null;
       };
 
       await db.query(
@@ -131,14 +156,16 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
            catalog_catalog_item_id,
            product_id,
            total_quantity,
+           acquisition_cost_amount,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (item_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              total_quantity = EXCLUDED.total_quantity,
+             acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE pricing_inventory_item_inputs.last_stream_version < EXCLUDED.last_stream_version`,
@@ -148,6 +175,7 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
           data.catalogItemId,
           data.productId,
           data.totalQuantity,
+          data.acquisitionCostAmount ?? null,
           event.timing.recordedAt,
           event.streamVersion,
         ],

@@ -32,6 +32,19 @@ The Pricing-owned TCGplayer ingestion boundary is documented in [TCGplayer Price
 - Repricing Policy
 - Price Recommendation
 
+### Repricing Policy is a seller-owned domain aggregate, not platform policy
+
+`RepricingPolicy` (`features/repricing-policies/`) is an event-sourced domain aggregate the seller creates,
+revises, pauses, resumes, and deletes through ordinary commands -- its rule pipeline, floors, ceilings,
+tolerances, and change budgets are the seller's own standing pricing strategy. This is deliberately
+different machinery from the platform-tier `definePolicy` conventions used elsewhere in the system
+(`infrastructure/platform-policy/define-policy.ts`, see `docs/architecture/platform-policy-conventions.md`)
+for operational/platform-wide bounds: `RepricingPolicy` is domain state with its own event stream and
+lifecycle, not a resolved configuration value. The feature's rule-authoring numeric bounds (rule-count cap,
+percent magnitudes, change-budget bounds) are documented compiled defaults in
+`features/repricing-policies/domain/policy-bounds.ts` pending any future seller-tier policy machinery -- see
+that file's header.
+
 ## Incoming Dependencies
 
 - Catalog for canonical item identity, product resolution, and selected-option facts

@@ -4,6 +4,7 @@ import { pricingRecommendationSchemaSql } from "../../features/recommendations/r
 import { pricingRecommendationSourceSchemaSql } from "../../features/recommendations/integrations/source/source-schema";
 import { pricingMarketTradesSchemaSql } from "../../features/market-trades/read-model/schema";
 import { pricingMarketRollupsSchemaSql } from "../../features/market-rollups/read-model/schema";
+import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
 
 export const pricingSchemaSql = [
   eventCorePostgresSchemaSql,
@@ -12,4 +13,7 @@ export const pricingSchemaSql = [
   pricingRecommendationSchemaSql,
   pricingMarketTradesSchemaSql,
   pricingMarketRollupsSchemaSql,
+  // Must run after pricingRecommendationSourceSchemaSql: the assignment view joins
+  // pricing_market_listing_inputs and pricing_catalog_item_inputs.
+  pricingRepricingPolicySchemaSql,
 ].join("\n\n");

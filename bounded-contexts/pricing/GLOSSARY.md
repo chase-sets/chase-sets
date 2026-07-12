@@ -22,7 +22,40 @@ A **Liquidity Estimate** is the modeled expectation of how quickly or reliably a
 
 ## Repricing Policy
 
-A **Repricing Policy** is the rule set that turns pricing inputs into seller-facing recommendations.
+A **Repricing Policy** is a seller-owned, event-sourced aggregate declaring the standing strategy that
+turns pricing inputs into price changes for a scope of the seller's listings: an ordered, first-match-wins
+pipeline of Repricing Rules, a change budget (max changes per day), and lifecycle state (active, paused, or
+deleted). It is a domain aggregate the seller authors and revises through commands, distinct in kind from
+the platform-tier `definePolicy` machinery used for operational bounds elsewhere in the system -- see this
+context's README "Core Aggregates and Process Managers" note.
+
+## Repricing Rule
+
+A **Repricing Rule** is one ordered entry in a Repricing Policy's pipeline: a set of conditions (category,
+graded/raw, quantity, listing age, cost-basis presence, competing-listing count, schedule window) paired
+with a directive (Repricing Anchor Chain, offset, Floor Price, Ceiling Price, Repricing Tolerance, price
+rounding, per-rule max move, and terminal behavior). Rules are evaluated first-match-wins; the pipeline's
+last rule is always the unconditional default.
+
+## Repricing Anchor Chain
+
+A **Repricing Anchor Chain** is the ordered list of Repricing Anchors a Repricing Rule's directive tries in
+sequence -- market-estimate, lowest-competing-ask, comp-percentile, or last-sold -- so a rule degrades
+gracefully when its first-choice signal is unavailable, ending in a seller-chosen terminal behavior (hold,
+pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted.
+
+## Repricing Scope
+
+A **Repricing Scope** is the set of listings a Repricing Policy governs: all of the seller's listings, a
+catalog-category filter, or an explicit listing set, with optional per-listing opt-out. When a seller's
+Repricing Policies have overlapping scopes, the most specific scope wins (explicit listing set beats
+catalog-category filter beats all-listings).
+
+## Repricing Policy Assignment
+
+A **Repricing Policy Assignment** is the resolved answer, per listing, to "which active Repricing Policy
+governs this listing" after Repricing Scope precedence and opt-out are applied -- the repricing evaluation
+engine's work queue input.
 
 ## Price Recommendation
 
@@ -122,35 +155,46 @@ A **Repricing Recommendation** is the planned suggested price change produced by
 
 ### Repricing Guardrail
 
-A **Repricing Guardrail** is the planned rule that prevents a recommendation from violating account or marketplace constraints.
+A **Repricing Guardrail** is the set of schema-level protections a Repricing Rule's directive enforces so no
+evaluated price can violate account constraints: its Floor Price (a hard invariant), optional Ceiling Price,
+Repricing Tolerance band, per-rule max-move percent, and the policy-level daily change budget.
 
 ### Repricing Anchor
 
-A **Repricing Anchor** is the planned reference price a Repricing Policy uses as the starting point for a recommendation.
+A **Repricing Anchor** is one reference-price source a Repricing Rule's directive may try, in order, via its
+Repricing Anchor Chain: `market-estimate`, `lowest-competing-ask`, `comp-percentile`, or `last-sold`.
 
 ### Repricing Tolerance
 
-A **Repricing Tolerance** is the planned allowed movement range around a Repricing Anchor.
+A **Repricing Tolerance** is a Repricing Rule directive's allowed movement range around its resolved anchor
+price (percent or absolute) below which the evaluation engine leaves the listing's price untouched.
 
 ### Terminal Price
 
-A **Terminal Price** is the planned final bounded price after applying Repricing Policy, guardrails, anchors, and tolerances.
+A **Terminal Price** is the planned final bounded price the repricing evaluation engine produces after
+applying a Repricing Rule's directive (Repricing Anchor Chain resolution, offset, rounding, and Repricing
+Guardrail clamps) -- not yet shipped; see Repricing Run.
 
 ### Floor Price
 
-A **Floor Price** is the planned minimum account-approved price for a repricing decision.
+A **Floor Price** is a Repricing Rule directive's hard-invariant minimum: an absolute amount, or a
+cost-basis-plus-margin amount (from Inventory's acquisition cost fact) that always carries a seller-authored
+absolute fallback for when that fact is missing. The evaluated price never crosses it.
 
 ### Ceiling Price
 
-A **Ceiling Price** is the planned maximum account-approved price for a repricing decision.
+A **Ceiling Price** is a Repricing Rule directive's optional maximum: an absolute amount or a percent above
+its resolved anchor.
 
 ### Target Margin
 
-**Target Margin** is the planned account goal for margin-aware repricing.
+**Target Margin** is the margin percent a Floor Price's cost-basis-plus-margin mode applies on top of
+Inventory's acquisition cost fact.
 
 ### Margin Band
 
-A **Margin Band** is the planned acceptable range around Target Margin.
+A **Margin Band** is the planned acceptable range around Target Margin for margin-aware repricing beyond a
+single floor -- not yet shipped.
 
 ### Markdown
 
