@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (104)
+## Projection Groups (112)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -59,6 +59,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `checkout:checkout.sell-list-projection` | Checkout | **marketplace** | push-enabled | 1/1 |
 | `checkout:checkout.session-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `commercial-terms:commercial-terms-account-projection` | Commercial Terms | **identity** | push-enabled | 1/1 |
+| `commercial-terms:commercial-terms-founders-window-reaction` | Commercial Terms | **identity** | push-enabled | 1/1 |
 | `commercial-terms:platform-policy-document-projection` | Commercial Terms | commercial-terms | push-eligible | 0/1 |
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
@@ -74,6 +75,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `identity:identity-account-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-api-key-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-consent-projection` | Identity | **identity** | push-enabled | 1/1 |
+| `identity:identity-founder-claim-reaction` | Identity | **marketplace** | push-enabled | 1/1 |
+| `identity:identity-founders-cohort-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-invitation-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-membership-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:identity-shipping-address-projection` | Identity | **identity** | push-enabled | 1/1 |
@@ -147,9 +150,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations** | push-enabled | 2/2 |
 
-Totals: 87 `push-enabled`, 16 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 96 `push-enabled`, 16 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (70)
+## Read-After-Write Route Inventory (71)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 

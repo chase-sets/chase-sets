@@ -1581,6 +1581,6 @@
   "runtimeDeployables": ["platform-worker"],
   "apiRuntimeProfiles": ["proof", "public"],
   "workerRuntimeProfiles": ["proof", "public"],
-  "sourceRuntimeDeployables": ["platform-worker"],
+  "sourceRuntimeDeployables": ["platform-api", "platform-worker"],
   "sourceRuntimeProfiles": ["landing"]
 }

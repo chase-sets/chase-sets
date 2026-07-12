@@ -10,6 +10,10 @@ import {
 
 const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
 type AccountBadgeKey = (typeof accountBadgeKeys)[number];
+const operatorManagedAccountBadgeKeys = [
+  "manual-payout-review",
+  "trusted-seller",
+] as const satisfies readonly AccountBadgeKey[];
 
 const accountBadgeLabels: Record<AccountBadgeKey, string> = {
   "founding-account": "Founding Account",
@@ -63,7 +67,7 @@ test.describe("access admin account badges", () => {
     }
   });
 
-  test("operator assigns and removes every supported account badge @admin-access", async ({ page }) => {
+  test("operator assigns and removes every operator-managed account badge @admin-access", async ({ page }) => {
     test.setTimeout(300_000);
     test.skip(
       skipDeployedAdminE2e,
@@ -83,9 +87,10 @@ test.describe("access admin account badges", () => {
     await expectAdminPageReady(page, { heading: initialAccount.display_name });
 
     try {
-      for (const badgeKey of accountBadgeKeys) {
+      for (const badgeKey of operatorManagedAccountBadgeKeys) {
         await exerciseBadgeToggle(page, accountId, initialAccount.display_name, badgeKey);
       }
+      await expect(page.getByRole("button", { name: /Founding Account badge/ })).toHaveCount(0);
     } finally {
       await restoreAccountBadges(page, accountId, initialBadges);
     }
