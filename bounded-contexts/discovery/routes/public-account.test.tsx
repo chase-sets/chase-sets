@@ -213,6 +213,21 @@ describe("discovery public account route", () => {
     expect(screen.getByRole("link", { name: "View listing" }).getAttribute("href")).toBe("/listings/lst-1");
   });
 
+  it("renders the permanent founder number from the mirrored badge fact", () => {
+    mockUseLoaderData.mockReturnValue({
+      account: accountFixture({ badges: ["founding-account"], founder_number: 47 }),
+      notFound: false,
+      canonicalUrl: "http://localhost/accounts/north-store",
+      reviewRole: null,
+      reviewPage: 1,
+      search: "",
+    });
+
+    render(<PublicAccountRoute />);
+
+    expect(screen.getByText("Founder #047")).toBeTruthy();
+  });
+
   it("renders a minimal unavailable profile for a suspended account, withholding listings and reviews", () => {
     mockUseLoaderData.mockReturnValue({
       account: accountFixture({

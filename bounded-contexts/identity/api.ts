@@ -137,6 +137,7 @@ async function createPersonalIdentityForAuth(
     givenName?: string;
     familyName?: string;
     consents?: readonly { policyKey: string; policyVersion: string }[];
+    foundersBetaAccessStartedAt?: string;
     context: EventStoreContext;
   }>,
 ) {
@@ -161,7 +162,7 @@ async function createPersonalIdentityForAuth(
     displayName,
   });
 
-  const accountResult = await services.accounts.commandHandler({
+  let accountResult = await services.accounts.commandHandler({
     streamId: `identity.account-${accountId}`,
     command: {
       type: "CreateAccount",
@@ -172,6 +173,20 @@ async function createPersonalIdentityForAuth(
     },
     context: params.context,
   });
+  if (params.foundersBetaAccessStartedAt) {
+    const betaAccessStartedAt = new Date(params.foundersBetaAccessStartedAt);
+    const foundersWindowEndsAt = new Date(betaAccessStartedAt);
+    foundersWindowEndsAt.setUTCDate(foundersWindowEndsAt.getUTCDate() + 60);
+    accountResult = await services.accounts.commandHandler({
+      streamId: `identity.account-${accountId}`,
+      command: {
+        type: "OpenFoundersWindow",
+        betaAccessStartedAt: betaAccessStartedAt.toISOString(),
+        foundersWindowEndsAt: foundersWindowEndsAt.toISOString(),
+      },
+      context: params.context,
+    });
+  }
   snapshots.push(mutationSnapshot("account", accountId, accountResult));
 
   let userResult = await services.users.commandHandler({
@@ -692,6 +707,8 @@ export function buildIdentityApi(services: IdentityServices) {
         givenName: typeof body.givenName === "string" ? body.givenName : undefined,
         familyName: typeof body.familyName === "string" ? body.familyName : undefined,
         consents: Array.isArray(body.consents) ? body.consents : undefined,
+        foundersBetaAccessStartedAt:
+          typeof body.foundersBetaAccessStartedAt === "string" ? body.foundersBetaAccessStartedAt : undefined,
         context: getBootstrapContext(c),
       });
     } catch (error) {
@@ -963,5 +980,11 @@ export function buildIdentityApi(services: IdentityServices) {
     });
   });
 
+  return app;
+}
+
+export function buildIdentityPublicApi(services: IdentityServices) {
+  const app = new Hono<IdentityApiEnv>();
+  app.get("/founders-cohort", async (c) => c.json(await services.foundersCohort.getCount()));
   return app;
 }

@@ -85,6 +85,7 @@ describe("platform api database pools", () => {
         "catalog",
         "fulfillment",
         "identity",
+        "marketplace",
         "ordering",
         "platform-operations",
         "public-presence",

@@ -54,6 +54,7 @@ function createDb(
     accountType?: "personal" | "business" | "enterprise";
     accountStatus?: string;
     accountMissing?: boolean;
+    foundersWindow?: Readonly<{ startedAt: string; endsAt: string }>;
     schedule?: {
       schedule_id: string;
       marketplace_sales_fee_percentage_bps: number;
@@ -66,6 +67,8 @@ function createDb(
       marketplace_sales_fee_percentage_bps: number;
       marketplace_sales_fee_fixed_amount: string;
       shipping_allowance_percentage_bps?: number;
+      effective_from?: string;
+      effective_until?: string;
     } | null;
   }>,
 ): PgQueryable {
@@ -80,6 +83,8 @@ function createDb(
                   account_id: "acc_test",
                   account_type: options.accountType ?? "business",
                   status: options.accountStatus ?? "active",
+                  founders_window_started_at: options.foundersWindow?.startedAt ?? null,
+                  founders_window_ends_at: options.foundersWindow?.endsAt ?? null,
                 },
               ] as TRow[]),
         };
@@ -100,7 +105,12 @@ function createDb(
           };
         }
         if (policyKey.startsWith("commercial-terms.agreement.")) {
-          return { rows: options.agreement ? [options.agreement as TRow] : [] };
+          const effectiveAt = String(params?.[1] ?? "");
+          const active =
+            options.agreement &&
+            (!options.agreement.effective_from || options.agreement.effective_from <= effectiveAt) &&
+            (!options.agreement.effective_until || options.agreement.effective_until > effectiveAt);
+          return { rows: active ? [options.agreement as TRow] : [] };
         }
       }
 
@@ -162,6 +172,68 @@ describe("commercial terms resolver", () => {
   afterEach(() => {
     unregisterAccountSourceTelemetryRecorder?.();
     unregisterAccountSourceTelemetryRecorder = null;
+  });
+
+  it.each([
+    ["day 59", "2026-08-28T12:00:00.000Z", 0, "cag_founder"],
+    ["day 60", "2026-08-29T23:59:59.999Z", 0, "cag_founder"],
+    ["day 61", "2026-08-30T00:00:00.000Z", 500, null],
+  ])("applies the founders window on %s", async (_day, effectiveAt, expectedBps, expectedAgreementId) => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        foundersWindow: {
+          startedAt: "2026-07-01T00:00:00.000Z",
+          endsAt: "2026-08-30T00:00:00.000Z",
+        },
+        schedule: {
+          schedule_id: "cts_launch",
+          marketplace_sales_fee_percentage_bps: 500,
+          marketplace_sales_fee_fixed_amount: "0.00",
+          marketplace_sales_fee_cap_amount: "25.00",
+          shipping_allowance_percentage_bps: 500,
+        },
+        agreement: {
+          agreement_id: "cag_founder",
+          marketplace_sales_fee_percentage_bps: 0,
+          marketplace_sales_fee_fixed_amount: "0.00",
+          shipping_allowance_percentage_bps: 500,
+          effective_from: "2026-07-01T00:00:00.000Z",
+          effective_until: "2026-08-30T00:00:00.000Z",
+        },
+      }),
+    });
+
+    const result = await resolver.resolveListingTerms({ accountId: "acc_test", amount: "100.00", effectiveAt });
+
+    expect(result.marketplaceSalesFeePercentageBps).toBe(expectedBps);
+    expect(result.agreementId).toBe(expectedAgreementId);
+  });
+
+  it("fails closed instead of locking the standard rate while an active founders agreement catches up", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        foundersWindow: {
+          startedAt: "2026-07-01T00:00:00.000Z",
+          endsAt: "2026-08-30T00:00:00.000Z",
+        },
+        schedule: {
+          schedule_id: "cts_launch",
+          marketplace_sales_fee_percentage_bps: 500,
+          marketplace_sales_fee_fixed_amount: "0.00",
+          marketplace_sales_fee_cap_amount: "25.00",
+          shipping_allowance_percentage_bps: 500,
+        },
+        agreement: null,
+      }),
+    });
+
+    await expect(
+      resolver.resolveListingTerms({
+        accountId: "acc_test",
+        amount: "100.00",
+        effectiveAt: "2026-07-15T00:00:00.000Z",
+      }),
+    ).rejects.toThrow("Founders window agreement is not ready for account acc_test.");
   });
 
   it("resolves the default schedule for personal accounts", async () => {

@@ -45,6 +45,18 @@ export function buildCommercialTermsAccountProjectionHandlers(db: PgQueryable): 
         [accountId, data.name, data.displayName, event.timing.recordedAt],
       );
     },
+    "identity.account.founders-window-opened": async (event) => {
+      const accountId = event.streamId.replace("identity.account-", "");
+      const data = event.data as { betaAccessStartedAt: string; foundersWindowEndsAt: string };
+      await db.query(
+        `UPDATE commercial_terms_account_pages
+         SET founders_window_started_at = $2,
+             founders_window_ends_at = $3,
+             updated_at = $4
+         WHERE account_id = $1`,
+        [accountId, data.betaAccessStartedAt, data.foundersWindowEndsAt, event.timing.recordedAt],
+      );
+    },
     "identity.account.suspended": async (event) => {
       const accountId = event.streamId.replace("identity.account-", "");
       await db.query(

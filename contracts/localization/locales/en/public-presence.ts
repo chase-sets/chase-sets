@@ -405,7 +405,7 @@ export const publicPresenceEnglishTranslations = {
     "The badge and any listings you locked at 0% stay that way permanently. Creating new listings at 0% only works inside your 60-day window.",
   "publicPresence.info.founders.faqForever.title": "Is this forever?",
   "publicPresence.info.founders.faqSignup.body":
-    "No. An invite reserves your eligibility and starts your 60-day window. Your first listing or offer claims your founder number, and numbers go out in the order founders take that first action.",
+    "No. An invite reserves your eligibility. Beta access starts your 60-day window, and your first listing or offer claims your founder number in activation order.",
   "publicPresence.info.founders.faqSignup.title": "Do I get the badge just for signing up?",
   "publicPresence.info.founders.faqKeep.body":
     "Of the sale price, yes — 0% seller fees during your window. Shipping allowance and Order Protection come out the same way they do for every seller, and your payout statement itemizes both.",
@@ -708,7 +708,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.welcome.whatNext.point.discord": "Founders circle Discord access follows the first invite waves.",
   "publicPresence.welcome.whatNext.point.email": "Invite and founder-badge emails go to the address you gave us.",
   "publicPresence.welcome.whatNext.point.founders":
-    "Once you have beta access, your first listing or offer claims your numbered founder badge and starts your 60-day 0% window.",
+    "Beta access starts your 60-day 0% window. Your first listing or offer claims your numbered founder badge while numbers remain.",
   "publicPresence.welcome.whatNext.point.review":
     "We review signups by role, interest, and referral activity as beta invite waves open.",
   "publicPresence.welcome.whatNext.title": "What happens next",

@@ -16,6 +16,7 @@ export type DiscoveryPublicListingRow = Readonly<{
   seller_review_count: number;
   /** Account badges mirror (m87 badge facts, m108 reputation) -- e.g. "trusted-seller". */
   seller_badges: readonly string[];
+  seller_founder_number: number | null;
   google_shopping_structured_data_payload: unknown | null;
   inventory_item_id: string;
   catalog_catalog_item_id: string;
@@ -58,6 +59,7 @@ export type DiscoveryPublicAccountRow = Readonly<{
   created_at: string | null;
   /** Account badges mirror (m87 badge facts, m108 reputation) -- e.g. "trusted-seller". */
   badges: readonly string[];
+  founder_number: number | null;
   average_rating_as_seller: string | null;
   review_count_as_seller: number;
   rating_1_count_as_seller: number;
@@ -151,6 +153,7 @@ export async function getDiscoveryPublicListingBySlug(
          account.average_rating_as_seller::text AS seller_average_rating,
          COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
          COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
+         account.founder_number AS seller_founder_number,
          google_feed.payload AS google_shopping_structured_data_payload,
        ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
@@ -221,6 +224,7 @@ export async function getDiscoveryPublicAccountBySlug(
        COALESCE(account.rating_4_count_as_buyer, 0)::integer AS rating_4_count_as_buyer,
        COALESCE(account.rating_5_count_as_buyer, 0)::integer AS rating_5_count_as_buyer,
        COALESCE(account.badges, '[]'::jsonb) AS badges,
+       account.founder_number,
        account.updated_at::text AS updated_at
      FROM discovery_market_accounts AS account
      LEFT JOIN discovery_slug_redirects AS redirect
@@ -278,6 +282,7 @@ export async function getDiscoveryPublicAccountBySlug(
            account.average_rating_as_seller::text AS seller_average_rating,
            COALESCE(account.review_count_as_seller, 0)::integer AS seller_review_count,
            COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
+           account.founder_number AS seller_founder_number,
            NULL::jsonb AS google_shopping_structured_data_payload,
            ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
          FROM discovery_market_listings AS listing

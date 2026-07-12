@@ -47,7 +47,15 @@ export function AccountBadgeIcon() {
   );
 }
 
-export function AccountBadgeList({ badges, compact = false }: { badges: readonly string[]; compact?: boolean }) {
+export function AccountBadgeList({
+  badges,
+  compact = false,
+  founderNumber,
+}: {
+  badges: readonly string[];
+  compact?: boolean;
+  founderNumber?: number | null;
+}) {
   const accountBadges = badges.filter(isAccountBadgeKey);
   if (accountBadges.length === 0) {
     return null;
@@ -56,7 +64,10 @@ export function AccountBadgeList({ badges, compact = false }: { badges: readonly
   return (
     <Inline gap={1}>
       {accountBadges.map((badgeKey) => {
-        const label = accountBadgeLabels[badgeKey];
+        const label =
+          badgeKey === "founding-account" && founderNumber
+            ? `${accountBadgeLabels[badgeKey]} #${String(founderNumber).padStart(3, "0")}`
+            : accountBadgeLabels[badgeKey];
         return (
           <Badge key={badgeKey} tone="accent" title={label}>
             <AccountBadgeIcon />

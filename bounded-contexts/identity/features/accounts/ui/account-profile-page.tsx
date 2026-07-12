@@ -35,11 +35,19 @@ function displayActorUserName(display: CurrentActorDisplay) {
   return display.user.display_name ?? display.user.primary_email ?? display.user.user_id;
 }
 
-function AccountNameWithBadges({ badges, name }: { badges: readonly string[]; name: string }) {
+function AccountNameWithBadges({
+  badges,
+  name,
+  founderNumber,
+}: {
+  badges: readonly string[];
+  name: string;
+  founderNumber: number | null;
+}) {
   return (
     <InlineTextGroup>
       <Text element="span">{name}</Text>
-      <AccountBadgeList badges={badges} />
+      <AccountBadgeList badges={badges} founderNumber={founderNumber} />
     </InlineTextGroup>
   );
 }
@@ -59,7 +67,13 @@ export function AccountProfilePage({
     <Page>
       <PageHeader
         eyebrow={t("identity.features.accounts.ui.accountProfilePage.account")}
-        title={<AccountNameWithBadges name={account.display_name} badges={account.badges} />}
+        title={
+          <AccountNameWithBadges
+            name={account.display_name}
+            badges={account.badges}
+            founderNumber={account.founder_number ?? null}
+          />
+        }
         description={t("identity.features.accounts.ui.accountProfilePage.profile.and.commercial.ownership.details.for")}
         actions={
           <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
@@ -99,7 +113,11 @@ export function AccountProfilePage({
           description={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.identity.description")}
           accountLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account")}
           accountName={
-            <AccountNameWithBadges name={displayActorAccountName(actorDisplay)} badges={actorDisplay.account.badges} />
+            <AccountNameWithBadges
+              name={displayActorAccountName(actorDisplay)}
+              badges={actorDisplay.account.badges}
+              founderNumber={null}
+            />
           }
           accountDetail={t("identity.features.accounts.ui.currentActorDisplayCue.selected.account")}
           userLabel={t("identity.features.accounts.ui.currentActorDisplayCue.user")}

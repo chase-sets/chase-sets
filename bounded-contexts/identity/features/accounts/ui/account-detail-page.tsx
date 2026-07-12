@@ -21,7 +21,7 @@ export function AccountDetailPage({ data }: { data: Account }) {
         { label: data.display_name },
       ]}
       title={data.display_name}
-      titleAside={<AccountBadgeList badges={data.badges} />}
+      titleAside={<AccountBadgeList badges={data.badges} founderNumber={data.founder_number} />}
       status={data.status}
       actions={
         <Inline gap={2}>
@@ -45,26 +45,28 @@ export function AccountDetailPage({ data }: { data: Account }) {
               </Button>
             </Stack>
           </Form>
-          {accountBadgeKeys.map((badgeKey) => {
-            const assigned = data.badges.includes(badgeKey);
-            const badge = accountBadgeLabels[badgeKey];
-            return (
-              <Form key={badgeKey} spacing="none" method="post">
-                <HiddenInput
-                  type="hidden"
-                  name="intent"
-                  value={assigned ? "remove-account-badge" : "assign-account-badge"}
-                  readOnly
-                />
-                <HiddenInput type="hidden" name="badgeKey" value={badgeKey} readOnly />
-                <Button type="submit" tone={assigned ? "secondary" : "primary"}>
-                  {assigned
-                    ? t("identity.features.accounts.ui.accountDetailPage.remove.account.badge", { badge })
-                    : t("identity.features.accounts.ui.accountDetailPage.assign.account.badge", { badge })}
-                </Button>
-              </Form>
-            );
-          })}
+          {accountBadgeKeys
+            .filter((badgeKey) => badgeKey !== "founding-account")
+            .map((badgeKey) => {
+              const assigned = data.badges.includes(badgeKey);
+              const badge = accountBadgeLabels[badgeKey];
+              return (
+                <Form key={badgeKey} spacing="none" method="post">
+                  <HiddenInput
+                    type="hidden"
+                    name="intent"
+                    value={assigned ? "remove-account-badge" : "assign-account-badge"}
+                    readOnly
+                  />
+                  <HiddenInput type="hidden" name="badgeKey" value={badgeKey} readOnly />
+                  <Button type="submit" tone={assigned ? "secondary" : "primary"}>
+                    {assigned
+                      ? t("identity.features.accounts.ui.accountDetailPage.remove.account.badge", { badge })
+                      : t("identity.features.accounts.ui.accountDetailPage.assign.account.badge", { badge })}
+                  </Button>
+                </Form>
+              );
+            })}
           {data.status === "active" ? (
             <Form spacing="none" method="post">
               <HiddenInput type="hidden" name="intent" value="suspend" readOnly />

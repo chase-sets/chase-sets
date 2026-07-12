@@ -26,6 +26,7 @@ type AgreementRuntimeDeps = Readonly<{
 }>;
 
 export type CreateAgreementParams = Readonly<{
+  agreementId?: string;
   label: string;
   accountId: string;
   marketplaceSalesFeePercentageBps: number;
@@ -78,6 +79,7 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
       return deps.policies.createAgreementDocument(
         definition,
         {
+          ...(params.agreementId ? { documentId: params.agreementId } : {}),
           value: {
             label: params.label,
             accountId,

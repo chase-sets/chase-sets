@@ -483,6 +483,8 @@ function createIdentityCommercialTermsAccountSource(
         account_id: String(account.id),
         account_type: account.accountType,
         status: account.status,
+        founders_window_started_at: account.foundersWindow?.startedAt ?? null,
+        founders_window_ends_at: account.foundersWindow?.endsAt ?? null,
       };
     },
   };

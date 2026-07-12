@@ -9,6 +9,7 @@ const account = {
   account_id: "acc_card_vault",
   account_type: "business",
   badges: ["founding-account"],
+  founder_number: 47,
   display_name: "Card Vault",
   name: "Card Vault LLC",
   status: "active",
@@ -91,13 +92,13 @@ describe("Access Admin detail pages", () => {
     expect(html).toContain('href="/access/accounts"');
     expect(html).toContain("Accounts");
     expect(html).toContain("Card Vault");
-    expect(html).toContain("Founding Account");
+    expect(html).toContain("Founding Account #047");
     expect(html).toContain("Update Profile");
     expect(html).toContain("Invite Member");
     expect(html).toContain('type="hidden"');
     expect(html).toContain('name="accountId"');
     expect(html).toContain('value="acc_card_vault"');
-    expect(html).toContain("Remove Founding Account badge");
+    expect(html).not.toContain("Remove Founding Account badge");
     expect(html).toContain("Assign Manual Payout Review badge");
     expect(html).toContain("Assign Trusted Seller badge");
     expect(html).not.toMatch(/<h1[^>]*><div/);

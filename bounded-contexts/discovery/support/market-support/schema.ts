@@ -49,7 +49,8 @@ ALTER TABLE discovery_market_accounts
 -- item-detail seller block can render the trusted-seller badge (and any
 -- future badge) without a new cross-context runtime dependency on identity.
 ALTER TABLE discovery_market_accounts
-  ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS founder_number integer NULL;
 
 CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
   review_id text PRIMARY KEY,

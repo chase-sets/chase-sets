@@ -206,6 +206,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
         identity = await identityMutations.createPersonalIdentity({
           email: invitation.email,
           displayName: createOwnedUserDisplayName(invitation.email),
+          foundersBetaAccessStartedAt: new Date().toISOString(),
         });
       } catch (error) {
         const conflict = readIdentityMutationConflict(error);

@@ -90,6 +90,7 @@ export type IdentityAuthMutationClient = Readonly<{
       givenName?: string;
       familyName?: string;
       consents?: readonly { policyKey: string; policyVersion: string }[];
+      foundersBetaAccessStartedAt?: string;
     }>,
   ) => Promise<
     Readonly<{

@@ -18,6 +18,10 @@ A **Marketplace Sales Fee Cap** is the maximum Marketplace Sales Fee charged for
 
 A **Commercial Agreement** is an account-specific override to the default commercial terms.
 
+## Founders Window Agreement
+
+A **Founders Window Agreement** is the active Commercial Agreement automatically created from an Identity-owned Founders Window admission. It applies 0% Marketplace Sales Fees from beta access start until the exclusive 60-day endpoint; after that endpoint, new Listings resolve against the published Marketplace Sales Fee Schedule while already locked Listings retain their 0% snapshot.
+
 ## Commercial Terms Resolution
 
 A **Commercial Terms Resolution** is the deterministic result of selecting the applicable schedule and agreement for an account at a point in time.

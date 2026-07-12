@@ -93,6 +93,10 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Commercial Terms Resolution | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Deterministic seller-side fee policy resolution. |
 | Marketplace Sales Fee | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Marketplace sales fee policy. Confirmation rules live in [Marketplace Sales Fee Confirmation](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md). |
 | Marketplace Sales Fee Snapshot | [Marketplace](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md) | Account-confirmed per-unit fee snapshot consumed by Ordering. |
+| Founders Cohort | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Capped set of beta-admitted Accounts eligible to claim 500 activation-order Founder Numbers. |
+| Founder Number | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Permanent number claimed by an admitted Account's first Qualifying Act. |
+| Founders Window | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Beta-access-anchored 60-day eligibility period implemented by Commercial Terms as a Founders Window Agreement. |
+| Qualifying Act | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Listing creation or Offer submission that can claim a Founder Number for the acting Account. |
 | Marketplace Checkout Fee | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Buyer-side payment-level fee policy. Current policy lives in [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md). |
 | Promo Bar Message | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Public marketplace copy shown in the site promo bar for marketplace-wide information. |
 | Cohort Quality Signal | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Wave-1 campaign field (games sold, store link, inventory size) captured only from sell/both-intent Waitlist Signups. |
