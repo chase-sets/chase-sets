@@ -1,10 +1,10 @@
 {
   "contextName": "public-presence",
   "packageName": "@chase-sets/public-presence",
-  "ownedNouns": ["public-presence", "waitlist-signup", "promo-bar-message"],
+  "ownedNouns": ["public-presence", "waitlist-signup", "promo-bar-message", "help-article", "help-category"],
   "streamPrefix": "public-presence.",
   "apiBasePath": "/api/public-presence",
-  "slices": ["waitlist", "promo-bar"],
+  "slices": ["waitlist", "promo-bar", "help"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
@@ -256,6 +256,30 @@
           "placement": "root"
         },
         {
+          "routeId": "help",
+          "routePath": "help",
+          "fileExport": "./routes/marketplace/help",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "help-category",
+          "routePath": "help/:category",
+          "fileExport": "./routes/marketplace/help-category",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "help-article",
+          "routePath": "help/:category/:slug",
+          "fileExport": "./routes/marketplace/help-article",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
           "routeId": "faq",
           "routePath": "faq",
           "fileExport": "./routes/marketplace/faq",
@@ -382,6 +406,11 @@
     }
   ],
   "directoryIntent": {
+    "help": {
+      "classification": "slice",
+      "purpose": "Own the compiled public Help Article corpus, Help Category taxonomy, and public help routes.",
+      "expectedConsumers": ["Public web routes", "Public web sitemap"]
+    },
     "waitlist": {
       "classification": "slice",
       "purpose": "Own prelaunch waitlist behavior, read models, and admin review surfaces.",

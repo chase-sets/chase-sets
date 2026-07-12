@@ -4,6 +4,25 @@
 
 Public Presence is the product-facing surface that explains Chase Sets before marketplace launch.
 
+## Help Article
+
+A **Help Article** is a locale-specific, public explanation authored as Markdown in Public Presence and compiled into typed content before public-web builds.
+
+Notes:
+
+- Help Articles explain landed marketplace behavior; they do not own policy, transaction, or catalog truth.
+- Frontmatter records the article's audience, Help Category, review date, cited policy keys, related flows, and evidence for behavioral promises.
+- Article prose is content, not localization chrome. Each locale has its own Markdown file.
+
+## Help Category
+
+A **Help Category** is the stable, URL-safe topic grouping used to browse Help Articles.
+
+Notes:
+
+- Public Presence owns the category taxonomy and its localized navigation labels.
+- Audience identifies who an article helps; Help Category identifies what the article explains.
+
 ## Waitlist Signup
 
 A **Waitlist Signup** is a request for Chase Sets early access, qualified by account intent and product interests. Joining implies consent to early-access emails; consent to additional product updates beyond early-access notifications is a separate, optional opt-in.

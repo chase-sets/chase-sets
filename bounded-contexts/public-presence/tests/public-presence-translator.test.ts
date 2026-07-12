@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { publicPresenceEnglishTranslations } from "@chase-sets/localization/locales/en/public-presence";
+import { publicHelpArticles } from "../features/help/domain/article-catalog";
 import { publicPresenceHasTranslation, publicPresenceT } from "../features/waitlist/ui/public-presence-translator";
 
 describe("public presence translator", () => {
@@ -25,45 +26,21 @@ describe("public presence translator", () => {
       "publicPresence.faq.shipping.question",
       "publicPresence.faq.title",
       "publicPresence.footer.description",
-      "publicPresence.info.buyerProtection.description",
-      "publicPresence.info.buyerProtection.chargebacks.body",
-      "publicPresence.info.buyerProtection.disputeEvidence.body",
-      "publicPresence.info.buyerProtection.fraud.body",
-      "publicPresence.info.buyerProtection.negativeBalance.body",
-      "publicPresence.info.buyerProtection.orders.body",
-      "publicPresence.info.buyerProtection.payment.body",
-      "publicPresence.info.buyerProtection.returns.body",
-      "publicPresence.info.buyerProtection.shippingEvidence.body",
       "publicPresence.info.contact.description",
       "publicPresence.info.contact.status.body",
-      "publicPresence.info.faq.description",
       "publicPresence.info.privacy.description",
-      "publicPresence.info.refunds.description",
-      "publicPresence.info.refunds.future.body",
-      "publicPresence.info.refunds.future.title",
-      "publicPresence.info.refunds.prelaunch.body",
-      "publicPresence.info.refunds.prelaunch.title",
-      "publicPresence.info.sellerFees.buyerVisibility.body",
-      "publicPresence.info.sellerFees.lowValue.body",
-      "publicPresence.info.sellerFees.predictable.body",
-      "publicPresence.info.sellerFees.prelaunch.body",
-      "publicPresence.info.sellerFees.prelaunch.title",
       "publicPresence.info.terms.accounts.body",
       "publicPresence.info.terms.description",
       "publicPresence.info.terms.marketplace.body",
       "publicPresence.info.terms.prelaunch.body",
       "publicPresence.info.terms.prelaunch.title",
-      "publicPresence.routes.buyerProtection.meta.description",
-      "publicPresence.routes.faq.meta.description",
       "publicPresence.routes.privacy.meta.description",
-      "publicPresence.routes.refunds.meta.description",
-      "publicPresence.routes.sellerFees.meta.description",
       "publicPresence.routes.terms.meta.description",
     ];
 
     expect(launchPolicyKeys.every((key) => publicPresenceHasTranslation(key))).toBe(true);
 
-    const copy = launchPolicyKeys.map((key) => publicPresenceT(key)).join(" ");
+    const copy = `${launchPolicyKeys.map((key) => publicPresenceT(key)).join(" ")} ${JSON.stringify(publicHelpArticles)}`;
 
     expect(copy).not.toMatch(/\b(future|intended|planned|expected)\b/i);
     expect(copy).not.toContain("will be published");
@@ -72,7 +49,7 @@ describe("public presence translator", () => {
   });
 
   it("keeps uncertified UCP and AP2 agent-commerce claims out of public launch copy", () => {
-    const publicLaunchCopy = Object.entries(publicPresenceEnglishTranslations)
+    const publicLaunchCopy = `${Object.entries(publicPresenceEnglishTranslations)
       .filter(([key]) => {
         return (
           key.startsWith("publicPresence.faq.") ||
@@ -86,7 +63,7 @@ describe("public presence translator", () => {
         );
       })
       .map(([key, value]) => `${key}: ${value}`)
-      .join("\n");
+      .join("\n")}\n${JSON.stringify(publicHelpArticles)}`;
 
     const restrictedClaims = [
       /\bUCP\b/i,

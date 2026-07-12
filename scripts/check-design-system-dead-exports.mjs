@@ -125,7 +125,6 @@ const canonicalReserveZeroConsumerExports = [
   "SideNav",
   "Slider",
   "Spacer",
-  "SplitPane",
   "Stagger",
   "StickyBar",
   "Subheading",

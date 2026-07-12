@@ -8,6 +8,7 @@ Public Presence owns Chase Sets public product pages, prelaunch policy surfaces,
 
 - Public product pages
 - Prelaunch policy surfaces
+- Public help articles and their category taxonomy
 - Waitlist capture and waitlist entries
 - Internal waitlist review
 - Landing page positioning and analytics vocabulary
@@ -52,3 +53,4 @@ The marketplace and admin deployables only compose routes from this context. Pro
 
 - [Landing page positioning](docs/landing-page-positioning.md)
 - [Landing page analytics](docs/landing-page-analytics.md)
+- [Help article contract](docs/help-article-contract.md)

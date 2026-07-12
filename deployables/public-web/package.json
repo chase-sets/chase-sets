@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "react-router dev",
+    "prebuild": "pnpm --filter @chase-sets/public-presence run compile:help-articles",
     "build": "node ../../scripts/react-router-build.mjs",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
