@@ -9,6 +9,7 @@ import {
   type CheckoutProcessingFeePolicyValue,
 } from "./features/checkout-processing-fee/domain/policy";
 import { authenticityFeePolicy, type AuthenticityFeePolicyValue } from "./features/authenticity-fee/domain/policy";
+import { marketplaceSalesFeeSchedulePolicy } from "./features/marketplace-sales-fee/domain/policy";
 
 export type {
   CommercialTermsResolver,
@@ -147,3 +148,4 @@ export type {
  */
 export { checkoutProcessingFeePolicy } from "./features/checkout-processing-fee/domain/policy";
 export { authenticityFeePolicy } from "./features/authenticity-fee/domain/policy";
+export { marketplaceSalesFeeSchedulePolicy } from "./features/marketplace-sales-fee/domain/policy";

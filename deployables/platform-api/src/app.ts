@@ -13,6 +13,7 @@ import {
 import {
   authenticityFeePolicy,
   checkoutProcessingFeePolicy,
+  marketplaceSalesFeeSchedulePolicy,
   createAuthenticityFeePolicyResolver,
   createCheckoutProcessingFeePolicyResolver,
   createCommercialTermsResolver,
@@ -225,6 +226,7 @@ export function createPlatformApiHost(
       contextName: "commercial-terms",
       db: commercialTermsPool,
       definitions: [
+        marketplaceSalesFeeSchedulePolicy,
         checkoutProcessingFeePolicy,
         authenticityFeePolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],

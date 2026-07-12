@@ -8,10 +8,11 @@ import {
   subtractMoneyAmounts,
   type CommercialAccountType,
 } from "../../../support/runtime-support/common";
+import { commercialTermsAgreementPolicyKey } from "../../../support/runtime-support/terms-policy";
 import {
-  commercialTermsAgreementPolicyKey,
-  commercialTermsSchedulePolicyKey,
-} from "../../../support/runtime-support/terms-policy";
+  MARKETPLACE_SALES_FEE_SCHEDULE_POLICY_KEY,
+  quoteMarketplaceSalesFee,
+} from "../../marketplace-sales-fee/domain/policy";
 
 export type ResolvedCommercialTerms = Readonly<{
   accountId: string;
@@ -117,6 +118,7 @@ type ActiveSchedule = Readonly<{
   label: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
+  marketplace_sales_fee_cap_amount: string;
   shipping_allowance_percentage_bps: number;
   updated_at: string;
 }>;
@@ -178,13 +180,14 @@ async function getCommercialTermsAccount(
  * matches; resolution here must fail closed when no active schedule or
  * agreement exists, exactly as it did before convergence.
  */
-async function getActiveSchedule(db: PgQueryable, accountType: CommercialAccountType, effectiveAt: string) {
+async function getActiveSchedule(db: PgQueryable, effectiveAt: string) {
   const result = await db.query<ActiveSchedule>(
     `SELECT
        document_id AS schedule_id,
        value->>'label' AS label,
        (value->>'marketplaceSalesFeePercentageBps')::integer AS marketplace_sales_fee_percentage_bps,
        value->>'marketplaceSalesFeeFixedAmount' AS marketplace_sales_fee_fixed_amount,
+       value->>'marketplaceSalesFeeCapAmount' AS marketplace_sales_fee_cap_amount,
        (value->>'shippingAllowancePercentageBps')::integer AS shipping_allowance_percentage_bps,
        updated_at::text AS updated_at
      FROM platform_policy_documents
@@ -194,7 +197,7 @@ async function getActiveSchedule(db: PgQueryable, accountType: CommercialAccount
        AND (effective_until IS NULL OR effective_until > $2)
      ORDER BY effective_from DESC, updated_at DESC, document_id DESC
      LIMIT 1`,
-    [commercialTermsSchedulePolicyKey(accountType), effectiveAt],
+    [MARKETPLACE_SALES_FEE_SCHEDULE_POLICY_KEY, effectiveAt],
   );
 
   return result.rows[0] ?? null;
@@ -237,6 +240,7 @@ type ListingTermsBasis = Readonly<{
   resolvedAt: string;
   percentageBps: number;
   fixedAmount: string;
+  capAmount: string | null;
   shippingAllowancePercentageBps: number;
 }>;
 
@@ -255,7 +259,7 @@ async function resolveListingTermsBasis(
   assert(isCommercialAccountType(account.account_type), `Account ${params.accountId} is missing account type.`);
 
   const [schedule, agreement] = await Promise.all([
-    getActiveSchedule(db, account.account_type, effectiveAt),
+    getActiveSchedule(db, effectiveAt),
     getActiveAgreement(db, params.accountId, effectiveAt),
   ]);
 
@@ -271,6 +275,7 @@ async function resolveListingTermsBasis(
       agreement?.marketplace_sales_fee_percentage_bps ?? schedule?.marketplace_sales_fee_percentage_bps ?? 0,
     fixedAmount:
       agreement?.marketplace_sales_fee_fixed_amount ?? schedule?.marketplace_sales_fee_fixed_amount ?? "0.00",
+    capAmount: agreement ? null : (schedule?.marketplace_sales_fee_cap_amount ?? null),
     shippingAllowancePercentageBps:
       agreement?.shipping_allowance_percentage_bps ??
       schedule?.shipping_allowance_percentage_bps ??
@@ -283,10 +288,17 @@ function quoteFromListingTermsBasis(basis: ListingTermsBasis, rawAmount: string)
     fieldName: "Commercial terms amount",
     allowZero: true,
   });
-  const marketplaceSalesFeeUnitAmount = applyFeeFormula(amount, {
-    percentageBps: basis.percentageBps,
-    fixedAmount: basis.fixedAmount,
-  });
+  const marketplaceSalesFeeUnitAmount =
+    basis.capAmount === null
+      ? applyFeeFormula(amount, {
+          percentageBps: basis.percentageBps,
+          fixedAmount: basis.fixedAmount,
+        })
+      : quoteMarketplaceSalesFee(amount, {
+          marketplaceSalesFeePercentageBps: basis.percentageBps,
+          marketplaceSalesFeeFixedAmount: basis.fixedAmount,
+          marketplaceSalesFeeCapAmount: basis.capAmount,
+        });
 
   return {
     accountId: basis.accountId,
@@ -348,12 +360,13 @@ async function resolvePublicStandardTerms(
     fieldName: "Commercial terms amount",
     allowZero: true,
   });
-  const schedule = await getActiveSchedule(db, accountType, effectiveAt);
-  assert(schedule, `No active public standard commercial terms were found for ${accountType} accounts.`);
+  const schedule = await getActiveSchedule(db, effectiveAt);
+  assert(schedule, "No active published marketplace sales fee schedule was found.");
 
-  const marketplaceSalesFeeUnitAmount = applyFeeFormula(amount, {
-    percentageBps: schedule.marketplace_sales_fee_percentage_bps,
-    fixedAmount: schedule.marketplace_sales_fee_fixed_amount,
+  const marketplaceSalesFeeUnitAmount = quoteMarketplaceSalesFee(amount, {
+    marketplaceSalesFeePercentageBps: schedule.marketplace_sales_fee_percentage_bps,
+    marketplaceSalesFeeFixedAmount: schedule.marketplace_sales_fee_fixed_amount,
+    marketplaceSalesFeeCapAmount: schedule.marketplace_sales_fee_cap_amount,
   });
 
   return {

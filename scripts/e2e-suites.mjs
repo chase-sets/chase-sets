@@ -285,6 +285,10 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["admin_commerce"],
   },
   {
+    pattern: /^bounded-contexts\/commercial-terms\/routes\/public\//,
+    suites: ["marketplace_browse"],
+  },
+  {
     pattern: /^bounded-contexts\/commercial-terms\/features\/(?:schedules|agreements|resolutions)\/(?:api|ui)\//,
     suites: ["admin_commerce"],
   },

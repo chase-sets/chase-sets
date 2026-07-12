@@ -310,6 +310,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/public-presence':
+        specifier: workspace:*
+        version: link:../public-presence
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -1635,6 +1638,9 @@ importers:
 
   deployables/public-web:
     dependencies:
+      '@chase-sets/commercial-terms':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/commercial-terms
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system

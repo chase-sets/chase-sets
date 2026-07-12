@@ -376,23 +376,23 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.info.refunds.support.title": "Support",
   "publicPresence.info.refunds.title": "Refunds and returns",
   "publicPresence.info.sellerFees.description":
-    "Chase Sets is designed to protect early trading card seller margin with beta fee locks, no separate seller payment-processing fee, and fee snapshots before inventory goes live.",
+    "Chase Sets publishes one standard seller fee schedule for every account, with fee terms confirmed before inventory goes live.",
   "publicPresence.info.sellerFees.eyebrow": "Economics",
   "publicPresence.info.sellerFees.buyerVisibility.body":
     "Buyer-side marketplace costs remain visible before payment. The seller-fee promise does not create surprise checkout math; listings, order processing, shipping credit, and support context stay close to the payment decision.",
   "publicPresence.info.sellerFees.buyerVisibility.title": "Buyer-side cost visibility",
   "publicPresence.info.sellerFees.founders.body":
-    "The first beta invite waves are considered for Founding Account status and founders circle access on Discord. Seller feedback from that circle helps pressure test bulk and budget card economics before fees expand beyond beta terms.",
-  "publicPresence.info.sellerFees.founders.title": "Founder feedback loop",
+    "An account-specific commercial agreement can replace the standard schedule for eligible listings. The confirmed fee remains attached to the listing rather than being recalculated from a later schedule.",
+  "publicPresence.info.sellerFees.founders.title": "Listing-time fee confirmation",
   "publicPresence.info.sellerFees.lowValue.body":
-    "The marketplace is designed around better margins for bulk cards, raw cards, graded cards, chase cards, and collectible inventory at every price point. Removing separate seller payment-processing fees is especially important for budget cards.",
-  "publicPresence.info.sellerFees.lowValue.title": "Marketplace margins",
+    "The fixed seller fee is {fixedAmount}. There is no per-item fixed charge, preserving margin on budget cards and bulk inventory.",
+  "publicPresence.info.sellerFees.lowValue.title": "No seller-side fixed fee",
   "publicPresence.info.sellerFees.predictable.body":
-    "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees such as 2.9% plus $0.30 to sellers.",
-  "publicPresence.info.sellerFees.predictable.title": "0% beta seller fee lock",
+    "The standard seller fee is {percentage} of the item price plus {fixedAmount}, never more than {capAmount} per item. Chase Sets does not add a separate seller payment-processing fee.",
+  "publicPresence.info.sellerFees.predictable.title": "One standard seller fee",
   "publicPresence.info.sellerFees.prelaunch.body":
-    "Marketplace checkout opens at launch. If a beta listing is changed after beta ends, the current fee schedule applies before it goes live again.",
-  "publicPresence.info.sellerFees.prelaunch.title": "Marketplace availability",
+    "Marketplace checkout opens at launch. This is the single published standard schedule; account-type fee tiers are not offered at launch.",
+  "publicPresence.info.sellerFees.prelaunch.title": "Published schedule",
   "publicPresence.info.sellerFees.questions.body":
     "Contact support@chasesets.com before listing if beta fee-lock rules, listing changes, payout readiness, or marketplace costs are unclear.",
   "publicPresence.info.sellerFees.questions.title": "Questions before listing",
@@ -550,8 +550,8 @@ export const publicPresenceEnglishTranslations = {
     "Read the Chase Sets refunds and returns policy for marketplace orders.",
   "publicPresence.routes.refunds.meta.title": "Refunds And Returns | Chase Sets",
   "publicPresence.routes.sellerFees.meta.description":
-    "Review Chase Sets beta seller fee locks, no separate seller payment-processing fee, and marketplace fee terms for trading card sellers.",
-  "publicPresence.routes.sellerFees.meta.title": "Beta Seller Fees for Trading Cards | Chase Sets",
+    "Review the single Chase Sets standard seller fee schedule, per-item cap, and listing-time fee confirmation.",
+  "publicPresence.routes.sellerFees.meta.title": "Marketplace Seller Fees | Chase Sets",
   "publicPresence.routes.terms.meta.description":
     "Read the Chase Sets terms of service for public-site access and marketplace workflows.",
   "publicPresence.routes.terms.meta.title": "Terms | Chase Sets",

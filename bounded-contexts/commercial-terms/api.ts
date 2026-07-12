@@ -6,6 +6,7 @@ import { createAuthenticityFeeRoutes } from "./features/authenticity-fee/api/rou
 import { createCheckoutProcessingFeeRoutes } from "./features/checkout-processing-fee/api/route";
 import { createResolutionRoutes } from "./features/resolutions/api/route";
 import { createScheduleRoutes } from "./features/schedules/api/route";
+import { createPublicMarketplaceSalesFeeScheduleRoutes } from "./features/marketplace-sales-fee/api/route";
 
 export type CommercialTermsApiEnv = AuthenticatedApiEnv;
 
@@ -16,5 +17,11 @@ export function buildCommercialTermsApi(services: CommercialTermsServices) {
   app.route("/resolutions", createResolutionRoutes(services.resolutions));
   app.route("/checkout-processing-fee", createCheckoutProcessingFeeRoutes(services.policies));
   app.route("/authenticity-fee", createAuthenticityFeeRoutes(services.policies));
+  return app;
+}
+
+export function buildCommercialTermsPublicApi(services: CommercialTermsServices) {
+  const app = new Hono<CommercialTermsApiEnv>();
+  app.route("/", createPublicMarketplaceSalesFeeScheduleRoutes(services.policies));
   return app;
 }

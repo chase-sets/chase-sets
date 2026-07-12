@@ -4,18 +4,18 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { buildCreatePolicyDocumentCommand } from "@chase-sets/platform-policy/commands";
 import { commercialTermsSeedIds } from "../seed-support/ids";
 import { createCommercialTermsServices } from "./services";
-import { agreementStreamId, scheduleStreamId } from "./policy-runtime";
+import { agreementStreamId } from "./policy-runtime";
 import {
   CHECKOUT_PROCESSING_FEE_LAUNCH_POLICY_VALUE,
   checkoutProcessingFeePolicy,
 } from "../../features/checkout-processing-fee/domain/policy";
-import {
-  COMMERCIAL_TERMS_SCHEDULE_LAUNCH_VALUES,
-  commercialTermsAgreementPolicy,
-  commercialTermsSchedulePolicy,
-} from "./terms-policy";
+import { commercialTermsAgreementPolicy, commercialTermsSchedulePolicy } from "./terms-policy";
 import { DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS, type CommercialAccountType } from "./common";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import {
+  MARKETPLACE_SALES_FEE_SCHEDULE_LAUNCH_POLICY_VALUE,
+  marketplaceSalesFeeSchedulePolicy,
+} from "../../features/marketplace-sales-fee/domain/policy";
 
 function createSeedContext() {
   return {
@@ -45,24 +45,22 @@ export async function seedCommercialTermsDatabase(
   const effectiveFrom = "2026-01-01T00:00:00.000Z";
 
   if (shouldSeedCritical) {
-    await seedDefaultScheduleIfMissing(services, context, {
+    await supersedeLegacyScheduleIfActive(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.personalDefault,
       accountType: "personal",
-      effectiveFrom,
     });
 
-    await seedDefaultScheduleIfMissing(services, context, {
+    await supersedeLegacyScheduleIfActive(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.businessDefault,
       accountType: "business",
-      effectiveFrom,
     });
 
-    await seedDefaultScheduleIfMissing(services, context, {
+    await supersedeLegacyScheduleIfActive(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.enterpriseDefault,
       accountType: "enterprise",
-      effectiveFrom,
     });
 
+    await seedMarketplaceSalesFeeScheduleIfMissing(services, context, "2026-07-03T00:00:00.000Z");
     await seedCheckoutProcessingFeePolicyIfMissing(services, context, "2026-05-03T00:00:00.000Z");
   }
 
@@ -103,112 +101,69 @@ function profileEnabled(options: BcSeedOptions | undefined, profile: "critical-b
   return (options?.enabledDataProfiles ?? defaultProfiles).includes(profile);
 }
 
-/**
- * Seeds a schedule with its schema-declared launch value
- * (`COMMERCIAL_TERMS_SCHEDULE_LAUNCH_VALUES`, defined once in
- * `terms-policy.ts` and shared with the compiled fallback) so behavior is
- * byte-identical at cutover -- seed values are derived from the same
- * schema-declared defaults the resolver falls back to, not restated. A
- * policy document's id is normally assigned by the machinery itself, but
- * schedules keep a pre-registered seed id (`commercialTermsSeedIds`) for
- * deterministic fixtures across bootstrap runs.
- */
-async function seedDefaultScheduleIfMissing(
+export async function supersedeLegacyScheduleIfActive(
   services: ReturnType<typeof createCommercialTermsServices>,
   context: ReturnType<typeof createSeedContext>,
   input: Readonly<{
     scheduleId: string;
     accountType: CommercialAccountType;
-    effectiveFrom: string;
   }>,
 ) {
-  if (await policyDocumentExistsById(services.db, input.scheduleId)) {
+  const result = await services.db.query<{
+    status: string;
+    value: {
+      label: string;
+      accountType: CommercialAccountType;
+      marketplaceSalesFeePercentageBps: number;
+      marketplaceSalesFeeFixedAmount: string;
+      shippingAllowancePercentageBps: number;
+    };
+    effective_from: string;
+    effective_until: string | null;
+  }>(
+    `SELECT status, value, effective_from::text, effective_until::text
+     FROM platform_policy_documents
+     WHERE document_id = $1`,
+    [input.scheduleId],
+  );
+  const current = result.rows[0];
+  if (!current || current.status !== "active") {
     return;
   }
 
   const definition = commercialTermsSchedulePolicy(input.accountType);
-  const value = COMMERCIAL_TERMS_SCHEDULE_LAUNCH_VALUES[input.accountType];
+  await services.policies.reviseScheduleDocument(
+    definition,
+    input.scheduleId,
+    {
+      value: current.value,
+      status: "inactive",
+      effectiveFrom: current.effective_from,
+      effectiveUntil: current.effective_until,
+      actorUserId: identitySeedIds.support.userId,
+    },
+    context,
+  );
+}
 
-  // A prior, interrupted bootstrap may have already appended the
-  // CreatePolicyDocument event without the projection having caught up to
-  // write the row yet. Re-issuing the command would replay the stream and
-  // hit "Policy document has already been created" -- upsert the row
-  // directly from the known seed value instead, same as the projection
-  // would once it catches up.
-  if (await streamExists(services.db, scheduleStreamId(input.scheduleId))) {
-    await upsertSeedPolicyDocumentPage(services.db, {
-      documentId: input.scheduleId,
-      policyKey: definition.policyKey,
-      contextName: definition.contextName,
-      schemaSummary: definition.schemaSummary,
-      value,
-      effectiveFrom: input.effectiveFrom,
-    });
+async function seedMarketplaceSalesFeeScheduleIfMissing(
+  services: ReturnType<typeof createCommercialTermsServices>,
+  context: ReturnType<typeof createSeedContext>,
+  effectiveFrom: string,
+) {
+  if (await policyDocumentExistsByKey(services.db, marketplaceSalesFeeSchedulePolicy.policyKey)) {
     return;
   }
-
-  const command = buildCreatePolicyDocumentCommand(definition, {
-    documentId: input.scheduleId,
-    value,
-    status: "active",
-    effectiveFrom: input.effectiveFrom,
-    effectiveUntil: null,
-    actorUserId: identitySeedIds.support.userId,
-  });
-  await services.policies.commandHandler({
-    streamId: scheduleStreamId(input.scheduleId),
-    command,
+  await services.policies.createPolicyDocument(
+    marketplaceSalesFeeSchedulePolicy,
+    {
+      value: MARKETPLACE_SALES_FEE_SCHEDULE_LAUNCH_POLICY_VALUE,
+      status: "active",
+      effectiveFrom,
+      effectiveUntil: null,
+      actorUserId: identitySeedIds.support.userId,
+    },
     context,
-  });
-}
-
-async function streamExists(db: Pick<PgTransactionalPool, "query">, streamId: string): Promise<boolean> {
-  return rowExists(db, "SELECT 1 FROM event_store_streams WHERE stream_id = $1 LIMIT 1", [streamId]);
-}
-
-async function upsertSeedPolicyDocumentPage(
-  db: Pick<PgTransactionalPool, "query">,
-  input: Readonly<{
-    documentId: string;
-    policyKey: string;
-    contextName: string;
-    schemaSummary: string;
-    value: unknown;
-    effectiveFrom: string;
-  }>,
-): Promise<void> {
-  await db.query(
-    `INSERT INTO platform_policy_documents (
-       document_id,
-       policy_key,
-       context_name,
-       schema_summary,
-       status,
-       value,
-       effective_from,
-       effective_until,
-       created_at,
-       updated_at
-     ) VALUES (
-       $1, $2, $3, $4, 'active', $5::jsonb, $6, NULL, $6, $6
-     )
-     ON CONFLICT (document_id) DO UPDATE
-     SET policy_key = EXCLUDED.policy_key,
-         context_name = EXCLUDED.context_name,
-         schema_summary = EXCLUDED.schema_summary,
-         status = EXCLUDED.status,
-         value = EXCLUDED.value,
-         effective_from = EXCLUDED.effective_from,
-         effective_until = EXCLUDED.effective_until,
-         updated_at = EXCLUDED.updated_at`,
-    [
-      input.documentId,
-      input.policyKey,
-      input.contextName,
-      input.schemaSummary,
-      JSON.stringify(input.value),
-      input.effectiveFrom,
-    ],
   );
 }
 
