@@ -56,6 +56,69 @@
           "expr": "{service_name=\"public-web\"} | json | type=\"public_presence.waitlist.analytics_event\""
         }
       ]
+    },
+    {
+      "type": "table",
+      "title": "Campaign funnel by channel (visit -> signup -> Discord CTA -> referral share)",
+      "description": "issue #4071: directional funnel counts per UTM source, built from the same sanitized structured logs as the panel above. Discord 'join' is measured as a click-through on the Discord invite CTA (cta_clicked target=discord) -- there is no Discord API/OAuth integration to confirm actual guild membership. Signup and quality-metric channel attribution is transactional truth, not sampled log data -- see the Campaign Analytics admin page (/campaign-analytics) fed by public_presence_waitlist_signups.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "visit",
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "sum by (utm_source) (count_over_time({service_name=\"public-web\"} | json | type=\"public_presence.waitlist.analytics_event\" | event=\"landing_page_view\" [$__range]))",
+          "legendFormat": "visit {{utm_source}}"
+        },
+        {
+          "refId": "form_started",
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "sum by (utm_source) (count_over_time({service_name=\"public-web\"} | json | type=\"public_presence.waitlist.analytics_event\" | event=\"waitlist_form_started\" [$__range]))",
+          "legendFormat": "form_started {{utm_source}}"
+        },
+        {
+          "refId": "signup_succeeded",
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "sum by (utm_source) (count_over_time({service_name=\"public-web\"} | json | type=\"public_presence.waitlist.analytics_event\" | event=\"waitlist_signup_succeeded\" [$__range]))",
+          "legendFormat": "signup_succeeded {{utm_source}}"
+        },
+        {
+          "refId": "discord_cta_clicked",
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "sum by (utm_source) (count_over_time({service_name=\"public-web\"} | json | type=\"public_presence.waitlist.analytics_event\" | event=\"cta_clicked\" | target=\"discord\" [$__range]))",
+          "legendFormat": "discord_cta_clicked {{utm_source}}"
+        },
+        {
+          "refId": "referral_share_clicked",
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "sum by (utm_source) (count_over_time({service_name=\"public-web\"} | json | type=\"public_presence.waitlist.analytics_event\" | event=\"referral_share_clicked\" [$__range]))",
+          "legendFormat": "referral_share_clicked {{utm_source}}"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Discord CTA click-through and referral share, last 24h",
+      "description": "Discord 'join' proxy (CTA click-through, not confirmed guild membership) and referral share rate, per channel.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 25 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (target) (increase(chase_sets_public_presence_waitlist_events_total{event=\"cta_clicked\", target=\"discord\"}[24h]))",
+          "legendFormat": "discord CTA click-through"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(increase(chase_sets_public_presence_waitlist_events_total{event=\"referral_share_clicked\"}[24h]))",
+          "legendFormat": "referral share clicked"
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "title": "Campaign Analytics admin page (cohort quality, channel attribution, wave-1 admission bar)",
+      "url": "/campaign-analytics",
+      "type": "link"
     }
   ]
 }

@@ -6,6 +6,7 @@ import {
   BrandLink,
   Button,
   Checkbox,
+  CheckboxGroup,
   ChaseRoot,
   Cluster,
   Container,
@@ -100,6 +101,24 @@ const interestItems = [
 ];
 
 const interestSelectItems = interestItems.map(({ value, label }) => ({ value, label }));
+
+// Wave-1 cohort quality fields, captured only from sell/both-intent signups.
+// See bounded-contexts/public-presence/features/waitlist/domain/common.ts
+// for the canonical WaitlistGame/WaitlistInventorySize enums this mirrors.
+const gameItems = [
+  { value: "pokemon", label: t("publicPresence.waitlist.game.pokemon") },
+  { value: "magic-the-gathering", label: t("publicPresence.waitlist.game.magicTheGathering") },
+  { value: "yu-gi-oh", label: t("publicPresence.waitlist.game.yuGiOh") },
+  { value: "disney-lorcana", label: t("publicPresence.waitlist.game.disneyLorcana") },
+  { value: "one-piece-card-game", label: t("publicPresence.waitlist.game.onePieceCardGame") },
+];
+
+const inventorySizeItems = [
+  { value: "under_100", label: t("publicPresence.waitlist.inventorySize.under100") },
+  { value: "100_to_500", label: t("publicPresence.waitlist.inventorySize.100to500") },
+  { value: "500_to_2000", label: t("publicPresence.waitlist.inventorySize.500to2000") },
+  { value: "2000_plus", label: t("publicPresence.waitlist.inventorySize.2000plus") },
+];
 
 type WaitlistMarketplaceIntent = "both" | "buy" | "sell";
 type WaitlistInterest = "low-sales-fees" | "bulk-listing" | "set-completion" | "pricing-tools" | "efficient-shipping";
@@ -1185,9 +1204,15 @@ function WaitlistSignupPanel({
   waitlistCounterDisplay?: number | null;
 }) {
   const [marketingConsent, setMarketingConsent] = useState(false);
+  const [games, setGames] = useState<string[]>([]);
+  const [hasStoreLink, setHasStoreLink] = useState(false);
   const formStarted = useRef(false);
   const isHero = variant === "hero";
   const section = isHero ? "hero" : "final_cta";
+  // Cohort quality fields are only collected on the full form (not the
+  // compact hero/sticky variant) and only for sell/both intent -- they are
+  // never a condition of joining the waitlist.
+  const showSellerInventoryFields = !isHero && intent.role !== "buy";
 
   function trackFormStart(field: string) {
     if (formStarted.current) {
@@ -1337,6 +1362,53 @@ function WaitlistSignupPanel({
                 />
               </Grid>
             )}
+            {showSellerInventoryFields ? (
+              <Stack gap={3}>
+                <Stack gap={1}>
+                  <Text weight="semibold">{t("publicPresence.waitlist.sellerInventory.title")}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t("publicPresence.waitlist.sellerInventory.description")}
+                  </Text>
+                </Stack>
+                <CheckboxGroup
+                  label={t("publicPresence.waitlist.games.label")}
+                  description={t("publicPresence.waitlist.games.description")}
+                  name="games"
+                  items={gameItems}
+                  values={games}
+                  onValuesChange={(nextGames) => {
+                    trackFormStart("games");
+                    setGames(nextGames);
+                  }}
+                />
+                <NativeSelect
+                  label={t("publicPresence.waitlist.inventorySize.label")}
+                  name="inventorySize"
+                  placeholder={t("publicPresence.waitlist.inventorySize.placeholder")}
+                  items={inventorySizeItems}
+                  onFocus={() => trackFormStart("inventorySize")}
+                />
+                <Checkbox
+                  label={t("publicPresence.waitlist.hasStoreLink.label")}
+                  name="hasStoreLink"
+                  value="yes"
+                  checked={hasStoreLink}
+                  onCheckedChange={(checked) => {
+                    trackFormStart("hasStoreLink");
+                    setHasStoreLink(checked === true);
+                  }}
+                />
+                {hasStoreLink ? (
+                  <TextInput
+                    label={t("publicPresence.waitlist.storeUrl.label")}
+                    name="storeUrl"
+                    type="url"
+                    placeholder={t("publicPresence.waitlist.storeUrl.placeholder")}
+                    onFocus={() => trackFormStart("storeUrl")}
+                  />
+                ) : null}
+              </Stack>
+            ) : null}
             {isHero ? null : (
               <Checkbox
                 label={t("publicPresence.waitlist.marketingConsent")}

@@ -1,5 +1,6 @@
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type {
+  CampaignAnalyticsSnapshot,
   SubmitWaitlistSignupRequest,
   WaitlistCounter,
   WaitlistMetrics,
@@ -11,12 +12,16 @@ import type { PromoBarMessage, SavePromoBarMessageRequest } from "./features/pro
 const DEFAULT_BASE_URL = "/api/public-presence";
 
 export type {
+  CampaignAnalyticsSnapshot,
+  CampaignChannelAttributionRow,
+  CampaignQualityMetrics,
   SubmitWaitlistSignupRequest,
   WaitlistCounter,
   WaitlistMetrics,
   WaitlistReferralSummary,
   WaitlistSignupListItem,
 } from "./features/waitlist/api/contracts";
+export type { WaveOneAdmissionBarStatus } from "./features/waitlist/read-model/campaign-admission-bar-policy";
 export type {
   PromoBarMessage,
   PromoBarMessageTone,
@@ -91,6 +96,9 @@ export function createPublicPresenceApiClient({
     },
     async getWaitlistCounter(): Promise<WaitlistCounter> {
       return parseJsonResponse(await configuredFetch(`${baseUrl}/waitlist/count`));
+    },
+    async getCampaignAnalytics(): Promise<CampaignAnalyticsSnapshot> {
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/admin/waitlist/campaign-analytics`));
     },
     async listActivePromoBarMessages(): Promise<ListResponse<PromoBarMessage>> {
       return parseJsonResponse(await configuredFetch(`${baseUrl}/promo-bar-messages`));
