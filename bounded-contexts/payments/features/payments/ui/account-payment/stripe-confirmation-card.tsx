@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
   Badge,
+  Banner,
   Button,
-  Inset,
   MountPoint,
   Stack,
   Surface,
@@ -26,6 +26,7 @@ type StripePaymentElement = {
 type StripeCheckoutController = {
   createPaymentElement(): StripePaymentElement;
   loadActions(): Promise<StripeCheckoutActionsLoadResult>;
+  changeAppearance?(appearance: StripeElementsAppearance): void;
 };
 
 type StripeCheckoutActionsLoadResult = {
@@ -36,6 +37,7 @@ type StripeCheckoutActionsLoadResult = {
 
 type StripeCheckoutActions = {
   confirm(options?: { redirect: "if_required"; email?: string }): Promise<{ error?: { message?: string } }>;
+  changeAppearance?(appearance: StripeElementsAppearance): void;
 };
 
 type StripeElementsOptions = {
@@ -52,6 +54,7 @@ type StripeCheckoutOptions = {
 
 type StripeElements = {
   create(type: "payment"): StripePaymentElement;
+  update?(options: { appearance: StripeElementsAppearance }): void;
 };
 
 type StripeClient = {
@@ -132,6 +135,12 @@ function createBrowserPaymentsApiClient() {
   });
 }
 
+const POLL_INTERVAL_MS = 2_000;
+const POLL_MAX_INTERVAL_MS = 30_000;
+const POLL_MAX_DURATION_MS = 5 * 60_000;
+
+type ConfirmPhase = "idle" | "confirming" | "processing";
+
 export function StripeConfirmationCard({
   payment,
   buyerEmail,
@@ -149,7 +158,7 @@ export function StripeConfirmationCard({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [appearanceVersion, setAppearanceVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>("idle");
 
   useEffect(() => {
     const container = containerRef.current;
@@ -264,13 +273,32 @@ export function StripeConfirmationCard({
       stripeRef.current = null;
       setIsReady(false);
     };
-  }, [
-    appearanceVersion,
-    payment.payment_id,
-    payment.processor_client_secret,
-    payment.processor_publishable_key,
-    payment.status,
-  ]);
+  }, [payment.payment_id, payment.processor_client_secret, payment.processor_publishable_key, payment.status]);
+
+  // Theme changes restyle the mounted Payment Element in place. Remounting here
+  // would destroy whatever the buyer has already typed.
+  useEffect(() => {
+    if (appearanceVersion === 0 || !isReady) {
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    if (checkoutRef.current) {
+      const appearance = createStripeElementsAppearance({ includeRules: false, scope: container });
+      if (checkoutRef.current.changeAppearance) {
+        checkoutRef.current.changeAppearance(appearance);
+      } else {
+        checkoutActionsRef.current?.changeAppearance?.(appearance);
+      }
+      return;
+    }
+
+    elementsRef.current?.update?.({ appearance: createStripeElementsAppearance({ scope: container }) });
+  }, [appearanceVersion, isReady]);
 
   useEffect(() => {
     if (payment.status !== "pending-confirmation") {
@@ -278,54 +306,76 @@ export function StripeConfirmationCard({
     }
 
     let cancelled = false;
-    let pollInFlight = false;
+    let timeoutId: number | null = null;
+    let consecutiveFailures = 0;
+    const startedAt = Date.now();
     const paymentsApi = createBrowserPaymentsApiClient();
-    const interval = window.setInterval(() => {
-      if (pollInFlight) {
+
+    const schedule = () => {
+      if (cancelled || Date.now() - startedAt >= POLL_MAX_DURATION_MS) {
+        // Webhook delivery and reconciliation cover the tail; the buyer can
+        // also refresh. Stop burning requests on a stuck confirmation.
         return;
       }
 
-      pollInFlight = true;
+      const delay = Math.min(POLL_INTERVAL_MS * 2 ** consecutiveFailures, POLL_MAX_INTERVAL_MS);
+      timeoutId = window.setTimeout(poll, delay);
+    };
+
+    const poll = () => {
       void paymentsApi
         .getAccountPayment(payment.payment_id)
         .then((latestPayment) => {
-          if (cancelled || latestPayment.status === "pending-confirmation") {
+          if (cancelled) {
             return;
           }
 
-          window.clearInterval(interval);
-          void revalidator.revalidate();
+          consecutiveFailures = 0;
+          if (latestPayment.status !== "pending-confirmation") {
+            void revalidator.revalidate();
+            return;
+          }
+
+          schedule();
         })
         .catch(() => {
-          if (!cancelled) {
-            void revalidator.revalidate();
+          if (cancelled) {
+            return;
           }
-        })
-        .finally(() => {
-          pollInFlight = false;
+
+          consecutiveFailures += 1;
+          schedule();
         });
-    }, 2_000);
+    };
+
+    schedule();
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [payment.payment_id, payment.status, revalidator]);
 
   async function handleConfirm() {
+    if (confirmPhase !== "idle") {
+      return;
+    }
+
     if (!stripeRef.current || (checkoutRef.current ? !checkoutActionsRef.current : !elementsRef.current)) {
       setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.is.still.loading"));
       return;
     }
 
-    setIsSubmitting(true);
+    if (checkoutRef.current && !buyerEmail) {
+      setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.buyer.email.is.required"));
+      return;
+    }
+
+    setConfirmPhase("confirming");
     setErrorMessage(null);
     try {
-      if (checkoutRef.current && !buyerEmail) {
-        setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.buyer.email.is.required"));
-        return;
-      }
-
       const result = checkoutRef.current
         ? await checkoutActionsRef.current!.confirm({ redirect: "if_required", email: buyerEmail ?? undefined })
         : await stripeRef.current.confirmPayment({
@@ -335,14 +385,23 @@ export function StripeConfirmationCard({
 
       if (result.error?.message) {
         setErrorMessage(result.error.message);
+        setConfirmPhase("idle");
         return;
       }
 
+      // Confirm succeeded; the payment status only resolves once the webhook
+      // lands. Keep the form locked until the route reflects that truth.
+      setConfirmPhase("processing");
       window.setTimeout(() => {
         void revalidator.revalidate();
       }, 500);
-    } finally {
-      setIsSubmitting(false);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : t("payments.routes.marketplace.accountPayment.the.secure.processor.could.not.complete"),
+      );
+      setConfirmPhase("idle");
     }
   }
 
@@ -353,14 +412,31 @@ export function StripeConfirmationCard({
         <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
         <MountPoint ref={containerRef} purpose="provider" />
         {errorMessage ? (
-          <Inset>
-            <Text>{errorMessage}</Text>
-          </Inset>
+          <Banner
+            tone="danger"
+            title={t("payments.routes.marketplace.accountPayment.payment.issue")}
+            description={errorMessage}
+          />
         ) : null}
-        <Button type="button" onClick={handleConfirm} disabled={!isReady || isSubmitting} size="lg" leadingIcon="lock">
-          {isSubmitting
-            ? t("payments.routes.marketplace.accountPayment.confirming.payment")
-            : t("payments.routes.marketplace.accountPayment.confirm.payment")}
+        {confirmPhase === "processing" ? (
+          <Banner
+            tone="info"
+            title={t("payments.routes.marketplace.accountPayment.payment.in.progress")}
+            description={t("payments.routes.marketplace.accountPayment.the.payment.is.being.updated.by")}
+          />
+        ) : null}
+        <Button
+          type="button"
+          onClick={handleConfirm}
+          disabled={!isReady || confirmPhase !== "idle"}
+          size="lg"
+          leadingIcon="lock"
+        >
+          {confirmPhase === "processing"
+            ? t("payments.routes.marketplace.accountPayment.processing.payment")
+            : confirmPhase === "confirming"
+              ? t("payments.routes.marketplace.accountPayment.confirming.payment")
+              : t("payments.routes.marketplace.accountPayment.confirm.payment")}
         </Button>
       </Stack>
     </Surface>
