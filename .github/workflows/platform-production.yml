@@ -2976,13 +2976,22 @@ jobs:
         contains(fromJSON('["failure", "cancelled"]'), needs.build-image.result) ||
         contains(fromJSON('["failure", "cancelled"]'), needs.deploy-staging.result) ||
         contains(fromJSON('["failure", "cancelled"]'), needs.deploy-production.result) ||
-        contains(fromJSON('["failure", "cancelled"]'), needs.record-staging-release-health.result)
+        contains(fromJSON('["failure", "cancelled"]'), needs.record-staging-release-health.result) ||
+        needs.deploy-production.outputs.superseded == 'true' ||
+        (
+          needs.resolve-release.result == 'success' &&
+          needs.build-image.result == 'success' &&
+          needs.deploy-staging.result == 'success' &&
+          needs.deploy-production.result == 'skipped' &&
+          needs.deploy-staging.outputs.applied != 'true'
+        )
       )
     permissions:
       contents: read
       issues: write
     steps:
-      - name: Create or update incident issue
+      - name: Classify deploy outcome
+        id: classify_deploy_outcome
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
@@ -2992,11 +3001,77 @@ jobs:
           DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
           RECORD_STAGING_HEALTH_RESULT: ${{ needs.record-staging-release-health.result }}
           RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
+          STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}
+          STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed || '' }}
+          PRODUCTION_SUPERSEDED: ${{ needs.deploy-production.outputs.superseded || '' }}
+          SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit || '' }}
+        run: |
+          set -euo pipefail
+          node ./scripts/platform-deploy-incident.mjs \
+            --command classify-run \
+            --format github-output >> "$GITHUB_OUTPUT"
+
+      - name: Create, update, or resolve incident issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
+          DEPLOY_INCIDENT_ACTION: ${{ steps.classify_deploy_outcome.outputs.action }}
+          PLATFORM_DEPLOY_INCIDENT_REASON: ${{ steps.classify_deploy_outcome.outputs.reason }}
+          SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit || '' }}
+          RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
+          BUILD_IMAGE_RESULT: ${{ needs.build-image.result }}
+          DEPLOY_STAGING_RESULT: ${{ needs.deploy-staging.result }}
+          DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
+          RECORD_STAGING_HEALTH_RESULT: ${{ needs.record-staging-release-health.result }}
         run: |
           set -euo pipefail
 
           release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
           release_short="${release_commit:0:12}"
+
+          if [ "${DEPLOY_INCIDENT_ACTION}" = "close" ]; then
+            close_comment="$(node ./scripts/platform-deploy-incident.mjs --command build-comment)"
+            open_incidents="$(
+              gh issue list \
+                --repo "${GITHUB_REPOSITORY}" \
+                --state open \
+                --search "\"Incident: Platform Deploy\" in:title" \
+                --limit 200 \
+                --json number,title,body \
+                --jq '.[] | @base64'
+            )"
+
+            if [ -z "${open_incidents}" ]; then
+              echo "No open superseded deploy incidents to close."
+              exit 0
+            fi
+
+            while IFS= read -r encoded_issue; do
+              if [ -z "${encoded_issue}" ]; then
+                continue
+              fi
+              issue_json="$(printf '%s' "${encoded_issue}" | base64 --decode)"
+              issue_number="$(jq -r '.number' <<< "${issue_json}")"
+              issue_title="$(jq -r '.title' <<< "${issue_json}")"
+              issue_body="$(jq -r '.body // ""' <<< "${issue_json}")"
+              issue_action="$(node ./scripts/platform-deploy-incident.mjs \
+                --command classify-issue \
+                --format plain \
+                --title "${issue_title}" \
+                --body "${issue_body}")"
+              if [ "${issue_action}" != "close" ]; then
+                continue
+              fi
+
+              gh issue close "${issue_number}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --comment "${close_comment}"
+              echo "Closed superseded no-op deploy incident #${issue_number}: ${issue_title}"
+            done <<< "${open_incidents}"
+            exit 0
+          fi
+
           title="Incident: Platform Deploy failed for ${release_short}"
 
           body="$(cat <<EOF
