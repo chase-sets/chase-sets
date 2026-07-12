@@ -5,7 +5,11 @@ import {
   createUcpOAuthRoutes,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
-import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
+import {
+  createCheckoutUcpHandlers,
+  lookupCheckoutSupportReference,
+  type CheckoutSupportLookupResult,
+} from "@chase-sets/checkout/server";
 import {
   authenticityFeePolicy,
   checkoutProcessingFeePolicy,
@@ -22,7 +26,17 @@ import {
 import { catalogRealtimeManifest, catalogRealtimeTopicPolicyManifest } from "@chase-sets/catalog/server";
 import { module as identityModule } from "@chase-sets/identity";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
-import { createOrderingUcpHandlers } from "@chase-sets/ordering/server";
+import {
+  createOrderingUcpHandlers,
+  lookupOrderBySupportId,
+  lookupOrderBySupportReference,
+  type OrderingSupportLookupRow,
+} from "@chase-sets/ordering/server";
+import {
+  lookupShipmentBySupportId,
+  lookupShipmentBySupportReference,
+  type FulfillmentSupportLookupRow,
+} from "@chase-sets/fulfillment/server";
 import { createPaymentsUcpHandoff, type UcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import {
   marketplaceListingGatePolicy,
@@ -34,11 +48,16 @@ import {
   createRateLimitPolicyResolver,
   type PolicyConsoleCrossContextPort,
   type PolicyConsoleWritePort,
+  type SupportReferenceLookupCrossContextPort,
+  type SupportReferenceLookupResult,
 } from "@chase-sets/platform-operations/server";
 import {
   createSettlementBalanceCreditResolver,
+  lookupPayoutBySupportId,
+  lookupPayoutBySupportReference,
   settlementClearancePolicy,
   settlementPayoutBoundsPolicy,
+  type SettlementSupportLookupRow,
 } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
@@ -147,6 +166,9 @@ export function createPlatformApiHost(
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
   const marketplacePool = getPlatformApiPool(options.pools.marketplace);
+  const checkoutPool = getPlatformApiPool(options.pools.checkout);
+  const orderingPool = getPlatformApiPool(options.pools.ordering);
+  const fulfillmentPool = getPlatformApiPool(options.pools.fulfillment);
   const commercialTermsResolver = commercialTermsPool
     ? createCommercialTermsResolver({
         db: commercialTermsPool,
@@ -207,6 +229,45 @@ export function createPlatformApiHost(
   }
   const policyConsoleCrossContext: PolicyConsoleCrossContextPort | undefined =
     policyConsoleCrossContextSources.length > 0 ? { sources: policyConsoleCrossContextSources } : undefined;
+  const supportReferenceLookupCrossContextSources: SupportReferenceLookupCrossContextPort["sources"][number][] = [];
+  if (orderingPool) {
+    supportReferenceLookupCrossContextSources.push({
+      contextName: "ordering",
+      lookupByReference: async (reference) =>
+        adaptOrderingSupportLookup(await lookupOrderBySupportReference(orderingPool, reference)),
+      lookupById: async (id) => adaptOrderingSupportLookup(await lookupOrderBySupportId(orderingPool, id)),
+    });
+  }
+  if (fulfillmentPool) {
+    supportReferenceLookupCrossContextSources.push({
+      contextName: "fulfillment",
+      lookupByReference: async (reference) =>
+        adaptFulfillmentSupportLookup(await lookupShipmentBySupportReference(fulfillmentPool, reference)),
+      lookupById: async (id) => adaptFulfillmentSupportLookup(await lookupShipmentBySupportId(fulfillmentPool, id)),
+    });
+  }
+  if (settlementPool) {
+    supportReferenceLookupCrossContextSources.push({
+      contextName: "settlement",
+      lookupByReference: async (reference) =>
+        adaptSettlementSupportLookup(await lookupPayoutBySupportReference(settlementPool, reference)),
+      lookupById: async (id) => adaptSettlementSupportLookup(await lookupPayoutBySupportId(settlementPool, id)),
+    });
+  }
+  if (checkoutPool) {
+    supportReferenceLookupCrossContextSources.push({
+      contextName: "checkout",
+      // Checkout's own lookup already tries its buy-checkout and sell-list-confirmation
+      // read models in turn; no raw-id form exists for CSG-/CS-SL- references, so this
+      // source omits lookupById (the router only produces typed-id routes for ord_/shp_/pyo_).
+      lookupByReference: async (reference) =>
+        adaptCheckoutSupportLookup(await lookupCheckoutSupportReference(checkoutPool, reference)),
+    });
+  }
+  const supportReferenceLookupCrossContext: SupportReferenceLookupCrossContextPort | undefined =
+    supportReferenceLookupCrossContextSources.length > 0
+      ? { sources: supportReferenceLookupCrossContextSources }
+      : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
     const marketplaceServices = runtime?.services.marketplace as
       | {
@@ -234,6 +295,7 @@ export function createPlatformApiHost(
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
+      ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       draftListingCreator,
     },
   });
@@ -269,6 +331,77 @@ function lazyPolicyConsoleWritePort(
     revisePolicyDocument: (definition, documentId, params, context) =>
       requirePolicies().revisePolicyDocument(definition, documentId, params, context),
     resolvePolicy: (definition, params) => requirePolicies().resolvePolicy(definition, params),
+  };
+}
+
+/**
+ * Adapts each context's own support-lookup row/result shape into the
+ * unified support-reference lookup's generic, redacted
+ * `SupportReferenceLookupResult`. Kept here -- not in Platform
+ * Operations -- because only the composition root imports every source
+ * context's domain types; Platform Operations' own `allowedContextDependencies`
+ * stays empty.
+ */
+function adaptOrderingSupportLookup(row: OrderingSupportLookupRow | null): SupportReferenceLookupResult | null {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    contextName: "ordering",
+    entityType: "order",
+    displayReference: row.display_reference || null,
+    status: row.status,
+    summary: `Order ${row.display_reference || row.order_id}`,
+    adminHref: null,
+  };
+}
+
+function adaptFulfillmentSupportLookup(row: FulfillmentSupportLookupRow | null): SupportReferenceLookupResult | null {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    contextName: "fulfillment",
+    entityType: "shipment",
+    displayReference: row.display_reference || null,
+    status: row.status,
+    summary: `Shipment ${row.display_reference || row.shipment_id}`,
+    adminHref: null,
+  };
+}
+
+function adaptSettlementSupportLookup(row: SettlementSupportLookupRow | null): SupportReferenceLookupResult | null {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    contextName: "settlement",
+    entityType: "payout",
+    displayReference: row.display_reference || null,
+    status: row.status,
+    summary: `Payout ${row.display_reference || row.payout_id}`,
+    adminHref: null,
+  };
+}
+
+function adaptCheckoutSupportLookup(result: CheckoutSupportLookupResult | null): SupportReferenceLookupResult | null {
+  if (!result) {
+    return null;
+  }
+
+  return {
+    contextName: "checkout",
+    entityType: result.type,
+    displayReference: result.supportReference,
+    status: result.state,
+    summary:
+      result.type === "buy-checkout-session"
+        ? `Checkout session ${result.supportReference}`
+        : `Sell list confirmation ${result.supportReference}`,
+    adminHref: null,
   };
 }
 

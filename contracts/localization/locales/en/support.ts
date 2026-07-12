@@ -204,4 +204,34 @@ export const supportEnglishTranslations = {
   "support.routes.marketplace.accountSupport.lookup.failed": "Could not find an eligible support order.",
   "support.routes.marketplace.accountSupport.open.failed": "Could not open support request.",
   "support.routes.marketplace.accountSupport.support.marketplace": "Support | Marketplace",
+  "support.features.supportReferenceLookup.api.route.authentication.required":
+    "Sign in with a support account to look up references.",
+  "support.features.supportReferenceLookup.api.route.forbidden":
+    "You do not have permission to look up support references.",
+  "support.features.supportReferenceLookup.api.route.reference.required":
+    "Enter an order, shipment, payout, or checkout reference.",
+  "support.features.supportReferenceLookup.api.route.reference.not.found": "No record was found for that reference.",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.title": "Reference lookup",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.description":
+    "Paste any order, shipment, payout, or checkout reference to find the record it belongs to.",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.title": "Look up a reference",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.description":
+    "Accepts ORD-, SHP-, PYO-, CSG-, and CS-SL- references, and raw order, shipment, or payout ids.",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.label": "Reference",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.placeholder": "e.g. ORD-A1B2C3D4",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.search.submit": "Look up",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.error": "Error",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.title": "Result",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.summary": "Summary",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.context": "Owning context",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.entityType": "Record type",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.displayReference": "Reference",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.notApplicable": "Not applicable",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.status": "Status",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.open": "Open record",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.notFound.title": "No record found",
+  "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.notFound.description":
+    "“{query}” did not match an order, shipment, payout, or checkout reference.",
+  "support.routes.admin.supportReferenceLookup.meta.title": "Reference lookup | Admin",
+  "support.routes.admin.supportReferenceLookup.request.failed": "Reference lookup request failed.",
 } as const;

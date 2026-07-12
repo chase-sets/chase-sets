@@ -11,3 +11,11 @@ export {
   readAnonymousCartId,
   readAnonymousSellListId,
 } from "./support/request-support/guest-checkout";
+/**
+ * Checkout's own CSG-/CS-SL- support-reference lookup, for the unified
+ * support-reference router, assembled in the `platform-api` composition
+ * root behind Platform Operations' `supportReferenceLookupCrossContext`
+ * host port -- Platform Operations never imports Checkout's domain code directly.
+ */
+export { lookupCheckoutSupportReference } from "./features/support-lookup/api/runtime";
+export type { CheckoutSupportLookupResult } from "./features/support-lookup/api/runtime";

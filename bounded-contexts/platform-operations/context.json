@@ -25,6 +25,7 @@
     "rate-limit-policy",
     "reported-content",
     "risk-alerts",
+    "support-reference-lookup",
     "support-requests"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
@@ -230,6 +231,11 @@
       "portName": "policyConsoleCrossContext",
       "providedBy": "platform-api",
       "purpose": "Settlement's and Commercial Terms' declared policy-console entries (definitions, read pool, write port), assembled once in the platform-api composition root so the #4291 policy console can aggregate across contexts without this context importing their domain code."
+    },
+    {
+      "portName": "supportReferenceLookupCrossContext",
+      "providedBy": "platform-api",
+      "purpose": "Ordering's, Fulfillment's, Settlement's, and Checkout's own support-reference lookup functions (bound to each context's own read pool), assembled once in the platform-api composition root so the #3932 unified support-reference lookup can route ORD-/SHP-/PYO-/CSG-/CS-SL- references and raw ord_/shp_/pyo_ ids without this context importing their domain code."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -572,6 +578,14 @@
           "section": "support"
         },
         {
+          "routeId": "support-reference-lookup",
+          "routePath": "reference-lookup",
+          "fileExport": "./routes/admin/reference-lookup",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
+        {
           "routeId": "risk-alert-detail",
           "routePath": "risk-alerts/:alertId",
           "fileExport": "./routes/admin/risk-alert-detail",
@@ -684,6 +698,18 @@
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
+      "key": "support-reference-lookup",
+      "label": "Reference Lookup",
+      "icon": "search",
+      "href": "/reference-lookup",
+      "section": "support",
+      "order": 6,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
       "key": "platform-feedback",
       "label": "Platform Feedback",
       "icon": "message",
@@ -768,6 +794,11 @@
         "Marketplace account support route",
         "Admin support operations route"
       ]
+    },
+    "support-reference-lookup": {
+      "classification": "slice",
+      "purpose": "Own the unified support-reference lookup slice for platform-operations (#3932): routes any ORD-/SHP-/PYO-/CSG-/CS-SL- reference or raw ord_/shp_/pyo_ typed ULID (via the shared parseSupportReference primitive) to the owning context's own reference lookup and renders a support-safe summary with a link to the record. Ordering's, Fulfillment's, and Settlement's lookups plus Checkout's own CSG-/CS-SL- lookup are cross-context sources, injected via the supportReferenceLookupCrossContext host port assembled in the platform-api composition root.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
     },
     "request-support": {
       "classification": "support",

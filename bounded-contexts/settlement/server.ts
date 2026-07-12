@@ -23,3 +23,11 @@ export { settlementClearancePolicy } from "./features/wallets/domain/clearance-p
 export type { SettlementClearancePolicyValue } from "./features/wallets/domain/clearance-policy";
 export { settlementPayoutBoundsPolicy } from "./features/payouts/domain/payout-policy";
 export type { SettlementPayoutBoundsPolicyValue } from "./features/payouts/domain/payout-policy";
+/**
+ * Support-safe payout-by-reference lookups for the unified
+ * support-reference router, assembled in the `platform-api` composition
+ * root behind Platform Operations' `supportReferenceLookupCrossContext`
+ * host port -- Platform Operations never imports Settlement's domain code directly.
+ */
+export { lookupPayoutBySupportId, lookupPayoutBySupportReference } from "./features/payouts/read-model/support-lookup";
+export type { SettlementSupportLookupRow } from "./features/payouts/read-model/support-lookup";

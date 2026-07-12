@@ -19,6 +19,8 @@ import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
 import type { PolicyConsoleCrossContextPort, PolicyConsoleEntry } from "../../features/policy-console/api/contracts";
+import { createSupportReferenceLookupRuntime } from "../../features/support-reference-lookup/api/runtime";
+import type { SupportReferenceLookupCrossContextPort } from "../../features/support-reference-lookup/api/contracts";
 
 export type PlatformOperationsHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
@@ -30,6 +32,13 @@ export type PlatformOperationsHostPorts = Readonly<{
    * `context.json`).
    */
   policyConsoleCrossContext?: PolicyConsoleCrossContextPort;
+  /**
+   * Cross-context sources for the unified support-reference lookup:
+   * Ordering, Fulfillment, Settlement, and Checkout's own reference lookups,
+   * assembled once in the `platform-api` composition root so this context
+   * never imports those contexts' domain code directly.
+   */
+  supportReferenceLookupCrossContext?: SupportReferenceLookupCrossContextPort;
 }>;
 
 export type PlatformOperationsServices = Readonly<{
@@ -43,6 +52,8 @@ export type PlatformOperationsServices = Readonly<{
   policies: PolicyRuntime;
   /** The platform policy console's full registry: this context's own two policies plus any injected cross-context ones. */
   policyConsoleEntries: readonly PolicyConsoleEntry[];
+  /** The unified support-reference lookup, routing to whichever cross-context sources were injected. */
+  supportReferenceLookup: ReturnType<typeof createSupportReferenceLookupRuntime>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -102,6 +113,10 @@ export function createPlatformOperationsServices(
     ),
   ];
 
+  const supportReferenceLookup = createSupportReferenceLookupRuntime({
+    sources: ports.supportReferenceLookupCrossContext?.sources ?? [],
+  });
+
   return {
     db: pool,
     insightsDashboards: createDashboardQueryService(new Map()),
@@ -111,6 +126,7 @@ export function createPlatformOperationsServices(
     supportRequests,
     policies,
     policyConsoleEntries,
+    supportReferenceLookup,
     projectors: [
       ...platformFeedback.projectors,
       ...reportedContent.projectors,
