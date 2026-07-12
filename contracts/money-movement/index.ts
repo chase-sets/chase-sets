@@ -21,7 +21,10 @@ export type ProviderPayoutReadiness = Readonly<{
   lossesCollector: ProviderPayoutAccountResponsibility;
   feesCollector: ProviderPayoutAccountResponsibility;
   requirementsCollector: ProviderPayoutAccountResponsibility;
-  missingRequirements: readonly string[];
+  blockingRequirements: readonly string[];
+  advisoryRequirements: readonly string[];
+  disabledReason: string | null;
+  requirementsDeadline: string | null;
 }>;
 
 export type ProviderPlatformBalance = Readonly<{

@@ -12,6 +12,9 @@ export function buildPayoutReadinessProjectionHandlers(db: PgQueryable): Project
            account_id,
            status,
            missing_requirements,
+           advisory_requirements,
+           disabled_reason,
+           requirements_deadline,
            provider_reference,
            contact_email,
            onboarding_status,
@@ -26,10 +29,13 @@ export function buildPayoutReadinessProjectionHandlers(db: PgQueryable): Project
            requirements_collector,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
          ON CONFLICT (account_id) DO UPDATE
          SET status = EXCLUDED.status,
              missing_requirements = EXCLUDED.missing_requirements,
+             advisory_requirements = EXCLUDED.advisory_requirements,
+             disabled_reason = EXCLUDED.disabled_reason,
+             requirements_deadline = EXCLUDED.requirements_deadline,
              provider_reference = EXCLUDED.provider_reference,
              contact_email = EXCLUDED.contact_email,
              onboarding_status = EXCLUDED.onboarding_status,
@@ -49,6 +55,9 @@ export function buildPayoutReadinessProjectionHandlers(db: PgQueryable): Project
           data.accountId,
           data.status,
           JSON.stringify(Array.isArray(data.missingRequirements) ? data.missingRequirements : []),
+          JSON.stringify(Array.isArray(data.advisoryRequirements) ? data.advisoryRequirements : []),
+          data.disabledReason ?? null,
+          data.requirementsDeadline ?? null,
           data.providerReference,
           data.contactEmail,
           data.onboardingStatus ?? "not-started",

@@ -463,6 +463,9 @@ export type PayoutReadinessRecordedPayload = Readonly<{
   accountId: AccountId;
   status: string;
   missingRequirements: readonly string[];
+  advisoryRequirements?: readonly string[];
+  disabledReason?: string | null;
+  requirementsDeadline?: string | null;
   providerReference: string | null;
   contactEmail?: string | null;
   onboardingStatus?: string;

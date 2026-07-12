@@ -7,6 +7,9 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
     account_id: "acc_seller",
     status: "pending",
     missing_requirements: [],
+    advisory_requirements: [],
+    disabled_reason: null,
+    requirements_deadline: null,
     provider_reference: "acct_test",
     contact_email: null,
     onboarding_status: "pending",
@@ -67,5 +70,20 @@ describe("payout setup progress", () => {
     ]);
     expect(JSON.stringify(progress.missing_requirement_groups)).not.toContain("external_account");
     expect(JSON.stringify(progress.missing_requirement_groups)).not.toContain("individual.verification.document");
+  });
+
+  it("routes provider posture blockers to platform review", () => {
+    const progress = buildPayoutSetupProgress(
+      readiness({ missing_requirements: ["provider_dashboard_posture", "provider_fee_payer_posture"] }),
+    );
+
+    expect(progress.missing_requirement_groups).toEqual([
+      {
+        id: "platform-review",
+        label: "Platform review",
+        count: 2,
+        detail: "Contact support while Chase Sets reviews the payout provider configuration.",
+      },
+    ]);
   });
 });

@@ -101,13 +101,98 @@ describe("money movement adapters", () => {
       lossesCollector: "application",
       feesCollector: "application",
       requirementsCollector: "application",
-      missingRequirements: [],
+      blockingRequirements: [],
     });
     expect(calls).toEqual([
       "https://stripe.test/v1/accounts",
       "https://stripe.test/v1/accounts/acct_v1",
       "https://stripe.test/v1/balance_settings",
     ]);
+  });
+
+  it("treats eventually-due-only requirements as advisory when payout capabilities are active", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "acct_advisory",
+            controller: {
+              stripe_dashboard: { type: "none" },
+              losses: { payments: "application" },
+              fees: { payer: "application" },
+              requirement_collection: "application",
+            },
+            capabilities: { transfers: "active" },
+            payouts_enabled: true,
+            requirements: { eventually_due: ["individual.verification.document"] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    ) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      accountsApi: "v1",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.refreshPayoutReadiness({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_advisory",
+      }),
+    ).resolves.toMatchObject({
+      onboardingStatus: "complete",
+      transferCapabilityStatus: "active",
+      payoutCapabilityStatus: "active",
+      payoutDestinationStatus: "ready",
+      blockingRequirements: [],
+      advisoryRequirements: ["individual.verification.document"],
+    });
+  });
+
+  it("retains blocking requirement reason and deadline", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "acct_overdue",
+            controller: {
+              stripe_dashboard: { type: "none" },
+              losses: { payments: "application" },
+              fees: { payer: "application" },
+              requirement_collection: "application",
+            },
+            capabilities: { transfers: "active" },
+            payouts_enabled: false,
+            requirements: {
+              currently_due: ["individual.id_number"],
+              past_due: ["external_account"],
+              disabled_reason: "requirements.past_due",
+              current_deadline: 1_783_872_000,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    ) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      accountsApi: "v1",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.refreshPayoutReadiness({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_overdue",
+      }),
+    ).resolves.toMatchObject({
+      blockingRequirements: ["external_account", "individual.id_number"],
+      advisoryRequirements: [],
+      disabledReason: "requirements.past_due",
+      requirementsDeadline: "2026-07-12T16:00:00.000Z",
+    });
   });
 
   it("Stripe adapter maps incompatible Accounts v1 controller posture to provider-neutral blockers", async () => {
@@ -152,7 +237,7 @@ describe("money movement adapters", () => {
       lossesCollector: "stripe",
       feesCollector: "unknown",
       requirementsCollector: "stripe",
-      missingRequirements: [
+      blockingRequirements: [
         "provider_dashboard_posture",
         "provider_fee_payer_posture",
         "provider_loss_liability_posture",
@@ -418,7 +503,7 @@ describe("money movement adapters", () => {
         lossesCollector: "application",
         feesCollector: "application",
         requirementsCollector: "application",
-        missingRequirements: ["external_account"],
+        blockingRequirements: ["external_account"],
       },
     });
     expect(calls.map((call) => call.input)).toEqual([
@@ -522,7 +607,7 @@ describe("money movement adapters", () => {
       readiness: {
         providerReference: "acct_123",
         onboardingStatus: "pending",
-        missingRequirements: ["external_account"],
+        blockingRequirements: ["external_account"],
       },
     });
     expect(calls.map((call) => call.input)).toEqual([
@@ -625,7 +710,7 @@ describe("money movement adapters", () => {
         lossesCollector: "application",
         feesCollector: "application",
         requirementsCollector: "application",
-        missingRequirements: ["external_account"],
+        blockingRequirements: ["external_account"],
       },
     });
     expect(calls).toEqual([
@@ -897,7 +982,7 @@ describe("money movement adapters", () => {
       transferCapabilityStatus: "inactive",
       payoutCapabilityStatus: "inactive",
       payoutDestinationStatus: "missing",
-      missingRequirements: ["external_account"],
+      blockingRequirements: ["external_account"],
     });
   });
 
@@ -986,7 +1071,7 @@ describe("money movement adapters", () => {
       transferCapabilityStatus: "pending",
       payoutCapabilityStatus: "pending",
       payoutDestinationStatus: "missing",
-      missingRequirements: ["identity_and_business", "payout_account"],
+      blockingRequirements: ["identity_and_business", "payout_account"],
     });
   });
 
@@ -1053,7 +1138,7 @@ describe("money movement adapters", () => {
       }),
     ).resolves.toMatchObject({
       onboardingStatus: "pending",
-      missingRequirements: ["identity_and_business", "payout_account"],
+      blockingRequirements: ["identity_and_business", "payout_account"],
     });
   });
 
@@ -1376,7 +1461,10 @@ describe("money movement adapters", () => {
         lossesCollector: "application",
         feesCollector: "application",
         requirementsCollector: "application",
-        missingRequirements: ["external_account", "individual.verification.document"],
+        blockingRequirements: ["external_account"],
+        advisoryRequirements: ["individual.verification.document"],
+        disabledReason: null,
+        requirementsDeadline: null,
       },
       occurredAt: "2026-04-12T13:20:00.000Z",
     });
@@ -1474,13 +1562,16 @@ describe("money movement adapters", () => {
         lossesCollector: "stripe",
         feesCollector: "unknown",
         requirementsCollector: "stripe",
-        missingRequirements: [
+        blockingRequirements: [
           "external_account",
           "provider_dashboard_posture",
           "provider_fee_payer_posture",
           "provider_loss_liability_posture",
           "provider_requirement_collection_posture",
         ],
+        advisoryRequirements: [],
+        disabledReason: null,
+        requirementsDeadline: null,
       },
       occurredAt: "2026-04-12T13:20:00.000Z",
     });

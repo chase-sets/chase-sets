@@ -31,6 +31,9 @@ export type SettlementAccountStatus = Readonly<{
     payout_capability_status: string;
     payout_destination_status: string;
     missing_requirements: readonly string[];
+    advisory_requirements: readonly string[];
+    disabled_reason: string | null;
+    requirements_deadline: string | null;
     last_checked_at: string | null;
     steps: PayoutSetupProgress["steps"];
   }>;

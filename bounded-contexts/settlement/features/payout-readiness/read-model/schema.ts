@@ -3,6 +3,9 @@ CREATE TABLE IF NOT EXISTS settlement_payout_readiness_pages (
   account_id text PRIMARY KEY,
   status text NOT NULL,
   missing_requirements jsonb NOT NULL DEFAULT '[]'::jsonb,
+  advisory_requirements jsonb NOT NULL DEFAULT '[]'::jsonb,
+  disabled_reason text NULL,
+  requirements_deadline timestamptz NULL,
   provider_reference text NULL,
   contact_email text NULL,
   onboarding_status text NOT NULL DEFAULT 'not-started',
@@ -69,7 +72,16 @@ export const settlementPayoutReadinessSchemaMigrations = [
   WHERE provider_reference IS NOT NULL`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_payout_readiness_destination_changed_idx
   ON settlement_payout_readiness_pages (payout_destination_changed_at DESC, account_id)
-  WHERE payout_destination_changed_at IS NOT NULL`,
+      WHERE payout_destination_changed_at IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260712_settlement_payout_requirement_tiers",
+    description: "Separate advisory payout requirements and retain provider restriction timing.",
+    statements: [
+      `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS advisory_requirements jsonb NOT NULL DEFAULT '[]'::jsonb`,
+      `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS disabled_reason text NULL`,
+      `ALTER TABLE settlement_payout_readiness_pages ADD COLUMN IF NOT EXISTS requirements_deadline timestamptz NULL`,
     ],
   },
 ] as const;
