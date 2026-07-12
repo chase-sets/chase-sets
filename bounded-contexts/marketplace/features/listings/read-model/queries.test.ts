@@ -2,6 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import {
   getInventoryItemSupply,
+  getLockedFeeListingCohortSummary,
   getMarketSummaryForItem,
   listItemListings,
   listSellerInventoryItemSupply,
@@ -281,5 +282,56 @@ describe("marketplace listing read-model queries", () => {
 
     expect(calls[0]?.params).toEqual(["acc_seller"]);
     expect(calls[0]?.sql).not.toContain("status =");
+  });
+
+  it("getLockedFeeListingCohortSummary scopes the platform-wide 0%-locked cohort by agreement + zero fee, not any listing (#4075)", async () => {
+    const calls: QueryCall[] = [];
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, params: readonly unknown[] = []) {
+        calls.push({ sql, params });
+        if (sql.includes("date_trunc('week'")) {
+          return {
+            rows: [
+              { week_start: "2026-06-29", listings_created_count: "3" },
+              { week_start: "2026-07-06", listings_created_count: "5" },
+            ] as Row[],
+          };
+        }
+        return {
+          rows: [{ listings_created_count: "8", locked_seller_account_ids: ["acc_founder_1", "acc_founder_2"] } as Row],
+        };
+      },
+    };
+
+    const result = await getLockedFeeListingCohortSummary(db, { from: "2026-06-25", to: "2026-07-12" });
+
+    expect(result).toEqual({
+      listingsCreatedCount: 8,
+      lockedSellerAccountIds: ["acc_founder_1", "acc_founder_2"],
+      weeklyListingsCreated: [
+        { weekStart: "2026-06-29", listingsCreatedCount: 3 },
+        { weekStart: "2026-07-06", listingsCreatedCount: 5 },
+      ],
+    });
+    for (const call of calls) {
+      expect(call.sql).toContain("terms_agreement_id IS NOT NULL");
+      expect(call.sql).toContain("marketplace_sales_fee_unit_amount = 0");
+      expect(call.params).toEqual(["2026-06-25", "2026-07-12"]);
+    }
+  });
+
+  it("getLockedFeeListingCohortSummary returns an honest empty cohort when nothing is locked yet", async () => {
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string) {
+        if (sql.includes("date_trunc('week'")) {
+          return { rows: [] as Row[] };
+        }
+        return { rows: [{ listings_created_count: "0", locked_seller_account_ids: [] } as Row] };
+      },
+    };
+
+    const result = await getLockedFeeListingCohortSummary(db, { from: "2026-06-25", to: "2026-07-12" });
+
+    expect(result).toEqual({ listingsCreatedCount: 0, lockedSellerAccountIds: [], weeklyListingsCreated: [] });
   });
 });

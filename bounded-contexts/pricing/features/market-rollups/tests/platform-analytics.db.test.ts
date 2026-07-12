@@ -16,6 +16,8 @@ import {
   getPlatformGmvSeries,
   getPlatformKpiSummary,
   getPlatformLiquiditySummary,
+  getSellerCohortGmvSummary,
+  getSellerCohortWeeklyGmv,
   getTopCatalogItemsByGmv,
 } from "../read-model/platform-queries";
 
@@ -248,6 +250,52 @@ describeDb("pricing platform-wide market analytics SQL persistence boundary", ()
     expect(topItems).toHaveLength(2);
     expect(topItems[0]).toMatchObject({ catalogItemId: "cat_2", gmvAmount: "40.00", tradeCount: 1, unitVolume: 2 });
     expect(topItems[1]).toMatchObject({ catalogItemId: "cat_1", gmvAmount: "10.00", tradeCount: 1, unitVolume: 1 });
+  });
+
+  it("getSellerCohortGmvSummary sums GMV for only the requested seller accounts (#4075 offer-economics monitor)", async () => {
+    await seedJuly1Trades(pools.pricing);
+
+    const cohort = await getSellerCohortGmvSummary(pools.pricing, {
+      sellerAccountIds: ["seller_1"],
+      from: "2026-07-01",
+      to: "2026-07-01",
+    });
+    expect(cohort).toEqual({ gmvAmount: "50.00", tradeCount: 2, unitVolume: 3 });
+
+    // seller_2's only trade was cancelled/excluded, so its cohort GMV is zero.
+    const excludedSeller = await getSellerCohortGmvSummary(pools.pricing, {
+      sellerAccountIds: ["seller_2"],
+      from: "2026-07-01",
+      to: "2026-07-01",
+    });
+    expect(excludedSeller).toEqual({ gmvAmount: "0.00", tradeCount: 0, unitVolume: 0 });
+
+    // An empty cohort returns zeros without querying.
+    const emptyCohort = await getSellerCohortGmvSummary(pools.pricing, {
+      sellerAccountIds: [],
+      from: "2026-07-01",
+      to: "2026-07-01",
+    });
+    expect(emptyCohort).toEqual({ gmvAmount: "0.00", tradeCount: 0, unitVolume: 0 });
+  });
+
+  it("getSellerCohortWeeklyGmv buckets a seller cohort's trades by week", async () => {
+    await seedJuly1Trades(pools.pricing);
+
+    const weekly = await getSellerCohortWeeklyGmv(pools.pricing, {
+      sellerAccountIds: ["seller_1"],
+      from: "2026-06-25",
+      to: "2026-07-05",
+    });
+
+    expect(weekly).toEqual([expect.objectContaining({ weekStart: "2026-06-29", gmvAmount: "50.00", tradeCount: 2 })]);
+
+    const emptyCohort = await getSellerCohortWeeklyGmv(pools.pricing, {
+      sellerAccountIds: [],
+      from: "2026-06-25",
+      to: "2026-07-05",
+    });
+    expect(emptyCohort).toEqual([]);
   });
 
   it("getPlatformLiquiditySummary reports sell-through and spread with an honest empty state when there is no data", async () => {

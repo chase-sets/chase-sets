@@ -754,6 +754,73 @@ export async function listSellerListingFeeLockReport(
   };
 }
 
+export type MarketplaceLockedFeeListingCohortWeeklyPoint = Readonly<{
+  weekStart: string;
+  listingsCreatedCount: number;
+}>;
+
+export type MarketplaceLockedFeeListingCohortSummary = Readonly<{
+  listingsCreatedCount: number;
+  lockedSellerAccountIds: readonly string[];
+  weeklyListingsCreated: readonly MarketplaceLockedFeeListingCohortWeeklyPoint[];
+}>;
+
+/**
+ * Platform-wide (not single-seller) summary of listings locked to a 0%
+ * marketplace sales fee via a Commercial Terms agreement -- the
+ * offer-economics monitor's cohort membership source. A listing
+ * qualifies when its listing-time fee snapshot (`terms_agreement_id`,
+ * `marketplace_sales_fee_unit_amount`) resolved through an agreement at
+ * exactly 0.00, i.e. the founders-offer fee-lock mechanism (an agreement
+ * is the fee-lock primitive; see
+ * `commercialTermsAgreementPolicy`'s bps=0/fixed=0.00 shape) rather than the
+ * standard schedule. `lockedSellerAccountIds` feeds Pricing's
+ * `getSellerCohortGmvSummary`/`getSellerCohortWeeklyGmv` so the monitor can
+ * report the cohort's realized GMV without Platform Operations querying
+ * `marketplace_listing_pages` or `pricing_market_trades` directly.
+ */
+export async function getLockedFeeListingCohortSummary(
+  db: PgQueryable,
+  params: Readonly<{ from: string; to: string }>,
+): Promise<MarketplaceLockedFeeListingCohortSummary> {
+  const [totalsResult, weeklyResult] = await Promise.all([
+    db.query<{ listings_created_count: string; locked_seller_account_ids: string[] | null }>(
+      `SELECT
+         COUNT(*)::integer AS listings_created_count,
+         COALESCE(array_agg(DISTINCT account_id), ARRAY[]::text[]) AS locked_seller_account_ids
+       FROM marketplace_listing_pages
+       WHERE terms_agreement_id IS NOT NULL
+         AND marketplace_sales_fee_unit_amount = 0
+         AND created_at >= ($1::date)::timestamp AT TIME ZONE 'UTC'
+         AND created_at < ($2::date + 1)::timestamp AT TIME ZONE 'UTC'`,
+      [params.from, params.to],
+    ),
+    db.query<{ week_start: string; listings_created_count: string }>(
+      `SELECT
+         date_trunc('week', created_at)::date::text AS week_start,
+         COUNT(*)::integer AS listings_created_count
+       FROM marketplace_listing_pages
+       WHERE terms_agreement_id IS NOT NULL
+         AND marketplace_sales_fee_unit_amount = 0
+         AND created_at >= ($1::date)::timestamp AT TIME ZONE 'UTC'
+         AND created_at < ($2::date + 1)::timestamp AT TIME ZONE 'UTC'
+       GROUP BY date_trunc('week', created_at)
+       ORDER BY date_trunc('week', created_at) ASC`,
+      [params.from, params.to],
+    ),
+  ]);
+  const totalsRow = totalsResult.rows[0];
+
+  return {
+    listingsCreatedCount: Number(totalsRow?.listings_created_count ?? 0),
+    lockedSellerAccountIds: totalsRow?.locked_seller_account_ids ?? [],
+    weeklyListingsCreated: weeklyResult.rows.map((row) => ({
+      weekStart: row.week_start,
+      listingsCreatedCount: Number(row.listings_created_count),
+    })),
+  };
+}
+
 export async function getSellerListing(
   db: PgQueryable,
   listingId: string,

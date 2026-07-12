@@ -6080,6 +6080,49 @@
       "expected_usage": [
         "Use to answer refund, dispute, return, or delivery support status questions."
       ]
+    },
+    {
+      "name": "platform-operations.get-offer-economics-summary",
+      "title": "Get Offer Economics Summary",
+      "description": "Read the founders 0%-locked-fee cohort's listing volume, realized GMV share of the platform, foregone-fee estimate, and cumulative sell-through trend for a date range.",
+      "service_id": "platform-operations",
+      "risk": "read",
+      "access_scope": "operator",
+      "required_permissions": [
+        "insights-dashboards.view"
+      ],
+      "required_scopes": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Inclusive range start, YYYY-MM-DD. Defaults to 59 days before 'to'."
+          },
+          "to": {
+            "type": "string",
+            "description": "Inclusive range end, YYYY-MM-DD. Defaults to today."
+          },
+          "accountType": {
+            "type": "string",
+            "description": "Account type the foregone-fee estimate's standard schedule basis is resolved for.",
+            "enum": [
+              "personal",
+              "business",
+              "enterprise"
+            ]
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use to check whether a public campaign fee claim is substantiated before citing it.",
+        "Use for founders-offer cohort economics review, not any single account's own fees."
+      ]
     }
   ],
   "resources": [
@@ -6364,6 +6407,20 @@
       ],
       "expected_usage": [
         "Use for post-purchase support status and refund/dispute explanations."
+      ]
+    },
+    {
+      "uri_template": "chase-sets://platform-operations/offer-economics/summary",
+      "title": "Offer Economics Summary",
+      "description": "Founders 0%-locked-fee cohort listing volume, GMV share, foregone-fee estimate, and sell-through trend, trailing 60 days.",
+      "service_id": "platform-operations",
+      "access_scope": "operator",
+      "required_permissions": [
+        "insights-dashboards.view"
+      ],
+      "required_scopes": [],
+      "expected_usage": [
+        "Use to check whether a public campaign fee claim is substantiated before citing it."
       ]
     }
   ]

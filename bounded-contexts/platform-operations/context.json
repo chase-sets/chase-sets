@@ -10,6 +10,7 @@
     "dashboard-read-model",
     "ops-dashboard",
     "gmv-reconciliation-run",
+    "offer-economics-summary",
     "platform-feedback",
     "platform-feedback-prompt",
     "rate-limit-policy",
@@ -22,6 +23,7 @@
   "slices": [
     "projection-operations",
     "insights-dashboards",
+    "offer-economics",
     "platform-feedback",
     "policy-console",
     "rate-limit-policy",
@@ -268,6 +270,11 @@
       "portName": "opsMarketAnalyticsCrossContext",
       "providedBy": "platform-api",
       "purpose": "Pricing's platform-wide GMV/liquidity/top-catalog-item read functions, bound to pricing's own database pool and assembled once in the platform-api composition root, so the ops dashboard aggregates pricing's published Trades Tape and rollup data without this context importing pricing's domain code or querying its tables directly."
+    },
+    {
+      "portName": "offerEconomicsCrossContext",
+      "providedBy": "platform-api",
+      "purpose": "Marketplace's 0%-locked-fee listing cohort summary, Pricing's cohort-scoped GMV/weekly-trade reads, and Commercial Terms' published standard fee schedule terms, each bound to that context's own database pool and assembled once in the platform-api composition root, so the offer-economics monitor (#4075) aggregates the founders fee-lock cohort's economics without this context importing marketplace, pricing, or commercial-terms domain code directly."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -315,6 +322,10 @@
         "ownerSlice": "insights-dashboards"
       },
       {
+        "name": "platform-operations.get-offer-economics-summary",
+        "ownerSlice": "offer-economics"
+      },
+      {
         "name": "platform-operations.list-support-requests",
         "ownerSlice": "support-requests"
       },
@@ -327,6 +338,10 @@
       {
         "uriTemplate": "chase-sets://platform-operations/{accountId}/insights/summary",
         "ownerSlice": "insights-dashboards"
+      },
+      {
+        "uriTemplate": "chase-sets://platform-operations/offer-economics/summary",
+        "ownerSlice": "offer-economics"
       },
       {
         "uriTemplate": "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}",
@@ -672,6 +687,14 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "section": "platform"
+        },
+        {
+          "routeId": "offer-economics",
+          "routePath": "insights/offer-economics",
+          "fileExport": "./routes/admin/offer-economics",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "platform"
         }
       ]
     }
@@ -794,6 +817,18 @@
       "order": 5,
       "visibility": "signed-in",
       "requiredPermissions": ["insights-dashboards.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "offer-economics",
+      "label": "Offer Economics",
+      "icon": "chart",
+      "href": "/insights/offer-economics",
+      "section": "platform",
+      "order": 6,
+      "visibility": "signed-in",
+      "requiredPermissions": ["insights-dashboards.view"]
     }
   ],
   "directoryIntent": {
@@ -806,6 +841,15 @@
       "classification": "slice",
       "purpose": "Own platform-operations analytical dashboard contracts, KPI projection behavior, and reporting query language: the account-scoped seller KPI queries, and the platform-wide ops dashboard (GMV/liquidity/top-catalog-items, gated by insights-dashboards.view) that aggregates pricing's published market-analytics reads via the opsMarketAnalyticsCrossContext host port plus this context's own GMV Reconciliation Run audit trail.",
       "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
+    },
+    "offer-economics": {
+      "classification": "slice",
+      "purpose": "Own the offer-economics monitor (#4075, gated by insights-dashboards.view): a live-computed summary of the founders 0%-locked-fee cohort (listings created, distinct locked seller accounts, realized GMV and its share of platform GMV, a foregone-fee estimate against the published standard schedule, and a week-over-week cumulative sell-through trend) aggregated via the offerEconomicsCrossContext host port from Marketplace's listing-time fee-lock snapshot, Pricing's Trades Tape, and Commercial Terms' published standard schedule -- never mirrored into a table of its own. Order protection reserve contributions (#4098) are declared but always reported unavailable until that funding mechanism ships; this monitor is the substantiation source public campaign claims must cite (see docs/campaigns/offer-economics-claims-substantiation.md).",
+      "expectedConsumers": [
+        "Internal platform-operations module composition",
+        "Admin web route contribution",
+        "MCP agent clients"
+      ]
     },
     "platform-feedback": {
       "classification": "slice",

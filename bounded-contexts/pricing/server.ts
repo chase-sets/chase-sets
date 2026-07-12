@@ -11,6 +11,8 @@ export {
   getPlatformGmvForMonth,
   getPlatformKpiSummary,
   getPlatformLiquiditySummary,
+  getSellerCohortGmvSummary,
+  getSellerCohortWeeklyGmv,
   getTopCatalogItemsByGmv,
 } from "./features/market-rollups/read-model/platform-queries";
 export type {
@@ -19,6 +21,8 @@ export type {
   PlatformKpiSummary,
   PlatformLiquiditySummary,
   PlatformRollupGranularity,
+  SellerCohortGmvSummary,
+  SellerCohortWeeklyGmvPoint,
   TopCatalogItemGmv,
 } from "./features/market-rollups/read-model/platform-queries";
 export type {

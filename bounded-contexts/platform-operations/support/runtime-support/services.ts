@@ -15,6 +15,8 @@ import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/
 import { createDashboardQueryService } from "../../features/insights-dashboards/read-model/queries";
 import { createOpsDashboardRuntime } from "../../features/insights-dashboards/api/ops-runtime";
 import type { OpsMarketAnalyticsCrossContextPort } from "../../features/insights-dashboards/api/ops-contracts";
+import { createOfferEconomicsRuntime } from "../../features/offer-economics/api/offer-economics-runtime";
+import type { OfferEconomicsCrossContextPort } from "../../features/offer-economics/api/offer-economics-contracts";
 import { rateLimitPolicy } from "../../features/rate-limit-policy/domain/rate-limit-policy";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
@@ -49,12 +51,21 @@ export type PlatformOperationsHostPorts = Readonly<{
    * directly (see `allowedContextDependencies` in `context.json`).
    */
   opsMarketAnalyticsCrossContext?: OpsMarketAnalyticsCrossContextPort;
+  /**
+   * Marketplace's 0%-locked-fee listing cohort, Pricing's cohort-scoped GMV
+   * reads, and Commercial Terms' published standard schedule -- the
+   * offer-economics monitor's three cross-context sources, all
+   * assembled once in the `platform-api` composition root from those
+   * contexts' own exported functions bound to their own pools.
+   */
+  offerEconomicsCrossContext?: OfferEconomicsCrossContextPort;
 }>;
 
 export type PlatformOperationsServices = Readonly<{
   db: PgTransactionalPool;
   insightsDashboards: ReturnType<typeof createDashboardQueryService>;
   opsDashboard: ReturnType<typeof createOpsDashboardRuntime>;
+  offerEconomics: ReturnType<typeof createOfferEconomicsRuntime>;
   platformFeedback: ReturnType<typeof createPlatformFeedbackRuntime>;
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
@@ -132,6 +143,7 @@ export function createPlatformOperationsServices(
     db: pool,
     insightsDashboards: createDashboardQueryService(new Map()),
     opsDashboard: createOpsDashboardRuntime({ db, crossContext: ports.opsMarketAnalyticsCrossContext }),
+    offerEconomics: createOfferEconomicsRuntime({ crossContext: ports.offerEconomicsCrossContext }),
     platformFeedback,
     reportedContent,
     riskAlerts,

@@ -43,3 +43,15 @@ export { marketplaceListingGatePolicy } from "./features/listings/domain/listing
 export type { MarketplaceListingGatePolicyValue } from "./features/listings/domain/listing-gate-policy";
 export { marketplaceSellerBehavioralMetricsPolicy } from "./features/seller-metrics/domain/behavioral-metrics-policy";
 export type { MarketplaceSellerBehavioralMetricsPolicyValue } from "./features/seller-metrics/domain/behavioral-metrics-policy";
+/**
+ * Platform-wide 0%-locked-fee listing cohort summary: Platform Operations'
+ * offer-economics monitor imports this (via a cross-context port
+ * assembled in the `platform-api` composition root, bound to Marketplace's
+ * own database pool) so it can report the founders-offer fee-lock cohort's
+ * listing volume without querying `marketplace_listing_pages` directly.
+ */
+export { getLockedFeeListingCohortSummary } from "./features/listings/read-model/queries";
+export type {
+  MarketplaceLockedFeeListingCohortSummary,
+  MarketplaceLockedFeeListingCohortWeeklyPoint,
+} from "./features/listings/read-model/queries";

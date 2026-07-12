@@ -9,6 +9,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildPlatformOperationsApi } from "./api";
 import contextManifest from "./context.json";
 import { createInsightsDashboardMcpHandlers } from "./features/insights-dashboards/api/mcp";
+import { createOfferEconomicsMcpHandlers } from "./features/offer-economics/api/mcp";
 import { buildExperienceApi } from "./features/platform-feedback/api/http";
 import {
   buildMarketplaceReportedContentProjectionHandlers,
@@ -54,15 +55,18 @@ export const module = defineBoundedContextModule<
   ],
   buildMcpHandlers: (services) => {
     const insightsHandlers = createInsightsDashboardMcpHandlers(services.insightsDashboards);
+    const offerEconomicsHandlers = createOfferEconomicsMcpHandlers(services.offerEconomics);
     const supportHandlers = createSupportRequestMcpHandlers(services.supportRequests);
 
     return {
       toolHandlers: {
         ...insightsHandlers.toolHandlers,
+        ...offerEconomicsHandlers.toolHandlers,
         ...supportHandlers.toolHandlers,
       },
       resourceHandlers: {
         ...insightsHandlers.resourceHandlers,
+        ...offerEconomicsHandlers.resourceHandlers,
         ...supportHandlers.resourceHandlers,
       },
     };

@@ -3,7 +3,10 @@ import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import {
   createCommercialTermsResolver,
   createNoopCommercialTermsResolver,
+  resolveStandardScheduleTerms,
+  type PublishedStandardScheduleTerms,
 } from "./features/resolutions/read-model/resolve";
+import type { CommercialAccountType } from "./support/runtime-support/common";
 import {
   checkoutProcessingFeePolicy,
   type CheckoutProcessingFeePolicyValue,
@@ -85,6 +88,59 @@ export function createNoopCheckoutProcessingFeePolicyResolver(): CheckoutProcess
 }
 
 export type { CheckoutProcessingFeePolicyValue } from "./features/checkout-processing-fee/domain/policy";
+
+export type { PublishedStandardScheduleTerms };
+
+export type StandardScheduleResolver = Readonly<{
+  /**
+   * `accountType` accepts a plain string (not the branded `CommercialAccountType`)
+   * because this port crosses into Platform Operations, which does not
+   * carry that type -- an unrecognized value falls back to "personal"
+   * rather than throwing, since a bad query parameter on an admin
+   * dashboard should degrade, not 500 the whole monitor request.
+   */
+  resolveStandardScheduleTerms: (
+    params?: Readonly<{ accountType?: string; effectiveAt?: string }>,
+  ) => Promise<PublishedStandardScheduleTerms>;
+}>;
+
+function coerceCommercialAccountType(value: string | undefined): CommercialAccountType {
+  return value === "personal" || value === "business" || value === "enterprise" ? value : "personal";
+}
+
+/**
+ * Cross-context read port for the published standard (non-founders) fee
+ * schedule: Platform Operations' offer-economics monitor consumes
+ * this to compute the foregone-fee estimate for the 0%-locked cohort
+ * (`percentageBps` applied to locked GMV, `fixedAmount` applied per trade)
+ * without ever querying `platform_policy_documents` directly. Mirrors
+ * `createCheckoutProcessingFeePolicyResolver`'s shape; unlike that resolver,
+ * this reads the raw schedule table straight (no `PolicyResolver`/compiled
+ * fallback), matching `resolvePublicStandardListingTerms`'s existing
+ * fail-open-with-zeros behavior when no schedule document is active.
+ */
+export function createStandardScheduleResolver(db: PgQueryable): StandardScheduleResolver {
+  return {
+    resolveStandardScheduleTerms: (params) =>
+      resolveStandardScheduleTerms(db, {
+        accountType: coerceCommercialAccountType(params?.accountType),
+        effectiveAt: params?.effectiveAt,
+      }),
+  };
+}
+
+export function createNoopStandardScheduleResolver(): StandardScheduleResolver {
+  return {
+    resolveStandardScheduleTerms: async (params) => ({
+      accountType: coerceCommercialAccountType(params?.accountType),
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeFixedAmount: "0.00",
+      scheduleId: null,
+      scheduleLabel: null,
+      resolvedAt: params?.effectiveAt ?? new Date().toISOString(),
+    }),
+  };
+}
 
 export type ResolvedAuthenticityFeePolicy = Readonly<{
   value: AuthenticityFeePolicyValue;

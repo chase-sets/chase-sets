@@ -131,6 +131,9 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Shared Payment Token | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Provider-scoped agent payment credential grant processed without raw card handling. |
 | AP2 Mandate | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Verifiable autonomous-payment authority required before headless checkout completion can bypass trusted UI handoff. |
 | Authenticity Case | [Authenticity](../bounded-contexts/authenticity/GLOSSARY.md) | Judgment record for one authenticity-checked order; forwarded on a passed verdict, returned on a failed or inconclusive verdict. |
+| Offer Economics Summary | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Live-computed founders 0%-locked-fee cohort report aggregated from Marketplace, Pricing, and Commercial Terms; substantiation source for public campaign fee claims (#4075). |
+| Locked-Fee Listing Cohort | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Marketplace listings whose listing-time fee snapshot locked a 0% fee via a Commercial Terms agreement; membership read from Marketplace's `marketplace_listing_pages` snapshot fields. |
+| Foregone Fee Estimate | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Offer-economics monitor projection of what the Locked-Fee Listing Cohort's GMV would have cost under Commercial Terms' current published standard schedule. |
 
 ## Cross-Context Disambiguation
 

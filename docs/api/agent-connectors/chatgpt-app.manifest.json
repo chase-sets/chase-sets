@@ -92,7 +92,8 @@
     "settlement.create-payout-onboarding-link",
     "platform-operations.get-seller-insight-summary",
     "platform-operations.list-support-requests",
-    "platform-operations.get-support-request"
+    "platform-operations.get-support-request",
+    "platform-operations.get-offer-economics-summary"
   ],
   "resource_uri_templates": [
     "chase-sets://authenticity/cases/{caseId}",
@@ -112,7 +113,8 @@
     "chase-sets://settlement/{accountId}/wallet",
     "chase-sets://settlement/{accountId}/payouts/{payoutId}",
     "chase-sets://platform-operations/{accountId}/insights/summary",
-    "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}"
+    "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}",
+    "chase-sets://platform-operations/offer-economics/summary"
   ],
   "platform_notes": [
     "Register as a ChatGPT app backed by the native remote MCP endpoint.",

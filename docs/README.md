@@ -24,6 +24,10 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language, account-role naming rules, and cross-cutting architecture vocabulary.
 
+### Campaigns
+
+- [Offer Economics Claims Substantiation](./campaigns/offer-economics-claims-substantiation.md): the truth gate for beta campaign copy — every public claim about fees, protections, or graded-card support marked substantiated, softened, or dropped against shipped code, backed by the offer-economics monitor (#4075).
+
 ### Bounded contexts and structure
 
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.

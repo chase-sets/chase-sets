@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
-import { createCommercialTermsResolver, quoteLockedMarketplaceFeeTerms } from "./resolve";
+import { createCommercialTermsResolver, quoteLockedMarketplaceFeeTerms, resolveStandardScheduleTerms } from "./resolve";
 
 const accountSourceTelemetryBase = {
   boundedContextName: "commercial-terms",
@@ -548,6 +548,50 @@ describe("commercial terms resolver", () => {
 
     expect(result.marketplaceSalesFeeUnitAmount).toBe("0.01");
     expect(result.sellerNetUnitAmount).toBe("0.01");
+  });
+
+  it("resolveStandardScheduleTerms returns the raw published percentage/fixed terms for the offer-economics monitor (#4075)", async () => {
+    const queries: string[] = [];
+    const db = createPublicStandardDb({
+      queries,
+      schedule: {
+        schedule_id: "cts_seed_personal_default",
+        label: "Personal Default",
+        marketplace_sales_fee_percentage_bps: 900,
+        marketplace_sales_fee_fixed_amount: "0.15",
+        shipping_allowance_percentage_bps: 500,
+        updated_at: "2026-04-16T10:00:00.000Z",
+      },
+    });
+
+    const result = await resolveStandardScheduleTerms(db, {
+      accountType: "personal",
+      effectiveAt: "2026-05-05T16:36:36.000Z",
+    });
+
+    expect(result).toEqual({
+      accountType: "personal",
+      marketplaceSalesFeePercentageBps: 900,
+      marketplaceSalesFeeFixedAmount: "0.15",
+      scheduleId: "cts_seed_personal_default",
+      scheduleLabel: "Personal Default",
+      resolvedAt: "2026-05-05T16:36:36.000Z",
+    });
+    expect(queries).toHaveLength(1);
+  });
+
+  it("resolveStandardScheduleTerms degrades to zero terms (never throws) when no schedule is published yet", async () => {
+    const db = createPublicStandardDb({ schedule: null });
+
+    const result = await resolveStandardScheduleTerms(db, { accountType: "business" });
+
+    expect(result).toMatchObject({
+      accountType: "business",
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeFixedAmount: "0.00",
+      scheduleId: null,
+      scheduleLabel: null,
+    });
   });
 
   it("fails closed when public standard terms have no active schedule", async () => {

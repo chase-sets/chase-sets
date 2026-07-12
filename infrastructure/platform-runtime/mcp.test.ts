@@ -337,6 +337,7 @@ describe("MCP runtime routes", () => {
       "payments.get-payment",
       "payments.get-refund-status",
       "payments.start-payment-method-setup",
+      "platform-operations.get-offer-economics-summary",
       "platform-operations.get-seller-insight-summary",
       "platform-operations.get-support-request",
       "platform-operations.list-support-requests",
@@ -614,6 +615,13 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["support.view"],
+          }),
+        }),
+        expect.objectContaining({
+          uriTemplate: "chase-sets://platform-operations/offer-economics/summary",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["insights-dashboards.view"],
           }),
         }),
       ],
