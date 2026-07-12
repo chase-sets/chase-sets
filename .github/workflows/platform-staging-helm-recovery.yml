@@ -102,7 +102,7 @@ jobs:
           terraform output -raw kubeconfig > "$kubeconfig" || true
           chmod 600 "$kubeconfig"
 
-          if ! KUBECONFIG="$kubeconfig" kubectl config current-context >/dev/null 2>&1; then
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
             echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
             cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
             cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
