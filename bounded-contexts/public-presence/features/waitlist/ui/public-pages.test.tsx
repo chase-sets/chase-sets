@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PublicPresenceHomePage } from "./public-pages";
+import { publicPresenceT as t } from "./public-presence-translator";
 
 // PublicPresencePageShell registers the DS RouterLinkAdapter, so rendering it
 // requires router context — exactly as it has in the production app tree.
@@ -192,5 +193,57 @@ describe("public waitlist form migration smoke", () => {
 
     rerender(<PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />);
     expect(container.querySelectorAll('a[href="https://discord.gg/chase-sets"]').length).toBe(0);
+  });
+
+  it("renders the open-offers section ahead of founding seller economics, with a sample offer mock and a reserved demo slot", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const offersSection = container.querySelector('[data-public-presence-section="open_offers"]');
+    const sellerEconomicsSection = container.querySelector('[data-public-presence-section="seller_economics"]');
+    if (!offersSection || !sellerEconomicsSection) {
+      throw new Error("Expected both the open-offers and seller-economics sections to render.");
+    }
+
+    // DOCUMENT_POSITION_FOLLOWING (4) on sellerEconomicsSection means offersSection comes first.
+    expect(offersSection.compareDocumentPosition(sellerEconomicsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(offersSection.textContent).toContain(t("publicPresence.home.openOffers.after.offerCard.title"));
+    expect(offersSection.textContent).toContain(t("publicPresence.home.openOffers.demo.title"));
+  });
+
+  it("leads the buy-path audience card with the open-offers bullet", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const audienceSection = container.querySelector('[data-public-presence-section="audience_paths"]');
+    if (!audienceSection) {
+      throw new Error("Expected the audience-path section to render.");
+    }
+
+    // The sell card renders first in the audience-path grid, so the buy
+    // card's bullet list is the second <ul> in document order.
+    const lists = audienceSection.querySelectorAll("ul");
+    const buyList = lists[1];
+    if (!buyList) {
+      throw new Error("Expected the buy-path card to render its bullet list.");
+    }
+
+    expect(buyList.querySelector("li:first-child")?.textContent).toBe(t("publicPresence.home.paths.buy.point.offers"));
   });
 });

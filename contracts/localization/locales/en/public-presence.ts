@@ -58,7 +58,7 @@ export const publicPresenceEnglishTranslations = {
     "Public policies cover privacy, support, marketplace availability, checkout, fees, refunds, returns, and protection rules while public checkout remains gated.",
   "publicPresence.footer.title": "Chase Sets prelaunch",
   "publicPresence.home.description":
-    "Request early access to the seller-first beta for 0% fees on beta listings, no separate seller processing fee, bulk-friendly listing, and buyer-visible totals.",
+    "Request early access to post open offers for the cards you want, or list yours with 0% fees during beta. Built for people who buy and sell.",
   "publicPresence.home.discordCta": "Join the founders circle on Discord",
   "publicPresence.home.eyebrow": "Chase the cards. Complete the sets. Keep the margin.",
   "publicPresence.home.finalCta.action": "Request early access",
@@ -90,14 +90,51 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.heroHighlight.launch.value": "Costs visible before payment",
   "publicPresence.home.heroHighlight.lowValue.label": "0% beta seller fees",
   "publicPresence.home.heroHighlight.lowValue.value": "Keep 100% of the sale",
-  "publicPresence.home.heroHighlight.workflow.label": "No seller processing fee",
-  "publicPresence.home.heroHighlight.workflow.value": "$0 separate line",
+  "publicPresence.home.heroHighlight.offers.label": "Open offers",
+  "publicPresence.home.heroHighlight.offers.value": "Post what you'll pay",
   "publicPresence.home.heroImageAlt":
     "Trading cards being sorted, priced, and prepared for shipment on an account workspace.",
   "publicPresence.home.howItWorks.badge": "Workflow preview",
   "publicPresence.home.howItWorks.description":
     "The product model is built around repeat card work: sourcing, listing, pricing, shipping, and buying without rebuilding the same decision every time.",
   "publicPresence.home.howItWorks.title": "Built around real card workflows",
+  "publicPresence.home.openOffers.after.badge": "On Chase Sets",
+  "publicPresence.home.openOffers.after.description":
+    "The same request becomes a priced offer against the real catalog entry, visible to every matching seller.",
+  "publicPresence.home.openOffers.after.offerCard.amount": "$140.00",
+  "publicPresence.home.openOffers.after.offerCard.details":
+    "Catalog-backed identity, buyer price, and shipping destination are set before any seller sees it.",
+  "publicPresence.home.openOffers.after.offerCard.status": "Sample offer • visible to matching sellers",
+  "publicPresence.home.openOffers.after.offerCard.title": "Charizard ex — Special Illustration Rare",
+  "publicPresence.home.openOffers.after.point.accept":
+    "Any seller with a matching card can accept it — no listing negotiation needed.",
+  "publicPresence.home.openOffers.after.point.checkout":
+    "Acceptance creates a real order, with checkout fee and shipping shown before payment.",
+  "publicPresence.home.openOffers.after.point.record":
+    "The offer and its outcome stay tied to a real order record, not a forum thread.",
+  "publicPresence.home.openOffers.after.title": "Post it once. Any seller can accept.",
+  "publicPresence.home.openOffers.before.badge": "The old way",
+  "publicPresence.home.openOffers.before.description": "A buyer posts what they want in a card group, then waits.",
+  "publicPresence.home.openOffers.before.point.payment":
+    "Payment happens outside any marketplace, with no order to point back to.",
+  "publicPresence.home.openOffers.before.point.post": "“ISO Charizard ex, will pay $140 shipped.”",
+  "publicPresence.home.openOffers.before.point.replies":
+    "14 replies. Half of them just ask “still looking?” a week later.",
+  "publicPresence.home.openOffers.before.point.risk":
+    "If it goes wrong, the group can only remove the post after the fact.",
+  "publicPresence.home.openOffers.before.title": "Social card groups",
+  "publicPresence.home.openOffers.demo.badge": "Coming soon",
+  "publicPresence.home.openOffers.demo.description":
+    "A short recording of the full offer flow is in production. This spot is reserved for it.",
+  "publicPresence.home.openOffers.demo.title": "Watch a 30-second offer get posted and accepted",
+  "publicPresence.home.openOffers.description":
+    "Buyers already post “looking for” requests in card groups and hope a stranger notices. Chase Sets turns that into a real, catalog-backed offer any matching seller can accept.",
+  "publicPresence.home.openOffers.step.accept": "Any seller with a matching card can accept it, at your price.",
+  "publicPresence.home.openOffers.step.checkout":
+    "Acceptance becomes a real order — checkout fee and shipping shown before payment.",
+  "publicPresence.home.openOffers.step.post":
+    "Post an offer against the real catalog entry: price, quantity, and shipping destination.",
+  "publicPresence.home.openOffers.title": "The ISO post, grown up",
   "publicPresence.home.stickyCta.action": "Request early access",
   "publicPresence.home.stickyCta.label": "Early access list",
   "publicPresence.home.model.economics.description":
@@ -113,6 +150,8 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.paths.buy.badge": "For collectors",
   "publicPresence.home.paths.buy.description":
     "Finish sets and decks with shipping credit, account trust, order processing, and protection visible before payment.",
+  "publicPresence.home.paths.buy.point.offers":
+    "Post an open offer for the card you want — any matching seller can accept it.",
   "publicPresence.home.paths.buy.point.shipping": "Shipping credit and items from the same seller stay visible.",
   "publicPresence.home.paths.buy.point.total": "Delivered total is easier to compare before checkout.",
   "publicPresence.home.paths.buy.point.trust":
@@ -127,7 +166,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.paths.sell.point.bulk": "Bulk listing and pricing context reduce one-card-at-a-time work.",
   "publicPresence.home.paths.sell.point.feeLock": "Beta-created listings keep 100% of the sale.",
   "publicPresence.home.paths.sell.point.offers":
-    "Offer acceptance and matched-offer review help turn demand into sale-ready work.",
+    "Browse open buyer offers for a card before you list it and see real demand first.",
   "publicPresence.home.paths.sell.title": "I want to sell cards",
   "publicPresence.home.paths.title": "Pick the workflow you want prioritized",
   "publicPresence.home.sellerEconomics.badge": "Founding seller economics",
@@ -178,7 +217,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.math.total": "Seller net before shipping",
   "publicPresence.home.sellerEconomics.math.total.value": "$10.00",
   "publicPresence.home.sellerEconomics.title": "A concrete reason for sellers to join early",
-  "publicPresence.home.title": "Keep 100% of every beta-listing sale.",
+  "publicPresence.home.title": "The marketplace that works both ways.",
   "publicPresence.home.trust.description":
     "Chase Sets is still prelaunch. The trust proof available now is public policy clarity, visible support, no live transaction pressure, and payment plans that keep totals visible before money moves.",
   "publicPresence.home.trust.payment.description":
