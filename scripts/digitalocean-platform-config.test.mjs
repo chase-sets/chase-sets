@@ -2291,21 +2291,29 @@ describe("DigitalOcean platform configuration", () => {
     const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
 
     expect(platformPrWorkflow).toContain("full_battery_required: ${{ steps.full-battery.outputs.required }}");
+    expect(platformPrWorkflow).toContain(
+      "integration_risk_required: ${{ steps.scope.outputs.integration_risk_required }}",
+    );
+    expect(platformPrWorkflow).toContain("integration_risk_reason: ${{ steps.scope.outputs.integration_risk_reason }}");
+    expect(platformPrWorkflow).toContain(
+      "targeted_heavy_required: ${{ steps.full-battery.outputs.targeted_required }}",
+    );
     expect(fullBatteryStep).toContain('"${{ github.event_name }}" = "merge_group"');
     expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-ci')");
     expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-pr-battery')");
     expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
+    expect(fullBatteryStep).toContain(
+      "INTEGRATION_RISK_REQUIRED: ${{ steps.scope.outputs.integration_risk_required }}",
+    );
+    expect(fullBatteryStep).toContain('targeted_reason="integration-risk: $INTEGRATION_RISK_REASON"');
 
-    for (const job of [
-      dbProfileJob,
-      e2eJob,
-      buildJob,
-      dockerJob,
-      terraformPreviewJob,
-      terraformStagingJob,
-      terraformProductionJob,
-    ]) {
+    for (const job of [buildJob, dockerJob, terraformPreviewJob, terraformStagingJob, terraformProductionJob]) {
       expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
+    }
+
+    for (const job of [dbProfileJob, e2eJob]) {
+      expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
+      expect(job).toContain("needs['change-scope'].outputs.integration_risk_required == 'true'");
     }
 
     expect(terraformObservabilityJob).toContain("if: needs['change-scope'].outputs.terraform == 'true'");
@@ -2327,8 +2335,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(requiredJob).toContain(
       "full_battery_required=\"${{ needs['change-scope'].outputs.full_battery_required }}\"",
     );
-    expect(requiredJob).toContain('require_heavy_job "DB Profile Tests"');
-    expect(requiredJob).toContain('require_heavy_job "E2E Tests"');
+    expect(requiredJob).toContain(
+      "targeted_heavy_required=\"${{ needs['change-scope'].outputs.targeted_heavy_required }}\"",
+    );
+    expect(requiredJob).toContain('require_targeted_heavy_job "DB Profile Tests"');
+    expect(requiredJob).toContain('require_targeted_heavy_job "E2E Tests"');
     expect(requiredJob).toContain('require_heavy_job "Build"');
     expect(requiredJob).toContain('require_heavy_job "Docker Image Build"');
     expect(requiredJob).toContain('require_heavy_job "Terraform Preview Plan"');

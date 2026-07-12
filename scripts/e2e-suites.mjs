@@ -140,6 +140,12 @@ const browserRuntimePatterns = [
   /^scripts\/run-e2e-suite\.mjs$/,
 ];
 
+const designSystemNavigationPatterns = [
+  /^packages\/design-system\/src\/components\/actions\/(?:navigation|navigation-menu|navigation-header|section-navigation)\.[cm]?[tj]sx?$/,
+  /^packages\/design-system\/src\/patterns\/app-shells\/shells\.[cm]?[tj]sx?$/,
+  /^packages\/design-system\/src\/theme\/(?:link-adapter|provider)\.[cm]?[tj]sx?$/,
+];
+
 const contextSuiteOwnership = new Map([
   ["auth", ["marketplace_account", "admin_auth"]],
   ["catalog", ["marketplace_browse", "catalog_admin_integrations"]],
@@ -460,6 +466,10 @@ export function isBrowserRuntimeFile(filePath) {
   return matchesAny(normalizeFilePath(filePath), browserRuntimePatterns);
 }
 
+export function isDesignSystemNavigationFile(filePath) {
+  return matchesAny(normalizeFilePath(filePath), designSystemNavigationPatterns);
+}
+
 export function orderE2eSuiteIds(suiteIds) {
   return [...new Set(suiteIds)].sort((left, right) => (suiteOrder.get(left) ?? 999) - (suiteOrder.get(right) ?? 999));
 }
@@ -614,7 +624,7 @@ export function e2eSuiteIdsForChangedFile(filePath) {
       return [];
     }
 
-    return allMarketplaceSuiteIds;
+    return isDesignSystemNavigationFile(normalized) ? allBrowserSuiteIds : allMarketplaceSuiteIds;
   }
 
   const boundedContextMatch = normalized.match(

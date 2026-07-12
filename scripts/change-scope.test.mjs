@@ -111,6 +111,84 @@ describe("change-scope", () => {
     expect(scope.buildRequired).toBe(true);
   });
 
+  it("escalates pricing event-subscription metadata to targeted DB admission", () => {
+    const scope = classifyChanges({
+      changedFiles: ["bounded-contexts/pricing/context.json"],
+    });
+
+    expect(scope.integrationRiskRequired).toBe(true);
+    expect(scope.integrationRiskReason).toBe("Bounded-context metadata, including event subscriptions, changed");
+    expect(scope.dbTestsRequired).toBe(true);
+    expect(toOutputMap(scope).integration_risk_required).toBe("true");
+    expect(toOutputMap(scope).integration_risk_reason).toBe(scope.integrationRiskReason);
+  });
+
+  it("escalates cross-context runtime composition to targeted DB admission", () => {
+    const scope = classifyChanges({
+      changedFiles: ["infrastructure/bounded-context-runtime/subscriptions.ts"],
+    });
+
+    expect(scope.integrationRiskRequired).toBe(true);
+    expect(scope.integrationRiskReason).toBe("Cross-context subscription or runtime composition changed");
+    expect(scope.dbTestsRequired).toBe(true);
+  });
+
+  it("escalates shared admin shell and router changes to affected admin E2E", () => {
+    const scope = classifyChanges({
+      changedFiles: ["deployables/admin-web/app/admin-root-shell.tsx"],
+    });
+
+    expect(scope.integrationRiskRequired).toBe(true);
+    expect(scope.integrationRiskReason).toBe("Shared application shell or router changed");
+    expect(scope.e2eSuiteIds).toEqual([
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_platform",
+      "admin_auth",
+      "admin_access",
+    ]);
+  });
+
+  it("escalates design-system navigation changes to affected browser E2E", () => {
+    const scope = classifyChanges({
+      changedFiles: ["packages/design-system/src/components/actions/section-navigation.tsx"],
+    });
+
+    expect(scope.integrationRiskRequired).toBe(true);
+    expect(scope.integrationRiskReason).toBe("Design-system navigation changed");
+    expect(scope.e2eSuiteIds).toEqual([
+      "marketplace_browse",
+      "marketplace_account",
+      "marketplace_checkout",
+      "marketplace_seller",
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_platform",
+      "admin_auth",
+      "admin_access",
+    ]);
+  });
+
+  it("keeps docs and ordinary single-slice changes on the fast lane", () => {
+    const docsScope = classifyChanges({
+      changedFiles: ["docs/runbooks/integration-risk.md"],
+    });
+    const sliceScope = classifyChanges({
+      changedFiles: ["bounded-contexts/pricing/features/recommendations/domain/recommendation.ts"],
+    });
+
+    expect(docsScope.integrationRiskRequired).toBe(false);
+    expect(docsScope.integrationRiskReason).toBe("No integration-risk change detected");
+    expect(sliceScope.integrationRiskRequired).toBe(false);
+    expect(sliceScope.integrationRiskReason).toBe("No integration-risk change detected");
+  });
+
   it("keeps unrelated bounded-context changes from pulling platform-runtime into scope", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
