@@ -365,6 +365,111 @@ describe("public waitlist form migration smoke", () => {
     expect(form.querySelector('input[name="hasStoreLink"]')).toBeNull();
   });
 
+  it("renders the game roster strip under the hero with five campaign-linkable per-game tiles", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const rosterSection = container.querySelector('[data-public-presence-section="game_roster"]');
+    if (!rosterSection) {
+      throw new Error("Expected the game roster section to render.");
+    }
+
+    // The roster sits under the hero and ahead of the open-offers row.
+    const offersSection = container.querySelector('[data-public-presence-section="open_offers"]');
+    expect(rosterSection.compareDocumentPosition(offersSection!) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    // Exactly the five supported games, each linking to its per-game entry
+    // point while preserving the visitor's UTM query string.
+    const tiles = Array.from(rosterSection.querySelectorAll<HTMLAnchorElement>("a"));
+    expect(tiles.length).toBe(5);
+    const hrefs = tiles.map((tile) => tile.getAttribute("href"));
+    for (const slug of ["pokemon", "magic-the-gathering", "yu-gi-oh", "one-piece-card-game", "disney-lorcana"]) {
+      const href = hrefs.find((candidate) => candidate?.includes(`game=${slug}`));
+      expect(href).toBeTruthy();
+      expect(href).toContain("utm_source=smoke");
+      expect(href).toContain("#waitlist-form");
+    }
+    expect(rosterSection.textContent).toContain(t("publicPresence.home.gameRoster.game.pokemon"));
+    expect(rosterSection.textContent).toContain(t("publicPresence.home.gameRoster.description"));
+  });
+
+  it("prefills the hero form's hidden games field from a ?game= tile visit while keeping the hero minimal", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} selectedGame="magic-the-gathering" />);
+
+    const panel = document.getElementById("waitlist-form");
+    const form = panel?.querySelector("form");
+    if (!form) {
+      throw new Error("Expected hero waitlist panel to render a form.");
+    }
+
+    const formData = new FormData(form);
+    expect(formData.getAll("games")).toEqual(["magic-the-gathering"]);
+    // The hero stays email + intent only: the game travels as a hidden value,
+    // never as a visible control.
+    expect(form.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(form.querySelector('select[name="inventorySize"]')).toBeNull();
+    // The panel confirms the per-game landing with the game's name.
+    expect(panel?.textContent).toContain(t("publicPresence.waitlist.game.magicTheGathering"));
+  });
+
+  it("pre-checks the selected game on the final-CTA games checkboxes", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} selectedGame="disney-lorcana" />);
+
+    const panel = document.getElementById("waitlist-form-final");
+    const form = panel?.querySelector("form");
+    if (!form) {
+      throw new Error("Expected final-CTA waitlist panel to render a form.");
+    }
+
+    const formData = new FormData(form);
+    expect(formData.getAll("games")).toEqual(["disney-lorcana"]);
+  });
+
+  it("ignores an unrecognized ?game= slug instead of forwarding it to the form", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={source} selectedGame="not-a-real-game" />);
+
+    const panel = document.getElementById("waitlist-form");
+    const form = panel?.querySelector("form");
+    if (!form) {
+      throw new Error("Expected hero waitlist panel to render a form.");
+    }
+
+    expect(new FormData(form).getAll("games")).toEqual([]);
+  });
+
   it("reveals the store URL field only after the store-link checkbox is checked, and submits selected games", () => {
     vi.stubGlobal(
       "fetch",

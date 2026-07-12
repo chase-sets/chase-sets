@@ -59,6 +59,21 @@ export type WaitlistServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ signupId: string; version: number }>;
+  /**
+   * Progressive welcome-page cohort-quality save. Only fields present on
+   * `params` are updated (individual saves, never a submit-wall); the domain
+   * merges them into the signup's existing cohort-quality record.
+   */
+  provideWaitlistCohortQuality: (
+    params: Readonly<{
+      signupId: string;
+      games?: readonly string[];
+      inventorySize?: string | null;
+      hasStoreLink?: boolean;
+      storeUrl?: string | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ signupId: string; version: number }>;
   listWaitlistSignups: (params: Parameters<typeof listWaitlistSignups>[1]) => ReturnType<typeof listWaitlistSignups>;
   getWaitlistMetrics: () => ReturnType<typeof getWaitlistMetrics>;
   getWaitlistReferralSummary: (signupId: string) => ReturnType<typeof getWaitlistReferralSummary>;
@@ -107,6 +122,22 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
       });
 
       return { signupId, version: result.version };
+    },
+    async provideWaitlistCohortQuality(params, context) {
+      const result = await commandHandler({
+        streamId: `public-presence.waitlist-signup-${params.signupId}`,
+        command: {
+          type: "ProvideWaitlistCohortQuality",
+          games: params.games,
+          inventorySize: params.inventorySize,
+          hasStoreLink: params.hasStoreLink,
+          storeUrl: params.storeUrl,
+          providedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { signupId: params.signupId, version: result.version };
     },
     listWaitlistSignups: (params) => listWaitlistSignups(deps.db, params),
     getWaitlistMetrics: () => getWaitlistMetrics(deps.db),

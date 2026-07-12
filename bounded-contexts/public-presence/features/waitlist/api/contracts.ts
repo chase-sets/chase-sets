@@ -28,6 +28,19 @@ export type SubmitWaitlistSignupRequest = Readonly<{
   website?: string | null;
 }>;
 
+/**
+ * Progressive welcome-page cohort-quality save ("help us place you in the
+ * right wave"). Every field is optional and individually saved; only fields
+ * present on the request are updated. Never a condition of staying on the
+ * waitlist.
+ */
+export type ProvideWaitlistCohortQualityRequest = Readonly<{
+  games?: readonly WaitlistGame[];
+  inventorySize?: WaitlistInventorySize | null;
+  hasStoreLink?: boolean;
+  storeUrl?: string | null;
+}>;
+
 export type WaitlistSignupListItem = Readonly<{
   signup_id: string;
   email: string;

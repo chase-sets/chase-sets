@@ -14,7 +14,11 @@
       "sourceContextName": "public-presence",
       "projectionName": "public-presence-waitlist-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["public-presence.waitlist-signup.recorded", "public-presence.waitlist-signup.updated"],
+      "eventTypes": [
+        "public-presence.waitlist-signup.recorded",
+        "public-presence.waitlist-signup.updated",
+        "public-presence.waitlist-signup.cohort-quality-provided"
+      ],
       "streamPrefixes": ["public-presence.waitlist-signup-"],
       "order": 10,
       "projectionHandlerSetNames": ["public-presence-waitlist-projection"]
@@ -158,6 +162,24 @@
           "bounded-contexts/public-presence/tests/home-route.test.ts proves the home action redirects to /welcome with the committed signup id on success and still returns the same-page error snapshot on failure.",
           "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx proves the waitlist form posts through the Public Presence route action.",
           "bounded-contexts/public-presence/tests/welcome-route.test.ts proves the welcome route renders the referral link and progress mechanic from the redirect-carried signup id."
+        ]
+      }
+    },
+    {
+      "id": "public-presence.waitlist-cohort-quality-save-receipt",
+      "owner": "public-presence",
+      "risk": "informational",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/public-presence/api.ts:POST /waitlist/:signupId/cohort-quality"],
+      "visibleDestination": {
+        "routeId": "welcome",
+        "description": "The welcome page's progressive wave-placement step (issue #4082) saves each cohort-quality field individually and renders its own saved/failed indicator from the command receipt; no Public Presence read model is consulted for the confirmation, and the only downstream reader is the eventually-consistent admin campaign-analytics surface."
+      },
+      "proof": {
+        "authoritativeResponse": "provideWaitlistCohortQuality returns the committed signup id/version and the public API returns that receipt with status=saved; the welcome-page UI flips its saved indicator from the response alone.",
+        "tests": [
+          "bounded-contexts/public-presence/tests/api.test.ts proves POST /waitlist/:signupId/cohort-quality forwards only the fields present on the request and returns the saved receipt, and rejects malformed signup ids.",
+          "bounded-contexts/public-presence/features/waitlist/ui/success-page.test.tsx proves each wave-placement field saves individually and surfaces the saved indicator from the response."
         ]
       }
     },

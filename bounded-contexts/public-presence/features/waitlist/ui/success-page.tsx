@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Badge,
   Box,
@@ -9,6 +9,7 @@ import {
   Inline,
   LinkButton,
   List,
+  NativeSelect,
   Page,
   PageHeader,
   PageSection,
@@ -17,10 +18,11 @@ import {
   TaskProgress,
   Text,
   TextInput,
+  ToggleGroup,
 } from "@chase-sets/design-system";
 import { trackWaitlistEvent } from "./analytics";
 import { publicPresenceT as t } from "./public-presence-translator";
-import { PublicPresencePageShell } from "./public-pages";
+import { gameItems, inventorySizeItems, PublicPresencePageShell } from "./public-pages";
 
 const landingExperimentVariant = "seller_first_v1";
 
@@ -65,16 +67,152 @@ function copyToClipboard(value: string) {
   navigator.clipboard.writeText(value).catch(() => undefined);
 }
 
+const validGameSlugs = new Set(gameItems.map((item) => item.value));
+
+type CohortSaveStatus = "idle" | "saving" | "saved" | "error";
+
+/**
+ * The progressive "wave placement" step: collects the cohort-quality fields
+ * the minimal hero form deliberately omits. Every field is optional and saved
+ * individually the moment it changes -- there is no submit wall, so partial
+ * answers still reach the wave-selection store.
+ */
+function WavePlacementSection({ signupId, initialGames }: { signupId: string; initialGames: readonly string[] }) {
+  const [games, setGames] = useState<string[]>([...new Set(initialGames.filter((game) => validGameSlugs.has(game)))]);
+  const [inventorySize, setInventorySize] = useState("");
+  const [storeUrl, setStoreUrl] = useState("");
+  const [status, setStatus] = useState<CohortSaveStatus>("idle");
+  const lastSavedStoreUrl = useRef("");
+
+  function saveCohortField(field: string, body: Record<string, unknown>) {
+    setStatus("saving");
+    fetch(`/api/public-presence/waitlist/${encodeURIComponent(signupId)}/cohort-quality`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Cohort-quality save failed with status ${response.status}.`);
+        }
+        setStatus("saved");
+        trackWaitlistEvent("waitlist_cohort_field_saved", {
+          section: "welcome",
+          field,
+          variant: landingExperimentVariant,
+        });
+      })
+      .catch(() => setStatus("error"));
+  }
+
+  function handleGamesChange(nextGames: string[]) {
+    setGames(nextGames);
+    saveCohortField("games", { games: nextGames });
+  }
+
+  function handleInventorySizeChange(nextInventorySize: string) {
+    setInventorySize(nextInventorySize);
+    saveCohortField("inventorySize", { inventorySize: nextInventorySize || null });
+  }
+
+  function handleStoreUrlBlur() {
+    const trimmed = storeUrl.trim();
+    if (trimmed === lastSavedStoreUrl.current) {
+      return;
+    }
+    lastSavedStoreUrl.current = trimmed;
+    saveCohortField("storeUrl", {
+      hasStoreLink: trimmed.length > 0,
+      storeUrl: trimmed || null,
+    });
+  }
+
+  return (
+    <PageSection
+      title={t("publicPresence.welcome.wavePlacement.title")}
+      description={t("publicPresence.welcome.wavePlacement.description")}
+    >
+      <Surface tone="subtle" elevated>
+        <Stack gap={4}>
+          <Stack gap={2}>
+            <Stack gap={1}>
+              <Text weight="semibold">{t("publicPresence.waitlist.games.label")}</Text>
+              <Text size="sm" tone="secondary">
+                {t("publicPresence.waitlist.games.description")}
+              </Text>
+            </Stack>
+            <ToggleGroup
+              multiple
+              items={gameItems}
+              value={games}
+              onValueChange={handleGamesChange}
+              label={t("publicPresence.waitlist.games.label")}
+            />
+          </Stack>
+          <Grid columns={{ base: 1, md: 2 }} gap={3}>
+            <NativeSelect
+              label={t("publicPresence.waitlist.inventorySize.label")}
+              name="inventorySize"
+              placeholder={t("publicPresence.waitlist.inventorySize.placeholder")}
+              items={inventorySizeItems}
+              value={inventorySize}
+              onChange={(event) => handleInventorySizeChange(event.currentTarget.value)}
+            />
+            <TextInput
+              label={t("publicPresence.welcome.wavePlacement.storeLink.label")}
+              description={t("publicPresence.welcome.wavePlacement.storeLink.why")}
+              name="storeUrl"
+              type="url"
+              placeholder={t("publicPresence.waitlist.storeUrl.placeholder")}
+              value={storeUrl}
+              onChange={(event) => setStoreUrl(event.currentTarget.value)}
+              onBlur={handleStoreUrlBlur}
+            />
+          </Grid>
+          {status === "saving" ? (
+            <Text size="sm" tone="secondary">
+              {t("publicPresence.welcome.wavePlacement.saving")}
+            </Text>
+          ) : null}
+          {status === "saved" ? (
+            <Text size="sm" tone="secondary">
+              {t("publicPresence.welcome.wavePlacement.saved")}
+            </Text>
+          ) : null}
+          {status === "error" ? (
+            <Text size="sm" tone="danger">
+              {t("publicPresence.welcome.wavePlacement.saveFailed")}
+            </Text>
+          ) : null}
+        </Stack>
+      </Surface>
+    </PageSection>
+  );
+}
+
 export function WaitlistSuccessPage({
   signupId,
   publicOrigin,
   discordInviteUrl,
   attributed,
+  role = null,
+  initialGames = [],
 }: {
   signupId: string;
   publicOrigin: string;
   discordInviteUrl?: string | null;
   attributed?: boolean;
+  /**
+   * Signup role from the post-signup redirect. Cohort-quality signals are
+   * captured only from sell/both-intent signups (see GLOSSARY.md), so the
+   * wave-placement step renders only for sell/both; a missing role
+   * (bookmarked visit) hides it rather than asking for inventory signals a
+   * buy-intent signup never carries.
+   */
+  role?: "buy" | "sell" | "both" | null;
+  /** Games already recorded at signup, prefilled into the wave-placement chips. */
+  initialGames?: readonly string[];
 }) {
   const referralLink = `${publicOrigin.replace(/\/+$/, "")}/?ref=${encodeURIComponent(signupId)}`;
   const summary = useWaitlistReferralSummary(signupId);
@@ -123,6 +261,10 @@ export function WaitlistSuccessPage({
           title={t("publicPresence.waitlist.success.title")}
           description={t("publicPresence.waitlist.success.description")}
         />
+
+        {role === "sell" || role === "both" ? (
+          <WavePlacementSection signupId={signupId} initialGames={initialGames} />
+        ) : null}
 
         <PageSection title={t("publicPresence.welcome.whatNext.title")}>
           <List

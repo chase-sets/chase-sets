@@ -32,6 +32,7 @@ Notes:
 
 - Cohort Quality Signals are owned by Public Presence, stored on the Waitlist Signup read model.
 - Never a condition of joining the waitlist; every field is optional and defaults to "unset" rather than blocking signup.
+- Collected progressively: optionally at signup, and field-by-field from the post-signup welcome page's wave-placement step, where each answer saves individually (no submit wall).
 - Feeds the Wave-1 Admission Bar and the Campaign Analytics dashboard; not a Seller, Listing, or Inventory record in the Marketplace/Inventory bounded-context sense.
 
 ## Qualified Seller Signup

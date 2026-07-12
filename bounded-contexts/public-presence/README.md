@@ -32,7 +32,7 @@ Public Presence terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Outgoing Integration Events
 
-- None outside Public Presence. `public-presence.waitlist-signup.recorded` and `public-presence.waitlist-signup.updated` are consumed only by Public Presence's own waitlist and transactional-email projections today.
+- None outside Public Presence. `public-presence.waitlist-signup.recorded`, `public-presence.waitlist-signup.updated`, and `public-presence.waitlist-signup.cohort-quality-provided` are consumed only by Public Presence's own waitlist and transactional-email projections today.
 
 ## Invariants
 
