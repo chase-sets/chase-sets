@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@chase-sets/http": "workspace:*",
-    "@chase-sets/money-movement": "workspace:*"
+    "@chase-sets/money-movement": "workspace:*",
+    "@chase-sets/stripe-config": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

@@ -54,6 +54,7 @@
     "@chase-sets/ses-email": "workspace:*",
     "@chase-sets/settlement": "workspace:*",
     "@chase-sets/stripe-connect": "workspace:*",
+    "@chase-sets/stripe-config": "workspace:*",
     "@chase-sets/stripe-payments": "workspace:*",
     "@hono/node-server": "^1.19.13",
     "hono": "^4.12.12",

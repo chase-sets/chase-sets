@@ -4,6 +4,7 @@ import type {
   MoneyMovementWebhookEvent,
   ProviderPayoutReadiness,
 } from "@chase-sets/money-movement";
+import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import {
   ProviderAdapterError,
   providerFailureCategoryFromHttpStatus,
@@ -180,8 +181,6 @@ type StripeEventEnvelope = Readonly<{
     id?: string;
   }>;
 }>;
-
-const STRIPE_API_VERSION = "2026-03-25.dahlia";
 
 function encodeBasicAuth(secretKey: string) {
   return Buffer.from(`${secretKey}:`).toString("base64");

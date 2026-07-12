@@ -1,0 +1,13 @@
+{
+  "name": "@chase-sets/stripe-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./webhook-events.json": "./webhook-events.json"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ./tsconfig.json --noEmit"
+  }
+}

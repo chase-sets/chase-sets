@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import process from "node:process";
+import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 import { fileURLToPath } from "node:url";
 import {
   isIsoTimestamp,
@@ -303,8 +304,8 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
   validateCustomConnectProofCompletedAt(proof.connectCustomAccountProofCompletedAt, checkedAt, errors);
   validateReleaseCommit("Stripe money operations", proof.releaseCommit, errors);
   validateEvidenceReference("Stripe money operations proofReference", proof.proofReference, errors);
-  if (proof.apiVersion !== "2026-03-25.dahlia") {
-    errors.push("Stripe money operations proof must confirm API version 2026-03-25.dahlia.");
+  if (proof.apiVersion !== webhookEventRegistry.apiVersion) {
+    errors.push(`Stripe money operations proof must confirm API version ${webhookEventRegistry.apiVersion}.`);
   }
   if (!isProductionStripeUrl(proof.paymentWebhookDestination, PRODUCTION_STRIPE_PAYMENT_WEBHOOK_PATH)) {
     errors.push(

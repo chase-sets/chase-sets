@@ -1489,6 +1489,9 @@ importers:
       '@chase-sets/settlement':
         specifier: workspace:*
         version: link:../../bounded-contexts/settlement
+      '@chase-sets/stripe-config':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-config
       '@chase-sets/stripe-connect':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-connect
@@ -1915,6 +1918,8 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  infrastructure/stripe-config: {}
+
   infrastructure/stripe-connect:
     dependencies:
       '@chase-sets/http':
@@ -1923,6 +1928,9 @@ importers:
       '@chase-sets/money-movement':
         specifier: workspace:*
         version: link:../../contracts/money-movement
+      '@chase-sets/stripe-config':
+        specifier: workspace:*
+        version: link:../stripe-config
     devDependencies:
       vitest:
         specifier: ^4.1.4
@@ -1936,6 +1944,9 @@ importers:
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
+      '@chase-sets/stripe-config':
+        specifier: workspace:*
+        version: link:../stripe-config
     devDependencies:
       vitest:
         specifier: ^4.1.4

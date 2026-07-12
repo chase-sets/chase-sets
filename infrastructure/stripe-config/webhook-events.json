@@ -1,0 +1,32 @@
+{
+  "apiVersion": "2026-03-25.dahlia",
+  "payment": [
+    "checkout.session.completed",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed",
+    "checkout.session.expired",
+    "payment_intent.processing",
+    "payment_intent.amount_capturable_updated",
+    "payment_intent.succeeded",
+    "setup_intent.succeeded",
+    "setup_intent.setup_failed",
+    "payment_method.detached",
+    "payment_intent.payment_failed",
+    "charge.refunded",
+    "refund.created",
+    "refund.updated",
+    "charge.dispute.created",
+    "charge.dispute.updated",
+    "charge.dispute.closed",
+    "radar.early_fraud_warning.created",
+    "review.opened",
+    "review.closed",
+    "shared_payment.granted_token.used",
+    "shared_payment.granted_token.deactivated"
+  ],
+  "connectAccounts": {
+    "v1": ["account.updated"],
+    "v2": ["v2.core.account[requirements].updated", "v2.core.account.updated"]
+  },
+  "connectMoneyMovement": ["payout.paid", "payout.failed"]
+}

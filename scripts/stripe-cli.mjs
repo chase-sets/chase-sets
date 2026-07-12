@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { readEnvFile } from "./lib/env.mjs";
 import { applySandboxEnv, ensureWorktreeSandboxEnvironment, mergeSandboxEnvFile } from "./lib/sandbox.mjs";
 import { PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
+import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
@@ -18,23 +19,16 @@ const defaultConnectForwardUrl =
   sandboxEnv.STRIPE_CONNECT_WEBHOOK_FORWARD_URL ??
   defaultForwardUrl?.replace(PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH);
 const readyFilePath = process.env.STRIPE_READY_FILE ?? null;
+const connectAccountsApi = (process.env.STRIPE_CONNECT_ACCOUNTS_API ?? sandboxEnv.STRIPE_CONNECT_ACCOUNTS_API ?? "v2")
+  .trim()
+  .toLowerCase();
+if (connectAccountsApi !== "v1" && connectAccountsApi !== "v2") {
+  throw new Error("STRIPE_CONNECT_ACCOUNTS_API must be one of: v1, v2.");
+}
 const supportedWebhookEvents = [
-  "checkout.session.completed",
-  "checkout.session.async_payment_succeeded",
-  "checkout.session.async_payment_failed",
-  "checkout.session.expired",
-  "payment_intent.processing",
-  "payment_intent.amount_capturable_updated",
-  "payment_intent.succeeded",
-  "payment_intent.payment_failed",
-  "charge.refunded",
-  "charge.dispute.created",
-  "charge.dispute.updated",
-  "charge.dispute.closed",
-  "v2.core.account[requirements].updated",
-  "v2.core.account.updated",
-  "payout.paid",
-  "payout.failed",
+  ...webhookEventRegistry.payment,
+  ...webhookEventRegistry.connectAccounts[connectAccountsApi],
+  ...webhookEventRegistry.connectMoneyMovement,
 ];
 
 function printUsage() {

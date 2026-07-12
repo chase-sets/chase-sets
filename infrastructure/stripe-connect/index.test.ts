@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStripeConnectMoneyMovementGateway } from "./index";
+import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 
 const originalFetch = globalThis.fetch;
 
@@ -36,7 +37,7 @@ describe("money movement adapters", () => {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
-        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
         expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
         expect(headers.get("Idempotency-Key")).toBe("account-key");
         const body = new URLSearchParams(String(init?.body));
@@ -303,7 +304,7 @@ describe("money movement adapters", () => {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
-        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
         expect(headers.get("Content-Type")).toBe("application/json");
         expect(headers.get("Idempotency-Key")).toBe("account-key");
         expect(JSON.parse(String(init?.body))).toMatchObject({
@@ -409,7 +410,7 @@ describe("money movement adapters", () => {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
-        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
         expect(headers.get("Content-Type")).toBe("application/json");
         expect(headers.get("Idempotency-Key")).toBe("embedded-setup-key:contact-email");
         expect(JSON.parse(String(init?.body))).toEqual({
@@ -426,7 +427,7 @@ describe("money movement adapters", () => {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
-        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
         expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
         expect(headers.get("Idempotency-Key")).toBe("embedded-setup-key");
         const body = new URLSearchParams(String(init?.body));
@@ -537,7 +538,7 @@ describe("money movement adapters", () => {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
-        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
         expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
         expect(headers.get("Idempotency-Key")).toBe("hosted-setup-key");
         const body = new URLSearchParams(String(init?.body));
@@ -625,7 +626,7 @@ describe("money movement adapters", () => {
       if (String(input) === "https://stripe.test/v1/accounts/acct_v1" && init?.method === "POST") {
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
-        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
         expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
         expect(headers.get("Idempotency-Key")).toBe("embedded-v1-setup-key:contact-email");
         const body = new URLSearchParams(String(init?.body));
@@ -662,7 +663,7 @@ describe("money movement adapters", () => {
       expect(init?.method).toBe("POST");
       expect(init?.headers).toBeInstanceOf(Headers);
       const headers = init?.headers as Headers;
-      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+      expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
       expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
       expect(headers.get("Idempotency-Key")).toBe("embedded-v1-setup-key");
       const body = new URLSearchParams(String(init?.body));
@@ -1151,7 +1152,7 @@ describe("money movement adapters", () => {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
-        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
         expect(headers.get("Idempotency-Key")).toBe("transfer-key");
         expect(headers.get("Stripe-Account")).toBeNull();
         const body = new URLSearchParams(String(init?.body));
@@ -1188,7 +1189,7 @@ describe("money movement adapters", () => {
       expect(init?.method).toBe("POST");
       expect(init?.headers).toBeInstanceOf(Headers);
       const headers = init?.headers as Headers;
-      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+      expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
       expect(headers.get("Stripe-Account")).toBe("acct_v1");
       expect(headers.get("Idempotency-Key")).toBe("payout-key");
       const body = new URLSearchParams(String(init?.body));
@@ -1287,7 +1288,7 @@ describe("money movement adapters", () => {
       expect(init?.method).toBe("POST");
       expect(init?.headers).toBeInstanceOf(Headers);
       const headers = init?.headers as Headers;
-      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+      expect(headers.get("Stripe-Version")).toBe(STRIPE_API_VERSION);
       expect(headers.get("Idempotency-Key")).toBe("embedded-manage-key");
       const body = new URLSearchParams(String(init?.body));
       expect(body.get("account")).toBe("acct_123");

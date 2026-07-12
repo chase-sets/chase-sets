@@ -25,8 +25,8 @@ import {
   providerFailureCategoryFromHttpStatus,
   providerFailureCategoryFromText,
 } from "@chase-sets/http/provider-errors";
+import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 
-const STRIPE_API_VERSION = "2026-03-25.dahlia";
 const STRIPE_METADATA_VALUE_MAX_LENGTH = 500;
 export const DEFAULT_STRIPE_STATEMENT_DESCRIPTOR_SUFFIX = "CHASESETS";
 const STRIPE_STATEMENT_DESCRIPTOR_SUFFIX_PATTERN = /^[A-Za-z0-9 ._-]{1,10}$/;

@@ -186,6 +186,7 @@ describe("platform runtime config schema", () => {
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
 
     expect(() =>
       loadStripeProviderConfig({
@@ -194,6 +195,22 @@ describe("platform runtime config schema", () => {
         productionMissingConfigError: "production Stripe config is required.",
       }),
     ).toThrow("Live Stripe keys are only allowed when DEPLOYMENT_ENVIRONMENT=production.");
+  });
+
+  it("fails staging when the distinct Connect webhook secret is missing", () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_payment";
+
+    expect(() =>
+      loadStripeProviderConfig({
+        productionLike: false,
+        deploymentEnvironment: "staging",
+        productionMissingConfigError: "production Stripe config is required.",
+      }),
+    ).toThrow(
+      "STRIPE_CONNECT_WEBHOOK_SECRET is required when DEPLOYMENT_ENVIRONMENT=staging; staging must use a distinct Connect webhook secret.",
+    );
   });
 
   it("rejects test Stripe keys in production", () => {

@@ -801,6 +801,9 @@
       "@chase-sets/stripe-connect": [
         "./infrastructure/stripe-connect/index.ts"
       ],
+      "@chase-sets/stripe-config": [
+        "./infrastructure/stripe-config/index.ts"
+      ],
       "@chase-sets/stripe-payments": [
         "./infrastructure/stripe-payments/index.ts"
       ],

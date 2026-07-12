@@ -56,6 +56,7 @@ import {
   type AgentGrantSpendCapPolicyOptions,
 } from "@chase-sets/platform-runtime/agent-guardrails";
 import type { RateLimitRule } from "@chase-sets/http/rate-limit";
+import { STRIPE_API_VERSION, stripeWebhookEventsForConnectAccountsApi } from "@chase-sets/stripe-config";
 import type {
   ReadConsistencyExactDependencyMode,
   ReadConsistencyRouteTuning,
@@ -128,9 +129,6 @@ export type PlatformApiBaseConfig = Readonly<{
   agentGrantRateLimit?: RateLimitRule;
   agentGrantSpendCap?: AgentGrantSpendCapPolicyOptions;
   readConsistency?: PlatformApiReadConsistencyConfig;
-  paymentReconciliationIntervalMs?: number | null;
-  sellerFundsReleaseIntervalMs?: number | null;
-  payoutReconciliationIntervalMs?: number | null;
   deploymentEnvironment?: DeploymentEnvironment;
   dataProfiles?: readonly EnvironmentDataProfile[];
   adminRegistrationEnabled?: boolean;
@@ -333,44 +331,12 @@ export type PlatformApiMobileMessagingConfig =
       requireWebhookSignature: boolean;
     }>;
 
-export const STRIPE_PLATFORM_API_VERSION = "2026-03-25.dahlia";
-
-const REQUIRED_STRIPE_PAYMENT_WEBHOOK_EVENTS = [
-  "checkout.session.completed",
-  "checkout.session.async_payment_succeeded",
-  "checkout.session.async_payment_failed",
-  "checkout.session.expired",
-  "payment_intent.processing",
-  "payment_intent.amount_capturable_updated",
-  "payment_intent.succeeded",
-  "payment_intent.payment_failed",
-  "charge.refunded",
-  "charge.dispute.created",
-  "charge.dispute.updated",
-  "charge.dispute.closed",
-  "radar.early_fraud_warning.created",
-  "review.opened",
-  "review.closed",
-  "shared_payment.granted_token.used",
-  "shared_payment.granted_token.deactivated",
-] as const;
-
-const REQUIRED_STRIPE_CONNECT_ACCOUNT_WEBHOOK_EVENTS: Readonly<Record<PlatformStripeConnectAccountsApi, string[]>> = {
-  v1: ["account.updated"],
-  v2: ["v2.core.account[requirements].updated", "v2.core.account.updated"],
-};
-
 export function requiredStripeWebhookEvents(connectAccountsApi: PlatformStripeConnectAccountsApi) {
-  return [
-    ...REQUIRED_STRIPE_PAYMENT_WEBHOOK_EVENTS,
-    ...REQUIRED_STRIPE_CONNECT_ACCOUNT_WEBHOOK_EVENTS[connectAccountsApi],
-    "payout.paid",
-    "payout.failed",
-  ];
+  return stripeWebhookEventsForConnectAccountsApi(connectAccountsApi);
 }
 
 export type StripeGoLiveCheckReport = Readonly<{
-  apiVersion: typeof STRIPE_PLATFORM_API_VERSION;
+  apiVersion: typeof STRIPE_API_VERSION;
   requiredWebhookEvents: readonly string[];
   paymentsConfigured: boolean;
   connectConfigured: boolean;
@@ -678,9 +644,6 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       wakeBeforeWaitEnabled: getBooleanEnv("READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED", false),
       readinessNotificationsEnabled: getBooleanEnv("READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED", false),
     },
-    paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
-    sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
-    payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
@@ -838,7 +801,7 @@ export function loadConfig(): PlatformApiConfig {
     mobileMessaging,
     postage,
     stripeGoLive: {
-      apiVersion: STRIPE_PLATFORM_API_VERSION,
+      apiVersion: STRIPE_API_VERSION,
       requiredWebhookEvents: requiredStripeWebhookEvents(stripeProvider.connectAccountsApi),
       paymentsConfigured: stripeProvider.paymentProcessor.kind === "stripe",
       connectConfigured: stripeProvider.moneyMovement.kind === "stripe",

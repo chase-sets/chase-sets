@@ -536,10 +536,17 @@ export function loadStripeProviderConfig(input: {
     ["v1", "v2"],
     "v2",
   );
-  const resolvedConnectWebhookSecret =
-    connectWebhookSecret ?? (!input.productionLike ? (webhookSecret ?? undefined) : undefined);
   const deploymentEnvironment = input.deploymentEnvironment ?? loadDeploymentEnvironment();
   const productionDeployment = deploymentEnvironment === "production";
+
+  if (deploymentEnvironment === "staging" && !connectWebhookSecret) {
+    throw new Error(
+      "STRIPE_CONNECT_WEBHOOK_SECRET is required when DEPLOYMENT_ENVIRONMENT=staging; staging must use a distinct Connect webhook secret.",
+    );
+  }
+
+  const resolvedConnectWebhookSecret =
+    connectWebhookSecret ?? (!input.productionLike ? (webhookSecret ?? undefined) : undefined);
 
   if (input.productionLike && (!secretKey || !publishableKey || !webhookSecret || !connectWebhookSecret)) {
     throw new Error(input.productionMissingConfigError);
