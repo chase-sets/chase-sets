@@ -1,6 +1,6 @@
 import { type ImgHTMLAttributes, type ReactNode } from "react";
 import { Icon } from "../../icons";
-import { Box, Stack } from "../../primitives/layout";
+import { Box, Grid, Stack } from "../../primitives/layout";
 import { Image } from "../data-display/image";
 import { type ResponsiveImageSource } from "../data-display/product-media";
 
@@ -100,19 +100,21 @@ export function MarketplaceCartLineItem({
         </div>
         <Stack gap={3} minWidth="0">
           <Stack gap={1} minWidth="0">
-            <div className="min-w-0 text-base font-semibold leading-snug text-foreground">{title}</div>
-            {subtitle ? <div className="min-w-0 text-sm leading-5 text-tertiary">{subtitle}</div> : null}
+            <div className="line-clamp-2 min-w-0 text-base font-semibold leading-snug text-foreground">{title}</div>
+            {subtitle ? <div className="line-clamp-2 min-w-0 text-sm leading-5 text-tertiary">{subtitle}</div> : null}
           </Stack>
           <div className="min-w-0 space-y-1.5">
             <div className="text-xs font-semibold uppercase tracking-wide text-tertiary">{productLabel}</div>
             <Box minWidth="0">{productSummary}</Box>
           </div>
         </Stack>
-        <div className="col-span-2 grid min-w-0 grid-cols-1 items-end gap-3 border-t border-[var(--border)] pt-3 min-[420px]:grid-cols-3 md:col-span-1 md:grid-cols-1 md:border-t-0 md:pt-0">
-          <div className="min-w-0">{quantityControl}</div>
-          <div className="grid min-w-0 gap-2 min-[420px]:contents md:grid md:grid-cols-1" data-cart-line-actions>
-            {actions}
-          </div>
+        <div className="col-span-2 min-w-0 border-t border-[var(--border)] pt-3 md:col-span-1 md:border-t-0 md:pt-0">
+          <Grid columns={{ base: 2, md: 1 }} gap={3} align="end">
+            <div className="min-w-0">{quantityControl}</div>
+            <div className="min-w-0" data-cart-line-actions>
+              {actions}
+            </div>
+          </Grid>
         </div>
       </div>
     </div>
