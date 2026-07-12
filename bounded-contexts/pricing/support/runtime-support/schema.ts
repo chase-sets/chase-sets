@@ -7,10 +7,14 @@ import { pricingRecommendationSourceSchemaSql } from "../../features/recommendat
 import { pricingMarketTradesSchemaSql } from "../../features/market-trades/read-model/schema";
 import { pricingMarketRollupsSchemaSql } from "../../features/market-rollups/read-model/schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
+import { pricingBulkRepriceIngestionSchemaSql } from "../../features/bulk-reprice-ingestion/read-model/schema";
 
 export const pricingSchemaSql = [
   eventCorePostgresSchemaSql,
   realtimeOutboxSchemaSql,
+  // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
+  // for bulk reprice ingestion's dials -- see ../../features/bulk-reprice-ingestion/domain/policy.
+  platformPolicySchemaSql,
   pricingRecommendationSourceSchemaSql,
   pricingPriceSignalSchemaSql,
   pricingRecommendationSchemaSql,
@@ -24,4 +28,7 @@ export const pricingSchemaSql = [
   // ../../features/market-trades/domain/stat-hygiene-policy and
   // ../../features/market-rollups/domain/display-policy.
   platformPolicySchemaSql,
+  // Bulk reprice ingestion reads pricing_market_listing_inputs but owns no
+  // dependent views, so ordering after the source projection is a courtesy, not a hard need.
+  pricingBulkRepriceIngestionSchemaSql,
 ].join("\n\n");

@@ -11,7 +11,8 @@
     "gross-merchandise-value",
     "market-state-snapshot",
     "repricing-policy",
-    "repricing-policy-assignment"
+    "repricing-policy-assignment",
+    "bulk-reprice-job"
   ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
@@ -21,11 +22,12 @@
     "market-trades",
     "market-rollups",
     "repricing-policies",
-    "public-market-pages"
+    "public-market-pages",
+    "bulk-reprice-ingestion"
   ],
-  "allowedSupportDirectories": ["realtime-support", "request-support", "runtime-support"],
+  "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/marketplace"],
+  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
   "seedRequirements": [
     "catalog",
     "identity",
@@ -262,6 +264,27 @@
       }
     },
     {
+      "id": "pricing.bulk-reprice-ingestion-job-snapshots",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/bulk-reprice-ingestion/api/route.ts:POST /",
+        "api-route:bounded-contexts/pricing/features/bulk-reprice-ingestion/api/route.ts:POST /jobs/:jobId/cancel",
+        "post-form:bounded-contexts/pricing/features/bulk-reprice-ingestion/ui/bulk-reprice-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/pricing/features/bulk-reprice-ingestion/ui/bulk-reprice-page.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/pricing/support/route-support/bulk-reprice/action.ts"
+      ],
+      "visibleDestination": {
+        "routeId": "account-bulk-reprice",
+        "description": "Create-job and cancel-job responses (both the API route and the account/bulk-reprice route action that fronts it) return the durable job public snapshot that owns queued/running/completed state for the submitted bulk reprice upload; the upload/cancel forms on the page are disabled while that snapshot is queued or running."
+      },
+      "proof": {
+        "authoritativeResponse": "enqueueJob and cancelJob both return the durable job store's own record (via toBulkRepriceJobStatus), never a lagging read-model row; the route action redirects with jobId and the loader reloads that same snapshot.",
+        "tests": ["bounded-contexts/pricing/features/bulk-reprice-ingestion/tests/bulk-reprice-ingestion.db.test.ts"]
+      }
+    },
+    {
       "id": "pricing.account-repricing-job-correction",
       "owner": "pricing",
       "risk": "important",
@@ -292,6 +315,13 @@
           "routeId": "account-repricing",
           "routePath": "account/repricing",
           "fileExport": "./routes/marketplace/account-repricing",
+          "routeType": "route",
+          "sourceContext": "pricing"
+        },
+        {
+          "routeId": "account-bulk-reprice",
+          "routePath": "account/bulk-reprice",
+          "fileExport": "./routes/marketplace/bulk-reprice",
           "routeType": "route",
           "sourceContext": "pricing"
         }
@@ -365,6 +395,11 @@
       "purpose": "Own the public, unauthenticated, SEO-indexable market price-history page per catalog item: the public-safe read composition over the catalog item identity and the market-rollups query API, its API routes, and its UI.",
       "expectedConsumers": ["Internal pricing module composition", "public-web"]
     },
+    "bulk-reprice-ingestion": {
+      "classification": "slice",
+      "purpose": "Own the removable bulk reprice ingestion on-ramp (m113 #4328): diff-first CSV/API upload, seller-SKU/listingId resolution, chunked apply through Marketplace's bulk price-update port, per-row outcome tracking, and the results-CSV export. Deletable as one directory plus the mount lines documented in docs/bulk-reprice-ingestion.md -- nothing outside this directory (besides the documented mount points) imports from it.",
+      "expectedConsumers": ["Internal pricing module composition"]
+    },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
@@ -378,8 +413,13 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["recommendations", "public-market-pages"],
+      "expectedConsumers": ["recommendations", "public-market-pages", "bulk-reprice-ingestion"],
       "crossCuttingRuntimeComposition": true
+    },
+    "route-support": {
+      "classification": "support",
+      "purpose": "Provide the bulk-reprice-ingestion slice's route loader/action modules (m113 #4328) so the route module itself stays a thin re-export.",
+      "expectedConsumers": ["routes"]
     },
     "routes": {
       "classification": "routes",

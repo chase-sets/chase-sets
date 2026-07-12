@@ -7,6 +7,7 @@ import type { InventoryImportBatch, InventoryImportBatchDetail } from "./feature
 import type { ImportCsvRow } from "./features/import-batches/domain/csv";
 import type { InventoryImportSourceProfile } from "./features/import-batches/domain/import-source-profiles";
 import type { InventoryImportBatchJobStatus } from "./features/import-batches/api/runtime";
+import type { InventoryAccountSellerSkuItemResolution } from "./features/import-batches/read-model/account-sku-mappings";
 
 export type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 export type {
@@ -17,6 +18,7 @@ export type {
 export type { ImportCsvRow } from "./features/import-batches/domain/csv";
 export type { InventoryImportSourceProfile } from "./features/import-batches/domain/import-source-profiles";
 export type { InventoryImportBatchJobStatus } from "./features/import-batches/api/runtime";
+export type { InventoryAccountSellerSkuItemResolution } from "./features/import-batches/read-model/account-sku-mappings";
 export type {
   InventoryItemDetail,
   InventoryEnsuredListingStock,
@@ -206,6 +208,16 @@ export function createInventoryApiClient({
         await client["import-batches"][":id"].rows[":rowId"].resolve.$post({
           param: { id, rowId },
           json: body,
+          header: headers,
+        }),
+      );
+    },
+    async resolveAccountSkuMappingsToInventoryItems(
+      sellerSkus: readonly string[],
+    ): Promise<ListResponse<InventoryAccountSellerSkuItemResolution>> {
+      return parseJsonResponse(
+        await client["import-batches"]["account-sku-mappings"]["resolve-inventory-items"].$post({
+          json: { sellerSkus },
           header: headers,
         }),
       );

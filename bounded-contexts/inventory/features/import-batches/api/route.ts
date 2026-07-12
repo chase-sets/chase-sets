@@ -165,6 +165,18 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
     });
   });
 
+  app.post("/account-sku-mappings/resolve-inventory-items", async (c) => {
+    const actor = c.get("actor");
+    const body = (await c.req.json().catch(() => ({}))) as Readonly<{ sellerSkus?: unknown }>;
+    const sellerSkus = Array.isArray(body.sellerSkus) ? body.sellerSkus.map((value) => String(value ?? "")) : [];
+
+    const items = await services.resolveAccountSkuMappingsToInventoryItems({
+      accountId: actor.accountId as AccountId,
+      sellerSkus,
+    });
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
   app.get("/:id", async (c) => {
     const actor = c.get("actor");
     const detail = await services.getBatch(c.req.param("id"), actor.accountId);

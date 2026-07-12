@@ -302,6 +302,7 @@ const bulkJobRunners = [
     ? [
         ...createGoogleShoppingJobRunners(runtime.services, config),
         ...createPricingJobRunners(runtime.services, config),
+        ...createBulkRepriceIngestionJobRunners(runtime.services, config),
         ...createSettlementJobRunners(runtime.services, config),
       ]
     : []),
@@ -2202,6 +2203,109 @@ function createPricingJobRunners(
               listing_id: result.listing_id ?? result.listingId,
             };
           },
+        }),
+        signal: lane.runnerContext?.signal,
+        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+      }),
+      lastGlobalPosition: "0" as never,
+    }),
+  });
+}
+
+function createBulkRepriceIngestionJobRunners(
+  services: Readonly<Record<string, unknown>>,
+  input: Pick<
+    ReturnType<typeof loadConfig>,
+    | "workerId"
+    | "leaseTtlMs"
+    | "pricingBulkRepriceJobLaneCount"
+    | "pricingBulkRepriceJobWorkflowMaxActiveClaims"
+    | "pricingBulkRepriceJobMaxActiveClaimsPerJob"
+  >,
+): readonly WorkerRunner[] {
+  const pricing = services.pricing as
+    | {
+        bulkRepriceIngestion?: {
+          processNextBulkRepriceJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            workflowMaxActiveClaims?: number;
+            jobMaxActiveClaims?: number;
+            laneName?: string | null;
+            marketplaceListingGatewayForAccount: (accountId: string) => {
+              applyBulkListingPriceUpdates: (body: {
+                updates: readonly { listingId: string; priceAmount: string }[];
+              }) => Promise<{ items: readonly { listingId: string; outcome: string; message?: string }[] }>;
+            };
+            inventorySkuGatewayForAccount: (accountId: string) => {
+              resolveSellerSkusToInventoryItems: (sellerSkus: readonly string[]) => Promise<
+                readonly Readonly<{
+                  sellerSku: string;
+                  status: "missing" | "ambiguous" | "unmapped-item" | "mapped";
+                  inventoryItemId?: string;
+                  productId?: string;
+                  catalogItemId?: string;
+                }>[]
+              >;
+            };
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
+  const marketplace = services.marketplace as
+    | {
+        listings?: {
+          applyBulkListingPriceUpdates?: (
+            params: { accountId: string; updates: readonly { listingId: string; priceAmount: string }[] },
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<readonly { listingId: string; outcome: string; version: number; message?: string }[]>;
+        };
+      }
+    | undefined;
+  const inventory = services.inventory as
+    | {
+        importBatches?: {
+          resolveAccountSkuMappingsToInventoryItems?: (params: {
+            accountId: string;
+            sellerSkus: readonly string[];
+          }) => Promise<
+            readonly Readonly<{
+              sellerSku: string;
+              status: "missing" | "ambiguous" | "unmapped-item" | "mapped";
+              inventoryItemId?: string;
+              productId?: string;
+              catalogItemId?: string;
+            }>[]
+          >;
+        };
+      }
+    | undefined;
+  const processNextBulkRepriceJob = pricing?.bulkRepriceIngestion?.processNextBulkRepriceJob;
+
+  if (!processNextBulkRepriceJob || !marketplace?.listings || !inventory?.importBatches) {
+    return [];
+  }
+
+  return createDurableJobLaneRunners({
+    workflowName: "pricing.bulk-reprice-jobs",
+    laneCount: input.pricingBulkRepriceJobLaneCount,
+    runLane: async (lane) => ({
+      processed: await processNextBulkRepriceJob({
+        claimOwnerId: `${input.workerId}:${lane.laneName}`,
+        claimTtlMs: input.leaseTtlMs * 4,
+        workflowMaxActiveClaims: input.pricingBulkRepriceJobWorkflowMaxActiveClaims,
+        jobMaxActiveClaims: input.pricingBulkRepriceJobMaxActiveClaimsPerJob,
+        laneName: lane.laneName,
+        marketplaceListingGatewayForAccount: (accountId) => ({
+          applyBulkListingPriceUpdates: async (body) => ({
+            items: await marketplace.listings!.applyBulkListingPriceUpdates!({ accountId, ...body }, SYSTEM_CONTEXT),
+          }),
+        }),
+        inventorySkuGatewayForAccount: (accountId) => ({
+          resolveSellerSkusToInventoryItems: (sellerSkus) =>
+            inventory.importBatches!.resolveAccountSkuMappingsToInventoryItems!({ accountId, sellerSkus }),
         }),
         signal: lane.runnerContext?.signal,
         throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,

@@ -5,6 +5,7 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import type { buildPricingApi } from "../../api";
 import type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 import type { PricingRecommendationJobStatus } from "../../features/recommendations/api/runtime";
+import type { BulkRepriceJobStatus } from "../../features/bulk-reprice-ingestion/api/runtime";
 import type {
   PublicMarketPageData,
   PublicMarketPageSitemapEntry,
@@ -167,6 +168,33 @@ export function createPricingApiClient({
       return parseJsonResponse(
         await client.public["market-pages"].$get({
           query: limit ? { limit: String(limit) } : {},
+          header: headers,
+        }),
+      );
+    },
+    async createBulkRepriceJob(
+      body: Readonly<{ csvText?: string; sourceFilename?: string | null }>,
+    ): Promise<BulkRepriceJobStatus> {
+      return parseJsonResponse(
+        await client.account["bulk-reprice"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async getBulkRepriceJob(jobId: string): Promise<BulkRepriceJobStatus> {
+      return parseJsonResponse(
+        await client.account["bulk-reprice"].jobs[":jobId"].$get({
+          param: { jobId },
+          header: headers,
+        }),
+      );
+    },
+    async cancelBulkRepriceJob(jobId: string): Promise<BulkRepriceJobStatus> {
+      return parseJsonResponse(
+        await client.account["bulk-reprice"].jobs[":jobId"].cancel.$post({
+          param: { jobId },
+          json: {},
           header: headers,
         }),
       );

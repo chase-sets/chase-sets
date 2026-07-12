@@ -1,4 +1,31 @@
 export const pricingEnglishTranslations = {
+  "pricing.features.bulkRepriceIngestion.api.route.authentication.context.missing": "Authentication context missing.",
+  "pricing.features.bulkRepriceIngestion.api.route.authentication.required": "Authentication required.",
+  "pricing.features.bulkRepriceIngestion.api.route.forbidden": "Forbidden.",
+  "pricing.features.bulkRepriceIngestion.api.route.job.not.found": "Bulk reprice job not found.",
+  "pricing.features.bulkRepriceIngestion.api.route.rate.limited": "Too many bulk reprice uploads. Try again shortly.",
+  "pricing.features.bulkRepriceIngestion.api.route.request.failed": "Request failed.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.applied": "Applied",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.bulk.reprice": "Bulk reprice",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.cancel": "Cancel job",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.completed": "Completed",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.csv.file": "CSV file",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.download.results": "Download results CSV",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.download.template": "Download CSV template",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.failed": "Failed",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.job.reconnecting":
+    "Pricing is reconnecting. The latest job status will appear once the connection is confirmed.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.job.status": "Job status",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.progress": "Progress",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.recommendations": "Recommendations",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.rows.of.total": "of {total} rows",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.seller": "Seller",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.unchanged": "Unchanged",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload": "Upload CSV",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.a.csv":
+    "Upload a CSV of seller SKUs or listing IDs with new prices. Unchanged rows are skipped automatically.",
+  "pricing.features.bulkRepriceIngestion.ui.bulkRepricePage.upload.description":
+    "Columns: sellerSku, listingId, newPrice. Provide either a sellerSku or a listingId per row.",
   "pricing.features.marketRollups.api.route.from.and.to.must.be.iso.calendar":
     "from and to must be ISO calendar dates (YYYY-MM-DD).",
   "pricing.features.marketRollups.api.route.invalid.granularity": "granularity must be daily, weekly, or monthly.",
@@ -49,6 +76,7 @@ export const pricingEnglishTranslations = {
   "pricing.features.recommendations.ui.recommendationListPage.apply.selected": "Apply selected",
   "pricing.features.recommendations.ui.recommendationListPage.batch.notice":
     "Select proposed recommendations to update listing prices or create draft listings. Publishing remains separate.",
+  "pricing.features.recommendations.ui.recommendationListPage.bulk.reprice": "Bulk reprice",
   "pricing.features.recommendations.ui.recommendationListPage.buyer.demand": "Buyer demand",
   "pricing.features.recommendations.ui.recommendationListPage.competition.anchor": "Competition anchor",
   "pricing.features.recommendations.ui.recommendationListPage.create.draft": "Create draft",
@@ -106,4 +134,9 @@ export const pricingEnglishTranslations = {
   "pricing.routes.marketplace.accountRepricing.review.seller.pricing.recommendations":
     "Review seller pricing recommendations and marketplace signals.",
   "pricing.routes.marketplace.accountRepricing.unknown.action": "Unknown recommendation action.",
+  "pricing.routes.marketplace.bulkReprice.action.failed": "Bulk reprice action failed.",
+  "pricing.routes.marketplace.bulkReprice.bulk.reprice.marketplace": "Bulk Reprice | Marketplace",
+  "pricing.routes.marketplace.bulkReprice.unknown.action": "Unknown bulk reprice action.",
+  "pricing.routes.marketplace.bulkReprice.upload.a.csv.to.reprice":
+    "Upload a CSV to reprice many listings at once. Unchanged prices are skipped automatically.",
 } as const;
