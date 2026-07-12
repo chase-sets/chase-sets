@@ -3171,6 +3171,33 @@ export const mcpServiceCatalog = [
         availability: "available",
         outputSchema: accountScopedDetailOutputSchema("supportRequest", "Support request detail and status."),
       },
+      {
+        ...readTool(
+          "platform-operations",
+          "get-offer-economics-summary",
+          "Get Offer Economics Summary",
+          "Read the founders 0%-locked-fee cohort's listing volume, realized GMV share of the platform, foregone-fee estimate, and cumulative sell-through trend for a date range.",
+          "insights-dashboards.view",
+          objectSchema(
+            {
+              from: stringProperty("Inclusive range start, YYYY-MM-DD. Defaults to 59 days before 'to'."),
+              to: stringProperty("Inclusive range end, YYYY-MM-DD. Defaults to today."),
+              accountType: stringProperty(
+                "Account type the foregone-fee estimate's standard schedule basis is resolved for.",
+                ["personal", "business", "enterprise"],
+              ),
+            },
+            [],
+          ),
+          "offer-economics-summary",
+          [
+            "Use to check whether a public campaign fee claim is substantiated before citing it.",
+            "Use for founders-offer cohort economics review, not any single account's own fees.",
+          ],
+          "operator",
+        ),
+        availability: "available",
+      },
     ],
     resources: [
       {
@@ -3192,6 +3219,18 @@ export const mcpServiceCatalog = [
           "Support request detail, resolution, pending offers, and refund-support status.",
           "support.view",
           ["Use for post-purchase support status and refund/dispute explanations."],
+        ),
+        availability: "available",
+      },
+      {
+        ...resource(
+          "platform-operations",
+          "chase-sets://platform-operations/offer-economics/summary",
+          "Offer Economics Summary",
+          "Founders 0%-locked-fee cohort listing volume, GMV share, foregone-fee estimate, and sell-through trend, trailing 60 days.",
+          "insights-dashboards.view",
+          ["Use to check whether a public campaign fee claim is substantiated before citing it."],
+          "operator",
         ),
         availability: "available",
       },

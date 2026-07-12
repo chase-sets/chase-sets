@@ -58,3 +58,12 @@ export type {
   OpsMarketAnalyticsCrossContextPort,
   OpsTopCatalogItem,
 } from "./features/insights-dashboards/api/ops-contracts";
+export type {
+  OfferEconomicsCrossContextPort,
+  OfferEconomicsLockedFeeCohortSummary,
+  OfferEconomicsPlatformGmvSummary,
+  OfferEconomicsSellerCohortGmvSummary,
+  OfferEconomicsSellerCohortWeeklyGmvPoint,
+  OfferEconomicsStandardScheduleTerms,
+} from "./features/offer-economics/api/offer-economics-contracts";
+export type { OfferEconomicsSnapshot } from "./features/offer-economics/read-model/offer-economics-policy";

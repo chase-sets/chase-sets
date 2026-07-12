@@ -31,6 +31,22 @@ The **Ops Dashboard** is the platform-wide, operator-facing analytics surface sh
 
 A **GMV Reconciliation Run** is a recorded comparison, for one calendar month, between pricing's tape-derived Gross Merchandise Value and settlement's ledger 'sale' credit total -- a drift-alarm sanity check (not a penny-accurate fee reconciliation) that flags implausible gaps between the two for operator review.
 
+## Offer Economics Summary
+
+The **Offer Economics Summary** is the offer-economics monitor's (#4075) live-computed report for a date range: the Locked-Fee Listing Cohort's listing volume, realized Gross Merchandise Value and its share of platform GMV, a Foregone Fee Estimate, and its Locked-Cohort Sell-Through trend. It is never persisted -- every field is recomputed on request from Marketplace's, Pricing's, and Commercial Terms' own published data via the `offerEconomicsCrossContext` host port, matching the Ops Dashboard's own live-compute convention. This summary is the substantiation source for public campaign claims about seller fees; see `docs/campaigns/offer-economics-claims-substantiation.md`.
+
+## Locked-Fee Listing Cohort
+
+The **Locked-Fee Listing Cohort** is the set of Marketplace listings whose listing-time fee snapshot resolved to a 0% marketplace sales fee through a Commercial Terms agreement (the founders-offer fee-lock mechanism), rather than the standard schedule. Membership is read directly off each listing's own locked fee snapshot (`terms_agreement_id` set, `marketplace_sales_fee_unit_amount` zero) -- never re-resolved from current-state commercial terms, so a cohort listing stays in the cohort even after its founder's window later expires.
+
+## Foregone Fee Estimate
+
+The **Foregone Fee Estimate** is the offer-economics monitor's projection of what the Locked-Fee Listing Cohort's realized Gross Merchandise Value would have cost in marketplace sales fees under Commercial Terms' published standard schedule -- the standard schedule's percentage applied to the cohort's realized GMV, plus its fixed component applied once per locked trade. It is an estimate against the *current* published schedule, not a historical replay of whatever schedule was standard on each trade's date.
+
+## Locked-Cohort Sell-Through
+
+**Locked-Cohort Sell-Through** is the offer-economics monitor's cumulative ratio of the Locked-Fee Listing Cohort's trade count to its listings-created count, computed week-over-week since the reporting window opened. It is a distinct metric from Pricing's canonical Sell-Through Rate (`bounded-contexts/pricing/GLOSSARY.md`), which is a per-product 30-day-window ratio against a Product Market Aggregate -- this one is cohort-scoped and cumulative, tracking whether the founders cohort's inventory is converting faster or slower as it matures, not any single product's liquidity.
+
 ## Reported Content
 
 **Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report facts.

@@ -415,6 +415,44 @@ async function resolvePublicStandardTerms(
   };
 }
 
+export type PublishedStandardScheduleTerms = Readonly<{
+  accountType: CommercialAccountType;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  scheduleId: string | null;
+  scheduleLabel: string | null;
+  resolvedAt: string;
+}>;
+
+/**
+ * The raw published standard-schedule fee terms (percentage + fixed, not a
+ * quote against one basis amount) for an account type -- the offer-economics
+ * monitor's foregone-fee-estimate input, which needs to apply the
+ * percentage to an aggregate GMV figure and the fixed component per-trade
+ * (`fixedAmount * tradeCount`), not `applyFeeFormula`'s single-basis-amount
+ * shape that `resolvePublicStandardListingTerms` returns. Returns bps 0 /
+ * "0.00" with null identifiers (never throws) when no schedule document is
+ * active for the account type, so a monitor snapshot degrades to "no
+ * standard schedule published yet" rather than failing outright.
+ */
+export async function resolveStandardScheduleTerms(
+  db: PgQueryable,
+  params: Readonly<{ accountType?: CommercialAccountType; effectiveAt?: string }>,
+): Promise<PublishedStandardScheduleTerms> {
+  const accountType = params.accountType ?? "personal";
+  const effectiveAt = params.effectiveAt ?? new Date().toISOString();
+  const schedule = await getActiveSchedule(db, accountType, effectiveAt);
+
+  return {
+    accountType,
+    marketplaceSalesFeePercentageBps: schedule?.marketplace_sales_fee_percentage_bps ?? 0,
+    marketplaceSalesFeeFixedAmount: schedule?.marketplace_sales_fee_fixed_amount ?? "0.00",
+    scheduleId: schedule?.schedule_id ?? null,
+    scheduleLabel: schedule?.label ?? null,
+    resolvedAt: effectiveAt,
+  };
+}
+
 export function createCommercialTermsResolver(
   deps: Readonly<{ db: PgQueryable; accountSource?: CommercialTermsAccountSource }>,
 ): CommercialTermsResolver {

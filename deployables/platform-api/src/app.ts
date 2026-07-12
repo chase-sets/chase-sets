@@ -17,6 +17,7 @@ import {
   createAuthenticityFeePolicyResolver,
   createCheckoutProcessingFeePolicyResolver,
   createCommercialTermsResolver,
+  createStandardScheduleResolver,
   type CommercialTermsAccountSource,
 } from "@chase-sets/commercial-terms/server";
 import {
@@ -41,6 +42,7 @@ import {
 } from "@chase-sets/fulfillment/server";
 import { createPaymentsUcpHandoff, type UcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import {
+  getLockedFeeListingCohortSummary,
   marketplaceListingGatePolicy,
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
@@ -48,6 +50,7 @@ import {
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
+  type OfferEconomicsCrossContextPort,
   type OpsMarketAnalyticsCrossContextPort,
   type PolicyConsoleCrossContextPort,
   type PolicyConsoleWritePort,
@@ -58,6 +61,8 @@ import {
   getPlatformGmvSeries,
   getPlatformKpiSummary,
   getPlatformLiquiditySummary,
+  getSellerCohortGmvSummary,
+  getSellerCohortWeeklyGmv,
   getTopCatalogItemsByGmv,
   marketAnalyticsDisplayPolicy,
   marketStatHygienePolicy,
@@ -199,6 +204,27 @@ export function createPlatformApiHost(
         ),
       })
     : undefined;
+  const standardScheduleResolver = commercialTermsPool
+    ? createStandardScheduleResolver(commercialTermsPool)
+    : undefined;
+  // Offer-economics monitor: locked-fee cohort (marketplace) + cohort
+  // GMV/platform GMV (pricing) + published standard schedule (commercial
+  // terms). Requires all three pools; degrades to the runtime's own
+  // all-zero fallback (see offer-economics-runtime.ts) if any is absent
+  // rather than partially wiring an inconsistent port.
+  const offerEconomicsCrossContext: OfferEconomicsCrossContextPort | undefined =
+    marketplacePool && pricingPool && standardScheduleResolver
+      ? {
+          getLockedFeeListingCohortSummary: (params) => getLockedFeeListingCohortSummary(marketplacePool, params),
+          getSellerCohortGmvSummary: (params) => getSellerCohortGmvSummary(pricingPool, params),
+          getSellerCohortWeeklyGmv: (params) => getSellerCohortWeeklyGmv(pricingPool, params),
+          getPlatformGmvSummary: async (params) => {
+            const summary = await getPlatformKpiSummary(pricingPool, params);
+            return { gmvAmount: summary.gmvAmount };
+          },
+          resolveStandardScheduleTerms: (params) => standardScheduleResolver.resolveStandardScheduleTerms(params),
+        }
+      : undefined;
   const balanceCreditResolver = settlementPool ? createSettlementBalanceCreditResolver(settlementPool) : undefined;
   const checkoutProcessingFeePolicyResolver = commercialTermsPool
     ? createCheckoutProcessingFeePolicyResolver(commercialTermsPool)
@@ -333,6 +359,7 @@ export function createPlatformApiHost(
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
+      ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
       draftListingCreator,
     },
   });

@@ -238,6 +238,94 @@ export async function getPlatformLiquiditySummary(
   };
 }
 
+export type SellerCohortGmvSummary = Readonly<{
+  gmvAmount: string;
+  tradeCount: number;
+  unitVolume: number;
+}>;
+
+/**
+ * GMV/volume attributable to a specific set of seller accounts over a range
+ * -- the offer-economics monitor's cohort-scoped counterpart to
+ * `getPlatformKpiSummary`. Computed directly off the Trades Tape,
+ * the same one-truth source `getPlatformKpiSummary` reads, so "locked
+ * cohort GMV" and "platform GMV" are always comparable numbers from the
+ * same table with the same exclusion rules. Returns zeros without querying
+ * when the cohort is empty (there is nothing to sum).
+ */
+export async function getSellerCohortGmvSummary(
+  db: PgQueryable,
+  params: Readonly<{ sellerAccountIds: readonly string[]; from: string; to: string }>,
+): Promise<SellerCohortGmvSummary> {
+  if (params.sellerAccountIds.length === 0) {
+    return { gmvAmount: "0.00", tradeCount: 0, unitVolume: 0 };
+  }
+
+  const result = await db.query<{ gmv_amount: string | null; trade_count: number; unit_volume: number }>(
+    `SELECT
+       COALESCE(SUM(unit_price_amount * quantity), 0)::numeric(14, 2) AS gmv_amount,
+       COUNT(*)::integer AS trade_count,
+       COALESCE(SUM(quantity), 0)::integer AS unit_volume
+     FROM pricing_market_trades
+     WHERE excluded = false
+       AND seller_account_id = ANY($1::text[])
+       AND sold_at >= ($2::date)::timestamp AT TIME ZONE 'UTC'
+       AND sold_at < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'`,
+    [params.sellerAccountIds, params.from, params.to],
+  );
+  const row = result.rows[0];
+
+  return {
+    gmvAmount: row?.gmv_amount ?? "0.00",
+    tradeCount: row?.trade_count ?? 0,
+    unitVolume: row?.unit_volume ?? 0,
+  };
+}
+
+export type SellerCohortWeeklyGmvPoint = Readonly<{
+  weekStart: string;
+  gmvAmount: string;
+  tradeCount: number;
+}>;
+
+/**
+ * Week-bucketed trade counts/GMV for a seller cohort -- paired with
+ * Marketplace's `getLockedFeeListingCohortSummary` weekly listings-created
+ * series to compute a real sell-through trend (cumulative trades /
+ * cumulative listings created, per week) rather than a single blended
+ * ratio, so the monitor can show whether sell-through is decaying as the
+ * cohort matures.
+ */
+export async function getSellerCohortWeeklyGmv(
+  db: PgQueryable,
+  params: Readonly<{ sellerAccountIds: readonly string[]; from: string; to: string }>,
+): Promise<readonly SellerCohortWeeklyGmvPoint[]> {
+  if (params.sellerAccountIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<{ week_start: string; gmv_amount: string; trade_count: number }>(
+    `SELECT
+       date_trunc('week', sold_at)::date::text AS week_start,
+       SUM(unit_price_amount * quantity)::numeric(14, 2) AS gmv_amount,
+       COUNT(*)::integer AS trade_count
+     FROM pricing_market_trades
+     WHERE excluded = false
+       AND seller_account_id = ANY($1::text[])
+       AND sold_at >= ($2::date)::timestamp AT TIME ZONE 'UTC'
+       AND sold_at < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'
+     GROUP BY date_trunc('week', sold_at)
+     ORDER BY date_trunc('week', sold_at) ASC`,
+    [params.sellerAccountIds, params.from, params.to],
+  );
+
+  return result.rows.map((row) => ({
+    weekStart: row.week_start,
+    gmvAmount: row.gmv_amount,
+    tradeCount: row.trade_count,
+  }));
+}
+
 export type TopCatalogItemGmv = Readonly<{
   catalogItemId: string;
   title: string | null;
