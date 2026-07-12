@@ -228,6 +228,7 @@ function row(catalogItemId: string, title = catalogItemId): DiscoverySearchItemR
     title,
     subtitle_i18n: null,
     subtitle: null,
+    display_badges: [],
     description_i18n: {},
     description: "",
     blueprint_id: null,

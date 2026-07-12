@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const discoveryItemDetailSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_items (
   catalog_item_id text PRIMARY KEY,
   slug text NOT NULL DEFAULT '',
@@ -6,6 +8,7 @@ export const discoveryItemDetailSchemaSql = `CREATE TABLE IF NOT EXISTS discover
   title text NOT NULL DEFAULT '',
   subtitle_i18n jsonb NULL,
   subtitle text NULL,
+  display_badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   blueprint_id text NULL,
@@ -26,12 +29,11 @@ ALTER TABLE discovery_item_detail_catalog_items
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
+  ADD COLUMN IF NOT EXISTS display_badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_slug_idx ON discovery_item_detail_catalog_items (slug) WHERE slug <> '';
-CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_language_idx ON discovery_item_detail_catalog_items (language_code);
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_blueprint_idx ON discovery_item_detail_catalog_items (blueprint_id);
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_category_ids_idx ON discovery_item_detail_catalog_items USING gin (category_ids);
 
@@ -52,8 +54,6 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_categories (
 
 ALTER TABLE discovery_item_detail_catalog_categories
   ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
-
-CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_catalog_categories_slug_idx ON discovery_item_detail_catalog_categories (slug) WHERE slug <> '';
 
 CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_fields (
   field_id text PRIMARY KEY,
@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   title text NOT NULL DEFAULT '',
   subtitle_i18n jsonb NULL,
   subtitle text NULL,
+  display_badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   blueprint_id text NULL,
@@ -169,8 +170,28 @@ ALTER TABLE discovery_item_detail_pages
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
+  ADD COLUMN IF NOT EXISTS display_badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_pages_slug_idx ON discovery_item_detail_pages (slug) WHERE slug <> '';`;
+`;
+
+export const discoveryItemDetailSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260712_discovery_item_detail_slug_language_indexes",
+    description:
+      "Move slug and language indexes on migration-added Discovery item-detail columns into the concurrent migration ledger.",
+    statements: [
+      `SET lock_timeout = '5s';`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_item_detail_catalog_items_slug_idx
+  ON discovery_item_detail_catalog_items (slug) WHERE slug <> '';`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_item_detail_catalog_items_language_idx
+  ON discovery_item_detail_catalog_items (language_code);`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_item_detail_catalog_categories_slug_idx
+  ON discovery_item_detail_catalog_categories (slug) WHERE slug <> '';`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS discovery_item_detail_pages_slug_idx
+  ON discovery_item_detail_pages (slug) WHERE slug <> '';`,
+    ],
+  },
+];

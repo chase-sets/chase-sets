@@ -75,6 +75,10 @@ export async function action({ request }: ActionFunctionArgs) {
       interests: formData.getAll("interests").map(String) as SubmitWaitlistSignupRequest["interests"],
       marketingConsent: marketingConsent === "yes" || marketingConsent === "on",
       referredBySignupId: optional(formData.get("referredBySignupId")),
+      games: formData.getAll("games").map(String) as SubmitWaitlistSignupRequest["games"],
+      hasStoreLink: formData.get("hasStoreLink") === "yes",
+      storeUrl: optional(formData.get("storeUrl")),
+      inventorySize: optional(formData.get("inventorySize")) as SubmitWaitlistSignupRequest["inventorySize"],
       website: optional(formData.get("website")),
       source: {
         pagePath: String(formData.get("pagePath") ?? "/"),

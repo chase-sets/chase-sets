@@ -22,6 +22,21 @@ ALTER TABLE public_presence_waitlist_signups
 ALTER TABLE public_presence_waitlist_signups
   ADD COLUMN IF NOT EXISTS referred_by_signup_id text NULL;
 
+-- Wave-1 cohort quality signals (campaign-admission-bar-policy.ts), captured
+-- only from sell/both-intent signups. See docs/GLOSSARY.md "Cohort Quality
+-- Signal" and public-presence's own GLOSSARY.md.
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS games jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS has_store_link boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS store_url text NULL;
+
+ALTER TABLE public_presence_waitlist_signups
+  ADD COLUMN IF NOT EXISTS inventory_size text NULL;
+
 CREATE INDEX IF NOT EXISTS public_presence_waitlist_signups_role_idx
   ON public_presence_waitlist_signups (role, updated_at DESC);
 

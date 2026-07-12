@@ -15,6 +15,7 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
+import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
 import {
   findCatalogItemIdsByReferenceRecord,
   findReferenceRecordIdsByRelatedReferenceGraph,
@@ -64,6 +65,7 @@ const ITEM_DETAIL_PAGE_COLUMNS = [
   "title",
   "subtitle_i18n",
   "subtitle",
+  "display_badges",
   "description_i18n",
   "description",
   "blueprint_id",
@@ -132,6 +134,7 @@ type ItemDetailCatalogItemRow = Readonly<{
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_badges: unknown;
   description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
@@ -150,6 +153,7 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   languageCode?: string;
   title: string;
   subtitle?: string | null;
+  badges?: readonly DiscoveryDisplayBadge[];
 }>;
 
 type ProductContentSelectedOption = Readonly<{
@@ -566,6 +570,7 @@ async function refreshDiscoveryItemDetailPageChunk(
         title: item.title,
         subtitle_i18n: item.subtitle_i18n,
         subtitle: item.subtitle,
+        display_badges: asArray(item.display_badges),
         description_i18n: item.description_i18n ?? localizedTextMap(item.description),
         description: item.description,
         blueprint_id: item.blueprint_id,
@@ -596,6 +601,7 @@ async function refreshDiscoveryItemDetailPageChunk(
       },
       casts: {
         title_i18n: "jsonb",
+        display_badges: "jsonb",
         description_i18n: "jsonb",
         field_values: "jsonb",
         categories: "jsonb",
@@ -738,7 +744,8 @@ async function applyCatalogItemDisplayIdentity(
          title = $5,
          subtitle_i18n = $6,
          subtitle = $7,
-         updated_at = $8
+         display_badges = $8,
+         updated_at = $9
      WHERE catalog_item_id = $1`,
     [
       input.catalogItemId,
@@ -748,6 +755,7 @@ async function applyCatalogItemDisplayIdentity(
       input.title,
       resolvedSubtitle ? JSON.stringify(localizedTextMap(resolvedSubtitle)) : null,
       resolvedSubtitle,
+      JSON.stringify(Array.isArray(input.badges) ? input.badges : []),
       updatedAt,
     ],
   );
@@ -972,7 +980,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     "catalog.catalog-item.display-identity-resolved": async (event) => {
       await applyCatalogItemDisplayIdentity(
         db,
-        event.data as CatalogItemDisplayIdentityResolvedEventData,
+        event.data as unknown as CatalogItemDisplayIdentityResolvedEventData,
         event.timing.recordedAt,
       );
     },

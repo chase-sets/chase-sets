@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
 import { buildSimpleSearchQuery } from "../domain/normalization";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
@@ -99,6 +100,7 @@ export type DiscoverySearchItemRow = Readonly<{
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_badges: readonly DiscoveryDisplayBadge[];
   description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
@@ -586,7 +588,7 @@ export async function searchDiscoveryItems(
           values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch) : 0)),
         )
       : Promise.resolve({ rows: [] });
-  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at${selectRank}${selectBaseMatch}
+  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at${selectRank}${selectBaseMatch}
     FROM discovery_search_items ${whereWithCursor}
     ORDER BY ${orderBy}
     ${listLimitSql}`;
@@ -647,7 +649,7 @@ export async function searchDiscoveryItemsByNaturalKey(
   const limit = clampLimit(params.limit);
   const listValues = [...values, limit];
 
-  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at
+  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at
     FROM discovery_search_items
     WHERE ${conditions.join(" AND ")}
     ORDER BY title ASC, catalog_item_id ASC
@@ -704,6 +706,7 @@ export async function searchDiscoverySemanticItems(
   const result = await db.query<BaseDiscoverySearchItemRow & { semantic_similarity: string | number }>(
     `SELECT item.catalog_item_id, item.slug, item.language_code, item.title_i18n, item.title,
             item.subtitle_i18n, item.subtitle, item.description_i18n, item.description,
+            item.display_badges,
             item.blueprint_id, item.blueprint_name, item.status, item.category_names,
             item.category_slugs, item.tags, item.image_urls, item.product_asset_sets,
             item.image_fallback, item.updated_at, -(${distanceExpression}) AS semantic_similarity

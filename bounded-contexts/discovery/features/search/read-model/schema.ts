@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS discovery_search_catalog_items (
   title text NOT NULL DEFAULT '',
   subtitle_i18n jsonb NULL,
   subtitle text NULL,
+  display_badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   blueprint_id text NULL,
@@ -30,6 +31,7 @@ ALTER TABLE discovery_search_catalog_items
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
+  ADD COLUMN IF NOT EXISTS display_badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
@@ -148,6 +150,7 @@ CREATE TABLE IF NOT EXISTS discovery_search_items (
   title text NOT NULL DEFAULT '',
   subtitle_i18n jsonb NULL,
   subtitle text NULL,
+  display_badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   blueprint_id text NULL,
@@ -182,6 +185,7 @@ ALTER TABLE discovery_search_items
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
+  ADD COLUMN IF NOT EXISTS display_badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb;
 

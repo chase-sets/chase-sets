@@ -1,6 +1,12 @@
 import { escapeLikePattern, type PgQueryable } from "@chase-sets/event-core-postgres";
-import { WAITLIST_REFERRAL_GOAL } from "../domain/common";
-import type { WaitlistMetrics, WaitlistReferralSummary, WaitlistSignupListItem } from "../api/contracts";
+import { WAITLIST_GAMES, WAITLIST_INVENTORY_SIZES, WAITLIST_REFERRAL_GOAL } from "../domain/common";
+import type {
+  CampaignChannelAttributionRow,
+  CampaignQualityMetrics,
+  WaitlistMetrics,
+  WaitlistReferralSummary,
+  WaitlistSignupListItem,
+} from "../api/contracts";
 
 function normalizePageParams(params: Readonly<{ limit?: number; offset?: number }>) {
   return {
@@ -81,6 +87,10 @@ export async function listWaitlistSignups(
        s.utm_campaign,
        s.utm_content,
        s.utm_term,
+       s.games,
+       s.has_store_link,
+       s.store_url,
+       s.inventory_size,
        s.submitted_at::text AS submitted_at,
        s.updated_at::text AS updated_at,
        COALESCE(r.referral_count, 0)::int AS referral_count
@@ -150,4 +160,114 @@ export async function getWaitlistMetrics(db: PgQueryable): Promise<WaitlistMetri
     sell_count: Number(row?.sell_count ?? 0),
     both_count: Number(row?.both_count ?? 0),
   };
+}
+
+/** A signup counts toward seller inventory quality only with sell/both intent AND at least one named game AND a real inventory-size bucket. */
+const qualifiedSellerFilterSql = `role IN ('sell', 'both') AND jsonb_array_length(games) > 0 AND inventory_size IS NOT NULL`;
+
+/**
+ * Wave-1 cohort quality metrics: games distribution vs the five-game
+ * coverage matrix, store-link rate, and inventory-size distribution, each
+ * scoped to the seller signup population the campaign quality bar actually
+ * measures.
+ */
+export async function getCampaignQualityMetrics(db: PgQueryable): Promise<CampaignQualityMetrics> {
+  const totalsResult = await db.query<{
+    total_signups: string;
+    seller_signup_count: string;
+    qualified_seller_count: string;
+    store_link_count: string;
+  }>(
+    `SELECT
+       COUNT(*) AS total_signups,
+       COUNT(*) FILTER (WHERE role IN ('sell', 'both')) AS seller_signup_count,
+       COUNT(*) FILTER (WHERE ${qualifiedSellerFilterSql}) AS qualified_seller_count,
+       COUNT(*) FILTER (WHERE role IN ('sell', 'both') AND has_store_link) AS store_link_count
+     FROM public_presence_waitlist_signups`,
+  );
+  const totals = totalsResult.rows[0];
+  const sellerSignupCount = Number(totals?.seller_signup_count ?? 0);
+  const storeLinkCount = Number(totals?.store_link_count ?? 0);
+
+  const inventoryResult = await db.query<{ inventory_size: string; count: string }>(
+    `SELECT inventory_size, COUNT(*) AS count
+     FROM public_presence_waitlist_signups
+     WHERE role IN ('sell', 'both') AND inventory_size IS NOT NULL
+     GROUP BY inventory_size`,
+  );
+  const inventorySizeDistribution = Object.fromEntries(
+    WAITLIST_INVENTORY_SIZES.map((size) => [size, 0]),
+  ) as CampaignQualityMetrics["inventorySizeDistribution"];
+  for (const row of inventoryResult.rows) {
+    if (row.inventory_size in inventorySizeDistribution) {
+      (inventorySizeDistribution as Record<string, number>)[row.inventory_size] = Number(row.count);
+    }
+  }
+
+  const gameCountResults = await Promise.all(
+    WAITLIST_GAMES.map((game) =>
+      db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count
+         FROM public_presence_waitlist_signups
+         WHERE ${qualifiedSellerFilterSql} AND games @> $1::jsonb`,
+        [JSON.stringify([game])],
+      ),
+    ),
+  );
+  const qualifiedSellersByGame = Object.fromEntries(
+    WAITLIST_GAMES.map((game, index) => [game, Number(gameCountResults[index]?.rows[0]?.count ?? 0)]),
+  ) as CampaignQualityMetrics["qualifiedSellersByGame"];
+
+  return {
+    totalSignups: Number(totals?.total_signups ?? 0),
+    sellerSignupCount,
+    qualifiedSellerCount: Number(totals?.qualified_seller_count ?? 0),
+    storeLinkCount,
+    storeLinkPercent: sellerSignupCount > 0 ? Math.round((storeLinkCount / sellerSignupCount) * 1000) / 10 : 0,
+    inventorySizeDistribution,
+    qualifiedSellersByGame,
+  };
+}
+
+/**
+ * Channel/content-piece attribution: signup counts grouped by the durable
+ * UTM fields captured at signup time, ordered by volume. Reads the durable
+ * waitlist read model (not the directional funnel-event telemetry in
+ * Grafana/Loki -- see bounded-contexts/public-presence/docs/landing-page-analytics.md),
+ * so every row here is transactional truth, not sampled or client-JS-dependent.
+ */
+export async function getCampaignChannelAttribution(
+  db: PgQueryable,
+  limit = 25,
+): Promise<readonly CampaignChannelAttributionRow[]> {
+  const result = await db.query<{
+    utm_source: string | null;
+    utm_medium: string | null;
+    utm_campaign: string | null;
+    signup_count: string;
+    seller_signup_count: string;
+    qualified_seller_count: string;
+  }>(
+    `SELECT
+       utm_source,
+       utm_medium,
+       utm_campaign,
+       COUNT(*) AS signup_count,
+       COUNT(*) FILTER (WHERE role IN ('sell', 'both')) AS seller_signup_count,
+       COUNT(*) FILTER (WHERE ${qualifiedSellerFilterSql}) AS qualified_seller_count
+     FROM public_presence_waitlist_signups
+     GROUP BY utm_source, utm_medium, utm_campaign
+     ORDER BY signup_count DESC, utm_source NULLS LAST, utm_medium NULLS LAST, utm_campaign NULLS LAST
+     LIMIT $1`,
+    [Math.max(1, Math.min(limit, 100))],
+  );
+
+  return result.rows.map((row) => ({
+    utm_source: row.utm_source,
+    utm_medium: row.utm_medium,
+    utm_campaign: row.utm_campaign,
+    signup_count: Number(row.signup_count),
+    seller_signup_count: Number(row.seller_signup_count),
+    qualified_seller_count: Number(row.qualified_seller_count),
+  }));
 }

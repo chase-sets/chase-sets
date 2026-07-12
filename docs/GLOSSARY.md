@@ -95,6 +95,10 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Marketplace Sales Fee Snapshot | [Marketplace](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md) | Account-confirmed per-unit fee snapshot consumed by Ordering. |
 | Marketplace Checkout Fee | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Buyer-side payment-level fee policy. Current policy lives in [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md). |
 | Promo Bar Message | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Public marketplace copy shown in the site promo bar for marketplace-wide information. |
+| Cohort Quality Signal | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Wave-1 campaign field (games sold, store link, inventory size) captured only from sell/both-intent Waitlist Signups. |
+| Qualified Seller Signup | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Sell/both-intent Waitlist Signup with a real Cohort Quality Signal (named game plus inventory-size bucket). |
+| Wave-1 Admission Bar | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Pre-declared campaign pass/fail threshold: qualified sellers, five-game coverage, and overall signup floor. |
+| Campaign Channel Attribution | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Durable per-channel Waitlist Signup breakdown by UTM source/medium/campaign. |
 | Tax Quote | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Provider-agnostic sales tax calculation. |
 | Tax Nexus Readiness | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | State-by-state sales-tax threshold and collection-provider readiness. |
 | Collection-Required Jurisdiction | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Jurisdiction where Chase Sets must collect sales tax before accepting covered marketplace orders. |

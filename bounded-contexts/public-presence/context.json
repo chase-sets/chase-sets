@@ -309,6 +309,14 @@
           "routeType": "route",
           "sourceContext": "public-presence",
           "section": "growth"
+        },
+        {
+          "routeId": "campaign-analytics",
+          "routePath": "campaign-analytics",
+          "fileExport": "./routes/admin/campaign-analytics",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "section": "growth"
         }
       ]
     }
@@ -323,6 +331,18 @@
       "href": "/waitlist",
       "section": "growth",
       "order": 20,
+      "visibility": "signed-in",
+      "requiredPermissions": ["public-presence.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "campaign-analytics",
+      "label": "Campaign Analytics",
+      "icon": "chart",
+      "href": "/campaign-analytics",
+      "section": "growth",
+      "order": 22,
       "visibility": "signed-in",
       "requiredPermissions": ["public-presence.view"]
     },

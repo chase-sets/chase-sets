@@ -40,6 +40,49 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 }
 
 describe("searchDiscoveryItems cursor paging", () => {
+  it("returns the ordered structured display badge list without reshaping it", async () => {
+    const badges = [
+      { kind: "set-code", label: "BS" },
+      { kind: "number", label: "4/102" },
+      { kind: "rarity", label: "Rare Holo" },
+    ] as const;
+    const db: PgQueryable = {
+      query: async <Row>(sql: string) => ({
+        rows: (sql.includes("SELECT catalog_item_id")
+          ? [
+              {
+                catalog_item_id: "cat_1",
+                slug: "charizard-cat-1",
+                language_code: "en",
+                title_i18n: {},
+                title: "Charizard",
+                subtitle_i18n: null,
+                subtitle: null,
+                display_badges: badges,
+                description_i18n: {},
+                description: "",
+                blueprint_id: null,
+                blueprint_name: null,
+                status: "active",
+                category_names: [],
+                category_slugs: [],
+                tags: [],
+                image_urls: [],
+                product_asset_sets: [],
+                image_fallback: null,
+                updated_at: "2026-07-12T00:00:00.000Z",
+              },
+            ]
+          : []) as Row[],
+        rowCount: sql.includes("SELECT catalog_item_id") ? 1 : 0,
+      }),
+    };
+
+    const result = await searchDiscoveryItems(db, { limit: 1 }, { loadMarketSummaries: false, loadFacets: false });
+
+    expect(result.items[0]?.display_badges).toEqual(badges);
+  });
+
   it("keeps keyset sort queries aligned with ledgered composite indexes", async () => {
     const statements =
       discoverySearchSchemaMigrations.find(
@@ -58,6 +101,7 @@ describe("searchDiscoveryItems cursor paging", () => {
     });
 
     const listCall = calls.find((call) => call.sql.includes("FROM discovery_search_items"));
+    expect(listCall?.sql).toContain("display_badges");
     expect(listCall?.sql).toContain("WHERE status = $1 AND (updated_at, catalog_item_id) <");
     expect(listCall?.sql).toContain("ORDER BY updated_at DESC, catalog_item_id DESC");
     expect(discoverySearchSchemaSql).not.toContain("discovery_search_items_status_title_catalog_item_idx");
