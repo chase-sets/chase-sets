@@ -719,18 +719,16 @@ describe("marketplace account payment route", () => {
     expect(paymentElement.mount).toHaveBeenCalled();
   });
 
-  it("remounts the Payment Element when the scoped theme appearance changes", async () => {
-    const firstPaymentElement = {
+  it("updates the Payment Element appearance in place when the scoped theme changes", async () => {
+    const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),
     };
-    const secondPaymentElement = {
-      mount: vi.fn(),
-      destroy: vi.fn(),
-    };
-    const create = vi.fn().mockReturnValueOnce(firstPaymentElement).mockReturnValueOnce(secondPaymentElement);
+    const create = vi.fn(() => paymentElement);
+    const update = vi.fn();
     const elements = vi.fn((_options: StripeElementsOptionsMock) => ({
       create,
+      update,
     }));
 
     mockUseLoaderData.mockReturnValue({
@@ -752,7 +750,7 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    await waitFor(() => expect(firstPaymentElement.mount).toHaveBeenCalled());
+    await waitFor(() => expect(paymentElement.mount).toHaveBeenCalled());
 
     rerender(
       <ChaseRoot theme={{ colors: { foreground: "#eeeeee" } }}>
@@ -760,11 +758,369 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    await waitFor(() => expect(secondPaymentElement.mount).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({
+        appearance: expect.objectContaining({
+          variables: expect.objectContaining({ colorText: "#eeeeee" }),
+        }),
+      }),
+    );
 
-    expect(firstPaymentElement.destroy).toHaveBeenCalledTimes(1);
+    expect(paymentElement.destroy).not.toHaveBeenCalled();
+    expect(elements).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
     expect(elements.mock.calls[0]?.[0].appearance.variables.colorText).toBe("#111111");
-    expect(elements.mock.calls[1]?.[0].appearance.variables.colorText).toBe("#eeeeee");
+  });
+
+  it("restyles a Checkout Session element in place when the scoped theme changes", async () => {
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const changeAppearance = vi.fn();
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn().mockResolvedValue({
+        type: "success",
+        actions: { confirm: vi.fn() },
+      }),
+      changeAppearance,
+    }));
+
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "cs_live_123_secret_456",
+        processor_publishable_key: "pk_live_123",
+        processor_payment_kind: "checkout-session",
+      }),
+      orders: [buildPurchase()],
+      buyerEmail: "buyer@example.com",
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckoutElementsSdk,
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    const { rerender } = render(
+      <ChaseRoot theme={{ colors: { foreground: "#111111" } }}>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() => expect(paymentElement.mount).toHaveBeenCalled());
+    await findEnabledButton("Confirm payment");
+
+    rerender(
+      <ChaseRoot theme={{ colors: { foreground: "#eeeeee" } }}>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() =>
+      expect(changeAppearance).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variables: expect.objectContaining({ colorText: "#eeeeee" }),
+        }),
+      ),
+    );
+
+    expect(paymentElement.destroy).not.toHaveBeenCalled();
+    expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a rejected confirm() as a styled danger alert and re-enables retry", async () => {
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const confirmPayment = vi.fn().mockRejectedValue(new Error("Network dropped mid-confirm."));
+    const revalidate = vi.fn();
+
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({
+        create: vi.fn(() => paymentElement),
+        update: vi.fn(),
+      })),
+      confirmPayment,
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    const button = await findEnabledButton("Confirm payment");
+    fireEvent.click(button);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Payment issue");
+    expect(alert.textContent).toContain("Network dropped mid-confirm.");
+    expect(revalidate).not.toHaveBeenCalled();
+    await findEnabledButton("Confirm payment");
+  });
+
+  it("falls back to processor copy when confirm() rejects without a message", async () => {
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const confirmPayment = vi.fn().mockRejectedValue(new Error(""));
+
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({
+        create: vi.fn(() => paymentElement),
+        update: vi.fn(),
+      })),
+      confirmPayment,
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    const button = await findEnabledButton("Confirm payment");
+    fireEvent.click(button);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("The secure processor could not complete this payment.");
+  });
+
+  it("renders decline messages inside a danger alert", async () => {
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const confirmPayment = vi.fn().mockResolvedValue({ error: { message: "Your card was declined." } });
+
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({
+        create: vi.fn(() => paymentElement),
+        update: vi.fn(),
+      })),
+      confirmPayment,
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    const button = await findEnabledButton("Confirm payment");
+    fireEvent.click(button);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Your card was declined.");
+    await findEnabledButton("Confirm payment");
+  });
+
+  it("keeps the form locked after a successful confirm until webhook truth lands", async () => {
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    let resolveConfirm: (value: { error?: { message?: string } }) => void = () => {};
+    const confirmPayment = vi.fn(
+      () =>
+        new Promise<{ error?: { message?: string } }>((resolve) => {
+          resolveConfirm = resolve;
+        }),
+    );
+    const revalidate = vi.fn();
+
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({
+        create: vi.fn(() => paymentElement),
+        update: vi.fn(),
+      })),
+      confirmPayment,
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    const button = await findEnabledButton("Confirm payment");
+    fireEvent.click(button);
+
+    // While confirm is in flight the button is disabled; a second click is inert.
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+    fireEvent.click(button);
+    expect(confirmPayment).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveConfirm({});
+    });
+
+    // Confirm succeeded but the payment is still pending webhook truth: the
+    // form stays locked instead of inviting a double submission.
+    const processingButton = await screen.findByRole("button", { name: "Processing payment..." });
+    expect(processingButton.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Payment in progress")).toBeTruthy();
+    fireEvent.click(processingButton);
+    expect(confirmPayment).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => expect(revalidate).toHaveBeenCalled(), {
+      timeout: 1000,
+    });
+    expect(screen.queryByRole("button", { name: "Confirm payment" })).toBeNull();
+  });
+
+  it("backs off polling on errors instead of revalidating the route", async () => {
+    vi.useFakeTimers();
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const revalidate = vi.fn();
+    const fetchPayment = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("payments api blip"));
+
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({
+        create: vi.fn(() => paymentElement),
+        update: vi.fn(),
+      })),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    // First poll at 2s fails.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(fetchPayment).toHaveBeenCalledTimes(1);
+
+    // Backoff doubles: the retry lands 4s later, not 2s.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(fetchPayment).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(fetchPayment).toHaveBeenCalledTimes(2);
+
+    // Next retry backs off to 8s.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(fetchPayment).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(fetchPayment).toHaveBeenCalledTimes(3);
+
+    // Poll errors never trigger full-route revalidation.
+    expect(revalidate).not.toHaveBeenCalled();
+  });
+
+  it("stops polling after the max duration and leaves the tail to reconciliation", async () => {
+    vi.useFakeTimers();
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const revalidate = vi.fn();
+    const fetchPayment = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(JSON.stringify(buildPayment()), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({
+        create: vi.fn(() => paymentElement),
+        update: vi.fn(),
+      })),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 2_000);
+    });
+
+    const pollCountAtCap = fetchPayment.mock.calls.length;
+    expect(pollCountAtCap).toBeGreaterThan(0);
+    expect(pollCountAtCap).toBeLessThanOrEqual(150);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(fetchPayment).toHaveBeenCalledTimes(pollCountAtCap);
+    expect(revalidate).not.toHaveBeenCalled();
   });
 
   it("polls only the payment while Stripe confirmation is pending", async () => {
