@@ -13,10 +13,13 @@ import { readCatalogListQuery, useCatalogListQueryControls, type CatalogListQuer
 // yanking the browser back to `/catalog/fields?search=...`.
 
 const DEBOUNCE_MS = 40;
+// Overridden per test; the focusout tests use a debounce far larger than their
+// assertion window so an immediate commit can only come from the focusout flush.
+let harnessDebounceMs = DEBOUNCE_MS;
 
 function FieldListHarness() {
   const query = useLoaderData() as CatalogListQuery;
-  const controls = useCatalogListQueryControls(query, DEBOUNCE_MS);
+  const controls = useCatalogListQueryControls(query, harnessDebounceMs);
 
   return (
     <div>
@@ -61,7 +64,10 @@ function renderCatalogFieldsRouter(detailLoader: { promise: Promise<null> }) {
 }
 
 describe("catalog list detail navigation with a pending debounced search", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    harnessDebounceMs = DEBOUNCE_MS;
+    cleanup();
+  });
 
   it("renders the View affordance as a real anchor through the registered LinkAdapter", async () => {
     const detailLoader = createDeferred();
@@ -91,6 +97,45 @@ describe("catalog list detail navigation with a pending debounced search", () =>
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/catalog/fields/fld_1"));
     await screen.findByRole("heading", { name: "Field Detail" });
+  });
+
+  it("flushes the pending search on focusout so a following link click always wins", async () => {
+    harnessDebounceMs = 60_000;
+    const detailLoader = createDeferred();
+    const router = renderCatalogFieldsRouter(detailLoader);
+
+    const viewLink = await screen.findByRole("link", { name: "View" });
+    const search = screen.getByLabelText("Search");
+
+    // Real browsers blur the search input on pointerdown BEFORE the link's click
+    // handler runs its client-side navigation. The focusout must flush the pending
+    // debounce immediately so the later click supersedes the search commit — the
+    // reverse order is the #4955 clobber.
+    fireEvent.change(search, { target: { value: "Card Name" } });
+    fireEvent.focusOut(search, { relatedTarget: viewLink });
+    fireEvent.click(viewLink);
+
+    detailLoader.resolve();
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/catalog/fields/fld_1"));
+    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+    await screen.findByRole("heading", { name: "Field Detail" });
+  });
+
+  it("commits immediately on focusout when the operator stays on the list", async () => {
+    harnessDebounceMs = 60_000;
+    const detailLoader = createDeferred();
+    const router = renderCatalogFieldsRouter(detailLoader);
+
+    await screen.findByRole("link", { name: "View" });
+    const search = screen.getByLabelText("Search");
+
+    fireEvent.change(search, { target: { value: "Card Name" } });
+    fireEvent.focusOut(search);
+
+    // The 60s debounce cannot have fired: an immediate commit proves the focusout flush.
+    await waitFor(() => expect(router.state.location.search).toBe("?search=Card+Name"));
+    expect(router.state.location.pathname).toBe("/catalog/fields");
   });
 
   it("still commits the debounced search when the operator stays on the list", async () => {
